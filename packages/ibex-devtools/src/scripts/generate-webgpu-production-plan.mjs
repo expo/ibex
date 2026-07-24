@@ -3,10 +3,10 @@
  * Generate the construction-private production wrapper routing table from the
  * reviewed Exact projection already pinned in this repository.
  *
- * The source projection still classifies its payload/result codecs as
- * descriptive. This generator emits both routing data and a reviewed
- * injection-only codec manifest whose missing authenticated inputs remain
- * explicit. It cannot enable navigator.gpu or create a support claim.
+ * This generator emits both routing data and a reviewed injection-only codec
+ * manifest. The selected experimental build injects that authority explicitly;
+ * the generic embedded default remains absent. It cannot enable default-runtime
+ * navigator.gpu or create a support claim.
  *
  * @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
  * @ref LLP 0017#2-add-one-regenerate-command-and-one-drift-check
@@ -23,6 +23,7 @@ import {
 } from "./generated-output-io.mjs";
 import {
   REVIEWED_DIGESTS,
+  assertExactConditionalExecutionLane,
   validateWebGpuWrapperSemantics,
   validateWebGpuWrapperAuthority,
 } from "./webgpu-test-wrapper-generator.mjs";
@@ -58,20 +59,16 @@ function readJson(sourcePath, label) {
   return JSON.parse(fs.readFileSync(confined.path, "utf8"));
 }
 
-const REQUIRED_WORKLOAD_BLOCKERS = Object.freeze([
-  "ordered-logical-semantic-program",
-  "executable-public-and-service-codecs",
-  "matching-native-service-decoder-and-provider-method",
-  "generated-capsec-edge-and-supported-target-cell",
-  "native-conformance-and-platform-evidence",
+const REQUIRED_CLAIM_BOUNDARY_ABSENCES = Object.freeze([
+  "default-runtime-installation",
+  "canonical-public-support-surface",
+  "worker-runtime-installation",
+  "webgpu-cts-evidence",
+  "platform-qualification-evidence",
 ]);
 const WRAPPER_LOCAL_METADATA_OPERATION_IDS = Object.freeze([
   "GPUBuffer.mapState",
   "GPUBuffer.usage",
-  "GPUTexture.dimension",
-  "GPUTexture.format",
-  "GPUTexture.height",
-  "GPUTexture.width",
 ]);
 const STAGED_LOCAL_RECORD_ID_DOMAIN = "exact/webgpu-staged-local-record/v1";
 const STAGED_LOCAL_RECORD_LIMIT = 1_024;
@@ -80,11 +77,15 @@ const STAGED_LOCAL_RECORDING_OPERATION_IDS = Object.freeze([
   "GPUCommandEncoder.clearBuffer",
   "GPUCommandEncoder.copyBufferToBuffer",
   "GPUCommandEncoder.copyTextureToTexture",
+  "GPUCommandEncoder.resolveQuerySet",
   "GPUComputePassEncoder.dispatchWorkgroups",
   "GPUComputePassEncoder.end",
   "GPUComputePassEncoder.setBindGroup",
   "GPUComputePassEncoder.setPipeline",
+  "GPURenderPassEncoder.drawIndexed",
+  "GPURenderPassEncoder.drawIndirect",
   "GPURenderPassEncoder.setBindGroup",
+  "GPURenderPassEncoder.setIndexBuffer",
   "GPURenderPassEncoder.setVertexBuffer",
 ]);
 const COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID =
@@ -190,6 +191,51 @@ function canonicalJson(value) {
   return JSON.stringify(value);
 }
 
+function validateNativeQueueIngressClass(route, expectedClass) {
+  const operationId = route?.operationId ?? "unknown operation";
+  const requestConstraints = route?.request?.carrierConstraints?.filter(
+    (constraint) => constraint.carrierPath === "queue_ingress_ordinal",
+  );
+  const completionConstraints =
+    route?.completion?.commonCarrierConstraints?.filter(
+      (constraint) =>
+        constraint.carrierPath ===
+        "record.operation_result.operation.queue_ingress_ordinal",
+    );
+  if (
+    requestConstraints?.length !== 1 ||
+    completionConstraints?.length !== 1
+  ) {
+    throw new Error(
+      `${operationId} request/completion queue-ingress constraints are incomplete`,
+    );
+  }
+  const classify = (constraint) => {
+    if (
+      constraint.operator === "positive" &&
+      constraint.value === undefined
+    ) {
+      return "positive";
+    }
+    if (constraint.operator === "equal" && constraint.value === "0") {
+      return "exact-zero";
+    }
+    return "unsupported";
+  };
+  const requestClass = classify(requestConstraints[0]);
+  const completionClass = classify(completionConstraints[0]);
+  if (requestClass !== completionClass) {
+    throw new Error(
+      `${operationId} request/completion queue-ingress classes disagree`,
+    );
+  }
+  if (requestClass !== expectedClass) {
+    throw new Error(
+      `${operationId} queue-ingress class must be ${expectedClass}, got ${requestClass}`,
+    );
+  }
+}
+
 function readPinnedWebIdlVocabulary() {
   const packageMetadata = JSON.parse(
     fs.readFileSync(path.join(repositoryRoot, webGpuTypesPackagePath), "utf8"),
@@ -291,18 +337,23 @@ function validateWorkloadStaging(
   if (
     staging?.schema !== "ibex/webgpu-typegpu-workload-staging/1" ||
     staging.artifactVersion !== 1 ||
-    staging.status !== "audited-not-routable-not-installed" ||
+    staging.status !==
+      "conditional-selected-build-routable-active-default-runtime-absent" ||
     staging.supportClaim !== "none" ||
     staging.nativeExecutionEvidence !==
-      "none-recording-provider-is-inventory-only" ||
+      "source-activated-no-platform-or-cts-evidence" ||
     staging.typegpuVersion !== "0.11.9" ||
     staging.publicSurfaceRule !==
-      "members-remain-absent-until-all-blockers-close-no-throwing-stubs" ||
+      "selected-build-install-does-not-open-default-public-or-worker-surfaces" ||
     staging.embeddedCodecRule !==
-      "EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined"
+      "EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined-selected-build-uses-authenticated-explicit-injection"
   ) {
     throw new Error("invalid TypeGPU workload staging authority");
   }
+  assertExactConditionalExecutionLane(
+    staging.conditionalExecutionLane,
+    "TypeGPU workload-staging conditional execution lane",
+  );
   if (
     staging.source?.path !== "tests/gpu/typegpu-workload-closure-v1.json" ||
     staging.source.fullArtifactSha256Disposition !==
@@ -312,22 +363,23 @@ function validateWorkloadStaging(
   ) {
     throw new Error("invalid TypeGPU normalized staging projection identity");
   }
-  exactSet(staging.blockers, REQUIRED_WORKLOAD_BLOCKERS, "TypeGPU staging blockers");
-  const promotedRouteSet = new Set(AUTHENTICATED_PROMOTION_OPERATION_IDS);
-  const sourceActiveRouteIds = routeIds.filter(
-    (operationId) => !promotedRouteSet.has(operationId),
+  exactSet(
+    staging.claimBoundaryAbsences,
+    REQUIRED_CLAIM_BOUNDARY_ABSENCES,
+    "TypeGPU staging claim-boundary absences",
   );
+  const promotedRouteSet = new Set(AUTHENTICATED_PROMOTION_OPERATION_IDS);
   if (
     staging.activeRouteSubset.scopeId !==
       "native-triangle-plus-typegpu-graduates-v1" ||
-    staging.activeRouteSubset.operationCount !== sourceActiveRouteIds.length ||
-    staging.activeRouteSubset.operationIds.length !== sourceActiveRouteIds.length
+    staging.activeRouteSubset.operationCount !== routeIds.length ||
+    staging.activeRouteSubset.operationIds.length !== routeIds.length
   ) {
     throw new Error("TypeGPU active route subset scope or count drifted");
   }
   exactSet(
     staging.activeRouteSubset.operationIds,
-    sourceActiveRouteIds,
+    routeIds,
     "TypeGPU active route subset",
   );
   const localRecording = staging.localRecordingSubset;
@@ -371,7 +423,7 @@ function validateWorkloadStaging(
       operation.terminalDisposition !==
         "sealed-logical-record-no-provider-submit" ||
       operation.routingDisposition !==
-        "construction-private-non-installing-non-routing" ||
+        "selected-build-wrapper-local-no-provider-routing" ||
       !/^[0-9a-f]{64}$/u.test(operation.sourceEvidenceSha256) ||
       operation.recordIdentitySha256 !== digest.toString("hex") ||
       operation.localRecordId !== digest.readUInt32LE(0) ||
@@ -413,7 +465,9 @@ function validateWorkloadStaging(
   const graduatedRouteSet = new Set(
     routeIds.filter(
       (operationId) =>
-        !triangleSet.has(operationId) && !promotedRouteSet.has(operationId),
+        !triangleSet.has(operationId) &&
+        !STAGED_LOCAL_RECORDING_OPERATION_IDS.includes(operationId) &&
+        !wrapperLocalMetadataSet.has(operationId),
     ),
   );
   const workloadOperationSet = new Set(operationIds);
@@ -444,27 +498,19 @@ function validateWorkloadStaging(
   const additional = operations.filter(
     (operation) => !routeSet.has(operation.operationId),
   );
-  if (
-    staging.workloadClosure.additionalOperationCount !==
-      additional.length + promotedRouteSet.size
-  ) {
+  if (staging.workloadClosure.additionalOperationCount !== additional.length) {
     throw new Error("TypeGPU additional operation count drifted");
   }
   for (const operation of operations) {
     const expectedDisposition = triangleSet.has(operation.operationId)
       ? "active-private-triangle-route"
-      : graduatedRouteSet.has(operation.operationId)
-        ? "active-private-graduated-route"
-      : operation.operationId ===
-          COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID
-        ? "staged-unroutable-no-prototype-member"
-      : promotedRouteSet.has(operation.operationId)
-        ? "private-wrapper-local-recording-no-dispatch"
-      : wrapperLocalMetadataSet.has(operation.operationId)
-          ? "private-wrapper-local-metadata-read-no-dispatch"
-        : STAGED_LOCAL_RECORDING_OPERATION_IDS.includes(operation.operationId)
-          ? "private-wrapper-local-recording-no-dispatch"
-          : "staged-unroutable-no-prototype-member";
+      : STAGED_LOCAL_RECORDING_OPERATION_IDS.includes(operation.operationId)
+        ? "active-private-wrapper-local-recording"
+        : wrapperLocalMetadataSet.has(operation.operationId)
+          ? "active-private-wrapper-local-metadata-read"
+          : graduatedRouteSet.has(operation.operationId)
+            ? "active-private-graduated-route"
+            : "staged-unroutable-no-prototype-member";
     const localRecordingRow = localRecording.operations.find(
       (candidate) => candidate.operationId === operation.operationId,
     );
@@ -488,11 +534,11 @@ function validateWorkloadStaging(
   );
   if (
     computePipeline?.memberKind !== "method" ||
-    computePipeline.disposition !== "staged-unroutable-no-prototype-member" ||
+    computePipeline.disposition !== "active-private-graduated-route" ||
     !routeSet.has(COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID)
   ) {
     throw new Error(
-      "compute pipeline promotion must retain its staged source row and one active private route",
+      "compute pipeline promotion must remain active in the selected-build private route set",
     );
   }
   if (
@@ -518,6 +564,7 @@ function validateWorkloadStaging(
     scopeId: staging.scopeId,
     status: staging.status,
     supportClaim: staging.supportClaim,
+    conditionalExecutionLane: staging.conditionalExecutionLane,
     nativeExecutionEvidence: staging.nativeExecutionEvidence,
     source: staging.source,
     typegpuVersion: staging.typegpuVersion,
@@ -534,7 +581,7 @@ function validateWorkloadStaging(
     properties: staging.workloadClosure.properties,
     constants: staging.workloadClosure.constants,
     hostExtensions: staging.workloadClosure.hostExtensions,
-    blockers: staging.blockers,
+    claimBoundaryAbsences: staging.claimBoundaryAbsences,
     publicSurfaceRule: staging.publicSurfaceRule,
     embeddedCodecRule: staging.embeddedCodecRule,
   });
@@ -634,8 +681,7 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
     profileId: payload.profileId,
     scopeId: payload.scopeId,
     maxPayloadBytes: payload.wireEnvelope.maxPayloadBytes,
-    codecReadiness:
-      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-native-codec-not-installed",
+    codecReadiness: payload.claims.wireCodecStatus,
     digests: computed,
     webIdlVocabulary,
     activeRouteSubset: {
@@ -651,8 +697,8 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
   };
   return (
     "// Generated by generate-webgpu-production-plan.mjs; do not edit.\n" +
-    "// The route table is production input, but navigator.gpu remains gated\n" +
-    "// until a separately generated executable codec bundle validates it.\n" +
+    "// The route table is selected-build production input; default-runtime\n" +
+    "// and canonical public installation remain absent.\n" +
     "export const WEBGPU_PRODUCTION_PLAN = " +
     JSON.stringify(plan, null, 2) +
     " as const;\n"
@@ -714,6 +760,32 @@ function canvasNativeSemanticFields(codec, nativeCodecPrograms) {
 function serviceCodecBlockers(codec, nativeCodecPrograms) {
   if (codec.tag === "none-service-request-v1") return ["no-service-call"];
   if (codec.tag === "gpu-create-texture-view-service-request-v1") return [];
+  const errorScopeBodyTypes = {
+    "gpu-push-error-scope-service-request-v1":
+      "pushErrorScopeRequestBodyV1",
+    "gpu-pop-error-scope-service-request-v1":
+      "popErrorScopeRequestBodyV1",
+  };
+  const errorScopeBodyType = errorScopeBodyTypes[codec.tag];
+  if (errorScopeBodyType !== undefined) {
+    const route = nativeCodecPrograms.routes.find(
+      (candidate) => candidate.request?.catalog?.tag === codec.tag,
+    );
+    const body = nativeCodecPrograms.types[errorScopeBodyType];
+    const bodyFields = body?.fields?.map((field) => field.name);
+    if (
+      route?.request?.payload?.fields?.at(-1)?.name !== "body" ||
+      route.request.payload.fields.at(-1)?.type !== errorScopeBodyType ||
+      !Array.isArray(bodyFields) ||
+      JSON.stringify(bodyFields) !==
+        JSON.stringify(codec.requiredSemanticFields ?? [])
+    ) {
+      throw new Error(
+        `${codec.tag} requiredSemanticFields do not bijectively match its authenticated native body`,
+      );
+    }
+    return [];
+  }
   const canvasFields = canvasNativeSemanticFields(codec, nativeCodecPrograms);
   if (canvasFields !== undefined) {
     const requiredFields = codec.requiredSemanticFields ?? [];
@@ -834,7 +906,7 @@ function buildCodecManifest(
     workloadStaging.typegpuVersion !== "0.11.9" ||
     computePipelineStagingRow?.memberKind !== "method" ||
     computePipelineStagingRow.disposition !==
-      "staged-unroutable-no-prototype-member" ||
+      "active-private-graduated-route" ||
     !authority.payload.operations.some(
       (operation) =>
         operation.operationId === COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID &&
@@ -1329,7 +1401,7 @@ function buildCodecManifest(
     nativeCodecPrograms.types.queueSubmitRequestBodyV1?.programDigest
       ?.domainUtf8WithTrailingNul !== "exact/webgpu-command-program/v1\0" ||
     !Array.isArray(queueSubmitRecordVariants) ||
-    queueSubmitRecordVariants.length !== 16 ||
+    queueSubmitRecordVariants.length !== 20 ||
     canonicalJson(queueSubmitRecordVariants.map((variant) => [
       variant.name,
       variant.tag,
@@ -1352,6 +1424,10 @@ function buildCodecManifest(
       ["GPURenderPassEncoder.draw", 13, "active-route", "command-program"],
       ["GPURenderPassEncoder.end", 14, "active-route", "command-program"],
       ["GPUCommandEncoder.finish", 15, "active-route", "command-program"],
+      ["GPUCommandEncoder.resolveQuerySet", 16, "active-route", "command-program"],
+      ["GPURenderPassEncoder.drawIndexed", 17, "active-route", "command-program"],
+      ["GPURenderPassEncoder.drawIndirect", 18, "active-route", "command-program"],
+      ["GPURenderPassEncoder.setIndexBuffer", 19, "active-route", "command-program"],
     ])
   ) {
     throw new Error("GPUQueue.submit native codec program drifted");
@@ -1622,7 +1698,7 @@ function buildCodecManifest(
   const manifest = {
     schema: "ibex/webgpu-executable-codec-manifest/2",
     disposition:
-      "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-native-codec-not-installed-no-support-claim",
+      "selected-build-authenticated-explicit-codec-injection-active-default-ambient-undefined-no-support-claim",
     profileId: payload.profileId,
     scopeId: payload.scopeId,
     operationCount: payload.operations.length,
@@ -1697,6 +1773,18 @@ function buildCodecManifest(
   const textureDestroyCodec = manifest.serviceArguments.find(
     (codec) => codec.tag === "gpu-texture-cleanup-service-request-v1",
   );
+  validateNativeQueueIngressClass(canvasConfigureProgram, "positive");
+  validateNativeQueueIngressClass(canvasUnconfigureProgram, "positive");
+  validateNativeQueueIngressClass(textureDestroyProgram, "exact-zero");
+  const createQuerySetCodec = manifest.serviceArguments.find(
+    (codec) => codec.tag === "gpu-create-query-set-service-request-v1",
+  );
+  const pushErrorScopeCodec = manifest.serviceArguments.find(
+    (codec) => codec.tag === "gpu-push-error-scope-service-request-v1",
+  );
+  const popErrorScopeCodec = manifest.serviceArguments.find(
+    (codec) => codec.tag === "gpu-pop-error-scope-service-request-v1",
+  );
   if (
     queueWriteBufferCodec?.wireTag !== 23 ||
     queueWriteBufferCodec.executableFromCurrentAuthenticatedInputs !== true ||
@@ -1733,10 +1821,34 @@ function buildCodecManifest(
         codec?.executableFromCurrentAuthenticatedInputs !== true ||
         codec?.unavailableSemanticFields.length !== 0,
     ) ||
-    nativeCodecPrograms.routes.length !== 24
+    nativeCodecPrograms.routes.length !== 27
   ) {
     throw new Error(
       "canvas configure/unconfigure/texture-destroy native codec boundary drifted",
+    );
+  }
+  if (
+    createQuerySetCodec?.wireTag !== 28 ||
+    pushErrorScopeCodec?.wireTag !== 8 ||
+    popErrorScopeCodec?.wireTag !== 10 ||
+    [createQuerySetCodec, pushErrorScopeCodec, popErrorScopeCodec].some(
+      (codec) =>
+        codec?.nativeProgramPrerequisitesRepresented !== true ||
+        codec?.executableFromCurrentAuthenticatedInputs !== true ||
+        codec?.unavailableSemanticFields.length !== 0,
+    ) ||
+    ![
+      "GPUDevice.createQuerySet",
+      "GPUDevice.pushErrorScope",
+      "GPUDevice.popErrorScope",
+    ].every((operationId) =>
+      nativeCodecPrograms.routes.some(
+        (route) => route.operationId === operationId,
+      )
+    )
+  ) {
+    throw new Error(
+      "query-set/error-scope native codec boundary drifted",
     );
   }
   return manifest;
@@ -1746,8 +1858,8 @@ function renderCodecs(manifest) {
   return (
     "// Generated by generate-webgpu-production-plan.mjs; do not edit.\n" +
     "// This artifact is reviewed for explicit private injection only. The\n" +
-    "// native service decoder, semantic service install, and CapSec arming are\n" +
-    "// absent, so it neither enables navigator.gpu nor makes a support claim.\n" +
+    "// selected build authenticates its codec, service, and CapSec path; the\n" +
+    "// default/worker/public surfaces stay absent with no support claim.\n" +
     "import { createExecutableWebGpuCodecs } from './production-codec-runtime';\n\n" +
     "export const WEBGPU_OBJECT_KIND_TAGS = " +
     JSON.stringify(manifest.objectKindTags, null, 2) +
@@ -1823,7 +1935,7 @@ function main() {
     }
     console.log(
       `webgpu-production-plan: ${authority.payload.operations.length} active routes, ` +
-        `${workloadStaging.workloadClosure.additionalOperationCount} staged unroutable operations, ` +
+        `${workloadStaging.workloadClosure.additionalOperationCount} additional operations outside the active selected-build route set, ` +
         "and injection codecs fresh at normalized projection " +
         REVIEWED_DIGESTS.projection,
     );

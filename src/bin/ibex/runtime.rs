@@ -4019,7 +4019,7 @@ impl Runtime {
                 )
             });
         let source = if needs_lowering {
-            ibex_runtime::module_loader::transpile::transpile_to_cjs(&source, entry_path)?
+            ibex_runtime::module_loader::transpile::transpile_module_to_cjs(&source, entry_path)?
         } else {
             source
         };
@@ -7140,12 +7140,21 @@ async fn prepare_entry_with_format_and_bytecode_in_cache(
                         err
                     );
                 }
-                path
+                path.clone()
             } else {
                 return Err(err);
             }
         }
     };
+
+    // A raw `.cjs` entry needs the compatibility loader's CommonJS wrapper;
+    // compiling those bytes directly to HBC and executing them as a script
+    // loses `module`, `exports`, `require`, and CommonJS top-level `this`.
+    // Prepared bundle output is self-contained and remains bytecode-eligible.
+    // @ref LLP 0028#4-reachability-inventory-and-retirement-matrix
+    if prepared == path && ext.eq_ignore_ascii_case("cjs") {
+        return Ok(prepared);
+    }
 
     // Try to compile to bytecode for faster startup on subsequent runs.
     // Skip if we've already detected that hermesc produces incompatible bytecode,
@@ -8868,15 +8877,31 @@ fn wrap_entry_source_for_eval(
     // these bindings was ledger item 1 (`ReferenceError: __filename`).
     // `module`/`exports` bindings let in-process-lowered CJS entries run
     // under the same wrap; an entry's own exports are discarded, matching
-    // `require(entry)` semantics.
+    // `require(entry)` semantics. The scoped `require` keeps SWC-lowered
+    // dynamic imports relative to the source entry instead of resolving from
+    // the eval realm's empty referrer. Native still returns an opaque display
+    // identity for the dependency; only the resolver receives the absolute
+    // spelling that the diagnostic entry already exposed as __exactEntryFile.
     format!(
         "globalThis.__exactImportMeta = globalThis.__exactImportMeta || {{}};\n\
          globalThis.__exactImportMeta.main = {};\n\
-         (async function(__filename, __dirname, module, exports) {{\n{}\n}})(\
+         (async function(__filename, __dirname, module, exports, require) {{\n{}\n}})(\
          (typeof globalThis.__exactEntryFile === 'string' ? globalThis.__exactEntryFile : ''), \
          (function (p) {{ var s = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\\\')); return s > 0 ? p.slice(0, s) : p; }})\
          (typeof globalThis.__exactEntryFile === 'string' ? globalThis.__exactEntryFile : ''), \
-         {{ exports: {{}} }}, {{}});",
+         {{ exports: {{}} }}, {{}}, \
+         (function (entryFile) {{ \
+             var normalized = entryFile.replace(/\\\\/g, '/'); \
+             var slash = normalized.lastIndexOf('/'); \
+             var base = slash >= 0 ? normalized.slice(0, slash) : '.'; \
+             return function (specifier) {{ \
+                 if (typeof specifier === 'string' && \
+                     (specifier.indexOf('./') === 0 || specifier.indexOf('../') === 0)) {{ \
+                     return globalThis.require(base + '/' + specifier); \
+                 }} \
+                 return globalThis.require(specifier); \
+             }}; \
+         }})(typeof globalThis.__exactEntryFile === 'string' ? globalThis.__exactEntryFile : ''));",
         if is_main_file { "true" } else { "false" },
         transformed
     )
@@ -14868,7 +14893,7 @@ pub(crate) mod tests {
             .expect("unadvertised target must not arm");
         let default_error = format!("{default_error:#}");
         assert!(
-            default_error.contains("no unique verified advertisement"),
+            default_error.contains("legacy v1 target advertisements"),
             "{default_error}"
         );
         assert!(!default_error.contains("engine object"), "{default_error}");
@@ -15100,7 +15125,7 @@ pub(crate) mod tests {
         let explicit_error = format!("{explicit_error:#}");
         assert_eq!(auto_error, explicit_error);
         assert!(
-            auto_error.contains("no unique verified advertisement"),
+            auto_error.contains("legacy v1 target advertisements"),
             "{auto_error}"
         );
     }
@@ -15151,10 +15176,7 @@ pub(crate) mod tests {
             .err()
             .expect("valid policy and package root must reach the promotion gate");
         let error = format!("{error:#}");
-        assert!(
-            error.contains("no unique verified advertisement"),
-            "{error}"
-        );
+        assert!(error.contains("legacy v1 target advertisements"), "{error}");
 
         let mut tampered = policy.clone();
         tampered["principals"][0]["floor"] = serde_json::json!([]);
@@ -16603,10 +16625,14 @@ pub(crate) mod tests {
             true,
         );
         assert!(
-            wrapped.contains("(async function(__filename, __dirname, module, exports)"),
+            wrapped.contains("(async function(__filename, __dirname, module, exports, require)"),
             "wrapped: {wrapped}"
         );
         assert!(wrapped.contains("__exactEntryFile"), "wrapped: {wrapped}");
+        assert!(
+            wrapped.contains("globalThis.require(base + '/' + specifier)"),
+            "wrapped: {wrapped}"
+        );
     }
 
     #[test]

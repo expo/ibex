@@ -150031,6 +150031,16 @@
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
     },
     {
+      "id": "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_capture_exact_gpu_presentation_authority_v2"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
       "id": "surface.host.abi.ex.host.check.capability.1h17wl4",
       "classification": "non-capability",
       "surface": {
@@ -153826,6 +153836,16 @@
       "rationale": "Random byte generation carries no external authority in the package threat model."
     },
     {
+      "id": "surface.host.abi.ex.host.recheck.exact.gpu.presentation.authority.v2.01k31wv",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_recheck_exact_gpu_presentation_authority_v2"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
       "id": "surface.host.abi.ex.host.register.module.package.1ncq2is",
       "classification": "non-capability",
       "surface": {
@@ -153864,6 +153884,16 @@
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.host.retire.exact.gpu.presentation.authority.v2.1jtflpt",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_retire_exact_gpu_presentation_authority_v2"
+      },
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
     },
     {
       "id": "surface.host.abi.ex.host.seal.bootstrap.phase.17osacf",
@@ -162488,6 +162518,16 @@
       "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
     },
     {
+      "id": "surface.loader.function.javascript.addresolved.123dxvo",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "loader",
+        "name": "function:javascript:addResolved"
+      },
+      "rationaleId": "module-reachability-only",
+      "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
+    },
+    {
       "id": "surface.loader.function.javascript.builtincachekeyfor.06poq58",
       "classification": "non-capability",
       "surface": {
@@ -162496,6 +162536,16 @@
       },
       "rationaleId": "module-reachability-only",
       "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
+    },
+    {
+      "id": "surface.loader.function.javascript.capturedevservedmoduletable.11upuhr",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "loader",
+        "name": "function:javascript:captureDevServedModuleTable"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.loader.function.javascript.checkimportgate.0d8n3cx",
@@ -162566,6 +162616,16 @@
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.loader.function.javascript.devservedimportgatespecifier.0ekc8hh",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "loader",
+        "name": "function:javascript:devServedImportGateSpecifier"
+      },
+      "rationaleId": "module-reachability-only",
+      "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
     },
     {
       "id": "surface.loader.function.javascript.exactresolvedpath.00zkewh",
@@ -165299,6 +165359,16 @@
       "rationale": "Inspector loader reachability is closed."
     },
     {
+      "id": "surface.loader.function.javascript.quarantinedevservedmoduletable.0twssbz",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "loader",
+        "name": "function:javascript:quarantineDevServedModuleTable"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.loader.function.javascript.rejectruntimeloaderoptions.06msoo9",
       "classification": "non-capability",
       "surface": {
@@ -165314,6 +165384,26 @@
       "surface": {
         "kind": "loader",
         "name": "function:javascript:_resolveAbortError"
+      },
+      "rationaleId": "module-reachability-only",
+      "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
+    },
+    {
+      "id": "surface.loader.function.javascript.resolvedevservedmodule.0n38hjr",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "loader",
+        "name": "function:javascript:resolveDevServedModule"
+      },
+      "rationaleId": "module-reachability-only",
+      "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
+    },
+    {
+      "id": "surface.loader.function.javascript.resolvedevservedspecifier.0rbhk81",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "loader",
+        "name": "function:javascript:resolveDevServedSpecifier"
       },
       "rationaleId": "module-reachability-only",
       "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
@@ -174498,6 +174588,16 @@
           "object-identity-mismatch"
         ]
       }
+    },
+    {
+      "id": "surface.loader.function.rust.transpile.module.to.cjs.1n3pocu",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "loader",
+        "name": "function:rust:transpile_module_to_cjs"
+      },
+      "rationaleId": "internal-data-transform",
+      "rationale": "Transforming already-held bytes or strings carries no independent external authority."
     },
     {
       "id": "surface.loader.function.rust.validate.import.attributes.0qchd64",
@@ -207837,6 +207937,16 @@
       "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."
     },
     {
+      "id": "surface.native.op.construction.private.gpunativebridgev2.capturepresentationauthority.1onjdqu",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:gpuNativeBridgeV2.capturePresentationAuthority"
+      },
+      "cap": "ipc:channel",
+      "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."
+    },
+    {
       "id": "surface.native.op.construction.private.gpunativebridgev2.createmappedrangealias.1wlkeyh",
       "classification": "closed",
       "surface": {
@@ -207857,11 +207967,31 @@
       "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."
     },
     {
+      "id": "surface.native.op.construction.private.gpunativebridgev2.recheckpresentationauthority.1ccx3xx",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:gpuNativeBridgeV2.recheckPresentationAuthority"
+      },
+      "cap": "ipc:channel",
+      "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."
+    },
+    {
       "id": "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa",
       "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "construction-private:gpuNativeBridgeV2.retire"
+      },
+      "cap": "ipc:channel",
+      "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."
+    },
+    {
+      "id": "surface.native.op.construction.private.gpunativebridgev2.retirepresentationauthority.1ppnqer",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:gpuNativeBridgeV2.retirePresentationAuthority"
       },
       "cap": "ipc:channel",
       "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."
@@ -208097,6 +208227,16 @@
       "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
     },
     {
+      "id": "surface.native.op.construction.private.webgpu.gpucommandencoder.resolvequeryset.00msl6u",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUCommandEncoder.resolveQuerySet"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
       "id": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.dispatchworkgroups.128rff0",
       "classification": "non-capability",
       "surface": {
@@ -208192,6 +208332,16 @@
       "surface": {
         "kind": "native-op",
         "name": "construction-private:webgpu:GPUDevice.createPipelineLayout"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.createqueryset.0cft5wp",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUDevice.createQuerySet"
       },
       "cap": "ipc:channel",
       "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
@@ -208357,6 +208507,26 @@
       "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
     },
     {
+      "id": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindexed.141dcm7",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPURenderPassEncoder.drawIndexed"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindirect.1qd6uh8",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPURenderPassEncoder.drawIndirect"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
       "id": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.end.1tvn90t",
       "classification": "non-capability",
       "surface": {
@@ -208372,6 +208542,16 @@
       "surface": {
         "kind": "native-op",
         "name": "construction-private:webgpu:GPURenderPassEncoder.setBindGroup"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setindexbuffer.0b2ppfi",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPURenderPassEncoder.setIndexBuffer"
       },
       "rationaleId": "retained-object-wrapper",
       "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
@@ -208465,6 +208645,26 @@
       },
       "rationaleId": "retained-object-wrapper",
       "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.acquire.039vdtv",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu-presentation:navigator.gpu.canvas.acquire"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This generated construction-private presentation-authority key is independently receipt-gated while public installation and positive grant issuance remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.present.0q60k8s",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu-presentation:navigator.gpu.canvas.present"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This generated construction-private presentation-authority key is independently receipt-gated while public installation and positive grant issuance remain closed."
     },
     {
       "id": "surface.native.op.dirname.11h8rni",
@@ -209683,6 +209883,16 @@
       "surface": {
         "kind": "native-op",
         "name": "__exactCapabilityCheck"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.native.op.exactcapturedevservedmoduletablelifecycle.06siznp",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__exactCaptureDevServedModuleTableLifecycle"
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -217873,6 +218083,16 @@
       },
       "cap": "ipc:channel",
       "rationale": "The inherited diagnostic child-process socket, serialization mode, and identity-bound close hook are private, one-shot bootstrap inputs; armed and project-visible IPC remain closed."
+    },
+    {
+      "id": "surface.native.op.exactquarantinedevservedmoduletable.1e6mwa3",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__exactQuarantineDevServedModuleTable"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.native.op.exactrandombytes.05df739",
@@ -238189,6 +238409,16 @@
       "surface": {
         "kind": "native-op",
         "name": "global:GPUPipelineLayout"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.native.op.global.gpuqueryset.11xx237",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "global:GPUQuerySet"
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."

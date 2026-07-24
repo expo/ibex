@@ -53,6 +53,42 @@ extern "C" int32_t ex_host_capture_exact_gpu_authority_context_v2(
     const ExactGpuAuthoritySessionFactsV2* facts,
     uint8_t* out_digest,
     uint64_t* out_authority_session_id);
+extern "C" int32_t ex_host_capture_exact_gpu_presentation_authority_v2(
+    uint64_t context_id,
+    uint64_t runtime_address,
+    uint64_t runtime_nonce,
+    uint32_t context_kind,
+    uint64_t actor_principal,
+    uint64_t effect_owner_principal,
+    uint64_t scheduler_principal,
+    uint32_t has_scheduler_principal,
+    const uint64_t* principals,
+    size_t principal_count,
+    const ExactGpuAuthoritySessionFactsV2* facts,
+    uint8_t* out_digest,
+    uint64_t* out_acquire_authority_session_id,
+    uint64_t* out_present_authority_session_id);
+extern "C" int32_t ex_host_recheck_exact_gpu_presentation_authority_v2(
+    uint64_t context_id,
+    uint64_t runtime_address,
+    uint64_t runtime_nonce,
+    uint32_t context_kind,
+    uint64_t actor_principal,
+    uint64_t effect_owner_principal,
+    uint64_t scheduler_principal,
+    uint32_t has_scheduler_principal,
+    const uint64_t* principals,
+    size_t principal_count,
+    const ExactGpuAuthoritySessionFactsV2* facts,
+    uint64_t retained_acquire_authority_session_id,
+    uint64_t retained_present_authority_session_id,
+    const uint8_t* retained_authority_context_digest,
+    uint8_t* out_recheck_digest);
+extern "C" int32_t ex_host_retire_exact_gpu_presentation_authority_v2(
+    uint64_t context_id,
+    uint64_t acquire_authority_session_id,
+    uint64_t present_authority_session_id,
+    const uint8_t* authority_context_digest);
 extern "C" int32_t ex_host_exact_gpu_authority_session_requested_v2(
     uint64_t context_id,
     uint64_t authority_session_id);
@@ -139,8 +175,11 @@ constexpr char kGpuCanvasAppBundleCaptureGlobalNameV1[] =
 constexpr size_t kMaxGpuOperationCountV2 = 4096;
 constexpr size_t kMaxGpuProfileIdBytesV2 = 256;
 constexpr size_t kMaxGpuPayloadBytesV2 = 16 * 1024 * 1024;
+constexpr size_t kMaxGpuDiagnosticBytesV2 = 4096;
 constexpr size_t kMaxGpuPendingOperationsV2 = 1024;
-constexpr size_t kMaxGpuQueuedEventsV2 = 1024;
+// One ordinary terminal plus the separately-budgeted sealed-child terminals
+// may coexist before the owner drain.
+constexpr size_t kMaxGpuQueuedEventsV2 = 2048;
 constexpr size_t kMaxGpuRecentTerminalsV2 = 2048;
 constexpr size_t kMaxGpuRetireObjectsV2 = 4096;
 constexpr size_t kMaxGpuLifecycleTombstonesV2 =
@@ -241,6 +280,51 @@ bool validObjectV2(const ExactGpuObjectRefV2& object, bool allowAbsent) {
       object.object_id != 0 && object.object_generation != 0;
 }
 
+bool validRedactedGpuDiagnosticV2(
+    const uint8_t* bytes,
+    size_t byteLength) noexcept {
+  size_t index = 0;
+  while (index < byteLength) {
+    const uint8_t first = bytes[index++];
+    uint32_t codePoint = 0;
+    uint32_t minimum = 0;
+    size_t remaining = 0;
+    if (first <= 0x7f) {
+      codePoint = first;
+    } else if (first >= 0xc2 && first <= 0xdf) {
+      codePoint = first & 0x1f;
+      minimum = 0x80;
+      remaining = 1;
+    } else if (first >= 0xe0 && first <= 0xef) {
+      codePoint = first & 0x0f;
+      minimum = 0x800;
+      remaining = 2;
+    } else if (first >= 0xf0 && first <= 0xf4) {
+      codePoint = first & 0x07;
+      minimum = 0x10000;
+      remaining = 3;
+    } else {
+      return false;
+    }
+    for (size_t part = 0; part < remaining; ++part) {
+      if (index >= byteLength) return false;
+      const uint8_t continuation = bytes[index++];
+      if ((continuation & 0xc0) != 0x80) return false;
+      codePoint = (codePoint << 6) | (continuation & 0x3f);
+    }
+    if (codePoint < minimum || codePoint > 0x10ffff ||
+        (codePoint >= 0xd800 && codePoint <= 0xdfff)) {
+      return false;
+    }
+    const bool forbiddenControl =
+        (codePoint <= 0x1f && codePoint != 0x09 && codePoint != 0x0a &&
+         codePoint != 0x0d) ||
+        (codePoint >= 0x7f && codePoint <= 0x9f);
+    if (forbiddenControl) return false;
+  }
+  return true;
+}
+
 struct CopiedGpuEventV2 {
   ExactGpuServiceEventV2 event{};
   std::vector<uint8_t> payload;
@@ -248,6 +332,7 @@ struct CopiedGpuEventV2 {
 
 struct GpuLifecycleTombstoneV2 {
   uint32_t kind{0};
+  uint32_t flags{0};
   ExactGpuServiceEventRecordV2 record{};
   std::vector<uint8_t> payload;
 };
@@ -258,6 +343,32 @@ struct GpuSubmissionStateV2 {
   ExactGpuOperationProvenanceV2 queued_terminal_provenance{};
   bool initiating_observed{false};
   ExactGpuOperationProvenanceV2 initiating_provenance{};
+};
+
+enum class GpuSealedAuthorityContextSourceV2 : uint8_t {
+  CommandProgram,
+  EnclosingCarrier,
+  StagedRecord,
+};
+
+struct ParsedGpuSealedOperationV2 {
+  ExactGpuSemanticCallV2 call{};
+  bool staged_local{false};
+  GpuSealedAuthorityContextSourceV2 authority_context_source{
+      GpuSealedAuthorityContextSourceV2::EnclosingCarrier};
+};
+
+struct GpuSealedSubmissionStateV2 {
+  GpuSubmissionStateV2 submission{};
+  uint64_t parent_operation_instance_id{0};
+  size_t batch_index{0};
+  bool staged_local{false};
+};
+
+struct GpuSealedBatchStateV2 {
+  std::vector<uint64_t> child_operation_instance_ids;
+  size_t next_callback_index{0};
+  uint64_t previous_highest_operation_instance_id{0};
 };
 
 enum class GpuTerminalCauseV2 : uint8_t {
@@ -284,9 +395,13 @@ struct ExactGpuClientMailboxV2 {
   uint64_t next_service_entry_reservation{1};
   std::unordered_map<uint64_t, uint32_t> service_entry_reservations;
   std::unordered_map<uint64_t, GpuSubmissionStateV2> submissions;
+  std::unordered_map<uint64_t, GpuSealedSubmissionStateV2>
+      sealed_submissions;
+  std::unordered_map<uint64_t, GpuSealedBatchStateV2> sealed_batches;
   std::deque<CopiedGpuEventV2> events;
   size_t queued_payload_bytes{0};
   uint64_t highest_operation_instance_id{0};
+  uint64_t highest_sealed_operation_instance_id{0};
   std::array<uint64_t, kMaxGpuRecentTerminalsV2> recent_terminals{};
   std::array<ExactGpuSemanticCallV2, kMaxGpuRecentTerminalsV2>
       recent_terminal_calls{};
@@ -294,6 +409,8 @@ struct ExactGpuClientMailboxV2 {
       recent_terminal_causes{};
   std::array<uint32_t, kMaxGpuRecentTerminalsV2>
       recent_terminal_event_kinds{};
+  std::array<uint32_t, kMaxGpuRecentTerminalsV2>
+      recent_terminal_event_flags{};
   std::array<ExactGpuServiceEventRecordV2, kMaxGpuRecentTerminalsV2>
       recent_terminal_event_records{};
   std::array<std::vector<uint8_t>, kMaxGpuRecentTerminalsV2>
@@ -430,18 +547,41 @@ bool validServiceApiV2(const ExactGpuServiceApiV2* api) {
       api->cancel && api->close_realm;
 }
 
-bool captureGpuAuthorityContextV2(
+int32_t captureGpuAuthorityContextV2(
     ExactHermesRuntime* runtime,
     const ExactGpuSemanticCallV2& call,
     uint8_t outDigest[32],
-    uint64_t* outAuthoritySessionId) {
+    uint64_t* outAuthoritySessionId,
+    uint64_t* outPresentAuthoritySessionId = nullptr,
+    uint64_t retainedAcquireAuthoritySessionId = 0,
+    uint64_t retainedPresentAuthoritySessionId = 0,
+    const uint8_t* retainedAuthorityContextDigest = nullptr) {
+  const bool recheck =
+      retainedAcquireAuthoritySessionId != 0 ||
+      retainedPresentAuthoritySessionId != 0 ||
+      retainedAuthorityContextDigest != nullptr;
+  const bool presentationCapture =
+      !recheck && outAuthoritySessionId && outPresentAuthoritySessionId;
+  const bool operationCapture =
+      !recheck && outAuthoritySessionId && !outPresentAuthoritySessionId;
+  const bool presentationRecheck =
+      recheck && !outAuthoritySessionId && !outPresentAuthoritySessionId &&
+      retainedAcquireAuthoritySessionId != 0 &&
+      retainedPresentAuthoritySessionId != 0 &&
+      retainedAcquireAuthoritySessionId !=
+          retainedPresentAuthoritySessionId &&
+      retainedAuthorityContextDigest;
+  const int32_t captureFailureStatus = presentationRecheck
+      ? EXACT_GPU_AUTHORITY_INVALID_V2
+      : EXACT_GPU_AUTHORITY_DENIED_V2;
   if (!runtime || !runtime->armed ||
       !runtime->typed_authority_generations_initialized ||
       runtime->runtime_nonce == 0 || call.operation_id == 0 || !outDigest ||
-      !outAuthoritySessionId) {
-    return false;
+      (!operationCapture && !presentationCapture && !presentationRecheck)) {
+    return captureFailureStatus;
   }
-  *outAuthoritySessionId = 0;
+  if (outAuthoritySessionId) *outAuthoritySessionId = 0;
+  if (outPresentAuthoritySessionId) *outPresentAuthoritySessionId = 0;
   auto collectedPrincipals = exactCollectTypedPrincipalStack();
   const uint64_t actor = currentPrincipalId();
   // These values mirror Hermes' reserved package-domain IDs even when this
@@ -473,7 +613,7 @@ bool captureGpuAuthorityContextV2(
           collectedPrincipals.begin(),
           collectedPrincipals.end(),
           invalidPrincipal)) {
-    return false;
+    return captureFailureStatus;
   }
   std::vector<uint64_t> principals;
   principals.reserve(collectedPrincipals.size());
@@ -492,7 +632,7 @@ bool captureGpuAuthorityContextV2(
       (hasScheduler &&
        std::find(principals.begin(), principals.end(), scheduler) ==
            principals.end())) {
-    return false;
+    return captureFailureStatus;
   }
   const uint32_t contextKind = runtime->exact_host_context == 0
       ? static_cast<uint32_t>(EXACT_EMBEDDER_CONTEXT_APP)
@@ -514,6 +654,41 @@ bool captureGpuAuthorityContextV2(
   facts.queue_ingress_ordinal = call.queue_ingress_ordinal;
   facts.receiver = call.receiver;
   facts.target = call.target;
+  if (presentationCapture) {
+    return ex_host_capture_exact_gpu_presentation_authority_v2(
+               runtime->host_context_id,
+               static_cast<uint64_t>(reinterpret_cast<uintptr_t>(runtime)),
+               runtime->runtime_nonce,
+               contextKind,
+               actor,
+               effectOwner,
+               scheduler,
+               hasScheduler ? 1u : 0u,
+               principals.data(),
+               principals.size(),
+               &facts,
+               outDigest,
+        outAuthoritySessionId,
+        outPresentAuthoritySessionId);
+  }
+  if (presentationRecheck) {
+    return ex_host_recheck_exact_gpu_presentation_authority_v2(
+               runtime->host_context_id,
+               static_cast<uint64_t>(reinterpret_cast<uintptr_t>(runtime)),
+               runtime->runtime_nonce,
+               contextKind,
+               actor,
+               effectOwner,
+               scheduler,
+               hasScheduler ? 1u : 0u,
+               principals.data(),
+               principals.size(),
+               &facts,
+               retainedAcquireAuthoritySessionId,
+        retainedPresentAuthoritySessionId,
+        retainedAuthorityContextDigest,
+        outDigest);
+  }
   return ex_host_capture_exact_gpu_authority_context_v2(
              runtime->host_context_id,
              static_cast<uint64_t>(reinterpret_cast<uintptr_t>(runtime)),
@@ -526,8 +701,8 @@ bool captureGpuAuthorityContextV2(
              principals.data(),
              principals.size(),
              &facts,
-             outDigest,
-             outAuthoritySessionId) == 1;
+      outDigest,
+      outAuthoritySessionId);
 }
 
 size_t terminalSlotV2(
@@ -576,6 +751,7 @@ void markTerminalV2(
     mailbox.recent_terminals[oldest] = 0;
     mailbox.recent_terminal_causes[oldest] = GpuTerminalCauseV2::None;
     mailbox.recent_terminal_event_kinds[oldest] = 0;
+    mailbox.recent_terminal_event_flags[oldest] = 0;
     mailbox.recent_terminal_initiating_observed[oldest] = false;
     mailbox.recent_terminal_head =
         (mailbox.recent_terminal_head + 1) % kMaxGpuRecentTerminalsV2;
@@ -596,6 +772,7 @@ void markTerminalV2(
   mailbox.recent_terminal_causes[slot] = cause;
   if (terminalEvent) {
     mailbox.recent_terminal_event_kinds[slot] = terminalEvent->kind;
+    mailbox.recent_terminal_event_flags[slot] = terminalEvent->flags;
     mailbox.recent_terminal_event_records[slot] = terminalEvent->record;
   }
   if (terminalPayload && !terminalPayload->empty()) {
@@ -649,6 +826,39 @@ bool equalProvenanceToSubmissionV2(
       event.authority_session_id == call.authority_session_id &&
       equalObjectV2(event.receiver, call.receiver) &&
       equalObjectV2(event.target, call.target);
+}
+
+GpuSubmissionStateV2* pendingOperationStateV2(
+    ExactGpuClientMailboxV2& mailbox,
+    uint64_t operationInstance,
+    bool* sealedChild = nullptr) {
+  auto ordinary = mailbox.submissions.find(operationInstance);
+  if (ordinary != mailbox.submissions.end()) {
+    if (sealedChild) *sealedChild = false;
+    return &ordinary->second;
+  }
+  auto sealed = mailbox.sealed_submissions.find(operationInstance);
+  if (sealed != mailbox.sealed_submissions.end()) {
+    if (sealedChild) *sealedChild = true;
+    return &sealed->second.submission;
+  }
+  return nullptr;
+}
+
+bool sealedIdentityFallsWithinLiveBatchV2(
+    const ExactGpuClientMailboxV2& mailbox,
+    uint64_t operationInstance) {
+  for (const auto& entry : mailbox.sealed_batches) {
+    const auto& batch = entry.second;
+    if (
+        !batch.child_operation_instance_ids.empty() &&
+        operationInstance >
+            batch.previous_highest_operation_instance_id &&
+        operationInstance <= batch.child_operation_instance_ids.back()) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool emptyOperationProvenanceV2(
@@ -761,10 +971,11 @@ bool equalOperationProvenanceRecordV2(
 
 bool equalOperationTerminalEventV2(
     uint32_t retainedKind,
+    uint32_t retainedFlags,
     const ExactGpuServiceEventRecordV2& retainedRecord,
     const std::vector<uint8_t>& retainedPayload,
     const ExactGpuServiceEventV2& incoming) {
-  if (retainedKind != incoming.kind ||
+  if (retainedKind != incoming.kind || retainedFlags != incoming.flags ||
       retainedPayload.size() != incoming.payload_len ||
       (incoming.payload_len != 0 &&
        std::memcmp(
@@ -903,7 +1114,8 @@ GpuLifecycleReplayV2 classifyLifecycleReplayV2(
         (event.payload_len == 0 ||
          std::memcmp(
              retained.payload.data(), event.payload, event.payload_len) == 0);
-    return equalLifecycleRecordV2(event.kind, retained.record, event.record) &&
+    return retained.flags == event.flags &&
+            equalLifecycleRecordV2(event.kind, retained.record, event.record) &&
             samePayload
         ? GpuLifecycleReplayV2::IdenticalReplay
         : GpuLifecycleReplayV2::ContradictionOrOverflow;
@@ -925,6 +1137,7 @@ GpuLifecycleReplayV2 rememberLifecycleEventV2(
   auto& retained =
       mailbox.lifecycle_tombstones[mailbox.lifecycle_tombstone_count];
   retained.kind = event.kind;
+  retained.flags = event.flags;
   retained.record = event.record;
   if (event.payload_len != 0) {
     retained.payload.assign(
@@ -1122,15 +1335,31 @@ GpuPreliminaryAdmissionV2 preliminaryEventAdmissionV2(
 
   const auto* initiating = eventInitiatingOperationV2(event);
   if (!initiating) return GpuPreliminaryAdmissionV2::Proceed;
-  if (mailbox.allowed_operations.count(initiating->operation_id) == 0 ||
-      initiating->operation_instance_id >
-          mailbox.highest_operation_instance_id) {
+  bool sealedChild = false;
+  auto* retainedState = pendingOperationStateV2(
+      mailbox, initiating->operation_instance_id, &sealedChild);
+  const bool sealedNamespace =
+      initiating->operation_instance_id >= (uint64_t{1} << 63);
+  // Sealed local pseudo-calls are terminal children of their enclosing
+  // carrier. They never acquire independent lifecycle authority, including
+  // after their terminal moves into the recent-operation ring.
+  if (sealedNamespace && isLifecycleEventV2(event.kind)) {
+    return GpuPreliminaryAdmissionV2::ProtocolViolation;
+  }
+  if ((retainedState && sealedNamespace != sealedChild) ||
+      (!sealedNamespace &&
+       mailbox.allowed_operations.count(initiating->operation_id) == 0)) {
+    return GpuPreliminaryAdmissionV2::ProtocolViolation;
+  }
+  const uint64_t highWater = sealedNamespace
+      ? mailbox.highest_sealed_operation_instance_id
+      : mailbox.highest_operation_instance_id;
+  if (initiating->operation_instance_id > highWater) {
     return GpuPreliminaryAdmissionV2::ProtocolViolation;
   }
 
-  auto retained = mailbox.submissions.find(initiating->operation_instance_id);
-  if (retained != mailbox.submissions.end()) {
-    auto& state = retained->second;
+  if (retainedState) {
+    auto& state = *retainedState;
     if (!equalProvenanceToSubmissionV2(*initiating, state.call)) {
       return GpuPreliminaryAdmissionV2::ProtocolViolation;
     }
@@ -1186,13 +1415,20 @@ GpuPreliminaryAdmissionV2 preliminaryEventAdmissionV2(
 bool validEventPrefixV2(const ExactGpuServiceEventV2* event) {
   if (!event || event->struct_size != sizeof(ExactGpuServiceEventV2) ||
       event->abi_version != EXACT_GPU_SERVICE_ABI_VERSION_V2 ||
-      event->flags != 0 || event->reserved != 0 ||
+      event->reserved != 0 ||
       event->kind < EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2 ||
       event->kind > EXACT_GPU_SERVICE_EVENT_REALM_CLOSED_V2 ||
       event->payload_len > kMaxGpuPayloadBytesV2 ||
       (event->payload_len != 0 && event->payload == nullptr)) {
     return false;
   }
+  const bool flagsValid =
+      event->kind == EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2
+      ? (event->flags == EXACT_GPU_SERVICE_EVENT_FLAG_NONE_V2 ||
+         event->flags ==
+             EXACT_GPU_SERVICE_EVENT_FLAG_UNCAPTURED_ERROR_V2)
+      : event->flags == EXACT_GPU_SERVICE_EVENT_FLAG_NONE_V2;
+  if (!flagsValid) return false;
   switch (event->kind) {
     case EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2: {
       const auto& record = event->record.operation_result;
@@ -1218,7 +1454,17 @@ bool validEventPrefixV2(const ExactGpuServiceEventV2* event) {
     }
     case EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2: {
       const auto& record = event->record.device_error;
+      const bool uncaptured =
+          event->flags ==
+          EXACT_GPU_SERVICE_EVENT_FLAG_UNCAPTURED_ERROR_V2;
       return event->record_size == sizeof(record) && record.reserved == 0 &&
+          (!uncaptured ||
+           (event->payload_len <= kMaxGpuDiagnosticBytesV2 &&
+            validRedactedGpuDiagnosticV2(
+                event->payload, event->payload_len) &&
+            !deviceAbsentV2(record.operation.result_device) &&
+            record.error_kind >= EXACT_GPU_ERROR_VALIDATION_V2 &&
+            record.error_kind <= EXACT_GPU_ERROR_INTERNAL_V2)) &&
           validOperationProvenanceV2(record.operation) &&
           record.operation.device_transition ==
               EXACT_GPU_DEVICE_UNCHANGED_V2 &&
@@ -1492,9 +1738,17 @@ int32_t receiveGpuEventV2Impl(
       // realm. They are stale delivery rather than a second settlement.
       discarded = true;
     } else if (const auto* operation = eventOperationV2(*event)) {
-      auto submission =
+      auto ordinary =
           mailbox->submissions.find(operation->operation_instance_id);
-      if (submission == mailbox->submissions.end()) {
+      auto sealed =
+          mailbox->sealed_submissions.find(operation->operation_instance_id);
+      GpuSubmissionStateV2* submission = nullptr;
+      if (ordinary != mailbox->submissions.end()) {
+        submission = &ordinary->second;
+      } else if (sealed != mailbox->sealed_submissions.end()) {
+        submission = &sealed->second.submission;
+      }
+      if (!submission) {
         const size_t terminalSlot =
             terminalSlotV2(*mailbox, operation->operation_instance_id);
         if (terminalSlot != kMaxGpuRecentTerminalsV2) {
@@ -1514,6 +1768,7 @@ int32_t receiveGpuEventV2Impl(
           } else if (cause == GpuTerminalCauseV2::CallbackAccepted) {
             const bool exactReplay = equalOperationTerminalEventV2(
                 mailbox->recent_terminal_event_kinds[terminalSlot],
+                mailbox->recent_terminal_event_flags[terminalSlot],
                 mailbox->recent_terminal_event_records[terminalSlot],
                 mailbox->recent_terminal_event_payloads[terminalSlot],
                 *event);
@@ -1529,28 +1784,93 @@ int32_t receiveGpuEventV2Impl(
           // budgets. Once an older instance ages out, a callback at or below
           // the monotonic high-water mark is stale and cannot be re-associated
           // with a newer operation; future IDs remain a protocol violation.
-          discarded = operation->operation_instance_id <=
-              mailbox->highest_operation_instance_id;
+          const bool sealedNamespace =
+              operation->operation_instance_id >= (uint64_t{1} << 63);
+          const bool liveSealedBatchGap =
+              sealedNamespace &&
+              sealedIdentityFallsWithinLiveBatchV2(
+                  *mailbox, operation->operation_instance_id);
+          discarded =
+              !liveSealedBatchGap &&
+              operation->operation_instance_id <=
+                  (sealedNamespace
+                       ? mailbox->highest_sealed_operation_instance_id
+                       : mailbox->highest_operation_instance_id);
           malformed = !discarded;
         }
       } else if (!equalProvenanceToSubmissionV2(
-                     *operation, submission->second.call)) {
+                     *operation, submission->call)) {
         malformed = true;
       } else if (
-          submission->second.initiating_observed &&
+          submission->initiating_observed &&
           !equalOperationProvenanceRecordV2(
-              *operation, submission->second.initiating_provenance)) {
+              *operation, submission->initiating_provenance)) {
         malformed = true;
-      } else if (submission->second.event_queued) {
+      } else if (submission->event_queued) {
         const auto* queued = queuedOperationEventV2(
             *mailbox, operation->operation_instance_id);
         const bool exactReplay = queued && equalOperationTerminalEventV2(
-            queued->event.kind, queued->event.record, queued->payload, *event);
+            queued->event.kind,
+            queued->event.flags,
+            queued->event.record,
+            queued->payload,
+            *event);
         discarded = exactReplay;
         malformed = !exactReplay;
       } else {
-        submission->second.event_queued = true;
-        submission->second.queued_terminal_provenance = *operation;
+        if (sealed != mailbox->sealed_submissions.end()) {
+          auto batch = mailbox->sealed_batches.find(
+              sealed->second.parent_operation_instance_id);
+          const bool successTerminal =
+              event->kind == EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2 &&
+              event->flags == EXACT_GPU_SERVICE_EVENT_FLAG_NONE_V2 &&
+              event->record.operation_result.result_kind ==
+                  EXACT_GPU_RESULT_NONE_V2 &&
+              event->record.operation_result.status == 0 &&
+              event->payload_len == 0;
+          const bool errorTerminal =
+              event->kind == EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2 &&
+              event->record.device_error.status != 0 &&
+              event->record.device_error.error_kind >=
+                  EXACT_GPU_ERROR_VALIDATION_V2 &&
+              event->record.device_error.error_kind <=
+                  EXACT_GPU_ERROR_INTERNAL_V2 &&
+              event->payload_len <= kMaxGpuDiagnosticBytesV2 &&
+              validRedactedGpuDiagnosticV2(
+                  event->payload, event->payload_len);
+          if (
+              batch == mailbox->sealed_batches.end() ||
+              batch->second.next_callback_index !=
+                  sealed->second.batch_index ||
+              sealed->second.batch_index >=
+                  batch->second.child_operation_instance_ids.size() ||
+              batch->second.child_operation_instance_ids
+                      [sealed->second.batch_index] !=
+                  operation->operation_instance_id ||
+              operation->provider_admission !=
+                  EXACT_GPU_PROVIDER_NOT_ADMITTED_V2 ||
+              operation->physical_sequence != 0 ||
+              (!successTerminal && !errorTerminal) ||
+              (errorTerminal &&
+               event->record.device_error.backend_class != 0)) {
+            malformed = true;
+          } else {
+            ++batch->second.next_callback_index;
+          }
+        } else {
+          auto batch =
+              mailbox->sealed_batches.find(operation->operation_instance_id);
+          if (
+              batch != mailbox->sealed_batches.end() &&
+              batch->second.next_callback_index !=
+                  batch->second.child_operation_instance_ids.size()) {
+            malformed = true;
+          }
+        }
+        if (!malformed) {
+          submission->event_queued = true;
+          submission->queued_terminal_provenance = *operation;
+        }
       }
     } else if (isLifecycleEventV2(event->kind)) {
       const auto replay = rememberLifecycleEventV2(*mailbox, *event);
@@ -1654,6 +1974,7 @@ std::atomic<uint64_t> gGpuV2LastLogicalLossOrder{0};
 std::atomic<uint64_t> gGpuV2LastDetachedLossOrder{0};
 std::atomic<uint64_t> gGpuV2LastDeviceLostReactionOrder{0};
 std::atomic<uint64_t> gGpuV2LastPromiseReactionOrder{0};
+std::atomic<uint32_t> gGpuV2LastUncapturedProjectionValid{0};
 std::atomic<uint64_t> gGpuV2OperationResultPayloadMaterializations{0};
 std::atomic<uint32_t> gGpuV2OperationResultReusedMailboxBacking{0};
 std::atomic<uint32_t> gGpuV2LastReceiptResolvedUndefined{0};
@@ -2788,6 +3109,17 @@ void reduceGpuV2Realm(
           nullptr);
     }
     binding.mailbox->submissions.clear();
+    for (const auto& entry : binding.mailbox->sealed_submissions) {
+      markTerminalV2(
+          *binding.mailbox,
+          entry.first,
+          &entry.second.submission.call,
+          GpuTerminalCauseV2::Quarantine,
+          nullptr,
+          nullptr);
+    }
+    binding.mailbox->sealed_submissions.clear();
+    binding.mailbox->sealed_batches.clear();
     if (cancelProviderWork) {
       binding.mailbox->events.clear();
       binding.mailbox->queued_payload_bytes = 0;
@@ -3017,6 +3349,11 @@ facebook::jsi::Object makeGpuV2WrapperEvent(
     case EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2: {
       const auto& record = event.record.device_error;
       setGpuV2OperationProperties(rt, value, record.operation);
+      value.setProperty(
+          rt,
+          "uncapturedError",
+          event.flags ==
+              EXACT_GPU_SERVICE_EVENT_FLAG_UNCAPTURED_ERROR_V2);
       value.setProperty(
           rt, "errorKind", static_cast<double>(record.error_kind));
       value.setProperty(
@@ -3309,14 +3646,43 @@ void drainGpuMailboxV2(
         mailbox->queued_payload_bytes -= copied.payload.size();
         hasEvent = true;
         if (const auto* operation = eventOperationV2(copied.event)) {
-          auto submission =
+          auto ordinary =
               mailbox->submissions.find(operation->operation_instance_id);
-          if (submission != mailbox->submissions.end() &&
-              submission->second.event_queued &&
+          auto sealed = mailbox->sealed_submissions.find(
+              operation->operation_instance_id);
+          GpuSubmissionStateV2* submission = nullptr;
+          if (ordinary != mailbox->submissions.end()) {
+            submission = &ordinary->second;
+          } else if (sealed != mailbox->sealed_submissions.end()) {
+            submission = &sealed->second.submission;
+          }
+          if (submission && submission->event_queued &&
               equalProvenanceToSubmissionV2(
-                  *operation, submission->second.call)) {
-            auto retainedCall = submission->second.call;
-            mailbox->submissions.erase(submission);
+                  *operation, submission->call)) {
+            auto retainedCall = submission->call;
+            if (sealed != mailbox->sealed_submissions.end()) {
+              mailbox->sealed_submissions.erase(sealed);
+            } else {
+              auto batch = mailbox->sealed_batches.find(
+                  operation->operation_instance_id);
+              if (batch != mailbox->sealed_batches.end()) {
+                if (
+                    batch->second.next_callback_index !=
+                        batch->second.child_operation_instance_ids.size()) {
+                  throw std::runtime_error(
+                      "outer GPU terminal drained before sealed children");
+                }
+                for (const auto childId :
+                     batch->second.child_operation_instance_ids) {
+                  if (mailbox->sealed_submissions.count(childId) != 0) {
+                    throw std::runtime_error(
+                        "outer GPU terminal retained a sealed child");
+                  }
+                }
+                mailbox->sealed_batches.erase(batch);
+              }
+              mailbox->submissions.erase(ordinary);
+            }
             markTerminalV2(
                 *mailbox,
                 operation->operation_instance_id,
@@ -3516,6 +3882,184 @@ ExactGpuObjectRefV2 parseGpuV2Object(
   return object;
 }
 
+ExactGpuObjectRefV2 parseGpuV2NestedObject(
+    facebook::jsi::Runtime& rt,
+    facebook::jsi::Object object,
+    const char* label) {
+  ExactGpuObjectRefV2 result{};
+  result.kind = parseGpuV2Uint32(
+      rt,
+      object.getProperty(rt, "kind"),
+      label,
+      EXACT_GPU_OBJECT_GPU_V2,
+      EXACT_GPU_OBJECT_CANVAS_CONTEXT_V2);
+  result.object_id = parseCanonicalGpuV2Uint64(
+      rt, object.getProperty(rt, "id"), label, false);
+  result.object_generation = parseCanonicalGpuV2Uint64(
+      rt, object.getProperty(rt, "generation"), label, false);
+  if (!validObjectV2(result, false)) {
+    throw facebook::jsi::JSError(
+        rt, std::string(label) + " is not a full typed reference");
+  }
+  return result;
+}
+
+std::string parseGpuV2Literal(
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Value& value,
+    const char* label) {
+  if (!value.isString()) {
+    throw facebook::jsi::JSError(
+        rt, std::string(label) + " must be a string");
+  }
+  return value.asString(rt).utf8(rt);
+}
+
+std::vector<ParsedGpuSealedOperationV2> parseGpuV2SealedOperations(
+    ExactGpuRuntimeBindingV2& binding,
+    facebook::jsi::Runtime& rt,
+    facebook::jsi::Object& metadata,
+    const ExactGpuSemanticCallV2& parent) {
+  auto value = metadata.getProperty(rt, "sealedOperations");
+  if (!value.isObject() || !value.asObject(rt).isArray(rt)) {
+    throw facebook::jsi::JSError(
+        rt, "sealedOperations must be a bounded array");
+  }
+  auto array = value.asObject(rt).asArray(rt);
+  const size_t count = array.size(rt);
+  if (count > kMaxGpuPendingOperationsV2) {
+    throw facebook::jsi::JSError(
+        rt, "sealedOperations exceeds its reviewed bound");
+  }
+  std::vector<ParsedGpuSealedOperationV2> operations;
+  operations.reserve(count);
+  uint64_t previousOperationInstance = 0;
+  uint64_t previousDeviceIngress = 0;
+  for (size_t index = 0; index < count; ++index) {
+    auto entryValue = array.getValueAtIndex(rt, index);
+    if (!entryValue.isObject()) {
+      throw facebook::jsi::JSError(
+          rt, "sealedOperations entry must be an object");
+    }
+    auto entry = entryValue.asObject(rt);
+    ParsedGpuSealedOperationV2 parsed;
+    parsed.call = parent;
+    parsed.call.operation_id = parseGpuV2Uint32(
+        rt,
+        entry.getProperty(rt, "operationId"),
+        "sealed operationId",
+        1,
+        UINT32_MAX);
+    parsed.call.operation_instance_id = parseCanonicalGpuV2Uint64(
+        rt,
+        entry.getProperty(rt, "operationInstanceId"),
+        "sealed operationInstanceId",
+        false);
+    parsed.call.device_ingress_ordinal = parseCanonicalGpuV2Uint64(
+        rt,
+        entry.getProperty(rt, "deviceIngressOrdinal"),
+        "sealed deviceIngressOrdinal",
+        false);
+    parsed.call.captured_scope_id = parseCanonicalGpuV2Uint64(
+        rt,
+        entry.getProperty(rt, "capturedScopeId"),
+        "sealed capturedScopeId",
+        true);
+    parsed.call.promise_id = 0;
+    parsed.call.adapter_ordinal = 0;
+    parsed.call.queue_ingress_ordinal = 0;
+    parsed.call.receiver = parseGpuV2NestedObject(
+        rt,
+        entry.getPropertyAsObject(rt, "receiver"),
+        "sealed receiver");
+    if (entry.hasProperty(rt, "target")) {
+      parsed.call.target = parseGpuV2NestedObject(
+          rt,
+          entry.getPropertyAsObject(rt, "target"),
+          "sealed target");
+    } else {
+      parsed.call.target = ExactGpuObjectRefV2{};
+    }
+    parsed.call.payload = nullptr;
+    parsed.call.payload_len = 0;
+    const auto identityClass = parseGpuV2Literal(
+        rt, entry.getProperty(rt, "identityClass"), "sealed identityClass");
+    const auto contextSource = parseGpuV2Literal(
+        rt,
+        entry.getProperty(rt, "authorityContextSource"),
+        "sealed authorityContextSource");
+    parsed.staged_local = identityClass == "staged-local";
+    if (!parsed.staged_local && identityClass != "active-route") {
+      throw facebook::jsi::JSError(
+          rt, "sealed identityClass is not closed");
+    }
+    if (contextSource == "command-program") {
+      parsed.authority_context_source =
+          GpuSealedAuthorityContextSourceV2::CommandProgram;
+    } else if (contextSource == "enclosing-carrier") {
+      parsed.authority_context_source =
+          GpuSealedAuthorityContextSourceV2::EnclosingCarrier;
+    } else if (contextSource == "staged-record") {
+      parsed.authority_context_source =
+          GpuSealedAuthorityContextSourceV2::StagedRecord;
+    } else {
+      throw facebook::jsi::JSError(
+          rt, "sealed authorityContextSource is not closed");
+    }
+    const bool enclosing =
+        parsed.authority_context_source ==
+        GpuSealedAuthorityContextSourceV2::EnclosingCarrier;
+    if (enclosing) {
+      if (entry.hasProperty(rt, "authorityContextDigest")) {
+        throw facebook::jsi::JSError(
+            rt, "enclosing-carrier child must omit its context digest");
+      }
+      std::fill(
+          std::begin(parsed.call.authority_context_digest),
+          std::end(parsed.call.authority_context_digest),
+          0);
+    } else {
+      auto digest = parseGpuV2Bytes(
+          rt,
+          entry.getProperty(rt, "authorityContextDigest"),
+          "sealed authorityContextDigest",
+          EXACT_GPU_AUTHORITY_DIGEST_SIZE_V2,
+          EXACT_GPU_AUTHORITY_DIGEST_SIZE_V2);
+      std::copy(
+          digest.begin(),
+          digest.end(),
+          parsed.call.authority_context_digest);
+      if (!nonzeroDigestV2(parsed.call.authority_context_digest)) {
+        throw facebook::jsi::JSError(
+            rt, "sealed authorityContextDigest is zero");
+      }
+    }
+    const bool routeAllowed =
+        binding.allowed_operations.count(parsed.call.operation_id) != 0;
+    if (
+        parsed.call.operation_instance_id < (uint64_t{1} << 63) ||
+        parsed.call.operation_instance_id <= previousOperationInstance ||
+        parsed.call.device_ingress_ordinal <= previousDeviceIngress ||
+        parsed.call.device_ingress_ordinal >= parent.device_ingress_ordinal ||
+        (parsed.staged_local
+             ? routeAllowed ||
+                 parsed.authority_context_source !=
+                     GpuSealedAuthorityContextSourceV2::StagedRecord
+             : !routeAllowed ||
+                 parsed.authority_context_source ==
+                     GpuSealedAuthorityContextSourceV2::StagedRecord) ||
+        !validObjectV2(parsed.call.receiver, false) ||
+        !validObjectV2(parsed.call.target, true)) {
+      throw facebook::jsi::JSError(
+          rt, "sealed operation authority is malformed");
+    }
+    previousOperationInstance = parsed.call.operation_instance_id;
+    previousDeviceIngress = parsed.call.device_ingress_ordinal;
+    operations.push_back(std::move(parsed));
+  }
+  return operations;
+}
+
 ExactGpuSemanticCallV2 parseGpuV2Call(
     ExactGpuRuntimeBindingV2& binding,
     facebook::jsi::Runtime& rt,
@@ -3598,12 +4142,234 @@ ExactGpuSemanticCallV2 parseGpuV2Call(
   return call;
 }
 
+struct GpuPresentationAuthorityCarrierV2 {
+  uint64_t acquire_session_id{0};
+  uint64_t present_session_id{0};
+  std::array<uint8_t, 32> authority_context_digest{};
+};
+
+GpuPresentationAuthorityCarrierV2 parseGpuPresentationAuthorityCarrierV2(
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Value& value) {
+  if (!value.isObject()) {
+    throw facebook::jsi::JSError(
+        rt, "GPU presentation authority carrier must be an object");
+  }
+  auto object = value.asObject(rt);
+  GpuPresentationAuthorityCarrierV2 carrier;
+  carrier.acquire_session_id = parseCanonicalGpuV2Uint64(
+      rt,
+      object.getProperty(rt, "acquireSessionId"),
+      "acquireSessionId",
+      false);
+  carrier.present_session_id = parseCanonicalGpuV2Uint64(
+      rt,
+      object.getProperty(rt, "presentSessionId"),
+      "presentSessionId",
+      false);
+  auto digest = parseGpuV2Bytes(
+      rt,
+      object.getProperty(rt, "authorityContextDigest"),
+      "authorityContextDigest",
+      32,
+      32);
+  std::copy(
+      digest.begin(),
+      digest.end(),
+      carrier.authority_context_digest.begin());
+  if (carrier.acquire_session_id == carrier.present_session_id ||
+      !nonzeroDigestV2(carrier.authority_context_digest.data())) {
+    throw facebook::jsi::JSError(
+        rt, "GPU presentation authority carrier is malformed");
+  }
+  return carrier;
+}
+
+ExactGpuSemanticCallV2 parseGpuPresentationAuthorityCallV2(
+    ExactGpuRuntimeBindingV2& binding,
+    facebook::jsi::Runtime& rt,
+    uint32_t operation,
+    facebook::jsi::Object& metadata) {
+  std::vector<uint8_t> authority;
+  std::vector<uint8_t> payload;
+  auto call =
+      parseGpuV2Call(binding, rt, operation, metadata, authority, payload);
+  call.operation_instance_id = parseCanonicalGpuV2Uint64(
+      rt,
+      metadata.getProperty(rt, "operationInstanceId"),
+      "operationInstanceId",
+      false);
+  call.promise_id = 0;
+  if (!validRealmV2(call.realm) ||
+      !equalRealmV2(call.realm, binding.realm) ||
+      binding.allowed_operations.count(operation) == 0 ||
+      call.operation_instance_id == 0 ||
+      call.adapter_ordinal != 0 || call.queue_ingress_ordinal != 0 ||
+      !validObjectV2(call.receiver, false) ||
+      call.receiver.kind != EXACT_GPU_OBJECT_CANVAS_CONTEXT_V2 ||
+      !validObjectV2(call.target, false) ||
+      call.target.kind != EXACT_GPU_OBJECT_TEXTURE_V2) {
+    throw facebook::jsi::JSError(
+        rt, "GPU presentation authority metadata is malformed");
+  }
+  return call;
+}
+
+#if defined(captureGpuPresentationAuthorityBridgeCall) || \
+    defined(recheckGpuPresentationAuthorityBridgeCall) || \
+    defined(retireGpuPresentationAuthorityBridgeCall) || \
+    defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
+    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
+    defined(createGpuV2MappedRangeAliasBridgeCall) || \
+    defined(detachGpuV2MappedRangeBridgeCall)
+#error "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros"
+#endif
+
+facebook::jsi::Value captureGpuPresentationAuthorityBridgeCall(
+    ExactHermesRuntime* runtime,
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Value* args,
+    size_t count) {
+  if (!runtime || !runtime->gpu_binding_v2 || count != 2 ||
+      !args[0].isNumber() || !args[1].isObject()) {
+    throw facebook::jsi::JSError(
+        rt, "capturePresentationAuthority requires operation and metadata");
+  }
+  auto& binding = *runtime->gpu_binding_v2;
+  const auto operation = parseGpuV2Uint32(
+      rt, args[0], "operationId", 1, std::numeric_limits<uint32_t>::max());
+  auto metadata = args[1].asObject(rt);
+  auto call =
+      parseGpuPresentationAuthorityCallV2(binding, rt, operation, metadata);
+  std::array<uint8_t, 32> digest{};
+  uint64_t acquireSessionId = 0;
+  uint64_t presentSessionId = 0;
+  if (captureGpuAuthorityContextV2(
+          runtime,
+          call,
+          digest.data(),
+          &acquireSessionId,
+          &presentSessionId) != EXACT_GPU_AUTHORITY_ALLOWED_V2) {
+    return facebook::jsi::Value::null();
+  }
+  try {
+    facebook::jsi::Object result(rt);
+    defineGpuV2Property(
+        rt,
+        result,
+        "acquireSessionId",
+        gpuV2Uint64String(rt, acquireSessionId));
+    defineGpuV2Property(
+        rt,
+        result,
+        "presentSessionId",
+        gpuV2Uint64String(rt, presentSessionId));
+    std::vector<uint8_t> digestBytes(digest.begin(), digest.end());
+    defineGpuV2Property(
+        rt,
+        result,
+        "authorityContextDigest",
+        makeUint8Array(rt, std::move(digestBytes)));
+    rt.global()
+        .getPropertyAsObject(rt, "Object")
+        .getPropertyAsFunction(rt, "preventExtensions")
+        .call(rt, result);
+    return facebook::jsi::Value(std::move(result));
+  } catch (...) {
+    (void)ex_host_retire_exact_gpu_presentation_authority_v2(
+        runtime->host_context_id,
+        acquireSessionId,
+        presentSessionId,
+        digest.data());
+    throw;
+  }
+}
+
+#if defined(captureGpuPresentationAuthorityBridgeCall) || \
+    defined(recheckGpuPresentationAuthorityBridgeCall) || \
+    defined(retireGpuPresentationAuthorityBridgeCall) || \
+    defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
+    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
+    defined(createGpuV2MappedRangeAliasBridgeCall) || \
+    defined(detachGpuV2MappedRangeBridgeCall)
+#error "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros"
+#endif
+
+facebook::jsi::Value recheckGpuPresentationAuthorityBridgeCall(
+    ExactHermesRuntime* runtime,
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Value* args,
+    size_t count) {
+  if (!runtime || !runtime->gpu_binding_v2 || count != 3 ||
+      !args[0].isNumber() || !args[1].isObject()) {
+    throw facebook::jsi::JSError(
+        rt,
+        "recheckPresentationAuthority requires operation, metadata, and retained authority");
+  }
+  auto& binding = *runtime->gpu_binding_v2;
+  const auto operation = parseGpuV2Uint32(
+      rt, args[0], "operationId", 1, std::numeric_limits<uint32_t>::max());
+  auto metadata = args[1].asObject(rt);
+  auto call =
+      parseGpuPresentationAuthorityCallV2(binding, rt, operation, metadata);
+  const auto retained =
+      parseGpuPresentationAuthorityCarrierV2(rt, args[2]);
+  std::array<uint8_t, 32> recheckDigest{};
+  const int32_t status = captureGpuAuthorityContextV2(
+      runtime,
+      call,
+      recheckDigest.data(),
+      nullptr,
+      nullptr,
+      retained.acquire_session_id,
+      retained.present_session_id,
+      retained.authority_context_digest.data());
+  if (status == EXACT_GPU_AUTHORITY_ALLOWED_V2) {
+    return facebook::jsi::Value(true);
+  }
+  if (status == EXACT_GPU_AUTHORITY_DENIED_V2) {
+    return facebook::jsi::Value(false);
+  }
+  throw facebook::jsi::JSError(
+      rt, "GPU presentation authority recheck failed structurally");
+}
+
+#if defined(captureGpuPresentationAuthorityBridgeCall) || \
+    defined(recheckGpuPresentationAuthorityBridgeCall) || \
+    defined(retireGpuPresentationAuthorityBridgeCall) || \
+    defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
+    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
+    defined(createGpuV2MappedRangeAliasBridgeCall) || \
+    defined(detachGpuV2MappedRangeBridgeCall)
+#error "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros"
+#endif
+
+facebook::jsi::Value retireGpuPresentationAuthorityBridgeCall(
+    ExactHermesRuntime* runtime,
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Value* args,
+    size_t count) {
+  if (!runtime || count != 1) {
+    throw facebook::jsi::JSError(
+        rt, "retirePresentationAuthority requires retained authority");
+  }
+  const auto retained =
+      parseGpuPresentationAuthorityCarrierV2(rt, args[0]);
+  return facebook::jsi::Value(static_cast<double>(
+      ex_host_retire_exact_gpu_presentation_authority_v2(
+          runtime->host_context_id,
+          retained.acquire_session_id,
+          retained.present_session_id,
+          retained.authority_context_digest.data())));
+}
+
 facebook::jsi::Value submitGpuV2Carrier(
     ExactHermesRuntime* runtime,
     ExactGpuRuntimeBindingV2& binding,
     facebook::jsi::Runtime& rt,
     ExactGpuSemanticCallV2 call,
-    bool wantsPromise) {
+    bool wantsPromise,
+    std::vector<ParsedGpuSealedOperationV2> sealedOperations = {}) {
   if (!binding.wrapper_event_sink_set || !binding.wrapper_event_sink) {
     throw facebook::jsi::JSError(
         rt, "GPU V2 requires its typed event sink before submit");
@@ -3639,8 +4405,7 @@ facebook::jsi::Value submitGpuV2Carrier(
   // before provider admission; the carrier continues to enforce identities,
   // bounds, and provenance without guessing from an opaque operation ID.
   if (binding.next_operation_instance_id == 0 ||
-      binding.next_operation_instance_id ==
-          std::numeric_limits<uint64_t>::max() ||
+      binding.next_operation_instance_id >= (uint64_t{1} << 63) ||
       (wantsPromise &&
        (binding.next_promise_id == 0 ||
         binding.next_promise_id == std::numeric_limits<uint64_t>::max()))) {
@@ -3678,16 +4443,46 @@ facebook::jsi::Value submitGpuV2Carrier(
   auto successCarrier = makeCarrier(EXACT_GPU_PROVIDER_OK);
   auto protocolCarrier = makeCarrier(EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION);
   uint64_t serviceEntryReservation = 0;
+  // Finish all batch-vector allocation before capturing the authority
+  // session or publishing a Promise receipt. From that point onward every
+  // potentially throwing insertion is covered by the rollback guard below.
+  std::vector<uint64_t> insertedChildIds;
+  insertedChildIds.reserve(sealedOperations.size());
+  GpuSealedBatchStateV2 sealedBatch;
+  sealedBatch.child_operation_instance_ids.reserve(sealedOperations.size());
+  for (const auto& sealed : sealedOperations) {
+    sealedBatch.child_operation_instance_ids.push_back(
+        sealed.call.operation_instance_id);
+  }
 
-  if (!captureGpuAuthorityContextV2(
+  if (captureGpuAuthorityContextV2(
           runtime,
           call,
           call.authority_context_digest,
-          &call.authority_session_id) ||
+          &call.authority_session_id) != EXACT_GPU_AUTHORITY_ALLOWED_V2 ||
       !nonzeroDigestV2(call.authority_context_digest) ||
       call.authority_session_id == 0) {
     throw facebook::jsi::JSError(
         rt, "GPU V2 native authority-session capture failed closed");
+  }
+  for (auto& sealed : sealedOperations) {
+    sealed.call.authority_session_id = call.authority_session_id;
+    if (
+        sealed.authority_context_source ==
+        GpuSealedAuthorityContextSourceV2::EnclosingCarrier) {
+      std::copy(
+          std::begin(call.authority_context_digest),
+          std::end(call.authority_context_digest),
+          sealed.call.authority_context_digest);
+    }
+    if (
+        !nonzeroDigestV2(sealed.call.authority_context_digest) ||
+        sealed.call.authority_session_id == 0) {
+      (void)ex_host_force_retire_exact_gpu_authority_session_v2(
+          runtime->host_context_id, call.authority_session_id);
+      throw facebook::jsi::JSError(
+          rt, "GPU V2 sealed-operation authority stamping failed closed");
+    }
   }
 
   if (wantsPromise) {
@@ -3714,12 +4509,41 @@ facebook::jsi::Value submitGpuV2Carrier(
       throw;
     }
   }
+  bool outerInserted = false;
+  bool batchInserted = false;
+  uint64_t previousSealedHighWater = 0;
   try {
     std::lock_guard<std::mutex> lock(binding.mailbox->mutex);
+    previousSealedHighWater =
+        binding.mailbox->highest_sealed_operation_instance_id;
     if (binding.mailbox->phase.load(std::memory_order_acquire) !=
             GpuMailboxPhaseV2::Live ||
-        binding.mailbox->submissions.size() >= kMaxGpuPendingOperationsV2) {
+        binding.mailbox->submissions.size() >= kMaxGpuPendingOperationsV2 ||
+        sealedOperations.size() >
+            kMaxGpuPendingOperationsV2 -
+                binding.mailbox->sealed_submissions.size() ||
+        (!sealedOperations.empty() &&
+         binding.mailbox->sealed_batches.size() >=
+             kMaxGpuPendingOperationsV2)) {
       throw facebook::jsi::JSError(rt, "GPU V2 realm no longer admits calls");
+    }
+    if (
+        !sealedOperations.empty() &&
+        sealedOperations.front().call.operation_instance_id <=
+            previousSealedHighWater) {
+      throw facebook::jsi::JSError(
+          rt, "GPU V2 sealed-operation identity is stale");
+    }
+    for (const auto& sealed : sealedOperations) {
+      if (
+          binding.mailbox->sealed_submissions.count(
+              sealed.call.operation_instance_id) != 0 ||
+          terminalSlotV2(
+              *binding.mailbox, sealed.call.operation_instance_id) !=
+              kMaxGpuRecentTerminalsV2) {
+        throw facebook::jsi::JSError(
+            rt, "GPU V2 sealed-operation identity is already retained");
+      }
     }
     serviceEntryReservation = reserveGpuServiceEntryLockedV2(
         *binding.mailbox, GpuServiceEntryKindV2::Submit);
@@ -3737,11 +4561,58 @@ facebook::jsi::Value submitGpuV2Carrier(
       throw facebook::jsi::JSError(
           rt, "GPU V2 operation instance is already pending");
     }
+    outerInserted = true;
+    for (size_t index = 0; index < sealedOperations.size(); ++index) {
+      GpuSealedSubmissionStateV2 child;
+      child.submission.call = sealedOperations[index].call;
+      child.parent_operation_instance_id = call.operation_instance_id;
+      child.batch_index = index;
+      child.staged_local = sealedOperations[index].staged_local;
+      if (!binding.mailbox->sealed_submissions
+               .emplace(
+                   child.submission.call.operation_instance_id,
+                   child)
+               .second) {
+        throw facebook::jsi::JSError(
+            rt, "GPU V2 sealed-operation identity is already pending");
+      }
+      insertedChildIds.push_back(
+          child.submission.call.operation_instance_id);
+    }
+    if (!sealedOperations.empty()) {
+      sealedBatch.previous_highest_operation_instance_id =
+          previousSealedHighWater;
+      if (!binding.mailbox->sealed_batches
+               .emplace(call.operation_instance_id, std::move(sealedBatch))
+               .second) {
+        throw facebook::jsi::JSError(
+            rt, "GPU V2 sealed-operation batch is already pending");
+      }
+      batchInserted = true;
+      binding.mailbox->highest_sealed_operation_instance_id =
+          sealedOperations.back().call.operation_instance_id;
+    }
     binding.mailbox->highest_operation_instance_id =
         call.operation_instance_id;
     ++binding.next_operation_instance_id;
     if (wantsPromise) ++binding.next_promise_id;
   } catch (...) {
+    try {
+      std::lock_guard<std::mutex> lock(binding.mailbox->mutex);
+      if (batchInserted) {
+        binding.mailbox->sealed_batches.erase(call.operation_instance_id);
+      }
+      for (const auto childId : insertedChildIds) {
+        binding.mailbox->sealed_submissions.erase(childId);
+      }
+      if (outerInserted) {
+        binding.mailbox->submissions.erase(call.operation_instance_id);
+      }
+      binding.mailbox->highest_sealed_operation_instance_id =
+          previousSealedHighWater;
+    } catch (...) {
+      (void)poisonGpuMailboxV2(binding.mailbox);
+    }
     releaseGpuServiceEntryV2(*binding.mailbox, serviceEntryReservation);
     if (wantsPromise) binding.pending_receipts.erase(call.promise_id);
     (void)ex_host_force_retire_exact_gpu_authority_session_v2(
@@ -3787,11 +4658,28 @@ facebook::jsi::Value submitGpuV2Carrier(
     std::lock_guard<std::mutex> lock(binding.mailbox->mutex);
     auto submission =
         binding.mailbox->submissions.find(call.operation_instance_id);
-    if (submission != binding.mailbox->submissions.end() &&
-        (submission->second.event_queued ||
-         submission->second.initiating_observed)) {
+    auto batch =
+        binding.mailbox->sealed_batches.find(call.operation_instance_id);
+    if (submission == binding.mailbox->submissions.end()) {
       callbackThenRejection = true;
-    } else if (submission != binding.mailbox->submissions.end()) {
+    } else if (
+        submission->second.event_queued ||
+        submission->second.initiating_observed) {
+      callbackThenRejection = true;
+    } else if (batch != binding.mailbox->sealed_batches.end()) {
+      for (const auto childId :
+           batch->second.child_operation_instance_ids) {
+        auto child = binding.mailbox->sealed_submissions.find(childId);
+        if (
+            child == binding.mailbox->sealed_submissions.end() ||
+            child->second.submission.event_queued ||
+            child->second.submission.initiating_observed) {
+          callbackThenRejection = true;
+          break;
+        }
+      }
+    }
+    if (!callbackThenRejection) {
       binding.mailbox->submissions.erase(submission);
       markTerminalV2(
           *binding.mailbox,
@@ -3800,6 +4688,25 @@ facebook::jsi::Value submitGpuV2Carrier(
           GpuTerminalCauseV2::ServiceRejected,
           nullptr,
           nullptr);
+      if (batch != binding.mailbox->sealed_batches.end()) {
+        const auto childIds = batch->second.child_operation_instance_ids;
+        const auto previousHigh =
+            batch->second.previous_highest_operation_instance_id;
+        const auto batchLast = childIds.empty() ? 0 : childIds.back();
+        for (const auto childId : childIds) {
+          binding.mailbox->sealed_submissions.erase(childId);
+        }
+        binding.mailbox->sealed_batches.erase(batch);
+        if (
+            batchLast != 0 &&
+            binding.mailbox->highest_sealed_operation_instance_id ==
+                batchLast) {
+          binding.mailbox->highest_sealed_operation_instance_id =
+              previousHigh;
+        } else if (batchLast != 0) {
+          callbackThenRejection = true;
+        }
+      }
     }
   } catch (...) {
     callbackThenRejection = true;
@@ -3875,7 +4782,10 @@ facebook::hermes::IExactWebGpuArrayBuffer* requireGpuV2MappedArrayBufferApi(
 }
 #endif
 
-#if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
+#if defined(captureGpuPresentationAuthorityBridgeCall) || \
+    defined(recheckGpuPresentationAuthorityBridgeCall) || \
+    defined(retireGpuPresentationAuthorityBridgeCall) || \
+    defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
     defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
     defined(createGpuV2MappedRangeAliasBridgeCall) || \
     defined(detachGpuV2MappedRangeBridgeCall)
@@ -3901,8 +4811,15 @@ facebook::jsi::Value submitGpuV2BridgeCall(
   std::vector<uint8_t> authority;
   auto call = parseGpuV2Call(
       binding, rt, operation, metadata, authority, payload);
+  auto sealedOperations = parseGpuV2SealedOperations(
+      binding, rt, metadata, call);
   return submitGpuV2Carrier(
-      runtime, binding, rt, call, args[1].getBool());
+      runtime,
+      binding,
+      rt,
+      call,
+      args[1].getBool(),
+      std::move(sealedOperations));
 }
 
 facebook::jsi::Value cancelGpuV2CarrierCall(
@@ -4031,7 +4948,10 @@ facebook::jsi::Value cancelGpuV2CarrierCall(
   return 0;
 }
 
-#if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
+#if defined(captureGpuPresentationAuthorityBridgeCall) || \
+    defined(recheckGpuPresentationAuthorityBridgeCall) || \
+    defined(retireGpuPresentationAuthorityBridgeCall) || \
+    defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
     defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
     defined(createGpuV2MappedRangeAliasBridgeCall) || \
     defined(detachGpuV2MappedRangeBridgeCall)
@@ -4127,7 +5047,10 @@ ExactGpuOwnedObjectRefV2 parseGpuV2OwnedObject(
   return owned;
 }
 
-#if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
+#if defined(captureGpuPresentationAuthorityBridgeCall) || \
+    defined(recheckGpuPresentationAuthorityBridgeCall) || \
+    defined(retireGpuPresentationAuthorityBridgeCall) || \
+    defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
     defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
     defined(createGpuV2MappedRangeAliasBridgeCall) || \
     defined(detachGpuV2MappedRangeBridgeCall)
@@ -4218,7 +5141,10 @@ facebook::jsi::Value setGpuV2EventSinkCarrierCall(
   return facebook::jsi::Value::undefined();
 }
 
-#if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
+#if defined(captureGpuPresentationAuthorityBridgeCall) || \
+    defined(recheckGpuPresentationAuthorityBridgeCall) || \
+    defined(retireGpuPresentationAuthorityBridgeCall) || \
+    defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
     defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
     defined(createGpuV2MappedRangeAliasBridgeCall) || \
     defined(detachGpuV2MappedRangeBridgeCall)
@@ -4233,7 +5159,10 @@ facebook::jsi::Value setGpuV2EventSinkBridgeCall(
   return setGpuV2EventSinkCarrierCall(runtime, rt, args, count);
 }
 
-#if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
+#if defined(captureGpuPresentationAuthorityBridgeCall) || \
+    defined(recheckGpuPresentationAuthorityBridgeCall) || \
+    defined(retireGpuPresentationAuthorityBridgeCall) || \
+    defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
     defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
     defined(createGpuV2MappedRangeAliasBridgeCall) || \
     defined(detachGpuV2MappedRangeBridgeCall)
@@ -4270,7 +5199,10 @@ facebook::jsi::Value createGpuV2MappedRangeAliasBridgeCall(
 #endif
 }
 
-#if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
+#if defined(captureGpuPresentationAuthorityBridgeCall) || \
+    defined(recheckGpuPresentationAuthorityBridgeCall) || \
+    defined(retireGpuPresentationAuthorityBridgeCall) || \
+    defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
     defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
     defined(createGpuV2MappedRangeAliasBridgeCall) || \
     defined(detachGpuV2MappedRangeBridgeCall)
@@ -4430,6 +5362,17 @@ void ExactGpuRuntimeBindingV2::detach(
             nullptr);
       }
       mailbox->submissions.clear();
+      for (const auto& entry : mailbox->sealed_submissions) {
+        markTerminalV2(
+            *mailbox,
+            entry.first,
+            &entry.second.submission.call,
+            GpuTerminalCauseV2::Teardown,
+            nullptr,
+            nullptr);
+      }
+      mailbox->sealed_submissions.clear();
+      mailbox->sealed_batches.clear();
       mailbox->events.clear();
       mailbox->queued_payload_bytes = 0;
     } catch (...) {
@@ -5560,7 +6503,8 @@ int32_t exactGpuV2ActivateInstall(ExactHermesRuntime* runtime) {
           EXACT_GPU_SERVICE_ABI_VERSION_V2 ||
       open.authority_session_api->authority_context != nullptr ||
       !open.authority_session_api->evaluate ||
-      !open.authority_session_api->retire) {
+      !open.authority_session_api->retire ||
+      !open.authority_session_api->evaluate_batch_and_then) {
     return EXACT_GPU_PROVIDER_OPEN_FAILED;
   }
   int32_t status = EXACT_GPU_PROVIDER_OPEN_FAILED;
@@ -5755,7 +6699,10 @@ bool exactGpuV2PublishPrivateBridge(ExactHermesRuntime* runtime) {
   // key. Never substitute copy-and-shadow semantics.
   auto& rt = *runtime->runtime;
   if (!hasGpuV2MappedArrayBufferApi(rt)) return false;
-#if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
+#if defined(captureGpuPresentationAuthorityBridgeCall) || \
+    defined(recheckGpuPresentationAuthorityBridgeCall) || \
+    defined(retireGpuPresentationAuthorityBridgeCall) || \
+    defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
     defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
     defined(createGpuV2MappedRangeAliasBridgeCall) || \
     defined(detachGpuV2MappedRangeBridgeCall)
@@ -5793,6 +6740,45 @@ bool exactGpuV2PublishPrivateBridge(ExactHermesRuntime* runtime) {
                   size_t count) -> facebook::jsi::Value {
           return retireGpuV2BridgeCall(runtime, rt, args, count);
         });
+    auto capturePresentationAuthority =
+        facebook::jsi::Function::createFromHostFunction(
+            rt,
+            facebook::jsi::PropNameID::forAscii(
+                rt, "capturePresentationAuthority"),
+            2,
+            [runtime](facebook::jsi::Runtime& rt,
+                      const facebook::jsi::Value&,
+                      const facebook::jsi::Value* args,
+                      size_t count) -> facebook::jsi::Value {
+              return captureGpuPresentationAuthorityBridgeCall(
+                  runtime, rt, args, count);
+            });
+    auto recheckPresentationAuthority =
+        facebook::jsi::Function::createFromHostFunction(
+            rt,
+            facebook::jsi::PropNameID::forAscii(
+                rt, "recheckPresentationAuthority"),
+            3,
+            [runtime](facebook::jsi::Runtime& rt,
+                      const facebook::jsi::Value&,
+                      const facebook::jsi::Value* args,
+                      size_t count) -> facebook::jsi::Value {
+              return recheckGpuPresentationAuthorityBridgeCall(
+                  runtime, rt, args, count);
+            });
+    auto retirePresentationAuthority =
+        facebook::jsi::Function::createFromHostFunction(
+            rt,
+            facebook::jsi::PropNameID::forAscii(
+                rt, "retirePresentationAuthority"),
+            1,
+            [runtime](facebook::jsi::Runtime& rt,
+                      const facebook::jsi::Value&,
+                      const facebook::jsi::Value* args,
+                      size_t count) -> facebook::jsi::Value {
+              return retireGpuPresentationAuthorityBridgeCall(
+                  runtime, rt, args, count);
+            });
     auto setEventSink = facebook::jsi::Function::createFromHostFunction(
         rt,
         facebook::jsi::PropNameID::forAscii(rt, "setEventSink"),
@@ -5836,6 +6822,21 @@ bool exactGpuV2PublishPrivateBridge(ExactHermesRuntime* runtime) {
         rt, gpuNativeBridgeV2, "cancel", std::move(cancel));
     defineGpuV2Property(
         rt, gpuNativeBridgeV2, "retire", std::move(retire));
+    defineGpuV2Property(
+        rt,
+        gpuNativeBridgeV2,
+        "capturePresentationAuthority",
+        std::move(capturePresentationAuthority));
+    defineGpuV2Property(
+        rt,
+        gpuNativeBridgeV2,
+        "recheckPresentationAuthority",
+        std::move(recheckPresentationAuthority));
+    defineGpuV2Property(
+        rt,
+        gpuNativeBridgeV2,
+        "retirePresentationAuthority",
+        std::move(retirePresentationAuthority));
     defineGpuV2Property(
         rt,
         gpuNativeBridgeV2,
@@ -6109,6 +7110,7 @@ extern "C" void ibex_test_gpu_v2_reset_observer(void) {
   gGpuV2LastDetachedLossOrder.store(0, std::memory_order_seq_cst);
   gGpuV2LastDeviceLostReactionOrder.store(0, std::memory_order_seq_cst);
   gGpuV2LastPromiseReactionOrder.store(0, std::memory_order_seq_cst);
+  gGpuV2LastUncapturedProjectionValid.store(0, std::memory_order_seq_cst);
   gGpuV2OperationResultPayloadMaterializations.store(
       0, std::memory_order_seq_cst);
   gGpuV2OperationResultReusedMailboxBacking.store(
@@ -6126,6 +7128,59 @@ extern "C" void ibex_test_gpu_v2_reset_observer(void) {
 extern "C" int32_t ibex_test_gpu_v2_validate_event(
     const ExactGpuServiceEventV2* event) {
   return validEventPrefixV2(event) ? 1 : 0;
+}
+
+extern "C" int32_t ibex_test_gpu_v2_operation_terminal_flags_are_replay_authority(
+    const ExactGpuServiceEventV2* event) {
+  if (!validEventPrefixV2(event) ||
+      event->kind != EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2 ||
+      event->flags != EXACT_GPU_SERVICE_EVENT_FLAG_UNCAPTURED_ERROR_V2) {
+    return 0;
+  }
+  try {
+    auto mailbox =
+        std::make_unique<ExactGpuClientMailboxV2>(RuntimeCallbackTarget{});
+    std::vector<uint8_t> payload;
+    if (event->payload_len != 0) {
+      payload.assign(event->payload, event->payload + event->payload_len);
+    }
+    markTerminalV2(
+        *mailbox,
+        event->record.device_error.operation.operation_instance_id,
+        nullptr,
+        GpuTerminalCauseV2::CallbackAccepted,
+        event,
+        &payload);
+    const size_t slot = terminalSlotV2(
+        *mailbox,
+        event->record.device_error.operation.operation_instance_id);
+    if (slot == kMaxGpuRecentTerminalsV2 ||
+        !equalOperationTerminalEventV2(
+            mailbox->recent_terminal_event_kinds[slot],
+            mailbox->recent_terminal_event_flags[slot],
+            mailbox->recent_terminal_event_records[slot],
+            mailbox->recent_terminal_event_payloads[slot],
+            *event)) {
+      return 0;
+    }
+    ExactGpuServiceEventV2 mutated = *event;
+    mutated.flags = EXACT_GPU_SERVICE_EVENT_FLAG_NONE_V2;
+    const bool trueToFalseContradicts = !equalOperationTerminalEventV2(
+        mailbox->recent_terminal_event_kinds[slot],
+        mailbox->recent_terminal_event_flags[slot],
+        mailbox->recent_terminal_event_records[slot],
+        mailbox->recent_terminal_event_payloads[slot],
+        mutated);
+    const bool falseToTrueContradicts = !equalOperationTerminalEventV2(
+        mailbox->recent_terminal_event_kinds[slot],
+        EXACT_GPU_SERVICE_EVENT_FLAG_NONE_V2,
+        mailbox->recent_terminal_event_records[slot],
+        mailbox->recent_terminal_event_payloads[slot],
+        *event);
+    return trueToFalseContradicts && falseToTrueContradicts ? 1 : 0;
+  } catch (...) {
+    return 0;
+  }
 }
 
 extern "C" uint64_t ibex_test_gpu_v2_host_task_checkpoint_calls() {
@@ -6271,6 +7326,12 @@ extern "C" uint64_t ibex_test_gpu_v2_last_device_lost_reaction_order(void) {
 
 extern "C" uint64_t ibex_test_gpu_v2_last_promise_reaction_order(void) {
   return gGpuV2LastPromiseReactionOrder.load(std::memory_order_seq_cst);
+}
+
+extern "C" uint32_t
+ibex_test_gpu_v2_last_uncaptured_projection_valid(void) {
+  return gGpuV2LastUncapturedProjectionValid.load(
+      std::memory_order_seq_cst);
 }
 
 extern "C" uint64_t
@@ -6549,6 +7610,43 @@ static bool attachGpuV2TestEventObserver(
   return true;
 }
 
+extern "C" int32_t ibex_test_gpu_v2_install_mailbox_only_event_sink(
+    ExactHermesRuntime* runtime) {
+  if (!runtime || !runtime->runtime ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->gpu_binding_v2 || !runtime->gpu_binding_v2->mailbox) {
+    return 0;
+  }
+  try {
+    auto& rt = *runtime->runtime;
+    auto sink = std::make_shared<facebook::jsi::Function>(
+        facebook::jsi::Function::createFromHostFunction(
+            rt,
+            facebook::jsi::PropNameID::forAscii(
+                rt, "observeGpuV2MailboxOnlyEvent"),
+            1,
+            [](facebook::jsi::Runtime&,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value*,
+               size_t) {
+              return facebook::jsi::Value::undefined();
+            }));
+    std::lock_guard<std::mutex> lock(
+        runtime->gpu_binding_v2->mailbox->mutex);
+    if (
+        runtime->gpu_binding_v2->mailbox->phase.load(
+            std::memory_order_acquire) != GpuMailboxPhaseV2::Live ||
+        !runtime->gpu_binding_v2->realm_open) {
+      return 0;
+    }
+    runtime->gpu_binding_v2->wrapper_event_sink = std::move(sink);
+    runtime->gpu_binding_v2->wrapper_event_sink_set = true;
+    return 1;
+  } catch (...) {
+    return 0;
+  }
+}
+
 extern "C" int32_t ibex_test_gpu_v2_install_event_observer(
     ExactHermesRuntime* runtime) {
   if (!runtime || !runtime->runtime ||
@@ -6609,6 +7707,18 @@ extern "C" int32_t ibex_test_gpu_v2_install_event_observer(
                     lossResolvers->resolve->call(
                         rt, facebook::jsi::Value::undefined());
                   }
+                } else if (
+                    kind.isNumber() &&
+                    static_cast<uint32_t>(kind.asNumber()) ==
+                        EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2) {
+                  const auto uncaptured =
+                      event.getProperty(rt, "uncapturedError");
+                  gGpuV2LastUncapturedProjectionValid.store(
+                      uncaptured.isBool() && !uncaptured.getBool() &&
+                              !event.hasProperty(rt, "flags")
+                          ? 1
+                          : 2,
+                      std::memory_order_seq_cst);
                 } else if (
                     kind.isNumber() &&
                     static_cast<uint32_t>(kind.asNumber()) ==
@@ -6838,6 +7948,59 @@ extern "C" size_t ibex_test_gpu_v2_mailbox_submissions(
   }
 }
 
+extern "C" size_t ibex_test_gpu_v2_mailbox_sealed_submissions(
+    ExactHermesRuntime* runtime) {
+  if (!runtime || runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->gpu_binding_v2 || !runtime->gpu_binding_v2->mailbox) {
+    return 0;
+  }
+  try {
+    std::lock_guard<std::mutex> lock(runtime->gpu_binding_v2->mailbox->mutex);
+    return runtime->gpu_binding_v2->mailbox->sealed_submissions.size();
+  } catch (...) {
+    return 0;
+  }
+}
+
+extern "C" size_t ibex_test_gpu_v2_mailbox_sealed_batches(
+    ExactHermesRuntime* runtime) {
+  if (!runtime || runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->gpu_binding_v2 || !runtime->gpu_binding_v2->mailbox) {
+    return 0;
+  }
+  try {
+    std::lock_guard<std::mutex> lock(runtime->gpu_binding_v2->mailbox->mutex);
+    return runtime->gpu_binding_v2->mailbox->sealed_batches.size();
+  } catch (...) {
+    return 0;
+  }
+}
+
+extern "C" int32_t ibex_test_gpu_v2_copy_sealed_submission(
+    ExactHermesRuntime* runtime,
+    uint64_t operation_instance_id,
+    ExactGpuSemanticCallV2* out_call) {
+  if (!runtime || runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->gpu_binding_v2 || !runtime->gpu_binding_v2->mailbox ||
+      !out_call) {
+    return 0;
+  }
+  try {
+    std::lock_guard<std::mutex> lock(runtime->gpu_binding_v2->mailbox->mutex);
+    auto child = runtime->gpu_binding_v2->mailbox->sealed_submissions.find(
+        operation_instance_id);
+    if (
+        child ==
+        runtime->gpu_binding_v2->mailbox->sealed_submissions.end()) {
+      return 0;
+    }
+    *out_call = child->second.submission.call;
+    return 1;
+  } catch (...) {
+    return 0;
+  }
+}
+
 extern "C" size_t ibex_test_gpu_v2_lifecycle_tombstones(
     ExactHermesRuntime* runtime) {
   if (!runtime || runtime->runtime_thread != std::this_thread::get_id() ||
@@ -6923,6 +8086,140 @@ extern "C" int32_t ibex_test_gpu_v2_submit(
           observeSettlement,
           observeSettlement);
     }
+    return static_cast<int32_t>(admission.asNumber());
+  } catch (...) {
+    return -1000;
+  }
+}
+
+extern "C" int32_t ibex_test_gpu_v2_submit_sealed(
+    ExactHermesRuntime* runtime,
+    const ExactGpuSemanticCallV2* template_call,
+    int32_t wants_promise,
+    const ExactGpuSemanticCallV2* child_templates,
+    const uint32_t* authority_sources,
+    size_t child_count,
+    uint64_t* out_operation_instance_id,
+    uint64_t* out_promise_id) {
+  if (out_operation_instance_id) *out_operation_instance_id = 0;
+  if (out_promise_id) *out_promise_id = 0;
+  if (!runtime || !runtime->runtime ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->gpu_binding_v2 || !template_call ||
+      template_call->struct_size != sizeof(ExactGpuSemanticCallV2) ||
+      template_call->abi_version != EXACT_GPU_SERVICE_ABI_VERSION_V2 ||
+      (wants_promise != 0 && wants_promise != 1) ||
+      child_count == 0 || child_count > kMaxGpuPendingOperationsV2 ||
+      !child_templates || !authority_sources) {
+    return -1000;
+  }
+  try {
+    auto call = *template_call;
+    call.realm = runtime->gpu_binding_v2->realm;
+    call.operation_instance_id = 0;
+    call.promise_id = 0;
+    std::vector<ParsedGpuSealedOperationV2> sealed;
+    sealed.reserve(child_count);
+    uint64_t previousOperationInstance = 0;
+    uint64_t previousDeviceIngress = 0;
+    for (size_t index = 0; index < child_count; ++index) {
+      const auto& descriptor = child_templates[index];
+      if (
+          descriptor.struct_size != sizeof(ExactGpuSemanticCallV2) ||
+          descriptor.abi_version != EXACT_GPU_SERVICE_ABI_VERSION_V2 ||
+          descriptor.operation_id == 0 ||
+          descriptor.operation_instance_id < (uint64_t{1} << 63) ||
+          descriptor.operation_instance_id <= previousOperationInstance ||
+          descriptor.device_ingress_ordinal == 0 ||
+          descriptor.device_ingress_ordinal <= previousDeviceIngress ||
+          descriptor.device_ingress_ordinal >=
+              call.device_ingress_ordinal ||
+          !validObjectV2(descriptor.receiver, false) ||
+          !validObjectV2(descriptor.target, true)) {
+        return -1000;
+      }
+      ParsedGpuSealedOperationV2 child;
+      child.call = call;
+      child.call.operation_id = descriptor.operation_id;
+      child.call.operation_instance_id =
+          descriptor.operation_instance_id;
+      child.call.promise_id = 0;
+      child.call.captured_scope_id = descriptor.captured_scope_id;
+      child.call.adapter_ordinal = 0;
+      child.call.device_ingress_ordinal =
+          descriptor.device_ingress_ordinal;
+      child.call.queue_ingress_ordinal = 0;
+      child.call.receiver = descriptor.receiver;
+      child.call.target = descriptor.target;
+      child.call.payload = nullptr;
+      child.call.payload_len = 0;
+      std::copy(
+          std::begin(descriptor.authority_context_digest),
+          std::end(descriptor.authority_context_digest),
+          std::begin(child.call.authority_context_digest));
+      child.call.authority_session_id = 0;
+      const bool active =
+          runtime->gpu_binding_v2->allowed_operations.count(
+              child.call.operation_id) != 0;
+      switch (authority_sources[index]) {
+        case 1:
+          if (!active ||
+              !nonzeroDigestV2(child.call.authority_context_digest)) {
+            return -1000;
+          }
+          child.authority_context_source =
+              GpuSealedAuthorityContextSourceV2::CommandProgram;
+          break;
+        case 2:
+          if (active &&
+              !nonzeroDigestV2(child.call.authority_context_digest)) {
+            child.authority_context_source =
+                GpuSealedAuthorityContextSourceV2::EnclosingCarrier;
+            break;
+          }
+          return -1000;
+        case 3:
+          if (active ||
+              !nonzeroDigestV2(child.call.authority_context_digest)) {
+            return -1000;
+          }
+          child.staged_local = true;
+          child.authority_context_source =
+              GpuSealedAuthorityContextSourceV2::StagedRecord;
+          break;
+        default:
+          return -1000;
+      }
+      previousOperationInstance = child.call.operation_instance_id;
+      previousDeviceIngress = child.call.device_ingress_ordinal;
+      sealed.push_back(std::move(child));
+    }
+    auto result = submitGpuV2Carrier(
+        runtime,
+        *runtime->gpu_binding_v2,
+        *runtime->runtime,
+        call,
+        wants_promise == 1,
+        std::move(sealed));
+    if (!result.isObject()) return -1000;
+    auto object = result.getObject(*runtime->runtime);
+    auto operation =
+        object.getProperty(*runtime->runtime, "operationInstanceId");
+    auto promise = object.getProperty(*runtime->runtime, "promiseId");
+    auto admission =
+        object.getProperty(*runtime->runtime, "submissionStatus");
+    if (!operation.isString() || !promise.isString() ||
+        !admission.isNumber()) {
+      return -1000;
+    }
+    const uint64_t parsedOperation = parseCanonicalGpuV2Uint64(
+        *runtime->runtime, operation, "operationInstanceId", false);
+    const uint64_t parsedPromise = parseCanonicalGpuV2Uint64(
+        *runtime->runtime, promise, "promiseId", true);
+    if (out_operation_instance_id) {
+      *out_operation_instance_id = parsedOperation;
+    }
+    if (out_promise_id) *out_promise_id = parsedPromise;
     return static_cast<int32_t>(admission.asNumber());
   } catch (...) {
     return -1000;

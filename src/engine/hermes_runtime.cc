@@ -4186,7 +4186,8 @@ void installBootstrapCompatibilityModes(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
   size_t count = (handle->bootstrap_bun_compat ? 1u : 0u) +
       (handle->bootstrap_fixture_compat ? 1u : 0u) +
-      (handle->bootstrap_bun_fixture ? 1u : 0u);
+      (handle->bootstrap_bun_fixture ? 1u : 0u) +
+      (handle->bootstrap_dev_served ? 1u : 0u);
   facebook::jsi::Array modes(rt, count);
   size_t index = 0;
   auto append = [&](const char* mode) {
@@ -4196,6 +4197,7 @@ void installBootstrapCompatibilityModes(ExactHermesRuntime* handle) {
         facebook::jsi::String::createFromAscii(rt, mode));
   };
   if (handle->bootstrap_bun_compat) append("bun");
+  if (handle->bootstrap_dev_served) append("dev-served");
   if (handle->bootstrap_fixture_compat) append("fixture");
   if (handle->bootstrap_bun_fixture) append("fixture:bun");
   auto freeze = rt.global()
@@ -4204,6 +4206,45 @@ void installBootstrapCompatibilityModes(ExactHermesRuntime* handle) {
   auto frozenModes = freeze.call(rt, modes);
   rt.global().setProperty(
       rt, "__exactCompatModes", std::move(frozenModes));
+  if (handle->bootstrap_dev_served) {
+    auto captureLifecycle = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(
+            rt, "capture dev-served module table lifecycle"),
+        1,
+        [handle](facebook::jsi::Runtime& callbackRuntime,
+                 const facebook::jsi::Value&,
+                 const facebook::jsi::Value* args,
+                 size_t count) -> facebook::jsi::Value {
+          if (count != 1 || !args[0].isObject() ||
+              !args[0].asObject(callbackRuntime).isFunction(callbackRuntime) ||
+              handle->dev_served_module_table_lifecycle) {
+            return facebook::jsi::Value(false);
+          }
+          handle->dev_served_module_table_lifecycle =
+              std::make_unique<facebook::jsi::Function>(
+                  args[0].asObject(callbackRuntime).asFunction(callbackRuntime));
+          return facebook::jsi::Value(true);
+        });
+    rt.global().setProperty(
+        rt,
+        "__exactCaptureDevServedModuleTableLifecycle",
+        std::move(captureLifecycle));
+    auto quarantine = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(
+            rt, "quarantine malformed dev-served module table"),
+        0,
+        [handle](facebook::jsi::Runtime&,
+                 const facebook::jsi::Value&,
+                 const facebook::jsi::Value*,
+                 size_t) -> facebook::jsi::Value {
+          (void)exactRuntimeQuarantine(handle);
+          return facebook::jsi::Value::undefined();
+        });
+    rt.global().setProperty(
+        rt, "__exactQuarantineDevServedModuleTable", std::move(quarantine));
+  }
   if (handle->process_ipc_fd >= 0) {
     // Publish a dedicated frozen bootstrap input rather than projecting the
     // inherited descriptor through either the principal environment or the
@@ -7454,6 +7495,29 @@ static int32_t verifyPreparedNativeStartupAbsentUncheckedV1(
   }
 }
 
+static bool driveDevServedModuleTableLifecycle(
+    ExactHermesRuntime* runtime,
+    const char* action) noexcept {
+  if (!runtime->bootstrap_dev_served) return true;
+  if (!runtime->dev_served_module_table_lifecycle) {
+    (void)exactRuntimeQuarantine(runtime);
+    return false;
+  }
+  try {
+    auto result = runtime->dev_served_module_table_lifecycle->call(
+        *runtime->runtime,
+        facebook::jsi::String::createFromAscii(*runtime->runtime, action));
+    if (!result.isBool() || !result.getBool()) {
+      (void)exactRuntimeQuarantine(runtime);
+      return false;
+    }
+    return true;
+  } catch (...) {
+    (void)exactRuntimeQuarantine(runtime);
+    return false;
+  }
+}
+
 extern "C" int32_t ex_hermes_begin_app_bundle_evaluation_v1(
     ExactHermesRuntime* runtime,
     uint32_t expected_prepared_disposition) {
@@ -7503,6 +7567,14 @@ extern "C" int32_t ex_hermes_begin_app_bundle_evaluation_v1(
   runtime->app_bundle_prepared_consume_gpu_integration.reset();
   runtime->app_bundle_prepared_run_app.reset();
 
+  if (!driveDevServedModuleTableLifecycle(runtime, "begin")) {
+    runtime->app_bundle_evaluation_open.store(
+        false, std::memory_order_release);
+    runtime->app_bundle_expected_prepared_disposition = 0;
+    (void)exactRuntimeFinishGpuCanvasDebuggerExclusion(runtime);
+    return EXACT_RUNTIME_DRIVE_QUARANTINED;
+  }
+
   const int32_t absence = verifyPreparedNativeStartupAbsentUncheckedV1(runtime);
   if (absence == EXACT_PREPARED_NATIVE_STARTUP_OK_V1) {
     return EXACT_RUNTIME_DRIVE_OK;
@@ -7539,6 +7611,9 @@ extern "C" int32_t ex_hermes_finish_app_bundle_evaluation_v1(
   } else if (runtime->app_bundle_expected_prepared_disposition != 0 &&
              (!runtime->app_bundle_prepared_staged ||
               !runtime->app_bundle_prepared_invoked)) {
+    (void)exactRuntimeQuarantine(runtime);
+  }
+  if (!driveDevServedModuleTableLifecycle(runtime, "finish")) {
     (void)exactRuntimeQuarantine(runtime);
   }
   const int32_t absence = verifyPreparedNativeStartupAbsentUncheckedV1(runtime);
@@ -7811,6 +7886,11 @@ extern "C" int32_t ex_hermes_run_prepared_app_v1(
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
   try {
+    if (!driveDevServedModuleTableLifecycle(runtime, "mark-run-app")) {
+      writePreparedNativeStartupErrorV1(
+          out_error, "Dev-served module table lifecycle refused runApp");
+      return EXACT_RUNTIME_DRIVE_QUARANTINED;
+    }
     (void)runApp->call(*runtime->runtime);
     runtime->app_bundle_prepared_invoked = true;
     if (!hostTask.finish()) {
@@ -7881,6 +7961,11 @@ static bool capturePrivateBridgeConsumers(ExactHermesRuntime* handle) {
       throw std::runtime_error(
           "private bootstrap facade materializer is unavailable");
     }
+    if (handle->bootstrap_dev_served &&
+        !handle->dev_served_module_table_lifecycle) {
+      throw std::runtime_error(
+          "dev-served module table lifecycle was not captured");
+    }
     if (!handle->structured_promise_rejection_tracker_configured ||
         !handle->structured_unhandled_rejection_handler ||
         !handle->structured_rejection_handled_handler) {
@@ -7918,6 +8003,8 @@ static bool sealRootGlobalSessionBridges(ExactHermesRuntime* handle) {
              // intentionally idempotent because the Rust preload also closes
              // temporary process/bootstrap wires before this final sweep.
              "__exactCompatModes",
+             "__exactCaptureDevServedModuleTableLifecycle",
+             "__exactQuarantineDevServedModuleTable",
              "__exactFsMutationGuard",
              "__exactGetCwd",
              "__exactOnRejectionHandled",
@@ -8547,7 +8634,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   if (armed) {
     const uint32_t compatibilityFlags =
         ex_host_armed_bootstrap_compatibility_flags();
-    if ((compatibilityFlags & ~7u) != 0 ||
+    if ((compatibilityFlags & ~15u) != 0 ||
         ((compatibilityFlags & 4u) != 0 &&
          (compatibilityFlags & 2u) == 0)) {
       ex_host_console_log(
@@ -8559,6 +8646,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     handle->bootstrap_bun_compat = (compatibilityFlags & 1u) != 0;
     handle->bootstrap_fixture_compat = (compatibilityFlags & 2u) != 0;
     handle->bootstrap_bun_fixture = (compatibilityFlags & 4u) != 0;
+    handle->bootstrap_dev_served = (compatibilityFlags & 8u) != 0;
   }
   if (armed) {
     // Bind the authenticated namespace before bootstrap installs any path-

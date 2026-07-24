@@ -116,7 +116,23 @@ pub(crate) fn transpile_source_to_cjs(
 pub fn transpile_to_cjs(source: &str, path: &Path) -> Result<String> {
     let globals = Globals::new();
     GLOBALS.set(&globals, || {
-        HELPERS.set(&Helpers::new(false), || transpile_with_swc(source, path))
+        HELPERS.set(&Helpers::new(false), || {
+            transpile_with_swc(source, path, false)
+        })
+    })
+}
+
+/// Lower an entry whose route has already established ESM source goal.
+///
+/// `parse_program` cannot infer module goal from an awaited dynamic import
+/// alone. Forcing `parse_module` here ensures SWC visits and lowers that
+/// `import()` instead of leaving Hermes-unsupported syntax in the TLA shim.
+pub fn transpile_module_to_cjs(source: &str, path: &Path) -> Result<String> {
+    let globals = Globals::new();
+    GLOBALS.set(&globals, || {
+        HELPERS.set(&Helpers::new(false), || {
+            transpile_with_swc(source, path, true)
+        })
     })
 }
 
@@ -188,7 +204,7 @@ fn parse_replacement_expr(cm: &Lrc<SourceMap>, snippet: &'static str) -> Result<
 const IMPORT_META_URL_EXPR: &str = r#"("file://" + (__filename.charAt(0) === "/" ? __filename : "/" + __filename).replace(/\\/g, "/"))"#;
 const IMPORT_META_EXPR: &str = "globalThis.__exactImportMeta";
 
-fn transpile_with_swc(source: &str, path: &Path) -> Result<String> {
+fn transpile_with_swc(source: &str, path: &Path, force_module_goal: bool) -> Result<String> {
     let cm: Lrc<SourceMap> = Lrc::default();
     let file_name = swc_common::FileName::Real(path.to_path_buf());
     let fm = cm.new_source_file(Lrc::new(file_name), source.to_string());
@@ -213,9 +229,12 @@ fn transpile_with_swc(source: &str, path: &Path) -> Result<String> {
         Some(&comments),
     );
     let mut parser = Parser::new_from(lexer);
-    let program = parser
-        .parse_program()
-        .map_err(|err| anyhow!("Failed to parse {}: {}", path.display(), err.kind().msg()))?;
+    let program = if force_module_goal {
+        parser.parse_module().map(Program::Module)
+    } else {
+        parser.parse_program()
+    }
+    .map_err(|err| anyhow!("Failed to parse {}: {}", path.display(), err.kind().msg()))?;
     let recovered_errors = parser.take_errors();
     if !recovered_errors.is_empty() {
         let rendered = recovered_errors
@@ -446,6 +465,17 @@ mod tests {
         let source = "const z = await Promise.resolve(1);\nconsole.log(z);\n";
         let out = transpile_to_cjs(source, &PathBuf::from("/tmp/spike-tla.ts")).expect("transpile");
         assert!(out.contains("await"), "TLA passes through: {out}");
+    }
+
+    #[test]
+    fn forced_module_goal_lowers_awaited_dynamic_import_without_static_marker() {
+        let source =
+            "try { await import('./thrower.mjs'); } catch (error) { console.log(error); }\n";
+        let out =
+            transpile_module_to_cjs(source, &PathBuf::from("/tmp/spike-dynamic-only-entry.mjs"))
+                .expect("transpile module entry");
+        assert!(out.contains("require("), "dynamic import lowered: {out}");
+        assert!(!out.contains("import("), "no dynamic import remains: {out}");
     }
 
     #[test]

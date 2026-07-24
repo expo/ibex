@@ -512,6 +512,14 @@ export function portableWebGpuTestWrapperFactory(plan) {
     return device.localScopes[device.localScopes.length - 1];
   }
 
+  function consumesQueueIngress(operationId) {
+    return (
+      operationId === "GPUQueue.submit" ||
+      operationId === "GPUCanvasContext.configure" ||
+      operationId === "GPUCanvasContext.unconfigure"
+    );
+  }
+
   function traceRealm(realm, kind, call, details) {
     var entry = {
       ordinal: realm.nextTraceOrdinal++,
@@ -555,7 +563,9 @@ export function portableWebGpuTestWrapperFactory(plan) {
           : 0,
       deviceIngressOrdinal: device ? device.nextIngress++ : 0,
       queueIngressOrdinal:
-        operationId === "GPUQueue.submit" && device ? device.nextQueueIngress++ : 0,
+        consumesQueueIngress(operationId) && device
+          ? device.nextQueueIngress++
+          : 0,
       capturedScopeId: currentScopeId(device),
       receiverState: receiverState || null,
       wireReceiverState: wireReceiverState,
@@ -621,6 +631,12 @@ export function portableWebGpuTestWrapperFactory(plan) {
     call.ingressDevice = device;
     call.operationProviderGeneration = device.providerGeneration;
     call.deviceIngressOrdinal = device.nextIngress++;
+    if (consumesQueueIngress(call.route.operationId)) {
+      if (call.queueIngressOrdinal) {
+        throw new Error("queue ingress must be assigned exactly once");
+      }
+      call.queueIngressOrdinal = device.nextQueueIngress++;
+    }
     call.capturedScopeId = currentScopeId(device);
     call.publicRecord.capturedScopeId = call.capturedScopeId;
   }
@@ -1990,10 +2006,11 @@ export function portableWebGpuTestWrapperFactory(plan) {
 
   defineMethod(prototypeFor("GPUCanvasContext"), "unconfigure", function () {
     var context = requireReceiver(this, "GPUCanvasContext");
-    var call = beginPublic(context.realm, "GPUCanvasContext.unconfigure", context, null);
     var wasConfigured = Boolean(context.configuration && context.configuredDevice);
+    if (!wasConfigured) return;
+    var call = beginPublic(context.realm, "GPUCanvasContext.unconfigure", context, null);
     selectProviderRoutingTerminal(call, {
-      alreadyTerminal: !wasConfigured,
+      alreadyTerminal: false,
       cleanupPredicatesValid: true,
     });
     if (context.configuredDevice) {

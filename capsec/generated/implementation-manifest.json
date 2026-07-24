@@ -125439,6 +125439,42 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam",
+      "observedKey": "host-abi:ex_host_capture_exact_gpu_presentation_authority_v2",
+      "branchId": "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_capture_exact_gpu_presentation_authority_v2"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_capture_exact_gpu_presentation_authority_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_capture_exact_gpu_presentation_authority_v2"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_capture_exact_gpu_presentation_authority_v2"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_capture_exact_gpu_presentation_authority_v2"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam.default.attribution-missing-deny",
+        "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam.default.generation-recheck",
+        "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam.default.non-capability",
+        "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam.default.principal-restore",
+        "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam.default.snapshot-mismatch-deny"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.check.capability.1h17wl4",
       "observedKey": "host-abi:ex_host_check_capability",
       "branchId": "surface.host.abi.ex.host.check.capability.1h17wl4.default",
@@ -129229,6 +129265,42 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.recheck.exact.gpu.presentation.authority.v2.01k31wv",
+      "observedKey": "host-abi:ex_host_recheck_exact_gpu_presentation_authority_v2",
+      "branchId": "surface.host.abi.ex.host.recheck.exact.gpu.presentation.authority.v2.01k31wv.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.recheck.exact.gpu.presentation.authority.v2.01k31wv.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_recheck_exact_gpu_presentation_authority_v2"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_recheck_exact_gpu_presentation_authority_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_recheck_exact_gpu_presentation_authority_v2"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_recheck_exact_gpu_presentation_authority_v2"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_recheck_exact_gpu_presentation_authority_v2"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.recheck.exact.gpu.presentation.authority.v2.01k31wv.default.attribution-missing-deny",
+        "surface.host.abi.ex.host.recheck.exact.gpu.presentation.authority.v2.01k31wv.default.generation-recheck",
+        "surface.host.abi.ex.host.recheck.exact.gpu.presentation.authority.v2.01k31wv.default.non-capability",
+        "surface.host.abi.ex.host.recheck.exact.gpu.presentation.authority.v2.01k31wv.default.principal-restore",
+        "surface.host.abi.ex.host.recheck.exact.gpu.presentation.authority.v2.01k31wv.default.snapshot-mismatch-deny"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.register.module.package.1ncq2is",
       "observedKey": "host-abi:ex_host_register_module_package",
       "branchId": "surface.host.abi.ex.host.register.module.package.1ncq2is.default",
@@ -129362,6 +129434,38 @@
         "surface.host.abi.ex.host.restore.context.1q77zqb.default.cannot-widen-authority",
         "surface.host.abi.ex.host.restore.context.1q77zqb.default.non-capability",
         "surface.host.abi.ex.host.restore.context.1q77zqb.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.retire.exact.gpu.presentation.authority.v2.1jtflpt",
+      "observedKey": "host-abi:ex_host_retire_exact_gpu_presentation_authority_v2",
+      "branchId": "surface.host.abi.ex.host.retire.exact.gpu.presentation.authority.v2.1jtflpt.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.retire.exact.gpu.presentation.authority.v2.1jtflpt.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_retire_exact_gpu_presentation_authority_v2"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_retire_exact_gpu_presentation_authority_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_retire_exact_gpu_presentation_authority_v2"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_retire_exact_gpu_presentation_authority_v2"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_retire_exact_gpu_presentation_authority_v2"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.retire.exact.gpu.presentation.authority.v2.1jtflpt.default.non-capability"
       ]
     },
     {
@@ -133971,11 +134075,12 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:iter:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:join:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:kind:count-2",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-2",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-3",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:map_err:count-3",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:msg:count-2",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:mutate:count-7",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:new_source_file:count-1",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_module:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_program:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:take_errors:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:to_ascii_lowercase:count-1",
@@ -134336,11 +134441,12 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:iter:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:join:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:kind:count-2",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-2",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-3",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:map_err:count-3",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:msg:count-2",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:mutate:count-7",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:new_source_file:count-1",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_module:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_program:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:take_errors:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:to_ascii_lowercase:count-1",
@@ -134708,11 +134814,12 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:iter:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:join:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:kind:count-2",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-2",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-3",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:map_err:count-3",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:msg:count-2",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:mutate:count-7",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:new_source_file:count-1",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_module:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_program:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:take_errors:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:to_ascii_lowercase:count-1",
@@ -135160,11 +135267,12 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:iter:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:join:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:kind:count-2",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-2",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-3",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:map_err:count-3",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:msg:count-2",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:mutate:count-7",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:new_source_file:count-1",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_module:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_program:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:take_errors:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:to_ascii_lowercase:count-1",
@@ -135597,11 +135705,12 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:iter:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:join:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:kind:count-2",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-2",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-3",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:map_err:count-3",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:msg:count-2",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:mutate:count-7",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:new_source_file:count-1",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_module:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_program:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:take_errors:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:to_ascii_lowercase:count-1",
@@ -136041,11 +136150,12 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:iter:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:join:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:kind:count-2",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-2",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-3",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:map_err:count-3",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:msg:count-2",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:mutate:count-7",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:new_source_file:count-1",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_module:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_program:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:take_errors:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:to_ascii_lowercase:count-1",
@@ -136951,11 +137061,12 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:iter:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:join:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:kind:count-2",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-2",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-3",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:map_err:count-3",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:msg:count-2",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:mutate:count-7",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:new_source_file:count-1",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_module:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_program:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:take_errors:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:to_ascii_lowercase:count-1",
@@ -137846,11 +137957,12 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:iter:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:join:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:kind:count-2",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-2",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-3",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:map_err:count-3",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:msg:count-2",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:mutate:count-7",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:new_source_file:count-1",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_module:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_program:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:take_errors:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:to_ascii_lowercase:count-1",
@@ -138748,11 +138860,12 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:iter:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:join:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:kind:count-2",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-2",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-3",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:map_err:count-3",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:msg:count-2",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:mutate:count-7",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:new_source_file:count-1",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_module:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_program:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:take_errors:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:to_ascii_lowercase:count-1",
@@ -139304,11 +139417,12 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:iter:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:join:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:kind:count-2",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-2",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-3",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:map_err:count-3",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:msg:count-2",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:mutate:count-7",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:new_source_file:count-1",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_module:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_program:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:take_errors:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:to_ascii_lowercase:count-1",
@@ -139673,11 +139787,12 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:iter:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:join:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:kind:count-2",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-2",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-3",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:map_err:count-3",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:msg:count-2",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:mutate:count-7",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:new_source_file:count-1",
+          "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_module:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_program:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:take_errors:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:method:to_ascii_lowercase:count-1",
@@ -140049,11 +140164,12 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:iter:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:join:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:kind:count-2",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-2",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-3",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:map_err:count-3",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:msg:count-2",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:mutate:count-7",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:new_source_file:count-1",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_module:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_program:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:take_errors:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:to_ascii_lowercase:count-1",
@@ -140081,6 +140197,37 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.loader.external.calls.transform.1nr5vf9.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.addresolved.123dxvo",
+      "observedKey": "loader:function:javascript:addResolved",
+      "branchId": "surface.loader.function.javascript.addresolved.123dxvo.main",
+      "enforcementBranchId": "surface.loader.function.javascript.addresolved.123dxvo.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:javascript:addResolved"
+        ],
+        "proofSourceRefs": [
+          "src/engine/bootstrap/module-loader.js#addResolved"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#addResolved"
+        ],
+        "terminalObservedKey": "loader:function:javascript:addResolved"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#addResolved"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.loader.function.javascript.addresolved.123dxvo.main.non-capability"
       ]
     },
     {
@@ -140112,6 +140259,39 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.loader.function.javascript.builtincachekeyfor.06poq58.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.capturedevservedmoduletable.11upuhr",
+      "observedKey": "loader:function:javascript:captureDevServedModuleTable",
+      "branchId": "surface.loader.function.javascript.capturedevservedmoduletable.11upuhr.main",
+      "enforcementBranchId": "surface.loader.function.javascript.capturedevservedmoduletable.11upuhr.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:javascript:captureDevServedModuleTable"
+        ],
+        "proofSourceRefs": [
+          "src/engine/bootstrap/module-loader.js#captureDevServedModuleTable"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#captureDevServedModuleTable"
+        ],
+        "terminalObservedKey": "loader:function:javascript:captureDevServedModuleTable"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#captureDevServedModuleTable"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.loader.function.javascript.capturedevservedmoduletable.11upuhr.main.cannot-widen-authority",
+        "surface.loader.function.javascript.capturedevservedmoduletable.11upuhr.main.non-capability",
+        "surface.loader.function.javascript.capturedevservedmoduletable.11upuhr.main.post-lockdown-invariant"
       ]
     },
     {
@@ -140333,6 +140513,37 @@
         "surface.loader.function.javascript.createoriginalmoduleregistry.0w4pqi5.main.cannot-widen-authority",
         "surface.loader.function.javascript.createoriginalmoduleregistry.0w4pqi5.main.non-capability",
         "surface.loader.function.javascript.createoriginalmoduleregistry.0w4pqi5.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.devservedimportgatespecifier.0ekc8hh",
+      "observedKey": "loader:function:javascript:devServedImportGateSpecifier",
+      "branchId": "surface.loader.function.javascript.devservedimportgatespecifier.0ekc8hh.main",
+      "enforcementBranchId": "surface.loader.function.javascript.devservedimportgatespecifier.0ekc8hh.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:javascript:devServedImportGateSpecifier"
+        ],
+        "proofSourceRefs": [
+          "src/engine/bootstrap/module-loader.js#devServedImportGateSpecifier"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#devServedImportGateSpecifier"
+        ],
+        "terminalObservedKey": "loader:function:javascript:devServedImportGateSpecifier"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#devServedImportGateSpecifier"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.loader.function.javascript.devservedimportgatespecifier.0ekc8hh.main.non-capability"
       ]
     },
     {
@@ -141274,6 +141485,39 @@
       ]
     },
     {
+      "edgeId": "surface.loader.function.javascript.quarantinedevservedmoduletable.0twssbz",
+      "observedKey": "loader:function:javascript:quarantineDevServedModuleTable",
+      "branchId": "surface.loader.function.javascript.quarantinedevservedmoduletable.0twssbz.main",
+      "enforcementBranchId": "surface.loader.function.javascript.quarantinedevservedmoduletable.0twssbz.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:javascript:quarantineDevServedModuleTable"
+        ],
+        "proofSourceRefs": [
+          "src/engine/bootstrap/module-loader.js#quarantineDevServedModuleTable"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#quarantineDevServedModuleTable"
+        ],
+        "terminalObservedKey": "loader:function:javascript:quarantineDevServedModuleTable"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#quarantineDevServedModuleTable"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.loader.function.javascript.quarantinedevservedmoduletable.0twssbz.main.cannot-widen-authority",
+        "surface.loader.function.javascript.quarantinedevservedmoduletable.0twssbz.main.non-capability",
+        "surface.loader.function.javascript.quarantinedevservedmoduletable.0twssbz.main.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.loader.function.javascript.rejectruntimeloaderoptions.06msoo9",
       "observedKey": "loader:function:javascript:rejectRuntimeLoaderOptions",
       "branchId": "surface.loader.function.javascript.rejectruntimeloaderoptions.06msoo9.main",
@@ -141335,6 +141579,68 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.loader.function.javascript.resolveaborterror.06ug0wm.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.resolvedevservedmodule.0n38hjr",
+      "observedKey": "loader:function:javascript:resolveDevServedModule",
+      "branchId": "surface.loader.function.javascript.resolvedevservedmodule.0n38hjr.main",
+      "enforcementBranchId": "surface.loader.function.javascript.resolvedevservedmodule.0n38hjr.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:javascript:resolveDevServedModule"
+        ],
+        "proofSourceRefs": [
+          "src/engine/bootstrap/module-loader.js#resolveDevServedModule"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#resolveDevServedModule"
+        ],
+        "terminalObservedKey": "loader:function:javascript:resolveDevServedModule"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#resolveDevServedModule"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.loader.function.javascript.resolvedevservedmodule.0n38hjr.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.resolvedevservedspecifier.0rbhk81",
+      "observedKey": "loader:function:javascript:resolveDevServedSpecifier",
+      "branchId": "surface.loader.function.javascript.resolvedevservedspecifier.0rbhk81.main",
+      "enforcementBranchId": "surface.loader.function.javascript.resolvedevservedspecifier.0rbhk81.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:javascript:resolveDevServedSpecifier"
+        ],
+        "proofSourceRefs": [
+          "src/engine/bootstrap/module-loader.js#resolveDevServedSpecifier"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#resolveDevServedSpecifier"
+        ],
+        "terminalObservedKey": "loader:function:javascript:resolveDevServedSpecifier"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#resolveDevServedSpecifier"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.loader.function.javascript.resolvedevservedspecifier.0rbhk81.main.non-capability"
       ]
     },
     {
@@ -144237,6 +144543,37 @@
         "enforcement.src.module.loader.mod.rs.transpile.module.0zidf7i.logical.external-transform.malformed",
         "enforcement.src.module.loader.mod.rs.transpile.module.0zidf7i.logical.external-transform.missing-attribution",
         "enforcement.src.module.loader.mod.rs.transpile.module.0zidf7i.logical.external-transform.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.function.rust.transpile.module.to.cjs.1n3pocu",
+      "observedKey": "loader:function:rust:transpile_module_to_cjs",
+      "branchId": "surface.loader.function.rust.transpile.module.to.cjs.1n3pocu.main",
+      "enforcementBranchId": "surface.loader.function.rust.transpile.module.to.cjs.1n3pocu.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:rust:transpile_module_to_cjs"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/transpile.rs#transpile_module_to_cjs"
+        ],
+        "sourceRefs": [
+          "src/module_loader/transpile.rs#transpile_module_to_cjs"
+        ],
+        "terminalObservedKey": "loader:function:rust:transpile_module_to_cjs"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/transpile.rs#transpile_module_to_cjs"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.loader.function.rust.transpile.module.to.cjs.1n3pocu.main.non-capability"
       ]
     },
     {
@@ -160821,6 +161158,37 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.construction.private.gpunativebridgev2.capturepresentationauthority.1onjdqu",
+      "observedKey": "native-op:construction-private:gpuNativeBridgeV2.capturePresentationAuthority",
+      "branchId": "surface.native.op.construction.private.gpunativebridgev2.capturepresentationauthority.1onjdqu.construction.private.host.function.0i3h46u",
+      "enforcementBranchId": "surface.native.op.construction.private.gpunativebridgev2.capturepresentationauthority.1onjdqu.construction.private.host.function.0i3h46u",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:gpuNativeBridgeV2.capturePresentationAuthority"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.capturePresentationAuthority:capturePresentationAuthority:captureGpuPresentationAuthorityBridgeCall"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.capturePresentationAuthority:capturePresentationAuthority:captureGpuPresentationAuthorityBridgeCall"
+        ],
+        "terminalObservedKey": "native-op:construction-private:gpuNativeBridgeV2.capturePresentationAuthority"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.capturePresentationAuthority:capturePresentationAuthority:captureGpuPresentationAuthorityBridgeCall"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.gpunativebridgev2.capturepresentationauthority.1onjdqu.construction.private.host.function.0i3h46u.closed"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.construction.private.gpunativebridgev2.createmappedrangealias.1wlkeyh",
       "observedKey": "native-op:construction-private:gpuNativeBridgeV2.createMappedRangeAlias",
       "branchId": "surface.native.op.construction.private.gpunativebridgev2.createmappedrangealias.1wlkeyh.construction.private.host.function.0chd8c3",
@@ -160883,6 +161251,37 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.construction.private.gpunativebridgev2.recheckpresentationauthority.1ccx3xx",
+      "observedKey": "native-op:construction-private:gpuNativeBridgeV2.recheckPresentationAuthority",
+      "branchId": "surface.native.op.construction.private.gpunativebridgev2.recheckpresentationauthority.1ccx3xx.construction.private.host.function.0w88lox",
+      "enforcementBranchId": "surface.native.op.construction.private.gpunativebridgev2.recheckpresentationauthority.1ccx3xx.construction.private.host.function.0w88lox",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:gpuNativeBridgeV2.recheckPresentationAuthority"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.recheckPresentationAuthority:recheckPresentationAuthority:recheckGpuPresentationAuthorityBridgeCall"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.recheckPresentationAuthority:recheckPresentationAuthority:recheckGpuPresentationAuthorityBridgeCall"
+        ],
+        "terminalObservedKey": "native-op:construction-private:gpuNativeBridgeV2.recheckPresentationAuthority"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.recheckPresentationAuthority:recheckPresentationAuthority:recheckGpuPresentationAuthorityBridgeCall"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.gpunativebridgev2.recheckpresentationauthority.1ccx3xx.construction.private.host.function.0w88lox.closed"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa",
       "observedKey": "native-op:construction-private:gpuNativeBridgeV2.retire",
       "branchId": "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa.construction.private.host.function.1dv8ls4",
@@ -160911,6 +161310,37 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa.construction.private.host.function.1dv8ls4.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.gpunativebridgev2.retirepresentationauthority.1ppnqer",
+      "observedKey": "native-op:construction-private:gpuNativeBridgeV2.retirePresentationAuthority",
+      "branchId": "surface.native.op.construction.private.gpunativebridgev2.retirepresentationauthority.1ppnqer.construction.private.host.function.0haasu1",
+      "enforcementBranchId": "surface.native.op.construction.private.gpunativebridgev2.retirepresentationauthority.1ppnqer.construction.private.host.function.0haasu1",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:gpuNativeBridgeV2.retirePresentationAuthority"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.retirePresentationAuthority:retirePresentationAuthority:retireGpuPresentationAuthorityBridgeCall"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.retirePresentationAuthority:retirePresentationAuthority:retireGpuPresentationAuthorityBridgeCall"
+        ],
+        "terminalObservedKey": "native-op:construction-private:gpuNativeBridgeV2.retirePresentationAuthority"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.retirePresentationAuthority:retirePresentationAuthority:retireGpuPresentationAuthorityBridgeCall"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.gpunativebridgev2.retirepresentationauthority.1ppnqer.construction.private.host.function.0haasu1.closed"
       ]
     },
     {
@@ -161012,20 +161442,20 @@
     {
       "edgeId": "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz",
       "observedKey": "native-op:construction-private:webgpu:GPU.requestAdapter",
-      "branchId": "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz.authenticated.production.route.1w7f0i7",
-      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz.authenticated.production.route.1w7f0i7",
+      "branchId": "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz.authenticated.production.route.0jw89sf",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz.authenticated.production.route.0jw89sf",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
           "native-op:construction-private:webgpu:GPU.requestAdapter"
         ],
         "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPU.requestAdapter:1660448199",
-          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPU.requestAdapter:1660448199"
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPU.requestAdapter:1574056057",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPU.requestAdapter:1574056057"
         ],
         "sourceRefs": [
-          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPU.requestAdapter:1660448199",
-          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPU.requestAdapter:1660448199"
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPU.requestAdapter:1574056057",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPU.requestAdapter:1574056057"
         ],
         "terminalObservedKey": "native-op:construction-private:webgpu:GPU.requestAdapter"
       },
@@ -161035,12 +161465,12 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPU.requestAdapter:1660448199",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPU.requestAdapter:1660448199"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPU.requestAdapter:1574056057",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPU.requestAdapter:1574056057"
       ],
       "implementationOwner": "WP4",
       "fixtureObligations": [
-        "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz.authenticated.production.route.1w7f0i7.closed"
+        "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz.authenticated.production.route.0jw89sf.closed"
       ]
     },
     {
@@ -161114,20 +161544,20 @@
     {
       "edgeId": "surface.native.op.construction.private.webgpu.gpubuffer.destroy.1686eph",
       "observedKey": "native-op:construction-private:webgpu:GPUBuffer.destroy",
-      "branchId": "surface.native.op.construction.private.webgpu.gpubuffer.destroy.1686eph.authenticated.production.route.0xx385h",
-      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpubuffer.destroy.1686eph.authenticated.production.route.0xx385h",
+      "branchId": "surface.native.op.construction.private.webgpu.gpubuffer.destroy.1686eph.authenticated.production.route.1dc7s94",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpubuffer.destroy.1686eph.authenticated.production.route.1dc7s94",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
           "native-op:construction-private:webgpu:GPUBuffer.destroy"
         ],
         "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.destroy:3314731466",
-          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.destroy:3314731466"
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.destroy:896157854",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.destroy:896157854"
         ],
         "sourceRefs": [
-          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.destroy:3314731466",
-          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.destroy:3314731466"
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.destroy:896157854",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.destroy:896157854"
         ],
         "terminalObservedKey": "native-op:construction-private:webgpu:GPUBuffer.destroy"
       },
@@ -161137,31 +161567,31 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.destroy:3314731466",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.destroy:3314731466"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.destroy:896157854",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.destroy:896157854"
       ],
       "implementationOwner": "WP4",
       "fixtureObligations": [
-        "surface.native.op.construction.private.webgpu.gpubuffer.destroy.1686eph.authenticated.production.route.0xx385h.non-capability"
+        "surface.native.op.construction.private.webgpu.gpubuffer.destroy.1686eph.authenticated.production.route.1dc7s94.non-capability"
       ]
     },
     {
       "edgeId": "surface.native.op.construction.private.webgpu.gpubuffer.getmappedrange.1xssoqp",
       "observedKey": "native-op:construction-private:webgpu:GPUBuffer.getMappedRange",
-      "branchId": "surface.native.op.construction.private.webgpu.gpubuffer.getmappedrange.1xssoqp.authenticated.production.route.0up8q1a",
-      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpubuffer.getmappedrange.1xssoqp.authenticated.production.route.0up8q1a",
+      "branchId": "surface.native.op.construction.private.webgpu.gpubuffer.getmappedrange.1xssoqp.authenticated.production.route.1krbkwz",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpubuffer.getmappedrange.1xssoqp.authenticated.production.route.1krbkwz",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
           "native-op:construction-private:webgpu:GPUBuffer.getMappedRange"
         ],
         "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.getMappedRange:2816646327",
-          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.getMappedRange:2816646327"
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.getMappedRange:351369834",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.getMappedRange:351369834"
         ],
         "sourceRefs": [
-          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.getMappedRange:2816646327",
-          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.getMappedRange:2816646327"
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.getMappedRange:351369834",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.getMappedRange:351369834"
         ],
         "terminalObservedKey": "native-op:construction-private:webgpu:GPUBuffer.getMappedRange"
       },
@@ -161171,12 +161601,12 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.getMappedRange:2816646327",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.getMappedRange:2816646327"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.getMappedRange:351369834",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.getMappedRange:351369834"
       ],
       "implementationOwner": "WP4",
       "fixtureObligations": [
-        "surface.native.op.construction.private.webgpu.gpubuffer.getmappedrange.1xssoqp.authenticated.production.route.0up8q1a.non-capability"
+        "surface.native.op.construction.private.webgpu.gpubuffer.getmappedrange.1xssoqp.authenticated.production.route.1krbkwz.non-capability"
       ]
     },
     {
@@ -161284,20 +161714,20 @@
     {
       "edgeId": "surface.native.op.construction.private.webgpu.gpubuffer.unmap.1so0y44",
       "observedKey": "native-op:construction-private:webgpu:GPUBuffer.unmap",
-      "branchId": "surface.native.op.construction.private.webgpu.gpubuffer.unmap.1so0y44.authenticated.production.route.1ezc0qn",
-      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpubuffer.unmap.1so0y44.authenticated.production.route.1ezc0qn",
+      "branchId": "surface.native.op.construction.private.webgpu.gpubuffer.unmap.1so0y44.authenticated.production.route.0ur76wd",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpubuffer.unmap.1so0y44.authenticated.production.route.0ur76wd",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
           "native-op:construction-private:webgpu:GPUBuffer.unmap"
         ],
         "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.unmap:1228615721",
-          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.unmap:1228615721"
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.unmap:3902214930",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.unmap:3902214930"
         ],
         "sourceRefs": [
-          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.unmap:1228615721",
-          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.unmap:1228615721"
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.unmap:3902214930",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.unmap:3902214930"
         ],
         "terminalObservedKey": "native-op:construction-private:webgpu:GPUBuffer.unmap"
       },
@@ -161307,12 +161737,12 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.unmap:1228615721",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.unmap:1228615721"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.unmap:3902214930",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.unmap:3902214930"
       ],
       "implementationOwner": "WP4",
       "fixtureObligations": [
-        "surface.native.op.construction.private.webgpu.gpubuffer.unmap.1so0y44.authenticated.production.route.1ezc0qn.non-capability"
+        "surface.native.op.construction.private.webgpu.gpubuffer.unmap.1so0y44.authenticated.production.route.0ur76wd.non-capability"
       ]
     },
     {
@@ -161690,6 +162120,40 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpucommandencoder.resolvequeryset.00msl6u",
+      "observedKey": "native-op:construction-private:webgpu:GPUCommandEncoder.resolveQuerySet",
+      "branchId": "surface.native.op.construction.private.webgpu.gpucommandencoder.resolvequeryset.00msl6u.authenticated.production.route.0110onz",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpucommandencoder.resolvequeryset.00msl6u.authenticated.production.route.0110onz",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUCommandEncoder.resolveQuerySet"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.resolveQuerySet:1803920004",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.resolveQuerySet:1803920004"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.resolveQuerySet:1803920004",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.resolveQuerySet:1803920004"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUCommandEncoder.resolveQuerySet"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.resolveQuerySet:1803920004",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.resolveQuerySet:1803920004"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpucommandencoder.resolvequeryset.00msl6u.authenticated.production.route.0110onz.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.dispatchworkgroups.128rff0",
       "observedKey": "native-op:construction-private:webgpu:GPUComputePassEncoder.dispatchWorkgroups",
       "branchId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.dispatchworkgroups.128rff0.authenticated.production.route.0ksd3vi",
@@ -162027,6 +162491,40 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.native.op.construction.private.webgpu.gpudevice.createpipelinelayout.18zmjo1.authenticated.production.route.1dw8sab.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createqueryset.0cft5wp",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.createQuerySet",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.createqueryset.0cft5wp.authenticated.production.route.1bs2s3v",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.createqueryset.0cft5wp.authenticated.production.route.1bs2s3v",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.createQuerySet"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createQuerySet:507739414",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createQuerySet:507739414"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createQuerySet:507739414",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createQuerySet:507739414"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.createQuerySet"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createQuerySet:507739414",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createQuerySet:507739414"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.createqueryset.0cft5wp.authenticated.production.route.1bs2s3v.closed"
       ]
     },
     {
@@ -162576,6 +163074,74 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindexed.141dcm7",
+      "observedKey": "native-op:construction-private:webgpu:GPURenderPassEncoder.drawIndexed",
+      "branchId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindexed.141dcm7.authenticated.production.route.1qfop9p",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindexed.141dcm7.authenticated.production.route.1qfop9p",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPURenderPassEncoder.drawIndexed"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.drawIndexed:1973734484",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.drawIndexed:1973734484"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.drawIndexed:1973734484",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.drawIndexed:1973734484"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPURenderPassEncoder.drawIndexed"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.drawIndexed:1973734484",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.drawIndexed:1973734484"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindexed.141dcm7.authenticated.production.route.1qfop9p.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindirect.1qd6uh8",
+      "observedKey": "native-op:construction-private:webgpu:GPURenderPassEncoder.drawIndirect",
+      "branchId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindirect.1qd6uh8.authenticated.production.route.1bare3e",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindirect.1qd6uh8.authenticated.production.route.1bare3e",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPURenderPassEncoder.drawIndirect"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.drawIndirect:225618851",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.drawIndirect:225618851"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.drawIndirect:225618851",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.drawIndirect:225618851"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPURenderPassEncoder.drawIndirect"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.drawIndirect:225618851",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.drawIndirect:225618851"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindirect.1qd6uh8.authenticated.production.route.1bare3e.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.end.1tvn90t",
       "observedKey": "native-op:construction-private:webgpu:GPURenderPassEncoder.end",
       "branchId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.end.1tvn90t.authenticated.production.route.04x88yr",
@@ -162641,6 +163207,40 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setbindgroup.1n0cuyu.authenticated.production.route.12hqy1c.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setindexbuffer.0b2ppfi",
+      "observedKey": "native-op:construction-private:webgpu:GPURenderPassEncoder.setIndexBuffer",
+      "branchId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setindexbuffer.0b2ppfi.authenticated.production.route.0nok9x0",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setindexbuffer.0b2ppfi.authenticated.production.route.0nok9x0",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPURenderPassEncoder.setIndexBuffer"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setIndexBuffer:66487733",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setIndexBuffer:66487733"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setIndexBuffer:66487733",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setIndexBuffer:66487733"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPURenderPassEncoder.setIndexBuffer"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setIndexBuffer:66487733",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setIndexBuffer:66487733"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setindexbuffer.0b2ppfi.authenticated.production.route.0nok9x0.non-capability"
       ]
     },
     {
@@ -162947,6 +163547,74 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.native.op.construction.private.webgpu.gputexture.width.1utkugg.authenticated.production.route.19wexfa.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.acquire.039vdtv",
+      "observedKey": "native-op:construction-private:webgpu-presentation:navigator.gpu.canvas.acquire",
+      "branchId": "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.acquire.039vdtv.authenticated.presentation.authority.acquire.0jkzice",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.acquire.039vdtv.authenticated.presentation.authority.acquire.0jkzice",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu-presentation:navigator.gpu.canvas.acquire"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#presentation-authority:acquire",
+          "src/host/gpu_authority.rs#presentation-authority:acquire"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#presentation-authority:acquire",
+          "src/host/gpu_authority.rs#presentation-authority:acquire"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu-presentation:navigator.gpu.canvas.acquire"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#presentation-authority:acquire",
+        "src/host/gpu_authority.rs#presentation-authority:acquire"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.acquire.039vdtv.authenticated.presentation.authority.acquire.0jkzice.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.present.0q60k8s",
+      "observedKey": "native-op:construction-private:webgpu-presentation:navigator.gpu.canvas.present",
+      "branchId": "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.present.0q60k8s.authenticated.presentation.authority.present.115hwrt",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.present.0q60k8s.authenticated.presentation.authority.present.115hwrt",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu-presentation:navigator.gpu.canvas.present"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#presentation-authority:present",
+          "src/host/gpu_authority.rs#presentation-authority:present"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#presentation-authority:present",
+          "src/host/gpu_authority.rs#presentation-authority:present"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu-presentation:navigator.gpu.canvas.present"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#presentation-authority:present",
+        "src/host/gpu_authority.rs#presentation-authority:present"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.present.0q60k8s.authenticated.presentation.authority.present.115hwrt.closed"
       ]
     },
     {
@@ -165201,6 +165869,42 @@
         "surface.native.op.exactcapabilitycheck.1k7vr6d.default.cannot-widen-authority",
         "surface.native.op.exactcapabilitycheck.1k7vr6d.default.non-capability",
         "surface.native.op.exactcapabilitycheck.1k7vr6d.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactcapturedevservedmoduletablelifecycle.06siznp",
+      "observedKey": "native-op:__exactCaptureDevServedModuleTableLifecycle",
+      "branchId": "surface.native.op.exactcapturedevservedmoduletablelifecycle.06siznp.default",
+      "enforcementBranchId": "surface.native.op.exactcapturedevservedmoduletablelifecycle.06siznp.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactCaptureDevServedModuleTableLifecycle"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactCaptureDevServedModuleTableLifecycle",
+          "src/engine/hermes_runtime.cc#jsi-global:__exactCaptureDevServedModuleTableLifecycle"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactCaptureDevServedModuleTableLifecycle",
+          "src/engine/hermes_runtime.cc#jsi-global:__exactCaptureDevServedModuleTableLifecycle"
+        ],
+        "terminalObservedKey": "native-op:__exactCaptureDevServedModuleTableLifecycle"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactCaptureDevServedModuleTableLifecycle",
+        "src/engine/hermes_runtime.cc#jsi-global:__exactCaptureDevServedModuleTableLifecycle"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.exactcapturedevservedmoduletablelifecycle.06siznp.default.cannot-widen-authority",
+        "surface.native.op.exactcapturedevservedmoduletablelifecycle.06siznp.default.non-capability",
+        "surface.native.op.exactcapturedevservedmoduletablelifecycle.06siznp.default.post-lockdown-invariant"
       ]
     },
     {
@@ -174381,6 +175085,42 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.native.op.exactprocessipcbootstrap.serialization.1vtmt9s.default.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactquarantinedevservedmoduletable.1e6mwa3",
+      "observedKey": "native-op:__exactQuarantineDevServedModuleTable",
+      "branchId": "surface.native.op.exactquarantinedevservedmoduletable.1e6mwa3.default",
+      "enforcementBranchId": "surface.native.op.exactquarantinedevservedmoduletable.1e6mwa3.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactQuarantineDevServedModuleTable"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactQuarantineDevServedModuleTable",
+          "src/engine/hermes_runtime.cc#jsi-global:__exactQuarantineDevServedModuleTable"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactQuarantineDevServedModuleTable",
+          "src/engine/hermes_runtime.cc#jsi-global:__exactQuarantineDevServedModuleTable"
+        ],
+        "terminalObservedKey": "native-op:__exactQuarantineDevServedModuleTable"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactQuarantineDevServedModuleTable",
+        "src/engine/hermes_runtime.cc#jsi-global:__exactQuarantineDevServedModuleTable"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.exactquarantinedevservedmoduletable.1e6mwa3.default.cannot-widen-authority",
+        "surface.native.op.exactquarantinedevservedmoduletable.1e6mwa3.default.non-capability",
+        "surface.native.op.exactquarantinedevservedmoduletable.1e6mwa3.default.post-lockdown-invariant"
       ]
     },
     {
@@ -212034,6 +212774,39 @@
         "surface.native.op.global.gpupipelinelayout.0a068mr.all.cannot-widen-authority",
         "surface.native.op.global.gpupipelinelayout.0a068mr.all.non-capability",
         "surface.native.op.global.gpupipelinelayout.0a068mr.all.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.gpuqueryset.11xx237",
+      "observedKey": "native-op:global:GPUQuerySet",
+      "branchId": "surface.native.op.global.gpuqueryset.11xx237.all",
+      "enforcementBranchId": "surface.native.op.global.gpuqueryset.11xx237.all",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:GPUQuerySet"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUQuerySet"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUQuerySet"
+        ],
+        "terminalObservedKey": "native-op:global:GPUQuerySet"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUQuerySet"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.gpuqueryset.11xx237.all.cannot-widen-authority",
+        "surface.native.op.global.gpuqueryset.11xx237.all.non-capability",
+        "surface.native.op.global.gpuqueryset.11xx237.all.post-lockdown-invariant"
       ]
     },
     {
@@ -279157,9 +279930,12 @@
         "surface.native.op.construction.private.gpunativebridge.retire.0rdydxm",
         "surface.native.op.construction.private.gpunativebridge.submit.0msz5eh",
         "surface.native.op.construction.private.gpunativebridgev2.cancel.1knoc8z",
+        "surface.native.op.construction.private.gpunativebridgev2.capturepresentationauthority.1onjdqu",
         "surface.native.op.construction.private.gpunativebridgev2.createmappedrangealias.1wlkeyh",
         "surface.native.op.construction.private.gpunativebridgev2.detachmappedrange.1bcb3hm",
+        "surface.native.op.construction.private.gpunativebridgev2.recheckpresentationauthority.1ccx3xx",
         "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa",
+        "surface.native.op.construction.private.gpunativebridgev2.retirepresentationauthority.1ppnqer",
         "surface.native.op.construction.private.gpunativebridgev2.seteventsink.05cdr72",
         "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99",
         "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz",
@@ -279173,6 +279949,7 @@
         "surface.native.op.construction.private.webgpu.gpudevice.createcommandencoder.0xjqx9i",
         "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8",
         "surface.native.op.construction.private.webgpu.gpudevice.createpipelinelayout.18zmjo1",
+        "surface.native.op.construction.private.webgpu.gpudevice.createqueryset.0cft5wp",
         "surface.native.op.construction.private.webgpu.gpudevice.createrenderpipeline.1j64qfn",
         "surface.native.op.construction.private.webgpu.gpudevice.createsampler.1k2hes7",
         "surface.native.op.construction.private.webgpu.gpudevice.createshadermodule.1tnit2w",
@@ -279183,6 +279960,8 @@
         "surface.native.op.construction.private.webgpu.gpuqueue.writebuffer.09drr9l",
         "surface.native.op.construction.private.webgpu.gpuqueue.writetexture.0je9zc2",
         "surface.native.op.construction.private.webgpu.gputexture.createview.1uepitt",
+        "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.acquire.039vdtv",
+        "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.present.0q60k8s",
         "surface.native.op.exactaccessibilitysnapshot.0cpctmz",
         "surface.native.op.exactaccessibilitysnapshot.colorscheme.08wrj05",
         "surface.native.op.exactaccessibilitysnapshot.dynamictypesize.1s9wxzp",
@@ -279341,7 +280120,7 @@
         "surface.startup.installer.installipclistenerpatch.1a0b3bh",
         "surface.startup.script.ipc.listener.183xoza"
       ],
-      "rationale": "Closed by 256 observed surface edges."
+      "rationale": "Closed by 262 observed surface edges."
     },
     {
       "definitionId": "lifecycle:exit",
@@ -281955,59 +282734,59 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-WOQsoj4DwPs4Jp3oVvQNO091XxbnHCaboOrhMq_onlM"
+      "rawContentDigest": "sha256-rozgR2l53Ul0DXhuydHxlE7aLbBaclrnBc6_TRv5v2A"
     },
     {
       "kind": "output-disposition-dataset",
       "path": "capsec/generated/output-dispositions.json",
-      "rawContentDigest": "sha256-KCKosqqS5J1bk5Xr7GqVIYq2Ux0SlQLm-tE7dDhLwpU"
+      "rawContentDigest": "sha256-hFjyALfdAk-pC-qSAsFIWX8BS12bMiZvodglsCymfWs"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/output-dispositions.md",
-      "rawContentDigest": "sha256-YAtzn7hh2Nq4mz3_1OiROgdoHhG9cdrPuNISDHMb0xA"
+      "rawContentDigest": "sha256-ZxVeIIOo3AT8k-8dGb9Vh4EPtnU5oQA-x9URBNLxaFA"
     },
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-ixPkA4ghwxestkOM1B9zBhJNVQZRPPbFUO9DZGR4w1I"
+      "rawContentDigest": "sha256-c2vM75dwWhJUZ2TdDiCmAVrsiMAq8_H7j6dmOHS8Olk"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-EQv2gmFjd5xBdrwPtUa3QSRTcdEir09u_Je1yJ1YPPU"
+      "rawContentDigest": "sha256-SmJ8MEEP6T4sxYgIaFdbnZ1uSAq_jv4vc9Kv2rhHVGo"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-8iAse7fg_sfg7E6zFwMwJvNWFe7lBVNnmlRMJfKWouQ"
+      "rawContentDigest": "sha256-GWGs5Vp_N8Kt-ggHR_5CaRBVfYRWbgzxry76irKPpcI"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256--b98n6szw6HO5UDjRvWVDNHx9cJSbextYd8jPDoO1Ws"
+      "rawContentDigest": "sha256-eLFPTvp_9zlM_ky2hKGODJtCJSDBAEbpodYDKoZP6tE"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-cnFGus4dd25CKNEavPOyHsUzjKoWy__Opyz19_klryA"
+      "rawContentDigest": "sha256-NQVogwGAya9t2LsOlGoDG_S8yj2K3L4tW1qVwytfTKM"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-G0q-9gTm17ICY10Z7PxPT6Ba2WXuRbQgpKD-r6ivxn8"
+      "rawContentDigest": "sha256-0139Mo8EF2wpxCpp7vC_c6mXofayxpvQXYj5nLj027w"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-_hFhbB6uLaYyIKEHBu7KuDnFl4xWP_eV-YhPzuCcI3M"
+      "rawContentDigest": "sha256-1ODYYhBnR4L2_xHhnIq_qQ-ws_zIZu2HZPSbbye3Jdg"
     }
   ],
   "counts": {
-    "observedReferences": 13311,
-    "logicalSurfaces": 7585,
-    "enforcementBranches": 7805,
-    "coverageEdges": 7585,
-    "targetCells": 15170
+    "observedReferences": 13347,
+    "logicalSurfaces": 7608,
+    "enforcementBranches": 7828,
+    "coverageEdges": 7608,
+    "targetCells": 15216
   }
 }

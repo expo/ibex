@@ -57,6 +57,7 @@ import {
 } from "./generated-output-io.mjs";
 import {
   buildWebGpuPrivateOperationRegistry,
+  loadAuthenticatedWebGpuProductionPlan,
 } from "./capsec-webgpu-operation-registry.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1481,14 +1482,65 @@ export async function runCapsecRegistryGenerator({ write = false } = {}) {
   };
 }
 
+export function runWebGpuPrivateRegistryGenerator({ write = false } = {}) {
+  const authenticated = loadAuthenticatedWebGpuProductionPlan(repoRoot);
+  const coverage = readJsonStrict(generatedRegistryPaths.coverage);
+  const implementationManifest = readJsonStrict(
+    generatedRegistryPaths.implementationManifest,
+  );
+  const targetCells = readJsonStrict(generatedRegistryPaths.targetCells);
+  const targetAdvertisements = readJsonStrict(
+    generatedRegistryPaths.targetAdvertisements,
+  );
+  const content = prettyJson(
+    buildWebGpuPrivateOperationRegistry({
+      authenticated,
+      coverage,
+      implementationRows: implementationManifest.surfaces,
+      targetCells,
+      targetAdvertisements,
+    }),
+  );
+  const outputPath = generatedRegistryPaths.webgpuOperations;
+  if (write) {
+    writeGeneratedFilesTransactionally(repoRoot, [
+      {
+        path: outputPath,
+        content,
+        label: `generated WebGPU CapSec registry output ${relativeOutputPath(outputPath)}`,
+      },
+    ]);
+  } else if (
+    !fs.existsSync(outputPath) ||
+    fs.readFileSync(outputPath, "utf8") !== content
+  ) {
+    throw new Error(
+      `generated WebGPU CapSec registry is stale: ${relativeOutputPath(outputPath)}\n` +
+        "Run: bun run generate:webgpu-capsec-registry",
+    );
+  }
+  return {
+    operations: authenticated.routes.length,
+    output: relativeOutputPath(outputPath),
+  };
+}
+
 if (path.resolve(process.argv[1] ?? "") === __filename) {
   const write = process.argv.includes("--write");
   const check = process.argv.includes("--check");
+  const webgpuOnly = process.argv.includes("--webgpu-only");
   if (write === check) {
     console.error("usage: generate-capsec-registry.mjs (--write | --check)");
     process.exit(2);
   }
   try {
+    if (webgpuOnly) {
+      const counts = runWebGpuPrivateRegistryGenerator({ write });
+      console.log(
+        `${write ? "Generated" : "Validated"} WebGPU private CapSec registry: ${counts.operations} operations, ${counts.output}.`,
+      );
+      process.exit(0);
+    }
     const counts = await runCapsecRegistryGenerator({ write });
     console.log(
       `${write ? "Generated" : "Validated"} capsec registry: ${counts.coverageEdges} coverage edges, ${counts.enforcementBranches} enforcement branches, ${counts.targetCells} target cells, ${counts.observedReferences} observed source references, ${counts.ingressObligations} authenticated-ingress obligations, ${counts.outputs} outputs; output-disposition evidence ${counts.outputDispositionEvidence}.`,

@@ -165,7 +165,9 @@ console.log(${JSON.stringify(marker)} + JSON.stringify(value));
       'entry.mjs': `
 try { await import('./thrower.mjs'); }
 catch (error) {
-  const match = /thrower\\.mjs:(\\d+)/.exec(String(error && error.stack));
+  // Node names the physical fixture; Ibex deliberately keeps unarmed resolver
+  // paths opaque. The contract here is the original line, not a path leak.
+  const match = /(?:thrower\\.mjs|\\/project\\/\\.ibex-resolver\\/r[0-9a-f]{16}):(\\d+)/.exec(String(error && error.stack));
   console.log(${JSON.stringify(marker)} + 'line=' + (match ? match[1] : 'none'));
 }
 `,

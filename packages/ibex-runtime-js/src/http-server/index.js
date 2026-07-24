@@ -1,4 +1,74 @@
 var g = globalThis;
+var httpError = Error;
+var httpTypeError = TypeError;
+var httpReflectApply = Reflect.apply;
+var httpObjectCreate = Object.create;
+var httpObjectDefineProperty = Object.defineProperty;
+var httpObjectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+var httpObjectHasOwnProperty = Object.prototype.hasOwnProperty;
+var httpJSONParse = JSON.parse;
+var httpPromise = Promise;
+var httpPromiseResolve = Promise.resolve;
+var httpPromiseThen = Promise.prototype.then;
+
+function httpDataDescriptor(value, configurable) {
+  var descriptor = httpReflectApply(httpObjectCreate, null, [null]);
+  descriptor.configurable = configurable;
+  descriptor.enumerable = false;
+  descriptor.value = value;
+  descriptor.writable = false;
+  return descriptor;
+}
+
+function httpOwnDataProperty(object, key) {
+  if (
+    object === null ||
+    (typeof object !== "object" && typeof object !== "function")
+  ) {
+    return undefined;
+  }
+  var descriptor = httpReflectApply(
+    httpObjectGetOwnPropertyDescriptor,
+    null,
+    [object, key]
+  );
+  if (
+    !descriptor ||
+    !httpReflectApply(httpObjectHasOwnProperty, descriptor, ["value"])
+  ) {
+    return undefined;
+  }
+  return descriptor.value;
+}
+
+var httpPromiseConstructorDescriptor = httpDataDescriptor(undefined, true);
+var httpNonThenableDescriptor = httpDataDescriptor(undefined, false);
+
+function resolvedPromise(value) {
+  return httpReflectApply(httpPromiseResolve, httpPromise, [value]);
+}
+
+function observeHostPromise(promise, onFulfilled, onRejected) {
+  if (
+    promise === null ||
+    (typeof promise !== "object" && typeof promise !== "function")
+  ) {
+    throw new httpTypeError("Exact HTTP wait did not return a Promise");
+  }
+  // Promise.prototype.then dynamically resolves `promise.constructor` and its
+  // @@species before it installs reactions. Give the private host Promise an
+  // own undefined constructor so poisoned shared Promise prototypes cannot
+  // run during listener startup.
+  httpReflectApply(httpObjectDefineProperty, null, [
+    promise,
+    "constructor",
+    httpPromiseConstructorDescriptor,
+  ]);
+  return httpReflectApply(httpPromiseThen, promise, [
+    onFulfilled,
+    onRejected,
+  ]);
+}
 
 // Hoisted once at module load: rebuilding this 64-entry table on every request
 // body decode was pure per-call waste. @ref https://linear.app/expo/issue/ENG-23027
@@ -81,7 +151,7 @@ function createReadableRequestBody(streamId, requestId) {
             return;
           }
 
-          var result = JSON.parse(resultJson);
+          var result = httpJSONParse(resultJson);
           if (result.error) {
             reject(new Error(result.error));
             return;
@@ -224,34 +294,75 @@ function normalizeHeaders(list) {
 }
 
 function serve(options) {
-  if (!options || typeof options.fetch !== "function") {
-    throw new TypeError("serve() requires a fetch function");
+  if (
+    !options ||
+    (typeof options !== "object" && typeof options !== "function")
+  ) {
+    throw new httpTypeError("serve() requires an options object");
+  }
+  var fetchFn = httpOwnDataProperty(options, "fetch");
+  if (typeof fetchFn !== "function") {
+    throw new httpTypeError("serve() requires a fetch function");
   }
   ensureHttpHostFunctions();
-  if (typeof g.__exactHttpServe !== "function") {
-    throw new Error("Exact HTTP server bridge is unavailable in this runtime");
+  var nativeHttpServe = g.__exactHttpServe;
+  var nativeHttpClose = g.__exactHttpClose;
+  var nativeHttpAddress = g.__exactHttpAddress;
+  var nativeHttpSetRef = g.__exactHttpSetRef;
+  var nativeHttpWait = g.__exactHttpWait;
+  var nativeHttpPoll = g.__exactHttpPoll;
+  var nativeHttpDrain = g.__exactHttpDrain;
+  var nativeHttpRespondText = g.__exactHttpRespondText;
+  var nativeHttpRespondJson = g.__exactHttpRespondJson;
+  var nativeHttpRespondString = g.__exactHttpRespondString;
+  if (typeof nativeHttpServe !== "function") {
+    throw new httpError("Exact HTTP server bridge is unavailable in this runtime");
   }
-  var port = options.port || 0;
-  var hostnameProvided = Object.prototype.hasOwnProperty.call(options, "hostname");
-  var hostname = hostnameProvided ? options.hostname : "127.0.0.1";
-  var fetchFn = options.fetch;
-
-  var resultJson = g.__exactHttpServe(port, hostname);
-  var result = JSON.parse(resultJson);
-  if (result.error) {
-    throw new Error(result.error);
+  if (
+    typeof nativeHttpClose !== "function" ||
+    typeof nativeHttpWait !== "function"
+  ) {
+    throw new httpError("Exact HTTP server lifecycle bridge is unavailable in this runtime");
+  }
+  var portValue = httpOwnDataProperty(options, "port");
+  var port = portValue === undefined ? 0 : portValue;
+  if (
+    typeof port !== "number" ||
+    port % 1 !== 0 ||
+    port < 0 ||
+    port > 65535
+  ) {
+    throw new httpTypeError("serve() port must be an integer from 0 to 65535");
+  }
+  var hostnameProvided = httpReflectApply(
+    httpObjectHasOwnProperty,
+    options,
+    ["hostname"]
+  );
+  var hostname = hostnameProvided
+    ? httpOwnDataProperty(options, "hostname")
+    : "127.0.0.1";
+  if (typeof hostname !== "string") {
+    throw new httpTypeError("serve() hostname must be a string");
   }
 
-  var serverId = result.id;
-  var boundPort = result.port;
+  var resultJson = httpReflectApply(nativeHttpServe, g, [port, hostname]);
+  var result = httpJSONParse(resultJson);
+  var resultError = httpOwnDataProperty(result, "error");
+  if (resultError) {
+    throw new httpError(resultError);
+  }
+
+  var serverId = httpOwnDataProperty(result, "id");
+  var boundPort = httpOwnDataProperty(result, "port");
   var closed = false;
 
   // Re-check fast-path availability after serve() init
-  hasRespondText = typeof g.__exactHttpRespondText === "function";
-  hasRespondJson = typeof g.__exactHttpRespondJson === "function";
-  hasRespondString = typeof g.__exactHttpRespondString === "function";
-  hasPoll = typeof g.__exactHttpPoll === "function";
-  hasDrain = typeof g.__exactHttpDrain === "function";
+  hasRespondText = typeof nativeHttpRespondText === "function";
+  hasRespondJson = typeof nativeHttpRespondJson === "function";
+  hasRespondString = typeof nativeHttpRespondString === "function";
+  var serverHasPoll = typeof nativeHttpPoll === "function";
+  var serverHasDrain = typeof nativeHttpDrain === "function";
 
   // Pre-compute URL prefix once (avoid per-request string concat)
   var requestHost = !hostnameProvided || hostname === "0.0.0.0" ? "localhost" : hostname;
@@ -266,14 +377,51 @@ function serve(options) {
   var waitCount = 0;
   var MAX_CONCURRENT_WAITS = 4;
 
+  // Construction failure releases the exact native listener before
+  // committing JS terminal state. A failed release leaves the selector live
+  // so the recovery handle can retry it.
+  function tryCloseBoundServerAfterFailure() {
+    if (closed) return true;
+    var closeResult = httpReflectApply(nativeHttpClose, g, [serverId, 1]);
+    if (closeResult === 0) {
+      closed = true;
+      waitCount = 0;
+      return true;
+    }
+    return false;
+  }
+
+  function startupFailureWithRecovery(error, closeError, handle) {
+    var failure = new httpError(
+      "Exact HTTP server startup failed and native cleanup failed; " +
+      "retry error.recoveryHandle.close({ force: true })"
+    );
+    httpReflectApply(httpObjectDefineProperty, null, [
+      failure,
+      "cause",
+      httpDataDescriptor(error, false),
+    ]);
+    httpReflectApply(httpObjectDefineProperty, null, [
+      failure,
+      "closeError",
+      httpDataDescriptor(closeError, false),
+    ]);
+    httpReflectApply(httpObjectDefineProperty, null, [
+      failure,
+      "recoveryHandle",
+      httpDataDescriptor(handle, false),
+    ]);
+    return failure;
+  }
+
   function waitForNextRequest() {
     if (closed) return;
     if (waitCount >= MAX_CONCURRENT_WAITS) return;
 
     // Item 6: Synchronous poll fast-path
     // Try to dequeue a request synchronously before falling back to async wait.
-    if (hasPoll) {
-      var syncJson = g.__exactHttpPoll(serverId);
+    if (serverHasPoll) {
+      var syncJson = httpReflectApply(nativeHttpPoll, g, [serverId]);
       if (syncJson) {
         // Got a request synchronously - handle it and keep polling
         handleRequest(syncJson);
@@ -287,12 +435,12 @@ function serve(options) {
     }
 
     // Item 8: Try batch drain before falling back to single async wait
-    if (hasDrain) {
-      var batchJson = g.__exactHttpDrain(serverId, 16);
+    if (serverHasDrain) {
+      var batchJson = httpReflectApply(nativeHttpDrain, g, [serverId, 16]);
       if (batchJson) {
         var batch;
         try {
-          batch = JSON.parse(batchJson);
+          batch = httpJSONParse(batchJson);
         } catch(e) {
           batch = null;
         }
@@ -308,11 +456,6 @@ function serve(options) {
       }
     }
 
-    if (typeof g.__exactHttpWait !== "function") {
-      closed = true;
-      throw new Error("Exact HTTP dispatcher unavailable: __exactHttpWait is not defined");
-    }
-
     waitCount++;
     // Bounded wait (matching the Node http bridge and Bun.serve dispatchers):
     // an infinite wait would park a pooled native worker forever on an idle
@@ -320,32 +463,35 @@ function serve(options) {
     // (ENG-23114 / ENG-23022), a forever-parked worker could starve queued
     // waits from other servers. A null resolution simply re-issues the wait
     // below.
-    var waitPromise = g.__exactHttpWait(serverId, 1000);
-    if (!waitPromise || typeof waitPromise.then !== "function") {
+    var waitPromise;
+    try {
+      waitPromise = httpReflectApply(nativeHttpWait, g, [serverId, 1000]);
+    } catch (error) {
       waitCount--;
-      if (!closed) {
-        waitForNextRequest();
-      }
-      return;
+      throw error;
     }
+    try {
+      observeHostPromise(waitPromise, function(reqJson) {
+        waitCount--;
+        if (closed) return;
 
-    waitPromise.then(function(reqJson) {
+        if (reqJson) {
+          handleRequest(reqJson);
+        }
+
+        if (!closed) {
+          waitForNextRequest();
+        }
+      }, function() {
+        waitCount--;
+        if (!closed) {
+          waitForNextRequest();
+        }
+      });
+    } catch (error) {
       waitCount--;
-      if (closed) return;
-
-      if (reqJson) {
-        handleRequest(reqJson);
-      }
-
-      if (!closed) {
-        waitForNextRequest();
-      }
-    }).catch(function() {
-      waitCount--;
-      if (!closed) {
-        waitForNextRequest();
-      }
-    });
+      throw error;
+    }
   }
 
   // Item 9: Process a pre-parsed request object (from batch drain)
@@ -365,7 +511,7 @@ function serve(options) {
   function handleRequest(jsonStr) {
     var req;
     try {
-      req = JSON.parse(jsonStr);
+      req = httpJSONParse(jsonStr);
     } catch(e) {
       return;
     }
@@ -751,38 +897,68 @@ function serve(options) {
     }
   }
 
-  // Start multiple concurrent waiters for better throughput
-  waitForNextRequest();
-  waitForNextRequest();
-  waitForNextRequest();
-  waitForNextRequest();
-
   var handle = {
     close: function(opts) {
-      if (closed) return Promise.resolve();
-      closed = true;
-      waitCount = 0;
+      if (closed) return resolvedPromise();
       var force = false;
       if (opts && opts.force) {
         force = !!opts.force;
       }
-      g.__exactHttpClose(serverId, force ? 1 : 0);
-      return Promise.resolve();
+      var closeResult = httpReflectApply(nativeHttpClose, g, [
+        serverId,
+        force ? 1 : 0,
+      ]);
+      if (closeResult !== 0) {
+        throw new httpError("Exact HTTP server close failed");
+      }
+      // Native release precedes the JS terminal-state commit so a failed
+      // ownership/release check leaves the live handle retryable.
+      closed = true;
+      waitCount = 0;
+      return resolvedPromise();
     },
     ref: function() {
-      g.__exactHttpSetRef(serverId, 1);
+      httpReflectApply(nativeHttpSetRef, g, [serverId, 1]);
     },
     unref: function() {
-      g.__exactHttpSetRef(serverId, 0);
+      httpReflectApply(nativeHttpSetRef, g, [serverId, 0]);
     },
     address: function() {
-      var json = g.__exactHttpAddress(serverId);
+      var json = httpReflectApply(nativeHttpAddress, g, [serverId]);
       if (!json) return null;
-      return JSON.parse(json);
+      return httpJSONParse(json);
     }
   };
 
-  return Promise.resolve(handle);
+  try {
+    // Promise.resolve assimilates inherited `then` values. Mask any hostile
+    // Object.prototype.then before resolving the newly constructed handle.
+    httpReflectApply(httpObjectDefineProperty, null, [
+      handle,
+      "then",
+      httpNonThenableDescriptor,
+    ]);
+
+    // Start multiple concurrent waiters for better throughput.
+    waitForNextRequest();
+    waitForNextRequest();
+    waitForNextRequest();
+    waitForNextRequest();
+
+    return resolvedPromise(handle);
+  } catch (error) {
+    var closeError = null;
+    var closedAfterFailure = false;
+    try {
+      closedAfterFailure = tryCloseBoundServerAfterFailure();
+    } catch (failure) {
+      closeError = failure;
+    }
+    if (!closedAfterFailure) {
+      throw startupFailureWithRecovery(error, closeError, handle);
+    }
+    throw error;
+  }
 }
 
 export { serve };

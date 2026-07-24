@@ -159,6 +159,10 @@
     "rootIdentity": { "$ref": "#/$defs/rootPrincipal" },
     "entry": { "$ref": "#/$defs/entry" },
     "projectRootDiscovery": { "$ref": "#/$defs/projectRootDiscovery" },
+    "devServedProjectRoot": {
+      "description": "Explicit dev-project root paired with the dev-served bootstrap compatibility mode.",
+      "$ref": "#/$defs/absoluteHostPath"
+    },
     "packageGraph": { "$ref": "#/$defs/packageGraph" },
     "rootBindings": {
       "type": "array",
@@ -184,10 +188,10 @@
     "bootstrapCompatibilityModes": {
       "description": "Digest-bound, authority-neutral compatibility controls consumed during trusted bootstrap. They are not environment entries and are removed before project code.",
       "type": "array",
-      "maxItems": 3,
+      "maxItems": 4,
       "uniqueItems": true,
       "items": {
-        "enum": ["bun", "fixture", "fixture:bun"]
+        "enum": ["bun", "dev-served", "fixture", "fixture:bun"]
       }
     },
     "processAuthorityCeiling": {

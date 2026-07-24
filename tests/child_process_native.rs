@@ -1076,11 +1076,14 @@ const watchdog = setTimeout(function () {
 #[test]
 fn fork_stdio_remap_survives_closed_low_parent_fds() {
     let dir = unique_dir("closed-low-fds");
+    let home = dir.join("home");
+    std::fs::create_dir_all(&home).expect("create isolated home");
     write_text(
         &dir.join("app.js"),
         r#"
-const cp = require('child_process');
 const fs = require('fs');
+fs.writeFileSync(__dirname + '/evaluation-started', '');
+const cp = require('child_process');
 const resultPath = __dirname + '/result.json';
 const packet = JSON.stringify({ __exactIpc: true, type: 'message', data: { ipc: 'ipc-ok' } });
 const script = "printf 'extra-fd-ok' >&4; printf '%s\\n' '" + packet + "' >&3";
@@ -1118,6 +1121,10 @@ watchdog = setTimeout(function () {
         .arg("app.js")
         .current_dir(&dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
+        // Keep this strict fd-remap watchdog independent of persistent
+        // bundle-cache quota-pruning latency from unrelated runs.
+        .env("HOME", &home)
+        .env("XDG_CACHE_HOME", home.join(".cache"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -1132,15 +1139,35 @@ watchdog = setTimeout(function () {
         });
     }
     let mut child = command.spawn().expect("spawn ibex with closed low fds");
-    let deadline = Instant::now() + Duration::from_secs(25);
+    let evaluation_marker = dir.join("evaluation-started");
+    // Authentication/bundling gets normal startup headroom; the invariant
+    // below still grants exactly 25 seconds once app evaluation begins.
+    let startup_deadline = Instant::now() + DIAGNOSTIC_STARTUP_HEADROOM;
+    let mut behavior_deadline = None;
     loop {
-        if child.try_wait().expect("wait for ibex").is_some() {
+        let now = Instant::now();
+        if behavior_deadline.is_none() && evaluation_marker.is_file() {
+            behavior_deadline = Some(now + Duration::from_secs(25));
+        }
+        if let Some(status) = child.try_wait().expect("wait for ibex") {
+            assert!(
+                behavior_deadline.is_some(),
+                "ibex exited with {status} before app evaluation marker"
+            );
             break;
         }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            panic!("ibex with closed low fds timed out");
+        match behavior_deadline {
+            Some(deadline) if now >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("ibex fd-remap behavior timed out after app evaluation");
+            }
+            None if now >= startup_deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("ibex startup timed out before app evaluation marker");
+            }
+            _ => {}
         }
         thread::sleep(Duration::from_millis(20));
     }

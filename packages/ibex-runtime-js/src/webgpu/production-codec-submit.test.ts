@@ -92,16 +92,16 @@ describe('GPUQueue.submit construction-private codec corpus', () => {
       ) as InspectedSubmitRequest,
     ]));
     const complete = inspected.get('queue-submit-all-record-kinds-request')!;
-    expect(complete.recordTable).toHaveLength(16);
+    expect(complete.recordTable).toHaveLength(20);
     expect(complete.convertedArguments.commandBuffers).toHaveLength(1);
-    expect(complete.convertedArguments.commandBuffers[0].records).toHaveLength(15);
+    expect(complete.convertedArguments.commandBuffers[0].records).toHaveLength(19);
     expect(complete.convertedArguments.commandBuffers[0].commandProgramDigest)
       .toMatch(/^[0-9a-f]{64}$/);
     expect(new Set(
       complete.convertedArguments.commandBuffers[0].records.map(
         (record) => record.operationName,
       ),
-    ).size).toBe(15);
+    ).size).toBe(19);
     const beginRender = complete.recordTable.find(
       (record) => record.operationName === 'GPUCommandEncoder.beginRenderPass',
     )!;
@@ -110,6 +110,43 @@ describe('GPUQueue.submit construction-private codec corpus', () => {
     }>;
     expect(beginRenderBody.colorAttachments[0]).toBeNull();
     expect(beginRenderBody.colorAttachments[1]?.depthSlice).toBe(2);
+    expect(complete.recordTable.find(
+      (record) =>
+        record.operationName === 'GPUCommandEncoder.resolveQuerySet',
+    )?.argumentBody).toMatchObject({
+      querySet: { kind: 'GPUQuerySet', logicalDeviceId: '55' },
+      firstQuery: 1,
+      queryCount: 2,
+      destination: { kind: 'GPUBuffer', logicalDeviceId: '55' },
+      destinationOffset: 256,
+    });
+    expect(complete.recordTable.find(
+      (record) =>
+        record.operationName === 'GPURenderPassEncoder.setIndexBuffer',
+    )?.argumentBody).toMatchObject({
+      buffer: { kind: 'GPUBuffer', logicalDeviceId: '55' },
+      indexFormat: 'uint16',
+      offset: 0,
+      sizePresent: false,
+      size: 0,
+    });
+    expect(complete.recordTable.find(
+      (record) =>
+        record.operationName === 'GPURenderPassEncoder.drawIndexed',
+    )?.argumentBody).toEqual({
+      indexCount: 3,
+      instanceCount: 2,
+      firstIndex: 1,
+      baseVertex: -7,
+      firstInstance: 4,
+    });
+    expect(complete.recordTable.find(
+      (record) =>
+        record.operationName === 'GPURenderPassEncoder.drawIndirect',
+    )?.argumentBody).toMatchObject({
+      indirectBuffer: { kind: 'GPUBuffer', logicalDeviceId: '55' },
+      indirectOffset: 512,
+    });
 
     const absent = inspected.get(
       'queue-submit-null-slot-depth-slice-absent-request',
@@ -175,7 +212,7 @@ describe('GPUQueue.submit construction-private codec corpus', () => {
   });
 
   test('rejects every authenticated mutation vector before exposure', () => {
-    expect(binaryRejections.length).toBeGreaterThanOrEqual(31);
+    expect(binaryRejections.length).toBeGreaterThanOrEqual(35);
     for (const vector of binaryRejections) {
       expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
         bytesFromHex(vector.bytesHex),
@@ -183,7 +220,7 @@ describe('GPUQueue.submit construction-private codec corpus', () => {
     }
     const kindMutations = binaryRejections.filter((vector) =>
       vector.mutation?.startsWith('unknown-record-kind-'));
-    expect(kindMutations).toHaveLength(16);
+    expect(kindMutations).toHaveLength(20);
     expect(binaryRejections.some((vector) =>
       vector.mutation === 'depthSlice-two-to-three-without-digest-rewrite'))
       .toBe(true);

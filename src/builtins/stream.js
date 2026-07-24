@@ -26,12 +26,12 @@ if (typeof Symbol !== 'undefined') {
   if (!Symbol.dispose) {
     try {
       Symbol.dispose = Symbol.for('nodejs.dispose');
-    } catch (_err) {}
+    } catch (_err) { /* lockdown may freeze Symbol; disposer support is optional */ }
   }
   if (!Symbol.asyncDispose) {
     try {
       Symbol.asyncDispose = Symbol.for('nodejs.asyncDispose');
-    } catch (_err) {}
+    } catch (_err) { /* lockdown may freeze Symbol; disposer support is optional */ }
   }
 }
 

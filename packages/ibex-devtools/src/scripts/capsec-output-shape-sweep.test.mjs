@@ -1212,9 +1212,9 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         "ibex/capsec-output-shape-execution-partition/1",
       completeCatalogKeyDigest: completeCatalog.catalogKeyDigest,
     });
-    expect(completeCatalog.rows).toHaveLength(6515);
-    expect(executionPartition.genericCatalog.rows).toHaveLength(5942);
-    expect(executionPartition.genericProbes).toHaveLength(5942);
+    expect(completeCatalog.rows).toHaveLength(6525);
+    expect(executionPartition.genericCatalog.rows).toHaveLength(5945);
+    expect(executionPartition.genericProbes).toHaveLength(5945);
     expect(
       executionPartition.genericCatalog.rows.some(
         (row) => row.key.sourceKind === "host-abi",
@@ -1222,13 +1222,13 @@ describe("output-shape-sweep-v3 evidence contract", () => {
     ).toBe(false);
     expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(59);
     expect(executionPartition.hostAbi.rows).toHaveLength(508);
-    // The 6 residual rows are the remaining GPU-provider-success routes (armed authority
-    // digests, session capture, receipt/decoded-image delivery) plus the
-    // borrowed-pointer authority-API return, which has no bounded output by
-    // contract. The sweep plan must keep failing bidirectionality until a
-    // reviewed armed GPU-authority fixture closes them.
+    // The 13 residual rows are the remaining GPU authority and presentation
+    // routes without a bounded output fixture: decoded-image and receipt
+    // delivery, authority/session/presentation capture, recheck, retirement,
+    // and the borrowed-pointer session API. The sweep plan must keep failing
+    // bidirectionality until a reviewed armed GPU-authority fixture closes them.
     // @ref LLP 0035#host-abi-output-shape-residuals-the-classified-remainder
-    expect(executionPartition.hostAbi.residuals).toHaveLength(6);
+    expect(executionPartition.hostAbi.residuals).toHaveLength(13);
 
     const baseBindings = fixture().bindings;
     const targetAbsenceProbes = buildTargetAbsenceOutputShapeProbes({
@@ -1348,12 +1348,12 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       shifted.hostAbi.targetAbsenceBindings.length,
       shifted.hostAbi.rows.length,
       shifted.hostAbi.residuals.length,
-    ]).not.toEqual([59, 508, 6]);
+    ]).not.toEqual([59, 508, 13]);
     expect([
       executionPartition.hostAbi.targetAbsenceBindings.length,
       executionPartition.hostAbi.rows.length,
       executionPartition.hostAbi.residuals.length,
-    ]).toEqual([59, 508, 6]);
+    ]).toEqual([59, 508, 13]);
   }, 180_000);
 
   test("routes and exactly validates the complete builtin-effects tranche", async () => {

@@ -35,18 +35,43 @@ pub struct ImportBindingPlan {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DynamicImportBindingPlan {
+    /// `None` identifies an authored literal site; computed candidates retain
+    /// their producer-owned site ordinal so equal spellings at different sites
+    /// never collapse into one authority decision.
+    pub site: Option<u32>,
     pub specifier: String,
     pub target: SourceId,
     pub attributes: super::identity::ImportAttributes,
-    pub computed_candidate: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DynamicImportBindingKey {
+    pub site: Option<u32>,
+    pub specifier: String,
+}
+
+impl DynamicImportBindingPlan {
+    fn key(&self) -> DynamicImportBindingKey {
+        DynamicImportBindingKey {
+            site: self.site,
+            specifier: self.specifier.clone(),
+        }
+    }
 }
 
 pub struct DynamicAuthorizationPlan {
     pub receipts: Vec<AuthorizedGraphOperation>,
-    pub allowed_specifiers: BTreeMap<SourceId, BTreeSet<String>>,
+    pub allowed_bindings: BTreeMap<SourceId, BTreeSet<DynamicImportBindingKey>>,
 }
 
-pub type ComputedCandidateSiteMap = BTreeMap<SourceId, BTreeMap<(u32, String), SourceId>>;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComputedCandidateBinding {
+    pub target: SourceId,
+    pub attributes: super::identity::ImportAttributes,
+}
+
+pub type ComputedCandidateSiteMap =
+    BTreeMap<SourceId, BTreeMap<(u32, String), ComputedCandidateBinding>>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GraphErrorCode {
@@ -208,19 +233,7 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             let source_id = semantics.source_id.0.clone();
             let expected: BTreeSet<_> = artifact_edge_keys(artifact).collect();
             let observed: BTreeSet<_> = edges.keys().cloned().collect();
-            let has_computed_dynamic_import = semantics
-                .dynamic_edges
-                .iter()
-                .any(|edge| matches!(edge, super::artifact::DynamicEdgeV1::Computed { .. }));
-            let agrees = if has_computed_dynamic_import {
-                expected.is_subset(&observed)
-                    && observed
-                        .difference(&expected)
-                        .all(|key| key.resolution_kind == ResolutionKind::DynamicImport)
-            } else {
-                expected == observed
-            };
-            if !agrees {
+            if expected != observed {
                 return Err(GraphError::link(format!(
                     "artifact/resolver graph disagreement for {source_id:?}: expected {expected:?}, observed {observed:?}"
                 )));
@@ -260,13 +273,8 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                     super::artifact::DynamicEdgeV1::Literal { .. } => None,
                 })
                 .collect::<BTreeSet<_>>();
-            for ((site, specifier), target) in rows {
-                if !admitted_sites.contains(site)
-                    || record
-                        .edges
-                        .get(&GraphEdgeKey::new(specifier, ResolutionKind::DynamicImport))
-                        != Some(target)
-                {
+            for ((site, specifier), binding) in rows {
+                if !admitted_sites.contains(site) || !planned.contains_key(&binding.target) {
                     return Err(GraphError::link(format!(
                         "computed-candidate site {site} spelling {specifier:?} disagrees with the authenticated artifact graph"
                     )));
@@ -294,56 +302,12 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         self.records.contains_key(source_id)
     }
 
-    /// Refuse production-native plans that would need an authored call-time
-    /// edge before the runtime has a private in-drive loader capability.
-    ///
-    /// The source-graph ingress applies the same boundary before resolving a
-    /// deferred target. Keep this independent check at the authenticated
-    /// linker boundary so a prepared graph or another internal caller cannot
-    /// reintroduce eager authorization through the prelinked lookup tables.
-    /// Exact manifest-owned builtin fan-out is a private synchronous
-    /// initialization dependency; native code separately proves that its
-    /// `require` closure cannot be used after that initialization returns.
-    // @ref LLP 0024#3-source-goal
-    // @ref LLP 0021#module-initialization-and-trusted-source-acquisition
-    pub fn ensure_native_call_time_edges_supported(&self) -> Result<(), GraphError> {
-        for (source_id, record) in &self.records {
-            let semantics = &record.artifact.artifact().semantics;
-            if !semantics.dynamic_edges.is_empty() {
-                return Err(GraphError::link(format!(
-                    "native call-time dynamic-import activation is unavailable for {source_id:?}"
-                )));
-            }
-            for edge in &semantics.static_edges {
-                let StaticEdgeV1::CommonJsRequire { specifier } = edge else {
-                    continue;
-                };
-                if semantics.source_goal != SourceGoalV1::Builtin {
-                    return Err(GraphError::link(format!(
-                        "native call-time CommonJS require activation is unavailable for {source_id:?}"
-                    )));
-                }
-                let target =
-                    self.edge_target(record, specifier.as_str(), ResolutionKind::CommonJsRequire)?;
-                if self.artifact(target)?.artifact().semantics.source_goal != SourceGoalV1::Builtin
-                {
-                    return Err(GraphError::link(format!(
-                        "manifest builtin private dependency {specifier:?} from {source_id:?} is not a builtin record"
-                    )));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Dependency-first execution order for the entry's ESM-static closure.
-    /// This plan algebra retains CommonJS require targets for diagnostics and
-    /// private ABI tests. Authenticated production callers first apply
-    /// `ensure_native_call_time_edges_supported`, so only closed manifest
-    /// builtin fan-out can reach native lazy `require()`; authored requires use
-    /// the compatibility loader. A CJS record reached by an ESM edge is itself
-    /// scheduled so its namespace adapter is ready before the importing ESM
-    /// body executes.
+    /// Dependency-first execution order for the entry's eager ESM closure.
+    /// Authenticated CommonJS require targets are materialized and linked but
+    /// excluded from this traversal because `require()` reaches and evaluates
+    /// them only when the CommonJS body invokes that exact edge. Computed
+    /// require remains a fail-closed invocation-time operation.
+    /// A visiting record is reused, so cycles append each record exactly once.
     /// @ref LLP 0026#7-commonjs-interop
     pub fn evaluation_order(&self, entry: &SourceId) -> Result<Vec<SourceId>, GraphError> {
         let mut visiting = BTreeSet::new();
@@ -353,9 +317,10 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         Ok(order)
     }
 
-    /// Deterministic record-materialization order including literal dynamic
-    /// targets. This remains diagnostic/private-ABI plan algebra; authenticated
-    /// production callers reject authored dynamic edges before invoking it.
+    /// Deterministic record-materialization order including authenticated
+    /// literal and computed-candidate dynamic targets. These records are
+    /// linked but remain unevaluated until a static or dynamic entry reaches
+    /// them.
     pub fn linkage_order(&self, entry: &SourceId) -> Result<Vec<SourceId>, GraphError> {
         let allowed: BTreeMap<_, _> = self
             .records
@@ -365,7 +330,7 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                     source_id.clone(),
                     self.dynamic_import_bindings(source_id)?
                         .into_iter()
-                        .map(|binding| binding.specifier)
+                        .map(|binding| binding.key())
                         .collect(),
                 ))
             })
@@ -376,23 +341,19 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
     pub fn linkage_order_for_authorized(
         &self,
         entry: &SourceId,
-        allowed_dynamic_specifiers: &BTreeMap<SourceId, BTreeSet<String>>,
+        allowed_dynamic_bindings: &BTreeMap<SourceId, BTreeSet<DynamicImportBindingKey>>,
     ) -> Result<Vec<SourceId>, GraphError> {
         let mut visiting = BTreeSet::new();
         let mut visited = BTreeSet::new();
         let mut order = Vec::new();
         self.visit_for_linkage(
             entry,
-            allowed_dynamic_specifiers,
+            allowed_dynamic_bindings,
             &mut visiting,
             &mut visited,
             &mut order,
         )?;
         Ok(order)
-    }
-
-    fn static_linkage_order(&self, entry: &SourceId) -> Result<Vec<SourceId>, GraphError> {
-        self.linkage_order_for_authorized(entry, &BTreeMap::new())
     }
 
     /// Dependency-first order for a synchronous caller. Async taint is checked
@@ -463,48 +424,45 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
     ) -> Result<Vec<DynamicImportBindingPlan>, GraphError> {
         let record = self.record(source_id)?;
         let mut declared = BTreeMap::new();
-        let mut has_computed = false;
         for edge in &record.artifact.artifact().semantics.dynamic_edges {
             match edge {
                 super::artifact::DynamicEdgeV1::Literal {
                     specifier,
                     attributes,
-                } => {
-                    declared.insert(specifier.as_str().to_owned(), attributes.clone());
-                }
-                super::artifact::DynamicEdgeV1::Computed { .. } => has_computed = true,
+                } => match declared.insert(specifier.as_str().to_owned(), attributes.clone()) {
+                    Some(previous) if previous != *attributes => {
+                        return Err(GraphError::link(format!(
+                            "literal dynamic-import spelling {:?} carries conflicting attributes",
+                            specifier.as_str()
+                        )));
+                    }
+                    _ => {}
+                },
+                super::artifact::DynamicEdgeV1::Computed { .. } => {}
             }
         }
         let mut bindings = Vec::new();
         for (specifier, attributes) in declared {
             bindings.push(DynamicImportBindingPlan {
+                site: None,
                 target: self
                     .edge_target(record, &specifier, ResolutionKind::DynamicImport)?
                     .clone(),
                 specifier,
                 attributes,
-                computed_candidate: false,
             });
         }
-        if has_computed {
-            let literal_specifiers: BTreeSet<_> = bindings
-                .iter()
-                .map(|binding| binding.specifier.clone())
-                .collect();
-            for (key, target) in &record.edges {
-                if key.resolution_kind == ResolutionKind::DynamicImport
-                    && !literal_specifiers.contains(&key.specifier)
-                {
-                    bindings.push(DynamicImportBindingPlan {
-                        specifier: key.specifier.clone(),
-                        target: target.clone(),
-                        attributes: super::identity::ImportAttributes::default(),
-                        computed_candidate: true,
-                    });
-                }
+        if let Some(rows) = self.computed_candidate_sites.get(source_id) {
+            for ((site, specifier), candidate) in rows {
+                bindings.push(DynamicImportBindingPlan {
+                    site: Some(*site),
+                    specifier: specifier.clone(),
+                    target: candidate.target.clone(),
+                    attributes: candidate.attributes.clone(),
+                });
             }
         }
-        bindings.sort_by(|left, right| left.specifier.cmp(&right.specifier));
+        bindings.sort_by_key(DynamicImportBindingPlan::key);
         Ok(bindings)
     }
 
@@ -518,6 +476,13 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                 .map(|binding| (binding.specifier, binding.target))
                 .collect()
         })
+    }
+
+    /// Complete statically materialized closure. Unlike `evaluation_order`,
+    /// this includes literal CommonJS require targets so their records and
+    /// authority receipts exist before a reached `require()` evaluates them.
+    fn static_linkage_order(&self, entry: &SourceId) -> Result<Vec<SourceId>, GraphError> {
+        self.linkage_order_for_authorized(entry, &BTreeMap::new())
     }
 
     pub fn literal_static_target(
@@ -712,14 +677,26 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             for edge in &artifact.semantics.static_edges {
                 // Generated builtin fan-out is closed runtime-manifest linkage,
                 // not a package-authored import edge. Its exact spelling and
-                // builtin target are validated by the source graph/native link
+                // builtin target are validated at this authenticated graph
                 // boundary, while the target record's own compile/instantiate/
                 // execute decisions and terminal effects remain fully gated.
                 // @ref LLP 0021#module-initialization-and-trusted-source-acquisition
-                if artifact.semantics.source_goal == SourceGoalV1::Builtin
-                    && matches!(edge, StaticEdgeV1::CommonJsRequire { .. })
-                {
-                    continue;
+                if artifact.semantics.source_goal == SourceGoalV1::Builtin {
+                    if let StaticEdgeV1::CommonJsRequire { specifier } = edge {
+                        let target = self.edge_target(
+                            record,
+                            specifier.as_str(),
+                            ResolutionKind::CommonJsRequire,
+                        )?;
+                        if self.artifact(target)?.artifact().semantics.source_goal
+                            != SourceGoalV1::Builtin
+                        {
+                            anyhow::bail!(
+                                "manifest builtin private dependency {specifier:?} from {source_id:?} is not a builtin record"
+                            );
+                        }
+                        continue;
+                    }
                 }
                 let (specifier, attributes, kind, resolution_kind) = match edge {
                     StaticEdgeV1::CommonJsRequire { specifier } => (
@@ -836,7 +813,8 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
     ) -> anyhow::Result<DynamicAuthorizationPlan> {
         let mut receipts = Vec::new();
-        let mut allowed_specifiers: BTreeMap<SourceId, BTreeSet<String>> = BTreeMap::new();
+        let mut allowed_bindings: BTreeMap<SourceId, BTreeSet<DynamicImportBindingKey>> =
+            BTreeMap::new();
         let mut allowed_targets = BTreeSet::new();
         let mut owners = self.static_linkage_order(entry)?;
         let mut seen_owners: BTreeSet<_> = owners.iter().cloned().collect();
@@ -852,8 +830,14 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                 anyhow::anyhow!("dynamic candidate owner {source_id:?} has no CapSec context")
             })?;
             for binding in bindings {
+                let binding_key = binding.key();
+                let kind = if binding.attributes.asserts_json() {
+                    GraphOperationKind::JsonLoad
+                } else {
+                    GraphOperationKind::DynamicImport
+                };
                 let decision = GraphDecisionSet::new(
-                    GraphOperationKind::DynamicImport,
+                    kind,
                     context.clone(),
                     binding.target,
                     &binding.specifier,
@@ -867,10 +851,10 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                 )?;
                 if let Some(receipt) = authorizer.authorize_if_allowed(decision)? {
                     allowed_targets.insert(receipt.decision().resource.target.clone());
-                    allowed_specifiers
+                    allowed_bindings
                         .entry(source_id.clone())
                         .or_default()
-                        .insert(binding.specifier);
+                        .insert(binding_key);
                     for member in self.static_linkage_order(&receipt.decision().resource.target)? {
                         if seen_owners.insert(member.clone()) {
                             owners.push(member);
@@ -885,7 +869,7 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         }
         Ok(DynamicAuthorizationPlan {
             receipts,
-            allowed_specifiers,
+            allowed_bindings,
         })
     }
 
@@ -1217,7 +1201,7 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
     fn visit_for_linkage(
         &self,
         source_id: &SourceId,
-        allowed_dynamic_specifiers: &BTreeMap<SourceId, BTreeSet<String>>,
+        allowed_dynamic_bindings: &BTreeMap<SourceId, BTreeSet<DynamicImportBindingKey>>,
         visiting: &mut BTreeSet<SourceId>,
         visited: &mut BTreeSet<SourceId>,
         order: &mut Vec<SourceId>,
@@ -1230,20 +1214,14 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         for edge in &record.artifact.artifact().semantics.static_edges {
             targets.insert(self.static_edge_target(record, edge)?.clone());
         }
-        let allowed = allowed_dynamic_specifiers.get(source_id);
-        for (specifier, target) in self.dynamic_import_targets(source_id)? {
-            if allowed.is_some_and(|specifiers| specifiers.contains(&specifier)) {
-                targets.insert(target);
+        let allowed = allowed_dynamic_bindings.get(source_id);
+        for binding in self.dynamic_import_bindings(source_id)? {
+            if allowed.is_some_and(|bindings| bindings.contains(&binding.key())) {
+                targets.insert(binding.target);
             }
         }
         for target in targets {
-            self.visit_for_linkage(
-                &target,
-                allowed_dynamic_specifiers,
-                visiting,
-                visited,
-                order,
-            )?;
+            self.visit_for_linkage(&target, allowed_dynamic_bindings, visiting, visited, order)?;
         }
         visiting.remove(source_id);
         if visited.insert(source_id.clone()) {
@@ -1340,7 +1318,7 @@ mod tests {
         SourceGoalV1, SourceMapV1, TransformFingerprintV1, MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
     };
     use crate::module_loader::identity::ImportAttributes;
-    use capsec_semantics::model::{Digest, NonEmptyString};
+    use capsec_semantics::model::{Digest, NonEmptyString, PathComponent, Principal};
 
     fn digest(label: &str) -> Digest {
         digest_bytes("module-graph-test", label.as_bytes()).unwrap()
@@ -1526,7 +1504,7 @@ mod tests {
     }
 
     #[test]
-    fn native_call_time_edge_guard_rejects_authored_edges_and_closes_builtin_fanout() {
+    fn authenticated_call_time_edges_traverse_and_builtin_fanout_stays_private() {
         let dynamic_entry_id = source("dynamic-entry");
         let dynamic_target_id = source("dynamic-target");
         let dynamic_entry = with_dynamic_edges(
@@ -1548,11 +1526,14 @@ mod tests {
             (verify(&dynamic_target), BTreeMap::new()),
         ])
         .unwrap();
-        assert!(dynamic_plan
-            .ensure_native_call_time_edges_supported()
-            .unwrap_err()
-            .to_string()
-            .contains("dynamic-import activation"));
+        assert_eq!(
+            dynamic_plan.evaluation_order(&dynamic_entry_id).unwrap(),
+            [dynamic_entry_id.clone()]
+        );
+        assert_eq!(
+            dynamic_plan.linkage_order(&dynamic_entry_id).unwrap(),
+            [dynamic_target_id, dynamic_entry_id]
+        );
 
         let commonjs_entry_id = source("commonjs-entry");
         let commonjs_target_id = source("commonjs-target");
@@ -1575,11 +1556,14 @@ mod tests {
             (verify(&commonjs_target), BTreeMap::new()),
         ])
         .unwrap();
-        assert!(commonjs_plan
-            .ensure_native_call_time_edges_supported()
-            .unwrap_err()
-            .to_string()
-            .contains("CommonJS require activation"));
+        assert_eq!(
+            commonjs_plan.evaluation_order(&commonjs_entry_id).unwrap(),
+            [commonjs_entry_id.clone()]
+        );
+        assert_eq!(
+            commonjs_plan.linkage_order(&commonjs_entry_id).unwrap(),
+            [commonjs_target_id, commonjs_entry_id]
+        );
 
         let builtin_owner_id = SourceId::builtin("ibex-runtime", "builtin-owner").unwrap();
         let builtin_target_id = SourceId::builtin("ibex-runtime", "builtin-target").unwrap();
@@ -1599,11 +1583,87 @@ mod tests {
             (verify(&builtin_target), BTreeMap::new()),
         ])
         .unwrap();
-        builtin_plan
-            .ensure_native_call_time_edges_supported()
-            .unwrap();
 
-        let non_builtin_target_id = source("non-builtin-target");
+        struct AllowAllPolicy {
+            digest: Digest,
+            generations: capsec_semantics::arming::SnapshotGenerations,
+        }
+
+        impl GraphImportPolicy for AllowAllPolicy {
+            fn snapshot_digest(&self) -> &Digest {
+                &self.digest
+            }
+
+            fn snapshot_generations(&self) -> capsec_semantics::arming::SnapshotGenerations {
+                self.generations
+            }
+
+            fn authenticates_module_edge(
+                &self,
+                _importer: &capsec_semantics::model::Principal,
+                _request_specifier: &str,
+                _imported: &capsec_semantics::model::Principal,
+                _resolution_kind: &str,
+                _conditions: &[String],
+                _attributes: &BTreeMap<String, String>,
+            ) -> bool {
+                true
+            }
+        }
+
+        let generation = capsec_semantics::model::Generation::new(1).unwrap();
+        let policy = AllowAllPolicy {
+            digest: digest("builtin-policy"),
+            generations: capsec_semantics::arming::SnapshotGenerations {
+                policy: generation,
+                negative: generation,
+                dynamic: generation,
+                handle: generation,
+            },
+        };
+        let root = capsec_semantics::model::Principal::Root {
+            identity: name("module-graph-root"),
+        };
+        let context = |requester: SourceId| {
+            GraphAuthorityContext::new(
+                requester,
+                root.clone(),
+                root.clone(),
+                root.clone(),
+                vec![root.clone()],
+                capsec_semantics::model::Stage::Requested,
+                1,
+            )
+            .unwrap()
+        };
+        let contexts = BTreeMap::from([
+            (builtin_owner_id.clone(), context(builtin_owner_id.clone())),
+            (
+                builtin_target_id.clone(),
+                context(builtin_target_id.clone()),
+            ),
+        ]);
+        let receipts = builtin_plan
+            .authorize_reachable_operations(
+                &builtin_owner_id,
+                &ModuleGraphAuthorizer::new(&policy),
+                &contexts,
+            )
+            .unwrap();
+        assert_eq!(receipts.len(), 6);
+        assert!(!receipts
+            .iter()
+            .any(|receipt| receipt.decision().kind == GraphOperationKind::LiteralRequire));
+        assert_eq!(
+            builtin_plan.evaluation_order(&builtin_owner_id).unwrap(),
+            [builtin_owner_id.clone()]
+        );
+
+        let non_builtin_target_id = SourceId::file(
+            root.clone(),
+            vec![capsec_semantics::model::PathComponent::utf8("non-builtin-target.cjs").unwrap()],
+        )
+        .unwrap();
         let non_builtin_target =
             commonjs_artifact(non_builtin_target_id.clone(), Vec::new(), Vec::new());
         let escaped_plan = SynchronousGraphPlan::new_typed([
@@ -1617,8 +1677,19 @@ mod tests {
             (verify(&non_builtin_target), BTreeMap::new()),
         ])
         .unwrap();
+        let escaped_contexts = BTreeMap::from([
+            (builtin_owner_id.clone(), context(builtin_owner_id.clone())),
+            (
+                non_builtin_target_id.clone(),
+                context(non_builtin_target_id),
+            ),
+        ]);
         assert!(escaped_plan
-            .ensure_native_call_time_edges_supported()
+            .authorize_reachable_operations(
+                &builtin_owner_id,
+                &ModuleGraphAuthorizer::new(&policy),
+                &escaped_contexts,
+            )
             .unwrap_err()
             .to_string()
             .contains("is not a builtin record"));
@@ -1776,6 +1847,38 @@ mod tests {
         let error = plan.synchronous_evaluation_order(&entry_id).err().unwrap();
         assert_eq!(error.code, GraphErrorCode::RequireAsyncModule);
         assert!(error.to_string().starts_with("ERR_REQUIRE_ASYNC_MODULE:"));
+
+        let requiring_id = source("lazy-requiring-entry");
+        let lazy_async_id = source("lazy-async-target");
+        let requiring = commonjs_artifact(
+            requiring_id.clone(),
+            vec![StaticEdgeV1::CommonJsRequire {
+                specifier: name("./lazy-async.mjs"),
+            }],
+            Vec::new(),
+        );
+        let lazy_async = artifact(lazy_async_id.clone(), Vec::new(), Vec::new(), true);
+        let lazy_plan = SynchronousGraphPlan::new_typed([
+            (
+                verify(&requiring),
+                BTreeMap::from([(
+                    GraphEdgeKey::new("./lazy-async.mjs", ResolutionKind::CommonJsRequire),
+                    lazy_async_id.clone(),
+                )]),
+            ),
+            (verify(&lazy_async), BTreeMap::new()),
+        ])
+        .unwrap();
+        assert_eq!(
+            lazy_plan
+                .synchronous_evaluation_order(&requiring_id)
+                .unwrap(),
+            [requiring_id.clone()]
+        );
+        assert_eq!(
+            lazy_plan.linkage_order(&requiring_id).unwrap(),
+            [lazy_async_id, requiring_id]
+        );
     }
 
     #[test]
@@ -1821,15 +1924,15 @@ mod tests {
         );
         assert_eq!(
             plan.dynamic_import_targets(&entry_id).unwrap(),
-            [("conditional-package".to_owned(), dynamic_id)]
+            [("conditional-package".to_owned(), dynamic_id.clone())]
         );
         assert_eq!(
             plan.evaluation_order(&entry_id).unwrap(),
             [entry_id.clone()]
         );
         assert_eq!(
-            plan.static_linkage_order(&entry_id).unwrap(),
-            [require_id, entry_id]
+            plan.linkage_order(&entry_id).unwrap(),
+            [dynamic_id, require_id, entry_id]
         );
     }
 
@@ -1995,31 +2098,57 @@ mod tests {
         );
         let left = artifact(left_id.clone(), vec![], vec![], false);
         let right = artifact(right_id.clone(), vec![], vec![], false);
-        let plan = SynchronousGraphPlan::new([
-            (
-                verify(&entry),
+        let plan = SynchronousGraphPlan::new_typed_with_computed_candidates(
+            [
+                (verify(&entry), BTreeMap::new()),
+                (verify(&left), BTreeMap::new()),
+                (verify(&right), BTreeMap::new()),
+            ],
+            BTreeMap::from([(
+                entry_id.clone(),
                 BTreeMap::from([
-                    ("./left".into(), left_id.clone()),
-                    ("./right".into(), right_id.clone()),
+                    (
+                        (0, "./left".into()),
+                        ComputedCandidateBinding {
+                            target: left_id.clone(),
+                            attributes: ImportAttributes::default(),
+                        },
+                    ),
+                    (
+                        (0, "./right".into()),
+                        ComputedCandidateBinding {
+                            target: right_id.clone(),
+                            attributes: ImportAttributes::default(),
+                        },
+                    ),
                 ]),
-            ),
-            (verify(&left), BTreeMap::new()),
-            (verify(&right), BTreeMap::new()),
-        ])
+            )]),
+        )
         .unwrap();
         assert_eq!(
             plan.dynamic_import_bindings(&entry_id)
                 .unwrap()
                 .into_iter()
                 .map(|binding| (
+                    binding.site,
                     binding.specifier,
                     binding.target,
-                    binding.computed_candidate
+                    binding.attributes,
                 ))
                 .collect::<Vec<_>>(),
             [
-                ("./left".into(), left_id.clone(), true),
-                ("./right".into(), right_id.clone(), true),
+                (
+                    Some(0),
+                    "./left".into(),
+                    left_id.clone(),
+                    ImportAttributes::default()
+                ),
+                (
+                    Some(0),
+                    "./right".into(),
+                    right_id.clone(),
+                    ImportAttributes::default()
+                ),
             ]
         );
         assert_eq!(
@@ -2034,5 +2163,152 @@ mod tests {
             BTreeMap::from([("./unadvertised".into(), source("unadvertised"))]),
         )])
         .is_err());
+    }
+
+    #[test]
+    fn computed_candidates_keep_site_specific_attributes_through_authorization() {
+        struct AllowAllPolicy {
+            digest: Digest,
+            generations: capsec_semantics::arming::SnapshotGenerations,
+        }
+
+        impl GraphImportPolicy for AllowAllPolicy {
+            fn snapshot_digest(&self) -> &Digest {
+                &self.digest
+            }
+
+            fn snapshot_generations(&self) -> capsec_semantics::arming::SnapshotGenerations {
+                self.generations
+            }
+
+            fn authenticates_module_edge(
+                &self,
+                _importer: &Principal,
+                _request_specifier: &str,
+                _imported: &Principal,
+                _resolution_kind: &str,
+                _conditions: &[String],
+                _attributes: &BTreeMap<String, String>,
+            ) -> bool {
+                true
+            }
+        }
+
+        let root = Principal::Root {
+            identity: name("candidate-root"),
+        };
+        let file = |name: &str| {
+            SourceId::file(root.clone(), vec![PathComponent::utf8(name).unwrap()]).unwrap()
+        };
+        let entry_id = file("entry.mjs");
+        let plain_id = file("plain.mjs");
+        let json_id = file("data.json");
+        let entry = with_dynamic_edges(
+            artifact(entry_id.clone(), Vec::new(), Vec::new(), false),
+            vec![
+                DynamicEdgeV1::Computed { site: 0 },
+                DynamicEdgeV1::Computed { site: 1 },
+            ],
+        );
+        let plain = artifact(plain_id.clone(), Vec::new(), Vec::new(), false);
+        let json = artifact(json_id.clone(), Vec::new(), Vec::new(), false);
+        let json_attributes =
+            ImportAttributes::new([("type".to_owned(), "json".to_owned())]).unwrap();
+        let plan = SynchronousGraphPlan::new_typed_with_computed_candidates(
+            [
+                (verify(&entry), BTreeMap::new()),
+                (verify(&plain), BTreeMap::new()),
+                (verify(&json), BTreeMap::new()),
+            ],
+            BTreeMap::from([(
+                entry_id.clone(),
+                BTreeMap::from([
+                    (
+                        (0, "./same".to_owned()),
+                        ComputedCandidateBinding {
+                            target: plain_id.clone(),
+                            attributes: ImportAttributes::default(),
+                        },
+                    ),
+                    (
+                        (1, "./same".to_owned()),
+                        ComputedCandidateBinding {
+                            target: json_id.clone(),
+                            attributes: json_attributes.clone(),
+                        },
+                    ),
+                ]),
+            )]),
+        )
+        .unwrap();
+
+        let bindings = plan.dynamic_import_bindings(&entry_id).unwrap();
+        assert_eq!(bindings.len(), 2);
+        assert_eq!(bindings[0].site, Some(0));
+        assert!(bindings[0].attributes.is_empty());
+        assert_eq!(bindings[1].site, Some(1));
+        assert_eq!(bindings[1].attributes, json_attributes);
+
+        let generation = capsec_semantics::model::Generation::new(1).unwrap();
+        let policy = AllowAllPolicy {
+            digest: digest("candidate-policy"),
+            generations: capsec_semantics::arming::SnapshotGenerations {
+                policy: generation,
+                negative: generation,
+                dynamic: generation,
+                handle: generation,
+            },
+        };
+        let context = |source_id: SourceId| {
+            GraphAuthorityContext::new(
+                source_id,
+                root.clone(),
+                root.clone(),
+                root.clone(),
+                vec![root.clone()],
+                capsec_semantics::model::Stage::Requested,
+                1,
+            )
+            .unwrap()
+        };
+        let contexts = BTreeMap::from([
+            (entry_id.clone(), context(entry_id.clone())),
+            (plain_id.clone(), context(plain_id.clone())),
+            (json_id.clone(), context(json_id.clone())),
+        ]);
+        let authorization = plan
+            .authorize_dynamic_candidates(
+                &entry_id,
+                &ModuleGraphAuthorizer::new(&policy),
+                &contexts,
+            )
+            .unwrap();
+        assert!(
+            authorization.allowed_bindings[&entry_id].contains(&DynamicImportBindingKey {
+                site: Some(0),
+                specifier: "./same".to_owned(),
+            })
+        );
+        assert!(
+            authorization.allowed_bindings[&entry_id].contains(&DynamicImportBindingKey {
+                site: Some(1),
+                specifier: "./same".to_owned(),
+            })
+        );
+        let dynamic_attributes = authorization
+            .receipts
+            .iter()
+            .filter(|receipt| {
+                receipt.decision().resource.resolution_kind == ResolutionKind::DynamicImport
+            })
+            .map(|receipt| {
+                (
+                    receipt.decision().resource.target.clone(),
+                    receipt.decision().resource.attributes.clone(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        assert!(dynamic_attributes[&plain_id].is_empty());
+        assert_eq!(dynamic_attributes[&json_id], json_attributes);
     }
 }

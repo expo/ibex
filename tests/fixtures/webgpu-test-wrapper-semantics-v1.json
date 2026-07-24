@@ -65,6 +65,17 @@
         "disposition": "construction-private-command-program-route-promotion-public-install-and-support-absent"
       },
       {
+        "operationId": "GPUCommandEncoder.resolveQuerySet",
+        "sourceRepository": "ccheever/exact",
+        "sourceCommit": "52fb441e8c0701bebe85c95d9656e069d9a143b2",
+        "sourceArtifactPath": "tests/gpu/webgpu-product-semantic-extension-v1.json",
+        "sourceArtifactSha256": "83d33951ae93ef06336150e0e6f0bc1e932ac4a1b77056925feb233d00b77482",
+        "sourceOperationWireId": 1803920004,
+        "sourceOperationSemanticSha256": "5eabcae8f6ec27ae6302cc66b636321c1ec416df6934cae177ef787b0178e366",
+        "sourceWorkloadCohortSha256": "355dc9fb0a7004b070f2f763e64298716ba7dcf9cd7b2aa2940a936ff0520f69",
+        "disposition": "construction-private-command-program-route-promotion-public-install-and-support-absent"
+      },
+      {
         "operationId": "GPUComputePassEncoder.dispatchWorkgroups",
         "sourceRepository": "ccheever/exact",
         "sourceCommit": "671381b20b7dfb22a5342b3ccc73b0c245b58c7a",
@@ -109,6 +120,28 @@
         "disposition": "construction-private-command-program-route-promotion-public-install-and-support-absent"
       },
       {
+        "operationId": "GPURenderPassEncoder.drawIndexed",
+        "sourceRepository": "ccheever/exact",
+        "sourceCommit": "52fb441e8c0701bebe85c95d9656e069d9a143b2",
+        "sourceArtifactPath": "tests/gpu/webgpu-product-semantic-extension-v1.json",
+        "sourceArtifactSha256": "83d33951ae93ef06336150e0e6f0bc1e932ac4a1b77056925feb233d00b77482",
+        "sourceOperationWireId": 1973734484,
+        "sourceOperationSemanticSha256": "883c8193e7233fd9d1ee380a1584ceec4fd0e597410bcb51c20a4c58d1b2e700",
+        "sourceWorkloadCohortSha256": "355dc9fb0a7004b070f2f763e64298716ba7dcf9cd7b2aa2940a936ff0520f69",
+        "disposition": "construction-private-command-program-route-promotion-public-install-and-support-absent"
+      },
+      {
+        "operationId": "GPURenderPassEncoder.drawIndirect",
+        "sourceRepository": "ccheever/exact",
+        "sourceCommit": "52fb441e8c0701bebe85c95d9656e069d9a143b2",
+        "sourceArtifactPath": "tests/gpu/webgpu-product-semantic-extension-v1.json",
+        "sourceArtifactSha256": "83d33951ae93ef06336150e0e6f0bc1e932ac4a1b77056925feb233d00b77482",
+        "sourceOperationWireId": 225618851,
+        "sourceOperationSemanticSha256": "bb36631a4c86f49e1b008c4c1427da69ee315862357a9e4040f25a9132989851",
+        "sourceWorkloadCohortSha256": "355dc9fb0a7004b070f2f763e64298716ba7dcf9cd7b2aa2940a936ff0520f69",
+        "disposition": "construction-private-command-program-route-promotion-public-install-and-support-absent"
+      },
+      {
         "operationId": "GPURenderPassEncoder.setBindGroup",
         "sourceRepository": "ccheever/exact",
         "sourceCommit": "671381b20b7dfb22a5342b3ccc73b0c245b58c7a",
@@ -117,6 +150,17 @@
         "sourceOperationWireId": 1203119164,
         "sourceOperationSemanticSha256": "7aa6c60bcb2ee1a560c96311f1a34c2565b716ea0ea5df66d56098a15049b082",
         "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
+        "disposition": "construction-private-command-program-route-promotion-public-install-and-support-absent"
+      },
+      {
+        "operationId": "GPURenderPassEncoder.setIndexBuffer",
+        "sourceRepository": "ccheever/exact",
+        "sourceCommit": "52fb441e8c0701bebe85c95d9656e069d9a143b2",
+        "sourceArtifactPath": "tests/gpu/webgpu-product-semantic-extension-v1.json",
+        "sourceArtifactSha256": "83d33951ae93ef06336150e0e6f0bc1e932ac4a1b77056925feb233d00b77482",
+        "sourceOperationWireId": 66487733,
+        "sourceOperationSemanticSha256": "e90468bd18e0ae122ed4037e3ab74ad1c613563b7eeb2194cc2dbaacaf1a2996",
+        "sourceWorkloadCohortSha256": "355dc9fb0a7004b070f2f763e64298716ba7dcf9cd7b2aa2940a936ff0520f69",
         "disposition": "construction-private-command-program-route-promotion-public-install-and-support-absent"
       },
       {
@@ -134,7 +178,7 @@
   },
   "authentication": {
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
-    "semanticProjectionSha256": "8372a1fe6c77b1c3402ef75ed1e7a04696cb2947c86672763af46e515ddc8844",
+    "semanticProjectionSha256": "be4e8b4c646355e9479cd069de4d800aef83cfc6a3fb08edeb637caa4a208dc8",
     "fakeClientDataSha256": "d4b76e9a5a4c9b3097cae44d666eff71c10d4c71f638016898627fbfbc58643e"
   },
   "semanticProjection": {
@@ -4504,6 +4548,124 @@
             "fact": "contentValidationPassed",
             "kind": "branch-predicates",
             "branchId": "content-validation",
+            "passWhen": true
+          },
+          {
+            "fact": "providerPredicatesValid",
+            "kind": "branch-predicates",
+            "branchId": "service-provider",
+            "passWhen": true
+          }
+        ]
+      },
+      {
+        "operationId": "GPUDevice.createQuerySet",
+        "facts": [
+          "webidlValid",
+          "contentValidationPassed",
+          "providerPredicatesValid"
+        ],
+        "precedence": [
+          "webidlValid",
+          "contentValidationPassed",
+          "providerPredicatesValid"
+        ],
+        "exhaustive": true,
+        "disjoint": true,
+        "terminals": [
+          {
+            "terminalId": "webidl-rejection",
+            "conditions": {
+              "webidlValid": false
+            },
+            "branchPath": [
+              "webidl"
+            ],
+            "terminalOutcome": "throw during inherited query-set descriptor Web IDL conversion before observing later members",
+            "errorTiming": "synchronous-webidl",
+            "resultDisposition": "throw",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "webidl"
+            }
+          },
+          {
+            "terminalId": "query-type-unavailable",
+            "conditions": {
+              "webidlValid": true,
+              "contentValidationPassed": false
+            },
+            "branchPath": [
+              "webidl",
+              "content-feature"
+            ],
+            "terminalOutcome": "throw TypeError for timestamp without timestamp-query before target mint or service ingress",
+            "errorTiming": "content-timeline",
+            "resultDisposition": "throw",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "content-feature"
+            }
+          },
+          {
+            "terminalId": "device-timeline-rejection",
+            "conditions": {
+              "webidlValid": true,
+              "contentValidationPassed": true,
+              "providerPredicatesValid": false
+            },
+            "branchPath": [
+              "webidl",
+              "content-feature",
+              "service-provider"
+            ],
+            "terminalOutcome": "return one invalid logical query set and report the selected device-timeline validation, security, or out-of-memory outcome before provider admission",
+            "errorTiming": "device-timeline",
+            "resultDisposition": "return-invalid-object-and-report-error",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "service-provider"
+            }
+          },
+          {
+            "terminalId": "operation-success",
+            "conditions": {
+              "webidlValid": true,
+              "contentValidationPassed": true,
+              "providerPredicatesValid": true
+            },
+            "branchPath": [
+              "webidl",
+              "content-feature",
+              "service-provider"
+            ],
+            "terminalOutcome": "return one logical query set and enqueue one validated zero-initialized provider allocation",
+            "errorTiming": "none",
+            "resultDisposition": "return-object",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "errorSource": {
+              "kind": "none"
+            }
+          }
+        ],
+        "factBindings": [
+          {
+            "fact": "webidlValid",
+            "kind": "branch-predicates",
+            "branchId": "webidl",
+            "passWhen": true
+          },
+          {
+            "fact": "contentValidationPassed",
+            "kind": "branch-predicates",
+            "branchId": "content-feature",
             "passWhen": true
           },
           {

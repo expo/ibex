@@ -5,6 +5,7 @@
 
 #include "hermes_runtime_internal.h"
 
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <set>
@@ -42,6 +43,11 @@ bool isActiveCommonJsEvaluationOwner(
   return !activeCommonJsEvaluations.empty() &&
       activeCommonJsEvaluations.back().runtime == runtime &&
       activeCommonJsEvaluations.back().record_id == recordId;
+}
+
+bool finiteIntegerInRange(double value, double minimum, double maximum) {
+  return std::isfinite(value) && value >= minimum && value <= maximum &&
+      std::trunc(value) == value;
 }
 
 #ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
@@ -229,54 +235,8 @@ facebook::jsi::Value requireEsmRecord(
     facebook::jsi::Runtime& rt,
     ExactHermesRuntime* runtime,
     uint64_t graphGeneration,
-    uint64_t recordId) {
-  auto found = runtime->module_records.find(recordId);
-  if (found == runtime->module_records.end() ||
-      found->second.graph_generation != graphGeneration) {
-    throw facebook::jsi::JSError(rt, "CommonJS require ESM target is stale");
-  }
-  auto& record = found->second;
-  if (record.state == NativeModuleRecordState::Errored) {
-    throw facebook::jsi::JSError(
-        rt,
-        record.error_message.empty() ? "module record is errored"
-                                     : record.error_message);
-  }
-  if (record.state != NativeModuleRecordState::Evaluated) {
-    throw facebook::jsi::JSError(
-        rt,
-        record.state == NativeModuleRecordState::Evaluating
-            ? "ERR_REQUIRE_CYCLE_MODULE: require() encountered an evaluating ES module"
-            : "ERR_REQUIRE_ASYNC_MODULE: require() target has not completed synchronous evaluation");
-  }
-  if (record.export_cells.count("module.exports") != 0) {
-    return readBinding(rt, runtime, recordId, record, "module.exports");
-  }
-  if (record.source_goal == 2) {
-    return readBinding(rt, runtime, recordId, record, "default");
-  }
-  if (!record.namespace_object) {
-    throw facebook::jsi::JSError(rt, "required ES module namespace is unavailable");
-  }
-  if (record.export_cells.count("default") == 0) {
-    return facebook::jsi::Value(rt, *record.namespace_object);
-  }
-
-  // Node's synchronous require(ESM) surface adds the compatibility marker
-  // when a default export is present. The module has completed evaluation, so
-  // this deterministic snapshot cannot expose partially initialized cells.
-  // @ref LLP 0027#esmcommonjs-interop-matrix
-  facebook::jsi::Object result(rt);
-  for (const auto& [name, cell] : record.export_cells) {
-    (void)cell;
-    result.setProperty(
-        rt,
-        moduleExportPropertyName(rt, name),
-        readBinding(rt, runtime, recordId, record, name));
-  }
-  result.setProperty(rt, "__esModule", true);
-  return result;
-}
+    uint64_t recordId,
+    bool synchronousEligible);
 
 void finalizeCommonJsAdapter(
     facebook::jsi::Runtime& rt,
@@ -423,7 +383,11 @@ facebook::jsi::Value evaluateCommonJsRecord(
           if (binding->second.kind ==
               NativeCommonJsRequireTargetKind::Esm) {
             return requireEsmRecord(
-                rt, target.runtime, graphGeneration, binding->second.record_id);
+                rt,
+                target.runtime,
+                graphGeneration,
+                binding->second.record_id,
+                binding->second.esm_synchronous_eligible);
           }
           auto dependency = target.runtime->commonjs_records.find(
               binding->second.record_id);
@@ -470,12 +434,6 @@ facebook::jsi::Value evaluateCommonJsRecord(
                 rt,
                 "manifest builtin dynamic import is unavailable outside synchronous initialization");
           }
-          const std::string specifier = args[0].asString(rt).utf8(rt);
-          auto binding = current->second.dynamic_import_bindings.find(specifier);
-          if (binding == current->second.dynamic_import_bindings.end()) {
-            return rejectedPromise(
-                rt, "CommonJS dynamic import target is not authorized and linked");
-          }
           try {
             const std::string specifier =
                 args[specifierIndex].toString(rt).utf8(rt);
@@ -487,12 +445,10 @@ facebook::jsi::Value evaluateCommonJsRecord(
               const double rawStart = args[1].asNumber();
               const double rawEnd = args[2].asNumber();
               const double rawOptionsGuard = args[3].asNumber();
-              if (rawKind < -1 || rawKind > UINT32_MAX ||
-                  rawKind != static_cast<int64_t>(rawKind) || rawStart < 0 ||
-                  rawStart > UINT32_MAX ||
-                  rawStart != static_cast<uint32_t>(rawStart) || rawEnd < rawStart ||
-                  rawEnd > UINT32_MAX ||
-                  rawEnd != static_cast<uint32_t>(rawEnd) ||
+              if (!finiteIntegerInRange(rawKind, -1, UINT32_MAX) ||
+                  !finiteIntegerInRange(rawStart, 0, UINT32_MAX) ||
+                  !finiteIntegerInRange(rawEnd, 0, UINT32_MAX) ||
+                  rawEnd < rawStart ||
                   (rawOptionsGuard != 0 && rawOptionsGuard != 1)) {
                 return rejectedPromise(rt, "dynamic import site metadata is invalid");
               }
@@ -511,8 +467,7 @@ facebook::jsi::Value evaluateCommonJsRecord(
             if (computed) {
               if (!siteBearing) {
                 const double rawSite = args[0].asNumber();
-                if (rawSite < 0 || rawSite > UINT32_MAX ||
-                    rawSite != static_cast<uint32_t>(rawSite)) {
+                if (!finiteIntegerInRange(rawSite, 0, UINT32_MAX)) {
                   return rejectedPromise(rt, "computed dynamic import site is invalid");
                 }
                 site = static_cast<uint32_t>(rawSite);
@@ -582,9 +537,9 @@ facebook::jsi::Value evaluateCommonJsRecord(
           }
           const double rawStart = args[0].asNumber();
           const double rawEnd = args[1].asNumber();
-          if (rawStart < 0 || rawStart > UINT32_MAX ||
-              rawStart != static_cast<uint32_t>(rawStart) || rawEnd < rawStart ||
-              rawEnd > UINT32_MAX || rawEnd != static_cast<uint32_t>(rawEnd)) {
+          if (!finiteIntegerInRange(rawStart, 0, UINT32_MAX) ||
+              !finiteIntegerInRange(rawEnd, 0, UINT32_MAX) ||
+              rawEnd < rawStart) {
             throw facebook::jsi::JSError(
                 rt, "computed CommonJS require site metadata is invalid");
           }
@@ -596,7 +551,6 @@ facebook::jsi::Value evaluateCommonJsRecord(
                   std::to_string(static_cast<uint32_t>(rawStart)) + ".." +
                   std::to_string(static_cast<uint32_t>(rawEnd)));
         });
-    requireFunction.setProperty(rt, "import", dynamicImport);
     auto graphContext = runtime->graph_contexts.find(record.context_handle_id);
     if (graphContext == runtime->graph_contexts.end()) {
       throw facebook::jsi::JSError(rt, "CommonJS graph context is stale");
@@ -846,6 +800,171 @@ void collectDynamicEvaluationOrder(
   }
   visiting.erase(recordId);
   if (visited.insert(recordId).second) order.push_back(recordId);
+}
+
+uint64_t commonJsOwnerForAdapter(
+    ExactHermesRuntime* runtime,
+    uint64_t graphGeneration,
+    uint64_t adapterRecordId) {
+  for (const auto& [recordId, record] : runtime->commonjs_records) {
+    if (record.graph_generation == graphGeneration &&
+        record.adapter_record_id == adapterRecordId) {
+      return recordId;
+    }
+  }
+  return 0;
+}
+
+facebook::jsi::Value requireEsmRecord(
+    facebook::jsi::Runtime& rt,
+    ExactHermesRuntime* runtime,
+    uint64_t graphGeneration,
+    uint64_t recordId,
+    bool synchronousEligible) {
+  if (!synchronousEligible) {
+    throw facebook::jsi::JSError(
+        rt,
+        "ERR_REQUIRE_ASYNC_MODULE: require() target graph contains top-level await");
+  }
+
+  std::set<uint64_t> visiting;
+  std::set<uint64_t> visited;
+  std::vector<uint64_t> order;
+  collectDynamicEvaluationOrder(
+      runtime, graphGeneration, recordId, visiting, visited, order);
+
+  // Refuse every async/cyclic/incomplete closure before starting a new body.
+  // Literal require edges are linked eagerly, but their records remain lazy
+  // until this reached invocation.
+  // @ref LLP 0027#esmcommonjs-interop-matrix
+  for (uint64_t memberId : order) {
+    auto found = runtime->module_records.find(memberId);
+    if (found == runtime->module_records.end() ||
+        found->second.graph_generation != graphGeneration) {
+      throw facebook::jsi::JSError(
+          rt, "CommonJS require ESM closure contains a stale record");
+    }
+    auto& member = found->second;
+    if (member.state == NativeModuleRecordState::Errored) {
+      throw facebook::jsi::JSError(
+          rt,
+          member.error_message.empty() ? "module record is errored"
+                                       : member.error_message);
+    }
+    if (member.state == NativeModuleRecordState::Evaluating) {
+      throw facebook::jsi::JSError(
+          rt,
+          "ERR_REQUIRE_CYCLE_MODULE: require() encountered an evaluating ES module");
+    }
+    if (member.state == NativeModuleRecordState::Instantiated) {
+      const uint64_t ownerId =
+          commonJsOwnerForAdapter(runtime, graphGeneration, memberId);
+      auto owner = runtime->commonjs_records.find(ownerId);
+      if (ownerId == 0 || owner == runtime->commonjs_records.end()) {
+        throw facebook::jsi::JSError(
+            rt, "CommonJS require ESM closure contains an undeclared record");
+      }
+      if (owner->second.state == NativeCommonJsRecordState::Evaluating) {
+        throw facebook::jsi::JSError(
+            rt,
+            "ERR_REQUIRE_CYCLE_MODULE: require() encountered an evaluating CommonJS adapter");
+      }
+      continue;
+    }
+    if (member.state != NativeModuleRecordState::Declared &&
+        member.state != NativeModuleRecordState::Evaluated) {
+      throw facebook::jsi::JSError(
+          rt, "CommonJS require ESM closure is not ready to evaluate");
+    }
+  }
+
+  for (uint64_t memberId : order) {
+    auto found = runtime->module_records.find(memberId);
+    if (found == runtime->module_records.end() ||
+        found->second.graph_generation != graphGeneration) {
+      throw facebook::jsi::JSError(
+          rt, "CommonJS require ESM closure became stale");
+    }
+    if (found->second.state == NativeModuleRecordState::Evaluated) continue;
+    if (found->second.state == NativeModuleRecordState::Instantiated) {
+      const uint64_t ownerId =
+          commonJsOwnerForAdapter(runtime, graphGeneration, memberId);
+      if (ownerId == 0) {
+        throw facebook::jsi::JSError(
+            rt, "CommonJS require ESM adapter owner became stale");
+      }
+      evaluateCommonJsRecord(rt, runtime, ownerId);
+      auto adapter = runtime->module_records.find(memberId);
+      if (adapter == runtime->module_records.end() ||
+          adapter->second.state != NativeModuleRecordState::Evaluated) {
+        throw facebook::jsi::JSError(
+            rt, "CommonJS require ESM adapter did not evaluate");
+      }
+      continue;
+    }
+
+    auto& member = found->second;
+    try {
+      if (beginRecordExecute(rt, runtime, memberId, member)) {
+        member.evaluation_promise.reset();
+        rememberRecordError(
+            member,
+            "ERR_REQUIRE_ASYNC_MODULE: synchronous artifact returned a promise");
+        throw facebook::jsi::JSError(
+            rt,
+            "ERR_REQUIRE_ASYNC_MODULE: synchronous artifact returned a promise");
+      }
+    } catch (const facebook::jsi::JSError& error) {
+      if (member.state != NativeModuleRecordState::Errored) {
+        rememberRecordError(
+            member,
+            "module evaluation threw",
+            exactRetainStructuredModuleGraphError(runtime, error));
+      }
+      throw;
+    } catch (const std::exception& error) {
+      rememberRecordError(member, error.what());
+      throw;
+    } catch (...) {
+      rememberRecordError(member, "unknown module evaluation failure");
+      throw;
+    }
+  }
+
+  auto found = runtime->module_records.find(recordId);
+  if (found == runtime->module_records.end() ||
+      found->second.graph_generation != graphGeneration ||
+      found->second.state != NativeModuleRecordState::Evaluated) {
+    throw facebook::jsi::JSError(
+        rt, "CommonJS require ESM target did not evaluate synchronously");
+  }
+  auto& record = found->second;
+  if (record.export_cells.count("module.exports") != 0) {
+    return readBinding(rt, runtime, recordId, record, "module.exports");
+  }
+  if (record.source_goal == 2) {
+    return readBinding(rt, runtime, recordId, record, "default");
+  }
+  if (!record.namespace_object) {
+    throw facebook::jsi::JSError(rt, "required ES module namespace is unavailable");
+  }
+  if (record.export_cells.count("default") == 0) {
+    return facebook::jsi::Value(rt, *record.namespace_object);
+  }
+
+  // Node's synchronous require(ESM) surface adds the compatibility marker
+  // when a default export is present. The module has completed evaluation, so
+  // this deterministic snapshot cannot expose partially initialized cells.
+  facebook::jsi::Object result(rt);
+  for (const auto& [name, cell] : record.export_cells) {
+    (void)cell;
+    result.setProperty(
+        rt,
+        moduleExportPropertyName(rt, name),
+        readBinding(rt, runtime, recordId, record, name));
+  }
+  result.setProperty(rt, "__esModule", true);
+  return result;
 }
 
 bool dynamicRecordReaches(
@@ -1684,7 +1803,8 @@ extern "C" int32_t ex_hermes_commonjs_record_link_require_esm(
     ExactModuleRunnerHandle record,
     const uint8_t* specifier,
     size_t specifier_len,
-    ExactModuleRunnerHandle target_record) {
+    ExactModuleRunnerHandle target_record,
+    int32_t synchronous_eligible) {
   observeModuleRunnerAbi(__func__);
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
@@ -1694,7 +1814,8 @@ extern "C" int32_t ex_hermes_commonjs_record_link_require_esm(
   if (entry->state != NativeCommonJsRecordState::New || specifier == nullptr ||
       specifier_len == 0 ||
       entry->graph_generation != target->graph_generation ||
-      entry->source_goal == 3) {
+      entry->source_goal == 3 ||
+      (synchronous_eligible != 0 && synchronous_eligible != 1)) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
   const std::string name(
@@ -1702,6 +1823,7 @@ extern "C" int32_t ex_hermes_commonjs_record_link_require_esm(
   NativeCommonJsRequireBinding binding;
   binding.kind = NativeCommonJsRequireTargetKind::Esm;
   binding.record_id = target_record.opaque[2];
+  binding.esm_synchronous_eligible = synchronous_eligible != 0;
   if (!entry->require_bindings.emplace(name, binding).second) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
@@ -2513,12 +2635,10 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
               const double rawStart = args[1].asNumber();
               const double rawEnd = args[2].asNumber();
               const double rawOptionsGuard = args[3].asNumber();
-              if (rawKind < -1 || rawKind > UINT32_MAX ||
-                  rawKind != static_cast<int64_t>(rawKind) || rawStart < 0 ||
-                  rawStart > UINT32_MAX ||
-                  rawStart != static_cast<uint32_t>(rawStart) || rawEnd < rawStart ||
-                  rawEnd > UINT32_MAX ||
-                  rawEnd != static_cast<uint32_t>(rawEnd) ||
+              if (!finiteIntegerInRange(rawKind, -1, UINT32_MAX) ||
+                  !finiteIntegerInRange(rawStart, 0, UINT32_MAX) ||
+                  !finiteIntegerInRange(rawEnd, 0, UINT32_MAX) ||
+                  rawEnd < rawStart ||
                   (rawOptionsGuard != 0 && rawOptionsGuard != 1)) {
                 return rejectedPromise(rt, "dynamic import site metadata is invalid");
               }
@@ -2536,8 +2656,7 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
             if (computed) {
               if (!siteBearing) {
                 const double rawSite = args[0].asNumber();
-                if (rawSite < 0 || rawSite > UINT32_MAX ||
-                    rawSite != static_cast<uint32_t>(rawSite)) {
+                if (!finiteIntegerInRange(rawSite, 0, UINT32_MAX)) {
                   return rejectedPromise(rt, "computed dynamic import site is invalid");
                 }
                 site = static_cast<uint32_t>(rawSite);

@@ -1210,6 +1210,7 @@ extern "C" {
         specifier: *const u8,
         specifier_len: usize,
         target_record: NativeModuleHandle,
+        synchronous_eligible: i32,
     ) -> i32;
     #[link_name = "ex_hermes_commonjs_record_link_dynamic_import"]
     fn ex_output_hermes_commonjs_record_link_dynamic_import(
@@ -2347,6 +2348,8 @@ fn execute_authenticated_stateful_host(
                 crate::host::abi::ex_host_build_exact_armed_embedder_artifacts(
                     project_root.as_bytes().as_ptr(),
                     project_root.len(),
+                    std::ptr::null(),
+                    0,
                     operation_manifest.as_ptr(),
                     operation_manifest.len(),
                 )
@@ -4713,6 +4716,7 @@ fn execute_module_runner_output(function_name: &str, selector: &str) -> Result<V
                             specifier.as_ptr(),
                             specifier.len(),
                             target,
+                            1,
                         )
                     }
                 }

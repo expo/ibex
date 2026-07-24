@@ -35,7 +35,9 @@ use super::embedded_graph::{
     EmbeddedCarrierBindingV1, EmbeddedCarrierFactV1, EmbeddedModuleEdgeV1, EmbeddedModuleGraphV1,
     EmbeddedModuleRecordV1, VirtualSourceLabelV1, EMBEDDED_MODULE_GRAPH_SCHEMA_V1,
 };
-use super::graph::{ComputedCandidateSiteMap, GraphEdgeKey, SynchronousGraphPlan};
+use super::graph::{
+    ComputedCandidateBinding, ComputedCandidateSiteMap, GraphEdgeKey, SynchronousGraphPlan,
+};
 use super::identity::{ResolutionKind, SourceId};
 use super::producer_spike::{
     produce_builtin_artifact_v1, produce_commonjs_artifact_with_sites_v1, produce_json_artifact_v1,
@@ -180,7 +182,6 @@ struct PreparedGraphIndexV2 {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PreparedGraphRecordIndexV1 {
     source_id: SourceId,
-    path: String,
     bindings: Vec<PreparedGraphBindingV1>,
     artifact: ModuleArtifactV1,
     carrier_index: usize,
@@ -210,10 +211,17 @@ struct PreparedGraphCandidateTableIndexV2 {
 }
 
 struct SourceGraphRecordV1 {
+    /// Native-only resolver path. This is never serialized into a prepared
+    /// artifact or crossed into JavaScript.
     path: PathBuf,
+    /// Authenticated VFS display identity. It is diagnostic metadata, never a
+    /// cache key or a substitute for `SourceId`.
+    source_label: String,
+    /// Authenticated virtual filename used by CommonJS and `import.meta` path
+    /// observables. Builtins have no file-backed virtual path.
+    virtual_path: Option<String>,
     artifact: ModuleArtifactV1,
     bindings: BTreeMap<GraphEdgeKey, SourceId>,
-    binding_attributes: BTreeMap<GraphEdgeKey, super::identity::ImportAttributes>,
     candidate_tables: Vec<ComputedCandidateTableV1>,
     prepared: Option<PreparedRecordV1>,
 }
@@ -349,7 +357,7 @@ impl SourceModuleGraphV1 {
                     ))
                 })
                 .collect::<Result<Vec<_>>>()?,
-            computed_candidate_site_map(&self.records),
+            computed_candidate_site_map(&self.records)?,
         )
         .map_err(anyhow::Error::from)
     }
@@ -417,6 +425,16 @@ impl SourceModuleGraphV1 {
                 );
             }
         }
+        let principals = self
+            .records
+            .keys()
+            .filter_map(SourceId::defining_principal)
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        if principals != self.principal_ids.keys().cloned().collect() {
+            bail!("native source graph principal projection differs from its closed record set");
+        }
+
         let mut configs = BTreeMap::new();
         let mut authority_contexts = BTreeMap::new();
         for (source_id, record) in &self.records {
@@ -434,24 +452,24 @@ impl SourceModuleGraphV1 {
                 .principal_ids
                 .get(&principal)
                 .ok_or_else(|| anyhow!("source graph principal has no runtime projection"))?;
-            let source_label = record.path.to_string_lossy().into_owned();
-            let meta_url = format!("file://{}", source_label.replace('\\', "/"));
-            configs.insert(
-                source_id.clone(),
-                NativeModuleRecordConfig::new(
+            let compartment_identity = module_runner_compartment_identity(&principal)?;
+            let mut config = NativeModuleRecordConfig::new(
+                principal_id,
+                compartment_identity,
+                GraphEvaluationContext::new(
+                    source_id.clone(),
                     principal_id,
-                    None,
-                    GraphEvaluationContext::new(
-                        source_id.clone(),
-                        principal_id,
-                        principal_id,
-                        [principal_id],
-                        graph_generation,
-                    )?,
-                    source_label,
-                    meta_url,
+                    principal_id,
+                    [principal_id],
+                    graph_generation,
                 )?,
-            );
+                record.source_label.clone(),
+                record.source_label.clone(),
+            )?;
+            if let Some(virtual_path) = record.virtual_path.as_ref() {
+                config = config.with_authenticated_virtual_path(virtual_path.clone())?;
+            }
+            configs.insert(source_id.clone(), config);
             authority_contexts.insert(
                 source_id.clone(),
                 super::security::GraphAuthorityContext::new(
@@ -466,6 +484,14 @@ impl SourceModuleGraphV1 {
             );
         }
         Ok((configs, authority_contexts))
+    }
+}
+
+fn module_runner_compartment_identity(principal: &Principal) -> Result<Option<String>> {
+    match principal {
+        Principal::Root { .. } => Ok(None),
+        Principal::Package { locator, .. } => Ok(Some(locator.as_str().to_owned())),
+        _ => bail!("native source graph has a non-module defining principal"),
     }
 }
 
@@ -494,19 +520,29 @@ fn verify_record<'a>(
 
 fn computed_candidate_site_map(
     records: &BTreeMap<SourceId, SourceGraphRecordV1>,
-) -> ComputedCandidateSiteMap {
+) -> Result<ComputedCandidateSiteMap> {
     let mut rows = ComputedCandidateSiteMap::new();
     for record in records.values() {
         for table in &record.candidate_tables {
             for candidate in &table.candidates {
-                rows.entry(table.requester.0.clone()).or_default().insert(
-                    (table.site, candidate.specifier.as_str().to_owned()),
-                    candidate.target.0.clone(),
-                );
+                let key = (table.site, candidate.specifier.as_str().to_owned());
+                let binding = ComputedCandidateBinding {
+                    target: candidate.target.0.clone(),
+                    attributes: candidate.attributes.clone(),
+                };
+                if let Some(previous) = rows
+                    .entry(table.requester.0.clone())
+                    .or_default()
+                    .insert(key, binding.clone())
+                {
+                    if previous != binding {
+                        bail!("computed-candidate site and spelling disagree across sidecars");
+                    }
+                }
             }
         }
     }
-    rows
+    Ok(rows)
 }
 
 /// Capture the closed source and computed-candidate closure used by
@@ -585,6 +621,7 @@ pub fn capture_embedded_source_graph_v1(
             .ok_or_else(|| anyhow!("compiled module resolution produced no source bytes"))?;
         let portable_name = compiled_portable_source_name(&source_id)?;
         let portable_path = PathBuf::from(&portable_name);
+        let (source_label, virtual_path) = portable_record_display(&source_id)?;
         let produced = match module.kind {
             ModuleKind::Esm => produce_module_artifact_with_sites_v1(
                 source_id.clone(),
@@ -622,7 +659,6 @@ pub fn capture_embedded_source_graph_v1(
         let artifact = produced.artifact;
 
         let mut bindings = BTreeMap::new();
-        let mut binding_attributes = BTreeMap::new();
         for key in artifact_edge_requests(&artifact) {
             let attributes = artifact_edge_attributes(&artifact, &key)?;
             let target = loader.resolve_meta_typed(
@@ -667,7 +703,6 @@ pub fn capture_embedded_source_graph_v1(
                 matched_candidate_declarations.insert(declaration_key);
                 let mut candidates = Vec::new();
                 for specifier in specifiers {
-                    let key = GraphEdgeKey::new(specifier.as_str(), ResolutionKind::DynamicImport);
                     let target = loader.resolve_meta_typed(
                         specifier.as_str(),
                         module.path.as_deref(),
@@ -693,17 +728,6 @@ pub fn capture_embedded_source_graph_v1(
                             .ok_or_else(|| anyhow!("computed candidate produced no source bytes"))?
                             .as_bytes(),
                     )?;
-                    if let Some(previous) = bindings.insert(key.clone(), target_id.clone()) {
-                        if previous != target_id {
-                            bail!("one computed candidate spelling resolved to two SourceIds");
-                        }
-                    }
-                    if let Some(previous) = binding_attributes.insert(key, site.attributes.clone())
-                    {
-                        if previous != site.attributes {
-                            bail!("one computed candidate spelling carries two attribute bags");
-                        }
-                    }
                     candidates.push(ComputedCandidateTargetV1 {
                         specifier: specifier.clone(),
                         attributes: site.attributes.clone(),
@@ -741,9 +765,10 @@ pub fn capture_embedded_source_graph_v1(
             source_id,
             SourceGraphRecordV1 {
                 path: record_path,
+                source_label,
+                virtual_path,
                 artifact,
                 bindings,
-                binding_attributes,
                 candidate_tables,
                 prepared: None,
             },
@@ -999,6 +1024,21 @@ fn compiled_portable_source_name(source_id: &SourceId) -> Result<String> {
     }
 }
 
+fn portable_record_display(source_id: &SourceId) -> Result<(String, Option<String>)> {
+    match source_id {
+        SourceId::Builtin { domain, source_key } => Ok((
+            format!("builtin:{}:{}", domain.as_str(), source_key.as_str()),
+            None,
+        )),
+        SourceId::File { .. } => {
+            let encoded = source_id.encode()?;
+            let display = VirtualSourceLabelV1::new(format!("/app/modules/{encoded}"))?;
+            Ok((display.import_meta_url, Some(display.path)))
+        }
+        SourceId::Synthetic { .. } => bail!("synthetic sources are not packable in v1"),
+    }
+}
+
 pub fn build_authenticated_source_graph_v1(
     entry: &Path,
     producer_binary_digest: Digest,
@@ -1082,6 +1122,40 @@ fn build_authenticated_source_graph_v1_with_host(
             },
             None => bail!("source module has no authenticated path"),
         };
+        let (source_label, virtual_path) = if module.kind == ModuleKind::Builtin {
+            let SourceId::Builtin { domain, source_key } = &source_id else {
+                bail!("builtin module has a non-builtin SourceId");
+            };
+            (
+                format!("builtin:{}:{}", domain.as_str(), source_key.as_str()),
+                None,
+            )
+        } else {
+            let source_label = module
+                .source_label
+                .as_ref()
+                .ok_or_else(|| anyhow!("authenticated module has no VFS source label"))?
+                .as_str()
+                .to_owned();
+            let virtual_path = module
+                .virtual_path
+                .clone()
+                .ok_or_else(|| anyhow!("authenticated module has no virtual path"))?;
+            let resolver_path = module
+                .resolver_path
+                .as_ref()
+                .ok_or_else(|| anyhow!("authenticated module has no logical resolver path"))?;
+            resolver_path
+                .validate()
+                .map_err(|error| anyhow!("authenticated resolver path is invalid: {error}"))?;
+            if resolver_path.virtual_path() != virtual_path
+                || !virtual_path.starts_with("/project/")
+                || !source_label.starts_with("file:///project/")
+            {
+                bail!("authenticated module display envelope is inconsistent");
+            }
+            (source_label, Some(virtual_path))
+        };
         let source = module
             .source
             .as_deref()
@@ -1138,7 +1212,6 @@ fn build_authenticated_source_graph_v1_with_host(
         };
         let artifact = produced.artifact;
         let mut bindings = BTreeMap::new();
-        let mut binding_attributes = BTreeMap::new();
         for key in artifact_edge_requests(&artifact) {
             let attributes = artifact_edge_attributes(&artifact, &key)?;
             let target = if module.kind == ModuleKind::Builtin {
@@ -1183,7 +1256,6 @@ fn build_authenticated_source_graph_v1_with_host(
                 matched_candidate_declarations.insert(declaration_key);
                 let mut candidates = Vec::new();
                 for specifier in specifiers {
-                    let key = GraphEdgeKey::new(specifier.as_str(), ResolutionKind::DynamicImport);
                     let target = host.resolve(
                         specifier.as_str(),
                         Some(&path),
@@ -1203,19 +1275,6 @@ fn build_authenticated_source_graph_v1_with_host(
                             })?
                             .as_bytes(),
                     )?;
-                    if let Some(previous) = bindings.insert(key.clone(), target_id.clone()) {
-                        if previous != target_id {
-                            bail!("one authenticated candidate spelling resolved twice");
-                        }
-                    }
-                    if let Some(previous) = binding_attributes.insert(key, site.attributes.clone())
-                    {
-                        if previous != site.attributes {
-                            bail!(
-                                "one authenticated candidate spelling carries two attribute bags"
-                            );
-                        }
-                    }
                     candidates.push(ComputedCandidateTargetV1 {
                         specifier: specifier.clone(),
                         attributes: site.attributes.clone(),
@@ -1250,9 +1309,10 @@ fn build_authenticated_source_graph_v1_with_host(
             source_id,
             SourceGraphRecordV1 {
                 path,
+                source_label,
+                virtual_path,
                 artifact,
                 bindings,
-                binding_attributes,
                 candidate_tables,
                 prepared: None,
             },
@@ -1315,7 +1375,7 @@ fn prepare_embedded_records_v1(
                 ))
             })
             .collect::<Result<Vec<_>>>()?,
-        computed_candidate_site_map(records),
+        computed_candidate_site_map(records)?,
     )?;
     if !records.contains_key(entry) {
         bail!("embedded source graph entry is absent");
@@ -1350,13 +1410,6 @@ fn prepare_embedded_records_v1(
             if target.artifact.semantics.source_integrity != candidate.target_source_integrity {
                 bail!("computed-candidate target integrity is stale");
             }
-            let key =
-                GraphEdgeKey::new(candidate.specifier.as_str(), ResolutionKind::DynamicImport);
-            if requester.bindings.get(&key) != Some(&candidate.target.0)
-                || requester.binding_attributes.get(&key) != Some(&candidate.attributes)
-            {
-                bail!("computed-candidate row disagrees with authenticated graph edge");
-            }
         }
         candidate_sets.push(table.graph_projection()?);
     }
@@ -1380,12 +1433,7 @@ fn prepare_embedded_records_v1(
                             .map_err(anyhow::Error::msg)?,
                         resolution_kind: key.resolution_kind,
                         conditions: super::identity::ConditionSet::for_kind(key.resolution_kind),
-                        attributes: record
-                            .binding_attributes
-                            .get(key)
-                            .cloned()
-                            .map(Ok)
-                            .unwrap_or_else(|| artifact_edge_attributes(&record.artifact, key))?,
+                        attributes: artifact_edge_attributes(&record.artifact, key)?,
                         target: super::artifact::CanonicalSourceId(target.clone()),
                     })
                 })
@@ -1487,6 +1535,186 @@ pub fn prepared_graph_cache_dir(artifact_dir: &Path, deployment_graph_digest: &D
     artifact_dir.join(".module-runner").join(key)
 }
 
+struct RenderedPreparedCarrierV2 {
+    defining_principal: Principal,
+    manifest_file: String,
+    manifest_bytes: Vec<u8>,
+    bytes_file: String,
+    bytes: Vec<u8>,
+}
+
+struct RenderedPreparedCandidateTableV2 {
+    file: String,
+    bytes: Vec<u8>,
+}
+
+struct RenderedPreparedPublicationV2 {
+    index_bytes: Vec<u8>,
+    carriers: Vec<RenderedPreparedCarrierV2>,
+    candidate_tables: Vec<RenderedPreparedCandidateTableV2>,
+}
+
+/// Deterministically render the complete prepared publication from an already
+/// authenticated inline graph. Reload uses this in-memory rendering as its
+/// trust root: no digest or principal asserted by the writable cache is ever
+/// allowed to authorize that same cache.
+/// @ref LLP 0027#digest-domains — physical carrier bytes remain separately
+/// authenticated, while admission is bound to the authenticated source graph.
+fn render_prepared_source_graph_v2(
+    graph: &SourceModuleGraphV1,
+    deployment_graph_digest: &Digest,
+) -> Result<RenderedPreparedPublicationV2> {
+    if graph
+        .records
+        .values()
+        .any(|record| record.prepared.is_some())
+    {
+        bail!("only an admitted inline graph can be published as a prepared graph");
+    }
+    let producer_id =
+        NonEmptyString::new(PREPARED_GRAPH_PRODUCER_ID).map_err(anyhow::Error::msg)?;
+    let root_principal = graph
+        .records
+        .keys()
+        .filter_map(SourceId::defining_principal)
+        .find(|principal| principal.is_root())
+        .cloned()
+        .ok_or_else(|| anyhow!("prepared graph has no root principal"))?;
+    let mut grouped: BTreeMap<Principal, Vec<(SourceId, NonEmptyString)>> = BTreeMap::new();
+    for (source_id, record) in &graph.records {
+        let principal = source_id
+            .defining_principal()
+            .cloned()
+            .or_else(|| {
+                matches!(source_id, SourceId::Builtin { .. }).then(|| root_principal.clone())
+            })
+            .ok_or_else(|| anyhow!("prepared carrier record has no defining principal"))?;
+        let entry_id = NonEmptyString::new(record.artifact.semantic_digest.as_str())
+            .map_err(anyhow::Error::msg)?;
+        grouped
+            .entry(principal)
+            .or_default()
+            .push((source_id.clone(), entry_id));
+    }
+
+    let mut carrier_indexes = BTreeMap::new();
+    let mut carrier_index_records = Vec::new();
+    let mut rendered_carriers = Vec::new();
+    let mut prepared_artifacts = BTreeMap::new();
+    for (carrier_index, (principal, entries)) in grouped.into_iter().enumerate() {
+        let verified_entries = entries
+            .iter()
+            .map(|(source_id, entry_id)| {
+                let record = graph
+                    .records
+                    .get(source_id)
+                    .ok_or_else(|| anyhow!("prepared record disappeared"))?;
+                Ok((
+                    entry_id.clone(),
+                    verify_record(record, &graph.producer_binary_digest)?,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let (manifest, bytes) = PreparedModuleCarrierV2::from_inline_artifacts(
+            principal.clone(),
+            producer_id.clone(),
+            graph.producer_binary_digest.clone(),
+            deployment_graph_digest.clone(),
+            verified_entries,
+        )?;
+        let manifest_file = format!("carrier-{carrier_index}.json");
+        let bytes_file = format!("carrier-{carrier_index}.js");
+        for (source_id, entry_id) in entries {
+            prepared_artifacts.insert(
+                source_id,
+                (manifest.prepared_artifact(entry_id.as_str())?, entry_id),
+            );
+        }
+        carrier_indexes.insert(principal.clone(), carrier_index);
+        carrier_index_records.push(PreparedGraphCarrierIndexV1 {
+            manifest_file: manifest_file.clone(),
+            bytes_file: bytes_file.clone(),
+        });
+        rendered_carriers.push(RenderedPreparedCarrierV2 {
+            defining_principal: principal,
+            manifest_file,
+            manifest_bytes: manifest.encode_canonical()?,
+            bytes_file,
+            bytes,
+        });
+    }
+
+    let records = graph
+        .records
+        .iter()
+        .map(|(source_id, record)| {
+            let principal = match source_id.defining_principal() {
+                Some(principal) => principal,
+                None if matches!(source_id, SourceId::Builtin { .. }) => &root_principal,
+                None => bail!("prepared record has no principal"),
+            };
+            let carrier_index = *carrier_indexes
+                .get(principal)
+                .ok_or_else(|| anyhow!("prepared record has no carrier"))?;
+            let (artifact, entry_id) = prepared_artifacts
+                .remove(source_id)
+                .ok_or_else(|| anyhow!("prepared artifact was not produced"))?;
+            Ok(PreparedGraphRecordIndexV1 {
+                source_id: source_id.clone(),
+                bindings: record
+                    .bindings
+                    .iter()
+                    .map(|(key, target)| PreparedGraphBindingV1 {
+                        specifier: key.specifier.clone(),
+                        resolution_kind: key.resolution_kind,
+                        target: target.clone(),
+                    })
+                    .collect(),
+                artifact,
+                carrier_index,
+                entry_id,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    let mut tables = graph
+        .records
+        .values()
+        .flat_map(|record| record.candidate_tables.iter())
+        .collect::<Vec<_>>();
+    tables.sort_by_key(|table| table.digest().expect("candidate table validates"));
+    let mut candidate_table_indexes = Vec::with_capacity(tables.len());
+    let mut rendered_candidate_tables = Vec::with_capacity(tables.len());
+    for (index, table) in tables.into_iter().enumerate() {
+        let file = format!("candidate-{index}.json");
+        candidate_table_indexes.push(PreparedGraphCandidateTableIndexV2 {
+            file: file.clone(),
+            digest: table.digest()?,
+        });
+        rendered_candidate_tables.push(RenderedPreparedCandidateTableV2 {
+            file,
+            bytes: table.canonical_bytes()?,
+        });
+    }
+
+    let index = PreparedGraphIndexV2 {
+        schema: PREPARED_GRAPH_INDEX_SCHEMA_V2.into(),
+        entry: graph.entry.clone(),
+        producer_binary_digest: graph.producer_binary_digest.clone(),
+        deployment_graph_digest: deployment_graph_digest.clone(),
+        records,
+        carriers: carrier_index_records,
+        candidate_tables: candidate_table_indexes,
+    };
+    let index_bytes = capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(index)?)
+        .map_err(|error| anyhow!("cannot canonicalize prepared graph index: {error}"))?;
+    Ok(RenderedPreparedPublicationV2 {
+        index_bytes,
+        carriers: rendered_carriers,
+        candidate_tables: rendered_candidate_tables,
+    })
+}
+
 /// Publish one immutable, per-principal JavaScript carrier set beside the
 /// existing Rolldown artifact. The hidden directory is excluded from the
 /// legacy output inventory but remains under the same cache lease and graph
@@ -1496,17 +1724,11 @@ pub fn publish_prepared_source_graph_v1(
     artifact_dir: &Path,
     deployment_graph_digest: Digest,
 ) -> Result<PathBuf> {
-    if graph
-        .records
-        .values()
-        .any(|record| record.prepared.is_some())
-    {
-        bail!("only an admitted inline graph can be published as a prepared graph");
-    }
     let destination = prepared_graph_cache_dir(artifact_dir, &deployment_graph_digest);
     if destination.join("index.json").is_file() {
         return Ok(destination);
     }
+    let publication = render_prepared_source_graph_v2(graph, &deployment_graph_digest)?;
     let parent = destination
         .parent()
         .ok_or_else(|| anyhow!("prepared graph cache has no parent"))?;
@@ -1522,134 +1744,17 @@ pub fn publish_prepared_source_graph_v1(
     std::fs::create_dir(&staging)?;
 
     let result = (|| -> Result<()> {
-        let producer_id =
-            NonEmptyString::new(PREPARED_GRAPH_PRODUCER_ID).map_err(anyhow::Error::msg)?;
-        let root_principal = graph
-            .records
-            .keys()
-            .filter_map(SourceId::defining_principal)
-            .find(|principal| principal.is_root())
-            .cloned()
-            .ok_or_else(|| anyhow!("prepared graph has no root principal"))?;
-        let mut grouped: BTreeMap<Principal, Vec<(SourceId, NonEmptyString)>> = BTreeMap::new();
-        for (source_id, record) in &graph.records {
-            let principal = source_id
-                .defining_principal()
-                .cloned()
-                .or_else(|| {
-                    matches!(source_id, SourceId::Builtin { .. }).then(|| root_principal.clone())
-                })
-                .ok_or_else(|| anyhow!("prepared carrier record has no defining principal"))?;
-            let entry_id = NonEmptyString::new(record.artifact.semantic_digest.as_str())
-                .map_err(anyhow::Error::msg)?;
-            grouped
-                .entry(principal)
-                .or_default()
-                .push((source_id.clone(), entry_id));
-        }
-
-        let mut carrier_indexes = BTreeMap::new();
-        let mut carriers = Vec::new();
-        let mut prepared_artifacts = BTreeMap::new();
-        for (carrier_index, (principal, entries)) in grouped.into_iter().enumerate() {
-            let verified_entries = entries
-                .iter()
-                .map(|(source_id, entry_id)| {
-                    let record = graph
-                        .records
-                        .get(source_id)
-                        .ok_or_else(|| anyhow!("prepared record disappeared"))?;
-                    Ok((
-                        entry_id.clone(),
-                        verify_record(record, &graph.producer_binary_digest)?,
-                    ))
-                })
-                .collect::<Result<Vec<_>>>()?;
-            let (manifest, bytes) = PreparedModuleCarrierV2::from_inline_artifacts(
-                principal.clone(),
-                producer_id.clone(),
-                graph.producer_binary_digest.clone(),
-                deployment_graph_digest.clone(),
-                verified_entries,
+        for carrier in &publication.carriers {
+            std::fs::write(
+                staging.join(&carrier.manifest_file),
+                &carrier.manifest_bytes,
             )?;
-            let manifest_file = format!("carrier-{carrier_index}.json");
-            let bytes_file = format!("carrier-{carrier_index}.js");
-            std::fs::write(staging.join(&manifest_file), manifest.encode_canonical()?)?;
-            std::fs::write(staging.join(&bytes_file), &bytes)?;
-            for (source_id, entry_id) in entries {
-                prepared_artifacts.insert(
-                    source_id.clone(),
-                    (manifest.prepared_artifact(entry_id.as_str())?, entry_id),
-                );
-            }
-            carrier_indexes.insert(principal, carrier_index);
-            carriers.push(PreparedGraphCarrierIndexV1 {
-                manifest_file,
-                bytes_file,
-            });
+            std::fs::write(staging.join(&carrier.bytes_file), &carrier.bytes)?;
         }
-
-        let records = graph
-            .records
-            .iter()
-            .map(|(source_id, record)| {
-                let principal = match source_id.defining_principal() {
-                    Some(principal) => principal,
-                    None if matches!(source_id, SourceId::Builtin { .. }) => &root_principal,
-                    None => bail!("prepared record has no principal"),
-                };
-                let carrier_index = *carrier_indexes
-                    .get(principal)
-                    .ok_or_else(|| anyhow!("prepared record has no carrier"))?;
-                let (artifact, entry_id) = prepared_artifacts
-                    .remove(source_id)
-                    .ok_or_else(|| anyhow!("prepared artifact was not produced"))?;
-                Ok(PreparedGraphRecordIndexV1 {
-                    source_id: source_id.clone(),
-                    path: record.path.to_string_lossy().into_owned(),
-                    bindings: record
-                        .bindings
-                        .iter()
-                        .map(|(key, target)| PreparedGraphBindingV1 {
-                            specifier: key.specifier.clone(),
-                            resolution_kind: key.resolution_kind,
-                            target: target.clone(),
-                        })
-                        .collect(),
-                    artifact,
-                    carrier_index,
-                    entry_id,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let mut tables = graph
-            .records
-            .values()
-            .flat_map(|record| record.candidate_tables.iter())
-            .collect::<Vec<_>>();
-        tables.sort_by_key(|table| table.digest().expect("candidate table validates"));
-        let candidate_tables = tables
-            .into_iter()
-            .enumerate()
-            .map(|(index, table)| {
-                let file = format!("candidate-{index}.json");
-                let digest = table.digest()?;
-                std::fs::write(staging.join(&file), table.canonical_bytes()?)?;
-                Ok(PreparedGraphCandidateTableIndexV2 { file, digest })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let index = PreparedGraphIndexV2 {
-            schema: PREPARED_GRAPH_INDEX_SCHEMA_V2.into(),
-            entry: graph.entry.clone(),
-            producer_binary_digest: graph.producer_binary_digest.clone(),
-            deployment_graph_digest,
-            records,
-            carriers,
-            candidate_tables,
-        };
-        let bytes = capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(index)?)
-            .map_err(|error| anyhow!("cannot canonicalize prepared graph index: {error}"))?;
-        std::fs::write(staging.join("index.json"), bytes)?;
+        for candidate in &publication.candidate_tables {
+            std::fs::write(staging.join(&candidate.file), &candidate.bytes)?;
+        }
+        std::fs::write(staging.join("index.json"), &publication.index_bytes)?;
         Ok(())
     })();
     if let Err(error) = result {
@@ -1669,12 +1774,151 @@ pub fn publish_prepared_source_graph_v1(
     }
 }
 
+fn read_authenticated_prepared_file(path: &Path, expected: &[u8], role: &str) -> Result<Vec<u8>> {
+    use std::io::Read as _;
+
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        // O_NONBLOCK prevents a hostile FIFO from hanging before metadata can
+        // reject it; it does not change regular-file reads.
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|error| anyhow!("cannot open prepared {role} {}: {error}", path.display()))?;
+    let before = file.metadata().map_err(|error| {
+        anyhow!(
+            "cannot inspect opened prepared {role} {}: {error}",
+            path.display()
+        )
+    })?;
+    let expected_len = u64::try_from(expected.len())
+        .map_err(|_| anyhow!("authenticated prepared {role} length is unsupported"))?;
+    if !before.is_file() || before.len() != expected_len {
+        bail!(
+            "prepared {role} is not an exact-size regular file: {}",
+            path.display()
+        );
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+        if before.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            bail!("prepared {role} is a reparse point: {}", path.display());
+        }
+    }
+
+    let mut bytes = vec![0; expected.len()];
+    file.read_exact(&mut bytes).map_err(|error| {
+        anyhow!(
+            "cannot read exact authenticated prepared {role} {}: {error}",
+            path.display()
+        )
+    })?;
+    let mut trailing = [0_u8; 1];
+    if file.read(&mut trailing).map_err(|error| {
+        anyhow!(
+            "cannot finish authenticated prepared {role} {}: {error}",
+            path.display()
+        )
+    })? != 0
+    {
+        bail!("prepared {role} grew while it was read: {}", path.display());
+    }
+    let after = file.metadata().map_err(|error| {
+        anyhow!(
+            "cannot re-inspect opened prepared {role} {}: {error}",
+            path.display()
+        )
+    })?;
+    if !after.is_file() || after.len() != expected_len || bytes != expected {
+        bail!(
+            "prepared {role} does not match the authenticated source graph: {}",
+            path.display()
+        );
+    }
+    Ok(bytes)
+}
+
 pub fn load_prepared_source_graph_v1(
     cache_dir: &Path,
     authenticated_source_graph: &SourceModuleGraphV1,
     expected_deployment_graph_digest: &Digest,
 ) -> Result<SourceModuleGraphV1> {
-    let index_bytes = std::fs::read(cache_dir.join("index.json"))?;
+    let expected = render_prepared_source_graph_v2(
+        authenticated_source_graph,
+        expected_deployment_graph_digest,
+    )?;
+    // The writable cache is acceleration only. Retain each expected file once
+    // through a no-follow, regular-file, exact-size descriptor and use those
+    // authenticated owned bytes for every later admission step.
+    // @ref LLP 0027#canonical-encoding-and-validation
+    let index_bytes = read_authenticated_prepared_file(
+        &cache_dir.join("index.json"),
+        &expected.index_bytes,
+        "graph index",
+    )?;
+    let mut expected_files = BTreeSet::from(["index.json".to_owned()]);
+    let mut retained_carrier_files = BTreeMap::new();
+    for carrier in &expected.carriers {
+        expected_files.insert(carrier.manifest_file.clone());
+        expected_files.insert(carrier.bytes_file.clone());
+        let manifest_bytes = read_authenticated_prepared_file(
+            &cache_dir.join(&carrier.manifest_file),
+            &carrier.manifest_bytes,
+            "carrier manifest",
+        )?;
+        let carrier_bytes = read_authenticated_prepared_file(
+            &cache_dir.join(&carrier.bytes_file),
+            &carrier.bytes,
+            "carrier bytes",
+        )?;
+        if retained_carrier_files
+            .insert(carrier.manifest_file.clone(), manifest_bytes)
+            .is_some()
+            || retained_carrier_files
+                .insert(carrier.bytes_file.clone(), carrier_bytes)
+                .is_some()
+        {
+            bail!("prepared carrier publication repeats a filename");
+        }
+    }
+    let mut retained_candidate_files = BTreeMap::new();
+    for candidate in &expected.candidate_tables {
+        expected_files.insert(candidate.file.clone());
+        let bytes = read_authenticated_prepared_file(
+            &cache_dir.join(&candidate.file),
+            &candidate.bytes,
+            "computed-candidate table",
+        )?;
+        if retained_candidate_files
+            .insert(candidate.file.clone(), bytes)
+            .is_some()
+        {
+            bail!("prepared candidate-table publication repeats a filename");
+        }
+    }
+    let actual_files = std::fs::read_dir(cache_dir)?
+        .map(|entry| {
+            let entry = entry?;
+            entry
+                .file_name()
+                .into_string()
+                .map_err(|_| anyhow!("prepared cache contains a non-UTF-8 filename"))
+        })
+        .collect::<Result<BTreeSet<_>>>()?;
+    if actual_files != expected_files {
+        bail!("prepared cache file inventory differs from its authenticated publication");
+    }
     let text = std::str::from_utf8(&index_bytes)?;
     let value = capsec_semantics::strict_json::parse_strict(text)
         .map_err(|error| anyhow!("prepared graph index is not strict JSON: {error}"))?;
@@ -1698,8 +1942,10 @@ pub fn load_prepared_source_graph_v1(
         if candidate.file.contains('/') || candidate.file.contains('\\') {
             bail!("prepared candidate-table filename escapes its cache directory");
         }
-        let bytes = std::fs::read(cache_dir.join(&candidate.file))?;
-        let table = ComputedCandidateTableV1::decode_canonical(&bytes)?;
+        let bytes = retained_candidate_files
+            .get(&candidate.file)
+            .ok_or_else(|| anyhow!("prepared candidate table was not retained"))?;
+        let table = ComputedCandidateTableV1::decode_canonical(bytes)?;
         if table.digest()? != candidate.digest {
             bail!("prepared candidate-table digest is stale");
         }
@@ -1726,7 +1972,7 @@ pub fn load_prepared_source_graph_v1(
     let producer_id =
         NonEmptyString::new(PREPARED_GRAPH_PRODUCER_ID).map_err(anyhow::Error::msg)?;
     let mut carriers = Vec::with_capacity(index.carriers.len());
-    for carrier in &index.carriers {
+    for (carrier_index, carrier) in index.carriers.iter().enumerate() {
         if carrier.manifest_file.contains('/')
             || carrier.manifest_file.contains('\\')
             || carrier.bytes_file.contains('/')
@@ -1734,16 +1980,18 @@ pub fn load_prepared_source_graph_v1(
         {
             bail!("prepared carrier filename escapes its cache directory");
         }
-        let manifest_bytes = std::fs::read(cache_dir.join(&carrier.manifest_file))?;
-        let carrier_bytes = std::fs::read(cache_dir.join(&carrier.bytes_file))?;
-        let manifest_value =
-            capsec_semantics::strict_json::parse_strict(std::str::from_utf8(&manifest_bytes)?)
-                .map_err(|error| {
-                    anyhow!("prepared carrier manifest is not strict JSON: {error}")
-                })?;
-        let manifest: PreparedModuleCarrierV2 = serde_json::from_value(manifest_value)?;
+        let manifest_bytes = retained_carrier_files
+            .get(&carrier.manifest_file)
+            .ok_or_else(|| anyhow!("prepared carrier manifest was not retained"))?;
+        let carrier_bytes = retained_carrier_files
+            .get(&carrier.bytes_file)
+            .ok_or_else(|| anyhow!("prepared carrier bytes were not retained"))?;
+        let expected_carrier = expected
+            .carriers
+            .get(carrier_index)
+            .ok_or_else(|| anyhow!("prepared graph names an unexpected carrier"))?;
         let admission = PreparedCarrierAdmissionV2 {
-            expected_principal: manifest.defining_principal.clone(),
+            expected_principal: expected_carrier.defining_principal.clone(),
             expected_producer_id: producer_id.clone(),
             producer_binary_digest: authenticated_source_graph.producer_binary_digest.clone(),
             deployment_graph_digest: expected_deployment_graph_digest.clone(),
@@ -1752,8 +2000,8 @@ pub fn load_prepared_source_graph_v1(
             expected_bytecode_version: None,
         };
         carriers.push(Arc::new(AdmittedPreparedCarrierV2::decode_and_admit(
-            &manifest_bytes,
-            &carrier_bytes,
+            manifest_bytes,
+            carrier_bytes,
             &admission,
         )?));
     }
@@ -1776,17 +2024,14 @@ pub fn load_prepared_source_graph_v1(
         // @ref LLP 0028#1-toolchain-and-pin-rotation--atomic-with-identity-rotation
         verify_current_transform_fingerprint_v1(&indexed.artifact.semantics)?;
         let path = trusted_record.path.clone();
-        if indexed.path != path.to_string_lossy() {
-            bail!("prepared graph path differs from authenticated source");
-        }
         if !path.is_absolute() && !matches!(indexed.source_id, SourceId::Builtin { .. }) {
-            bail!("prepared graph source label is not absolute");
+            bail!("authenticated native source path is not absolute");
         }
         if !matches!(indexed.source_id, SourceId::Builtin { .. }) {
             crate::host::abi::authenticate_prepared_module_record(
                 &path,
                 &indexed.source_id,
-                &indexed.artifact.semantics.source_integrity,
+                &trusted_record.artifact.semantics.source_integrity,
             )?;
         }
         let mut bindings = BTreeMap::new();
@@ -1806,14 +2051,14 @@ pub fn load_prepared_source_graph_v1(
         let carrier_manifest = carrier.manifest();
         let admission = ArtifactAdmissionV1::DigestBoundPrepared {
             expected_source_id: indexed.source_id.clone(),
-            expected_source_integrity: indexed.artifact.semantics.source_integrity.clone(),
+            expected_source_integrity: trusted_record.artifact.semantics.source_integrity.clone(),
             expected_producer_id: producer_id.clone(),
             producer_binary_digest: authenticated_source_graph.producer_binary_digest.clone(),
             deployment_graph_digest: expected_deployment_graph_digest.clone(),
             expected_carrier_digest: carrier_manifest.carrier_digest.clone(),
             expected_entry_id: indexed.entry_id.clone(),
             authorized_semantic_digests: authorized_semantic_digests.clone(),
-            transform_fingerprint_digest: indexed
+            transform_fingerprint_digest: trusted_record
                 .artifact
                 .semantics
                 .transform_fingerprint
@@ -1826,27 +2071,14 @@ pub fn load_prepared_source_graph_v1(
             .filter(|table| table.requester.0 == indexed.source_id)
             .cloned()
             .collect::<Vec<_>>();
-        let binding_attributes = record_candidate_tables
-            .iter()
-            .flat_map(|table| {
-                table.candidates.iter().map(|candidate| {
-                    (
-                        GraphEdgeKey::new(
-                            candidate.specifier.as_str(),
-                            ResolutionKind::DynamicImport,
-                        ),
-                        candidate.attributes.clone(),
-                    )
-                })
-            })
-            .collect();
         records.insert(
             indexed.source_id,
             SourceGraphRecordV1 {
                 path,
+                source_label: trusted_record.source_label.clone(),
+                virtual_path: trusted_record.virtual_path.clone(),
                 artifact: indexed.artifact,
                 bindings,
-                binding_attributes,
                 candidate_tables: record_candidate_tables,
                 prepared: Some(PreparedRecordV1 {
                     carrier,
@@ -2249,10 +2481,7 @@ mod tests {
         let entry_id = graph.entry.clone();
         let (source_label, source_path) = {
             let record = graph.records.get(&entry_id).unwrap();
-            (
-                record.path.to_string_lossy().into_owned(),
-                record.path.clone(),
-            )
+            (record.source_label.clone(), record.path.clone())
         };
         graph.records.get_mut(&entry_id).unwrap().artifact = produce_module_artifact_v1(
             entry_id.clone(),
@@ -2309,10 +2538,7 @@ mod tests {
         let entry_id = graph.entry.clone();
         let (source_label, source_path) = {
             let record = graph.records.get(&entry_id).unwrap();
-            (
-                record.path.to_string_lossy().into_owned(),
-                record.path.clone(),
-            )
+            (record.source_label.clone(), record.path.clone())
         };
         graph.records.get_mut(&entry_id).unwrap().artifact = produce_commonjs_artifact_v1(
             entry_id.clone(),
@@ -2358,6 +2584,85 @@ mod tests {
             PREPARED_GRAPH_INDEX_SCHEMA_V2
         );
         assert_eq!(schema["additionalProperties"], false);
+
+        let shared: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../schemas/prepared-module-graph-v1.schema.json"
+        ))
+        .unwrap();
+        let record = &shared["$defs"]["record"];
+        assert_eq!(record["additionalProperties"], false);
+        assert!(record["properties"].get("path").is_none());
+        assert!(!record["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|field| field == "path"));
+    }
+
+    #[test]
+    fn prepared_cache_reader_requires_exact_authenticated_regular_file_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("carrier.bin");
+        std::fs::write(&path, b"authenticated-carrier").unwrap();
+        assert_eq!(
+            read_authenticated_prepared_file(&path, b"authenticated-carrier", "test carrier")
+                .unwrap(),
+            b"authenticated-carrier"
+        );
+        assert!(
+            read_authenticated_prepared_file(&path, b"authenticated-carrieR", "test carrier")
+                .unwrap_err()
+                .to_string()
+                .contains("does not match")
+        );
+        assert!(read_authenticated_prepared_file(
+            &path,
+            b"authenticated-carrier-too-long",
+            "test carrier"
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("exact-size regular file"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prepared_cache_reader_rejects_symlinks_and_fifos_without_blocking() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target.bin");
+        let link = directory.path().join("link.bin");
+        std::fs::write(&target, b"same").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(read_authenticated_prepared_file(&link, b"same", "test symlink").is_err());
+
+        let fifo = directory.path().join("carrier.fifo");
+        let fifo_path = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `fifo_path` is a live NUL-terminated path and mode 0600 has
+        // no platform-specific pointer or lifetime requirements.
+        assert_eq!(unsafe { libc::mkfifo(fifo_path.as_ptr(), 0o600) }, 0);
+        assert!(read_authenticated_prepared_file(&fifo, b"same", "test fifo").is_err());
+    }
+
+    #[test]
+    fn package_compartment_identity_is_the_authenticated_locator() {
+        let package = Principal::Package {
+            name: NonEmptyString::new("image-lib").unwrap(),
+            integrity: Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap(),
+            locator: PackageLocator::new("image-lib@2.4.1").unwrap(),
+        };
+        assert_eq!(
+            module_runner_compartment_identity(&package)
+                .unwrap()
+                .as_deref(),
+            Some("image-lib@2.4.1")
+        );
+        let root = Principal::Root {
+            identity: NonEmptyString::new("project-root").unwrap(),
+        };
+        assert_eq!(module_runner_compartment_identity(&root).unwrap(), None);
     }
 
     #[test]
@@ -2421,13 +2726,26 @@ mod tests {
             GraphEdgeKey::new("node:path", ResolutionKind::EsmStatic),
             builtin.clone(),
         );
-        let record = |name: &str, artifact, bindings| SourceGraphRecordV1 {
-            path: PathBuf::from(checkout).join(name),
-            artifact,
-            bindings,
-            binding_attributes: BTreeMap::new(),
-            candidate_tables: Vec::new(),
-            prepared: None,
+        let record = |name: &str, artifact: ModuleArtifactV1, bindings| {
+            let (source_label, virtual_path) = match &artifact.semantics.source_id.0 {
+                SourceId::Builtin { domain, source_key } => (
+                    format!("builtin:{}:{}", domain.as_str(), source_key.as_str()),
+                    None,
+                ),
+                _ => (
+                    format!("file:///project/{name}"),
+                    Some(format!("/project/{name}")),
+                ),
+            };
+            SourceGraphRecordV1 {
+                path: PathBuf::from(checkout).join(name),
+                source_label,
+                virtual_path,
+                artifact,
+                bindings,
+                candidate_tables: Vec::new(),
+                prepared: None,
+            }
         };
         (
             entry.clone(),

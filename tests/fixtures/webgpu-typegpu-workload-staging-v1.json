@@ -3,13 +3,37 @@
   "artifactVersion": 1,
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "typegpu-workloads-native-staging-v1",
-  "status": "audited-not-routable-not-installed",
+  "status": "conditional-selected-build-routable-active-default-runtime-absent",
   "supportClaim": "none",
-  "nativeExecutionEvidence": "none-recording-provider-is-inventory-only",
+  "conditionalExecutionLane": {
+    "buildCondition": "EXACT_EXPERIMENTAL_WEBGPU_PRE1A && !EXACT_DIAGNOSTIC_RUNTIME",
+    "classification": "experimental-selected-build-only",
+    "appRealmInstallation": "authenticated-bootstrap-installed",
+    "installedOperationCount": 63,
+    "workloadOperationCount": 51,
+    "codecDelivery": "authenticated-explicit-injection",
+    "nativeServiceExecution": "active",
+    "providerExecution": "active",
+    "presentationExecution": "present-blit-active",
+    "newlyActivatedGapTerminals": [
+      "GPUQueue.writeBuffer",
+      "GPUQueue.copyExternalImageToTexture",
+      "GPUQueue.submit",
+      "PresentBlit"
+    ],
+    "executionEvidence": "source-activated-no-platform-or-cts-evidence",
+    "defaultRuntimeInstallation": "absent",
+    "publicSupportSurface": "absent-no-advertisement-no-positive-grant-issuer",
+    "workerInstallation": "absent",
+    "ctsEvidence": "absent",
+    "platformQualificationEvidence": "absent",
+    "supportClaim": "none"
+  },
+  "nativeExecutionEvidence": "source-activated-no-platform-or-cts-evidence",
   "typegpuVersion": "0.11.9",
   "activeRouteSubset": {
     "scopeId": "native-triangle-plus-typegpu-graduates-v1",
-    "operationCount": 44,
+    "operationCount": 60,
     "operationIds": [
       "GPU.getPreferredCanvasFormat",
       "GPU.requestAdapter",
@@ -24,13 +48,24 @@
       "GPUCanvasContext.getConfiguration",
       "GPUCanvasContext.getCurrentTexture",
       "GPUCanvasContext.unconfigure",
+      "GPUCommandEncoder.beginComputePass",
       "GPUCommandEncoder.beginRenderPass",
+      "GPUCommandEncoder.clearBuffer",
+      "GPUCommandEncoder.copyBufferToBuffer",
+      "GPUCommandEncoder.copyTextureToTexture",
       "GPUCommandEncoder.finish",
+      "GPUCommandEncoder.resolveQuerySet",
+      "GPUComputePassEncoder.dispatchWorkgroups",
+      "GPUComputePassEncoder.end",
+      "GPUComputePassEncoder.setBindGroup",
+      "GPUComputePassEncoder.setPipeline",
       "GPUDevice.createBindGroup",
       "GPUDevice.createBindGroupLayout",
       "GPUDevice.createBuffer",
       "GPUDevice.createCommandEncoder",
+      "GPUDevice.createComputePipeline",
       "GPUDevice.createPipelineLayout",
+      "GPUDevice.createQuerySet",
       "GPUDevice.createRenderPipeline",
       "GPUDevice.createSampler",
       "GPUDevice.createShaderModule",
@@ -47,8 +82,13 @@
       "GPUQueue.writeBuffer",
       "GPUQueue.writeTexture",
       "GPURenderPassEncoder.draw",
+      "GPURenderPassEncoder.drawIndexed",
+      "GPURenderPassEncoder.drawIndirect",
       "GPURenderPassEncoder.end",
+      "GPURenderPassEncoder.setBindGroup",
+      "GPURenderPassEncoder.setIndexBuffer",
       "GPURenderPassEncoder.setPipeline",
+      "GPURenderPassEncoder.setVertexBuffer",
       "GPUTexture.createView",
       "GPUTexture.destroy",
       "GPUTexture.dimension",
@@ -61,113 +101,153 @@
     "scopeId": "typegpu-private-wrapper-local-recording-v1",
     "identityDomain": "exact/webgpu-staged-local-record/v1",
     "recordLimit": 1024,
-    "operationCount": 10,
+    "operationCount": 14,
     "operations": [
       {
         "operationId": "GPUCommandEncoder.beginComputePass",
         "memberKind": "method",
         "logicalExecutionKind": "wrapper-local-recording",
         "terminalDisposition": "sealed-logical-record-no-provider-submit",
-        "routingDisposition": "construction-private-non-installing-non-routing",
+        "routingDisposition": "selected-build-wrapper-local-no-provider-routing",
         "sourceEvidenceSha256": "69f48214ae375e3acdf32534bfa5e25c1d17132f410f1cac9c53fe3807f181e6",
-        "localRecordId": 3972379000,
-        "recordIdentitySha256": "78b1c5ec959456d753b7e069c05fbad63bccf2c38f6f1344493a37dbac5aa05c"
+        "localRecordId": 1059087543,
+        "recordIdentitySha256": "b764203ffd4b4acc806bb6345f8be90aced91d4ea1cf076657f84e18fcc209dd"
       },
       {
         "operationId": "GPUCommandEncoder.clearBuffer",
         "memberKind": "method",
         "logicalExecutionKind": "wrapper-local-recording",
         "terminalDisposition": "sealed-logical-record-no-provider-submit",
-        "routingDisposition": "construction-private-non-installing-non-routing",
+        "routingDisposition": "selected-build-wrapper-local-no-provider-routing",
         "sourceEvidenceSha256": "b32bd6d780c2790758688827e22849c9331333568fb56863f5502ce26d5416a8",
-        "localRecordId": 3975569409,
-        "recordIdentitySha256": "0160f6ec85e831ea481f45ea980ab876fe303730f92a120c2a481a9ddee4a424"
+        "localRecordId": 2252941047,
+        "recordIdentitySha256": "f72649863586f7b6e8a9e05d96f7f1ac9af3a78cdd4ff75f005f0f8246d9db41"
       },
       {
         "operationId": "GPUCommandEncoder.copyBufferToBuffer",
         "memberKind": "method",
         "logicalExecutionKind": "wrapper-local-recording",
         "terminalDisposition": "sealed-logical-record-no-provider-submit",
-        "routingDisposition": "construction-private-non-installing-non-routing",
+        "routingDisposition": "selected-build-wrapper-local-no-provider-routing",
         "sourceEvidenceSha256": "460aa5dbbcf7f6e1256e0253ae4bdea0417d1465e997d9fa93f7034fa1c905db",
-        "localRecordId": 3780386829,
-        "recordIdentitySha256": "0d2054e1f453d4da12854ecbfd53b9f50e72523f84ce215e6a954ca95cebf117"
+        "localRecordId": 140509420,
+        "recordIdentitySha256": "ec0060085c40946da4d8252a859b048c59eb9803013f1ec825e5bcbe87d0d5df"
       },
       {
         "operationId": "GPUCommandEncoder.copyTextureToTexture",
         "memberKind": "method",
         "logicalExecutionKind": "wrapper-local-recording",
         "terminalDisposition": "sealed-logical-record-no-provider-submit",
-        "routingDisposition": "construction-private-non-installing-non-routing",
+        "routingDisposition": "selected-build-wrapper-local-no-provider-routing",
         "sourceEvidenceSha256": "11c1b5e540f0cfc75298f47922a81e93fa55cfb8ba9160971e15f2c4de980935",
-        "localRecordId": 1093035147,
-        "recordIdentitySha256": "8b6426411e4687ef0101458c6cbf4027644377a30a04bd67502c44f0adae9351"
+        "localRecordId": 921211603,
+        "recordIdentitySha256": "d392e836c6e02ea2eea66cc84e8ccf3b2394f2020e441d1bf263928aadb0a5fb"
+      },
+      {
+        "operationId": "GPUCommandEncoder.resolveQuerySet",
+        "memberKind": "method",
+        "logicalExecutionKind": "wrapper-local-recording",
+        "terminalDisposition": "sealed-logical-record-no-provider-submit",
+        "routingDisposition": "selected-build-wrapper-local-no-provider-routing",
+        "sourceEvidenceSha256": "9ba55b303f212e8ba8b731943152d66e5c6c383d336e9d624e893a76c1197574",
+        "localRecordId": 3627060274,
+        "recordIdentitySha256": "328c30d8f31272fcb2bbc3b0322f6fafa2b9ba7b790a764e2f19a12524a85006"
       },
       {
         "operationId": "GPUComputePassEncoder.dispatchWorkgroups",
         "memberKind": "method",
         "logicalExecutionKind": "wrapper-local-recording",
         "terminalDisposition": "sealed-logical-record-no-provider-submit",
-        "routingDisposition": "construction-private-non-installing-non-routing",
+        "routingDisposition": "selected-build-wrapper-local-no-provider-routing",
         "sourceEvidenceSha256": "0db995d852c310f221eb98c367523fdc1714adc81c2c10eb7ab75f18cb3fe655",
-        "localRecordId": 798975729,
-        "recordIdentitySha256": "f1669f2f242031f01751e6fe6a9c46c9b45202d9352c260103681697e490a48e"
+        "localRecordId": 1258425661,
+        "recordIdentitySha256": "3d0d024b3eace3d62076d1e26e9a2db303f2efdf6731a91d2792620df102a4e1"
       },
       {
         "operationId": "GPUComputePassEncoder.end",
         "memberKind": "method",
         "logicalExecutionKind": "wrapper-local-recording",
         "terminalDisposition": "sealed-logical-record-no-provider-submit",
-        "routingDisposition": "construction-private-non-installing-non-routing",
+        "routingDisposition": "selected-build-wrapper-local-no-provider-routing",
         "sourceEvidenceSha256": "aad83b6c397eb93929cc51ea0bbd09d9691e687738eee3b2ae0f5d8dd6877c61",
-        "localRecordId": 2606083284,
-        "recordIdentitySha256": "d4ac559b4e01c07b75295819f1ca676a57babf7674bc3df96346b0e47b4556f0"
+        "localRecordId": 458012391,
+        "recordIdentitySha256": "e7b64c1bebc3da3fa8df936f74a73ccfdc45d81c8c56681882a7352b107145a8"
       },
       {
         "operationId": "GPUComputePassEncoder.setBindGroup",
         "memberKind": "method",
         "logicalExecutionKind": "wrapper-local-recording",
         "terminalDisposition": "sealed-logical-record-no-provider-submit",
-        "routingDisposition": "construction-private-non-installing-non-routing",
+        "routingDisposition": "selected-build-wrapper-local-no-provider-routing",
         "sourceEvidenceSha256": "04ef45effafb982195acb7cd15ecfeef812b30f141ff9b0bfd633f55618698a5",
-        "localRecordId": 3255367035,
-        "recordIdentitySha256": "7bf508c2ea974f8b92473f5aab528422f0e9c52c18e371b71e6976971c4d0114"
+        "localRecordId": 292725259,
+        "recordIdentitySha256": "0ba27211e9da9207afa1d5d597b223076372056cbad2e360e50d737e8ca98977"
       },
       {
         "operationId": "GPUComputePassEncoder.setPipeline",
         "memberKind": "method",
         "logicalExecutionKind": "wrapper-local-recording",
         "terminalDisposition": "sealed-logical-record-no-provider-submit",
-        "routingDisposition": "construction-private-non-installing-non-routing",
+        "routingDisposition": "selected-build-wrapper-local-no-provider-routing",
         "sourceEvidenceSha256": "8b7eb21f3e3de72372ba84adc91d7d7897d6574360205a7473f7589ded318f06",
-        "localRecordId": 239771785,
-        "recordIdentitySha256": "89a04a0e46b88cbbb2318f3708977ef6c630224c715bb0bb874aa168e29de8e6"
+        "localRecordId": 1263398999,
+        "recordIdentitySha256": "57f04d4bf6dcdddfb654c0847f204a0032ee60d21ac1365a6cc1633c0602152b"
+      },
+      {
+        "operationId": "GPURenderPassEncoder.drawIndexed",
+        "memberKind": "method",
+        "logicalExecutionKind": "wrapper-local-recording",
+        "terminalDisposition": "sealed-logical-record-no-provider-submit",
+        "routingDisposition": "selected-build-wrapper-local-no-provider-routing",
+        "sourceEvidenceSha256": "42e742c5be177b96c948c48932fa54c9aee0927b1128881a089cd9c1d54a54a4",
+        "localRecordId": 503426110,
+        "recordIdentitySha256": "3eac011e17196ecf71481d542fa15245d5656ed02e434ead8dc578ca9f7255f0"
+      },
+      {
+        "operationId": "GPURenderPassEncoder.drawIndirect",
+        "memberKind": "method",
+        "logicalExecutionKind": "wrapper-local-recording",
+        "terminalDisposition": "sealed-logical-record-no-provider-submit",
+        "routingDisposition": "selected-build-wrapper-local-no-provider-routing",
+        "sourceEvidenceSha256": "014254d9394db2920bd6be03c3225bc8a7f6c45d3431675a63b4312364cc5828",
+        "localRecordId": 403203469,
+        "recordIdentitySha256": "8d650818bd0c8412c5c61028aa3f562e2acf2016dea3bf238168c3e64e6a91ee"
       },
       {
         "operationId": "GPURenderPassEncoder.setBindGroup",
         "memberKind": "method",
         "logicalExecutionKind": "wrapper-local-recording",
         "terminalDisposition": "sealed-logical-record-no-provider-submit",
-        "routingDisposition": "construction-private-non-installing-non-routing",
+        "routingDisposition": "selected-build-wrapper-local-no-provider-routing",
         "sourceEvidenceSha256": "04ef45effafb982195acb7cd15ecfeef812b30f141ff9b0bfd633f55618698a5",
-        "localRecordId": 2060088642,
-        "recordIdentitySha256": "4275ca7ab6045fbeb9b5ab1811d121d101e071ae365500ec4f2623073b3e97f0"
+        "localRecordId": 1289149290,
+        "recordIdentitySha256": "6adbd64cfdd954e7c505494c6f21f4c003ec0d483c629e618792bc94135497a5"
+      },
+      {
+        "operationId": "GPURenderPassEncoder.setIndexBuffer",
+        "memberKind": "method",
+        "logicalExecutionKind": "wrapper-local-recording",
+        "terminalDisposition": "sealed-logical-record-no-provider-submit",
+        "routingDisposition": "selected-build-wrapper-local-no-provider-routing",
+        "sourceEvidenceSha256": "eb9b154c8ba4c65ef76fab232e9d2071120b27d735b8103b10d3f33133d23f9c",
+        "localRecordId": 1097249753,
+        "recordIdentitySha256": "d9b36641df046d8eb15d188f10af8b4cd93164d961252f5d057d7d704c2223ac"
       },
       {
         "operationId": "GPURenderPassEncoder.setVertexBuffer",
         "memberKind": "method",
         "logicalExecutionKind": "wrapper-local-recording",
         "terminalDisposition": "sealed-logical-record-no-provider-submit",
-        "routingDisposition": "construction-private-non-installing-non-routing",
+        "routingDisposition": "selected-build-wrapper-local-no-provider-routing",
         "sourceEvidenceSha256": "3489cd9fdaa683582152147986b6b78e0354f97dec6c29cfcce63da81b1c745e",
-        "localRecordId": 2349223254,
-        "recordIdentitySha256": "564d068ca63aee652e7571913e8a9a3dc13f764a907bdb0546fa8b98710a212c"
+        "localRecordId": 3247535054,
+        "recordIdentitySha256": "ce7391c12a7841f14f9d56c0ffe0e7c5a942b023d71644c19842acd7fbc50183"
       }
     ]
   },
   "workloadClosure": {
     "operationCount": 51,
-    "additionalOperationCount": 11,
+    "additionalOperationCount": 0,
     "operations": [
       {
         "operationId": "GPU.getPreferredCanvasFormat",
@@ -202,7 +282,7 @@
       {
         "operationId": "GPUBuffer.mapState",
         "memberKind": "property",
-        "disposition": "active-private-graduated-route"
+        "disposition": "active-private-wrapper-local-metadata-read"
       },
       {
         "operationId": "GPUBuffer.unmap",
@@ -212,7 +292,7 @@
       {
         "operationId": "GPUBuffer.usage",
         "memberKind": "property",
-        "disposition": "active-private-graduated-route"
+        "disposition": "active-private-wrapper-local-metadata-read"
       },
       {
         "operationId": "GPUCanvasContext.configure",
@@ -232,9 +312,9 @@
       {
         "operationId": "GPUCommandEncoder.beginComputePass",
         "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 3972379000,
-        "recordIdentitySha256": "78b1c5ec959456d753b7e069c05fbad63bccf2c38f6f1344493a37dbac5aa05c"
+        "disposition": "active-private-wrapper-local-recording",
+        "localRecordId": 1059087543,
+        "recordIdentitySha256": "b764203ffd4b4acc806bb6345f8be90aced91d4ea1cf076657f84e18fcc209dd"
       },
       {
         "operationId": "GPUCommandEncoder.beginRenderPass",
@@ -244,23 +324,23 @@
       {
         "operationId": "GPUCommandEncoder.clearBuffer",
         "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 3975569409,
-        "recordIdentitySha256": "0160f6ec85e831ea481f45ea980ab876fe303730f92a120c2a481a9ddee4a424"
+        "disposition": "active-private-wrapper-local-recording",
+        "localRecordId": 2252941047,
+        "recordIdentitySha256": "f72649863586f7b6e8a9e05d96f7f1ac9af3a78cdd4ff75f005f0f8246d9db41"
       },
       {
         "operationId": "GPUCommandEncoder.copyBufferToBuffer",
         "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 3780386829,
-        "recordIdentitySha256": "0d2054e1f453d4da12854ecbfd53b9f50e72523f84ce215e6a954ca95cebf117"
+        "disposition": "active-private-wrapper-local-recording",
+        "localRecordId": 140509420,
+        "recordIdentitySha256": "ec0060085c40946da4d8252a859b048c59eb9803013f1ec825e5bcbe87d0d5df"
       },
       {
         "operationId": "GPUCommandEncoder.copyTextureToTexture",
         "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 1093035147,
-        "recordIdentitySha256": "8b6426411e4687ef0101458c6cbf4027644377a30a04bd67502c44f0adae9351"
+        "disposition": "active-private-wrapper-local-recording",
+        "localRecordId": 921211603,
+        "recordIdentitySha256": "d392e836c6e02ea2eea66cc84e8ccf3b2394f2020e441d1bf263928aadb0a5fb"
       },
       {
         "operationId": "GPUCommandEncoder.finish",
@@ -270,30 +350,30 @@
       {
         "operationId": "GPUComputePassEncoder.dispatchWorkgroups",
         "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 798975729,
-        "recordIdentitySha256": "f1669f2f242031f01751e6fe6a9c46c9b45202d9352c260103681697e490a48e"
+        "disposition": "active-private-wrapper-local-recording",
+        "localRecordId": 1258425661,
+        "recordIdentitySha256": "3d0d024b3eace3d62076d1e26e9a2db303f2efdf6731a91d2792620df102a4e1"
       },
       {
         "operationId": "GPUComputePassEncoder.end",
         "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 2606083284,
-        "recordIdentitySha256": "d4ac559b4e01c07b75295819f1ca676a57babf7674bc3df96346b0e47b4556f0"
+        "disposition": "active-private-wrapper-local-recording",
+        "localRecordId": 458012391,
+        "recordIdentitySha256": "e7b64c1bebc3da3fa8df936f74a73ccfdc45d81c8c56681882a7352b107145a8"
       },
       {
         "operationId": "GPUComputePassEncoder.setBindGroup",
         "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 3255367035,
-        "recordIdentitySha256": "7bf508c2ea974f8b92473f5aab528422f0e9c52c18e371b71e6976971c4d0114"
+        "disposition": "active-private-wrapper-local-recording",
+        "localRecordId": 292725259,
+        "recordIdentitySha256": "0ba27211e9da9207afa1d5d597b223076372056cbad2e360e50d737e8ca98977"
       },
       {
         "operationId": "GPUComputePassEncoder.setPipeline",
         "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 239771785,
-        "recordIdentitySha256": "89a04a0e46b88cbbb2318f3708977ef6c630224c715bb0bb874aa168e29de8e6"
+        "disposition": "active-private-wrapper-local-recording",
+        "localRecordId": 1263398999,
+        "recordIdentitySha256": "57f04d4bf6dcdddfb654c0847f204a0032ee60d21ac1365a6cc1633c0602152b"
       },
       {
         "operationId": "GPUDevice.createBindGroup",
@@ -318,7 +398,7 @@
       {
         "operationId": "GPUDevice.createComputePipeline",
         "memberKind": "method",
-        "disposition": "staged-unroutable-no-prototype-member"
+        "disposition": "active-private-graduated-route"
       },
       {
         "operationId": "GPUDevice.createPipelineLayout",
@@ -398,9 +478,9 @@
       {
         "operationId": "GPURenderPassEncoder.setBindGroup",
         "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 2060088642,
-        "recordIdentitySha256": "4275ca7ab6045fbeb9b5ab1811d121d101e071ae365500ec4f2623073b3e97f0"
+        "disposition": "active-private-wrapper-local-recording",
+        "localRecordId": 1289149290,
+        "recordIdentitySha256": "6adbd64cfdd954e7c505494c6f21f4c003ec0d483c629e618792bc94135497a5"
       },
       {
         "operationId": "GPURenderPassEncoder.setPipeline",
@@ -410,9 +490,9 @@
       {
         "operationId": "GPURenderPassEncoder.setVertexBuffer",
         "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 2349223254,
-        "recordIdentitySha256": "564d068ca63aee652e7571913e8a9a3dc13f764a907bdb0546fa8b98710a212c"
+        "disposition": "active-private-wrapper-local-recording",
+        "localRecordId": 3247535054,
+        "recordIdentitySha256": "ce7391c12a7841f14f9d56c0ffe0e7c5a942b023d71644c19842acd7fbc50183"
       },
       {
         "operationId": "GPUTexture.createView",
@@ -486,18 +566,18 @@
       "globalThis.requestAnimationFrame"
     ]
   },
-  "blockers": [
-    "ordered-logical-semantic-program",
-    "executable-public-and-service-codecs",
-    "matching-native-service-decoder-and-provider-method",
-    "generated-capsec-edge-and-supported-target-cell",
-    "native-conformance-and-platform-evidence"
+  "claimBoundaryAbsences": [
+    "default-runtime-installation",
+    "canonical-public-support-surface",
+    "worker-runtime-installation",
+    "webgpu-cts-evidence",
+    "platform-qualification-evidence"
   ],
-  "publicSurfaceRule": "members-remain-absent-until-all-blockers-close-no-throwing-stubs",
-  "embeddedCodecRule": "EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined",
+  "publicSurfaceRule": "selected-build-install-does-not-open-default-public-or-worker-surfaces",
+  "embeddedCodecRule": "EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined-selected-build-uses-authenticated-explicit-injection",
   "source": {
     "path": "tests/gpu/typegpu-workload-closure-v1.json",
-    "normalizedProjectionSha256": "8e51856e51b5ade601a66c39be64f4f017675fd01bf5d0bd0709e46ced76b414",
+    "normalizedProjectionSha256": "1b6eef6182b7a5ec7cb67c532f0df06f6d84362c9ba0cc9b922814bf77a77111",
     "fullArtifactSha256Disposition": "provenance-only-excluded-to-avoid-outer-submodule-recursion"
   }
 }

@@ -60,7 +60,7 @@ describe("generated root-global disposition artifacts", () => {
     expect(rendered.manifest.counts.sealedOrPrivate).toBeGreaterThan(20);
     expect(rendered.cxx).toContain("kRootExpectations");
     expect(rendered.cxx).toContain("kAbsentExpectations");
-    expect(rendered.cxx).toContain("kConditionalLiveSweepExpectations[34]");
+    expect(rendered.cxx).toContain("kConditionalLiveSweepExpectations[35]");
     expect(rendered.cxx).toContain("kNativeKeyExpectations");
     expect(rendered.cxx).toContain("kPermittedKeyExpectations");
     expect(rendered.cxx).toContain("__exactExit");
@@ -111,9 +111,9 @@ describe("generated root-global disposition artifacts", () => {
       ).toBe(true);
     }
     expect(manifest.counts).toMatchObject({
-      installBranches: 2_757,
-      sealedOrPrivate: 348,
-      permittedReachable: 2_409,
+      installBranches: 2_760,
+      sealedOrPrivate: 350,
+      permittedReachable: 2_410,
     });
   }, 30_000);
 

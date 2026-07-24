@@ -5,6 +5,8 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
+**Revised:** 2026-07-20 (native graph planning keeps literal CommonJS `require` targets in the authenticated materialization closure but outside eager evaluation/SCC/TLA traversal; computed-import authority retains exact `(site, spelling, runtime attributes, target)` identity through sidecar admission, policy authorization, and native linking)
+**Revised:** 2026-07-20 (prepared graph v2 keeps resolver paths and authenticated SourceLabel/virtual-path display metadata in the consuming runtime's local diagnostic envelope, never in the writable cache index; reload derives them from the independently authenticated inline graph and requires every cached byte to equal its deterministic publication)
 **Revised:** 2026-07-18 (computed-import candidate tables use strict `ibex/computed-candidates/1` sidecars, prepared graph v2 digest references, original-source correspondence, and the site-bearing module-runner ABI; the ABI also guards computed CommonJS `require` until invocation and reports the producer-owned original span; ModuleArtifact v1 remains unchanged)
 **Revised:** 2026-07-17 (LLP 0029 carrier v2 separates loaded-file and static-compatibility engine identities and derives HBC version/length from emitted bytes); 2026-07-15 (accepted by the author after the bounded CommonJS/JSON/builtin interop migration passed authenticated source/prepared real-Hermes coverage); 2026-07-15 (ENG-25063 retained graph generations through the complete embedder event-loop drive so delayed and fire-and-forget dynamic imports cannot observe released records); 2026-07-15 (ENG-25061 added host-owned builtin records and strict shared-identity JSON records across source/prepared ESM and CommonJS paths); 2026-07-15 (ENG-25061 linked production mixed ESM/CommonJS graphs in both directions, including pre-evaluation adapters and async ESM importers); 2026-07-15 (ENG-25064 canonical prepared-graph index, cache publication, strict reload, and full native linking); 2026-07-15 (ENG-25064 canonical prepared-carrier schema, admission, and source/HBC native loading); 2026-07-15 (ENG-25063 authenticated dynamic-edge metadata and
 promise-returning CommonJS-to-ESM import ABI); 2026-07-15 (ENG-25061 native CommonJS cache records and ESM
@@ -148,17 +150,24 @@ are tagged separately and cannot validate as release-eligible contracts.
 
 The graph-level cache index is `ibex/prepared-module-graph/2`, specified by
 `schemas/prepared-module-graph-v2.schema.json`. It binds the authenticated
-entry, producer and deployment digests, every original module's absolute
-source label, resolved-specifier map, prepared artifact, carrier/entry
-location, the complete carrier inventory, and digest references to each
-canonical `ibex/computed-candidates/1` sidecar. A sidecar binds requester and
-target integrity, transform-fingerprint domain, stable label, producer site
-ordinal, original-source span, runtime attributes, and graph generation. It is
-strict canonical JCS.
-Reload independently admits every carrier and artifact, re-authenticates each
-source identity and integrity, re-resolves each authored edge against the
-current armed snapshot, and rejects mixed inline/prepared graphs before
-linking.
+entry, producer and deployment digests, every original module's `SourceId`,
+resolved-specifier map for authored static and literal-dynamic edges, prepared
+artifact, carrier/entry location, the complete carrier inventory, and digest
+references to each canonical
+`ibex/computed-candidates/1` sidecar. Native resolver paths and authenticated
+SourceLabel/virtual-path display metadata do not appear in the cache index;
+reload rejoins that local diagnostic envelope from the independently
+authenticated inline source graph. A sidecar binds requester and target
+integrity, transform-fingerprint domain, stable label, producer site ordinal,
+original-source span, exact candidate spelling, runtime attributes, and graph
+generation. Computed candidates exist only in these site-keyed sidecars; they
+are not flattened into the ordinary resolved-specifier map, so equal spellings
+at sites with different attributes or targets cannot collapse. The sidecar is
+strict canonical JCS. Reload requires every writable-cache byte to equal the
+deterministic publication rendered from that authenticated graph, independently
+admits every carrier and artifact, re-authenticates each source identity and
+integrity, re-resolves each authored edge against the current armed snapshot,
+and rejects mixed inline/prepared graphs before linking.
 
 `transform_fingerprint` includes parser/transform versions, Hermes target,
 TypeScript/JSX options, module-runner ABI, Hermes-compat pass version, CommonJS
@@ -198,6 +207,11 @@ The native implementation stamps factory handles with their admitted source
 goal, publishes the initial CommonJS record before execution, and resolves
 `require` only through authenticated links. A cycle observes the target's
 current `module.exports`, including replacement before the recursive require.
+A literal `require` edge enters the authenticated materialization/linkage
+closure but does not make its target part of eager ESM evaluation, SCC, or TLA
+traversal. The target starts only when its owning CommonJS body invokes that
+exact linked edge; dead branches therefore remain dead, and CommonJS cycles
+observe the published partial record in body order.
 A throw evicts and invalidates the CommonJS handle. Its single stable ESM
 adapter is created before graph linking with uninitialized cells; successful
 completion fills the two identity entries and detector-approved named

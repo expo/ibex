@@ -26,10 +26,11 @@ const GPU_SERVICE_ABI_V2: u32 = 0x0002_0000;
 const GPU_TOPOLOGY_ISOLATED_PER_LOGICAL_V2: u32 = 1;
 const MAX_GPU_AUTHORITY_SESSIONS: usize = 1024;
 const MAX_GPU_PRESENTED_HANDLES: usize = 256;
-const EXPERIMENTAL_WEBGPU_PRE1A_OPERATION_COUNT: usize = 58;
-const EXPERIMENTAL_WEBGPU_PRE1A_POSITIVE_SELECTOR_COUNT: usize = 20;
+const EXPERIMENTAL_WEBGPU_PRE1A_OPERATION_COUNT: usize = 63;
+const EXPERIMENTAL_WEBGPU_PRE1A_POSITIVE_SELECTOR_COUNT: usize = 23;
+const EXPERIMENTAL_WEBGPU_PRE1A_PRIVATE_TARGET_CELL_COUNT: usize = 65;
 const EXPERIMENTAL_WEBGPU_PRE1A_REGISTRY_RAW_SHA256: &str =
-    "71b805e576763e3ed8ac61f68afb2d3a0a0578ed2acbfeb61db7c702c14a6cb2";
+    "47407c27d39b39350a9997009a63264146b10a147a6b06df7b0f740c60b24f2e";
 
 pub(crate) const GPU_AUTHORITY_ALLOWED: i32 = 1;
 pub(crate) const GPU_AUTHORITY_DENIED: i32 = 0;
@@ -132,6 +133,20 @@ pub struct ExactGpuAuthorityRetireV2 {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct ExactGpuAuthorityDecisionBatchV2 {
+    pub struct_size: u32,
+    pub abi_version: u32,
+    pub phase: u32,
+    pub flags: u32,
+    pub decisions: *const ExactGpuAuthorityDecisionRequestV2,
+    pub decision_count: usize,
+}
+
+pub type ExactGpuAuthorityAllowedContinuationV2 =
+    unsafe extern "C" fn(continuation_context: *mut c_void) -> i32;
+
+#[repr(C)]
 pub struct ExactGpuAuthoritySessionApiV2 {
     pub struct_size: u32,
     pub abi_version: u32,
@@ -148,6 +163,14 @@ pub struct ExactGpuAuthoritySessionApiV2 {
             retire: *const ExactGpuAuthorityRetireV2,
         ) -> i32,
     >,
+    pub evaluate_batch_and_then: Option<
+        unsafe extern "C" fn(
+            authority_context: *mut c_void,
+            batch: *const ExactGpuAuthorityDecisionBatchV2,
+            continuation_context: *mut c_void,
+            continuation: Option<ExactGpuAuthorityAllowedContinuationV2>,
+        ) -> i32,
+    >,
 }
 
 // The table contains immutable function pointers and an intentionally null
@@ -160,6 +183,7 @@ static GPU_AUTHORITY_API_V2: ExactGpuAuthoritySessionApiV2 = ExactGpuAuthoritySe
     authority_context: std::ptr::null_mut(),
     evaluate: Some(evaluate_gpu_authority_session_v2),
     retire: Some(retire_gpu_authority_session_v2),
+    evaluate_batch_and_then: Some(evaluate_gpu_authority_batch_and_then_v2),
 };
 
 pub(crate) fn authority_session_api_v2() -> &'static ExactGpuAuthoritySessionApiV2 {
@@ -214,7 +238,7 @@ enum OperationAuthorityKind {
     StructuralControlPlane,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct RuntimeOperation {
     operation_name: String,
     wire_id: u32,
@@ -230,10 +254,17 @@ struct RuntimeOperation {
 struct RuntimeRegistry {
     provider: ProviderIdentity,
     operations: BTreeMap<u32, RuntimeOperation>,
+    presentation_authority: RuntimePresentationAuthority,
     operation_count: usize,
     positive_operation_names: Vec<String>,
     private_target_cells: BTreeMap<String, TargetCellDisposition>,
     raw_sha256: [u8; 32],
+}
+
+#[derive(Clone, Debug)]
+struct RuntimePresentationAuthority {
+    capture_operation_id: u32,
+    branches: BTreeMap<String, RuntimeOperation>,
 }
 
 /// The complete private authority projection admitted only by Exact's named
@@ -271,6 +302,7 @@ struct RegistryDocument {
     bridge_edges: BTreeMap<String, String>,
     operation_count: usize,
     operations: Vec<RegistryOperation>,
+    presentation_authority: RegistryPresentationAuthority,
     private_target_cell_count: usize,
     private_target_cells: Vec<RegistryPrivateCell>,
 }
@@ -346,6 +378,50 @@ struct RegistryOperation {
     promise_identity: String,
     private_target_cell_id: String,
     authority_session: Option<RegistryAuthoritySession>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RegistryPresentationAuthority {
+    schema: String,
+    capture_operation_id: String,
+    branches: Vec<RegistryPresentationBranch>,
+    phase_programs: Vec<RegistryPresentationPhaseProgram>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RegistryPresentationBranch {
+    id: String,
+    operation_id: String,
+    edge_id: String,
+    private_target_cell_id: String,
+    action: String,
+    stages: Vec<String>,
+    target_cell_disposition: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RegistryPresentationPhaseProgram {
+    phase: String,
+    decisions: Vec<RegistryPresentationPhaseDecision>,
+    continuation_after: Option<RegistryPresentationPhaseKey>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RegistryPresentationPhaseDecision {
+    branch: String,
+    stage: String,
+    invocation: String,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RegistryPresentationPhaseKey {
+    branch: String,
+    stage: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -468,11 +544,75 @@ fn non_session_operation_matches_registry_semantics(
     }
 }
 
+fn presentation_phase_programs_match(programs: &[RegistryPresentationPhaseProgram]) -> bool {
+    let phase = |index: usize,
+                 name: &str,
+                 decisions: &[(&str, &str, &str)],
+                 continuation_after: Option<(&str, &str)>| {
+        let Some(program) = programs.get(index) else {
+            return false;
+        };
+        program.phase == name
+            && program.decisions.len() == decisions.len()
+            && program
+                .decisions
+                .iter()
+                .zip(decisions)
+                .all(|(actual, expected)| {
+                    actual.branch == expected.0
+                        && actual.stage == expected.1
+                        && actual.invocation == expected.2
+                })
+            && program
+                .continuation_after
+                .as_ref()
+                .map(|key| (key.branch.as_str(), key.stage.as_str()))
+                == continuation_after
+    };
+    programs.len() == 5
+        && phase(
+            0,
+            "entry",
+            &[("acquire", "requested", "capture-and-retain")],
+            None,
+        )
+        && phase(
+            1,
+            "entry-recheck",
+            &[("acquire", "requested", "transient-current-call")],
+            None,
+        )
+        && phase(
+            2,
+            "acquire-admission",
+            &[
+                ("acquire", "commit", "evaluate"),
+                ("present", "requested", "evaluate"),
+            ],
+            None,
+        )
+        && phase(
+            3,
+            "candidate-commit",
+            &[
+                ("acquire", "repeat", "evaluate-and-then-batch"),
+                ("present", "commit", "evaluate-and-then-batch"),
+            ],
+            Some(("present", "commit")),
+        )
+        && phase(
+            4,
+            "handoff-repeat",
+            &[("present", "repeat", "evaluate-and-then-batch")],
+            Some(("present", "repeat")),
+        )
+}
+
 fn load_runtime_registry_from_json(source: &str) -> Option<RuntimeRegistry> {
     let raw_sha256: [u8; 32] = Sha256::digest(source.as_bytes()).into();
     let value = capsec_semantics::strict_json::parse_strict(source).ok()?;
     let document: RegistryDocument = serde_json::from_value(value).ok()?;
-    if document.webgpu_operation_registry_schema != "ibex/webgpu-private-capsec-operations/1"
+    if document.webgpu_operation_registry_schema != "ibex/webgpu-private-capsec-operations/2"
         || document.profile != "ibex/capsec/1"
         || document.webgpu_profile_id != document.provider_identity.profile_id
         || document.webgpu_scope_id.is_empty()
@@ -495,8 +635,13 @@ fn load_runtime_registry_from_json(source: &str) -> Option<RuntimeRegistry> {
         || document.operation_count == 0
         || document.operation_count > 4096
         || document.operation_count != document.operations.len()
-        || document.private_target_cell_count != document.operation_count
+        || document.private_target_cell_count != document.operation_count + 2
         || document.private_target_cell_count != document.private_target_cells.len()
+        || document.presentation_authority.schema != "ibex/webgpu-presentation-authority/1"
+        || document.presentation_authority.capture_operation_id
+            != "GPUCanvasContext.getCurrentTexture"
+        || document.presentation_authority.branches.len() != 2
+        || !presentation_phase_programs_match(&document.presentation_authority.phase_programs)
         || !is_sorted_unique(&document.provider_identity.sorted_operation_ids)
         || document.provider_identity.sorted_operation_ids.contains(&0)
         || document.bridge_edges.is_empty()
@@ -555,7 +700,11 @@ fn load_runtime_registry_from_json(source: &str) -> Option<RuntimeRegistry> {
     let mut all_wire_ids = Vec::new();
     let mut ordered_names = Vec::new();
     let mut positive_operation_names = Vec::new();
+    let mut capture_operation_wire_id = None;
     for operation in document.operations {
+        if operation.operation_id == document.presentation_authority.capture_operation_id {
+            capture_operation_wire_id = Some(operation.wire_id);
+        }
         ordered_names.push(operation.operation_id.clone());
         all_wire_ids.push(operation.wire_id);
         if operation.wire_id == 0
@@ -680,9 +829,71 @@ fn load_runtime_registry_from_json(source: &str) -> Option<RuntimeRegistry> {
             return None;
         }
     }
+    let capture_operation_id = capture_operation_wire_id?;
+    let mut presentation_branches = BTreeMap::new();
+    let mut ordered_presentation_branch_ids = Vec::new();
+    for branch in document.presentation_authority.branches {
+        ordered_presentation_branch_ids.push(branch.id.clone());
+        if !matches!(branch.id.as_str(), "acquire" | "present")
+            || branch.operation_id != format!("navigator.gpu.canvas.{}", branch.id)
+            || branch.action != "gpu:operation"
+            || branch.stages != ["requested", "commit", "repeat"]
+            || branch.target_cell_disposition != "complete"
+            || !operation_edges.insert(branch.edge_id.clone())
+            || !crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
+                .contains(&branch.edge_id.as_str())
+        {
+            return None;
+        }
+        let cell = cells.get(&branch.edge_id)?;
+        let expected_session = RegistryAuthoritySession {
+            decision_kind: "typed-positive".to_owned(),
+            action: Some("gpu:operation".to_owned()),
+            stages: vec![
+                "requested".to_owned(),
+                "commit".to_owned(),
+                "repeat".to_owned(),
+            ],
+            target_cell_disposition: "complete".to_owned(),
+        };
+        if cell.id != branch.private_target_cell_id
+            || cell.authority_session.as_ref() != Some(&expected_session)
+            || cell.capsec_disposition != "complete"
+            || cell.positive_authority != "typed-gpu-presentation-operation-no-public-grant-issuer"
+            || cell.target.kind != "construction-private-runtime-route"
+            || cell.target.id != "exact-construction-private-webgpu-v1"
+            || cell.support_disposition != "supported-construction-private-only"
+            || cell.public_install_disposition != "absent"
+            || cell.platform_support_claim != "none"
+            || cell.implementation_branch_ids.len() != 1
+            || cell.provider_bridge_edge_id.as_ref() != Some(&submit_bridge_edge)
+        {
+            return None;
+        }
+        positive_operation_names.push(branch.operation_id.clone());
+        let runtime_operation = RuntimeOperation {
+            operation_name: branch.operation_id,
+            wire_id: capture_operation_id,
+            edge_id: branch.edge_id,
+            private_target_cell_id: branch.private_target_cell_id,
+            authority_kind: OperationAuthorityKind::TypedPositive,
+            receiver_kind: object_kind("GPUCanvasContext")?,
+            target_kind: object_kind("GPUTexture")?,
+            promise_required: false,
+        };
+        if presentation_branches
+            .insert(branch.id, runtime_operation)
+            .is_some()
+        {
+            return None;
+        }
+    }
+    positive_operation_names.sort();
     if operation_edges.len() != cells.len()
         || !operation_edges.iter().eq(cells.keys())
         || !is_sorted_unique(&ordered_names)
+        || ordered_presentation_branch_ids != ["acquire", "present"]
+        || !is_sorted_unique(&positive_operation_names)
         || {
             all_wire_ids.sort_unstable();
             all_wire_ids != provider.sorted_operation_ids
@@ -704,6 +915,10 @@ fn load_runtime_registry_from_json(source: &str) -> Option<RuntimeRegistry> {
     Some(RuntimeRegistry {
         provider,
         operations,
+        presentation_authority: RuntimePresentationAuthority {
+            capture_operation_id,
+            branches: presentation_branches,
+        },
         operation_count,
         positive_operation_names,
         private_target_cells,
@@ -760,7 +975,8 @@ pub(crate) fn experimental_webgpu_pre1a_arming(
     if registry.operation_count != EXPERIMENTAL_WEBGPU_PRE1A_OPERATION_COUNT
         || registry.positive_operation_names.len()
             != EXPERIMENTAL_WEBGPU_PRE1A_POSITIVE_SELECTOR_COUNT
-        || registry.private_target_cells.len() != EXPERIMENTAL_WEBGPU_PRE1A_OPERATION_COUNT
+        || registry.private_target_cells.len()
+            != EXPERIMENTAL_WEBGPU_PRE1A_PRIVATE_TARGET_CELL_COUNT
         || parse_hex_digest(EXPERIMENTAL_WEBGPU_PRE1A_REGISTRY_RAW_SHA256)? != registry.raw_sha256
     {
         return None;
@@ -847,7 +1063,7 @@ fn carrier_matches_operation(
         && facts.target.kind == operation.target_kind
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GpuAuthorityAttribution {
     pub context_kind: u32,
     pub actor: Principal,
@@ -866,9 +1082,24 @@ enum SessionStage {
     Requested,
     Commit,
     Repeat,
+    EvaluatingAndThen,
     Denied,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PresentationAuthorityBranch {
+    Acquire,
+    Present,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PresentationAuthorityMembership {
+    context_token: u64,
+    branch: PresentationAuthorityBranch,
+    peer_session_id: u64,
+}
+
+#[derive(Clone)]
 struct GpuAuthoritySession {
     context_id: u64,
     host: Arc<Host>,
@@ -876,7 +1107,14 @@ struct GpuAuthoritySession {
     facts: GpuAuthorityCarrierFacts,
     attribution: GpuAuthorityAttribution,
     presented_handles: Option<Vec<ExactGpuAuthorityPresentedHandleV2>>,
+    presentation: Option<PresentationAuthorityMembership>,
     stage: SessionStage,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CapturedPresentationAuthorityV2 {
+    pub acquire_session_id: u64,
+    pub present_session_id: u64,
 }
 
 #[derive(Default)]
@@ -885,21 +1123,59 @@ struct GpuAuthoritySessionStore {
 }
 
 impl GpuAuthoritySessionStore {
-    fn insert(&mut self, session: GpuAuthoritySession) -> Option<u64> {
-        if self.sessions.len() >= MAX_GPU_AUTHORITY_SESSIONS {
-            return None;
-        }
+    fn fresh_id(&self, excluded: &[u64]) -> Option<u64> {
         for _ in 0..32 {
             let mut bytes = [0u8; 8];
             getrandom::getrandom(&mut bytes).ok()?;
             let id = u64::from_ne_bytes(bytes);
-            if id == 0 || id == u64::MAX || self.sessions.contains_key(&id) {
+            if id == 0
+                || id == u64::MAX
+                || excluded.contains(&id)
+                || self.sessions.contains_key(&id)
+            {
                 continue;
             }
-            self.sessions.insert(id, session);
             return Some(id);
         }
         None
+    }
+
+    fn insert(&mut self, session: GpuAuthoritySession) -> Option<u64> {
+        if self.sessions.len() >= MAX_GPU_AUTHORITY_SESSIONS {
+            return None;
+        }
+        let id = self.fresh_id(&[])?;
+        self.sessions.insert(id, session);
+        Some(id)
+    }
+
+    fn insert_presentation_pair(
+        &mut self,
+        mut acquire: GpuAuthoritySession,
+        mut present: GpuAuthoritySession,
+    ) -> Option<CapturedPresentationAuthorityV2> {
+        if self.sessions.len() > MAX_GPU_AUTHORITY_SESSIONS.saturating_sub(2) {
+            return None;
+        }
+        let acquire_session_id = self.fresh_id(&[])?;
+        let present_session_id = self.fresh_id(&[acquire_session_id])?;
+        let context_token = self.fresh_id(&[acquire_session_id, present_session_id])?;
+        acquire.presentation = Some(PresentationAuthorityMembership {
+            context_token,
+            branch: PresentationAuthorityBranch::Acquire,
+            peer_session_id: present_session_id,
+        });
+        present.presentation = Some(PresentationAuthorityMembership {
+            context_token,
+            branch: PresentationAuthorityBranch::Present,
+            peer_session_id: acquire_session_id,
+        });
+        self.sessions.insert(acquire_session_id, acquire);
+        self.sessions.insert(present_session_id, present);
+        Some(CapturedPresentationAuthorityV2 {
+            acquire_session_id,
+            present_session_id,
+        })
     }
 }
 
@@ -908,24 +1184,46 @@ fn session_store() -> &'static Mutex<GpuAuthoritySessionStore> {
     STORE.get_or_init(|| Mutex::new(GpuAuthoritySessionStore::default()))
 }
 
-pub(crate) fn capture_session(
+#[cfg(test)]
+fn presentation_recheck_reservation_hook() -> &'static Mutex<Option<Arc<std::sync::Barrier>>> {
+    static HOOK: OnceLock<Mutex<Option<Arc<std::sync::Barrier>>>> = OnceLock::new();
+    HOOK.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(test)]
+fn pause_after_presentation_recheck_reservation() {
+    let barrier = presentation_recheck_reservation_hook()
+        .lock()
+        .ok()
+        .and_then(|hook| hook.clone());
+    if let Some(barrier) = barrier {
+        barrier.wait();
+        barrier.wait();
+    }
+}
+
+#[cfg(not(test))]
+fn pause_after_presentation_recheck_reservation() {}
+
+fn capture_prerequisites_hold(
     context_id: u64,
-    host: Arc<Host>,
-    attribution: GpuAuthorityAttribution,
-    facts: GpuAuthorityCarrierFacts,
-) -> Option<u64> {
+    host: &Host,
+    attribution: &GpuAuthorityAttribution,
+    facts: &GpuAuthorityCarrierFacts,
+    operation: &RuntimeOperation,
+) -> bool {
     if context_id == 0 || !matches!(attribution.context_kind, 1 | 2) {
-        return None;
+        return false;
     }
-    let snapshot = host.armed_snapshot()?;
-    let binding = snapshot.exact_gpu_provider_binding().ok()??;
-    if !provider_binding_matches_source_registry(&binding) {
-        return None;
-    }
-    let registry = runtime_registry()?;
-    let operation = registry.operations.get(&facts.operation_id)?.clone();
-    if host.private_gpu_target_cell(&operation.edge_id) != TargetCellDisposition::Complete
-        || !carrier_matches_operation(&facts, &operation)
+    let Some(snapshot) = host.armed_snapshot() else {
+        return false;
+    };
+    let Ok(Some(binding)) = snapshot.exact_gpu_provider_binding() else {
+        return false;
+    };
+    if !provider_binding_matches_source_registry(&binding)
+        || host.private_gpu_target_cell(&operation.edge_id) != TargetCellDisposition::Complete
+        || !carrier_matches_operation(facts, operation)
         || facts.realm.runtime.runtime_nonce == 0
         || attribution.constrained_principals.is_empty()
         || !attribution
@@ -938,30 +1236,247 @@ pub(crate) fn capture_session(
             .scheduler
             .as_ref()
             .is_some_and(|scheduler| !attribution.constrained_principals.contains(scheduler))
-        || canonicalize_principal_set(attribution.constrained_principals.clone()).ok()?
-            != attribution.constrained_principals
+        || canonicalize_principal_set(attribution.constrained_principals.clone()).ok()
+            != Some(attribution.constrained_principals.clone())
         || snapshot.generations().policy.get() != attribution.policy_generation
     {
-        return None;
+        return false;
     }
-    let generations = host.typed_generations()?;
-    if generations.negative.get() != attribution.negative_generation
-        || generations.dynamic.get() != attribution.dynamic_generation
-        || generations.handle.get() != attribution.handle_generation
-    {
+    host.typed_generations().is_some_and(|generations| {
+        generations.negative.get() == attribution.negative_generation
+            && generations.dynamic.get() == attribution.dynamic_generation
+            && generations.handle.get() == attribution.handle_generation
+    })
+}
+
+pub(crate) fn capture_session(
+    context_id: u64,
+    host: Arc<Host>,
+    attribution: GpuAuthorityAttribution,
+    facts: GpuAuthorityCarrierFacts,
+) -> Option<u64> {
+    let registry = runtime_registry()?;
+    let operation = registry.operations.get(&facts.operation_id)?.clone();
+    if !capture_prerequisites_hold(context_id, &host, &attribution, &facts, &operation) {
         return None;
     }
     let session = GpuAuthoritySession {
         context_id,
         host,
         operation,
-        facts,
+        facts: facts.clone(),
         attribution,
         presented_handles: None,
+        presentation: None,
         stage: SessionStage::Captured,
     };
     let mut store = session_store().lock().ok()?;
     store.insert(session)
+}
+
+pub(crate) fn capture_presentation_authority(
+    context_id: u64,
+    host: Arc<Host>,
+    attribution: GpuAuthorityAttribution,
+    facts: GpuAuthorityCarrierFacts,
+) -> Option<CapturedPresentationAuthorityV2> {
+    let registry = runtime_registry()?;
+    if facts.operation_id != registry.presentation_authority.capture_operation_id {
+        return None;
+    }
+    let acquire_operation = registry
+        .presentation_authority
+        .branches
+        .get("acquire")?
+        .clone();
+    let present_operation = registry
+        .presentation_authority
+        .branches
+        .get("present")?
+        .clone();
+    if !capture_prerequisites_hold(context_id, &host, &attribution, &facts, &acquire_operation)
+        || !capture_prerequisites_hold(context_id, &host, &attribution, &facts, &present_operation)
+    {
+        return None;
+    }
+    let presented_handles = canonical_presentation_presented_handles(&facts)?;
+    let mut acquire = GpuAuthoritySession {
+        context_id,
+        host: Arc::clone(&host),
+        operation: acquire_operation,
+        facts: facts.clone(),
+        attribution: attribution.clone(),
+        presented_handles: Some(presented_handles.clone()),
+        presentation: None,
+        stage: SessionStage::Captured,
+    };
+    if evaluate_session(&mut acquire, Stage::Requested, presented_handles.clone())
+        != GPU_AUTHORITY_ALLOWED
+    {
+        return None;
+    }
+    let present = GpuAuthoritySession {
+        context_id,
+        host,
+        operation: present_operation,
+        facts,
+        attribution,
+        presented_handles: Some(presented_handles),
+        presentation: None,
+        stage: SessionStage::Captured,
+    };
+    session_store()
+        .lock()
+        .ok()?
+        .insert_presentation_pair(acquire, present)
+}
+
+fn same_presentation_target(
+    retained: &GpuAuthoritySession,
+    current: &GpuAuthorityCarrierFacts,
+    authority_context_digest: &[u8; 32],
+) -> bool {
+    // A later same-epoch caller owns a fresh operation identity, ingress
+    // ordinal, scope, and caller-context digest. Those transient facts are
+    // evaluated independently and never rewrite the retained original pair.
+    // This comparison binds only the immutable presentation target plus the
+    // retained pair's original digest.
+    retained.facts.operation_id == current.operation_id
+        && retained.facts.topology_id == current.topology_id
+        && retained.facts.realm == current.realm
+        && retained.facts.account == current.account
+        && retained.facts.ingress_device == current.ingress_device
+        && retained.facts.provider_generation == current.provider_generation
+        && retained.facts.adapter_ordinal == current.adapter_ordinal
+        && retained.facts.queue_ingress_ordinal == current.queue_ingress_ordinal
+        && retained.facts.authority_context_digest == *authority_context_digest
+        && retained.facts.receiver == current.receiver
+        && retained.facts.target == current.target
+}
+
+pub(crate) fn recheck_presentation_acquire_entry(
+    context_id: u64,
+    host: Arc<Host>,
+    attribution: GpuAuthorityAttribution,
+    facts: GpuAuthorityCarrierFacts,
+    retained: CapturedPresentationAuthorityV2,
+    retained_authority_context_digest: [u8; 32],
+) -> i32 {
+    let Some(registry) = runtime_registry() else {
+        return GPU_AUTHORITY_INVALID;
+    };
+    let Some(acquire_operation) = registry
+        .presentation_authority
+        .branches
+        .get("acquire")
+        .cloned()
+    else {
+        return GPU_AUTHORITY_INVALID;
+    };
+    if facts.operation_id != registry.presentation_authority.capture_operation_id
+        || !capture_prerequisites_hold(context_id, &host, &attribution, &facts, &acquire_operation)
+    {
+        return GPU_AUTHORITY_INVALID;
+    }
+    let Some(presented_handles) = canonical_presentation_presented_handles(&facts) else {
+        return GPU_AUTHORITY_INVALID;
+    };
+    let reserved_stages = {
+        let Ok(mut store) = session_store().lock() else {
+            return GPU_AUTHORITY_INVALID;
+        };
+        let Some((acquire_stage, present_stage)) = (|| {
+            let acquire = store.sessions.get(&retained.acquire_session_id)?;
+            let present = store.sessions.get(&retained.present_session_id)?;
+            let acquire_membership = acquire.presentation?;
+            let present_membership = present.presentation?;
+            (acquire.context_id == context_id
+                && present.context_id == context_id
+                && Arc::ptr_eq(&acquire.host, &host)
+                && Arc::ptr_eq(&present.host, &host)
+                && acquire_membership.branch == PresentationAuthorityBranch::Acquire
+                && present_membership.branch == PresentationAuthorityBranch::Present
+                && presentation_pair_is_exact(
+                    retained.acquire_session_id,
+                    acquire,
+                    retained.present_session_id,
+                    present,
+                )
+                && !matches!(
+                    acquire.stage,
+                    SessionStage::Denied | SessionStage::EvaluatingAndThen
+                )
+                && !matches!(
+                    present.stage,
+                    SessionStage::Denied | SessionStage::EvaluatingAndThen
+                )
+                && same_presentation_target(acquire, &facts, &retained_authority_context_digest)
+                && acquire.presented_handles.as_ref() == Some(&presented_handles))
+            .then_some((acquire.stage, present.stage))
+        })() else {
+            return GPU_AUTHORITY_INVALID;
+        };
+        store
+            .sessions
+            .get_mut(&retained.acquire_session_id)
+            .expect("validated acquire branch remains retained")
+            .stage = SessionStage::EvaluatingAndThen;
+        store
+            .sessions
+            .get_mut(&retained.present_session_id)
+            .expect("validated present branch remains retained")
+            .stage = SessionStage::EvaluatingAndThen;
+        (acquire_stage, present_stage)
+    };
+    let mut transient = GpuAuthoritySession {
+        context_id,
+        host,
+        operation: acquire_operation,
+        facts: facts.clone(),
+        attribution,
+        presented_handles: Some(presented_handles.clone()),
+        presentation: None,
+        stage: SessionStage::Captured,
+    };
+    pause_after_presentation_recheck_reservation();
+    let status = evaluate_session(&mut transient, Stage::Requested, presented_handles);
+    let reconciled = session_store().lock().is_ok_and(|mut store| {
+        let exact_reserved_pair = {
+            let Some(acquire) = store.sessions.get(&retained.acquire_session_id) else {
+                return false;
+            };
+            let Some(present) = store.sessions.get(&retained.present_session_id) else {
+                return false;
+            };
+            presentation_pair_is_exact(
+                retained.acquire_session_id,
+                acquire,
+                retained.present_session_id,
+                present,
+            ) && acquire.stage == SessionStage::EvaluatingAndThen
+                && present.stage == SessionStage::EvaluatingAndThen
+                && same_presentation_target(acquire, &facts, &retained_authority_context_digest)
+        };
+        if !exact_reserved_pair {
+            return false;
+        }
+        store
+            .sessions
+            .get_mut(&retained.acquire_session_id)
+            .expect("reconciled acquire branch remains retained")
+            .stage = reserved_stages.0;
+        store
+            .sessions
+            .get_mut(&retained.present_session_id)
+            .expect("reconciled present branch remains retained")
+            .stage = reserved_stages.1;
+        true
+    });
+    if reconciled {
+        status
+    } else {
+        GPU_AUTHORITY_INVALID
+    }
 }
 
 pub(crate) fn purge_context(context_id: u64) {
@@ -979,7 +1494,10 @@ pub(crate) fn requested_or_later(context_id: u64, session_id: u64) -> bool {
             session.context_id == context_id
                 && matches!(
                     session.stage,
-                    SessionStage::Requested | SessionStage::Commit | SessionStage::Repeat
+                    SessionStage::Requested
+                        | SessionStage::Commit
+                        | SessionStage::Repeat
+                        | SessionStage::EvaluatingAndThen
                 )
         })
     })
@@ -989,15 +1507,65 @@ pub(crate) fn force_retire(context_id: u64, session_id: u64) -> bool {
     let Ok(mut store) = session_store().lock() else {
         return false;
     };
-    if !store
-        .sessions
-        .get(&session_id)
-        .is_some_and(|session| session.context_id == context_id)
-    {
+    let Some(session) = store.sessions.get(&session_id) else {
+        return false;
+    };
+    if session.context_id != context_id {
         return false;
     }
+    let Some(peer_session_id) = retire_peer_if_available(&store, session_id) else {
+        return false;
+    };
     store.sessions.remove(&session_id);
+    if let Some(peer_session_id) = peer_session_id {
+        store.sessions.remove(&peer_session_id);
+    }
     true
+}
+
+pub(crate) fn retire_presentation_authority(
+    context_id: u64,
+    retained: CapturedPresentationAuthorityV2,
+    authority_context_digest: [u8; 32],
+) -> i32 {
+    let Ok(mut store) = session_store().lock() else {
+        return GPU_AUTHORITY_INVALID;
+    };
+    let (acquire, present) = match (
+        store.sessions.get(&retained.acquire_session_id),
+        store.sessions.get(&retained.present_session_id),
+    ) {
+        (None, None) => return GPU_AUTHORITY_STALE,
+        (Some(acquire), Some(present)) => (acquire, present),
+        _ => return GPU_AUTHORITY_INVALID,
+    };
+    if acquire.context_id != context_id
+        || present.context_id != context_id
+        || acquire.facts.authority_context_digest != authority_context_digest
+        || present.facts.authority_context_digest != authority_context_digest
+        || !presentation_pair_is_exact(
+            retained.acquire_session_id,
+            acquire,
+            retained.present_session_id,
+            present,
+        )
+        || acquire
+            .presentation
+            .is_none_or(|membership| membership.branch != PresentationAuthorityBranch::Acquire)
+        || present
+            .presentation
+            .is_none_or(|membership| membership.branch != PresentationAuthorityBranch::Present)
+    {
+        return GPU_AUTHORITY_INVALID;
+    }
+    if acquire.stage == SessionStage::EvaluatingAndThen
+        || present.stage == SessionStage::EvaluatingAndThen
+    {
+        return GPU_AUTHORITY_DENIED;
+    }
+    store.sessions.remove(&retained.acquire_session_id);
+    store.sessions.remove(&retained.present_session_id);
+    GPU_AUTHORITY_ALLOWED
 }
 
 fn authority_generations_are_current(session: &GpuAuthoritySession) -> bool {
@@ -1013,6 +1581,19 @@ fn authority_generations_are_current(session: &GpuAuthoritySession) -> bool {
         && generations.handle.get() == session.attribution.handle_generation
 }
 
+fn captured_generation_set(
+    session: &GpuAuthoritySession,
+) -> Option<capsec_semantics::cache::GenerationSet> {
+    Some(capsec_semantics::cache::GenerationSet {
+        negative: capsec_semantics::model::Generation::new(session.attribution.negative_generation)
+            .ok()?,
+        dynamic: capsec_semantics::model::Generation::new(session.attribution.dynamic_generation)
+            .ok()?,
+        handle: capsec_semantics::model::Generation::new(session.attribution.handle_generation)
+            .ok()?,
+    })
+}
+
 fn presented_handle_key(handle: &ExactGpuAuthorityPresentedHandleV2) -> Vec<u8> {
     let mut key = Vec::with_capacity(96);
     key.extend_from_slice(&handle.account.account_id.to_le_bytes());
@@ -1026,6 +1607,38 @@ fn presented_handle_key(handle: &ExactGpuAuthorityPresentedHandleV2) -> Vec<u8> 
     key.extend_from_slice(&handle.object.object_id.to_le_bytes());
     key.extend_from_slice(&handle.object.object_generation.to_le_bytes());
     key
+}
+
+fn canonical_presentation_presented_handles(
+    facts: &GpuAuthorityCarrierFacts,
+) -> Option<Vec<ExactGpuAuthorityPresentedHandleV2>> {
+    if object_is_absent(&facts.receiver)
+        || object_is_absent(&facts.target)
+        || device_is_absent(&facts.ingress_device)
+    {
+        return None;
+    }
+    let mut handles = vec![
+        ExactGpuAuthorityPresentedHandleV2 {
+            struct_size: std::mem::size_of::<ExactGpuAuthorityPresentedHandleV2>() as u32,
+            abi_version: GPU_SERVICE_ABI_V2,
+            account: facts.account,
+            device: facts.ingress_device,
+            object: facts.receiver,
+        },
+        ExactGpuAuthorityPresentedHandleV2 {
+            struct_size: std::mem::size_of::<ExactGpuAuthorityPresentedHandleV2>() as u32,
+            abi_version: GPU_SERVICE_ABI_V2,
+            account: facts.account,
+            device: facts.ingress_device,
+            object: facts.target,
+        },
+    ];
+    handles.sort_by_key(presented_handle_key);
+    if handles[0] == handles[1] {
+        return None;
+    }
+    Some(handles)
 }
 
 fn validate_presented_handles(
@@ -1250,6 +1863,18 @@ fn occurrence_for_session(
     })
 }
 
+fn classify_single_typed_evaluation(
+    receipt_count: usize,
+    sole_receipt_allows: bool,
+    continuation_present: bool,
+) -> i32 {
+    match (receipt_count, sole_receipt_allows, continuation_present) {
+        (1, true, true) => GPU_AUTHORITY_ALLOWED,
+        (1, false, false) => GPU_AUTHORITY_DENIED,
+        _ => GPU_AUTHORITY_INVALID,
+    }
+}
+
 fn evaluate_session(
     session: &mut GpuAuthoritySession,
     stage: Stage,
@@ -1258,9 +1883,18 @@ fn evaluate_session(
     if session.stage == SessionStage::Denied {
         return GPU_AUTHORITY_DENIED;
     }
-    if !authority_generations_are_current(session) {
+    if session.stage == SessionStage::EvaluatingAndThen {
+        return GPU_AUTHORITY_INVALID;
+    }
+    if session.operation.authority_kind != OperationAuthorityKind::TypedPositive
+        && !authority_generations_are_current(session)
+    {
         session.stage = SessionStage::Denied;
-        return GPU_AUTHORITY_STALE;
+        return if session.presentation.is_some() {
+            GPU_AUTHORITY_DENIED
+        } else {
+            GPU_AUTHORITY_STALE
+        };
     }
     if !stage_transition_is_valid(session.stage, stage)
         || !validate_presented_handles(session, &handles)
@@ -1285,90 +1919,61 @@ fn evaluate_session(
         OperationAuthorityKind::StructuralAuthorityReducing
         | OperationAuthorityKind::StructuralControlPlane => true,
         OperationAuthorityKind::TypedPositive => {
-            let Some(requested) = occurrence.resource.requested_selector_resource() else {
+            let Some((set, gate)) = typed_decision_for_session(session, stage, &handles) else {
                 session.stage = SessionStage::Denied;
                 return GPU_AUTHORITY_INVALID;
             };
-            let set = DecisionSet {
-                decision_set_schema: DecisionSetSchema::V1,
-                operation_id: match NonEmptyString::new(format!(
-                    "gpu-authority-session:{}:{}",
-                    session.facts.operation_instance_id, session.operation.operation_name
-                )) {
-                    Ok(value) => value,
-                    Err(_) => return GPU_AUTHORITY_INVALID,
-                },
-                atomicity_group: match StableId::new(format!(
-                    "{}.authority-session",
-                    session.operation.private_target_cell_id
-                )) {
-                    Ok(value) => value,
-                    Err(_) => return GPU_AUTHORITY_INVALID,
-                },
-                combination: EffectCombination::Conjunction,
-                context: DecisionContext {
-                    stage,
-                    actor: session.attribution.actor.clone(),
-                    constrained_principals: session.attribution.constrained_principals.clone(),
-                    presented_handle_ids: Vec::new(),
-                },
-                effects: vec![Effect {
-                    action: ActionId::new("gpu:operation").expect("checked GPU action ID is valid"),
-                    effect_owner: session.attribution.effect_owner.clone(),
-                    resource: OccurrenceResource::GpuOperationOccurrence {
-                        requested: Box::new(requested),
-                        realm_identity: realm_digest(&session.facts.realm),
-                        account_identity: account_digest(
-                            &session.facts.realm,
-                            &session.facts.account,
-                        ),
-                        device_identity: device_digest(
-                            &session.facts.realm,
-                            &session.facts.account,
-                            &session.facts.ingress_device,
-                        ),
-                        receiver_identity: object_digest(
-                            b"receiver",
-                            &session.facts.realm,
-                            &session.facts.account,
-                            &session.facts.ingress_device,
-                            &session.facts.receiver,
-                        )
-                        .expect("validated receiver is present"),
-                        target_identity: object_digest(
-                            b"target",
-                            &session.facts.realm,
-                            &session.facts.account,
-                            &session.facts.ingress_device,
-                            &session.facts.target,
-                        ),
-                        presented_handle_identities: match presented_handle_digests(
-                            &session.facts.realm,
-                            &handles,
-                        ) {
-                            Some(identities) => identities,
-                            None => return GPU_AUTHORITY_INVALID,
-                        },
-                    },
-                }],
+            let Some(expected_generations) = captured_generation_set(session) else {
+                session.stage = SessionStage::Denied;
+                return GPU_AUTHORITY_INVALID;
             };
-            let gate = EffectGate {
-                coverage_edge_id: match StableId::new(session.operation.edge_id.clone()) {
-                    Ok(value) => value,
-                    Err(_) => return GPU_AUTHORITY_INVALID,
-                },
-                target_cell: session
-                    .host
-                    .private_gpu_target_cell(&session.operation.edge_id),
-                definition_and_edge_predicates_satisfied: true,
-            };
-            matches!(
-                session.host.evaluate_typed_decision(&set, &[gate]),
-                Ok(decision) if matches!(
-                    decision.outcome,
-                    DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
-                )
-            )
+            let request = [(&set, std::slice::from_ref(&gate))];
+            match session.host.evaluate_typed_decision_batch_and_then(
+                &request,
+                session.attribution.policy_generation,
+                expected_generations,
+                || (),
+            ) {
+                Ok(
+                    super::TypedDecisionBatchAndThenResult::StalePolicyGeneration
+                    | super::TypedDecisionBatchAndThenResult::StaleAuthorityGenerations,
+                ) => {
+                    session.stage = SessionStage::Denied;
+                    return if session.presentation.is_some() {
+                        GPU_AUTHORITY_DENIED
+                    } else {
+                        GPU_AUTHORITY_STALE
+                    };
+                }
+                Ok(super::TypedDecisionBatchAndThenResult::Evaluated {
+                    decisions,
+                    continuation_result,
+                }) => {
+                    let status = classify_single_typed_evaluation(
+                        decisions.len(),
+                        decisions.first().is_some_and(|decision| {
+                            matches!(
+                                decision.outcome,
+                                DecisionOutcome::Allow
+                                    | DecisionOutcome::AllowWithWouldDenyEvidence
+                            )
+                        }),
+                        continuation_result.is_some(),
+                    );
+                    if status == GPU_AUTHORITY_ALLOWED {
+                        true
+                    } else if status == GPU_AUTHORITY_DENIED {
+                        false
+                    } else {
+                        session.stage = SessionStage::Denied;
+                        return GPU_AUTHORITY_INVALID;
+                    }
+                }
+                Err(_) => {
+                    session.stage = SessionStage::Denied;
+                    return GPU_AUTHORITY_INVALID;
+                }
+            }
         }
     };
     if !allowed {
@@ -1385,6 +1990,194 @@ fn evaluate_session(
         _ => unreachable!("stage_from_abi admits only GPU stages"),
     };
     GPU_AUTHORITY_ALLOWED
+}
+
+fn typed_decision_for_session(
+    session: &GpuAuthoritySession,
+    stage: Stage,
+    handles: &[ExactGpuAuthorityPresentedHandleV2],
+) -> Option<(DecisionSet, EffectGate)> {
+    let occurrence = occurrence_for_session(session, stage, handles)?;
+    capsec_semantics::containment::validate_occurrence_stage_facts(&occurrence).ok()?;
+    let requested = occurrence.resource.requested_selector_resource()?;
+    let set = DecisionSet {
+        decision_set_schema: DecisionSetSchema::V1,
+        operation_id: NonEmptyString::new(format!(
+            "gpu-authority-session:{}:{}",
+            session.facts.operation_instance_id, session.operation.operation_name
+        ))
+        .ok()?,
+        atomicity_group: StableId::new(format!(
+            "{}.authority-session",
+            session.operation.private_target_cell_id
+        ))
+        .ok()?,
+        combination: EffectCombination::Conjunction,
+        context: DecisionContext {
+            stage,
+            actor: session.attribution.actor.clone(),
+            constrained_principals: session.attribution.constrained_principals.clone(),
+            presented_handle_ids: Vec::new(),
+        },
+        effects: vec![Effect {
+            action: ActionId::new("gpu:operation").ok()?,
+            effect_owner: session.attribution.effect_owner.clone(),
+            resource: OccurrenceResource::GpuOperationOccurrence {
+                requested: Box::new(requested),
+                realm_identity: realm_digest(&session.facts.realm),
+                account_identity: account_digest(&session.facts.realm, &session.facts.account),
+                device_identity: device_digest(
+                    &session.facts.realm,
+                    &session.facts.account,
+                    &session.facts.ingress_device,
+                ),
+                receiver_identity: object_digest(
+                    b"receiver",
+                    &session.facts.realm,
+                    &session.facts.account,
+                    &session.facts.ingress_device,
+                    &session.facts.receiver,
+                )?,
+                target_identity: object_digest(
+                    b"target",
+                    &session.facts.realm,
+                    &session.facts.account,
+                    &session.facts.ingress_device,
+                    &session.facts.target,
+                ),
+                presented_handle_identities: presented_handle_digests(
+                    &session.facts.realm,
+                    handles,
+                )?,
+            },
+        }],
+    };
+    let gate = EffectGate {
+        coverage_edge_id: StableId::new(session.operation.edge_id.clone()).ok()?,
+        target_cell: session
+            .host
+            .private_gpu_target_cell(&session.operation.edge_id),
+        definition_and_edge_predicates_satisfied: true,
+    };
+    Some((set, gate))
+}
+
+fn presentation_pair_is_exact(
+    first_id: u64,
+    first: &GpuAuthoritySession,
+    second_id: u64,
+    second: &GpuAuthoritySession,
+) -> bool {
+    let (Some(first_membership), Some(second_membership)) =
+        (first.presentation, second.presentation)
+    else {
+        return false;
+    };
+    first_membership.context_token == second_membership.context_token
+        && first_membership.peer_session_id == second_id
+        && second_membership.peer_session_id == first_id
+        && first_membership.branch != second_membership.branch
+        && first.context_id == second.context_id
+        && Arc::ptr_eq(&first.host, &second.host)
+        && first.facts == second.facts
+        && first.attribution == second.attribution
+        && first.presented_handles == second.presented_handles
+}
+
+fn session_matches_reserved_snapshot(
+    current: &GpuAuthoritySession,
+    reserved: &GpuAuthoritySession,
+) -> bool {
+    current.stage == SessionStage::EvaluatingAndThen
+        && current.context_id == reserved.context_id
+        && Arc::ptr_eq(&current.host, &reserved.host)
+        && current.operation == reserved.operation
+        && current.facts == reserved.facts
+        && current.attribution == reserved.attribution
+        && current.presented_handles == reserved.presented_handles
+        && current.presentation == reserved.presentation
+}
+
+fn retire_peer_if_available(
+    store: &GpuAuthoritySessionStore,
+    session_id: u64,
+) -> Option<Option<u64>> {
+    match classify_retire_target(store, session_id) {
+        RetireTargetDisposition::Ready(peer_session_id) => Some(peer_session_id),
+        RetireTargetDisposition::Busy | RetireTargetDisposition::Invalid => None,
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RetireTargetDisposition {
+    Ready(Option<u64>),
+    Busy,
+    Invalid,
+}
+
+fn classify_retire_target(
+    store: &GpuAuthoritySessionStore,
+    session_id: u64,
+) -> RetireTargetDisposition {
+    let Some(session) = store.sessions.get(&session_id) else {
+        return RetireTargetDisposition::Invalid;
+    };
+    if session.stage == SessionStage::EvaluatingAndThen {
+        return RetireTargetDisposition::Busy;
+    }
+    let Some(membership) = session.presentation else {
+        return RetireTargetDisposition::Ready(None);
+    };
+    let Some(peer) = store.sessions.get(&membership.peer_session_id) else {
+        return RetireTargetDisposition::Invalid;
+    };
+    if peer.stage == SessionStage::EvaluatingAndThen {
+        return RetireTargetDisposition::Busy;
+    }
+    if !presentation_pair_is_exact(session_id, session, membership.peer_session_id, peer) {
+        return RetireTargetDisposition::Invalid;
+    }
+    RetireTargetDisposition::Ready(Some(membership.peer_session_id))
+}
+
+fn singular_presentation_transition_is_allowed(
+    store: &GpuAuthoritySessionStore,
+    session_id: u64,
+    stage: Stage,
+) -> bool {
+    let Some(session) = store.sessions.get(&session_id) else {
+        return false;
+    };
+    let Some(membership) = session.presentation else {
+        return true;
+    };
+    let Some(peer) = store.sessions.get(&membership.peer_session_id) else {
+        return false;
+    };
+    if !presentation_pair_is_exact(session_id, session, membership.peer_session_id, peer)
+        || matches!(
+            session.stage,
+            SessionStage::Denied | SessionStage::EvaluatingAndThen
+        )
+        || matches!(
+            peer.stage,
+            SessionStage::Denied | SessionStage::EvaluatingAndThen
+        )
+    {
+        return false;
+    }
+    match membership.branch {
+        PresentationAuthorityBranch::Acquire => {
+            stage == Stage::Commit
+                && session.stage == SessionStage::Requested
+                && peer.stage == SessionStage::Captured
+        }
+        PresentationAuthorityBranch::Present => {
+            stage == Stage::Requested
+                && session.stage == SessionStage::Captured
+                && peer.stage == SessionStage::Commit
+        }
+    }
 }
 
 unsafe extern "C" fn evaluate_gpu_authority_session_v2(
@@ -1418,14 +2211,346 @@ unsafe extern "C" fn evaluate_gpu_authority_session_v2(
     let Ok(mut store) = session_store().lock() else {
         return GPU_AUTHORITY_INVALID;
     };
+    if !store
+        .sessions
+        .contains_key(&decision.facts.authority_session_id)
+    {
+        return GPU_AUTHORITY_STALE;
+    }
+    if !singular_presentation_transition_is_allowed(
+        &store,
+        decision.facts.authority_session_id,
+        stage,
+    ) {
+        return GPU_AUTHORITY_INVALID;
+    }
     let Some(session) = store.sessions.get_mut(&decision.facts.authority_session_id) else {
         return GPU_AUTHORITY_STALE;
     };
     if !session.facts.matches_ffi(&decision.facts) {
+        let peer_session_id = session
+            .presentation
+            .map(|membership| membership.peer_session_id);
         session.stage = SessionStage::Denied;
+        if let Some(peer_session_id) = peer_session_id {
+            if let Some(peer) = store.sessions.get_mut(&peer_session_id) {
+                peer.stage = SessionStage::Denied;
+            }
+        }
         return GPU_AUTHORITY_STALE;
     }
-    evaluate_session(session, stage, handles)
+    let peer_session_id = session
+        .presentation
+        .map(|membership| membership.peer_session_id);
+    let status = evaluate_session(session, stage, handles);
+    if status != GPU_AUTHORITY_ALLOWED {
+        if let Some(peer_session_id) = peer_session_id {
+            if let Some(peer) = store.sessions.get_mut(&peer_session_id) {
+                peer.stage = SessionStage::Denied;
+            }
+        }
+    }
+    status
+}
+
+unsafe extern "C" fn evaluate_gpu_authority_batch_and_then_v2(
+    authority_context: *mut c_void,
+    batch: *const ExactGpuAuthorityDecisionBatchV2,
+    continuation_context: *mut c_void,
+    continuation: Option<ExactGpuAuthorityAllowedContinuationV2>,
+) -> i32 {
+    if !authority_context.is_null()
+        || batch.is_null()
+        || continuation_context.is_null()
+        || continuation.is_none()
+    {
+        return GPU_AUTHORITY_INVALID;
+    }
+    let batch = unsafe { &*batch };
+    if batch.struct_size != std::mem::size_of::<ExactGpuAuthorityDecisionBatchV2>() as u32
+        || batch.abi_version != GPU_SERVICE_ABI_V2
+        || batch.flags != 0
+        || !matches!(batch.phase, 1 | 2)
+        || batch.decision_count == 0
+        || batch.decision_count > 2
+        || batch.decisions.is_null()
+    {
+        return GPU_AUTHORITY_INVALID;
+    }
+    let decisions = unsafe { std::slice::from_raw_parts(batch.decisions, batch.decision_count) };
+    let expected_stages = match batch.phase {
+        1 if decisions.len() == 2 => [Some(Stage::Repeat), Some(Stage::Commit)],
+        2 if decisions.len() == 1 => [Some(Stage::Repeat), None],
+        _ => return GPU_AUTHORITY_INVALID,
+    };
+    for (index, decision) in decisions.iter().enumerate() {
+        if decision.struct_size != std::mem::size_of::<ExactGpuAuthorityDecisionRequestV2>() as u32
+            || decision.abi_version != GPU_SERVICE_ABI_V2
+            || decision.flags != 0
+            || decision.facts.authority_session_id == 0
+            || decision.presented_handle_count != 2
+            || decision.presented_handles.is_null()
+            || stage_from_abi(decision.stage) != expected_stages[index]
+        {
+            return GPU_AUTHORITY_INVALID;
+        }
+    }
+    let decision_handles = decisions
+        .iter()
+        .map(|decision| {
+            unsafe {
+                std::slice::from_raw_parts(
+                    decision.presented_handles,
+                    decision.presented_handle_count,
+                )
+            }
+            .to_vec()
+        })
+        .collect::<Vec<_>>();
+    let (evaluations, pair_reservations, expected_policy_generation, expected_generations, host) = {
+        let Ok(mut store) = session_store().lock() else {
+            return GPU_AUTHORITY_INVALID;
+        };
+        let session_ids = decisions
+            .iter()
+            .map(|decision| decision.facts.authority_session_id)
+            .collect::<Vec<_>>();
+        if !is_sorted_unique(&{
+            let mut sorted = session_ids.clone();
+            sorted.sort_unstable();
+            sorted
+        }) {
+            return GPU_AUTHORITY_INVALID;
+        }
+        let Some(first) = store.sessions.get(&session_ids[0]) else {
+            return GPU_AUTHORITY_STALE;
+        };
+        let Some(first_membership) = first.presentation else {
+            return GPU_AUTHORITY_INVALID;
+        };
+        let peer_id = first_membership.peer_session_id;
+        let Some(peer) = store.sessions.get(&peer_id) else {
+            return GPU_AUTHORITY_STALE;
+        };
+        if !presentation_pair_is_exact(session_ids[0], first, peer_id, peer) {
+            return GPU_AUTHORITY_INVALID;
+        }
+        let (acquire_id, acquire, present_id, present) = match first_membership.branch {
+            PresentationAuthorityBranch::Acquire => (session_ids[0], first, peer_id, peer),
+            PresentationAuthorityBranch::Present => (peer_id, peer, session_ids[0], first),
+        };
+        let exact_phase = match batch.phase {
+            1 => {
+                session_ids == [acquire_id, present_id]
+                    && acquire.stage == SessionStage::Commit
+                    && present.stage == SessionStage::Requested
+            }
+            2 => {
+                session_ids == [present_id]
+                    && acquire.stage == SessionStage::Repeat
+                    && present.stage == SessionStage::Commit
+            }
+            _ => false,
+        };
+        if !exact_phase
+            || matches!(
+                acquire.stage,
+                SessionStage::Denied | SessionStage::EvaluatingAndThen
+            )
+            || matches!(
+                present.stage,
+                SessionStage::Denied | SessionStage::EvaluatingAndThen
+            )
+            || decisions.iter().any(|decision| {
+                store
+                    .sessions
+                    .get(&decision.facts.authority_session_id)
+                    .is_none_or(|session| !session.facts.matches_ffi(&decision.facts))
+            })
+        {
+            return GPU_AUTHORITY_INVALID;
+        }
+        let mut evaluations = Vec::with_capacity(decisions.len());
+        for ((decision, stage), handles) in decisions
+            .iter()
+            .zip(expected_stages.into_iter().flatten())
+            .zip(decision_handles.iter())
+        {
+            let session = store
+                .sessions
+                .get(&decision.facts.authority_session_id)
+                .expect("preflight proved the session");
+            if !validate_presented_handles(session, handles)
+                || session.presented_handles.as_ref() != Some(handles)
+            {
+                return GPU_AUTHORITY_INVALID;
+            }
+            evaluations.push((
+                decision.facts.authority_session_id,
+                session.clone(),
+                stage,
+                handles.clone(),
+            ));
+        }
+        let Some(expected_generations) = captured_generation_set(&evaluations[0].1) else {
+            return GPU_AUTHORITY_INVALID;
+        };
+        let expected_policy_generation = evaluations[0].1.attribution.policy_generation;
+        let host = Arc::clone(&evaluations[0].1.host);
+        let pair_reservations = [(acquire_id, acquire.clone()), (present_id, present.clone())];
+        for (session_id, _) in &pair_reservations {
+            store
+                .sessions
+                .get_mut(session_id)
+                .expect("preflight proved the session")
+                .stage = SessionStage::EvaluatingAndThen;
+        }
+        (
+            evaluations,
+            pair_reservations,
+            expected_policy_generation,
+            expected_generations,
+            host,
+        )
+    };
+    let Some(continuation) = continuation else {
+        return GPU_AUTHORITY_INVALID;
+    };
+    let mut decision_inputs = Vec::with_capacity(evaluations.len());
+    for (_, session, stage, handles) in &evaluations {
+        let Some(input) = typed_decision_for_session(session, *stage, handles) else {
+            if let Ok(mut store) = session_store().lock() {
+                for (session_id, _) in &pair_reservations {
+                    if let Some(session) = store.sessions.get_mut(session_id) {
+                        if session.stage == SessionStage::EvaluatingAndThen {
+                            session.stage = SessionStage::Denied;
+                        }
+                    }
+                }
+            }
+            return GPU_AUTHORITY_INVALID;
+        };
+        decision_inputs.push(input);
+    }
+    let request_refs = decision_inputs
+        .iter()
+        .map(|(set, gate)| (set, std::slice::from_ref(gate)))
+        .collect::<Vec<_>>();
+    let mut continuation_ran = false;
+    let evaluation = host.evaluate_typed_decision_batch_and_then(
+        &request_refs,
+        expected_policy_generation,
+        expected_generations,
+        || {
+            continuation_ran = true;
+            // SAFETY: Native lends an exact synchronous continuation context.
+            // The callback runs exactly once while Host's decision-context read
+            // guard excludes revocation writers.
+            unsafe { continuation(continuation_context) }
+        },
+    );
+    let status = match evaluation {
+        Ok(super::TypedDecisionBatchAndThenResult::StalePolicyGeneration)
+        | Ok(super::TypedDecisionBatchAndThenResult::StaleAuthorityGenerations) => {
+            GPU_AUTHORITY_DENIED
+        }
+        Ok(super::TypedDecisionBatchAndThenResult::Evaluated {
+            decisions: receipts,
+            continuation_result,
+        }) if receipts.len() == evaluations.len()
+            && receipts.iter().all(|receipt| {
+                matches!(
+                    receipt.outcome,
+                    DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                )
+            })
+            && continuation_result == Some(GPU_AUTHORITY_ALLOWED) =>
+        {
+            GPU_AUTHORITY_ALLOWED
+        }
+        Ok(super::TypedDecisionBatchAndThenResult::Evaluated {
+            decisions: receipts,
+            continuation_result: None,
+        }) if !continuation_ran
+            && !receipts.is_empty()
+            && receipts.len() <= evaluations.len()
+            && receipts
+                .iter()
+                .take(receipts.len().saturating_sub(1))
+                .all(|receipt| {
+                    matches!(
+                        receipt.outcome,
+                        DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                    )
+                })
+            && receipts.last().is_some_and(|receipt| {
+                !matches!(
+                    receipt.outcome,
+                    DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                )
+            }) =>
+        {
+            GPU_AUTHORITY_DENIED
+        }
+        Ok(super::TypedDecisionBatchAndThenResult::Evaluated { .. }) | Err(_) => {
+            GPU_AUTHORITY_INVALID
+        }
+    };
+    let reconciled = session_store().lock().is_ok_and(|mut store| {
+        let exact_reserved_rows = pair_reservations.iter().all(|(session_id, reserved)| {
+            store
+                .sessions
+                .get(session_id)
+                .is_some_and(|current| session_matches_reserved_snapshot(current, reserved))
+        });
+        let exact_reserved_pair = exact_reserved_rows
+            && store
+                .sessions
+                .get(&pair_reservations[0].0)
+                .is_some_and(|acquire| {
+                    store
+                        .sessions
+                        .get(&pair_reservations[1].0)
+                        .is_some_and(|present| {
+                            presentation_pair_is_exact(
+                                pair_reservations[0].0,
+                                acquire,
+                                pair_reservations[1].0,
+                                present,
+                            )
+                        })
+                });
+        if !exact_reserved_pair {
+            return false;
+        }
+        for (session_id, reserved) in &pair_reservations {
+            store
+                .sessions
+                .get_mut(session_id)
+                .expect("validated reserved session remains present")
+                .stage = if status == GPU_AUTHORITY_ALLOWED {
+                evaluations
+                    .iter()
+                    .find(|(evaluated_id, _, _, _)| evaluated_id == session_id)
+                    .map_or(
+                        reserved.stage,
+                        |(_, _, requested_stage, _)| match requested_stage {
+                            Stage::Commit => SessionStage::Commit,
+                            Stage::Repeat => SessionStage::Repeat,
+                            _ => SessionStage::Denied,
+                        },
+                    )
+            } else {
+                SessionStage::Denied
+            };
+        }
+        true
+    });
+    if reconciled {
+        status
+    } else {
+        GPU_AUTHORITY_INVALID
+    }
 }
 
 unsafe extern "C" fn retire_gpu_authority_session_v2(
@@ -1451,23 +2576,187 @@ unsafe extern "C" fn retire_gpu_authority_session_v2(
         return GPU_AUTHORITY_STALE;
     };
     if !session.facts.matches_ffi(&retire.facts) {
-        return GPU_AUTHORITY_STALE;
+        return GPU_AUTHORITY_INVALID;
     }
+    let peer_session_id = match classify_retire_target(&store, retire.facts.authority_session_id) {
+        RetireTargetDisposition::Ready(peer_session_id) => peer_session_id,
+        RetireTargetDisposition::Busy => return GPU_AUTHORITY_DENIED,
+        RetireTargetDisposition::Invalid => return GPU_AUTHORITY_INVALID,
+    };
     store.sessions.remove(&retire.facts.authority_session_id);
+    if let Some(peer_session_id) = peer_session_id {
+        store.sessions.remove(&peer_session_id);
+    }
     GPU_AUTHORITY_ALLOWED
-}
-
-#[cfg(test)]
-pub(crate) fn live_session_count_for_test() -> usize {
-    session_store()
-        .lock()
-        .map(|store| store.sessions.len())
-        .unwrap_or(MAX_GPU_AUTHORITY_SESSIONS)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn presentation_facts() -> GpuAuthorityCarrierFacts {
+        GpuAuthorityCarrierFacts {
+            operation_id: 3_157_634_281,
+            topology_id: GPU_TOPOLOGY_ISOLATED_PER_LOGICAL_V2,
+            realm: GpuRealmIdentityV2 {
+                runtime: GpuRuntimeIdentityV2 {
+                    runtime_address: 11,
+                    runtime_nonce: 13,
+                },
+                realm_id: 17,
+                realm_generation: 19,
+            },
+            account: GpuAccountIdentityV2 {
+                account_id: 23,
+                account_generation: 29,
+                authority_digest: [0xa7; 32],
+            },
+            ingress_device: GpuDeviceIdentityV2 {
+                logical_device_id: 31,
+                logical_device_generation: 37,
+                provider_generation: 41,
+            },
+            provider_generation: 41,
+            operation_instance_id: 43,
+            promise_id: 0,
+            captured_scope_id: 0,
+            adapter_ordinal: 0,
+            device_ingress_ordinal: 47,
+            queue_ingress_ordinal: 0,
+            authority_context_digest: [0xc7; 32],
+            receiver: GpuObjectRefV2 {
+                kind: 22,
+                flags: 0,
+                object_id: 53,
+                object_generation: 59,
+            },
+            target: GpuObjectRefV2 {
+                kind: 6,
+                flags: 0,
+                object_id: 61,
+                object_generation: 67,
+            },
+        }
+    }
+
+    fn presentation_attribution() -> GpuAuthorityAttribution {
+        let root = Principal::Root {
+            identity: NonEmptyString::new("project-root").unwrap(),
+        };
+        GpuAuthorityAttribution {
+            context_kind: 1,
+            actor: root.clone(),
+            effect_owner: root.clone(),
+            scheduler: None,
+            constrained_principals: vec![root],
+            policy_generation: 1,
+            negative_generation: 1,
+            dynamic_generation: 1,
+            handle_generation: 1,
+        }
+    }
+
+    fn presentation_attribution_for_host(host: &Host) -> GpuAuthorityAttribution {
+        let mut attribution = presentation_attribution();
+        let snapshot = host.armed_snapshot().unwrap();
+        let generations = host.typed_generations().unwrap();
+        attribution.policy_generation = snapshot.generations().policy.get();
+        attribution.negative_generation = generations.negative.get();
+        attribution.dynamic_generation = generations.dynamic.get();
+        attribution.handle_generation = generations.handle.get();
+        attribution
+    }
+
+    fn presentation_session(
+        branch: &str,
+        facts: GpuAuthorityCarrierFacts,
+        handles: Vec<ExactGpuAuthorityPresentedHandleV2>,
+        host: Arc<Host>,
+        stage: SessionStage,
+    ) -> GpuAuthoritySession {
+        GpuAuthoritySession {
+            context_id: 71,
+            host,
+            operation: RuntimeOperation {
+                operation_name: format!("navigator.gpu.canvas.{branch}"),
+                wire_id: facts.operation_id,
+                edge_id: format!("surface.webgpu.presentation.{branch}"),
+                private_target_cell_id: format!("target.webgpu.presentation.{branch}"),
+                authority_kind: OperationAuthorityKind::TypedPositive,
+                receiver_kind: 22,
+                target_kind: 6,
+                promise_required: false,
+            },
+            facts,
+            attribution: presentation_attribution(),
+            presented_handles: Some(handles),
+            presentation: None,
+            stage,
+        }
+    }
+
+    fn presentation_facts_ffi(
+        facts: &GpuAuthorityCarrierFacts,
+        session_id: u64,
+    ) -> ExactGpuAuthoritySessionFactsV2 {
+        ExactGpuAuthoritySessionFactsV2 {
+            struct_size: std::mem::size_of::<ExactGpuAuthoritySessionFactsV2>() as u32,
+            abi_version: GPU_SERVICE_ABI_V2,
+            operation_id: facts.operation_id,
+            topology_id: facts.topology_id,
+            authority_session_id: session_id,
+            realm: facts.realm,
+            account: facts.account,
+            ingress_device: facts.ingress_device,
+            provider_generation: facts.provider_generation,
+            operation_instance_id: facts.operation_instance_id,
+            promise_id: facts.promise_id,
+            captured_scope_id: facts.captured_scope_id,
+            adapter_ordinal: facts.adapter_ordinal,
+            device_ingress_ordinal: facts.device_ingress_ordinal,
+            queue_ingress_ordinal: facts.queue_ingress_ordinal,
+            authority_context_digest: facts.authority_context_digest,
+            receiver: facts.receiver,
+            target: facts.target,
+        }
+    }
+
+    fn install_presentation_pair_for_test(
+        host: Arc<Host>,
+        facts: GpuAuthorityCarrierFacts,
+        acquire_stage: SessionStage,
+        present_stage: SessionStage,
+    ) -> CapturedPresentationAuthorityV2 {
+        let handles = canonical_presentation_presented_handles(&facts).unwrap();
+        let attribution = presentation_attribution_for_host(&host);
+        let mut acquire = presentation_session(
+            "acquire",
+            facts.clone(),
+            handles.clone(),
+            Arc::clone(&host),
+            acquire_stage,
+        );
+        acquire.operation = runtime_registry()
+            .unwrap()
+            .presentation_authority
+            .branches
+            .get("acquire")
+            .unwrap()
+            .clone();
+        acquire.attribution = attribution.clone();
+        let mut present = presentation_session("present", facts, handles, host, present_stage);
+        present.operation = runtime_registry()
+            .unwrap()
+            .presentation_authority
+            .branches
+            .get("present")
+            .unwrap()
+            .clone();
+        present.attribution = attribution;
+        let mut store = session_store().lock().unwrap();
+        store.sessions.clear();
+        store.insert_presentation_pair(acquire, present).unwrap()
+    }
 
     fn digest_from_raw(raw: [u8; 32]) -> Digest {
         Digest::new(format!(
@@ -1493,6 +2782,622 @@ mod tests {
             operation_ids: registry.provider.sorted_operation_ids.clone(),
             topology: "isolated-per-logical-v1".into(),
         }
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    fn experimental_presentation_host() -> Arc<Host> {
+        let binding = source_binding();
+        let arming = experimental_webgpu_pre1a_arming(&binding).unwrap();
+        let snapshot = super::super::tests::example_armed_snapshot_with(|value| {
+            value["exactGpuProvider"] = serde_json::to_value(&binding).unwrap();
+            value["protectedObjects"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({
+                    "role": "exact-webgpu-profile",
+                    "object": {
+                        "platform": "unix",
+                        "volume": "fixture-volume",
+                        "file": "exact-webgpu-profile"
+                    },
+                    "deniedActions": ["fs:write"]
+                }));
+            let mut root = value["principals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["principal"]["kind"] == "root")
+                .unwrap()
+                .clone();
+            root["floor"] = serde_json::to_value(&arming.positive_selectors).unwrap();
+            root["denials"] = serde_json::json!([]);
+            root["escalationCeiling"] = serde_json::json!([]);
+            root["imports"] = serde_json::json!({
+                "builtins": [],
+                "packages": []
+            });
+            root["endowments"] = serde_json::json!([]);
+            value["principals"] = serde_json::json!([root]);
+            value["packageGraph"]["nodes"] = serde_json::Value::Array(
+                value["packageGraph"]["nodes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|node| node["principal"]["kind"] == "root")
+                    .cloned()
+                    .collect(),
+            );
+            value["packageGraph"]["importEdges"] = serde_json::json!([]);
+            value["rootBindings"] = serde_json::Value::Array(
+                value["rootBindings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|binding| binding["owner"].is_null())
+                    .cloned()
+                    .collect(),
+            );
+        });
+        super::super::validate_exact_experimental_webgpu_pre1a_floor(
+            &snapshot,
+            &arming.positive_selectors,
+        )
+        .unwrap();
+        let target_cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
+            .iter()
+            .map(|edge| {
+                (
+                    (*edge).to_owned(),
+                    capsec_semantics::decision::TargetCellDisposition::Closed,
+                )
+            })
+            .collect();
+        Arc::new(
+            Host::new_armed_with_target_cells(
+                super::super::HostConfig::default(),
+                Arc::new(snapshot),
+                target_cells,
+                super::super::AuthenticatedPackageSourceState::default(),
+                capsec_semantics::decision::TargetArmState::CompleteExperimentalPrivate,
+                arming.private_target_cells,
+            )
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn presentation_handles_are_exact_canonical_texture_then_context_facts() {
+        let facts = presentation_facts();
+        let handles = canonical_presentation_presented_handles(&facts).unwrap();
+        assert_eq!(handles.len(), 2);
+        assert_eq!(
+            handles
+                .iter()
+                .map(|handle| handle.object.kind)
+                .collect::<Vec<_>>(),
+            [6, 22]
+        );
+        assert!(handles.iter().all(|handle| {
+            handle.account == facts.account
+                && handle.device == facts.ingress_device
+                && handle.struct_size
+                    == std::mem::size_of::<ExactGpuAuthorityPresentedHandleV2>() as u32
+                && handle.abi_version == GPU_SERVICE_ABI_V2
+        }));
+        assert_eq!(handles[0].object, facts.target);
+        assert_eq!(handles[1].object, facts.receiver);
+    }
+
+    #[test]
+    fn busy_presentation_pair_retire_is_atomic_and_exact() {
+        let facts = presentation_facts();
+        let handles = canonical_presentation_presented_handles(&facts).unwrap();
+        let host = Arc::new(Host::closed_unarmed());
+        let mut store = GpuAuthoritySessionStore::default();
+        let retained = store
+            .insert_presentation_pair(
+                presentation_session(
+                    "acquire",
+                    facts.clone(),
+                    handles.clone(),
+                    Arc::clone(&host),
+                    SessionStage::Repeat,
+                ),
+                presentation_session("present", facts, handles, host, SessionStage::Commit),
+            )
+            .unwrap();
+        store
+            .sessions
+            .get_mut(&retained.present_session_id)
+            .unwrap()
+            .stage = SessionStage::EvaluatingAndThen;
+        assert_eq!(
+            retire_peer_if_available(&store, retained.acquire_session_id),
+            None
+        );
+        assert_eq!(
+            classify_retire_target(&store, retained.acquire_session_id),
+            RetireTargetDisposition::Busy
+        );
+        assert_eq!(store.sessions.len(), 2);
+        assert!(store.sessions.contains_key(&retained.acquire_session_id));
+        assert!(store.sessions.contains_key(&retained.present_session_id));
+        store
+            .sessions
+            .get_mut(&retained.present_session_id)
+            .unwrap()
+            .stage = SessionStage::Commit;
+        assert_eq!(
+            retire_peer_if_available(&store, retained.acquire_session_id),
+            Some(Some(retained.present_session_id))
+        );
+        store
+            .sessions
+            .get_mut(&retained.present_session_id)
+            .unwrap()
+            .presentation = None;
+        assert_eq!(
+            classify_retire_target(&store, retained.acquire_session_id),
+            RetireTargetDisposition::Invalid
+        );
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    #[test]
+    fn singular_retire_status_distinguishes_busy_stale_and_structural_mismatch() {
+        let _guard = crate::host::abi::host_test_lock();
+        let facts = presentation_facts();
+        let handles = canonical_presentation_presented_handles(&facts).unwrap();
+        let host = experimental_presentation_host();
+        let session = presentation_session(
+            "singular-retire",
+            facts.clone(),
+            handles,
+            host,
+            SessionStage::EvaluatingAndThen,
+        );
+        let session_id = {
+            let mut store = session_store().lock().unwrap();
+            store.sessions.clear();
+            store.insert(session).unwrap()
+        };
+        let mut retire = ExactGpuAuthorityRetireV2 {
+            struct_size: std::mem::size_of::<ExactGpuAuthorityRetireV2>() as u32,
+            abi_version: GPU_SERVICE_ABI_V2,
+            flags: 0,
+            reserved: 0,
+            facts: presentation_facts_ffi(&facts, session_id),
+        };
+        assert_eq!(
+            unsafe { retire_gpu_authority_session_v2(std::ptr::null_mut(), &retire) },
+            GPU_AUTHORITY_DENIED
+        );
+        assert!(session_store()
+            .lock()
+            .unwrap()
+            .sessions
+            .contains_key(&session_id));
+
+        retire.facts.operation_instance_id += 1;
+        assert_eq!(
+            unsafe { retire_gpu_authority_session_v2(std::ptr::null_mut(), &retire) },
+            GPU_AUTHORITY_INVALID
+        );
+        retire.facts.operation_instance_id -= 1;
+        session_store()
+            .lock()
+            .unwrap()
+            .sessions
+            .get_mut(&session_id)
+            .unwrap()
+            .stage = SessionStage::Requested;
+        assert_eq!(
+            unsafe { retire_gpu_authority_session_v2(std::ptr::null_mut(), &retire) },
+            GPU_AUTHORITY_ALLOWED
+        );
+        assert_eq!(
+            unsafe { retire_gpu_authority_session_v2(std::ptr::null_mut(), &retire) },
+            GPU_AUTHORITY_STALE
+        );
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    #[test]
+    fn pair_retire_status_distinguishes_busy_stale_and_structural_mismatch() {
+        let _guard = crate::host::abi::host_test_lock();
+        let facts = presentation_facts();
+        let host = experimental_presentation_host();
+        let retained = install_presentation_pair_for_test(
+            Arc::clone(&host),
+            facts.clone(),
+            SessionStage::Repeat,
+            SessionStage::EvaluatingAndThen,
+        );
+        assert_eq!(
+            retire_presentation_authority(71, retained, facts.authority_context_digest,),
+            GPU_AUTHORITY_DENIED
+        );
+        assert_eq!(session_store().lock().unwrap().sessions.len(), 2);
+        session_store()
+            .lock()
+            .unwrap()
+            .sessions
+            .get_mut(&retained.present_session_id)
+            .unwrap()
+            .stage = SessionStage::Commit;
+        assert_eq!(
+            retire_presentation_authority(71, retained, [0xd9; 32]),
+            GPU_AUTHORITY_INVALID
+        );
+        assert_eq!(
+            retire_presentation_authority(71, retained, facts.authority_context_digest,),
+            GPU_AUTHORITY_ALLOWED
+        );
+        assert_eq!(
+            retire_presentation_authority(71, retained, facts.authority_context_digest,),
+            GPU_AUTHORITY_STALE
+        );
+
+        let retained = install_presentation_pair_for_test(
+            host,
+            facts.clone(),
+            SessionStage::Repeat,
+            SessionStage::Commit,
+        );
+        session_store()
+            .lock()
+            .unwrap()
+            .sessions
+            .remove(&retained.present_session_id);
+        assert_eq!(
+            retire_presentation_authority(71, retained, facts.authority_context_digest,),
+            GPU_AUTHORITY_INVALID
+        );
+        session_store().lock().unwrap().sessions.clear();
+    }
+
+    unsafe extern "C" fn allowed_test_continuation(context: *mut c_void) -> i32 {
+        // SAFETY: the test lends one live u8 for this synchronous callback.
+        unsafe { *context.cast::<u8>() += 1 };
+        GPU_AUTHORITY_ALLOWED
+    }
+
+    struct ReconciliationFaultContext {
+        remove_session_id: u64,
+        calls: u8,
+    }
+
+    unsafe extern "C" fn remove_reserved_session_test_continuation(context: *mut c_void) -> i32 {
+        // SAFETY: the test lends this exact context for the synchronous call.
+        let context = unsafe { &mut *context.cast::<ReconciliationFaultContext>() };
+        context.calls += 1;
+        session_store()
+            .lock()
+            .unwrap()
+            .sessions
+            .remove(&context.remove_session_id);
+        GPU_AUTHORITY_ALLOWED
+    }
+
+    #[test]
+    fn typed_single_allow_without_continuation_is_structurally_invalid() {
+        assert_eq!(
+            classify_single_typed_evaluation(1, true, false),
+            GPU_AUTHORITY_INVALID
+        );
+        assert_eq!(
+            classify_single_typed_evaluation(1, true, true),
+            GPU_AUTHORITY_ALLOWED
+        );
+        assert_eq!(
+            classify_single_typed_evaluation(1, false, false),
+            GPU_AUTHORITY_DENIED
+        );
+        assert_eq!(
+            classify_single_typed_evaluation(1, false, true),
+            GPU_AUTHORITY_INVALID
+        );
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    #[test]
+    fn exact_shaped_presentation_batch_runs_allowed_continuation() {
+        let _guard = crate::host::abi::host_test_lock();
+        let facts = presentation_facts();
+        let handles = canonical_presentation_presented_handles(&facts).unwrap();
+        let host = experimental_presentation_host();
+        let retained = install_presentation_pair_for_test(
+            host,
+            facts.clone(),
+            SessionStage::Commit,
+            SessionStage::Requested,
+        );
+        let decisions = [
+            ExactGpuAuthorityDecisionRequestV2 {
+                struct_size: std::mem::size_of::<ExactGpuAuthorityDecisionRequestV2>() as u32,
+                abi_version: GPU_SERVICE_ABI_V2,
+                stage: 3,
+                flags: 0,
+                facts: presentation_facts_ffi(&facts, retained.acquire_session_id),
+                presented_handles: handles.as_ptr(),
+                presented_handle_count: handles.len(),
+            },
+            ExactGpuAuthorityDecisionRequestV2 {
+                struct_size: std::mem::size_of::<ExactGpuAuthorityDecisionRequestV2>() as u32,
+                abi_version: GPU_SERVICE_ABI_V2,
+                stage: 2,
+                flags: 0,
+                facts: presentation_facts_ffi(&facts, retained.present_session_id),
+                presented_handles: handles.as_ptr(),
+                presented_handle_count: handles.len(),
+            },
+        ];
+        let batch = ExactGpuAuthorityDecisionBatchV2 {
+            struct_size: std::mem::size_of::<ExactGpuAuthorityDecisionBatchV2>() as u32,
+            abi_version: GPU_SERVICE_ABI_V2,
+            phase: 1,
+            flags: 0,
+            decisions: decisions.as_ptr(),
+            decision_count: decisions.len(),
+        };
+        let mut continuation_context = 0_u8;
+        let status = unsafe {
+            evaluate_gpu_authority_batch_and_then_v2(
+                std::ptr::null_mut(),
+                &batch,
+                (&mut continuation_context as *mut u8).cast(),
+                Some(allowed_test_continuation),
+            )
+        };
+        assert_eq!(status, GPU_AUTHORITY_ALLOWED);
+        assert_eq!(continuation_context, 1);
+        {
+            let store = session_store().lock().unwrap();
+            assert_eq!(
+                store
+                    .sessions
+                    .get(&retained.acquire_session_id)
+                    .unwrap()
+                    .stage,
+                SessionStage::Repeat
+            );
+            assert_eq!(
+                store
+                    .sessions
+                    .get(&retained.present_session_id)
+                    .unwrap()
+                    .stage,
+                SessionStage::Commit
+            );
+        }
+
+        let handoff_decision = [ExactGpuAuthorityDecisionRequestV2 {
+            struct_size: std::mem::size_of::<ExactGpuAuthorityDecisionRequestV2>() as u32,
+            abi_version: GPU_SERVICE_ABI_V2,
+            stage: 3,
+            flags: 0,
+            facts: presentation_facts_ffi(&facts, retained.present_session_id),
+            presented_handles: handles.as_ptr(),
+            presented_handle_count: handles.len(),
+        }];
+        let handoff_batch = ExactGpuAuthorityDecisionBatchV2 {
+            struct_size: std::mem::size_of::<ExactGpuAuthorityDecisionBatchV2>() as u32,
+            abi_version: GPU_SERVICE_ABI_V2,
+            phase: 2,
+            flags: 0,
+            decisions: handoff_decision.as_ptr(),
+            decision_count: handoff_decision.len(),
+        };
+        let status = unsafe {
+            evaluate_gpu_authority_batch_and_then_v2(
+                std::ptr::null_mut(),
+                &handoff_batch,
+                (&mut continuation_context as *mut u8).cast(),
+                Some(allowed_test_continuation),
+            )
+        };
+        assert_eq!(status, GPU_AUTHORITY_ALLOWED);
+        assert_eq!(continuation_context, 2);
+        assert_eq!(
+            session_store()
+                .lock()
+                .unwrap()
+                .sessions
+                .get(&retained.present_session_id)
+                .unwrap()
+                .stage,
+            SessionStage::Repeat
+        );
+
+        session_store()
+            .lock()
+            .unwrap()
+            .sessions
+            .get_mut(&retained.present_session_id)
+            .unwrap()
+            .stage = SessionStage::Commit;
+        let mut fault = ReconciliationFaultContext {
+            remove_session_id: retained.acquire_session_id,
+            calls: 0,
+        };
+        let status = unsafe {
+            evaluate_gpu_authority_batch_and_then_v2(
+                std::ptr::null_mut(),
+                &handoff_batch,
+                (&mut fault as *mut ReconciliationFaultContext).cast(),
+                Some(remove_reserved_session_test_continuation),
+            )
+        };
+        assert_eq!(status, GPU_AUTHORITY_INVALID);
+        assert_eq!(fault.calls, 1);
+
+        session_store().lock().unwrap().sessions.clear();
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    #[test]
+    fn malformed_presentation_generation_preflight_is_invalid_without_continuation() {
+        let _guard = crate::host::abi::host_test_lock();
+        let facts = presentation_facts();
+        let handles = canonical_presentation_presented_handles(&facts).unwrap();
+        let host = experimental_presentation_host();
+        let retained = install_presentation_pair_for_test(
+            host,
+            facts.clone(),
+            SessionStage::Commit,
+            SessionStage::Requested,
+        );
+        {
+            let mut store = session_store().lock().unwrap();
+            for session_id in [retained.acquire_session_id, retained.present_session_id] {
+                store
+                    .sessions
+                    .get_mut(&session_id)
+                    .unwrap()
+                    .attribution
+                    .negative_generation = u64::MAX;
+            }
+        }
+        let decisions = [
+            ExactGpuAuthorityDecisionRequestV2 {
+                struct_size: std::mem::size_of::<ExactGpuAuthorityDecisionRequestV2>() as u32,
+                abi_version: GPU_SERVICE_ABI_V2,
+                stage: 3,
+                flags: 0,
+                facts: presentation_facts_ffi(&facts, retained.acquire_session_id),
+                presented_handles: handles.as_ptr(),
+                presented_handle_count: handles.len(),
+            },
+            ExactGpuAuthorityDecisionRequestV2 {
+                struct_size: std::mem::size_of::<ExactGpuAuthorityDecisionRequestV2>() as u32,
+                abi_version: GPU_SERVICE_ABI_V2,
+                stage: 2,
+                flags: 0,
+                facts: presentation_facts_ffi(&facts, retained.present_session_id),
+                presented_handles: handles.as_ptr(),
+                presented_handle_count: handles.len(),
+            },
+        ];
+        let batch = ExactGpuAuthorityDecisionBatchV2 {
+            struct_size: std::mem::size_of::<ExactGpuAuthorityDecisionBatchV2>() as u32,
+            abi_version: GPU_SERVICE_ABI_V2,
+            phase: 1,
+            flags: 0,
+            decisions: decisions.as_ptr(),
+            decision_count: decisions.len(),
+        };
+        let mut continuation_context = 0_u8;
+        let status = unsafe {
+            evaluate_gpu_authority_batch_and_then_v2(
+                std::ptr::null_mut(),
+                &batch,
+                (&mut continuation_context as *mut u8).cast(),
+                Some(allowed_test_continuation),
+            )
+        };
+        assert_eq!(status, GPU_AUTHORITY_INVALID);
+        assert_eq!(continuation_context, 0);
+        let store = session_store().lock().unwrap();
+        assert_eq!(
+            store
+                .sessions
+                .get(&retained.acquire_session_id)
+                .unwrap()
+                .stage,
+            SessionStage::Commit
+        );
+        assert_eq!(
+            store
+                .sessions
+                .get(&retained.present_session_id)
+                .unwrap()
+                .stage,
+            SessionStage::Requested
+        );
+        drop(store);
+        session_store().lock().unwrap().sessions.clear();
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    #[test]
+    fn same_epoch_recheck_uses_fresh_scope_without_mutating_original_pair() {
+        let _guard = crate::host::abi::host_test_lock();
+        let original = presentation_facts();
+        let host = experimental_presentation_host();
+        let retained = install_presentation_pair_for_test(
+            Arc::clone(&host),
+            original.clone(),
+            SessionStage::Requested,
+            SessionStage::Captured,
+        );
+        let mut current = original.clone();
+        current.operation_instance_id = 73;
+        current.device_ingress_ordinal = 79;
+        current.captured_scope_id = 83;
+        current.authority_context_digest = [0xd7; 32];
+        assert_eq!(
+            recheck_presentation_acquire_entry(
+                71,
+                Arc::clone(&host),
+                presentation_attribution_for_host(&host),
+                current,
+                retained,
+                original.authority_context_digest,
+            ),
+            GPU_AUTHORITY_ALLOWED
+        );
+        let store = session_store().lock().unwrap();
+        for session_id in [retained.acquire_session_id, retained.present_session_id] {
+            let session = store.sessions.get(&session_id).unwrap();
+            assert_eq!(session.facts.captured_scope_id, 0);
+            assert_eq!(session.facts.operation_instance_id, 43);
+            assert_eq!(session.facts.device_ingress_ordinal, 47);
+            assert_eq!(session.facts.authority_context_digest, [0xc7; 32]);
+        }
+        drop(store);
+        session_store().lock().unwrap().sessions.clear();
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    #[test]
+    fn recheck_reservation_rejects_retire_and_fails_if_context_is_purged() {
+        let _guard = crate::host::abi::host_test_lock();
+        let original = presentation_facts();
+        let host = experimental_presentation_host();
+        let retained = install_presentation_pair_for_test(
+            Arc::clone(&host),
+            original.clone(),
+            SessionStage::Requested,
+            SessionStage::Captured,
+        );
+        let mut current = original.clone();
+        current.operation_instance_id = 89;
+        current.device_ingress_ordinal = 97;
+        current.captured_scope_id = 101;
+        current.authority_context_digest = [0xe7; 32];
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        *presentation_recheck_reservation_hook().lock().unwrap() = Some(Arc::clone(&barrier));
+        let worker = std::thread::spawn({
+            let host = Arc::clone(&host);
+            move || {
+                recheck_presentation_acquire_entry(
+                    71,
+                    Arc::clone(&host),
+                    presentation_attribution_for_host(&host),
+                    current,
+                    retained,
+                    original.authority_context_digest,
+                )
+            }
+        });
+        barrier.wait();
+        assert!(!force_retire(71, retained.acquire_session_id));
+        assert_eq!(session_store().lock().unwrap().sessions.len(), 2);
+        purge_context(71);
+        barrier.wait();
+        assert_eq!(worker.join().unwrap(), GPU_AUTHORITY_INVALID);
+        *presentation_recheck_reservation_hook().lock().unwrap() = None;
+        assert!(session_store().lock().unwrap().sessions.is_empty());
     }
 
     #[test]
@@ -1528,14 +3433,24 @@ mod tests {
         assert!(load_runtime_registry_from_json(&wildcard.to_string()).is_none());
     }
 
+    #[test]
+    fn private_registry_raw_digest_matches_reviewed_pin() {
+        let registry = load_runtime_registry().expect("generated private registry must parse");
+        assert_eq!(
+            registry.raw_sha256,
+            parse_hex_digest(EXPERIMENTAL_WEBGPU_PRE1A_REGISTRY_RAW_SHA256)
+                .expect("reviewed private registry digest must be valid hex")
+        );
+    }
+
     #[cfg(feature = "webgpu-binding")]
     #[test]
     fn experimental_projection_is_the_exact_pinned_private_set() {
         let binding = source_binding();
         let arming = experimental_webgpu_pre1a_arming(&binding).unwrap();
-        assert_eq!(arming.operation_count, 58);
-        assert_eq!(arming.private_target_cells.len(), 58);
-        assert_eq!(arming.positive_selectors.len(), 20);
+        assert_eq!(arming.operation_count, 63);
+        assert_eq!(arming.private_target_cells.len(), 65);
+        assert_eq!(arming.positive_selectors.len(), 23);
         assert!(arming
             .positive_selectors
             .windows(2)
@@ -1553,6 +3468,13 @@ mod tests {
             .unwrap()
             .iter()
             .map(|operation| operation["edgeId"].as_str().unwrap().to_owned())
+            .chain(
+                registry["presentationAuthority"]["branches"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|branch| branch["edgeId"].as_str().unwrap().to_owned()),
+            )
             .collect::<BTreeSet<_>>();
         assert_eq!(
             arming
@@ -1573,6 +3495,13 @@ mod tests {
                     == Some("typed-positive")
             })
             .map(|operation| operation["operationId"].as_str().unwrap().to_owned())
+            .chain(
+                registry["presentationAuthority"]["branches"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|branch| branch["operationId"].as_str().unwrap().to_owned()),
+            )
             .collect::<BTreeSet<_>>();
         let actual_positive_operations = arming
             .positive_selectors

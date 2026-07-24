@@ -16,6 +16,14 @@ import {
 
 /** Exact-owned half of one app-bundle Canvas rendezvous. */
 export interface ExactGpuCanvasRuntimeIntegration {
+  readonly installCanvasProtocolRoot: (
+    identity: Readonly<{
+      protocolRootId: number;
+      runtimeGeneration: string;
+      rootInstanceId: string;
+      rootGeneration: string;
+    }>,
+  ) => () => void;
   readonly installCanvasContextMinter: (
     minter: Readonly<ProductionGpuCanvasContextMinter>,
   ) => () => void;
@@ -53,6 +61,15 @@ let activeCanvasContextMinter:
   | Readonly<ProductionGpuCanvasContextMinter>
   | undefined;
 let releaseCanvasContextMinter: (() => void) | undefined;
+let activeCanvasProtocolRootIdentity:
+  | Readonly<{
+      protocolRootId: number;
+      runtimeGeneration: string;
+      rootInstanceId: string;
+      rootGeneration: string;
+    }>
+  | undefined;
+let releaseCanvasProtocolRoot: (() => void) | undefined;
 let canvasReceiptDeliveryActive = false;
 let canvasReceiptDeliveryCommitted = false;
 let canvasAppBundlePrepared = false;
@@ -81,6 +98,23 @@ function installRegisteredCanvasMinter(): void {
   releaseCanvasContextMinter = release;
 }
 
+function installRegisteredCanvasProtocolRoot(): void {
+  if (
+    !exactCanvasIntegration ||
+    !activeCanvasProtocolRootIdentity ||
+    releaseCanvasProtocolRoot
+  ) {
+    return;
+  }
+  const release = exactCanvasIntegration.installCanvasProtocolRoot(
+    activeCanvasProtocolRootIdentity,
+  );
+  if (typeof release !== 'function') {
+    throw new TypeError('Exact GPU Canvas protocol-root installation returned no revoker');
+  }
+  releaseCanvasProtocolRoot = release;
+}
+
 function canvasReceiptSink(receipt: unknown): void {
   const integration = exactCanvasIntegration;
   if (
@@ -95,13 +129,19 @@ function canvasReceiptSink(receipt: unknown): void {
 }
 
 function revokeExactCanvasRuntimeIntegration(): void {
-  const release = releaseCanvasContextMinter;
+  const releaseMinter = releaseCanvasContextMinter;
+  const releaseRoot = releaseCanvasProtocolRoot;
   // Clear every route before invoking app-owned cleanup. A throwing revoker
   // cannot keep its integration current or receive a later native receipt.
   releaseCanvasContextMinter = undefined;
+  releaseCanvasProtocolRoot = undefined;
   exactCanvasIntegration = undefined;
   canvasReceiptDeliveryCommitted = false;
-  release?.();
+  try {
+    releaseMinter?.();
+  } finally {
+    releaseRoot?.();
+  }
 }
 
 function acceptExactCanvasRuntimeIntegration(
@@ -109,9 +149,10 @@ function acceptExactCanvasRuntimeIntegration(
 ): void {
   exactCanvasIntegration = integration;
   try {
+    installRegisteredCanvasProtocolRoot();
     installRegisteredCanvasMinter();
   } catch (error) {
-    exactCanvasIntegration = undefined;
+    revokeExactCanvasRuntimeIntegration();
     throw error;
   }
 }
@@ -129,7 +170,8 @@ function isExactGpuCanvasRuntimeIntegration(
   }
   const keys = reflectOwnKeys(value);
   if (
-    keys.length !== 2 ||
+    keys.length !== 3 ||
+    !keys.includes('installCanvasProtocolRoot') ||
     !keys.includes('installCanvasContextMinter') ||
     !keys.includes('deliverCanvasAttachmentReceipt')
   ) {
@@ -137,6 +179,7 @@ function isExactGpuCanvasRuntimeIntegration(
   }
   for (
     const key of [
+      'installCanvasProtocolRoot',
       'installCanvasContextMinter',
       'deliverCanvasAttachmentReceipt',
     ] as const
@@ -380,6 +423,19 @@ export function installNativeGpuBridgeCapture(
       'app',
     );
     if (installation.status !== 'installed') return undefined;
+    if (!('abiVersion' in bridge) || bridge.abiVersion !== 0x0002_0000) {
+      installation.revoke();
+      return undefined;
+    }
+    activeCanvasProtocolRootIdentity = objectFreeze({
+      // Apple production currently negotiates one primary renderer root.
+      // Exact's renderer must still claim this numeric root in createRoot;
+      // merely receiving this seed cannot emit an attachment sidecar.
+      protocolRootId: 0,
+      runtimeGeneration: bridge.runtimeNonce,
+      rootInstanceId: bridge.runtimeNonce,
+      rootGeneration: '1',
+    });
     activeCanvasContextMinter = installation.canvasContextMinter;
     canvasReceiptDeliveryActive = true;
     return objectFreeze({
@@ -393,6 +449,7 @@ export function installNativeGpuBridgeCapture(
           }
         } finally {
           activeCanvasContextMinter = undefined;
+          activeCanvasProtocolRootIdentity = undefined;
           canvasReceiptDeliveryActive = false;
           canvasReceiptDeliveryCommitted = false;
           canvasAppBundlePrepared = false;
@@ -438,6 +495,8 @@ export function resetExactGpuCanvasRuntimeIntegrationForTests(): void {
     // Test reset must still restore the module state after a throwing fixture.
   }
   activeCanvasContextMinter = undefined;
+  activeCanvasProtocolRootIdentity = undefined;
+  releaseCanvasProtocolRoot = undefined;
   canvasReceiptDeliveryActive = false;
   canvasReceiptDeliveryCommitted = false;
   canvasAppBundleGlobal = undefined;

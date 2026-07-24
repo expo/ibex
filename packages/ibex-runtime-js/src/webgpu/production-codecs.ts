@@ -64,6 +64,14 @@ export interface ProductionGpuFullObjectReference {
   readonly providerGeneration: string;
 }
 
+export interface ProductionGpuPresentationAuthorityEncoding {
+  readonly acquireSessionId: string;
+  readonly presentSessionId: string;
+  /** Lowercase canonical SHA-256 bytes encoded as exactly 64 hex digits. */
+  readonly authorityContextDigest: string;
+  readonly capturedScopeId: string;
+}
+
 /** Closed, source-affine input to the codec-owned canvas-current digest. */
 export interface ProductionGpuTextureOriginDigestInput {
   readonly originClass: 'canvas-current';
@@ -77,6 +85,7 @@ export interface ProductionGpuTextureOriginDigestInput {
     readonly operationInstanceId: string;
     readonly deviceIngressOrdinal: string;
   }>;
+  readonly presentationAuthority: ProductionGpuPresentationAuthorityEncoding;
   readonly configuredDeviceRef: ProductionGpuFullObjectReference;
   readonly format: string;
   readonly usage: number;
@@ -129,6 +138,25 @@ export type ProductionGpuBufferLifecycleEncoding =
       requestedSize: string;
     }>;
 
+/**
+ * Source-affine wrapper mirror for the service-owned error-scope stack.
+ * Carrier ordinals, the receiver reference, and the pop prefix are injected
+ * by the executable codec from the same authenticated service-call input.
+ */
+export type ProductionGpuErrorScopeServiceEncoding =
+  | Readonly<{
+      kind: 'push-error-scope-v1';
+      scopeId: string;
+      filter: 'validation' | 'out-of-memory' | 'internal';
+      scopeStackGeneration: string;
+      precedingScopeId: string;
+    }>
+  | Readonly<{
+      kind: 'pop-error-scope-v1';
+      scopeId: string;
+      scopeStackGeneration: string;
+    }>;
+
 /** Complete wrapper-owned provenance for a canvas-current texture cleanup. */
 export interface ProductionGpuCanvasCurrentTextureOriginEncoding {
   readonly kind: 'canvas-current-v1';
@@ -141,6 +169,7 @@ export interface ProductionGpuCanvasCurrentTextureOriginEncoding {
     readonly operationInstanceId: string;
     readonly deviceIngressOrdinal: string;
   }>;
+  readonly presentationAuthority: ProductionGpuPresentationAuthorityEncoding;
   readonly textureOriginDigest: string;
 }
 
@@ -214,17 +243,57 @@ export interface ProductionGpuServiceEncodingInput {
   readonly deviceIngressOrdinal: string;
   readonly queueIngressOrdinal: string;
   readonly sealedLocalTimeline: readonly unknown[];
-  /** Closed lifecycle body for the dormant GPUBuffer native-codegen routes. */
+  /**
+   * Closed lifecycle body for the selected-build construction-private
+   * GPUBuffer native-codegen routes.
+   */
   readonly bufferLifecycle?: ProductionGpuBufferLifecycleEncoding;
+  /** Closed wrapper-derived error-scope transition comparison input. */
+  readonly errorScopeService?: ProductionGpuErrorScopeServiceEncoding;
   /** Closed wrapper-derived canvas/configuration/texture cleanup authority. */
   readonly canvasService?: ProductionGpuCanvasServiceEncoding;
 }
 
-/** Conversion runs at the public operation's declared timing, while encoding
- * is allowed only after wrapper-local validation and identity projection have
- * completed. The generated injection bundle implements this interface but is
- * deliberately not the embedded default until a matching native decoder and
- * every required authenticated semantic field exist.
+export interface ProductionGpuSealedOperationReference {
+  readonly kind: ProductionGpuWrapperKind;
+  readonly id: string;
+  readonly generation: string;
+}
+
+/**
+ * Codec-owned authority projection for one wrapper-local sealed record. The
+ * projection and service payload are derived in one validation/encoding
+ * transaction, so native admission never has to reinterpret app-owned input.
+ */
+export interface ProductionGpuSealedOperationAuthority {
+  readonly identityClass: 'active-route' | 'staged-local';
+  readonly authorityContextSource:
+    | 'command-program'
+    | 'enclosing-carrier'
+    | 'staged-record';
+  readonly operationId: number;
+  readonly operationInstanceId: string;
+  readonly deviceIngressOrdinal: string;
+  readonly capturedScopeId: string;
+  readonly receiver: ProductionGpuSealedOperationReference;
+  readonly target?: ProductionGpuSealedOperationReference;
+  /**
+   * Required for command-program and staged-record contexts. The enclosing
+   * carrier context is captured and stamped by native code after admission.
+   */
+  readonly authorityContextDigest?: string;
+}
+
+export interface ProductionGpuEncodedServiceRequest {
+  readonly payload: ArrayBuffer | ArrayBufferView;
+  readonly sealedOperations: readonly ProductionGpuSealedOperationAuthority[];
+}
+
+/** Conversion runs at the operation's declared timing, while encoding is
+ * allowed only after wrapper-local validation and identity projection have
+ * completed. The generated bundle is active only through authenticated
+ * explicit injection in the selected experimental app-realm build; ambient
+ * default/public/worker installation and support claims remain absent.
  */
 export interface ExecutableWebGpuCodecBundle {
   readonly schema: 'ibex/webgpu-executable-codecs/1';
@@ -244,6 +313,9 @@ export interface ExecutableWebGpuCodecBundle {
   readonly encodeServiceRequest: (
     input: ProductionGpuServiceEncodingInput,
   ) => ArrayBuffer | ArrayBufferView;
+  readonly encodeServiceRequestWithSealedOperations: (
+    input: ProductionGpuServiceEncodingInput,
+  ) => ProductionGpuEncodedServiceRequest;
   readonly decodeServiceResult: (
     operationId: string,
     event: Extract<NativeGpuEventV2, { kind: 1 }>,
@@ -311,6 +383,7 @@ export function validateExecutableWebGpuCodecs(
     typeof value.deriveTextureOriginDigest === 'function' &&
     typeof value.convertPublicArguments === 'function' &&
     typeof value.encodeServiceRequest === 'function' &&
+    typeof value.encodeServiceRequestWithSealedOperations === 'function' &&
     typeof value.decodeServiceResult === 'function' &&
     typeof value.decodeDeviceLoss === 'function'
   );

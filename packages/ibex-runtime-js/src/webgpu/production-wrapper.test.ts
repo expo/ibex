@@ -13,6 +13,8 @@ import type {
   NativeGpuBridgeV2,
   NativeGpuCallMetadataV2,
   NativeGpuEventV2,
+  NativeGpuPresentationAuthorityMetadataV2,
+  NativeGpuPresentationAuthorityV2,
 } from './native-bridge';
 import type { ProductionGpuDecodedImageRequestV1 } from './private-image-bitmap';
 import type {
@@ -20,6 +22,7 @@ import type {
   ProductionGpuBufferLifecycleEncoding,
   ProductionGpuCanvasServiceEncoding,
   ProductionGpuServiceEncodingInput,
+  ProductionGpuWrapperKind,
 } from './production-codecs';
 import {
   WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION,
@@ -47,54 +50,74 @@ const U64_MAX_MINUS_TWO = '18446744073709551613';
 
 const EXPECTED_STAGED_LOCAL_RECORD_IDENTITIES = Object.freeze({
   'GPUCommandEncoder.beginComputePass': Object.freeze({
-    localRecordId: 3972379000,
+    localRecordId: 1059087543,
     recordIdentitySha256:
-      '78b1c5ec959456d753b7e069c05fbad63bccf2c38f6f1344493a37dbac5aa05c',
+      'b764203ffd4b4acc806bb6345f8be90aced91d4ea1cf076657f84e18fcc209dd',
   }),
   'GPUCommandEncoder.clearBuffer': Object.freeze({
-    localRecordId: 3975569409,
+    localRecordId: 2252941047,
     recordIdentitySha256:
-      '0160f6ec85e831ea481f45ea980ab876fe303730f92a120c2a481a9ddee4a424',
+      'f72649863586f7b6e8a9e05d96f7f1ac9af3a78cdd4ff75f005f0f8246d9db41',
   }),
   'GPUCommandEncoder.copyBufferToBuffer': Object.freeze({
-    localRecordId: 3780386829,
+    localRecordId: 140509420,
     recordIdentitySha256:
-      '0d2054e1f453d4da12854ecbfd53b9f50e72523f84ce215e6a954ca95cebf117',
+      'ec0060085c40946da4d8252a859b048c59eb9803013f1ec825e5bcbe87d0d5df',
   }),
   'GPUCommandEncoder.copyTextureToTexture': Object.freeze({
-    localRecordId: 1093035147,
+    localRecordId: 921211603,
     recordIdentitySha256:
-      '8b6426411e4687ef0101458c6cbf4027644377a30a04bd67502c44f0adae9351',
+      'd392e836c6e02ea2eea66cc84e8ccf3b2394f2020e441d1bf263928aadb0a5fb',
+  }),
+  'GPUCommandEncoder.resolveQuerySet': Object.freeze({
+    localRecordId: 3627060274,
+    recordIdentitySha256:
+      '328c30d8f31272fcb2bbc3b0322f6fafa2b9ba7b790a764e2f19a12524a85006',
   }),
   'GPUComputePassEncoder.dispatchWorkgroups': Object.freeze({
-    localRecordId: 798975729,
+    localRecordId: 1258425661,
     recordIdentitySha256:
-      'f1669f2f242031f01751e6fe6a9c46c9b45202d9352c260103681697e490a48e',
+      '3d0d024b3eace3d62076d1e26e9a2db303f2efdf6731a91d2792620df102a4e1',
   }),
   'GPUComputePassEncoder.end': Object.freeze({
-    localRecordId: 2606083284,
+    localRecordId: 458012391,
     recordIdentitySha256:
-      'd4ac559b4e01c07b75295819f1ca676a57babf7674bc3df96346b0e47b4556f0',
+      'e7b64c1bebc3da3fa8df936f74a73ccfdc45d81c8c56681882a7352b107145a8',
   }),
   'GPUComputePassEncoder.setBindGroup': Object.freeze({
-    localRecordId: 3255367035,
+    localRecordId: 292725259,
     recordIdentitySha256:
-      '7bf508c2ea974f8b92473f5aab528422f0e9c52c18e371b71e6976971c4d0114',
+      '0ba27211e9da9207afa1d5d597b223076372056cbad2e360e50d737e8ca98977',
   }),
   'GPUComputePassEncoder.setPipeline': Object.freeze({
-    localRecordId: 239771785,
+    localRecordId: 1263398999,
     recordIdentitySha256:
-      '89a04a0e46b88cbbb2318f3708977ef6c630224c715bb0bb874aa168e29de8e6',
+      '57f04d4bf6dcdddfb654c0847f204a0032ee60d21ac1365a6cc1633c0602152b',
+  }),
+  'GPURenderPassEncoder.drawIndexed': Object.freeze({
+    localRecordId: 503426110,
+    recordIdentitySha256:
+      '3eac011e17196ecf71481d542fa15245d5656ed02e434ead8dc578ca9f7255f0',
+  }),
+  'GPURenderPassEncoder.drawIndirect': Object.freeze({
+    localRecordId: 403203469,
+    recordIdentitySha256:
+      '8d650818bd0c8412c5c61028aa3f562e2acf2016dea3bf238168c3e64e6a91ee',
   }),
   'GPURenderPassEncoder.setBindGroup': Object.freeze({
-    localRecordId: 2060088642,
+    localRecordId: 1289149290,
     recordIdentitySha256:
-      '4275ca7ab6045fbeb9b5ab1811d121d101e071ae365500ec4f2623073b3e97f0',
+      '6adbd64cfdd954e7c505494c6f21f4c003ec0d483c629e618792bc94135497a5',
+  }),
+  'GPURenderPassEncoder.setIndexBuffer': Object.freeze({
+    localRecordId: 1097249753,
+    recordIdentitySha256:
+      'd9b36641df046d8eb15d188f10af8b4cd93164d961252f5d057d7d704c2223ac',
   }),
   'GPURenderPassEncoder.setVertexBuffer': Object.freeze({
-    localRecordId: 2349223254,
+    localRecordId: 3247535054,
     recordIdentitySha256:
-      '564d068ca63aee652e7571913e8a9a3dc13f764a907bdb0546fa8b98710a212c',
+      'ce7391c12a7841f14f9d56c0ffe0e7c5a942b023d71644c19842acd7fbc50183',
   }),
 });
 const PROMOTED_LOCAL_RECORD_OPERATION_NAMES = new Set(
@@ -117,6 +140,16 @@ interface FakeMappedRangeAliasMint {
   readonly alias: ArrayBuffer;
 }
 
+interface RecordedPresentationAuthorityCall {
+  readonly operationId: number;
+  readonly metadata: NativeGpuPresentationAuthorityMetadataV2;
+}
+
+interface RecordedPresentationAuthorityRecheck
+  extends RecordedPresentationAuthorityCall {
+  readonly retained: NativeGpuPresentationAuthorityV2;
+}
+
 type PromiseResultHook = (
   event: OperationResultEvent,
 ) => NativeGpuEventV2 | Promise<NativeGpuEventV2>;
@@ -129,6 +162,9 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
   }>>;
   readonly mappedRangeAliasMints: FakeMappedRangeAliasMint[];
   readonly mappedRangeDetachAttempts: ArrayBuffer[];
+  readonly presentationAuthorityCaptures: RecordedPresentationAuthorityCall[];
+  readonly presentationAuthorityRechecks: RecordedPresentationAuthorityRecheck[];
+  readonly presentationAuthorityRetirements: NativeGpuPresentationAuthorityV2[];
   emit(event: NativeGpuEventV2): void;
   setSubmitHook(
     hook: ((operationId: number, metadata: NativeGpuCallMetadataV2) => number | void) |
@@ -138,6 +174,24 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
   setDetachMappedRangeHook(
     hook: ((buffer: ArrayBuffer) => boolean | void) | undefined,
   ): void;
+  setCapturePresentationAuthorityHook(
+    hook: ((
+      operationId: number,
+      metadata: NativeGpuPresentationAuthorityMetadataV2,
+    ) => NativeGpuPresentationAuthorityV2 | null | undefined) | undefined,
+  ): void;
+  setRecheckPresentationAuthorityHook(
+    hook: ((
+      operationId: number,
+      metadata: NativeGpuPresentationAuthorityMetadataV2,
+      retained: NativeGpuPresentationAuthorityV2,
+    ) => boolean | undefined) | undefined,
+  ): void;
+  setRetirePresentationAuthorityHook(
+    hook: ((
+      retained: NativeGpuPresentationAuthorityV2,
+    ) => 1 | 0 | -1 | -2 | undefined) | undefined,
+  ): void;
 } {
   let sink: ((event: NativeGpuEventV2) => void) | undefined;
   let submitHook:
@@ -146,8 +200,27 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
   let promiseResultHook: PromiseResultHook | undefined;
   let detachMappedRangeHook:
     ((buffer: ArrayBuffer) => boolean | void) | undefined;
+  let capturePresentationAuthorityHook:
+    | ((
+      operationId: number,
+      metadata: NativeGpuPresentationAuthorityMetadataV2,
+    ) => NativeGpuPresentationAuthorityV2 | null | undefined)
+    | undefined;
+  let recheckPresentationAuthorityHook:
+    | ((
+      operationId: number,
+      metadata: NativeGpuPresentationAuthorityMetadataV2,
+      retained: NativeGpuPresentationAuthorityV2,
+    ) => boolean | undefined)
+    | undefined;
+  let retirePresentationAuthorityHook:
+    | ((
+      retained: NativeGpuPresentationAuthorityV2,
+    ) => 1 | 0 | -1 | -2 | undefined)
+    | undefined;
   let nextOperation = 1;
   let nextPromise = 1;
+  let nextPresentationSession = 1_001;
   const submissions: RecordedSubmission[] = [];
   const cancellations: Array<Readonly<{
     operationInstanceId: string;
@@ -155,6 +228,10 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
   }>> = [];
   const mappedRangeAliasMints: FakeMappedRangeAliasMint[] = [];
   const mappedRangeDetachAttempts: ArrayBuffer[] = [];
+  const presentationAuthorityCaptures: RecordedPresentationAuthorityCall[] = [];
+  const presentationAuthorityRechecks: RecordedPresentationAuthorityRecheck[] = [];
+  const presentationAuthorityRetirements: NativeGpuPresentationAuthorityV2[] = [];
+  const defaultAuthorityContextDigest = new Uint8Array(32).fill(9);
   const mappedRangeAliases = new Map<ArrayBuffer, Readonly<{
     source: ArrayBuffer;
     byteOffset: number;
@@ -165,6 +242,9 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
     readonly cancellations: typeof cancellations;
     readonly mappedRangeAliasMints: FakeMappedRangeAliasMint[];
     readonly mappedRangeDetachAttempts: ArrayBuffer[];
+    readonly presentationAuthorityCaptures: RecordedPresentationAuthorityCall[];
+    readonly presentationAuthorityRechecks: RecordedPresentationAuthorityRecheck[];
+    readonly presentationAuthorityRetirements: NativeGpuPresentationAuthorityV2[];
     emit(event: NativeGpuEventV2): void;
     setSubmitHook(
       hook: ((operationId: number, metadata: NativeGpuCallMetadataV2) => number | void) |
@@ -173,6 +253,24 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
     setPromiseResultHook(hook: PromiseResultHook | undefined): void;
     setDetachMappedRangeHook(
       hook: ((buffer: ArrayBuffer) => boolean | void) | undefined,
+    ): void;
+    setCapturePresentationAuthorityHook(
+      hook: ((
+        operationId: number,
+        metadata: NativeGpuPresentationAuthorityMetadataV2,
+      ) => NativeGpuPresentationAuthorityV2 | null | undefined) | undefined,
+    ): void;
+    setRecheckPresentationAuthorityHook(
+      hook: ((
+        operationId: number,
+        metadata: NativeGpuPresentationAuthorityMetadataV2,
+        retained: NativeGpuPresentationAuthorityV2,
+      ) => boolean | undefined) | undefined,
+    ): void;
+    setRetirePresentationAuthorityHook(
+      hook: ((
+        retained: NativeGpuPresentationAuthorityV2,
+      ) => 1 | 0 | -1 | -2 | undefined) | undefined,
     ): void;
   } = {
     abiVersion: 0x0002_0000,
@@ -187,13 +285,64 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
     cancellations,
     mappedRangeAliasMints,
     mappedRangeDetachAttempts,
+    presentationAuthorityCaptures,
+    presentationAuthorityRechecks,
+    presentationAuthorityRetirements,
     submit(operationId, wantsPromise, metadata, payload) {
       submissions.push({ operationId, wantsPromise, metadata, payload });
       const submissionStatus = submitHook?.(operationId, metadata) ?? 0;
       const operationInstanceId = String(nextOperation++);
       const promiseId = wantsPromise ? String(nextPromise++) : '0';
+      const emitDefaultSealedTerminals = () => {
+        for (const authority of metadata.sealedOperations) {
+          sink?.({
+            kind: 1,
+            runtimeAddress: bridge.runtimeAddress,
+            runtimeNonce: bridge.runtimeNonce,
+            topologyId: 1,
+            operationId: authority.operationId,
+            operationInstanceId: authority.operationInstanceId,
+            promiseId: '0',
+            providerAdmission: 0,
+            physicalSequence: '0',
+            capturedScopeId: authority.capturedScopeId,
+            realmId: bridge.realmId,
+            realmGeneration: bridge.realmGeneration,
+            accountId: bridge.rootAccountId,
+            accountGeneration: bridge.rootAccountGeneration,
+            accountAuthorityDigest: bridge.rootAuthorityDigest,
+            logicalDeviceId: metadata.logicalDeviceId,
+            logicalDeviceGeneration: metadata.logicalDeviceGeneration,
+            providerGeneration: metadata.providerGeneration,
+            ingressLogicalDeviceId: metadata.logicalDeviceId,
+            ingressLogicalDeviceGeneration: metadata.logicalDeviceGeneration,
+            ingressProviderGeneration: metadata.providerGeneration,
+            deviceTransition: 0,
+            operationProviderGeneration: metadata.operationProviderGeneration,
+            authorityContextDigest:
+              authority.authorityContextDigest ??
+                defaultAuthorityContextDigest,
+            adapterOrdinal: '0',
+            deviceIngressOrdinal: authority.deviceIngressOrdinal,
+            queueIngressOrdinal: '0',
+            receiverKind: authority.receiver.kind,
+            receiverFlags: 0,
+            receiverId: authority.receiver.id,
+            receiverGeneration: authority.receiver.generation,
+            targetKind: authority.target?.kind ?? 0,
+            targetFlags: 0,
+            targetId: authority.target?.id ?? '0',
+            targetGeneration: authority.target?.generation ?? '0',
+            resultKind: 0,
+            status: 0,
+            detachedAlreadyLost: false,
+            payload: new Uint8Array(),
+          });
+        }
+      };
       const receipt = wantsPromise && submissionStatus === 0
         ? Promise.resolve().then(async () => {
+          emitDefaultSealedTerminals();
           const defaultEvent: OperationResultEvent = {
             kind: 1,
             runtimeAddress: bridge.runtimeAddress,
@@ -218,7 +367,7 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
             ingressProviderGeneration: metadata.providerGeneration,
             deviceTransition: 0,
             operationProviderGeneration: metadata.operationProviderGeneration,
-            authorityContextDigest: new Uint8Array(32).fill(9),
+            authorityContextDigest: defaultAuthorityContextDigest,
             adapterOrdinal: metadata.adapterOrdinal,
             deviceIngressOrdinal: metadata.deviceIngressOrdinal,
             queueIngressOrdinal: metadata.queueIngressOrdinal,
@@ -232,6 +381,7 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
             targetGeneration: metadata.targetGeneration,
             resultKind: 1,
             status: 0,
+            detachedAlreadyLost: false,
             payload: new Uint8Array([1]),
           };
           const event = promiseResultHook
@@ -243,6 +393,52 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
         : wantsPromise
         ? Promise.reject(new Error('fake semantic-service submission rejection'))
         : undefined;
+      if (!wantsPromise && submissionStatus === 0) {
+        Promise.resolve().then(() => {
+          emitDefaultSealedTerminals();
+          sink?.({
+            kind: 1,
+            runtimeAddress: bridge.runtimeAddress,
+            runtimeNonce: bridge.runtimeNonce,
+            topologyId: 1,
+            operationId,
+            operationInstanceId,
+            promiseId: '0',
+            providerAdmission: 1,
+            physicalSequence: operationInstanceId,
+            capturedScopeId: metadata.capturedScopeId,
+            realmId: bridge.realmId,
+            realmGeneration: bridge.realmGeneration,
+            accountId: bridge.rootAccountId,
+            accountGeneration: bridge.rootAccountGeneration,
+            accountAuthorityDigest: bridge.rootAuthorityDigest,
+            logicalDeviceId: metadata.logicalDeviceId,
+            logicalDeviceGeneration: metadata.logicalDeviceGeneration,
+            providerGeneration: metadata.providerGeneration,
+            ingressLogicalDeviceId: metadata.logicalDeviceId,
+            ingressLogicalDeviceGeneration: metadata.logicalDeviceGeneration,
+            ingressProviderGeneration: metadata.providerGeneration,
+            deviceTransition: 0,
+            operationProviderGeneration: metadata.operationProviderGeneration,
+            authorityContextDigest: defaultAuthorityContextDigest,
+            adapterOrdinal: metadata.adapterOrdinal,
+            deviceIngressOrdinal: metadata.deviceIngressOrdinal,
+            queueIngressOrdinal: metadata.queueIngressOrdinal,
+            receiverKind: metadata.receiverKind,
+            receiverFlags: 0,
+            receiverId: metadata.receiverId,
+            receiverGeneration: metadata.receiverGeneration,
+            targetKind: metadata.targetKind,
+            targetFlags: 0,
+            targetId: metadata.targetId,
+            targetGeneration: metadata.targetGeneration,
+            resultKind: 0,
+            status: 0,
+            detachedAlreadyLost: false,
+            payload: new Uint8Array(),
+          });
+        });
+      }
       return {
         operationInstanceId,
         promiseId,
@@ -255,6 +451,32 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
       return 0;
     },
     retire: () => 0,
+    capturePresentationAuthority(operationId, metadata) {
+      presentationAuthorityCaptures.push(Object.freeze({ operationId, metadata }));
+      const hooked = capturePresentationAuthorityHook?.(operationId, metadata);
+      if (hooked !== undefined) return hooked;
+      const acquireSessionId = String(nextPresentationSession);
+      nextPresentationSession += 2;
+      return Object.freeze({
+        acquireSessionId,
+        presentSessionId: String(Number(acquireSessionId) + 1),
+        authorityContextDigest: new Uint8Array(32).fill(0x5a),
+      });
+    },
+    recheckPresentationAuthority(operationId, metadata, retained) {
+      presentationAuthorityRechecks.push(
+        Object.freeze({ operationId, metadata, retained }),
+      );
+      return recheckPresentationAuthorityHook?.(
+        operationId,
+        metadata,
+        retained,
+      ) ?? true;
+    },
+    retirePresentationAuthority(retained) {
+      presentationAuthorityRetirements.push(retained);
+      return retirePresentationAuthorityHook?.(retained) ?? 1;
+    },
     createMappedRangeAlias(source, offset, length) {
       const alias = source.slice(offset, offset + length);
       mappedRangeAliases.set(alias, Object.freeze({
@@ -305,6 +527,15 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
     setDetachMappedRangeHook(hook) {
       detachMappedRangeHook = hook;
     },
+    setCapturePresentationAuthorityHook(hook) {
+      capturePresentationAuthorityHook = hook;
+    },
+    setRecheckPresentationAuthorityHook(hook) {
+      recheckPresentationAuthorityHook = hook;
+    },
+    setRetirePresentationAuthorityHook(hook) {
+      retirePresentationAuthorityHook = hook;
+    },
   };
   return bridge;
 }
@@ -317,6 +548,7 @@ function createFakeCodecs(
     distinctLiveDevices?: boolean;
     omitAdapterDetachedState?: boolean;
     omitAdapterFeatures?: boolean;
+    omitDeviceFeatures?: boolean;
   }> = {},
 ): ExecutableWebGpuCodecBundle & {
   readonly encodings: ProductionGpuServiceEncodingInput[];
@@ -343,7 +575,10 @@ function createFakeCodecs(
         operationId === 'GPUDevice.createBindGroup' ||
         operationId === 'GPUDevice.createBindGroupLayout' ||
         operationId === 'GPUDevice.createComputePipeline' ||
+        operationId === 'GPUDevice.createQuerySet' ||
         operationId === 'GPUDevice.createRenderPipeline' ||
+        operationId === 'GPUDevice.popErrorScope' ||
+        operationId === 'GPUDevice.pushErrorScope' ||
         operationId === 'GPUBuffer.destroy' ||
         operationId === 'GPUBuffer.getMappedRange' ||
         operationId === 'GPUBuffer.mapAsync' ||
@@ -355,6 +590,11 @@ function createFakeCodecs(
         operationId === 'GPUTexture.destroy' ||
         operationId === 'GPUCanvasContext.configure' ||
         operationId === 'GPUCanvasContext.unconfigure' ||
+        operationId === 'GPUCommandEncoder.beginRenderPass' ||
+        operationId === 'GPUCommandEncoder.resolveQuerySet' ||
+        operationId === 'GPURenderPassEncoder.drawIndexed' ||
+        operationId === 'GPURenderPassEncoder.drawIndirect' ||
+        operationId === 'GPURenderPassEncoder.setIndexBuffer' ||
         operationId === 'GPURenderPassEncoder.setPipeline'
       ) {
         return WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
@@ -379,7 +619,6 @@ function createFakeCodecs(
       if (operationId === 'GPUQueue.submit') {
         return Array.from(args[0] as Iterable<unknown>);
       }
-      if (operationId === 'GPUDevice.pushErrorScope') return String(args[0]);
       if (operationId === 'GPURenderPassEncoder.draw') {
         if (args[0] === undefined) throw new TypeError('vertexCount is required');
         return Object.freeze({
@@ -397,6 +636,9 @@ function createFakeCodecs(
       encodings.push(input);
       if (
         input.operationId === 'GPUDevice.createComputePipeline' ||
+        input.operationId === 'GPUDevice.createQuerySet' ||
+        input.operationId === 'GPUDevice.pushErrorScope' ||
+        input.operationId === 'GPUDevice.popErrorScope' ||
         input.operationId === 'GPUBuffer.destroy' ||
         input.operationId === 'GPUBuffer.mapAsync' ||
         input.operationId === 'GPUBuffer.unmap' ||
@@ -409,6 +651,83 @@ function createFakeCodecs(
           .encodeServiceRequest(input);
       }
       return new Uint8Array([input.wireId & 0xff]);
+    },
+    encodeServiceRequestWithSealedOperations(input) {
+      if (input.sealedLocalTimeline.length > 0) {
+        log.push(`encode:${input.operationId}`);
+        encodings.push(input);
+        const programDigests = new Map<object, string>();
+        const programs = (input.convertedArguments as {
+          readonly commandBuffers?: readonly {
+            readonly records?: readonly object[];
+          }[];
+        })?.commandBuffers ?? [];
+        programs.forEach((program, index) => {
+          for (const record of program.records ?? []) {
+            programDigests.set(
+              record,
+              (index % 255 + 1).toString(16).padStart(2, '0').repeat(32),
+            );
+          }
+        });
+        const sealedOperations = input.sealedLocalTimeline.map((value) => {
+          const record = value as Readonly<Record<string, unknown>>;
+          const receiver = record.receiverRef as Readonly<Record<string, string>>;
+          const target = record.wrapperAllocatedTargetRef as
+            | Readonly<Record<string, string>>
+            | null;
+          const staged = record.recordIdentityClass === 'staged-local';
+          const programDigest = programDigests.get(value as object);
+          return Object.freeze({
+            identityClass: staged ? 'staged-local' as const : 'active-route' as const,
+            authorityContextSource: staged
+              ? 'staged-record' as const
+              : programDigest === undefined
+                ? 'enclosing-carrier' as const
+                : 'command-program' as const,
+            operationId: record.operationId as number,
+            operationInstanceId: record.operationInstanceId as string,
+            deviceIngressOrdinal: record.deviceIngressOrdinal as string,
+            capturedScopeId: record.capturedScopeId as string,
+            receiver: Object.freeze({
+              kind: receiver.kind as ProductionGpuWrapperKind,
+              id: receiver.objectId,
+              generation: receiver.objectGeneration,
+            }),
+            ...(target === null
+              ? {}
+              : {
+                target: Object.freeze({
+                  kind: target.kind as ProductionGpuWrapperKind,
+                  id: target.objectId,
+                  generation: target.objectGeneration,
+                }),
+              }),
+            ...(staged
+              ? {
+                authorityContextDigest:
+                  record.operationIdentitySha256 as string,
+              }
+              : programDigest === undefined
+                ? {}
+                : { authorityContextDigest: programDigest }),
+          });
+        });
+        return Object.freeze({
+          payload:
+            input.operationId === 'GPUDevice.popErrorScope' ||
+            input.operationId === 'GPUTexture.createView' ||
+            input.operationId === 'GPUTexture.destroy'
+              ? WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+                .encodeServiceRequest(input)
+              : new Uint8Array([input.wireId & 0xff]),
+          sealedOperations: Object.freeze(sealedOperations),
+        });
+      }
+      return Object.freeze({
+        payload: this.encodeServiceRequest(input),
+        sealedOperations: Object.freeze([]),
+      });
     },
     decodeServiceResult(operationId, event) {
       log.push(`decode:${operationId}`);
@@ -459,7 +778,7 @@ function createFakeCodecs(
             logicalDeviceId,
             logicalDeviceGeneration: '1',
             providerGeneration: '7',
-            features: ['timestamp-query'],
+            features: options.omitDeviceFeatures ? [] : ['timestamp-query'],
             limits: { maxBindGroups: 4 },
             queue: {
               objectId: queueObjectId,
@@ -580,6 +899,14 @@ interface TestBuffer {
 }
 
 interface TestRenderPassEncoder {
+  drawIndexed(
+    indexCount: number,
+    instanceCount?: number,
+    firstIndex?: number,
+    baseVertex?: number,
+    firstInstance?: number,
+  ): void;
+  drawIndirect(buffer: unknown, offset: number): void;
   setBindGroup(
     index: number,
     bindGroup: unknown,
@@ -592,6 +919,13 @@ interface TestRenderPassEncoder {
     dynamicOffsetsDataStart: number,
     dynamicOffsetsDataLength: number,
   ): void;
+  setIndexBuffer(
+    buffer: unknown,
+    indexFormat: 'uint16' | 'uint32',
+    offset?: number,
+    size?: number,
+  ): void;
+  setPipeline(pipeline: unknown): void;
   setVertexBuffer(
     slot: number,
     buffer: unknown,
@@ -636,6 +970,13 @@ interface TestCommandEncoder {
     destination: unknown,
     copySize: unknown,
   ): void;
+  resolveQuerySet(
+    querySet: unknown,
+    firstQuery: number,
+    queryCount: number,
+    destination: unknown,
+    destinationOffset: number,
+  ): void;
   finish(descriptor?: unknown): object;
 }
 
@@ -663,8 +1004,11 @@ interface TestRecordingDevice extends TestGpuDevice {
   createPipelineLayout(descriptor: unknown): object;
   createComputePipeline(descriptor: unknown): object;
   createRenderPipeline(descriptor: unknown): object;
+  createQuerySet(descriptor: unknown): object;
   createShaderModule(descriptor: unknown): object;
   createTexture(descriptor: unknown): object;
+  pushErrorScope(filter: 'validation' | 'out-of-memory' | 'internal'): void;
+  popErrorScope(): Promise<unknown>;
 }
 
 interface TestSealedLocalRecord {
@@ -833,6 +1177,7 @@ describe('production-private WebGPU wrapper gate', () => {
       'GPUMapMode',
       'GPUOutOfMemoryError',
       'GPUPipelineLayout',
+      'GPUQuerySet',
       'GPUQueue',
       'GPURenderPassEncoder',
       'GPURenderPipeline',
@@ -940,7 +1285,7 @@ describe('production-private WebGPU wrapper gate', () => {
 
   test('keeps the generic embedded default absent from host-selected injection', () => {
     expect(WEBGPU_PRODUCTION_PLAN.codecReadiness).toBe(
-      'generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-native-codec-not-installed',
+      'selected-build-authenticated-explicit-injection-default-ambient-undefined',
     );
   });
   test('fails closed without a V2 provider and executable codec authority', () => {
@@ -1742,12 +2087,23 @@ describe('production-private WebGPU wrapper factory', () => {
     binding.revoke();
   });
 
-  test('keeps inactive TypeGPU additions absent across semantic graduations', () => {
+  test('reports selected-build TypeGPU execution without widening support', () => {
     const staging = describeProductionWebGpuWorkloadStaging();
+    expect(staging.status).toBe(
+      'conditional-selected-build-routable-active-default-runtime-absent',
+    );
     expect(staging.supportClaim).toBe('none');
     expect(staging.nativeExecutionEvidence).toBe(
-      'none-recording-provider-is-inventory-only',
+      'source-activated-no-platform-or-cts-evidence',
     );
+    expect(staging.conditionalExecutionLane).toMatchObject({
+      classification: 'experimental-selected-build-only',
+      defaultRuntimeInstallation: 'absent',
+      workerInstallation: 'absent',
+      ctsEvidence: 'absent',
+      platformQualificationEvidence: 'absent',
+      supportClaim: 'none',
+    });
     expect(staging.typegpuVersion).toBe('0.11.9');
     expect(staging.activeRouteOperationCount).toBe(
       WEBGPU_PRODUCTION_PLAN.routes.length,
@@ -1757,16 +2113,22 @@ describe('production-private WebGPU wrapper factory', () => {
     expect(staging.additionalOperationCount).toBe(
       staging.additionalOperations.length,
     );
-    expect(staging.additionalOperationCount).toBeLessThanOrEqual(14);
-    expect(staging.blockers).toHaveLength(5);
+    expect(staging.additionalOperationCount).toBe(0);
+    expect(staging.claimBoundaryAbsences).toEqual([
+      'default-runtime-installation',
+      'canonical-public-support-surface',
+      'worker-runtime-installation',
+      'webgpu-cts-evidence',
+      'platform-qualification-evidence',
+    ]);
     expect(staging.embeddedCodecRule).toBe(
-      'EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined',
+      'EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined-selected-build-uses-authenticated-explicit-injection',
     );
     expect(Object.isFrozen(staging)).toBe(true);
     expect(Object.isFrozen(staging.additionalOperations)).toBe(true);
     expect(Object.isFrozen(staging.localRecordingSubset)).toBe(true);
     expect(Object.isFrozen(staging.localRecordingSubset.operations)).toBe(true);
-    expect(Object.isFrozen(staging.blockers)).toBe(true);
+    expect(Object.isFrozen(staging.claimBoundaryAbsences)).toBe(true);
     expect(Object.fromEntries(
       staging.localRecordingSubset.operations.map((operation) => [
         operation.operationId,
@@ -1777,31 +2139,7 @@ describe('production-private WebGPU wrapper factory', () => {
       ]),
     )).toEqual(EXPECTED_STAGED_LOCAL_RECORD_IDENTITIES);
 
-    const binding = createProductionWebGpuPrivateBinding(
-      createFakeBridge(),
-      createFakeCodecs(),
-    );
-    for (const operation of staging.additionalOperations) {
-      const separator = operation.operationId.indexOf('.');
-      const interfaceName = operation.operationId.slice(0, separator);
-      const memberName = operation.operationId.slice(separator + 1);
-      const interfaceObject = binding.interfaceObjects[interfaceName] as
-        | { readonly prototype: object }
-        | undefined;
-      const descriptor = interfaceObject === undefined
-        ? undefined
-        : Object.getOwnPropertyDescriptor(interfaceObject.prototype, memberName);
-      if (operation.disposition === 'private-wrapper-local-recording-no-dispatch') {
-        expect(descriptor?.value).toBeFunction();
-        expect(WEBGPU_PRODUCTION_PLAN.routes).not.toContainEqual(
-          expect.objectContaining({ operationId: operation.operationId }),
-        );
-      } else {
-        expect(operation.disposition).toBe('staged-unroutable-no-prototype-member');
-        expect(descriptor).toBeUndefined();
-      }
-    }
-    binding.revoke();
+    expect(staging.additionalOperations).toEqual([]);
   });
 
   test('materializes only routes whose native and CapSec installation gates are closed', () => {
@@ -1810,7 +2148,7 @@ describe('production-private WebGPU wrapper factory', () => {
       createFakeCodecs(),
     );
     expect(WEBGPU_PRODUCTION_PLAN.routes.length).toBeGreaterThanOrEqual(41);
-    expect(Object.keys(binding.interfaceObjects)).toHaveLength(26);
+    expect(Object.keys(binding.interfaceObjects)).toHaveLength(27);
     expect(Object.keys(binding.constantObjects)).toHaveLength(5);
     for (const selected of WEBGPU_PRODUCTION_PLAN.routes) {
       const interfaceObject = binding.interfaceObjects[selected.interfaceName] as {
@@ -2564,6 +2902,18 @@ describe('production-private WebGPU wrapper factory', () => {
       size: [16, 16, 1],
       usage: 2,
     });
+    const querySet = device.createQuerySet({
+      count: 4,
+      type: 'occlusion',
+    });
+    const queryResolveBuffer = device.createBuffer({
+      size: 2_048,
+      usage: 512,
+    });
+    const indexIndirectBuffer = device.createBuffer({
+      size: 2_048,
+      usage: 16 | 256,
+    });
     const shader = device.createShaderModule({ code: '@vertex fn main() {}' });
     const renderPipeline = device.createRenderPipeline({
       layout: 'auto',
@@ -2582,6 +2932,7 @@ describe('production-private WebGPU wrapper factory', () => {
       { texture: destinationTexture, origin: { x: 2, y: 1, z: 0 } },
       copyExtent,
     );
+    encoder.resolveQuerySet(querySet, 0, 1, queryResolveBuffer, 0);
     sourceOrigin[0] = 9;
     copyExtent[0] = 10;
 
@@ -2590,6 +2941,10 @@ describe('production-private WebGPU wrapper factory', () => {
     renderPass.setBindGroup(0, bindGroup, renderOffsets, 1, 1);
     renderOffsets[1] = 41;
     renderPass.setVertexBuffer(0, copyDestination, 0, 8);
+    renderPass.setPipeline(renderPipeline);
+    renderPass.setIndexBuffer(indexIndirectBuffer, 'uint16', 0);
+    renderPass.drawIndexed(3);
+    renderPass.drawIndirect(indexIndirectBuffer, 0);
     renderPass.end();
 
     const computePass = encoder.beginComputePass({ label: 'dormant-\ud800-compute' });
@@ -2758,10 +3113,14 @@ describe('production-private WebGPU wrapper factory', () => {
     );
     const device = await requestTestRecordingDevice(binding);
     const encoder = device.createCommandEncoder();
+    const querySet = device.createQuerySet({
+      type: 'occlusion',
+      count: 1,
+    });
     const submissionsBeforeRecording = bridge.submissions.length;
     const pass = encoder.beginComputePass({
       timestampWrites: {
-        querySet: Object.freeze({}),
+        querySet,
         beginningOfPassWriteIndex: 0,
       },
     });
@@ -2802,6 +3161,346 @@ describe('production-private WebGPU wrapper factory', () => {
     });
     expect(computeRecords[1].passRef).toEqual(computeRecords[0].passRef);
     expect(computeRecords[2].passRef).toEqual(computeRecords[0].passRef);
+    binding.revoke();
+  });
+
+  test('converts pass timestamp dictionaries exactly once before wrong-brand rejection and leaves encoders unlocked', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const device = await requestTestRecordingDevice(binding);
+    const encoder = device.createCommandEncoder();
+    const wrongBrandedQuerySet = device.createBuffer({ size: 16, usage: 8 });
+    const baseline = inspectBinding(binding).current;
+    const submissionCount = bridge.submissions.length;
+    const encodingCount = codecs.encodings.length;
+
+    const timestampDescriptor = (
+      prefix: string,
+      candidate: unknown,
+      reads: string[],
+    ) => {
+      const descriptor = Object.create(null);
+      for (const [name, value] of [
+        ['beginningOfPassWriteIndex', 0],
+        ['endOfPassWriteIndex', 1],
+        ['querySet', candidate],
+      ] as const) {
+        Object.defineProperty(descriptor, name, {
+          get() {
+            reads.push(`${prefix}.timestampWrites.${name}`);
+            return value;
+          },
+        });
+      }
+      return descriptor;
+    };
+    const computeDescriptor = (candidate: unknown, reads: string[]) => {
+      const descriptor = Object.create(null);
+      for (const [name, value] of [
+        ['label', 'compute-brand-rejection'],
+        ['timestampWrites', timestampDescriptor('compute', candidate, reads)],
+      ] as const) {
+        Object.defineProperty(descriptor, name, {
+          get() {
+            reads.push(`compute.${name}`);
+            return value;
+          },
+        });
+      }
+      return descriptor;
+    };
+    const renderDescriptor = (candidate: unknown, reads: string[]) => {
+      const descriptor = Object.create(null);
+      for (const [name, value] of [
+        ['label', 'render-brand-rejection'],
+        ['colorAttachments', []],
+        ['timestampWrites', timestampDescriptor('render', candidate, reads)],
+      ] as const) {
+        Object.defineProperty(descriptor, name, {
+          get() {
+            reads.push(`render.${name}`);
+            return value;
+          },
+        });
+      }
+      return descriptor;
+    };
+
+    for (const candidate of [{}, wrongBrandedQuerySet]) {
+      const computeReads: string[] = [];
+      expect(() =>
+        encoder.beginComputePass(
+          computeDescriptor(candidate, computeReads),
+        )).toThrow(TypeError);
+      expect(computeReads).toEqual([
+        'compute.label',
+        'compute.timestampWrites',
+        'compute.timestampWrites.beginningOfPassWriteIndex',
+        'compute.timestampWrites.endOfPassWriteIndex',
+        'compute.timestampWrites.querySet',
+      ]);
+
+      const renderReads: string[] = [];
+      expect(() =>
+        encoder.beginRenderPass(
+          renderDescriptor(candidate, renderReads),
+        )).toThrow(TypeError);
+      expect(renderReads).toEqual([
+        'render.label',
+        'render.colorAttachments',
+        'render.timestampWrites',
+        'render.timestampWrites.beginningOfPassWriteIndex',
+        'render.timestampWrites.endOfPassWriteIndex',
+        'render.timestampWrites.querySet',
+      ]);
+    }
+    const after = inspectBinding(binding).current;
+    expect(after.activePassCount).toBe(0);
+    expect(after.allocatedWrapperCount).toBe(baseline.allocatedWrapperCount);
+    expect(after.pendingLocalRecordCount).toBe(baseline.pendingLocalRecordCount);
+    expect(bridge.submissions).toHaveLength(submissionCount);
+    expect(codecs.encodings).toHaveLength(encodingCount);
+    binding.revoke();
+  });
+
+  test('retains exact Bone Tide render and compute timestamp references and indices', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const device = await requestTestRecordingDevice(binding);
+    const querySet = device.createQuerySet({
+      count: 2,
+      label: 'bone-tide-timestamps',
+      type: 'timestamp',
+    });
+    const querySetEncoding = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUDevice.createQuerySet',
+    );
+    if (!querySetEncoding?.target) {
+      throw new Error('missing Bone Tide query-set target');
+    }
+    const querySetReference = querySetEncoding.target;
+    expect(Object.keys(querySetReference).sort()).toEqual([
+      'kind',
+      'logicalDeviceGeneration',
+      'logicalDeviceId',
+      'objectGeneration',
+      'objectId',
+      'providerGeneration',
+    ]);
+
+    const encoder = device.createCommandEncoder({ label: 'bone-tide-encoder' });
+    const frameBegin = encoder.beginRenderPass({
+      label: 'bone-tide-frame-begin',
+      colorAttachments: [],
+      timestampWrites: {
+        querySet,
+        beginningOfPassWriteIndex: 0,
+      },
+    });
+    frameBegin.end();
+    const frameEnd = encoder.beginRenderPass({
+      label: 'bone-tide-frame-end',
+      colorAttachments: [],
+      timestampWrites: {
+        querySet,
+        endOfPassWriteIndex: 1,
+      },
+    });
+    frameEnd.end();
+    const compute = encoder.beginComputePass({
+      label: 'bone-tide-compute',
+      timestampWrites: {
+        querySet,
+        beginningOfPassWriteIndex: 0,
+        endOfPassWriteIndex: 1,
+      },
+    });
+    compute.end();
+    device.queue.submit([encoder.finish()]);
+
+    const submitEncoding = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUQueue.submit',
+    );
+    if (!submitEncoding) throw new Error('missing Bone Tide queue submission');
+    const beginRecords = localRecords(submitEncoding).filter(
+      (record) =>
+        record.operationName === 'GPUCommandEncoder.beginRenderPass' ||
+        record.operationName === 'GPUCommandEncoder.beginComputePass',
+    );
+    expect(beginRecords).toHaveLength(3);
+    expect(beginRecords.every((record) => record.logicalError === null)).toBe(
+      true,
+    );
+    expect(beginRecords.map((record) => record.argumentBody)).toEqual([
+      {
+        label: 'bone-tide-frame-begin',
+        colorAttachments: [],
+        timestampWrites: {
+          beginningOfPassWriteIndex: 0,
+          endOfPassWriteIndex: null,
+          querySet: querySetReference,
+        },
+      },
+      {
+        label: 'bone-tide-frame-end',
+        colorAttachments: [],
+        timestampWrites: {
+          beginningOfPassWriteIndex: null,
+          endOfPassWriteIndex: 1,
+          querySet: querySetReference,
+        },
+      },
+      {
+        label: 'bone-tide-compute',
+        timestampWrites: {
+          beginningOfPassWriteIndex: 0,
+          endOfPassWriteIndex: 1,
+          querySet: querySetReference,
+        },
+      },
+    ]);
+    binding.revoke();
+  });
+
+  test('applies every timestamp-write semantic gate after locking render and compute passes', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs([], { distinctLiveDevices: true });
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const firstDevice = await requestTestRecordingDevice(binding);
+    const secondDevice = await requestTestRecordingDevice(binding);
+    const firstTimestamp = firstDevice.createQuerySet({
+      count: 2,
+      label: 'first-timestamp',
+      type: 'timestamp',
+    });
+    const firstOcclusion = firstDevice.createQuerySet({
+      count: 2,
+      label: 'first-occlusion',
+      type: 'occlusion',
+    });
+    const foreignTimestamp = secondDevice.createQuerySet({
+      count: 2,
+      label: 'foreign-timestamp',
+      type: 'timestamp',
+    });
+    const queryReferences = new Map(
+      codecs.encodings
+        .filter((encoding) => encoding.operationId === 'GPUDevice.createQuerySet')
+        .map((encoding) => [
+          (encoding.convertedArguments as { label: string }).label,
+          encoding.target,
+        ]),
+    );
+    const cases = [
+      {
+        name: 'wrong-type',
+        querySet: firstOcclusion,
+        queryLabel: 'first-occlusion',
+        beginningOfPassWriteIndex: 0,
+        endOfPassWriteIndex: undefined,
+      },
+      {
+        name: 'missing-indices',
+        querySet: firstTimestamp,
+        queryLabel: 'first-timestamp',
+        beginningOfPassWriteIndex: undefined,
+        endOfPassWriteIndex: undefined,
+      },
+      {
+        name: 'out-of-range',
+        querySet: firstTimestamp,
+        queryLabel: 'first-timestamp',
+        beginningOfPassWriteIndex: 2,
+        endOfPassWriteIndex: undefined,
+      },
+      {
+        name: 'duplicate-indices',
+        querySet: firstTimestamp,
+        queryLabel: 'first-timestamp',
+        beginningOfPassWriteIndex: 0,
+        endOfPassWriteIndex: 0,
+      },
+      {
+        name: 'foreign-device',
+        querySet: foreignTimestamp,
+        queryLabel: 'foreign-timestamp',
+        beginningOfPassWriteIndex: 0,
+        endOfPassWriteIndex: undefined,
+      },
+    ] as const;
+    const commandBuffers: object[] = [];
+    for (const passKind of ['render', 'compute'] as const) {
+      for (const row of cases) {
+        const encoder = firstDevice.createCommandEncoder();
+        const timestampWrites = {
+          querySet: row.querySet,
+          beginningOfPassWriteIndex: row.beginningOfPassWriteIndex,
+          endOfPassWriteIndex: row.endOfPassWriteIndex,
+        };
+        const pass = passKind === 'render'
+          ? encoder.beginRenderPass({
+            label: `${passKind}-${row.name}`,
+            colorAttachments: [],
+            timestampWrites,
+          })
+          : encoder.beginComputePass({
+            label: `${passKind}-${row.name}`,
+            timestampWrites,
+          });
+        expect(inspectBinding(binding).current.activePassCount).toBe(1);
+        pass.end();
+        expect(inspectBinding(binding).current.activePassCount).toBe(0);
+        commandBuffers.push(encoder.finish());
+      }
+    }
+    firstDevice.queue.submit(commandBuffers);
+
+    const submitEncoding = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUQueue.submit',
+    );
+    if (!submitEncoding) throw new Error('missing timestamp-gate submission');
+    const beginRecords = localRecords(submitEncoding).filter(
+      (record) =>
+        record.operationName === 'GPUCommandEncoder.beginRenderPass' ||
+        record.operationName === 'GPUCommandEncoder.beginComputePass',
+    );
+    expect(beginRecords).toHaveLength(cases.length * 2);
+    for (const passKind of ['render', 'compute'] as const) {
+      for (const row of cases) {
+        const record = beginRecords.find(
+          (candidate) =>
+            (candidate.argumentBody as { label: string }).label ===
+              `${passKind}-${row.name}`,
+        );
+        if (!record) throw new Error(`missing ${passKind}-${row.name} record`);
+        expect(record.logicalError).toMatchObject({
+          name: 'GPUValidationError',
+          message: expect.stringContaining('timestamp'),
+        });
+        expect(record.argumentBody).toMatchObject({
+          timestampWrites: {
+            beginningOfPassWriteIndex:
+              row.beginningOfPassWriteIndex ?? null,
+            endOfPassWriteIndex: row.endOfPassWriteIndex ?? null,
+            querySet: queryReferences.get(row.queryLabel),
+          },
+        });
+      }
+    }
     binding.revoke();
   });
 
@@ -2899,6 +3598,405 @@ describe('production-private WebGPU wrapper factory', () => {
     );
     expect(localRecords(suffixFlush)[0]).not.toBe(localRecords(accepted)[0]);
     expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(0);
+    binding.revoke();
+  });
+
+  test('records the TypeGPU query and indexed-draw path with full references, signed base vertex, and omitted index size', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const device = await requestTestRecordingDevice(binding);
+    const querySet = device.createQuerySet({
+      count: 4,
+      label: 'typegpu-query-set',
+      type: 'occlusion',
+    });
+    const sharedBuffer = device.createBuffer({
+      label: 'typegpu-index-indirect-query-buffer',
+      size: 2_048,
+      usage: 16 | 256 | 512,
+    });
+    const shader = device.createShaderModule({
+      code: '@vertex fn main() {}',
+    });
+    const pipeline = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module: shader },
+    });
+    const encoder = device.createCommandEncoder({ label: 'typegpu-encoder' });
+    encoder.resolveQuerySet(querySet, 1, 2, sharedBuffer, 256);
+    const pass = encoder.beginRenderPass({ colorAttachments: [] });
+    pass.setPipeline(pipeline);
+    pass.setIndexBuffer(sharedBuffer, 'uint16', 0);
+    pass.drawIndexed(3, 2, 1, -7, 4);
+    pass.drawIndirect(sharedBuffer, 512);
+    pass.end();
+    const commandBuffer = encoder.finish();
+
+    const submissionCount = bridge.submissions.length;
+    device.queue.submit([commandBuffer]);
+    expect(bridge.submissions).toHaveLength(submissionCount + 1);
+    const submitEncoding = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUQueue.submit',
+    );
+    if (!submitEncoding) throw new Error('missing TypeGPU queue submission');
+    const records = localRecords(submitEncoding);
+    const byName = new Map(
+      records.map((record) => [record.operationName, record]),
+    );
+    for (const operationName of [
+      'GPUCommandEncoder.resolveQuerySet',
+      'GPURenderPassEncoder.drawIndexed',
+      'GPURenderPassEncoder.drawIndirect',
+      'GPURenderPassEncoder.setIndexBuffer',
+    ]) {
+      const record = byName.get(operationName);
+      expect(record).toBeDefined();
+      expect(record?.recordIdentityClass).toBe('active-route');
+      expect(record?.operationId).toBe(
+        WEBGPU_PRODUCTION_PLAN.routes.find(
+          (route) => route.operationId === operationName,
+        )?.wireId,
+      );
+      expect(record?.logicalError).toBeNull();
+    }
+    expect(byName.get('GPUCommandEncoder.resolveQuerySet')?.argumentBody)
+      .toMatchObject({
+        querySet: {
+          kind: 'GPUQuerySet',
+          logicalDeviceId: '301',
+          logicalDeviceGeneration: '1',
+          providerGeneration: '7',
+        },
+        firstQuery: 1,
+        queryCount: 2,
+        destination: {
+          kind: 'GPUBuffer',
+          logicalDeviceId: '301',
+          logicalDeviceGeneration: '1',
+          providerGeneration: '7',
+        },
+        destinationOffset: 256,
+      });
+    expect(byName.get('GPURenderPassEncoder.setIndexBuffer')?.argumentBody)
+      .toMatchObject({
+        buffer: {
+          kind: 'GPUBuffer',
+          logicalDeviceId: '301',
+          logicalDeviceGeneration: '1',
+          providerGeneration: '7',
+        },
+        indexFormat: 'uint16',
+        offset: 0,
+        sizePresent: false,
+        size: 0,
+      });
+    expect(byName.get('GPURenderPassEncoder.drawIndexed')?.argumentBody)
+      .toEqual({
+        indexCount: 3,
+        instanceCount: 2,
+        firstIndex: 1,
+        baseVertex: -7,
+        firstInstance: 4,
+      });
+    expect(byName.get('GPURenderPassEncoder.drawIndirect')?.argumentBody)
+      .toMatchObject({
+        indirectBuffer: {
+          kind: 'GPUBuffer',
+          logicalDeviceId: '301',
+          logicalDeviceGeneration: '1',
+          providerGeneration: '7',
+        },
+        indirectOffset: 512,
+      });
+    binding.revoke();
+  });
+
+  test('gates timestamp query sets before target allocation, ingress consumption, or service submission', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs([], { omitDeviceFeatures: true });
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const device = await requestTestRecordingDevice(binding);
+    const before = inspectBinding(binding).current;
+    const submissionCount = bridge.submissions.length;
+    const encodingCount = codecs.encodings.length;
+    expect(() => device.createQuerySet({
+      count: 2,
+      label: 'unsupported-timestamp-query',
+      type: 'timestamp',
+    })).toThrow('requires feature timestamp-query');
+    expect(inspectBinding(binding).current.allocatedWrapperCount).toBe(
+      before.allocatedWrapperCount,
+    );
+    expect(bridge.submissions).toHaveLength(submissionCount);
+    expect(codecs.encodings).toHaveLength(encodingCount);
+
+    device.createQuerySet({
+      count: 2,
+      label: 'supported-occlusion-query',
+      type: 'occlusion',
+    });
+    const submitted = bridge.submissions.findLast(
+      (submission) =>
+        submission.operationId === WEBGPU_PRODUCTION_PLAN.routes.find(
+          (route) => route.operationId === 'GPUDevice.createQuerySet',
+        )?.wireId,
+    );
+    expect(submitted?.metadata.deviceIngressOrdinal).toBe('1');
+    const encoded = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUDevice.createQuerySet',
+    );
+    expect(encoded).toMatchObject({
+      convertedArguments: {
+        count: 2,
+        label: 'supported-occlusion-query',
+        type: 'occlusion',
+      },
+      target: {
+        kind: 'GPUQuerySet',
+        logicalDeviceId: '301',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+    });
+    binding.revoke();
+  });
+
+  test('transports source-affine error-scope transitions and seals the pop timeline', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const device = await requestTestRecordingDevice(binding);
+    device.pushErrorScope('validation');
+    const pushed = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUDevice.pushErrorScope',
+    );
+    if (!pushed) throw new Error('missing pushErrorScope encoding');
+    expect(pushed).toMatchObject({
+      convertedArguments: 'validation',
+      capturedScopeId: '0',
+      errorScopeService: {
+        kind: 'push-error-scope-v1',
+        scopeId: '1',
+        filter: 'validation',
+        scopeStackGeneration: '1',
+        precedingScopeId: '0',
+      },
+    });
+    expect(pushed.sealedLocalTimeline).toEqual([]);
+    expect(
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+        bridge.submissions.findLast(
+          (submission) =>
+            submission.operationId === WEBGPU_PRODUCTION_PLAN.routes.find(
+              (route) => route.operationId === 'GPUDevice.pushErrorScope',
+            )?.wireId,
+        )!.payload,
+      ),
+    ).toMatchObject({
+      convertedArguments: 'validation',
+      capturedScopeId: '0',
+      errorScopeService: {
+        kind: 'push-error-scope-v1',
+        scopeId: '1',
+        filter: 'validation',
+        scopeStackGeneration: '1',
+        precedingScopeId: '0',
+      },
+      sealedLocalTimeline: [],
+    });
+
+    const destination = device.createBuffer({ size: 16, usage: 8 });
+    const encoder = device.createCommandEncoder();
+    encoder.clearBuffer(destination, 0, 4);
+    expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(1);
+    expect(await device.popErrorScope()).toBeNull();
+    const popped = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUDevice.popErrorScope',
+    );
+    if (!popped) throw new Error('missing popErrorScope encoding');
+    expect(popped).toMatchObject({
+      convertedArguments: null,
+      capturedScopeId: '1',
+      errorScopeService: {
+        kind: 'pop-error-scope-v1',
+        scopeId: '1',
+        scopeStackGeneration: '2',
+      },
+    });
+    expect(localRecords(popped)).toHaveLength(1);
+    expect(localRecords(popped)[0]).toMatchObject({
+      operationName: 'GPUCommandEncoder.clearBuffer',
+      capturedScopeId: '1',
+      logicalError: null,
+    });
+    const popSubmission = bridge.submissions.findLast(
+      (submission) =>
+        submission.operationId === WEBGPU_PRODUCTION_PLAN.routes.find(
+          (route) => route.operationId === 'GPUDevice.popErrorScope',
+        )?.wireId,
+    );
+    if (!popSubmission) throw new Error('missing popErrorScope submission');
+    expect(
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+        popSubmission.payload,
+      ),
+    ).toMatchObject({
+      convertedArguments: null,
+      capturedScopeId: '1',
+      errorScopeService: {
+        kind: 'pop-error-scope-v1',
+        scopeId: '1',
+        scopeStackGeneration: '2',
+      },
+      sealedLocalTimeline: [{
+        operationName: 'GPUCommandEncoder.clearBuffer',
+        capturedScopeId: '1',
+      }],
+    });
+    expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(0);
+    binding.revoke();
+  });
+
+  test('captures and removes the popped scope before a same-job push', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const device = await requestTestRecordingDevice(binding);
+
+    device.pushErrorScope('validation');
+    const popped = device.popErrorScope();
+    device.pushErrorScope('internal');
+
+    const transitions = codecs.encodings.filter(
+      (encoding) =>
+        encoding.operationId === 'GPUDevice.pushErrorScope' ||
+        encoding.operationId === 'GPUDevice.popErrorScope',
+    );
+    expect(transitions).toHaveLength(3);
+    expect(transitions[1]).toMatchObject({
+      operationId: 'GPUDevice.popErrorScope',
+      capturedScopeId: '1',
+      errorScopeService: {
+        kind: 'pop-error-scope-v1',
+        scopeId: '1',
+        scopeStackGeneration: '2',
+      },
+    });
+    expect(transitions[2]).toMatchObject({
+      operationId: 'GPUDevice.pushErrorScope',
+      convertedArguments: 'internal',
+      capturedScopeId: '0',
+      errorScopeService: {
+        kind: 'push-error-scope-v1',
+        scopeId: '2',
+        filter: 'internal',
+        scopeStackGeneration: '3',
+        precedingScopeId: '0',
+      },
+    });
+    expect(await popped).toBeNull();
+    binding.revoke();
+  });
+
+  test('rejects a live empty pop without submitting or consuming service ingress', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const device = await requestTestRecordingDevice(binding);
+    const submissionCount = bridge.submissions.length;
+    const encodingCount = codecs.encodings.length;
+
+    const emptyPop = device.popErrorScope();
+    const emptyRejection = expect(emptyPop).rejects.toMatchObject({
+      name: 'OperationError',
+    });
+    expect(bridge.submissions).toHaveLength(submissionCount);
+    expect(codecs.encodings).toHaveLength(encodingCount);
+    await emptyRejection;
+
+    device.pushErrorScope('validation');
+    expect(bridge.submissions.at(-1)?.metadata.deviceIngressOrdinal).toBe('1');
+    expect(codecs.encodings.at(-1)).toMatchObject({
+      operationId: 'GPUDevice.pushErrorScope',
+      errorScopeService: {
+        scopeId: '1',
+        scopeStackGeneration: '1',
+        precedingScopeId: '0',
+      },
+    });
+    binding.revoke();
+  });
+
+  test('resolves a lost-device pop without submission and still mirrors lost pushes', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const device = await requestTestRecordingDevice(binding);
+    device.pushErrorScope('validation');
+    emitProviderLoss(bridge);
+    await device.lost;
+    const submissionCount = bridge.submissions.length;
+    const encodingCount = codecs.encodings.length;
+
+    const lostPop = device.popErrorScope();
+    expect(bridge.submissions).toHaveLength(submissionCount);
+    expect(codecs.encodings).toHaveLength(encodingCount);
+    expect(await lostPop).toBeNull();
+
+    device.pushErrorScope('internal');
+    expect(bridge.submissions.at(-1)?.metadata.deviceIngressOrdinal).toBe('2');
+    expect(codecs.encodings.at(-1)).toMatchObject({
+      operationId: 'GPUDevice.pushErrorScope',
+      convertedArguments: 'internal',
+      capturedScopeId: '0',
+      errorScopeService: {
+        kind: 'push-error-scope-v1',
+        scopeId: '2',
+        filter: 'internal',
+        scopeStackGeneration: '3',
+        precedingScopeId: '0',
+      },
+    });
+
+    device.pushErrorScope('out-of-memory');
+    expect(bridge.submissions.at(-1)?.metadata.deviceIngressOrdinal).toBe('3');
+    expect(codecs.encodings.at(-1)).toMatchObject({
+      operationId: 'GPUDevice.pushErrorScope',
+      convertedArguments: 'out-of-memory',
+      capturedScopeId: '2',
+      errorScopeService: {
+        kind: 'push-error-scope-v1',
+        scopeId: '3',
+        filter: 'out-of-memory',
+        scopeStackGeneration: '4',
+        precedingScopeId: '2',
+      },
+    });
     binding.revoke();
   });
 
@@ -3476,16 +4574,37 @@ describe('production-private WebGPU wrapper factory', () => {
         encoding.operationId === 'GPUTexture.destroy' &&
         encoding.receiver.objectId === firstRequest.receiver.objectId,
     );
-    expect(firstDestroyEncodings).toHaveLength(2);
+    expect(firstDestroyEncodings).toHaveLength(3);
     expect(firstDestroyEncodings.map((encoding) =>
-      (encoding.canvasService as ProductionGpuCanvasServiceEncoding & {
-        readonly terminalIntent: string;
-      }).terminalIntent)).toEqual([
-      'first-expired-cleanup',
-      'repeat-cleanup-noop',
+      encoding.canvasService)).toMatchObject([
+      {
+        kind: 'texture-expire-v1',
+        expiryIntent: 'host-task-expiry',
+        materializationState: 'materialized',
+      },
+      {
+        kind: 'texture-destroy-v1',
+        terminalIntent: 'repeat-cleanup-noop',
+        materializationState: 'materialized',
+      },
+      {
+        kind: 'texture-destroy-v1',
+        terminalIntent: 'repeat-cleanup-noop',
+        materializationState: 'materialized',
+      },
     ]);
     expect(firstDestroyEncodings[0]?.convertedArguments).toBeNull();
     expect(firstDestroyEncodings[0]?.canvasService).toMatchObject({
+      kind: 'texture-expire-v1',
+      materializationState: 'materialized',
+      origin: {
+        kind: 'canvas-current-v1',
+        contextRef: firstOrigin.contextRef,
+        configurationGeneration: '1',
+        currentEpoch: '1',
+      },
+    });
+    expect(firstDestroyEncodings[1]?.canvasService).toMatchObject({
       kind: 'texture-destroy-v1',
       materializationState: 'materialized',
       origin: {
@@ -3523,6 +4642,164 @@ describe('production-private WebGPU wrapper factory', () => {
     });
     expect(await lost).toEqual({ reason: 'unknown', message: 'loss-4' });
     binding.revoke();
+  });
+
+  test('does not publish or consume counters when first presentation capture is denied', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+      { enableStateInspection: true },
+    );
+    const device = await requestTestDevice(binding);
+    const context = mintTestCanvasContext(binding);
+    context.configure({ device, format: 'bgra8unorm' });
+    bridge.setCapturePresentationAuthorityHook(() => null);
+
+    expect(() => context.getCurrentTexture()).toThrow('authority was denied');
+    expect(bridge.presentationAuthorityCaptures).toHaveLength(1);
+    expect(bridge.presentationAuthorityRetirements).toEqual([]);
+    const deniedMetadata = bridge.presentationAuthorityCaptures[0]!.metadata;
+    const afterDenied = inspectBinding(binding).current;
+
+    bridge.setCapturePresentationAuthorityHook(undefined);
+    const texture = context.getCurrentTexture();
+    expect(texture).toBeObject();
+    expect(bridge.presentationAuthorityCaptures).toHaveLength(2);
+    expect(bridge.presentationAuthorityCaptures[1]!.metadata)
+      .toEqual(deniedMetadata);
+    expect(inspectBinding(binding).current.allocatedWrapperCount)
+      .toBe(afterDenied.allocatedWrapperCount + 1);
+    binding.revoke();
+  });
+
+  test('retires first presentation capture and closes after a partial wrapper commit', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+      { enableStateInspection: true },
+    );
+    const device = await requestTestDevice(binding);
+    const context = mintTestCanvasContext(binding);
+    context.configure({ device, format: 'bgra8unorm' });
+    bridge.setCapturePresentationAuthorityHook(() => {
+      device.createBuffer({ size: 4, usage: 1 });
+      return undefined;
+    });
+
+    expect(() => context.getCurrentTexture()).toThrow(
+      'wrapper allocation plan is stale',
+    );
+    expect(bridge.presentationAuthorityCaptures).toHaveLength(1);
+    expect(bridge.presentationAuthorityRetirements).toHaveLength(1);
+    expect(inspectBinding(binding).current).toMatchObject({
+      active: false,
+      closeReason: 'wrapper-allocation-plan-conflict',
+    });
+    binding.revoke();
+    expect(bridge.presentationAuthorityRetirements).toHaveLength(1);
+  });
+
+  test('does not commit a denied same-epoch recheck and retries the same counters', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const device = await requestTestDevice(binding);
+    const context = mintTestCanvasContext(binding);
+    context.configure({ device, format: 'bgra8unorm' });
+    const texture = context.getCurrentTexture();
+    bridge.setRecheckPresentationAuthorityHook(() => false);
+
+    expect(() => context.getCurrentTexture()).toThrow('authority was denied');
+    expect(bridge.presentationAuthorityRechecks).toHaveLength(1);
+    const deniedMetadata = bridge.presentationAuthorityRechecks[0]!.metadata;
+
+    bridge.setRecheckPresentationAuthorityHook(undefined);
+    expect(context.getCurrentTexture()).toBe(texture);
+    expect(bridge.presentationAuthorityRechecks).toHaveLength(2);
+    expect(bridge.presentationAuthorityRechecks[1]!.metadata)
+      .toEqual(deniedMetadata);
+    texture.createView();
+    const createView = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUTexture.createView',
+    );
+    if (!createView) throw new Error('missing createView carrier');
+    expect(localRecords(createView)).toHaveLength(2);
+    binding.revoke();
+  });
+
+  test('closes on structurally invalid recheck and retires the live pair once', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+      { enableStateInspection: true },
+    );
+    const device = await requestTestDevice(binding);
+    const context = mintTestCanvasContext(binding);
+    context.configure({ device, format: 'bgra8unorm' });
+    context.getCurrentTexture();
+    bridge.setRecheckPresentationAuthorityHook(() => {
+      throw new Error('malformed Host output');
+    });
+
+    expect(() => context.getCurrentTexture()).toThrow(
+      'presentation authority recheck failed',
+    );
+    expect(inspectBinding(binding).current).toMatchObject({
+      active: false,
+      closeReason: 'canvas-presentation-recheck-invalid',
+    });
+    expect(bridge.presentationAuthorityRetirements).toHaveLength(1);
+  });
+
+  test('realm revoke expires every retained presentation pair through source-affine controls', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const device = await requestTestDevice(binding);
+    const firstContext = mintTestCanvasContext(binding);
+    const secondContext = mintSecondTestCanvasContext(binding);
+    firstContext.configure({ device, format: 'bgra8unorm' });
+    secondContext.configure({ device, format: 'rgba8unorm' });
+    firstContext.getCurrentTexture();
+    secondContext.getCurrentTexture().createView();
+    expect(bridge.presentationAuthorityCaptures).toHaveLength(2);
+
+    binding.revoke();
+    expect(bridge.presentationAuthorityRetirements).toHaveLength(0);
+    const expiryEncodings = codecs.encodings.filter(
+      (encoding) => encoding.operationId === 'GPUTexture.destroy',
+    );
+    expect(expiryEncodings.map((encoding) => encoding.canvasService)).toMatchObject([
+      {
+        kind: 'texture-destroy-v1',
+        terminalIntent: 'first-cleanup',
+        materializationState: 'unmaterialized',
+      },
+      {
+        kind: 'texture-expire-v1',
+        materializationState: 'materialized',
+      },
+      {
+        kind: 'texture-expire-v1',
+        materializationState: 'materialized',
+      },
+    ]);
+    binding.revoke();
+    expect(bridge.presentationAuthorityRetirements).toHaveLength(0);
+    expect(codecs.encodings.filter(
+      (encoding) => encoding.operationId === 'GPUTexture.destroy',
+    )).toHaveLength(expiryEncodings.length);
   });
 
   test('converts canvas configuration once in Web IDL dictionary order', async () => {
@@ -3874,24 +5151,45 @@ describe('production-private WebGPU wrapper factory', () => {
     const lifecycle = codecs.encodings.filter(
       (encoding) => encoding.operationId === 'GPUTexture.destroy',
     );
-    expect(lifecycle).toHaveLength(3);
-    expect(lifecycle.map((encoding) => encoding.canvasService)).toMatchObject([
+    expect(lifecycle).toHaveLength(4);
+    const lifecycleAuthorities = lifecycle.map((encoding) =>
+      encoding.canvasService as ProductionGpuCanvasServiceEncoding);
+    expect(lifecycleAuthorities).toMatchObject([
       {
         kind: 'texture-destroy-v1',
         terminalIntent: 'first-cleanup',
+        materializationState: 'unmaterialized',
         origin: { contextRef: { objectId: '402' } },
       },
       {
         kind: 'texture-expire-v1',
         expiryIntent: 'host-task-expiry',
+        materializationState: 'materialized',
         origin: { contextRef: { objectId: '402' } },
+      },
+      {
+        kind: 'texture-destroy-v1',
+        terminalIntent: 'first-cleanup',
+        materializationState: 'unmaterialized',
+        origin: { contextRef: { objectId: '401' } },
       },
       {
         kind: 'texture-expire-v1',
         expiryIntent: 'host-task-expiry',
+        materializationState: 'materialized',
         origin: { contextRef: { objectId: '401' } },
       },
     ]);
+    expect(localRecords(lifecycle[0]!)).toHaveLength(1);
+    expect(localRecords(lifecycle[1]!)).toEqual([]);
+    expect(localRecords(lifecycle[2]!)).toHaveLength(1);
+    expect(localRecords(lifecycle[3]!)).toEqual([]);
+    expect(lifecycleAuthorities[1]).toMatchObject({
+      origin: (lifecycleAuthorities[0] as Extract<
+        ProductionGpuCanvasServiceEncoding,
+        { kind: 'texture-destroy-v1' }
+      >).origin,
+    });
     expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(0);
 
     expect(firstContext.getCurrentTexture()).not.toBe(firstTexture);
@@ -3938,10 +5236,20 @@ describe('production-private WebGPU wrapper factory', () => {
     expect(firstContext.getCurrentTexture()).toBe(firstTexture);
     expect(secondContext.getCurrentTexture()).toBe(secondTexture);
     expect(codecs.encodings.slice(-2).map((encoding) =>
-      (encoding.canvasService as Extract<
-        ProductionGpuCanvasServiceEncoding,
-        { kind: 'texture-expire-v1' }
-      >).origin.contextRef.objectId)).toEqual(['402', '401']);
+      encoding.canvasService)).toMatchObject([
+      {
+        kind: 'texture-destroy-v1',
+        terminalIntent: 'first-cleanup',
+        materializationState: 'unmaterialized',
+        origin: { contextRef: { objectId: '402' } },
+      },
+      {
+        kind: 'texture-expire-v1',
+        expiryIntent: 'host-task-expiry',
+        materializationState: 'materialized',
+        origin: { contextRef: { objectId: '402' } },
+      },
+    ]);
     binding.revoke();
   });
 
@@ -4448,7 +5756,7 @@ describe('production-private WebGPU wrapper factory', () => {
       (submission) => submission.operationId === configureWireId,
     ).map((submission) => submission.metadata.deviceIngressOrdinal)).toEqual([
       '1',
-      '4',
+      '5',
     ]);
     const configuredTexture = context.getCurrentTexture();
     expect(configuredTexture).not.toBe(rejectedConfigurationTexture);
@@ -4507,14 +5815,14 @@ describe('production-private WebGPU wrapper factory', () => {
       currentEpoch: '2',
       format: 'rgba8unorm',
     });
-    expect(bridge.submissions.at(-1)?.metadata.deviceIngressOrdinal).toBe('6');
+    expect(bridge.submissions.at(-1)?.metadata.deviceIngressOrdinal).toBe('7');
     beforeRejectedConfigure.createView();
     expect(latestCanvasTextureOrigin(bridge)).toEqual(beforeOrigin);
     expect(bridge.submissions.filter(
       (submission) => submission.operationId === configureWireId,
     ).map((submission) => submission.metadata.deviceIngressOrdinal)).toEqual([
       '1',
-      '4',
+      '5',
     ]);
     expect(inspectBinding(binding).current).toMatchObject({
       active: true,
@@ -4642,7 +5950,7 @@ describe('production-private WebGPU wrapper factory', () => {
       (submission) => submission.operationId === configureWireId,
     ).map((submission) => submission.metadata.deviceIngressOrdinal)).toEqual([
       '1',
-      '4',
+      '5',
     ]);
     expect(inspectBinding(binding).current).toMatchObject({
       active: false,
@@ -5387,7 +6695,7 @@ describe('production-private WebGPU wrapper factory', () => {
             encoding.operationId === 'GPUDevice.pushErrorScope'
           )
           .map((encoding) =>
-            (encoding.convertedArguments as { scopeId: string }).scopeId
+            encoding.errorScopeService?.scopeId
           ),
       ).toEqual(successCount === 2 ? [U64_MAX_MINUS_ONE, U64_MAX] : [U64_MAX]);
       const submissionCount = bridge.submissions.length;
@@ -5632,6 +6940,59 @@ describe('production-private WebGPU wrapper factory', () => {
       expect(inspectBinding(binding).current.allocatedWrapperCount)
         .toBe(allocationCount);
       expect(await device.lost).toMatchObject({ reason: 'unknown' });
+      binding.revoke();
+    }
+  });
+
+  test('preflights canvas queue exhaustion before configuration or current-texture mutation', async () => {
+    for (const operation of ['reconfigure', 'unconfigure'] as const) {
+      const bridge = createFakeBridge();
+      const codecs = createFakeCodecs();
+      const binding = createProductionWebGpuPrivateBinding(
+        bridge,
+        codecs,
+        {
+          counterSeeds: { nextQueueIngressOrdinal: U64_MAX },
+          enableStateInspection: true,
+        },
+      );
+      const device = await requestTestDevice(binding);
+      const context = mintTestCanvasContext(binding);
+      context.configure({ device, format: 'bgra8unorm' });
+      context.getCurrentTexture();
+
+      const configureEncodings = codecs.encodings.filter(
+        (encoding) => encoding.operationId === 'GPUCanvasContext.configure',
+      );
+      expect(configureEncodings).toHaveLength(1);
+      expect(configureEncodings[0]?.queueIngressOrdinal).toBe(U64_MAX);
+
+      const beforeFailure = inspectBinding(binding).current;
+      expect(beforeFailure.pendingLocalRecordCount).toBe(1);
+      const encodingCount = codecs.encodings.length;
+      const submissionCount = bridge.submissions.length;
+      const invoke = operation === 'reconfigure'
+        ? () => context.configure({ device, format: 'rgba8unorm' })
+        : () => context.unconfigure();
+
+      expect(invoke).toThrow(RangeError);
+      expect(codecs.encodings).toHaveLength(encodingCount);
+      expect(bridge.submissions).toHaveLength(submissionCount);
+      expect(inspectBinding(binding).lastClose).toMatchObject({
+        closeReason: 'counter-exhausted:queue ingress ordinal',
+        allocatedWrapperCount: beforeFailure.allocatedWrapperCount,
+        indexedCanvasContextCount: beforeFailure.indexedCanvasContextCount,
+        indexedCanvasObjectCount: beforeFailure.indexedCanvasObjectCount,
+        indexedCanvasSurfaceTokenCount:
+          beforeFailure.indexedCanvasSurfaceTokenCount,
+        invalidCurrentTextureCount: beforeFailure.invalidCurrentTextureCount,
+        pendingLocalRecordCount: beforeFailure.pendingLocalRecordCount,
+      });
+      expect(await device.lost).toEqual({
+        reason: 'unknown',
+        message:
+          'The WebGPU realm closed because queue ingress ordinal was exhausted',
+      });
       binding.revoke();
     }
   });
@@ -6298,6 +7659,7 @@ describe('production-private GPUBuffer lifecycle', () => {
       bridge.emit({
         ...event,
         kind: 2,
+        uncapturedError: false,
         errorKind: 1,
         backendClass: 0,
         status: 1,
@@ -6313,6 +7675,409 @@ describe('production-private GPUBuffer lifecycle', () => {
     });
     expect(buffer.mapState).toBe('unmapped');
     expect(uncapturedCount).toBe(0);
+    binding.revoke();
+  });
+
+  test('queues an authenticated uncaptured error without replacing its operation terminal', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs);
+    const device = await requestTestLifecycleDevice(binding) as
+      TestLifecycleDevice & EventTarget;
+    const buffer = device.createBuffer({ size: 4, usage: 1 });
+    const uncaptured = new Promise<Event>((resolve) => {
+      device.addEventListener('uncapturederror', resolve, { once: true });
+    });
+    bridge.setPromiseResultHook((event) => {
+      bridge.emit({
+        ...event,
+        kind: 2,
+        uncapturedError: true,
+        errorKind: 1,
+        backendClass: 1,
+        status: -1,
+        payload: new Uint8Array([
+          0x63, 0x6f, 0x72, 0x70, 0x75, 0x73, 0x20, 0x76,
+          0x61, 0x6c, 0x69, 0x64, 0x61, 0x74, 0x69, 0x6f,
+          0x6e,
+        ]),
+      } as NativeGpuEventV2);
+      return bufferMapResultEvent(event, {
+        variant: 'mapped-bytes',
+        pendingMapGeneration: '1',
+        mode: 1,
+        offset: '0',
+        size: '4',
+        ownedBytes: new Uint8Array([1, 2, 3, 4]),
+      });
+    });
+
+    await expect(buffer.mapAsync(1, 0, 4)).resolves.toBeUndefined();
+    const dispatched = await uncaptured;
+    const error = (
+      dispatched as Event & {
+        readonly error: { readonly name: string; readonly message: string };
+      }
+    ).error;
+    expect(dispatched.type).toBe('uncapturederror');
+    expect(dispatched.bubbles).toBe(false);
+    expect(dispatched.cancelable).toBe(false);
+    expect(error.name).toBe('GPUValidationError');
+    expect(error.message).toBe('corpus validation');
+    expect(Object.getPrototypeOf(dispatched)).toBe(
+      (
+        binding.interfaceObjects.GPUUncapturedErrorEvent as {
+          readonly prototype: object;
+        }
+      ).prototype,
+    );
+    expect(Object.getPrototypeOf(error)).toBe(
+      (
+        binding.interfaceObjects.GPUValidationError as {
+          readonly prototype: object;
+        }
+      ).prototype,
+    );
+    binding.revoke();
+  });
+
+  test('runs rejection reactions before a typed exact-device uncaptured-error task', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+    );
+    const device = await requestTestLifecycleDevice(binding) as
+      TestLifecycleDevice & EventTarget;
+    const buffer = device.createBuffer({ size: 4, usage: 1 });
+    const order: string[] = [];
+    let observedEvent: Event & { readonly error: object } | undefined;
+    device.addEventListener('uncapturederror', (event) => {
+      order.push('event');
+      observedEvent = event as Event & { readonly error: object };
+    });
+    bridge.setPromiseResultHook((event) => {
+      bridge.emit({
+        ...event,
+        kind: 2,
+        uncapturedError: true,
+        errorKind: 1,
+        backendClass: 1,
+        status: -7,
+        payload: Uint8Array.from([
+          0x76, 0x61, 0x6c, 0x69, 0x64, 0x61, 0x74, 0x69, 0x6f, 0x6e,
+          0x09, 0x66, 0x61, 0x69, 0x6c, 0x65, 0x64, 0x0a,
+        ]),
+      });
+      throw new Error('mandatory operation terminal rejected');
+    });
+
+    const intrinsicGlobalThis = globalThis;
+    const originalSetTimeout = intrinsicGlobalThis.setTimeout;
+    const originalGlobalThisDescriptor =
+      Object.getOwnPropertyDescriptor(intrinsicGlobalThis, 'globalThis');
+    if (!originalGlobalThisDescriptor) {
+      throw new Error('test realm lacks its globalThis descriptor');
+    }
+    let replacedTimerCalls = 0;
+    const replacedTimer = (() => {
+      replacedTimerCalls += 1;
+      throw new Error('app timer replacement must not schedule WebGPU tasks');
+    }) as unknown as typeof setTimeout;
+    intrinsicGlobalThis.setTimeout = replacedTimer;
+    Object.defineProperty(intrinsicGlobalThis, 'globalThis', {
+      value: { setTimeout: replacedTimer },
+      writable: true,
+      enumerable: false,
+      configurable: true,
+    });
+    try {
+      const completion = buffer.mapAsync(1, 0, 4).catch((error) => {
+        order.push('rejection');
+        throw error;
+      });
+      await expect(completion).rejects.toMatchObject({ name: 'OperationError' });
+      expect(order).toEqual(['rejection']);
+      await new Promise<void>((resolve) => {
+        originalSetTimeout(resolve, 5);
+      });
+    } finally {
+      intrinsicGlobalThis.setTimeout = originalSetTimeout;
+      Object.defineProperty(
+        intrinsicGlobalThis,
+        'globalThis',
+        originalGlobalThisDescriptor,
+      );
+    }
+
+    expect(replacedTimerCalls).toBe(0);
+    expect(order).toEqual(['rejection', 'event']);
+    expect(observedEvent).toBeDefined();
+    const dispatched = observedEvent!;
+    const eventConstructor =
+      binding.interfaceObjects.GPUUncapturedErrorEvent as Function & {
+        readonly prototype: object;
+      };
+    const validationConstructor =
+      binding.interfaceObjects.GPUValidationError as Function;
+    const gpuErrorConstructor = binding.interfaceObjects.GPUError as Function;
+    expect(Object.getPrototypeOf(eventConstructor.prototype)).toBe(Event.prototype);
+    expect(dispatched).toBeInstanceOf(Event);
+    expect(dispatched).toBeInstanceOf(eventConstructor);
+    expect(dispatched.type).toBe('uncapturederror');
+    expect(dispatched.target).toBe(device);
+    expect(dispatched.bubbles).toBe(false);
+    expect(dispatched.cancelable).toBe(false);
+    expect(dispatched.composed).toBe(false);
+    dispatched.preventDefault();
+    expect(dispatched.defaultPrevented).toBe(false);
+    expect(dispatched.error).toBeInstanceOf(validationConstructor);
+    expect(dispatched.error).toBeInstanceOf(gpuErrorConstructor);
+    expect(dispatched.error).toMatchObject({
+      name: 'GPUValidationError',
+      message: 'validation\tfailed\n',
+    });
+    const errorGetter = Object.getOwnPropertyDescriptor(
+      eventConstructor.prototype,
+      'error',
+    )?.get;
+    expect(errorGetter).toBeFunction();
+    expect(() => Reflect.apply(errorGetter!, {}, [])).toThrow(
+      'Incompatible GPUUncapturedErrorEvent receiver',
+    );
+    expect(() => Reflect.construct(eventConstructor, [])).toThrow(
+      'Illegal constructor: GPUUncapturedErrorEvent',
+    );
+    binding.revoke();
+  });
+
+  test('dispatches uncaptured-error ingress FIFO with one item per task', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+    );
+    const device = await requestTestLifecycleDevice(binding) as
+      TestLifecycleDevice & EventTarget;
+    const first = device.createBuffer({ size: 4, usage: 1 });
+    const second = device.createBuffer({ size: 4, usage: 1 });
+    const order: string[] = [];
+    device.addEventListener('uncapturederror', (event) => {
+      const error = (event as Event & {
+        readonly error: { readonly message: string };
+      }).error;
+      order.push(error.message);
+      Promise.resolve().then(() => {
+        order.push(`microtask:${error.message}`);
+      });
+    });
+    let sequence = 0;
+    bridge.setPromiseResultHook((event) => {
+      sequence += 1;
+      bridge.emit({
+        ...event,
+        kind: 2,
+        uncapturedError: true,
+        errorKind: sequence === 1 ? 2 : 3,
+        backendClass: 1,
+        status: -1,
+        payload: Uint8Array.from([0x30 + sequence]),
+      });
+      throw new Error(`terminal-${sequence}`);
+    });
+
+    await Promise.allSettled([
+      first.mapAsync(1, 0, 4),
+      second.mapAsync(1, 0, 4),
+    ]);
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 10);
+    });
+    expect(order).toEqual([
+      '1',
+      'microtask:1',
+      '2',
+      'microtask:2',
+    ]);
+    binding.revoke();
+  });
+
+  test('fails closed on malformed diagnostic, stale, and cross-device uncaptured ingress', async () => {
+    const diagnosticCases = [
+      Uint8Array.from([0xc0, 0x80]),
+      Uint8Array.from([0xed, 0xa0, 0x80]),
+      Uint8Array.from([0xf4, 0x90, 0x80, 0x80]),
+      Uint8Array.from([0x00]),
+      Uint8Array.from([0xc2, 0x80]),
+      new Uint8Array(4_097),
+    ];
+    for (const payload of diagnosticCases) {
+      const bridge = createFakeBridge();
+      const binding = createProductionWebGpuPrivateBinding(
+        bridge,
+        createFakeCodecs(),
+        { enableStateInspection: true },
+      );
+      const device = await requestTestLifecycleDevice(binding);
+      const buffer = device.createBuffer({ size: 4, usage: 1 });
+      bridge.setPromiseResultHook((event) => {
+        bridge.emit({
+          ...event,
+          kind: 2,
+          uncapturedError: true,
+          errorKind: 1,
+          backendClass: 1,
+          status: -1,
+          payload,
+        });
+        throw new Error('malformed diagnostic terminal');
+      });
+      await expect(buffer.mapAsync(1, 0, 4)).rejects.toBeDefined();
+      expect(inspectBinding(binding).lastClose?.closeReason).toBe(
+        'uncaptured-error-malformed',
+      );
+      binding.revoke();
+    }
+
+    const staleBridge = createFakeBridge();
+    const staleBinding = createProductionWebGpuPrivateBinding(
+      staleBridge,
+      createFakeCodecs(),
+      { enableStateInspection: true },
+    );
+    const staleDevice = await requestTestLifecycleDevice(staleBinding);
+    const staleBuffer = staleDevice.createBuffer({ size: 4, usage: 1 });
+    staleBridge.setPromiseResultHook((event) => {
+      emitDeviceLoss(staleBridge, '301', '1');
+      staleBridge.emit({
+        ...event,
+        kind: 2,
+        uncapturedError: true,
+        errorKind: 1,
+        backendClass: 1,
+        status: -1,
+        payload: new Uint8Array(),
+      });
+      throw new Error('stale terminal');
+    });
+    await expect(staleBuffer.mapAsync(1, 0, 4)).rejects.toBeDefined();
+    expect(inspectBinding(staleBinding).lastClose?.closeReason).toBe(
+      'uncaptured-error-malformed',
+    );
+    staleBinding.revoke();
+
+    const crossBridge = createFakeBridge();
+    const crossBinding = createProductionWebGpuPrivateBinding(
+      crossBridge,
+      createFakeCodecs([], { distinctLiveDevices: true }),
+      { enableStateInspection: true },
+    );
+    const firstDevice = await requestTestLifecycleDevice(crossBinding);
+    await requestTestLifecycleDevice(crossBinding);
+    const crossBuffer = firstDevice.createBuffer({ size: 4, usage: 1 });
+    crossBridge.setPromiseResultHook((event) => {
+      crossBridge.emit({
+        ...event,
+        kind: 2,
+        uncapturedError: true,
+        errorKind: 1,
+        backendClass: 1,
+        status: -1,
+        logicalDeviceId: '311',
+        ingressLogicalDeviceId: '311',
+        payload: new Uint8Array(),
+      });
+      throw new Error('cross-device terminal');
+    });
+    await expect(crossBuffer.mapAsync(1, 0, 4)).rejects.toBeDefined();
+    expect(inspectBinding(crossBinding).lastClose?.closeReason).toBe(
+      'uncaptured-error-malformed',
+    );
+    crossBinding.revoke();
+  });
+
+  test('bounds retained uncaptured-error notifications and closes before dispatch', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+      { enableStateInspection: true },
+    );
+    const device = await requestTestLifecycleDevice(binding) as
+      TestLifecycleDevice & EventTarget;
+    const buffer = device.createBuffer({ size: 4, usage: 1 });
+    let dispatchCount = 0;
+    device.addEventListener('uncapturederror', () => {
+      dispatchCount += 1;
+    });
+    bridge.setPromiseResultHook((event) => {
+      const uncaptured = {
+        ...event,
+        kind: 2,
+        uncapturedError: true,
+        errorKind: 1,
+        backendClass: 1,
+        status: -1,
+        payload: new Uint8Array(),
+      } as const;
+      for (let index = 0; index <= 1_024; index += 1) {
+        bridge.emit(uncaptured);
+      }
+      throw new Error('queue overflow terminal');
+    });
+    await expect(buffer.mapAsync(1, 0, 4)).rejects.toBeDefined();
+    expect(inspectBinding(binding).lastClose?.closeReason).toBe(
+      'uncaptured-error-queue-overflow',
+    );
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 5);
+    });
+    expect(dispatchCount).toBe(0);
+    binding.revoke();
+  });
+
+  test('drops queued uncaptured errors when their realm closes before the task', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+      { enableStateInspection: true },
+    );
+    const device = await requestTestLifecycleDevice(binding) as
+      TestLifecycleDevice & EventTarget;
+    const buffer = device.createBuffer({ size: 4, usage: 1 });
+    let dispatchCount = 0;
+    device.addEventListener('uncapturederror', () => {
+      dispatchCount += 1;
+    });
+    bridge.setPromiseResultHook((event) => {
+      bridge.emit({
+        ...event,
+        kind: 2,
+        uncapturedError: true,
+        errorKind: 1,
+        backendClass: 1,
+        status: -1,
+        payload: new Uint8Array(),
+      });
+      bridge.emit({
+        kind: 6,
+        runtimeAddress: bridge.runtimeAddress,
+        runtimeNonce: bridge.runtimeNonce,
+        realmId: bridge.realmId,
+        realmGeneration: bridge.realmGeneration,
+        closeOrdinal: '1',
+        closeReason: 1,
+        payload: new Uint8Array(),
+      });
+      throw new Error('realm terminal followed the error terminal');
+    });
+    await expect(buffer.mapAsync(1, 0, 4)).rejects.toBeDefined();
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 5);
+    });
+    expect(dispatchCount).toBe(0);
+    expect(inspectBinding(binding).lastClose?.closeReason).toBe('realm-retired');
     binding.revoke();
   });
 

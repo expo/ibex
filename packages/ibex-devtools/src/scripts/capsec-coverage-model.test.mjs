@@ -79,10 +79,13 @@ const GPU_TERMINAL_IDENTITY_EVIDENCE = {
 };
 const GPU_V2_TERMINAL_IDENTITY_EVIDENCE = {
   ...GPU_TERMINAL_IDENTITY_EVIDENCE,
-  identityGuardCount: 7,
+  identityGuardCount: 10,
   identityGuardError:
     "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
   identityGuardIdentifiers: [
+    "captureGpuPresentationAuthorityBridgeCall",
+    "recheckGpuPresentationAuthorityBridgeCall",
+    "retireGpuPresentationAuthorityBridgeCall",
     "submitGpuV2BridgeCall",
     "cancelGpuV2BridgeCall",
     "retireGpuV2BridgeCall",
@@ -91,12 +94,15 @@ const GPU_V2_TERMINAL_IDENTITY_EVIDENCE = {
     "detachGpuV2MappedRangeBridgeCall",
   ],
   protectedIdentifierTokenCounts: {
-    submitGpuV2BridgeCall: 9,
-    cancelGpuV2BridgeCall: 9,
-    retireGpuV2BridgeCall: 9,
-    setGpuV2EventSinkBridgeCall: 9,
-    createGpuV2MappedRangeAliasBridgeCall: 9,
-    detachGpuV2MappedRangeBridgeCall: 9,
+    captureGpuPresentationAuthorityBridgeCall: 12,
+    recheckGpuPresentationAuthorityBridgeCall: 12,
+    retireGpuPresentationAuthorityBridgeCall: 12,
+    submitGpuV2BridgeCall: 12,
+    cancelGpuV2BridgeCall: 12,
+    retireGpuV2BridgeCall: 12,
+    setGpuV2EventSinkBridgeCall: 12,
+    createGpuV2MappedRangeAliasBridgeCall: 12,
+    detachGpuV2MappedRangeBridgeCall: 12,
   },
 };
 const GPU_CALLBACK_IDENTITY_EVIDENCE = {
@@ -1011,12 +1017,27 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     for (const [memberName, arity, terminalHandler] of [
       ["cancel", 2, "cancelGpuV2BridgeCall"],
       [
+        "capturePresentationAuthority",
+        2,
+        "captureGpuPresentationAuthorityBridgeCall",
+      ],
+      [
         "createMappedRangeAlias",
         3,
         "createGpuV2MappedRangeAliasBridgeCall",
       ],
       ["detachMappedRange", 1, "detachGpuV2MappedRangeBridgeCall"],
+      [
+        "recheckPresentationAuthority",
+        3,
+        "recheckGpuPresentationAuthorityBridgeCall",
+      ],
       ["retire", 1, "retireGpuV2BridgeCall"],
+      [
+        "retirePresentationAuthority",
+        1,
+        "retireGpuPresentationAuthorityBridgeCall",
+      ],
       ["setEventSink", 1, "setGpuV2EventSinkBridgeCall"],
       ["submit", 4, "submitGpuV2BridgeCall"],
     ]) {
@@ -2936,6 +2957,16 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(transpile.edge.effectMode).toBe("conditional");
     expect(transpile.edge.lifetimeContract).toBe("child-process");
 
+    expect(
+      classifyObservedSurface(
+        surface("loader", "function:rust:transpile_module_to_cjs"),
+        context,
+      ).edge,
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "internal-data-transform",
+    });
+
     for (const name of [
       "function:javascript:importImpl",
       "function:javascript:load",
@@ -3079,6 +3110,14 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     ).toThrow(/unclassified observed surface/u);
 
     for (const category of ["cache", "load", "resolution", "transform"]) {
+      const parser = `route:${category}:rust:parse_replacement_expr`;
+      expect(
+        classifyObservedSurface(surface("loader", parser), context).edge,
+        parser,
+      ).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "internal-data-transform",
+      });
       for (const accessor of [
         "legacy_runtime_transform",
         "runtime_transform",
@@ -3169,12 +3208,15 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       );
       for (const staleName of [
         `operation:${category}:from_raw_fd`,
+        `operation:${category}:from_raw_handle`,
         `operation:${category}:last_os_error`,
         `route:${category}:rust:digest_file`,
+        `route:${category}:rust:directory_entries`,
         `route:${category}:rust:directory_names`,
         `route:${category}:rust:normalize_absolute`,
         `route:${category}:rust:object_identity`,
         `route:${category}:rust:open_entry_no_follow`,
+        `route:${category}:rust:open_relative`,
         `route:${category}:rust:open_path_no_follow`,
         `route:${category}:rust:read_link_at`,
         `route:${category}:rust:resolve_package_link`,
@@ -4280,6 +4322,18 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(
       classifyObservedSurface(
         surface("loader", "function:rust:strip_file_module_decorations"),
+        context,
+      ).edge,
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "module-reachability-only",
+    });
+    expect(
+      classifyObservedSurface(
+        surface(
+          "loader",
+          "function:javascript:devServedImportGateSpecifier",
+        ),
         context,
       ).edge,
     ).toMatchObject({

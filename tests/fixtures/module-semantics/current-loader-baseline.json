@@ -53,7 +53,7 @@
         "status": 0,
         "signal": null,
         "lines": [
-          "MODULE_SEMANTICS|{\"keys\":[\"z\",\"default\",\"a\",\"__esModule\"],\"extensible\":true,\"nullPrototype\":false,\"tag\":null}"
+          "MODULE_SEMANTICS|{\"keys\":[\"z\",\"a\",\"__esModule\",\"default\"],\"extensible\":true,\"nullPrototype\":true,\"tag\":null}"
         ]
       }
     },
@@ -70,7 +70,7 @@
         "status": 0,
         "signal": null,
         "lines": [
-          "MODULE_SEMANTICS|{\"value\":{\"answer\":42},\"keys\":[\"answer\"],\"same\":true}"
+          "MODULE_SEMANTICS|{\"value\":{\"answer\":42},\"keys\":[\"answer\",\"default\"],\"same\":false}"
         ]
       }
     },

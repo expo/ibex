@@ -478,13 +478,18 @@ fn windows_armed_mutation_closure_precedes_path_and_fd_lookup() {
         "installFsMutationGuardHostFunction(handle)",
         "installModuleLoader(handle)",
     );
-    assert_before(
+    let finish_bootstrap = source_section(
         RUNTIME,
+        "extern \"C\" uint32_t ex_hermes_finish_bootstrap(",
+        "extern \"C\" void ex_hermes_destroy(",
+    );
+    assert_before(
+        finish_bootstrap,
         "capturePrivateBridgeConsumers(runtime)",
         "sealRootGlobalSessionBridges(runtime)",
     );
     assert_before(
-        RUNTIME,
+        finish_bootstrap,
         "sealRootGlobalSessionBridges(runtime)",
         "verifyRootGlobalDisposition(runtime)",
     );

@@ -97,6 +97,121 @@
   var __privArrayIsArray = Array.isArray;
   var __privObjectFreeze = Object.freeze;
   var __privObjectDefineProperty = Object.defineProperty;
+  var __privObjectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+  var __privObjectKeys = Object.keys;
+  var __privObjectIsFrozen = Object.isFrozen;
+  var __privReflectOwnKeys = Reflect.ownKeys;
+  var __privDevServedRecords = new WeakSet();
+  var __privDevServedRecordAdd = WeakSet.prototype.add.bind(__privDevServedRecords);
+  var __privDevServedRecordHas = WeakSet.prototype.has.bind(__privDevServedRecords);
+  var __devServedMode = __armedResolverCapture &&
+    __privArrayIsArray(g.__exactCompatModes) &&
+    g.__exactCompatModes.indexOf('dev-served') !== -1;
+  var __privQuarantineDevServedModuleTable =
+    typeof g.__exactQuarantineDevServedModuleTable === 'function'
+      ? g.__exactQuarantineDevServedModuleTable
+      : null;
+  try { delete g.__exactQuarantineDevServedModuleTable; } catch (__devQuarantineCleanupError) {
+    throw __devQuarantineCleanupError;
+  }
+  var __devServedTable = null;
+  var __devServedIds = null;
+  var __devServedCaptureState = 'idle';
+
+  function quarantineDevServedModuleTable(message) {
+    if (__privQuarantineDevServedModuleTable) {
+      try { __privQuarantineDevServedModuleTable(); } catch (_quarantineError) {}
+    }
+    throw new Error(message);
+  }
+
+  function devServedDataValue(object, key) {
+    var descriptor = __privObjectGetOwnPropertyDescriptor(object, key);
+    if (!descriptor || !('value' in descriptor)) return undefined;
+    return descriptor.value;
+  }
+
+  function captureDevServedModuleTable(table) {
+    if (__devServedCaptureState !== 'available') {
+      return quarantineDevServedModuleTable(
+        'Dev-served module table capture is unavailable or already consumed');
+    }
+    __devServedCaptureState = 'captured';
+    try { delete g.__ibexCaptureDevServedModuleTable; } catch (_captureCleanupError) {}
+    var ids;
+    try {
+      if (!table || typeof table !== 'object' || !__privObjectIsFrozen(table)) {
+        throw new TypeError('table');
+      }
+      ids = __privObjectKeys(table);
+      if (__privReflectOwnKeys(table).length !== ids.length) {
+        throw new TypeError('table keys');
+      }
+      for (var index = 0; index < ids.length; index++) {
+        var id = ids[index];
+        var record = devServedDataValue(table, id);
+        var recordKeys = record && typeof record === 'object'
+          ? __privObjectKeys(record)
+          : [];
+        if (!record || typeof record !== 'object' || !__privObjectIsFrozen(record) ||
+            __privReflectOwnKeys(record).length !== 4 || recordKeys.length !== 4 ||
+            recordKeys.indexOf('id') === -1 || recordKeys.indexOf('kind') === -1 ||
+            recordKeys.indexOf('path') === -1 || recordKeys.indexOf('source') === -1 ||
+            devServedDataValue(record, 'id') !== id ||
+            typeof devServedDataValue(record, 'kind') !== 'string' ||
+            typeof devServedDataValue(record, 'path') !== 'string' ||
+            typeof devServedDataValue(record, 'source') !== 'string') {
+          throw new TypeError('record');
+        }
+      }
+    } catch (_invalidDevServedTable) {
+      return quarantineDevServedModuleTable('Dev-served module table is malformed or not frozen');
+    }
+    __devServedTable = table;
+    __devServedIds = __privObjectFreeze(ids);
+    return true;
+  }
+
+  function devServedLifecycle(action) {
+    if (!__devServedMode) return false;
+    if (action === 'begin') {
+      if (__devServedCaptureState !== 'idle') {
+        return quarantineDevServedModuleTable('Dev-served module table lifecycle began twice');
+      }
+      __devServedCaptureState = 'available';
+      __privObjectDefineProperty(g, '__ibexCaptureDevServedModuleTable', {
+        value: captureDevServedModuleTable,
+        configurable: true,
+        enumerable: false,
+        writable: false
+      });
+      return true;
+    }
+    if (action === 'mark-run-app') {
+      try { delete g.__ibexCaptureDevServedModuleTable; } catch (_lateCleanupError) {}
+      __devServedCaptureState = 'run-app';
+      return true;
+    }
+    if (action === 'finish') {
+      try { delete g.__ibexCaptureDevServedModuleTable; } catch (_finishCleanupError) {}
+      if (__devServedCaptureState !== 'run-app') __devServedCaptureState = 'finished';
+      return true;
+    }
+    return quarantineDevServedModuleTable('Unknown dev-served module table lifecycle action');
+  }
+
+  if (__devServedMode) {
+    if (!__privQuarantineDevServedModuleTable) {
+      throw new Error('Dev-served quarantine bridge is unavailable');
+    }
+    if (typeof g.__exactCaptureDevServedModuleTableLifecycle !== 'function' ||
+        g.__exactCaptureDevServedModuleTableLifecycle(devServedLifecycle) !== true) {
+      throw new Error('Dev-served module table lifecycle capture failed');
+    }
+    try { delete g.__exactCaptureDevServedModuleTableLifecycle; } catch (__lifecycleCleanupError) {
+      throw __lifecycleCleanupError;
+    }
+  }
   // Authenticated builtin source receives only the bridge subset it owns as a
   // frozen wrapper argument. Project modules receive `undefined`, and no
   // mutable root-global rendezvous survives bootstrap sealing.
@@ -320,6 +435,11 @@
   // @ref LLP 0014#the-grant-channel — package-vs-root classification decides
   // whether grant syntax is trusted root-authored policy input.
   function packageNameForRecord(record, parent) {
+    if (isAuthenticatedDevServedViteTransportRecord(record)) {
+      return parent && parent.__exactPackageName
+        ? parent.__exactPackageName
+        : null;
+    }
     if (record && typeof record.pkgName === 'string' && record.pkgName) {
       return record.pkgName;
     }
@@ -437,6 +557,11 @@
     // over the host functions); mark them so a package's host access through
     // them is attributed to the package, not laundered into root.
     if (record && record.kind === 'builtin') return __runtimePrincipal;
+    if (isAuthenticatedDevServedViteTransportRecord(record)) {
+      return parent && typeof parent.__exactPackageId === 'number'
+        ? parent.__exactPackageId
+        : 0;
+    }
     var raw = record && (resolverVirtualPath(record.path) || record.id);
     var name = packageNameForRecord(record, parent);
     if (!name) {
@@ -5754,6 +5879,184 @@
     return undefined;
   }
 
+  var __devServedExtensions = ['ts', 'tsx', 'mts', 'cts', 'mjs', 'cjs', 'js', 'jsx', 'json'];
+
+  function normalizeDevServedPath(value) {
+    var queryIndex = value.search(/[?#]/);
+    var suffix = queryIndex >= 0 ? value.slice(queryIndex) : '';
+    var raw = queryIndex >= 0 ? value.slice(0, queryIndex) : value;
+    var absolute = raw.charAt(0) === '/';
+    var parts = raw.split('/');
+    var out = [];
+    for (var index = 0; index < parts.length; index++) {
+      if (!parts[index] || parts[index] === '.') continue;
+      if (parts[index] === '..') {
+        if (out.length) out.pop();
+      } else {
+        out.push(parts[index]);
+      }
+    }
+    return (absolute ? '/' : '') + out.join('/') + suffix;
+  }
+
+  function resolveDevServedSpecifier(specifier, referrer) {
+    var resolved = specifier;
+    var urlMatch = resolved.match(/^https?:\/\/[^/]+([^#]*)/);
+    if (urlMatch) resolved = urlMatch[1] || '/';
+    if (resolved.indexOf('/@fs/') === 0) return resolved.slice(4);
+    if (resolved.charAt(0) === '/') return resolved;
+    if (resolved.charAt(0) === '.') {
+      var base = typeof referrer === 'string' ? referrer : '';
+      var baseQuery = base.search(/[?#]/);
+      if (baseQuery >= 0) base = base.slice(0, baseQuery);
+      if (base.charAt(0) !== '/') base = '/' + base;
+      return normalizeDevServedPath(base.slice(0, base.lastIndexOf('/') + 1) + resolved);
+    }
+    return resolved;
+  }
+
+  function isAuthenticatedDevServedViteTransportRecord(record) {
+    return __devServedMode && record &&
+      record.schema === 'ibex/dev-served-module/1' &&
+      __privDevServedRecordHas(record) &&
+      typeof record.virtualPath === 'string' &&
+      record.virtualPath.indexOf('/node_modules/.vite/') === 0;
+  }
+
+  function devServedImportGateSpecifier(specifier, referrer) {
+    if (!__devServedMode || typeof specifier !== 'string' ||
+        typeof referrer !== 'string') return specifier;
+    var marker = '/node_modules/.vite/';
+    if (specifier.indexOf(marker) !== 0 || referrer.indexOf(marker) !== 0) {
+      return specifier;
+    }
+    var specifierDir = specifier.slice(0, specifier.lastIndexOf('/') + 1);
+    var referrerDir = referrer.slice(0, referrer.lastIndexOf('/') + 1);
+    return specifierDir === referrerDir
+      ? './' + specifier.slice(specifierDir.length)
+      : specifier;
+  }
+
+  function dropDevServedViteCacheParams(value) {
+    var queryStart = value.indexOf('?');
+    if (queryStart < 0) return value;
+    var kept = [];
+    var parts = value.slice(queryStart + 1).split('&');
+    for (var index = 0; index < parts.length; index++) {
+      var key = parts[index].split('=', 1)[0];
+      if (parts[index] && key !== 't' && key !== 'v') kept.push(parts[index]);
+    }
+    return kept.length ? value.slice(0, queryStart) + '?' + kept.join('&')
+      : value.slice(0, queryStart);
+  }
+
+  function devServedLookupCandidates(resolved) {
+    var candidates = [];
+    function push(value) {
+      if (value && candidates.indexOf(value) === -1) candidates.push(value);
+    }
+    function add(value) {
+      push(value);
+      var forward = value && value.replace(/\\/g, '/');
+      push(forward);
+      if (forward && /^[A-Za-z]:\//.test(forward)) push('/' + forward);
+    }
+    function addResolved(value) {
+      if (!value) return;
+      add(value);
+      var queryStart = value.indexOf('?');
+      var path = queryStart < 0 ? value : value.slice(0, queryStart);
+      var query = queryStart < 0 ? '' : value.slice(queryStart);
+      var segment = path.slice(path.lastIndexOf('/') + 1).toLowerCase();
+      for (var known = 0; known < __devServedExtensions.length; known++) {
+        if (segment.slice(-(__devServedExtensions[known].length + 1)) ===
+            '.' + __devServedExtensions[known]) return;
+      }
+      var base = path.replace(/\/$/, '');
+      for (var ext = 0; ext < __devServedExtensions.length; ext++) {
+        add(base + '.' + __devServedExtensions[ext] + query);
+        add(base + '/index.' + __devServedExtensions[ext] + query);
+      }
+    }
+    function addTypeScriptSiblings(value) {
+      var queryStart = value.indexOf('?');
+      var path = queryStart < 0 ? value : value.slice(0, queryStart);
+      var match = path.match(/\.(js|jsx|mjs|cjs)$/);
+      if (!match) return;
+      var stem = path.slice(0, -match[0].length);
+      var siblings = match[1] === 'mjs' ? ['mts', 'ts', 'tsx']
+        : (match[1] === 'cjs' ? ['cts', 'ts', 'tsx']
+          : (match[1] === 'jsx' ? ['tsx', 'ts'] : ['ts', 'tsx']));
+      for (var index = 0; index < siblings.length; index++) add(stem + '.' + siblings[index]);
+    }
+    addResolved(resolved);
+    addTypeScriptSiblings(resolved);
+    if (resolved.indexOf('?') !== -1) {
+      var stripped = dropDevServedViteCacheParams(resolved);
+      addResolved(stripped);
+      addTypeScriptSiblings(stripped);
+    }
+    return candidates;
+  }
+
+  function findDevServedBySuffix(specifier) {
+    var tails = [];
+    var atExact = specifier.match(/^@exact\/([^/]+)\/(.+)$/);
+    if (atExact) {
+      tails.push(atExact[1] === 'runtime-js'
+        ? '/vendor/ibex/packages/ibex-runtime-js/src/' + atExact[2]
+        : '/exact-' + atExact[1] + '/src/' + atExact[2]);
+    } else if (specifier.indexOf('/src/') !== -1) {
+      tails.push(specifier.slice(specifier.indexOf('/src/') + 4));
+    } else if (specifier.charAt(0) === '/') {
+      tails.push(specifier);
+    }
+    for (var tailIndex = 0; tailIndex < tails.length; tailIndex++) {
+      var tail = tails[tailIndex].split('?')[0];
+      var suffixes = [tail];
+      if (!/\.[^./]+$/.test(tail.slice(tail.lastIndexOf('/') + 1))) {
+        for (var ext = 0; ext < __devServedExtensions.length; ext++) {
+          suffixes.push(tail + '.' + __devServedExtensions[ext]);
+          suffixes.push(tail + '/index.' + __devServedExtensions[ext]);
+        }
+      }
+      for (var suffixIndex = 0; suffixIndex < suffixes.length; suffixIndex++) {
+        for (var idIndex = 0; idIndex < __devServedIds.length; idIndex++) {
+          var id = __devServedIds[idIndex];
+          if (id.slice(-suffixes[suffixIndex].length) === suffixes[suffixIndex]) return id;
+        }
+      }
+    }
+    return null;
+  }
+
+  function resolveDevServedModule(specifier, referrer) {
+    if (!__devServedTable || !__devServedIds) return null;
+    var resolved = resolveDevServedSpecifier(specifier, referrer);
+    var candidates = devServedLookupCandidates(resolved);
+    var id = null;
+    for (var index = 0; index < candidates.length; index++) {
+      if (devServedDataValue(__devServedTable, candidates[index])) {
+        id = candidates[index];
+        break;
+      }
+    }
+    if (id === null) id = findDevServedBySuffix(specifier);
+    if (id === null) return null;
+    var served = devServedDataValue(__devServedTable, id);
+    var record = __privObjectFreeze({
+      schema: 'ibex/dev-served-module/1',
+      id: id,
+      kind: devServedDataValue(served, 'kind'),
+      path: id,
+      virtualPath: id,
+      sourceLabel: 'exact-dev:' + id,
+      source: devServedDataValue(served, 'source')
+    });
+    __privDevServedRecordAdd(record);
+    return record;
+  }
+
   function load(
     specifier,
     referrer,
@@ -5994,28 +6297,40 @@
     if (authenticatedRecord !== undefined) {
       record = authenticatedRecord;
     } else {
-      var resolver = manifestBuiltinInternal
-        ? __privResolveManifestBuiltinInternal
-        : (useStructuredRootResolver ? __privSessionModuleResolve : __privModuleResolve);
-      if (typeof resolver !== 'function') {
-        throw new Error("Module resolver is unavailable");
-      }
-      const json = manifestBuiltinInternal
-        ? resolver(resolvedSpecifier)
-        : resolver(
-            resolvedSpecifier,
-            authenticatedResolution === null
-              ? (referrer || "")
-              : authenticatedResolution.nativeReferrer,
-            typedResolutionKind
-          );
-      if (!json) {
-        throw new Error("Module not found: " + specifier);
-      }
-      try {
-        record = JSON.parse(json);
-      } catch (err) {
-        throw new Error("Module resolve failed: " + err.message);
+      record = manifestBuiltinInternal
+        ? null
+        : resolveDevServedModule(specifier, referrer || '');
+      if (record) {
+        var __devRequester = (parent && typeof parent.__exactPackageId === 'number')
+          ? parent.__exactPackageId : undefined;
+        checkImportGate(
+          devServedImportGateSpecifier(resolvedSpecifier, referrer || ''),
+          __devRequester
+        );
+      } else {
+        var resolver = manifestBuiltinInternal
+          ? __privResolveManifestBuiltinInternal
+          : (useStructuredRootResolver ? __privSessionModuleResolve : __privModuleResolve);
+        if (typeof resolver !== 'function') {
+          throw new Error("Module resolver is unavailable");
+        }
+        const json = manifestBuiltinInternal
+          ? resolver(resolvedSpecifier)
+          : resolver(
+              resolvedSpecifier,
+              authenticatedResolution === null
+                ? (referrer || "")
+                : authenticatedResolution.nativeReferrer,
+              typedResolutionKind
+            );
+        if (!json) {
+          throw new Error("Module not found: " + specifier);
+        }
+        try {
+          record = JSON.parse(json);
+        } catch (err) {
+          throw new Error("Module resolve failed: " + err.message);
+        }
       }
     }
     if (record.error) {
@@ -6037,7 +6352,14 @@
     // Gate the resolved target's package name when it differs from the requester's
     // (intra-package relative imports are not cross-package edges and are allowed).
     // (ENG-22637 review)
-    if (__privCheckImport && isPathSpecifier(specifier)) {
+    // Vite's optimizer directory is a dev-server transport namespace, not an
+    // npm package named `.vite`. The original table lookup is still import-
+    // gated above and the loaded module still receives its ordinary principal;
+    // only the false cross-package selector is suppressed here.
+    // @ref LLP 0002#the-dev-served-module-table-seam
+    var __devServedViteTransport =
+      isAuthenticatedDevServedViteTransportRecord(record);
+    if (__privCheckImport && isPathSpecifier(specifier) && !__devServedViteTransport) {
       var __targetPkg = packageNameForRecord(record, parent);
       if (__targetPkg) {
         var __reqId = (parent && typeof parent.__exactPackageId === 'number')
@@ -6106,13 +6428,16 @@
     var generatedProvenance = authenticatedGeneratedBundleRecord
       ? record.sourceProvenance
       : null;
+    var authenticatedDevServedRecord =
+      __devServedMode && record.schema === 'ibex/dev-served-module/1' &&
+      __privDevServedRecordHas(record);
     if (__armedResolverCapture && kind !== 'builtin' &&
         !authenticatedFileRecord && !authenticatedDirectEntry &&
-        !authenticatedGeneratedBundleRecord) {
+        !authenticatedGeneratedBundleRecord && !authenticatedDevServedRecord) {
       throw new Error('Authenticated module record lacks VFS SourceId identity');
     }
     const id = (authenticatedFileRecord || authenticatedDirectEntry ||
-      authenticatedGeneratedBundleRecord)
+      authenticatedGeneratedBundleRecord || authenticatedDevServedRecord)
       ? record.virtualPath
       : legacyId;
     var authenticatedBuiltinRecord = kind === 'builtin' &&
@@ -6138,9 +6463,11 @@
       : (authenticatedGeneratedBundleRecord
           ? 'ibex-generated-bundle-wrapper-v1:' + generatedProvenance.digest +
             ':' + generatedProvenance.chunk
+          : (authenticatedDevServedRecord
+            ? record.virtualPath
           : ((authenticatedFileRecord || authenticatedDirectEntry)
           ? record.sourceId
-          : (unarmedSourceId || legacyId)));
+          : (unarmedSourceId || legacyId))));
     if (authenticatedFileRecord && authenticatedRouteKey !== null) {
       __authenticatedResolutionMemo[authenticatedRouteKey] = {
         cacheKey: cacheKey
@@ -6161,14 +6488,14 @@
     // private closure; every JavaScript-visible path uses the virtual spelling.
     var resolutionReferrer = authenticatedDirectEntry
       ? structuredDirectEntry.logicalReferrer
-      : (authenticatedGeneratedBundleRecord
+      : ((authenticatedGeneratedBundleRecord || authenticatedDevServedRecord)
           ? record.virtualPath
           : resolverReferrer(record.path, legacyId));
     var filename = authenticatedDirectEntry
       ? record.virtualPath
       : (authenticatedFileRecord
           ? typedResolverPath.virtualPath
-          : (authenticatedGeneratedBundleRecord
+          : ((authenticatedGeneratedBundleRecord || authenticatedDevServedRecord)
               ? record.virtualPath
               : (resolverVirtualPath(record.path) || id)));
     // For the entry module, use the original source path so that
@@ -6187,6 +6514,7 @@
     // require of a user file that happens to be named `*.bundle.js` cannot
     // steal the remap.
     if (!authenticatedFileRecord && !authenticatedGeneratedBundleRecord &&
+        !authenticatedDevServedRecord &&
         g.__exactEntryFile && g.__exactEntryFile !== consumedEntryFile &&
         !parent && record.kind !== 'builtin') {
       consumedEntryFile = g.__exactEntryFile;
@@ -6350,7 +6678,7 @@
       // (ENG-22618 review, ENG-24233)
       if (!manifestBuiltinEvaluationActive) {
         checkImportGate(
-          next,
+          devServedImportGateSpecifier(next, resolutionReferrer),
           isManifestBuiltinRecord ? __noUserPrincipal : module && module.__exactPackageId
         );
       }
@@ -6395,7 +6723,7 @@
       rejectRuntimeLoaderOptions(arguments.length);
       if (!manifestBuiltinEvaluationActive) {
         checkImportGate(
-          specifier,
+          devServedImportGateSpecifier(specifier, resolutionReferrer),
           isManifestBuiltinRecord ? __noUserPrincipal : module && module.__exactPackageId
         );
       }
@@ -6422,7 +6750,10 @@
       return importImpl(specifier, options, resolutionReferrer, module);
     };
     const moduleStaticImport = function(specifier) {
-      checkImportGate(specifier, module && module.__exactPackageId);
+      checkImportGate(
+        devServedImportGateSpecifier(specifier, resolutionReferrer),
+        module && module.__exactPackageId
+      );
       return load(
         specifier,
         resolutionReferrer,
@@ -7600,17 +7931,35 @@
         throw new TypeError('Cannot convert a Symbol value to a string');
       }
       specifier = __privString(specifier);
-      checkImportGate(specifier);
+      checkImportGate(devServedImportGateSpecifier(specifier, referrer));
       var __normalizedImportSpecifier = stripViteImportQuery(specifier);
+      // Dynamic imports must consume the captured table on the requesting
+      // frame just like static imports. A dev-served virtual path is not a
+      // native logical-referrer token and must never reach the private
+      // filesystem resolver.
+      // @ref LLP 0002#the-dev-served-module-table-seam
+      var __devServedImportRecord = resolveDevServedModule(
+        specifier,
+        referrer
+      );
+      if (__devServedImportRecord) {
+        authenticatedImportRecord = __devServedImportRecord;
+        checkImportGate(
+          devServedImportGateSpecifier(__normalizedImportSpecifier, referrer),
+          parent && parent.__exactPackageId
+        );
+      }
       // Route-memo authority is synchronous for every authenticated file
       // route, including bare packages. The later Promise callback has no
       // requesting frame and may consume only this exact route/key grant.
-      var __importResolution = authenticatedResolutionContext(
-        __normalizedImportSpecifier,
-        referrer,
-        'module',
-        2
-      );
+      var __importResolution = authenticatedImportRecord
+        ? null
+        : authenticatedResolutionContext(
+            __normalizedImportSpecifier,
+            referrer,
+            'module',
+            2
+          );
       var __importRouteKey = __importResolution === null
         ? null
         : __importResolution.routeKey;

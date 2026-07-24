@@ -71,6 +71,53 @@ describe("test-only WebGPU wrapper generator", () => {
     expect(active.wireId).not.toBe(promotion.sourceOperationWireId);
   });
 
+  test("keeps product promotion provenance on its source artifact across unrelated Exact HEAD advances", () => {
+    const productOperationIds = new Set([
+      "GPUCommandEncoder.resolveQuerySet",
+      "GPURenderPassEncoder.drawIndexed",
+      "GPURenderPassEncoder.drawIndirect",
+      "GPURenderPassEncoder.setIndexBuffer",
+    ]);
+    const expectedProvenance = {
+      sourceCommit: "52fb441e8c0701bebe85c95d9656e069d9a143b2",
+      sourceArtifactSha256:
+        "83d33951ae93ef06336150e0e6f0bc1e932ac4a1b77056925feb233d00b77482",
+      sourceWorkloadCohortSha256:
+        "355dc9fb0a7004b070f2f763e64298716ba7dcf9cd7b2aa2940a936ff0520f69",
+    };
+    const productPromotions = authority.provenance.localPromotions.filter(
+      (candidate) => productOperationIds.has(candidate.operationId),
+    );
+    expect(productPromotions).toHaveLength(productOperationIds.size);
+    for (const promotion of productPromotions) {
+      expect(promotion).toMatchObject(expectedProvenance);
+    }
+
+    const unrelatedHeadAdvance = clone(authority);
+    unrelatedHeadAdvance.provenance.sourceCommit = "f".repeat(40);
+    unrelatedHeadAdvance.provenance.sourceArtifactSha256 = "e".repeat(64);
+    validateWebGpuWrapperAuthority(unrelatedHeadAdvance);
+    expect(
+      unrelatedHeadAdvance.provenance.localPromotions
+        .filter((candidate) => productOperationIds.has(candidate.operationId))
+        .map((promotion) => ({
+          sourceCommit: promotion.sourceCommit,
+          sourceArtifactSha256: promotion.sourceArtifactSha256,
+          sourceWorkloadCohortSha256: promotion.sourceWorkloadCohortSha256,
+        })),
+    ).toEqual(productPromotions.map(() => expectedProvenance));
+
+    const reboundToUnrelatedHead = clone(authority);
+    reboundToUnrelatedHead.provenance.localPromotions
+      .filter((candidate) => productOperationIds.has(candidate.operationId))
+      .forEach((promotion) => {
+        promotion.sourceCommit = unrelatedHeadAdvance.provenance.sourceCommit;
+      });
+    expect(() => validateWebGpuWrapperAuthority(reboundToUnrelatedHead)).toThrow(
+      "authenticated local promotion provenance drifted",
+    );
+  });
+
   test("binds the reviewed normalized projection and all subordinate digests", () => {
     const { computed } = validateWebGpuWrapperAuthority(authority);
     expect(computed).toEqual(REVIEWED_DIGESTS);
@@ -357,6 +404,28 @@ describe("test-only WebGPU wrapper generator", () => {
       kindSymbol: "EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2",
       completionPayloadEncoderEligibility: "excluded-not-an-operation-result",
     });
+  });
+
+  test("fails closed on every conditional selected-build lane field", () => {
+    for (const key of Object.keys(authority.payload.conditionalExecutionLane)) {
+      const mutation = clone(authority);
+      const lane = mutation.payload.conditionalExecutionLane;
+      const value = lane[key];
+      lane[key] = Array.isArray(value)
+        ? value.slice(0, -1)
+        : typeof value === "number"
+          ? value + 1
+          : `${value}-forged`;
+      expect(() => validateWebGpuWrapperAuthority(mutation)).toThrow(
+        /conditional execution lane/,
+      );
+    }
+
+    const widened = clone(authority);
+    widened.payload.conditionalExecutionLane.unreviewedSurface = "active";
+    expect(() => validateWebGpuWrapperAuthority(widened)).toThrow(
+      /conditional execution lane/,
+    );
   });
 
   test("carries every authenticated operation field into one bijective wrapper route", () => {

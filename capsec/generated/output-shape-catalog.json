@@ -40210,6 +40210,20 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_capture_exact_gpu_presentation_authority_v2"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:acquire_authority_session_id",
+        "out:digest",
+        "out:present_authority_session_id"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.host.check.capability.1h17wl4",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -41385,6 +41399,18 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.host.recheck.exact.gpu.presentation.authority.v2.01k31wv",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_recheck_exact_gpu_presentation_authority_v2"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:recheck_digest"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.host.register.module.package.1ncq2is",
       "status": "structural-only",
       "reasonCode": "source-derived-void-all-input-abi",
@@ -41421,6 +41447,17 @@
         "src/host/abi.rs#ex_host_restore_context"
       ],
       "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.retire.exact.gpu.presentation.authority.v2.1jtflpt",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_retire_exact_gpu_presentation_authority_v2"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
     },
     {
       "surfaceId": "surface.host.abi.ex.host.seal.bootstrap.phase.17osacf",
@@ -42999,11 +43036,12 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:iter:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:join:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:kind:count-2",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-2",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-3",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:map_err:count-3",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:msg:count-2",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:mutate:count-7",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:new_source_file:count-1",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_module:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_program:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:take_errors:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:to_ascii_lowercase:count-1",
@@ -43442,11 +43480,12 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:iter:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:join:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:kind:count-2",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-2",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-3",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:map_err:count-3",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:msg:count-2",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:mutate:count-7",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:new_source_file:count-1",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_module:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_program:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:take_errors:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:to_ascii_lowercase:count-1",
@@ -44343,11 +44382,12 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:iter:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:join:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:kind:count-2",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-2",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-3",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:map_err:count-3",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:msg:count-2",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:mutate:count-7",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:new_source_file:count-1",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_module:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_program:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:take_errors:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:to_ascii_lowercase:count-1",
@@ -44774,11 +44814,12 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:iter:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:join:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:kind:count-2",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-2",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:method:map:count-3",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:map_err:count-3",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:msg:count-2",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:mutate:count-7",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:new_source_file:count-1",
+        "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_module:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:parse_program:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:take_errors:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:method:to_ascii_lowercase:count-1",
@@ -44806,11 +44847,29 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.loader.function.javascript.addresolved.123dxvo",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#addResolved"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.loader.function.javascript.builtincachekeyfor.06poq58",
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
         "src/engine/bootstrap/module-loader.js#builtinCacheKeyFor"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.function.javascript.capturedevservedmoduletable.11upuhr",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#captureDevServedModuleTable"
       ],
       "outputKinds": []
     },
@@ -44874,6 +44933,15 @@
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
         "src/engine/bootstrap/module-loader.js#createOriginalModuleRegistry"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.function.javascript.devservedimportgatespecifier.0ekc8hh",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#devServedImportGateSpecifier"
       ],
       "outputKinds": []
     },
@@ -45112,6 +45180,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.loader.function.javascript.quarantinedevservedmoduletable.0twssbz",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#quarantineDevServedModuleTable"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.loader.function.javascript.rejectruntimeloaderoptions.06msoo9",
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
@@ -45126,6 +45203,24 @@
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
         "src/engine/bootstrap/module-loader.js#_resolveAbortError"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.function.javascript.resolvedevservedmodule.0n38hjr",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#resolveDevServedModule"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.function.javascript.resolvedevservedspecifier.0rbhk81",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#resolveDevServedSpecifier"
       ],
       "outputKinds": []
     },
@@ -45765,6 +45860,15 @@
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
         "src/module_loader/mod.rs#transpile_module"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.function.rust.transpile.module.to.cjs.1n3pocu",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/transpile.rs#transpile_module_to_cjs"
       ],
       "outputKinds": []
     },
@@ -49939,6 +50043,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.native.op.construction.private.gpunativebridgev2.capturepresentationauthority.1onjdqu",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.capturePresentationAuthority:capturePresentationAuthority:captureGpuPresentationAuthorityBridgeCall"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.native.op.construction.private.gpunativebridgev2.createmappedrangealias.1wlkeyh",
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
@@ -49957,11 +50070,29 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.native.op.construction.private.gpunativebridgev2.recheckpresentationauthority.1ccx3xx",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.recheckPresentationAuthority:recheckPresentationAuthority:recheckGpuPresentationAuthorityBridgeCall"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa",
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
         "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.retire:retire:retireGpuV2BridgeCall"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.gpunativebridgev2.retirepresentationauthority.1ppnqer",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.retirePresentationAuthority:retirePresentationAuthority:retireGpuPresentationAuthorityBridgeCall"
       ],
       "outputKinds": []
     },
@@ -49998,8 +50129,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPU.requestAdapter:1660448199",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPU.requestAdapter:1660448199"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPU.requestAdapter:1574056057",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPU.requestAdapter:1574056057"
       ],
       "outputKinds": []
     },
@@ -50028,8 +50159,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.destroy:3314731466",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.destroy:3314731466"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.destroy:896157854",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.destroy:896157854"
       ],
       "outputKinds": []
     },
@@ -50038,8 +50169,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.getMappedRange:2816646327",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.getMappedRange:2816646327"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.getMappedRange:351369834",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.getMappedRange:351369834"
       ],
       "outputKinds": []
     },
@@ -50078,8 +50209,8 @@
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.unmap:1228615721",
-        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.unmap:1228615721"
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.unmap:3902214930",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.unmap:3902214930"
       ],
       "outputKinds": []
     },
@@ -50194,6 +50325,16 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpucommandencoder.resolvequeryset.00msl6u",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.resolveQuerySet:1803920004",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.resolveQuerySet:1803920004"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.dispatchworkgroups.128rff0",
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
@@ -50290,6 +50431,16 @@
       "sourceRefs": [
         "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createPipelineLayout:3373402978",
         "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createPipelineLayout:3373402978"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.createqueryset.0cft5wp",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createQuerySet:507739414",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createQuerySet:507739414"
       ],
       "outputKinds": []
     },
@@ -50454,6 +50605,26 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindexed.141dcm7",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.drawIndexed:1973734484",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.drawIndexed:1973734484"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindirect.1qd6uh8",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.drawIndirect:225618851",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.drawIndirect:225618851"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.end.1tvn90t",
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
@@ -50470,6 +50641,16 @@
       "sourceRefs": [
         "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setBindGroup:314403009",
         "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setBindGroup:314403009"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setindexbuffer.0b2ppfi",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setIndexBuffer:66487733",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setIndexBuffer:66487733"
       ],
       "outputKinds": []
     },
@@ -50560,6 +50741,26 @@
       "sourceRefs": [
         "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.width:3310230093",
         "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.width:3310230093"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.acquire.039vdtv",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#presentation-authority:acquire",
+        "src/host/gpu_authority.rs#presentation-authority:acquire"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.present.0q60k8s",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#presentation-authority:present",
+        "src/host/gpu_authority.rs#presentation-authority:present"
       ],
       "outputKinds": []
     },
@@ -51207,6 +51408,18 @@
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#__exactCapabilityCheck",
         "src/engine/hermes_runtime.cc#jsi-global:__exactCapabilityCheck"
+      ],
+      "outputKinds": [
+        "native-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.exactcapturedevservedmoduletablelifecycle.06siznp",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactCaptureDevServedModuleTableLifecycle",
+        "src/engine/hermes_runtime.cc#jsi-global:__exactCaptureDevServedModuleTableLifecycle"
       ],
       "outputKinds": [
         "native-invocation"
@@ -53658,6 +53871,18 @@
       ],
       "outputKinds": [
         "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.exactquarantinedevservedmoduletable.1e6mwa3",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactQuarantineDevServedModuleTable",
+        "src/engine/hermes_runtime.cc#jsi-global:__exactQuarantineDevServedModuleTable"
+      ],
+      "outputKinds": [
+        "native-invocation"
       ]
     },
     {
@@ -65627,6 +65852,17 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUPipelineLayout"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.global.gpuqueryset.11xx237",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUQuerySet"
       ],
       "outputKinds": [
         "public-property-read"
@@ -86145,15 +86381,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-J45HM4qxmSwOrpgi5rhOAQUIof14JOGyZwtJICqCUtk",
+  "catalogKeyDigest": "sha256-VW9BlhTmDt0PjLexF04LrXPWmoRK5O97XVHJ8TLN50E",
   "counts": {
-    "coverageSurfaces": 7585,
-    "outputBearingSurfaces": 5843,
-    "structuralOnlySurfaces": 1663,
-    "unresolvedSurfaces": 79,
-    "catalogRows": 6522,
+    "coverageSurfaces": 7608,
+    "outputBearingSurfaces": 5849,
+    "structuralOnlySurfaces": 1670,
+    "unresolvedSurfaces": 89,
+    "catalogRows": 6532,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6115,
+    "sourceInventoryRows": 6125,
     "structuredRows": 407
   },
   "rows": [
@@ -155965,6 +156201,90 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam",
+        "output": "[[return]]",
+        "alias": "ex_host_capture_exact_gpu_presentation_authority_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_capture_exact_gpu_presentation_authority_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_capture_exact_gpu_presentation_authority_v2"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam",
+        "output": "out:acquire_authority_session_id",
+        "alias": "ex_host_capture_exact_gpu_presentation_authority_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_capture_exact_gpu_presentation_authority_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_capture_exact_gpu_presentation_authority_v2"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam",
+        "output": "out:digest",
+        "alias": "ex_host_capture_exact_gpu_presentation_authority_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_capture_exact_gpu_presentation_authority_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_capture_exact_gpu_presentation_authority_v2"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam",
+        "output": "out:present_authority_session_id",
+        "alias": "ex_host_capture_exact_gpu_presentation_authority_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_capture_exact_gpu_presentation_authority_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_capture_exact_gpu_presentation_authority_v2"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.host.check.capability.1h17wl4",
         "output": "[[return]]",
         "alias": "ex_host_check_capability",
@@ -158269,6 +158589,48 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.host.recheck.exact.gpu.presentation.authority.v2.01k31wv",
+        "output": "[[return]]",
+        "alias": "ex_host_recheck_exact_gpu_presentation_authority_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_recheck_exact_gpu_presentation_authority_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_recheck_exact_gpu_presentation_authority_v2"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.recheck.exact.gpu.presentation.authority.v2.01k31wv",
+        "output": "out:recheck_digest",
+        "alias": "ex_host_recheck_exact_gpu_presentation_authority_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_recheck_exact_gpu_presentation_authority_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_recheck_exact_gpu_presentation_authority_v2"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.host.resolve.manifest.builtin.internal.0livyul",
         "output": "[[return]]",
         "alias": "ex_host_resolve_manifest_builtin_internal",
@@ -158284,6 +158646,27 @@
         ],
         "sourceRefs": [
           "src/host/abi.rs#ex_host_resolve_manifest_builtin_internal"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.retire.exact.gpu.presentation.authority.v2.1jtflpt",
+        "output": "[[return]]",
+        "alias": "ex_host_retire_exact_gpu_presentation_authority_v2",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_retire_exact_gpu_presentation_authority_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_retire_exact_gpu_presentation_authority_v2"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -162296,6 +162679,28 @@
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#__exactCapabilityCheck",
           "src/engine/hermes_runtime.cc#jsi-global:__exactCapabilityCheck"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactcapturedevservedmoduletablelifecycle.06siznp",
+        "output": "[[return]]",
+        "alias": "__exactCaptureDevServedModuleTableLifecycle",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:__exactCaptureDevServedModuleTableLifecycle"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactCaptureDevServedModuleTableLifecycle",
+          "src/engine/hermes_runtime.cc#jsi-global:__exactCaptureDevServedModuleTableLifecycle"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -171213,6 +171618,28 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#jsi-global:__exactProcessIpcBootstrap.serialization"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactquarantinedevservedmoduletable.1e6mwa3",
+        "output": "[[return]]",
+        "alias": "__exactQuarantineDevServedModuleTable",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:__exactQuarantineDevServedModuleTable"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactQuarantineDevServedModuleTable",
+          "src/engine/hermes_runtime.cc#jsi-global:__exactQuarantineDevServedModuleTable"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -193552,6 +193979,27 @@
         ],
         "sourceRefs": [
           "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUPipelineLayout"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.gpuqueryset.11xx237",
+        "output": "[[value]]",
+        "alias": "global:GPUQuerySet",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:global:GPUQuerySet"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUQuerySet"
         ]
       },
       "requiredValueProof": "live-value-observation"

@@ -211,6 +211,16 @@ typedef enum ExactGpuServiceEventKindV2 {
     EXACT_GPU_SERVICE_EVENT_REALM_CLOSED_V2 = 6,
 } ExactGpuServiceEventKindV2;
 
+typedef enum ExactGpuServiceEventFlagsV2 {
+    EXACT_GPU_SERVICE_EVENT_FLAG_NONE_V2 = 0,
+    /// Kind-2-only secondary notification disposition. The authenticated
+    /// semantic service sets this bit only when the mandatory DEVICE_ERROR
+    /// operation terminal also reached the bottom of the captured error-scope
+    /// stack and must dispatch `uncapturederror` on its exact logical device.
+    /// It never replaces or suppresses the correlated operation terminal.
+    EXACT_GPU_SERVICE_EVENT_FLAG_UNCAPTURED_ERROR_V2 = 1,
+} ExactGpuServiceEventFlagsV2;
+
 typedef enum ExactGpuProviderAdmissionV2 {
     /// Semantic validation/admission terminated before a provider token and
     /// physical sequence existed. physical_sequence must be zero.
@@ -477,6 +487,13 @@ typedef enum ExactGpuAuthorityStageV2 {
     EXACT_GPU_AUTHORITY_REPEAT_V2 = 3,
 } ExactGpuAuthorityStageV2;
 
+/// Registry-pinned presentation batches accepted by
+/// evaluate_batch_and_then. No other decision ordering or count is inferred.
+typedef enum ExactGpuAuthorityDecisionBatchPhaseV2 {
+    EXACT_GPU_AUTHORITY_CANDIDATE_COMMIT_V2 = 1,
+    EXACT_GPU_AUTHORITY_HANDOFF_REPEAT_V2 = 2,
+} ExactGpuAuthorityDecisionBatchPhaseV2;
+
 typedef enum ExactGpuAuthorityDecisionV2Status {
     EXACT_GPU_AUTHORITY_INVALID_V2 = -1,
     EXACT_GPU_AUTHORITY_STALE_V2 = -2,
@@ -537,6 +554,18 @@ typedef struct ExactGpuAuthorityRetireV2 {
     ExactGpuAuthoritySessionFactsV2 facts;
 } ExactGpuAuthorityRetireV2;
 
+typedef struct ExactGpuAuthorityDecisionBatchV2 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t phase;
+    uint32_t flags;
+    const ExactGpuAuthorityDecisionRequestV2* decisions;
+    size_t decision_count;
+} ExactGpuAuthorityDecisionBatchV2;
+
+typedef int32_t (*ExactGpuAuthorityAllowedContinuationV2)(
+    void* continuation_context);
+
 typedef struct ExactGpuAuthoritySessionApiV2 {
     uint32_t struct_size;
     uint32_t abi_version;
@@ -545,6 +574,11 @@ typedef struct ExactGpuAuthoritySessionApiV2 {
                         const ExactGpuAuthorityDecisionRequestV2* decision);
     int32_t (*retire)(void* authority_context,
                       const ExactGpuAuthorityRetireV2* retire);
+    int32_t (*evaluate_batch_and_then)(
+        void* authority_context,
+        const ExactGpuAuthorityDecisionBatchV2* batch,
+        void* continuation_context,
+        ExactGpuAuthorityAllowedContinuationV2 continuation);
 } ExactGpuAuthoritySessionApiV2;
 
 typedef struct ExactGpuRealmOpenV2 {
@@ -798,6 +832,9 @@ typedef struct ExactGpuServiceEventV2 {
     uint32_t struct_size;
     uint32_t abi_version;
     uint32_t kind;
+    /// Exact `ExactGpuServiceEventFlagsV2` value. All event kinds except
+    /// DEVICE_ERROR require NONE. DEVICE_ERROR accepts either NONE or the
+    /// single UNCAPTURED_ERROR bit; unknown bits are protocol violations.
     uint32_t flags;
     /// Must equal sizeof(the selected typed record), never a prefix size.
     uint32_t record_size;
@@ -1428,14 +1465,16 @@ int32_t ex_hermes_commonjs_record_link_require(
     ExactModuleRunnerHandle target_record);
 
 /// Bind a CommonJS `require(specifier)` lookup to an authenticated ESM record.
-/// The target must have completed synchronous evaluation when require runs.
+/// The target is evaluated only when require runs. `synchronous_eligible` is
+/// the authenticated graph's pre-execution TLA result and must be 0 or 1.
 int32_t ex_hermes_commonjs_record_link_require_esm(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
     const uint8_t* specifier,
     size_t specifier_len,
-    ExactModuleRunnerHandle target_record);
+    ExactModuleRunnerHandle target_record,
+    int32_t synchronous_eligible);
 
 /// Bind one authenticated CommonJS `import(specifier)` spelling to an ESM
 /// record. The body receives a promise-returning `dynamicImport` factory
@@ -2664,12 +2703,17 @@ char* ex_host_prepare_exact_armed_embedder_artifacts(
 /// Build a complete production Exact artifact pair directly against the
 /// installed target's engine, project root, checked CapSec identities, and
 /// strict Exact operation manifest. `project_root_utf8` is not NUL terminated.
+/// `dev_project_root_utf8` is optional only as the exact `(NULL, 0)` pair; when
+/// present it replaces the authenticated project binding and emits the paired
+/// `dev-served` compatibility mode. Release/embedded callers pass `(NULL, 0)`.
 /// This removes any requirement to package filesystem identities produced on
 /// another machine or at another install path. It does not advertise a target;
 /// `ex_host_install_armed` retains that report-derived gate.
 char* ex_host_build_exact_armed_embedder_artifacts(
     const uint8_t* project_root_utf8,
     size_t project_root_utf8_len,
+    const uint8_t* dev_project_root_utf8,
+    size_t dev_project_root_utf8_len,
     const uint8_t* operation_manifest,
     size_t operation_manifest_len);
 
@@ -2677,13 +2721,16 @@ char* ex_host_build_exact_armed_embedder_artifacts(
 /// `exact/webgpu-provider/1` binding and the exact WebGPU profile bytes named
 /// by its `profileDigest`. The profile becomes an independently authenticated
 /// `exact-webgpu-profile` protected artifact. All byte strings are consumed
-/// synchronously and need not be NUL terminated. It returns the same heap-owned
+/// synchronously and need not be NUL terminated. The optional dev-project-root
+/// pair has the same semantics as the non-GPU builder. It returns the same heap-owned
 /// JSON envelope as the non-GPU builder; release it with `ex_host_free_string`.
 /// This does not advertise a target; `ex_host_install_armed` retains the
 /// report-derived gate.
 char* ex_host_build_exact_gpu_armed_embedder_artifacts(
     const uint8_t* project_root_utf8,
     size_t project_root_utf8_len,
+    const uint8_t* dev_project_root_utf8,
+    size_t dev_project_root_utf8_len,
     const uint8_t* operation_manifest,
     size_t operation_manifest_len,
     const uint8_t* gpu_provider_binding,
@@ -2694,12 +2741,15 @@ char* ex_host_build_exact_gpu_armed_embedder_artifacts(
 /// Build the target-local artifact pair for Exact's named WebGPU Pre-1A
 /// experiment. The authenticated root floor is derived solely from the pinned
 /// construction-private operation registry; callers cannot provide selectors,
-/// cell IDs, operation names, or wildcards. The returned envelope is released
+/// cell IDs, operation names, or wildcards. The optional dev-project-root pair
+/// has the same semantics as the ordinary builder. The returned envelope is released
 /// with `ex_host_free_string`. This does not change canonical target
 /// advertisements and is consumed only by the matching experimental installer.
 char* ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts(
     const uint8_t* project_root_utf8,
     size_t project_root_utf8_len,
+    const uint8_t* dev_project_root_utf8,
+    size_t dev_project_root_utf8_len,
     const uint8_t* operation_manifest,
     size_t operation_manifest_len,
     const uint8_t* gpu_provider_binding,

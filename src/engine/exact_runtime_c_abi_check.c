@@ -376,8 +376,19 @@ IBEX_C_ABI_ASSERT(gpu_authority_decision_size_64,
                   sizeof(ExactGpuAuthorityDecisionRequestV2) == 296u);
 IBEX_C_ABI_ASSERT(gpu_authority_retire_size_64,
                   sizeof(ExactGpuAuthorityRetireV2) == 280u);
+IBEX_C_ABI_ASSERT(gpu_authority_batch_decisions_offset_64,
+                  offsetof(ExactGpuAuthorityDecisionBatchV2, decisions) ==
+                      16u);
+IBEX_C_ABI_ASSERT(gpu_authority_batch_count_offset_64,
+                  offsetof(ExactGpuAuthorityDecisionBatchV2,
+                           decision_count) == 24u);
+IBEX_C_ABI_ASSERT(gpu_authority_batch_size_64,
+                  sizeof(ExactGpuAuthorityDecisionBatchV2) == 32u);
+IBEX_C_ABI_ASSERT(gpu_authority_batch_callback_offset_64,
+                  offsetof(ExactGpuAuthoritySessionApiV2,
+                           evaluate_batch_and_then) == 32u);
 IBEX_C_ABI_ASSERT(gpu_authority_api_size_64,
-                  sizeof(ExactGpuAuthoritySessionApiV2) == 32u);
+                  sizeof(ExactGpuAuthoritySessionApiV2) == 40u);
 IBEX_C_ABI_ASSERT(gpu_realm_open_authority_api_offset_64,
                   offsetof(ExactGpuRealmOpenV2, authority_session_api) == 96u);
 IBEX_C_ABI_ASSERT(gpu_realm_open_size_64,

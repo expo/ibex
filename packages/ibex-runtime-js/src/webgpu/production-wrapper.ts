@@ -6,6 +6,9 @@ import type {
   NativeGpuBridgeV2,
   NativeGpuCallMetadataV2,
   NativeGpuEventV2,
+  NativeGpuPresentationAuthorityMetadataV2,
+  NativeGpuPresentationAuthorityV2,
+  NativeGpuSealedOperationAuthorityV2,
 } from './native-bridge';
 import {
   EMBEDDED_EXECUTABLE_WEBGPU_CODECS,
@@ -14,14 +17,17 @@ import {
   type ProductionGpuCanvasCurrentTextureOriginEncoding,
   type ProductionGpuCanvasServiceEncoding,
   type ProductionGpuDecodedResult,
+  type ProductionGpuErrorScopeServiceEncoding,
   type ProductionGpuFullObjectReference,
   type ProductionGpuObjectIdentity,
+  type ProductionGpuPresentationAuthorityEncoding,
   type ProductionGpuTextureOriginDigestInput,
   type ProductionGpuWrapperKind,
   validateExecutableWebGpuCodecs,
 } from './production-codecs';
 import { WEBGPU_PRODUCTION_PLAN } from './production-plan.generated';
 import { WEBGPU_OBJECT_KIND_TAGS } from './production-codecs.generated';
+import { Event } from '../events/Event';
 import { EventTarget } from '../events/EventTarget';
 import { markNonTransferableArrayBuffer } from '../arraybuffer-detach';
 import {
@@ -61,6 +67,11 @@ const STAGED_LOCAL_RECORDS: ReadonlyMap<
     )
     .map((operation) => [operation.operationId, operation] as const),
 );
+const STAGED_LOCAL_RECORDS_BY_ID = new Map(
+  [...STAGED_LOCAL_RECORDS.values()].map(
+    (operation) => [operation.localRecordId, operation] as const,
+  ),
+);
 const MAX_LOCAL_RECORDS =
   WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.localRecordingSubset.recordLimit;
 
@@ -82,6 +93,24 @@ const INTRINSIC_UINT8_ARRAY = Uint8Array;
 const INTRINSIC_UINT32_ARRAY = Uint32Array;
 const INTRINSIC_REFLECT_APPLY = Reflect.apply;
 const INTRINSIC_REFLECT_CONSTRUCT = Reflect.construct;
+const INTRINSIC_STRING_CHAR_CODE_AT = String.prototype.charCodeAt;
+const INTRINSIC_STRING_FROM_CHAR_CODE = String.fromCharCode;
+const INTRINSIC_OBJECT_CREATE = Object.create;
+const INTRINSIC_OBJECT_DEFINE_PROPERTY = Object.defineProperty;
+const INTRINSIC_OBJECT_FREEZE = Object.freeze;
+const INTRINSIC_OBJECT_SET_PROTOTYPE_OF = Object.setPrototypeOf;
+const INTRINSIC_EVENT_TARGET_DISPATCH = EventTarget.prototype.dispatchEvent;
+const INTRINSIC_GLOBAL_THIS = globalThis;
+// Ibex currently approximates the spec's dedicated WebGPU task source with
+// one trusted zero-delay timer task per notification.
+const INTRINSIC_SET_TIMEOUT =
+  typeof INTRINSIC_GLOBAL_THIS.setTimeout === 'function'
+    ? INTRINSIC_GLOBAL_THIS.setTimeout
+    : undefined;
+const LOWER_HEX_DIGITS = Object.freeze([
+  '0', '1', '2', '3', '4', '5', '6', '7',
+  '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+]);
 const INTRINSIC_TYPED_ARRAY_PROTOTYPE = Object.getPrototypeOf(
   INTRINSIC_UINT32_ARRAY.prototype,
 ) as object;
@@ -117,9 +146,83 @@ const EMPTY_BUFFER_WRITEBACK = INTRINSIC_REFLECT_CONSTRUCT(
 // than the authenticated structural per-descriptor ceiling. It is not the
 // leaf-plus-envelope reservation required to publish mapped buffers. Until the
 // bridge can transfer an affine preallocation credit into the service ledger,
-// the production codec authority remains absent and this guard is monotonic.
+// mapped-buffer publication authority remains absent. Selected-build explicit
+// codec injection does not grant that affine credit, and this guard is monotonic.
 const PRIVATE_MAPPED_ALLOCATION_GUARD_MAX_BYTES = 268_435_456;
 const PRIVATE_MAPPED_RANGE_LEASE_LIMIT = 4_096;
+const MAX_UNCAPTURED_ERROR_COUNT = 1_024;
+const MAX_UNCAPTURED_ERROR_DIAGNOSTIC_BYTES = 4_096;
+const MAX_UNCAPTURED_ERROR_QUEUED_DIAGNOSTIC_BYTES =
+  MAX_UNCAPTURED_ERROR_COUNT * MAX_UNCAPTURED_ERROR_DIAGNOSTIC_BYTES;
+
+function decodeCanonicalGpuErrorDiagnostic(bytes: Uint8Array): string {
+  const codeUnits: number[] = [];
+  for (let index = 0; index < bytes.length;) {
+    const first = bytes[index++]!;
+    let codePoint: number;
+    let remaining: number;
+    let minimum: number;
+    if (first <= 0x7f) {
+      codePoint = first;
+      remaining = 0;
+      minimum = 0;
+    } else if (first >= 0xc2 && first <= 0xdf) {
+      codePoint = first & 0x1f;
+      remaining = 1;
+      minimum = 0x80;
+    } else if (first >= 0xe0 && first <= 0xef) {
+      codePoint = first & 0x0f;
+      remaining = 2;
+      minimum = 0x800;
+    } else if (first >= 0xf0 && first <= 0xf4) {
+      codePoint = first & 0x07;
+      remaining = 3;
+      minimum = 0x10000;
+    } else {
+      throw new TypeError('Malformed UTF-8 in WebGPU error diagnostic');
+    }
+    for (let part = 0; part < remaining; part += 1) {
+      if (index >= bytes.length) {
+        throw new TypeError('Truncated UTF-8 in WebGPU error diagnostic');
+      }
+      const continuation = bytes[index++]!;
+      if ((continuation & 0xc0) !== 0x80) {
+        throw new TypeError('Malformed UTF-8 in WebGPU error diagnostic');
+      }
+      codePoint = (codePoint << 6) | (continuation & 0x3f);
+    }
+    if (
+      codePoint < minimum ||
+      codePoint > 0x10ffff ||
+      (codePoint >= 0xd800 && codePoint <= 0xdfff)
+    ) {
+      throw new TypeError('Non-canonical UTF-8 in WebGPU error diagnostic');
+    }
+    const forbiddenControl =
+      (codePoint <= 0x1f &&
+       codePoint !== 0x09 &&
+       codePoint !== 0x0a &&
+       codePoint !== 0x0d) ||
+      (codePoint >= 0x7f && codePoint <= 0x9f);
+    if (forbiddenControl) {
+      throw new TypeError('Forbidden control in WebGPU error diagnostic');
+    }
+    if (codePoint <= 0xffff) {
+      codeUnits.push(codePoint);
+    } else {
+      const scalar = codePoint - 0x10000;
+      codeUnits.push(
+        0xd800 + (scalar >> 10),
+        0xdc00 + (scalar & 0x3ff),
+      );
+    }
+  }
+  return INTRINSIC_REFLECT_APPLY(
+    INTRINSIC_STRING_FROM_CHAR_CODE,
+    undefined,
+    codeUnits,
+  ) as string;
+}
 
 interface LostController {
   readonly promise: Promise<unknown>;
@@ -135,6 +238,7 @@ interface DeviceState {
   readonly featureNames: readonly string[];
   readonly limits: Readonly<Record<string, number>>;
   readonly lost: LostController;
+  eventTarget: EventTarget | undefined;
   queue: object | undefined;
   destroyed: boolean;
   nextIngress: string;
@@ -143,6 +247,7 @@ interface DeviceState {
   queueIngressExhausted: boolean;
   nextScope: string;
   scopeExhausted: boolean;
+  scopeStackGeneration: string;
   scopes: Array<Readonly<{ id: string; filter: string }>>;
   pendingLocalTimeline: unknown[];
   readonly pendingCurrentTextureMaterializations: Map<
@@ -226,6 +331,12 @@ interface WrapperState {
   readonly boundBindGroups: Map<number, BoundBindGroupState>;
   readonly usedBindGroups: Set<WrapperState>;
   currentPipeline: WrapperState | undefined;
+  indexBufferBinding: Readonly<{
+    buffer: WrapperState;
+    indexFormat: 'uint16' | 'uint32';
+    offset: number;
+    size: number;
+  }> | undefined;
   bindGroupLayoutEntries: readonly BindGroupLayoutBufferEntry[] | undefined;
   bindGroupLayout: WrapperState | undefined;
   bindGroupBufferBindings: readonly BindGroupBufferBinding[] | undefined;
@@ -240,7 +351,9 @@ interface WrapperState {
   canvasContextLifecycle: CanvasContextLifecycle | undefined;
   destroyed: boolean;
   textureExpired: boolean;
+  textureExpiryAccepted: boolean;
   materialized: boolean;
+  presentationAuthorityRetirement: 'live' | 'retiring' | 'retired';
   currentOrigin: CanvasCurrentTextureOriginState | undefined;
   adapterFeatures: object | undefined;
   adapterFeatureNames: readonly string[] | undefined;
@@ -254,6 +367,8 @@ interface WrapperState {
   bufferPendingMap: PendingBufferMapState | undefined;
   bufferActiveMapping: ActiveBufferMappingState | undefined;
   bufferPendingCleanup: PendingBufferCleanupState | undefined;
+  querySetCount: number | undefined;
+  querySetType: 'occlusion' | 'timestamp' | undefined;
   textureDimension: '1d' | '2d' | '3d' | undefined;
   textureFormat: string | undefined;
   textureUsage: number | undefined;
@@ -292,6 +407,41 @@ export interface ProductionGpuCanvasContextAuthority {
 
 interface PendingPromiseCall {
   readonly route: ProductionRoute;
+  readonly promiseId: string;
+  readonly deviceKey: string | undefined;
+}
+
+interface PendingUncapturedError {
+  readonly deviceKey: string;
+  readonly target: EventTarget;
+  readonly message: string;
+  /** Fully typed and snapshotted at ingress; never reconstructed in the task. */
+  readonly error: object;
+  /** Original UTF-8 extent retained for aggregate diagnostic accounting. */
+  readonly eventByteLength: number;
+}
+
+interface PendingSealedBatch {
+  readonly childIds: readonly string[];
+  readonly outerOperationId: number;
+  readonly outerWantsPromise: boolean;
+  readonly outerMetadata: NativeGpuCallMetadataV2;
+  nextTerminalIndex: number;
+  accepted: boolean;
+  parentOperationInstanceId: string | undefined;
+  parentPromiseId: string | undefined;
+  carrierAuthorityContextDigest: string | undefined;
+  terminalObserved: boolean;
+}
+
+interface PendingSealedOperation {
+  readonly authority: NativeGpuSealedOperationAuthorityV2;
+  readonly deviceKey: string;
+  readonly logicalDeviceId: string;
+  readonly logicalDeviceGeneration: string;
+  readonly providerGeneration: string;
+  readonly operationProviderGeneration: string;
+  readonly batch: PendingSealedBatch;
 }
 
 interface RealmState {
@@ -306,11 +456,18 @@ interface RealmState {
   readonly hostCanvasContextsByIdentity: Map<string, WrapperState>;
   readonly currentHostCanvasContextByObject: Map<string, WrapperState>;
   readonly currentHostCanvasContextBySurfaceToken: Map<string, WrapperState>;
+  readonly pendingCanvasTextureExpiries: Set<WrapperState>;
   readonly pendingPromiseCalls: Map<string, PendingPromiseCall>;
+  readonly pendingSealedOperations: Map<string, PendingSealedOperation>;
+  readonly pendingSealedBatches: Map<string, PendingSealedBatch>;
+  readonly provisionalSealedBatches: Set<PendingSealedBatch>;
   readonly resultEvents: Map<
     string,
     Extract<NativeGpuEventV2, { kind: 1 }>
   >;
+  readonly pendingUncapturedErrors: PendingUncapturedError[];
+  pendingUncapturedDiagnosticBytes: number;
+  uncapturedErrorTaskScheduled: boolean;
   nextLocalObjectId: string;
   localObjectIdExhausted: boolean;
   nextLocalOperationInstanceId: string;
@@ -408,6 +565,8 @@ const TYPEGPU_WORKLOAD_STAGING = Object.freeze({
   scopeId: WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.scopeId,
   status: WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.status,
   supportClaim: WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.supportClaim,
+  conditionalExecutionLane:
+    WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.conditionalExecutionLane,
   nativeExecutionEvidence:
     WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.nativeExecutionEvidence,
   typegpuVersion: WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.typegpuVersion,
@@ -431,8 +590,8 @@ const TYPEGPU_WORKLOAD_STAGING = Object.freeze({
         .map((operation) => Object.freeze({ ...operation })),
     ),
   }),
-  blockers: Object.freeze([
-    ...WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.blockers,
+  claimBoundaryAbsences: Object.freeze([
+    ...WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.claimBoundaryAbsences,
   ]),
   publicSurfaceRule:
     WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.publicSurfaceRule,
@@ -441,10 +600,10 @@ const TYPEGPU_WORKLOAD_STAGING = Object.freeze({
 });
 
 /**
- * Construction-private planning evidence for the pinned TypeGPU workloads.
- * Additional members remain non-routing and non-installing. The authenticated
- * local-recording subset has construction-private prototype plumbing only; it
- * has no service codec, native route, CapSec edge, or support claim.
+ * Selected-build execution evidence for the pinned TypeGPU workloads.
+ * The authenticated local-recording subset executes inside the private
+ * wrapper without provider submission. Default/public/worker installation,
+ * platform qualification, CTS evidence, and support claims remain absent.
  */
 export function describeProductionWebGpuWorkloadStaging() {
   return TYPEGPU_WORKLOAD_STAGING;
@@ -1183,7 +1342,10 @@ function capturePrivateBindingTestOptions(
       !isCanonicalU64Decimal(
         seed,
         seedPositive[key as keyof typeof seedPositive],
-      )
+      ) ||
+      ((key === 'nextLocalObjectId' ||
+        key === 'nextLocalOperationInstanceId') &&
+        compareCanonicalU64Decimal(seed, '9223372036854775808') < 0)
     ) {
       throw new TypeError(`Invalid private WebGPU counter seed: ${key}`);
     }
@@ -1204,6 +1366,11 @@ export function createProductionWebGpuPrivateBinding(
 ): ProductionWebGpuPrivateBinding {
   if (!validateExecutableWebGpuCodecs(codecs)) {
     throw new TypeError('WebGPU executable codec authority is invalid');
+  }
+  if (!INTRINSIC_SET_TIMEOUT) {
+    throw new TypeError(
+      'WebGPU uncaptured-error task scheduling authority is unavailable',
+    );
   }
   const capturedTestOptions = capturePrivateBindingTestOptions(testOptions);
   const effectiveExtensions = extensions ??
@@ -1250,6 +1417,34 @@ export function createProductionWebGpuPrivateBinding(
   installReadonlyFeatureSetPrototype(featurePrototype, featureStates);
   const supportedLimitsPrototype = Object.freeze(Object.create(null) as object);
   const deviceLostInfoPrototype = Object.freeze(Object.create(null) as object);
+  const gpuErrorPrototype = Object.freeze(
+    Object.assign(Object.create(null) as object, { name: 'GPUError' }),
+  );
+  const gpuInternalErrorConstructor = makeMessageConstructor(
+    'GPUInternalError',
+    gpuErrorPrototype,
+  );
+  const gpuOutOfMemoryErrorConstructor = makeMessageConstructor(
+    'GPUOutOfMemoryError',
+    gpuErrorPrototype,
+  );
+  const gpuValidationErrorConstructor = makeMessageConstructor(
+    'GPUValidationError',
+    gpuErrorPrototype,
+  );
+  const gpuUncapturedErrorEventStates = new WeakMap<object, object>();
+  const gpuUncapturedErrorEventPrototype = Object.create(Event.prototype) as object;
+  defineGetter(
+    gpuUncapturedErrorEventPrototype,
+    'error',
+    function (this: object): object {
+      if (!gpuUncapturedErrorEventStates.has(this)) {
+        throw new TypeError('Incompatible GPUUncapturedErrorEvent receiver');
+      }
+      return gpuUncapturedErrorEventStates.get(this)!;
+    },
+  );
+  Object.freeze(gpuUncapturedErrorEventPrototype);
   const counterSeed = (
     key: keyof NonNullable<ProductionWebGpuPrivateBindingTestOptions['counterSeeds']>,
     fallback: string,
@@ -1273,8 +1468,15 @@ export function createProductionWebGpuPrivateBinding(
     hostCanvasContextsByIdentity: new Map(),
     currentHostCanvasContextByObject: new Map(),
     currentHostCanvasContextBySurfaceToken: new Map(),
+    pendingCanvasTextureExpiries: new Set(),
     pendingPromiseCalls: new Map(),
+    pendingSealedOperations: new Map(),
+    pendingSealedBatches: new Map(),
+    provisionalSealedBatches: new Set(),
     resultEvents: new Map(),
+    pendingUncapturedErrors: [],
+    pendingUncapturedDiagnosticBytes: 0,
+    uncapturedErrorTaskScheduled: false,
     // Client-allocated targets occupy the high unsigned half of the service
     // namespace, independently of provider-assigned result identities.
     nextLocalObjectId: counterSeed(
@@ -1414,6 +1616,129 @@ export function createProductionWebGpuPrivateBinding(
       throw new TypeError('GPUBuffer map completion affine view is inconsistent');
     }
     return value as Uint8Array;
+  };
+
+  const copyExactUint8View = (
+    value: unknown,
+    expectedSize: number,
+    label: string,
+  ): Uint8Array => {
+    let source: Uint8Array;
+    try {
+      source = retainOwnedUint8View(value, expectedSize);
+    } catch {
+      throw new TypeError(`${label} must be an exact Uint8Array`);
+    }
+    return INTRINSIC_REFLECT_CONSTRUCT(
+      INTRINSIC_UINT8_ARRAY,
+      [source],
+    ) as Uint8Array;
+  };
+
+  const bytesToLowerHex = (bytes: Uint8Array): string => {
+    let result = '';
+    for (const byte of bytes) {
+      result += LOWER_HEX_DIGITS[byte >>> 4]!;
+      result += LOWER_HEX_DIGITS[byte & 0x0f]!;
+    }
+    return result;
+  };
+
+  const lowerHexToBytes = (value: string, label: string): Uint8Array => {
+    if (value.length !== 64) {
+      throw new TypeError(`${label} must be 64 lowercase hex digits`);
+    }
+    const bytes = INTRINSIC_REFLECT_CONSTRUCT(
+      INTRINSIC_UINT8_ARRAY,
+      [32],
+    ) as Uint8Array;
+    for (let index = 0; index < 32; index += 1) {
+      const highCode = INTRINSIC_REFLECT_APPLY(
+        INTRINSIC_STRING_CHAR_CODE_AT,
+        value,
+        [index * 2],
+      ) as number;
+      const lowCode = INTRINSIC_REFLECT_APPLY(
+        INTRINSIC_STRING_CHAR_CODE_AT,
+        value,
+        [index * 2 + 1],
+      ) as number;
+      const high = highCode >= 0x30 && highCode <= 0x39
+        ? highCode - 0x30
+        : highCode >= 0x61 && highCode <= 0x66
+          ? highCode - 0x57
+          : -1;
+      const low = lowCode >= 0x30 && lowCode <= 0x39
+        ? lowCode - 0x30
+        : lowCode >= 0x61 && lowCode <= 0x66
+          ? lowCode - 0x57
+          : -1;
+      if (high < 0 || low < 0) {
+        throw new TypeError(`${label} must be 64 lowercase hex digits`);
+      }
+      bytes[index] = (high << 4) | low;
+    }
+    return bytes;
+  };
+
+  const encodePresentationAuthority = (
+    value: NativeGpuPresentationAuthorityV2,
+    capturedScopeId: string,
+  ): ProductionGpuPresentationAuthorityEncoding => {
+    if (
+      !isPositiveDecimal(value.acquireSessionId) ||
+      !isPositiveDecimal(value.presentSessionId) ||
+      value.acquireSessionId === value.presentSessionId ||
+      !isCanonicalU64Decimal(capturedScopeId, false)
+    ) {
+      throw new TypeError('Canvas presentation authority identity is malformed');
+    }
+    const digest = copyExactUint8View(
+      value.authorityContextDigest,
+      32,
+      'Canvas presentation authority digest',
+    );
+    return Object.freeze({
+      acquireSessionId: value.acquireSessionId,
+      presentSessionId: value.presentSessionId,
+      authorityContextDigest: bytesToLowerHex(digest),
+      capturedScopeId,
+    });
+  };
+
+  const nativePresentationAuthority = (
+    value: ProductionGpuPresentationAuthorityEncoding,
+  ): NativeGpuPresentationAuthorityV2 => Object.freeze({
+    acquireSessionId: value.acquireSessionId,
+    presentSessionId: value.presentSessionId,
+    authorityContextDigest: lowerHexToBytes(
+      value.authorityContextDigest,
+      'Canvas presentation authority digest',
+    ),
+  });
+
+  const tryRetirePresentationAuthorityOnce = (
+    texture: WrapperState,
+    retained: NativeGpuPresentationAuthorityV2,
+  ): boolean => {
+    if (texture.presentationAuthorityRetirement === 'retired') return true;
+    if (texture.presentationAuthorityRetirement === 'retiring') return false;
+    texture.presentationAuthorityRetirement = 'retiring';
+    try {
+      const status = bridge.retirePresentationAuthority(retained);
+      if (status === 1 || status === -2) {
+        texture.presentationAuthorityRetirement = 'retired';
+        return true;
+      }
+      texture.presentationAuthorityRetirement = 'live';
+      if (status === 0) return false;
+      throw new Error(
+        'Canvas presentation authority retirement failed structurally',
+      );
+    } catch (error) {
+      texture.presentationAuthorityRetirement = 'live';
+      throw error;
+    }
   };
 
   const makePendingBufferMap = (
@@ -1663,14 +1988,43 @@ export function createProductionWebGpuPrivateBinding(
       ),
       pendingPromiseCount: realm.pendingPromiseCalls.size,
     });
+    for (const context of contexts) {
+      if (!context.currentTexture) continue;
+      const texture = realm.wrappers.get(context.currentTexture);
+      if (
+        texture?.kind !== 'GPUTexture' ||
+        texture.materialized ||
+        texture.currentOrigin === undefined
+      ) {
+        continue;
+      }
+      try {
+        tryRetirePresentationAuthorityOnce(
+          texture,
+          nativePresentationAuthority(
+            texture.currentOrigin.presentationAuthority,
+          ),
+        );
+      } catch {
+        // Realm closure is already the terminal fail-closed path. The Host
+        // context purge remains the final backstop if native retirement itself
+        // rejects or throws.
+      }
+    }
     realm.hostCanvasContextsByIdentity.clear();
     realm.currentHostCanvasContextByObject.clear();
     realm.currentHostCanvasContextBySurfaceToken.clear();
+    realm.pendingCanvasTextureExpiries.clear();
     clearRealmBufferMappings(false, 'The WebGPU realm was closed');
     realm.buffers.clear();
     realm.devices.clear();
     realm.pendingPromiseCalls.clear();
+    realm.pendingSealedOperations.clear();
+    realm.pendingSealedBatches.clear();
+    realm.provisionalSealedBatches.clear();
     realm.resultEvents.clear();
+    realm.pendingUncapturedErrors.length = 0;
+    realm.pendingUncapturedDiagnosticBytes = 0;
     realm.activePassCount = 0;
     realm.lastCloseSnapshot = snapshot;
     for (const context of contexts) {
@@ -1746,11 +2100,16 @@ export function createProductionWebGpuPrivateBinding(
     });
   };
 
-  const allocateWrapper = (
+  interface PreparedWrapperAllocation {
+    readonly state: WrapperState;
+    readonly localObjectPlan: NextCounterConsumption | undefined;
+  }
+
+  const prepareWrapperAllocation = (
     kind: ProductionGpuAllocatedWrapperKind,
     device: DeviceState | undefined,
     identity?: Readonly<{ objectId: string; objectGeneration: string }>,
-  ): WrapperState => {
+  ): PreparedWrapperAllocation => {
     if (!realm.active) throw namedError('SecurityError', 'WebGPU realm is revoked');
     const localObjectPlan = identity
       ? undefined
@@ -1797,6 +2156,7 @@ export function createProductionWebGpuPrivateBinding(
       boundBindGroups: new Map(),
       usedBindGroups: new Set(),
       currentPipeline: undefined,
+      indexBufferBinding: undefined,
       bindGroupLayoutEntries: undefined,
       bindGroupLayout: undefined,
       bindGroupBufferBindings: undefined,
@@ -1815,7 +2175,9 @@ export function createProductionWebGpuPrivateBinding(
       canvasContextLifecycle: undefined,
       destroyed: false,
       textureExpired: false,
+      textureExpiryAccepted: false,
       materialized: false,
+      presentationAuthorityRetirement: 'live',
       currentOrigin: undefined,
       adapterFeatures: undefined,
       adapterFeatureNames: undefined,
@@ -1837,6 +2199,8 @@ export function createProductionWebGpuPrivateBinding(
       bufferPendingMap: undefined,
       bufferActiveMapping: undefined,
       bufferPendingCleanup: undefined,
+      querySetCount: undefined,
+      querySetType: undefined,
       textureDimension: undefined,
       textureFormat: undefined,
       textureUsage: undefined,
@@ -1846,15 +2210,46 @@ export function createProductionWebGpuPrivateBinding(
       drawingBufferWidth: undefined,
       drawingBufferHeight: undefined,
     };
+    return Object.freeze({ state, localObjectPlan });
+  };
+
+  const commitWrapperAllocation = (
+    plan: PreparedWrapperAllocation,
+  ): WrapperState => {
+    const { state, localObjectPlan } = plan;
+    if (
+      !realm.active ||
+      realm.closeReason !== undefined ||
+      (localObjectPlan !== undefined &&
+        (realm.nextLocalObjectId !== localObjectPlan.value ||
+          realm.localObjectIdExhausted))
+    ) {
+      closeRealmCounterIndependently(
+        'wrapper-allocation-plan-conflict',
+        'The WebGPU realm closed after a wrapper allocation plan conflict',
+      );
+      throw namedError(
+        'OperationError',
+        'WebGPU wrapper allocation plan is stale',
+      );
+    }
     if (localObjectPlan !== undefined) {
       realm.nextLocalObjectId = localObjectPlan.next;
       realm.localObjectIdExhausted = localObjectPlan.exhaustedAfter;
     }
-    realm.wrappers.set(wrapper, state);
-    IMPLEMENTED_WEBGPU_INTERFACE_KINDS.set(wrapper, kind);
+    realm.wrappers.set(state.wrapper, state);
+    IMPLEMENTED_WEBGPU_INTERFACE_KINDS.set(state.wrapper, state.kind);
     realm.allocatedWrapperCount += 1;
     return state;
   };
+
+  const allocateWrapper = (
+    kind: ProductionGpuAllocatedWrapperKind,
+    device: DeviceState | undefined,
+    identity?: Readonly<{ objectId: string; objectGeneration: string }>,
+  ): WrapperState => commitWrapperAllocation(
+    prepareWrapperAllocation(kind, device, identity),
+  );
 
   const convert = (operationId: string, args: readonly unknown[]): unknown => {
     route(operationId);
@@ -2066,11 +2461,33 @@ export function createProductionWebGpuPrivateBinding(
     });
   };
 
-  const expireCurrentTexture = (context: WrapperState): void => {
-    if (!context.currentTexture) return;
-    const texture = requireState(context.currentTexture, 'GPUTexture');
-    texture.textureExpired = true;
-    context.currentTexture = undefined;
+  const retirePresentationAuthorityOrClose = (
+    texture: WrapperState,
+    retained: NativeGpuPresentationAuthorityV2,
+  ): void => {
+    let retired = false;
+    try {
+      retired = tryRetirePresentationAuthorityOnce(texture, retained);
+    } catch {
+      closeRealmCounterIndependently(
+        'canvas-presentation-retire-threw',
+        'The WebGPU realm closed because Canvas presentation retirement threw',
+      );
+      throw namedError(
+        'OperationError',
+        'GPUCanvasContext presentation retirement failed',
+      );
+    }
+    if (!retired) {
+      closeRealmCounterIndependently(
+        'canvas-presentation-retire-rejected',
+        'The WebGPU realm closed because Canvas presentation retirement was rejected',
+      );
+      throw namedError(
+        'OperationError',
+        'GPUCanvasContext presentation retirement was rejected',
+      );
+    }
   };
 
   const encodeCanvasCurrentOrigin = (
@@ -2093,8 +2510,153 @@ export function createProductionWebGpuPrivateBinding(
         deviceIngressOrdinal:
           currentOrigin.mintOperationProvenance.deviceIngressOrdinal,
       }),
+      presentationAuthority: currentOrigin.presentationAuthority,
       textureOriginDigest: currentOrigin.textureOriginDigest,
     });
+  };
+
+  const submitCanvasTextureExpiry = (
+    texture: WrapperState,
+    bridgeThrowReason: string,
+    bridgeThrowMessage: string,
+  ): void => {
+    const device = texture.device;
+    if (
+      texture.kind !== 'GPUTexture' ||
+      !device ||
+      texture.currentOrigin === undefined ||
+      texture.textureExpired
+    ) {
+      closeRealmCounterIndependently(
+        'canvas-current-expiry-origin',
+        'The WebGPU realm closed after a Canvas current-texture expiry mismatch',
+      );
+      throw namedError(
+        'OperationError',
+        'GPUCanvasContext current-texture expiry is inconsistent',
+      );
+    }
+    realm.pendingCanvasTextureExpiries.add(texture);
+    const converted = convert('GPUTexture.destroy', []);
+    const onFailure = (failure: ServiceSubmissionFailureKind): void => {
+      if (failure === 'bridge-threw') {
+        closeRealmCounterIndependently(
+          bridgeThrowReason,
+          bridgeThrowMessage,
+        );
+      }
+    };
+    if (!texture.materialized) {
+      const materializationAuthority: ProductionGpuCanvasServiceEncoding =
+        Object.freeze({
+          kind: 'texture-destroy-v1',
+          receiverTextureRef: reference(texture.wrapper, 'GPUTexture'),
+          terminalIntent: 'first-cleanup',
+          materializationState: 'unmaterialized',
+          origin: encodeCanvasCurrentOrigin(texture),
+        });
+      submitService(
+        'GPUTexture.destroy',
+        texture,
+        undefined,
+        converted,
+        false,
+        undefined,
+        undefined,
+        onFailure,
+        materializationAuthority,
+      );
+      texture.destroyed = true;
+      if (!texture.materialized) {
+        closeRealmCounterIndependently(
+          'canvas-current-materialization-missing',
+          'The WebGPU realm closed because Canvas expiry failed to materialize its exact origin',
+        );
+        throw namedError(
+          'OperationError',
+          'GPUCanvasContext current-texture materialization was not committed',
+        );
+      }
+    }
+    if (texture.textureExpiryAccepted) return;
+    const expiryAuthority: ProductionGpuCanvasServiceEncoding = Object.freeze({
+      kind: 'texture-expire-v1',
+      receiverTextureRef: reference(texture.wrapper, 'GPUTexture'),
+      expiryIntent: 'host-task-expiry',
+      materializationState: 'materialized',
+      origin: encodeCanvasCurrentOrigin(texture),
+    });
+    submitService(
+      'GPUTexture.destroy',
+      texture,
+      undefined,
+      converted,
+      false,
+      undefined,
+      undefined,
+      onFailure,
+      expiryAuthority,
+    );
+    texture.textureExpiryAccepted = true;
+  };
+
+  const finalizeCanvasTextureExpiry = (texture: WrapperState): void => {
+    if (!texture.textureExpiryAccepted) {
+      throw new Error('Canvas texture expiry was not accepted');
+    }
+    texture.textureExpired = true;
+    texture.destroyed = true;
+    realm.pendingCanvasTextureExpiries.delete(texture);
+  };
+
+  const expireCurrentTexture = (context: WrapperState): void => {
+    if (!context.currentTexture) return;
+    const textureWrapper = context.currentTexture;
+    const texture = requireState(textureWrapper, 'GPUTexture');
+    const device = context.configuredDevice;
+    if (!device || texture.device !== device || texture.currentOrigin === undefined) {
+      closeRealmCounterIndependently(
+        'canvas-current-expiry-origin',
+        'The WebGPU realm closed after a Canvas current-texture expiry mismatch',
+      );
+      throw namedError(
+        'OperationError',
+        'GPUCanvasContext current-texture expiry is inconsistent',
+      );
+    }
+    submitCanvasTextureExpiry(
+      texture,
+      'canvas-current-expiry-threw',
+      'The WebGPU realm closed because Canvas current-texture expiry threw',
+    );
+    finalizeCanvasTextureExpiry(texture);
+    if (context.currentTexture === textureWrapper) {
+      context.currentTexture = undefined;
+    }
+  };
+
+  const detachCurrentTextureForExpiry = (
+    context: WrapperState,
+  ): WrapperState | undefined => {
+    if (!context.currentTexture) return undefined;
+    const texture = requireState(context.currentTexture, 'GPUTexture');
+    if (
+      !context.configuredDevice ||
+      texture.device !== context.configuredDevice ||
+      texture.currentOrigin === undefined
+    ) {
+      closeRealmCounterIndependently(
+        'canvas-current-expiry-origin',
+        'The WebGPU realm closed after a Canvas current-texture expiry mismatch',
+      );
+      throw namedError(
+        'OperationError',
+        'GPUCanvasContext current-texture expiry is inconsistent',
+      );
+    }
+    realm.pendingCanvasTextureExpiries.add(texture);
+    context.currentTexture = undefined;
+    return texture;
   };
 
   const unlinkConfiguredCanvasContext = (context: WrapperState): void => {
@@ -2255,7 +2817,7 @@ export function createProductionWebGpuPrivateBinding(
       staged?.logicalExecutionKind !== 'wrapper-local-recording' ||
       staged.terminalDisposition !== 'sealed-logical-record-no-provider-submit' ||
       staged.routingDisposition !==
-        'construction-private-non-installing-non-routing'
+        'selected-build-wrapper-local-no-provider-routing'
     ) {
       throw new Error(`${operationId} is not an authenticated staged local record`);
     }
@@ -2430,6 +2992,285 @@ export function createProductionWebGpuPrivateBinding(
     });
   };
 
+  const nativeSealedOperationAuthorities = (
+    authorities: ReturnType<
+      ExecutableWebGpuCodecBundle['encodeServiceRequestWithSealedOperations']
+    >['sealedOperations'],
+  ): readonly NativeGpuSealedOperationAuthorityV2[] => {
+    if (
+      !Array.isArray(authorities) ||
+      authorities.length > MAX_LOCAL_RECORDS
+    ) {
+      throw new TypeError(
+        'WebGPU sealed-operation authority projection exceeds its bound',
+      );
+    }
+    let previousOperationInstanceId: string | undefined;
+    let previousDeviceIngressOrdinal: string | undefined;
+    const nativeReferenceFromCodec = (
+      reference: Readonly<{
+        kind: ProductionGpuWrapperKind;
+        id: string;
+        generation: string;
+      }>,
+      label: string,
+    ) => {
+      if (
+        typeof reference !== 'object' ||
+        reference === null ||
+        !Object.prototype.hasOwnProperty.call(
+          WEBGPU_OBJECT_KIND_TAGS,
+          reference.kind,
+        ) ||
+        !isPositiveDecimal(reference.id) ||
+        !isPositiveDecimal(reference.generation)
+      ) {
+        throw new TypeError(`${label} is not an exact WebGPU object reference`);
+      }
+      return INTRINSIC_OBJECT_FREEZE({
+        kind: WEBGPU_OBJECT_KIND_TAGS[reference.kind],
+        id: reference.id,
+        generation: reference.generation,
+      });
+    };
+    return INTRINSIC_OBJECT_FREEZE(authorities.map((authority, index) => {
+      if (
+        typeof authority !== 'object' ||
+        authority === null ||
+        (authority.identityClass !== 'active-route' &&
+          authority.identityClass !== 'staged-local') ||
+        (authority.authorityContextSource !== 'command-program' &&
+          authority.authorityContextSource !== 'enclosing-carrier' &&
+          authority.authorityContextSource !== 'staged-record') ||
+        !Number.isInteger(authority.operationId) ||
+        authority.operationId < 1 ||
+        authority.operationId > 0xffff_ffff ||
+        !isPositiveDecimal(authority.operationInstanceId) ||
+        compareCanonicalU64Decimal(
+          authority.operationInstanceId,
+          '9223372036854775808',
+        ) < 0 ||
+        !isPositiveDecimal(authority.deviceIngressOrdinal) ||
+        !isCanonicalU64Decimal(authority.capturedScopeId, false) ||
+        (previousOperationInstanceId !== undefined &&
+          compareCanonicalU64Decimal(
+            previousOperationInstanceId,
+            authority.operationInstanceId,
+          ) >= 0) ||
+        (previousDeviceIngressOrdinal !== undefined &&
+          compareCanonicalU64Decimal(
+            previousDeviceIngressOrdinal,
+            authority.deviceIngressOrdinal,
+          ) >= 0)
+      ) {
+        throw new TypeError(
+          `WebGPU sealed-operation authority[${index}] is malformed`,
+        );
+      }
+      const activeRoute = ROUTES_BY_WIRE.get(authority.operationId);
+      const stagedRecord = STAGED_LOCAL_RECORDS_BY_ID.get(authority.operationId);
+      const digestRequired =
+        authority.authorityContextSource !== 'enclosing-carrier';
+      if (
+        (authority.identityClass === 'active-route'
+          ? !activeRoute ||
+            activeRoute.providerSubmission !== 'none' ||
+            authority.authorityContextSource === 'staged-record'
+          : !stagedRecord ||
+            activeRoute !== undefined ||
+            authority.authorityContextSource !== 'staged-record') ||
+        (digestRequired
+          ? typeof authority.authorityContextDigest !== 'string'
+          : authority.authorityContextDigest !== undefined) ||
+        (stagedRecord !== undefined &&
+          authority.authorityContextDigest !==
+            stagedRecord.recordIdentitySha256)
+      ) {
+        throw new TypeError(
+          `WebGPU sealed-operation authority[${index}] has invalid identity`,
+        );
+      }
+      const receiver = nativeReferenceFromCodec(
+        authority.receiver,
+        `WebGPU sealed-operation authority[${index}].receiver`,
+      );
+      const target = authority.target === undefined
+        ? undefined
+        : nativeReferenceFromCodec(
+          authority.target,
+          `WebGPU sealed-operation authority[${index}].target`,
+        );
+      previousOperationInstanceId = authority.operationInstanceId;
+      previousDeviceIngressOrdinal = authority.deviceIngressOrdinal;
+      return INTRINSIC_OBJECT_FREEZE({
+        identityClass: authority.identityClass,
+        authorityContextSource: authority.authorityContextSource,
+        operationId: authority.operationId,
+        operationInstanceId: authority.operationInstanceId,
+        deviceIngressOrdinal: authority.deviceIngressOrdinal,
+        capturedScopeId: authority.capturedScopeId,
+        receiver,
+        ...(target === undefined ? {} : { target }),
+        ...(digestRequired
+          ? {
+            authorityContextDigest: lowerHexToBytes(
+              authority.authorityContextDigest!,
+              `WebGPU sealed-operation authority[${index}] context digest`,
+            ),
+          }
+          : {}),
+      });
+    }));
+  };
+
+  const registerProvisionalSealedBatch = (
+    authorities: readonly NativeGpuSealedOperationAuthorityV2[],
+    metadata: NativeGpuCallMetadataV2,
+    outerOperationId: number,
+    outerWantsPromise: boolean,
+  ): PendingSealedBatch | undefined => {
+    if (authorities.length === 0) return undefined;
+    const childIds = INTRINSIC_OBJECT_FREEZE(
+      authorities.map((authority) => authority.operationInstanceId),
+    );
+    const batch: PendingSealedBatch = {
+      childIds,
+      outerOperationId,
+      outerWantsPromise,
+      outerMetadata: metadata,
+      nextTerminalIndex: 0,
+      accepted: false,
+      parentOperationInstanceId: undefined,
+      parentPromiseId: undefined,
+      carrierAuthorityContextDigest: undefined,
+      terminalObserved: false,
+    };
+    const routedDeviceKey = deviceKey(
+      metadata.logicalDeviceId,
+      metadata.logicalDeviceGeneration,
+      metadata.providerGeneration,
+    );
+    for (const authority of authorities) {
+      if (realm.pendingSealedOperations.has(authority.operationInstanceId)) {
+        throw new TypeError('WebGPU sealed-operation identity is already pending');
+      }
+    }
+    const insertedChildIds: string[] = [];
+    try {
+      for (const authority of authorities) {
+        realm.pendingSealedOperations.set(authority.operationInstanceId, {
+          authority,
+          deviceKey: routedDeviceKey,
+          logicalDeviceId: metadata.logicalDeviceId,
+          logicalDeviceGeneration: metadata.logicalDeviceGeneration,
+          providerGeneration: metadata.providerGeneration,
+          operationProviderGeneration: metadata.operationProviderGeneration,
+          batch,
+        });
+        insertedChildIds.push(authority.operationInstanceId);
+      }
+      realm.provisionalSealedBatches.add(batch);
+    } catch (error) {
+      // The caller cannot receive `batch` until this function returns, so
+      // registration owns rollback for every partial Map/Set mutation.
+      realm.provisionalSealedBatches.delete(batch);
+      for (const childId of insertedChildIds) {
+        const pending = realm.pendingSealedOperations.get(childId);
+        if (pending?.batch === batch) {
+          realm.pendingSealedOperations.delete(childId);
+        }
+      }
+      throw error;
+    }
+    return batch;
+  };
+
+  const removeSealedBatch = (batch: PendingSealedBatch | undefined): void => {
+    if (!batch) return;
+    for (const childId of batch.childIds) {
+      const pending = realm.pendingSealedOperations.get(childId);
+      if (pending?.batch === batch) {
+        realm.pendingSealedOperations.delete(childId);
+      }
+    }
+    realm.provisionalSealedBatches.delete(batch);
+    if (
+      batch.parentOperationInstanceId !== undefined &&
+      realm.pendingSealedBatches.get(batch.parentOperationInstanceId) === batch
+    ) {
+      realm.pendingSealedBatches.delete(batch.parentOperationInstanceId);
+    }
+  };
+
+  const acceptSealedBatch = (
+    batch: PendingSealedBatch | undefined,
+    parentOperationInstanceId: string,
+    parentPromiseId: string,
+  ): void => {
+    if (!batch) return;
+    if (
+      !isPositiveDecimal(parentOperationInstanceId) ||
+      compareCanonicalU64Decimal(
+        parentOperationInstanceId,
+        '9223372036854775808',
+      ) >= 0 ||
+      batch.accepted ||
+      batch.parentOperationInstanceId !== undefined ||
+      batch.parentPromiseId !== undefined ||
+      (batch.outerWantsPromise
+        ? !isPositiveDecimal(parentPromiseId)
+        : parentPromiseId !== '0') ||
+      !realm.provisionalSealedBatches.has(batch) ||
+      realm.pendingSealedBatches.has(parentOperationInstanceId)
+    ) {
+      throw new TypeError('WebGPU sealed-operation parent identity is invalid');
+    }
+    batch.accepted = true;
+    batch.parentOperationInstanceId = parentOperationInstanceId;
+    batch.parentPromiseId = parentPromiseId;
+    realm.provisionalSealedBatches.delete(batch);
+    realm.pendingSealedBatches.set(parentOperationInstanceId, batch);
+  };
+
+  const presentationAuthorityMetadata = (
+    context: WrapperState,
+    texture: WrapperState,
+    plan: LocalRecordPlan,
+  ): NativeGpuPresentationAuthorityMetadataV2 => {
+    const device = plan.device;
+    if (
+      context.kind !== 'GPUCanvasContext' ||
+      texture.kind !== 'GPUTexture' ||
+      context.configuredDevice !== device ||
+      texture.device !== device
+    ) {
+      throw new TypeError('Canvas presentation authority target is inconsistent');
+    }
+    const receiver = nativeReference(context, false);
+    const target = nativeReference(texture, false);
+    return Object.freeze({
+      accountId: bridge.rootAccountId,
+      accountGeneration: bridge.rootAccountGeneration,
+      authorityDigest: bridge.rootAuthorityDigest,
+      logicalDeviceId: device.logicalDeviceId,
+      logicalDeviceGeneration: device.logicalDeviceGeneration,
+      providerGeneration: device.providerGeneration,
+      operationProviderGeneration: device.providerGeneration,
+      operationInstanceId: plan.operationInstanceId,
+      capturedScopeId: plan.capturedScopeId,
+      adapterOrdinal: '0',
+      deviceIngressOrdinal: plan.deviceIngressOrdinal,
+      queueIngressOrdinal: '0',
+      receiverKind: receiver.kind,
+      receiverId: receiver.id,
+      receiverGeneration: receiver.generation,
+      targetKind: target.kind,
+      targetId: target.id,
+      targetGeneration: target.generation,
+      sealedOperations: Object.freeze([]),
+    });
+  };
+
   interface ServiceCounterPlan {
     readonly selected: ProductionRoute;
     readonly receiver: WrapperState;
@@ -2477,7 +3318,11 @@ export function createProductionWebGpuPrivateBinding(
         'device ingress ordinal',
       )
       : undefined;
-    const queuePlan = selected.receiverHandleKind === 'GPUQueue' && device
+    const entersPhysicalQueue =
+      selected.receiverHandleKind === 'GPUQueue' ||
+      operationId === 'GPUCanvasContext.configure' ||
+      operationId === 'GPUCanvasContext.unconfigure';
+    const queuePlan = entersPhysicalQueue && device
       ? consumeNextCounterOrClose(
         device.nextQueueIngress,
         device.queueIngressExhausted,
@@ -2523,6 +3368,7 @@ export function createProductionWebGpuPrivateBinding(
       operationInstanceId: string;
       promiseId: string;
     }>) => void,
+    errorScopeService?: ProductionGpuErrorScopeServiceEncoding,
   ) => {
     const plan = preparedPlan ?? prepareServiceCounters(
       operationId,
@@ -2561,28 +3407,27 @@ export function createProductionWebGpuPrivateBinding(
         operationId === 'GPUTexture.destroy') &&
         receiver.kind === 'GPUTexture' &&
         receiver.currentOrigin !== undefined);
-    const retainsPendingCanvasCurrentOrigin =
-      (device?.pendingCurrentTextureMaterializations.size ?? 0) > 0 &&
-      !carriesCanvasCurrentOrigin;
+    const directCanvasCurrentMaterialization =
+      operationId === 'GPUTexture.createView'
+        ? receiver.kind === 'GPUTexture' &&
+          receiver.currentOrigin !== undefined &&
+          !receiver.materialized
+        : operationId === 'GPUTexture.destroy' &&
+          canvasService?.kind === 'texture-destroy-v1' &&
+          canvasService.terminalIntent === 'first-cleanup' &&
+          canvasService.materializationState === 'unmaterialized' &&
+          canvasService.origin.kind === 'canvas-current-v1';
     const directCanvasCurrentRecords =
-      carriesCanvasCurrentOrigin &&
-        operationId !== 'GPUQueue.submit' &&
-        operationId !== 'GPUDevice.popErrorScope' &&
-        device
+      directCanvasCurrentMaterialization && device
         ? device.pendingCurrentTextureMaterializations.get(receiver)?.records
         : undefined;
     const sealedLocalTimeline = Object.freeze(
-      operationId === 'GPUQueue.writeBuffer' ||
-        bufferLifecycle !== undefined ||
-        retainsPendingCanvasCurrentOrigin
-        ? []
-        : directCanvasCurrentRecords !== undefined
-          ? directCanvasCurrentRecords.slice()
-          : carriesCanvasCurrentOrigin &&
-              operationId !== 'GPUQueue.submit' &&
-              operationId !== 'GPUDevice.popErrorScope'
-            ? []
-            : device?.pendingLocalTimeline.slice() ?? [],
+      directCanvasCurrentRecords !== undefined
+        ? directCanvasCurrentRecords.slice()
+        : (operationId === 'GPUQueue.submit' ||
+            operationId === 'GPUDevice.popErrorScope')
+          ? device?.pendingLocalTimeline.slice() ?? []
+          : [],
     );
     const prefixCurrentTextureOrigins = Object.freeze(
       sealedLocalTimeline.length === 0 || !device
@@ -2605,7 +3450,7 @@ export function createProductionWebGpuPrivateBinding(
     const targetReference = target
       ? reference(target.wrapper, target.kind)
       : undefined;
-    const payload = codecs.encodeServiceRequest({
+    const encodedRequest = codecs.encodeServiceRequestWithSealedOperations({
       operationId,
       wireId: selected.wireId,
       convertedArguments,
@@ -2618,7 +3463,21 @@ export function createProductionWebGpuPrivateBinding(
       sealedLocalTimeline,
       ...(canvasService === undefined ? {} : { canvasService }),
       ...(bufferLifecycle === undefined ? {} : { bufferLifecycle }),
+      ...(errorScopeService === undefined ? {} : { errorScopeService }),
     });
+    const payload = encodedRequest.payload;
+    const sealedOperations = nativeSealedOperationAuthorities(
+      encodedRequest.sealedOperations,
+    );
+    if (
+      sealedOperations.length !== sealedLocalTimeline.length ||
+      realm.pendingSealedOperations.size >
+        MAX_LOCAL_RECORDS - sealedOperations.length
+    ) {
+      throw new TypeError(
+        'WebGPU sealed-operation projection is incomplete or exceeds its pending bound',
+      );
+    }
     const payloadIsView = INTRINSIC_REFLECT_APPLY(
       INTRINSIC_ARRAY_BUFFER_IS_VIEW,
       INTRINSIC_ARRAY_BUFFER,
@@ -2655,6 +3514,7 @@ export function createProductionWebGpuPrivateBinding(
       targetKind: wireTarget.kind,
       targetId: wireTarget.id,
       targetGeneration: wireTarget.generation,
+      sealedOperations,
     };
     if (
       !realm.active ||
@@ -2688,18 +3548,61 @@ export function createProductionWebGpuPrivateBinding(
     }
     beforeNativeSubmit?.();
     let carrier: ReturnType<NativeGpuBridgeV2['submit']>;
+    let sealedBatch: PendingSealedBatch | undefined;
     try {
+      // Install exact child reservations before native submit so even a
+      // synchronous owner drain cannot race an unregistered terminal.
+      sealedBatch = registerProvisionalSealedBatch(
+        metadata.sealedOperations,
+        metadata,
+        selected.wireId,
+        wantsPromise,
+      );
       carrier = bridge.submit(selected.wireId, wantsPromise, metadata, payload);
     } catch (error) {
+      if (sealedBatch?.terminalObserved) {
+        closeRealmCounterIndependently(
+          'sealed-operation-callback-then-rejection',
+          'The WebGPU realm closed after a sealed terminal preceded submit failure',
+        );
+      } else {
+        removeSealedBatch(sealedBatch);
+      }
       onNativeSubmitFailure?.('bridge-threw');
       throw error;
     }
     if (carrier.submissionStatus !== 0) {
+      if (sealedBatch?.terminalObserved) {
+        closeRealmCounterIndependently(
+          'sealed-operation-callback-then-rejection',
+          'The WebGPU realm closed after a sealed terminal preceded service rejection',
+        );
+      } else {
+        removeSealedBatch(sealedBatch);
+      }
       carrier.receipt?.catch(() => undefined);
       onNativeSubmitFailure?.('submission-rejected');
       throw namedError(
         'OperationError',
         `WebGPU semantic service rejected ${operationId} (${carrier.submissionStatus})`,
+      );
+    }
+    try {
+      acceptSealedBatch(
+        sealedBatch,
+        carrier.operationInstanceId,
+        carrier.promiseId,
+      );
+    } catch {
+      removeSealedBatch(sealedBatch);
+      closeRealmCounterIndependently(
+        'sealed-operation-parent-malformed',
+        'The WebGPU realm closed after malformed sealed-operation parent admission',
+      );
+      carrier.receipt?.catch(() => undefined);
+      throw namedError(
+        'OperationError',
+        'WebGPU sealed-operation parent admission was malformed',
       );
     }
     afterNativeSubmit?.(Object.freeze({
@@ -2743,14 +3646,29 @@ export function createProductionWebGpuPrivateBinding(
         // origin independently of whether its original mint record remains in
         // this particular contiguous prefix. Never settle a second context's
         // obligation merely because that record shared the encoded prefix.
+        const directOrigin =
+          device.pendingCurrentTextureMaterializations.get(receiver);
         device.pendingCurrentTextureMaterializations.delete(receiver);
+        if (directOrigin?.materializesOnPrefixCarrier) {
+          receiver.materialized = true;
+        }
       }
     }
     if (!wantsPromise) return undefined;
     if (!carrier.receipt || carrier.promiseId === '0') {
       throw new Error(`${operationId} did not return its required receipt`);
     }
-    realm.pendingPromiseCalls.set(carrier.operationInstanceId, { route: selected });
+    realm.pendingPromiseCalls.set(carrier.operationInstanceId, {
+      route: selected,
+      promiseId: carrier.promiseId,
+      deviceKey: device === undefined
+        ? undefined
+        : deviceKey(
+          device.logicalDeviceId,
+          device.logicalDeviceGeneration,
+          device.providerGeneration,
+        ),
+    });
     return carrier.receipt.then(
       () => {
         const event = realm.resultEvents.get(carrier.operationInstanceId);
@@ -2773,60 +3691,56 @@ export function createProductionWebGpuPrivateBinding(
     if (!realm.active || realm.closeReason !== undefined) {
       throw namedError('SecurityError', 'WebGPU realm is revoked');
     }
-    const currentTextures = [...realm.hostCanvasContextsByIdentity.values()]
-      .filter((context) => context.currentTexture !== undefined)
-      .map((context) => {
-        if (
-          context.canvasContextLifecycle !== 'configured' ||
-          !context.currentTexture ||
-          !context.configuredDevice
-        ) {
-          closeRealmCounterIndependently(
-            'canvas-host-task-checkpoint-state',
-            'The WebGPU realm closed after an inconsistent Canvas host-task checkpoint',
-          );
-          throw namedError(
-            'OperationError',
-            'GPUCanvasContext host-task checkpoint state is inconsistent',
-          );
-        }
-        const texture = requireState(context.currentTexture, 'GPUTexture');
-        if (
-          texture.device !== context.configuredDevice ||
-          texture.currentOrigin === undefined ||
-          texture.textureExpired
-        ) {
-          closeRealmCounterIndependently(
-            'canvas-host-task-checkpoint-origin',
-            'The WebGPU realm closed after a Canvas host-task origin mismatch',
-          );
-          throw namedError(
-            'OperationError',
-            'GPUCanvasContext host-task checkpoint origin is inconsistent',
-          );
-        }
-        const expiryAuthority: ProductionGpuCanvasServiceEncoding =
-          Object.freeze({
-            kind: 'texture-expire-v1',
-            receiverTextureRef: reference(texture.wrapper, 'GPUTexture'),
-            expiryIntent: 'host-task-expiry',
-            materializationState: texture.materialized
-              ? 'materialized'
-              : 'unmaterialized',
-            origin: encodeCanvasCurrentOrigin(texture),
-          });
-        return Object.freeze({ context, texture, expiryAuthority });
-      })
+    const contextByTexture = new Map<WrapperState, WrapperState>();
+    for (const context of realm.hostCanvasContextsByIdentity.values()) {
+      if (context.currentTexture === undefined) continue;
+      if (
+        (context.canvasContextLifecycle !== 'configured' &&
+          context.canvasContextLifecycle !== 'lost') ||
+        !context.configuredDevice
+      ) {
+        closeRealmCounterIndependently(
+          'canvas-host-task-checkpoint-state',
+          'The WebGPU realm closed after an inconsistent Canvas host-task checkpoint',
+        );
+        throw namedError(
+          'OperationError',
+          'GPUCanvasContext host-task checkpoint state is inconsistent',
+        );
+      }
+      const texture = requireState(context.currentTexture, 'GPUTexture');
+      if (
+        texture.device !== context.configuredDevice ||
+        texture.currentOrigin === undefined ||
+        texture.textureExpired
+      ) {
+        closeRealmCounterIndependently(
+          'canvas-host-task-checkpoint-origin',
+          'The WebGPU realm closed after a Canvas host-task origin mismatch',
+        );
+        throw namedError(
+          'OperationError',
+          'GPUCanvasContext host-task checkpoint origin is inconsistent',
+        );
+      }
+      contextByTexture.set(texture, context);
+      realm.pendingCanvasTextureExpiries.add(texture);
+    }
+    const currentTextures = [...new Set([
+      ...realm.pendingCanvasTextureExpiries,
+      ...contextByTexture.keys(),
+    ])]
+      .filter((texture) => !texture.textureExpired)
       .sort((left, right) => {
         const objectOrder = compareCanonicalU64Decimal(
-          left.texture.objectId,
-          right.texture.objectId,
+          left.objectId,
+          right.objectId,
         );
         return objectOrder !== 0
           ? objectOrder
           : compareCanonicalU64Decimal(
-            left.texture.objectGeneration,
-            right.texture.objectGeneration,
+            left.objectGeneration,
+            right.objectGeneration,
           );
       });
 
@@ -2835,38 +3749,23 @@ export function createProductionWebGpuPrivateBinding(
     // later one rejects, so the wrapper commits no local epoch transition
     // until every source-affine control is accepted; the native caller then
     // reduces the realm if this function throws.
-    const convertedArguments = currentTextures.map(() =>
-      convert('GPUTexture.destroy', [])
-    );
-    for (let index = 0; index < currentTextures.length; index += 1) {
-      const { texture, expiryAuthority } = currentTextures[index]!;
-      submitService(
-        'GPUTexture.destroy',
+    for (const texture of currentTextures) {
+      submitCanvasTextureExpiry(
         texture,
-        undefined,
-        convertedArguments[index],
-        false,
-        undefined,
-        undefined,
-        (failure) => {
-          if (failure === 'bridge-threw') {
-            closeRealmCounterIndependently(
-              'canvas-host-task-checkpoint-threw',
-              'The WebGPU realm closed because Canvas host-task expiry threw',
-            );
-          }
-        },
-        expiryAuthority,
+        'canvas-host-task-checkpoint-threw',
+        'The WebGPU realm closed because Canvas host-task expiry threw',
       );
     }
-    for (const { context, texture } of currentTextures) {
+    for (const texture of currentTextures) {
       // Native accepted the source-affine expiry before the wrapper drops its
       // current identity. Manual destroy is orthogonal: an already-destroyed
       // current texture still reaches this branch and preserves its immutable
       // drawing buffer until this exact checkpoint.
-      texture.textureExpired = true;
-      texture.destroyed = true;
-      context.currentTexture = undefined;
+      finalizeCanvasTextureExpiry(texture);
+      const context = contextByTexture.get(texture);
+      if (context?.currentTexture === texture.wrapper) {
+        context.currentTexture = undefined;
+      }
     }
   };
 
@@ -2960,6 +3859,7 @@ export function createProductionWebGpuPrivateBinding(
           ),
         ),
         lost: makeLostController(),
+        eventTarget: undefined,
         queue: undefined,
         destroyed: false,
         nextIngress: counterSeed('nextDeviceIngressOrdinal', '1', true),
@@ -2968,6 +3868,7 @@ export function createProductionWebGpuPrivateBinding(
         queueIngressExhausted: false,
         nextScope: counterSeed('nextScopeId', '1', true),
         scopeExhausted: false,
+        scopeStackGeneration: '1',
         scopes: [],
         pendingLocalTimeline: [],
         pendingCurrentTextureMaterializations: new Map(),
@@ -2975,6 +3876,7 @@ export function createProductionWebGpuPrivateBinding(
         buffers: new Set(),
       };
       const state = allocateWrapper('GPUDevice', device, identity);
+      device.eventTarget = state.wrapper as EventTarget;
       const queue = allocateWrapper('GPUQueue', device, identity.queue);
       device.queue = queue.wrapper;
       // An expired-adapter result is a fresh service-detached wrapper. Its
@@ -3039,17 +3941,455 @@ export function createProductionWebGpuPrivateBinding(
     if (event.kind === 6) retireRealmState();
   };
 
+  const makeUncapturedGpuError = (
+    errorKind: 1 | 2 | 3,
+    message: string,
+  ): object => {
+    const constructor = errorKind === 1
+      ? gpuValidationErrorConstructor
+      : errorKind === 2
+        ? gpuOutOfMemoryErrorConstructor
+        : gpuInternalErrorConstructor;
+    const prototype =
+      (constructor as Readonly<{ prototype: object }>).prototype;
+    const error = INTRINSIC_OBJECT_CREATE(prototype) as object;
+    INTRINSIC_OBJECT_DEFINE_PROPERTY(error, 'message', {
+      value: message,
+      enumerable: true,
+      configurable: false,
+    });
+    return error;
+  };
+
+  const makeUncapturedErrorEvent = (error: object): Event => {
+    const event = INTRINSIC_REFLECT_CONSTRUCT(
+      Event,
+      [
+        'uncapturederror',
+        {
+          bubbles: false,
+          cancelable: false,
+          composed: false,
+        },
+      ],
+    ) as Event;
+    INTRINSIC_OBJECT_SET_PROTOTYPE_OF(
+      event,
+      gpuUncapturedErrorEventPrototype,
+    );
+    gpuUncapturedErrorEventStates.set(event, error);
+    return event;
+  };
+
+  const scheduleNextUncapturedErrorTask = (): void => {
+    if (
+      !realm.active ||
+      realm.uncapturedErrorTaskScheduled ||
+      realm.pendingUncapturedErrors.length === 0
+    ) {
+      return;
+    }
+    realm.uncapturedErrorTaskScheduled = true;
+    try {
+      INTRINSIC_REFLECT_APPLY(
+        INTRINSIC_SET_TIMEOUT!,
+        INTRINSIC_GLOBAL_THIS,
+        [
+          () => {
+            realm.uncapturedErrorTaskScheduled = false;
+            const pending = realm.pendingUncapturedErrors.shift();
+            if (!pending) return;
+            realm.pendingUncapturedDiagnosticBytes -=
+              pending.eventByteLength;
+            try {
+              if (!realm.active) return;
+              const event = makeUncapturedErrorEvent(pending.error);
+              try {
+                INTRINSIC_REFLECT_APPLY(
+                  INTRINSIC_EVENT_TARGET_DISPATCH,
+                  pending.target,
+                  [event],
+                );
+              } catch {
+                // Listener reporting is app-observable behavior, not carrier
+                // authority. It cannot strand later authenticated ingress.
+              }
+            } catch {
+              closeRealmCounterIndependently(
+                'uncaptured-error-dispatch-invariant',
+                'The WebGPU realm closed after uncaptured-error dispatch failed',
+              );
+            } finally {
+              // WebGPU queues one task per notification. Schedule the next
+              // FIFO item even when this task observed a listener/reporting
+              // exception; realm closure clears the remainder explicitly.
+              scheduleNextUncapturedErrorTask();
+            }
+          },
+          0,
+        ],
+      );
+    } catch {
+      realm.uncapturedErrorTaskScheduled = false;
+      closeRealmCounterIndependently(
+        'uncaptured-error-task-scheduling',
+        'The WebGPU realm closed after uncaptured-error task scheduling failed',
+      );
+    }
+  };
+
+  const closeForMalformedUncapturedError = (): void => {
+    closeRealmCounterIndependently(
+      'uncaptured-error-malformed',
+      'The WebGPU realm closed after malformed uncaptured-error ingress',
+    );
+  };
+
+  const closeForMalformedOperationTerminal = (): void => {
+    closeRealmCounterIndependently(
+      'operation-terminal-malformed',
+      'The WebGPU realm closed after malformed operation-terminal ingress',
+    );
+  };
+
+  const eventAuthorityContextDigest = (
+    event: Extract<NativeGpuEventV2, { kind: 1 | 2 }>,
+  ): string => bytesToLowerHex(copyExactUint8View(
+    event.authorityContextDigest,
+    32,
+    'WebGPU operation authority context digest',
+  ));
+
+  const eventHasExactEmptyPayload = (
+    event: Extract<NativeGpuEventV2, { kind: 1 | 2 }>,
+  ): boolean => {
+    try {
+      copyExactUint8View(event.payload, 0, 'WebGPU empty operation payload');
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const validateAndConsumeSealedTerminal = (
+    event: Extract<NativeGpuEventV2, { kind: 1 | 2 }>,
+  ): PendingSealedOperation | undefined => {
+    const pending = realm.pendingSealedOperations.get(
+      event.operationInstanceId,
+    );
+    if (!pending) return undefined;
+    const { authority, batch } = pending;
+    batch.terminalObserved = true;
+    const target = authority.target;
+    let actualContextDigest: string;
+    try {
+      actualContextDigest = eventAuthorityContextDigest(event);
+      const expectedContextDigest = authority.authorityContextDigest === undefined
+        ? undefined
+        : bytesToLowerHex(copyExactUint8View(
+          authority.authorityContextDigest,
+          32,
+          'WebGPU sealed-operation context digest',
+        ));
+      if (
+        (!batch.accepted &&
+          !realm.provisionalSealedBatches.has(batch)) ||
+        batch.childIds[batch.nextTerminalIndex] !==
+          event.operationInstanceId ||
+        event.topologyId !== 1 ||
+        event.runtimeAddress !== bridge.runtimeAddress ||
+        event.runtimeNonce !== bridge.runtimeNonce ||
+        event.realmId !== bridge.realmId ||
+        event.realmGeneration !== bridge.realmGeneration ||
+        event.accountId !== bridge.rootAccountId ||
+        event.accountGeneration !== bridge.rootAccountGeneration ||
+        bytesToLowerHex(copyExactUint8View(
+          event.accountAuthorityDigest,
+          32,
+          'WebGPU sealed-operation account authority digest',
+        )) !== bytesToLowerHex(copyExactUint8View(
+          bridge.rootAuthorityDigest,
+          32,
+          'WebGPU root account authority digest',
+        )) ||
+        event.operationId !== authority.operationId ||
+        event.promiseId !== '0' ||
+        event.adapterOrdinal !== '0' ||
+        event.queueIngressOrdinal !== '0' ||
+        event.capturedScopeId !== authority.capturedScopeId ||
+        event.deviceIngressOrdinal !== authority.deviceIngressOrdinal ||
+        event.logicalDeviceId !== pending.logicalDeviceId ||
+        event.logicalDeviceGeneration !== pending.logicalDeviceGeneration ||
+        event.providerGeneration !== pending.providerGeneration ||
+        event.ingressLogicalDeviceId !== pending.logicalDeviceId ||
+        event.ingressLogicalDeviceGeneration !==
+          pending.logicalDeviceGeneration ||
+        event.ingressProviderGeneration !== pending.providerGeneration ||
+        event.operationProviderGeneration !==
+          pending.operationProviderGeneration ||
+        event.deviceTransition !== 0 ||
+        event.receiverKind !== authority.receiver.kind ||
+        event.receiverFlags !== 0 ||
+        event.receiverId !== authority.receiver.id ||
+        event.receiverGeneration !== authority.receiver.generation ||
+        event.targetKind !== (target?.kind ?? 0) ||
+        event.targetFlags !== 0 ||
+        event.targetId !== (target?.id ?? '0') ||
+        event.targetGeneration !== (target?.generation ?? '0') ||
+        (expectedContextDigest !== undefined &&
+          actualContextDigest !== expectedContextDigest) ||
+        (authority.authorityContextSource === 'enclosing-carrier' &&
+          batch.carrierAuthorityContextDigest !== undefined &&
+          batch.carrierAuthorityContextDigest !== actualContextDigest)
+      ) {
+        throw new TypeError('Malformed sealed-operation provenance');
+      }
+      if (event.kind === 1) {
+        if (
+          event.resultKind !== 0 ||
+          event.status !== 0 ||
+          event.detachedAlreadyLost !== false ||
+          event.providerAdmission !== 0 ||
+          event.physicalSequence !== '0' ||
+          !eventHasExactEmptyPayload(event)
+        ) {
+          throw new TypeError('Malformed sealed-operation success terminal');
+        }
+      } else {
+        if (
+          typeof event.uncapturedError !== 'boolean' ||
+          !Number.isInteger(event.errorKind) ||
+          event.errorKind < 1 ||
+          event.errorKind > 3 ||
+          !Number.isInteger(event.status) ||
+          event.status === 0 ||
+          event.providerAdmission !== 0 ||
+          event.physicalSequence !== '0' ||
+          event.backendClass !== 0
+        ) {
+          throw new TypeError('Malformed sealed-operation error terminal');
+        }
+        const diagnostic = copyExactUint8View(
+          event.payload,
+          INTRINSIC_REFLECT_APPLY(
+            INTRINSIC_TYPED_ARRAY_BYTE_LENGTH_GETTER!,
+            event.payload,
+            [],
+          ) as number,
+          'WebGPU sealed-operation error diagnostic',
+        );
+        if (
+          diagnostic.byteLength > MAX_UNCAPTURED_ERROR_DIAGNOSTIC_BYTES
+        ) {
+          throw new TypeError(
+            'Sealed-operation error diagnostic exceeds its bound',
+          );
+        }
+        decodeCanonicalGpuErrorDiagnostic(diagnostic);
+      }
+    } catch {
+      closeForMalformedOperationTerminal();
+      return undefined;
+    }
+    if (authority.authorityContextSource === 'enclosing-carrier') {
+      batch.carrierAuthorityContextDigest ??= actualContextDigest;
+    }
+    realm.pendingSealedOperations.delete(event.operationInstanceId);
+    batch.nextTerminalIndex += 1;
+    return pending;
+  };
+
+  const consumeOuterSealedBatchTerminal = (
+    event: Extract<NativeGpuEventV2, { kind: 1 | 2 }>,
+  ): boolean => {
+    const batch = realm.pendingSealedBatches.get(event.operationInstanceId);
+    if (!batch) return true;
+    try {
+      const metadata = batch.outerMetadata;
+      if (
+        !batch.accepted ||
+        batch.parentOperationInstanceId !== event.operationInstanceId ||
+        batch.parentPromiseId === undefined ||
+        event.operationId !== batch.outerOperationId ||
+        event.promiseId !== batch.parentPromiseId ||
+        event.topologyId !== 1 ||
+        event.runtimeAddress !== bridge.runtimeAddress ||
+        event.runtimeNonce !== bridge.runtimeNonce ||
+        event.realmId !== bridge.realmId ||
+        event.realmGeneration !== bridge.realmGeneration ||
+        event.accountId !== bridge.rootAccountId ||
+        event.accountGeneration !== bridge.rootAccountGeneration ||
+        bytesToLowerHex(copyExactUint8View(
+          event.accountAuthorityDigest,
+          32,
+          'WebGPU outer account authority digest',
+        )) !== bytesToLowerHex(copyExactUint8View(
+          bridge.rootAuthorityDigest,
+          32,
+          'WebGPU root account authority digest',
+        )) ||
+        event.logicalDeviceId !== metadata.logicalDeviceId ||
+        event.logicalDeviceGeneration !== metadata.logicalDeviceGeneration ||
+        event.providerGeneration !== metadata.providerGeneration ||
+        event.ingressLogicalDeviceId !== metadata.logicalDeviceId ||
+        event.ingressLogicalDeviceGeneration !==
+          metadata.logicalDeviceGeneration ||
+        event.ingressProviderGeneration !== metadata.providerGeneration ||
+        event.operationProviderGeneration !==
+          metadata.operationProviderGeneration ||
+        event.capturedScopeId !== metadata.capturedScopeId ||
+        event.adapterOrdinal !== metadata.adapterOrdinal ||
+        event.deviceIngressOrdinal !== metadata.deviceIngressOrdinal ||
+        event.queueIngressOrdinal !== metadata.queueIngressOrdinal ||
+        event.receiverKind !== metadata.receiverKind ||
+        event.receiverFlags !== 0 ||
+        event.receiverId !== metadata.receiverId ||
+        event.receiverGeneration !== metadata.receiverGeneration ||
+        event.targetKind !== metadata.targetKind ||
+        event.targetFlags !== 0 ||
+        event.targetId !== metadata.targetId ||
+        event.targetGeneration !== metadata.targetGeneration ||
+        batch.nextTerminalIndex !== batch.childIds.length ||
+        batch.childIds.some((childId) =>
+          realm.pendingSealedOperations.has(childId)) ||
+        (batch.carrierAuthorityContextDigest !== undefined &&
+          eventAuthorityContextDigest(event) !==
+            batch.carrierAuthorityContextDigest)
+      ) {
+        throw new TypeError('Outer terminal preceded its sealed children');
+      }
+      if (
+        event.kind === 1
+          ? event.status !== 0 ||
+            (event.providerAdmission === 0
+              ? event.physicalSequence !== '0'
+              : event.providerAdmission !== 1 ||
+                !isPositiveDecimal(event.physicalSequence))
+          : typeof event.uncapturedError !== 'boolean' ||
+            !Number.isInteger(event.status) ||
+            event.status === 0 ||
+            (event.providerAdmission === 0
+              ? event.physicalSequence !== '0' ||
+                event.backendClass !== 0
+              : event.providerAdmission !== 1 ||
+                !isPositiveDecimal(event.physicalSequence) ||
+                !Number.isInteger(event.backendClass) ||
+                event.backendClass < 1 ||
+                event.backendClass > 5)
+      ) {
+        throw new TypeError('Outer terminal result carrier is malformed');
+      }
+    } catch {
+      closeForMalformedOperationTerminal();
+      return false;
+    }
+    realm.pendingSealedBatches.delete(event.operationInstanceId);
+    return true;
+  };
+
+  const rejectProvisionalOuterSealedBatchTerminal = (
+    event: Extract<NativeGpuEventV2, { kind: 1 | 2 }>,
+  ): boolean => {
+    for (const batch of realm.provisionalSealedBatches) {
+      const metadata = batch.outerMetadata;
+      let matches = false;
+      try {
+        matches =
+          event.operationId === batch.outerOperationId &&
+          isPositiveDecimal(event.operationInstanceId) &&
+          compareCanonicalU64Decimal(
+            event.operationInstanceId,
+            '9223372036854775808',
+          ) < 0 &&
+          (batch.outerWantsPromise
+            ? isPositiveDecimal(event.promiseId)
+            : event.promiseId === '0') &&
+          event.topologyId === 1 &&
+          event.runtimeAddress === bridge.runtimeAddress &&
+          event.runtimeNonce === bridge.runtimeNonce &&
+          event.realmId === bridge.realmId &&
+          event.realmGeneration === bridge.realmGeneration &&
+          event.accountId === bridge.rootAccountId &&
+          event.accountGeneration === bridge.rootAccountGeneration &&
+          bytesToLowerHex(copyExactUint8View(
+            event.accountAuthorityDigest,
+            32,
+            'WebGPU provisional outer account authority digest',
+          )) === bytesToLowerHex(copyExactUint8View(
+            bridge.rootAuthorityDigest,
+            32,
+            'WebGPU root account authority digest',
+          )) &&
+          event.logicalDeviceId === metadata.logicalDeviceId &&
+          event.logicalDeviceGeneration ===
+            metadata.logicalDeviceGeneration &&
+          event.providerGeneration === metadata.providerGeneration &&
+          event.ingressLogicalDeviceId === metadata.logicalDeviceId &&
+          event.ingressLogicalDeviceGeneration ===
+            metadata.logicalDeviceGeneration &&
+          event.ingressProviderGeneration === metadata.providerGeneration &&
+          event.operationProviderGeneration ===
+            metadata.operationProviderGeneration &&
+          event.capturedScopeId === metadata.capturedScopeId &&
+          event.adapterOrdinal === metadata.adapterOrdinal &&
+          event.deviceIngressOrdinal === metadata.deviceIngressOrdinal &&
+          event.queueIngressOrdinal === metadata.queueIngressOrdinal &&
+          event.receiverKind === metadata.receiverKind &&
+          event.receiverFlags === 0 &&
+          event.receiverId === metadata.receiverId &&
+          event.receiverGeneration === metadata.receiverGeneration &&
+          event.targetKind === metadata.targetKind &&
+          event.targetFlags === 0 &&
+          event.targetId === metadata.targetId &&
+          event.targetGeneration === metadata.targetGeneration;
+      } catch {
+        matches = false;
+      }
+      if (!matches) continue;
+      // The native carrier identity is not returned until submit unwinds, so
+      // accepting its outer terminal here would lose the parent/child join.
+      // Child terminals may be provisionally authenticated; the outer one
+      // must wait until the batch is bound to its exact low-half parent.
+      batch.terminalObserved = true;
+      closeForMalformedOperationTerminal();
+      return false;
+    }
+    return true;
+  };
+
   bridge.setEventSink((event) => {
     if (!realm.active && event.kind !== 6) return;
+    let sealedTerminal: PendingSealedOperation | undefined;
+    if (event.kind === 1 || event.kind === 2) {
+      const hadSealedReservation = realm.pendingSealedOperations.has(
+        event.operationInstanceId,
+      );
+      if (hadSealedReservation) {
+        sealedTerminal = validateAndConsumeSealedTerminal(event);
+        if (!sealedTerminal) return;
+      } else if (
+        isPositiveDecimal(event.operationInstanceId) &&
+        compareCanonicalU64Decimal(
+          event.operationInstanceId,
+          '9223372036854775808',
+        ) >= 0
+      ) {
+        closeForMalformedOperationTerminal();
+        return;
+      }
+      if (!rejectProvisionalOuterSealedBatchTerminal(event)) return;
+      if (!consumeOuterSealedBatchTerminal(event)) return;
+    }
     if (event.kind === 1) {
+      if (sealedTerminal) return;
       const selected = ROUTES_BY_WIRE.get(event.operationId);
       if (!selected) {
-        realm.active = false;
+        closeForMalformedOperationTerminal();
         return;
       }
       const pending = realm.pendingPromiseCalls.get(event.operationInstanceId);
       if (event.promiseId !== '0' && pending && pending.route !== selected) {
-        realm.active = false;
+        closeForMalformedOperationTerminal();
         return;
       }
       if (event.promiseId !== '0') {
@@ -3065,12 +4405,159 @@ export function createProductionWebGpuPrivateBinding(
         throw error;
       }
     }
-    // Kind 2 settles a physical receipt; it is not an uncaptured-error
-    // notification hook. Wrapper-local error-scope routing is represented in
-    // the sealed timeline and decided by the semantic service, so dispatching
-    // GPUUncapturedErrorEvent from this ambiguous record would fabricate an
-    // uncaptured error. Native integration remains explicitly pending on a
-    // dedicated, service-routed uncaptured-error terminal event.
+    if (event.kind !== 2) return;
+    if (typeof event.uncapturedError !== 'boolean') {
+      closeForMalformedUncapturedError();
+      return;
+    }
+    // Kind 2 always remains the mandatory operation terminal. Only the
+    // authenticated secondary-disposition projection queues a public event.
+    if (!event.uncapturedError) return;
+
+    const selected = ROUTES_BY_WIRE.get(event.operationId);
+    const routedDeviceKey = deviceKey(
+      event.logicalDeviceId,
+      event.logicalDeviceGeneration,
+      event.providerGeneration,
+    );
+    const device = realm.devices.get(routedDeviceKey);
+    const pending = realm.pendingPromiseCalls.get(event.operationInstanceId);
+    let diagnostic: Uint8Array;
+    let diagnosticByteLength = 0;
+    let message = '';
+    try {
+      if (
+        (!selected && !sealedTerminal) ||
+        event.topologyId !== 1 ||
+        event.runtimeAddress !== bridge.runtimeAddress ||
+        event.runtimeNonce !== bridge.runtimeNonce ||
+        event.realmId !== bridge.realmId ||
+        event.realmGeneration !== bridge.realmGeneration ||
+        event.accountId !== bridge.rootAccountId ||
+        event.accountGeneration !== bridge.rootAccountGeneration ||
+        bytesToLowerHex(
+          copyExactUint8View(
+            event.accountAuthorityDigest,
+            32,
+            'Uncaptured-error account authority digest',
+          ),
+        ) !==
+          bytesToLowerHex(
+            copyExactUint8View(
+              bridge.rootAuthorityDigest,
+              32,
+              'WebGPU root account authority digest',
+            ),
+          ) ||
+        !Number.isInteger(event.errorKind) ||
+        event.errorKind < 1 ||
+        event.errorKind > 3 ||
+        !Number.isInteger(event.status) ||
+        event.status === 0 ||
+        event.deviceTransition !== 0 ||
+        !isPositiveDecimal(event.logicalDeviceId) ||
+        !isPositiveDecimal(event.logicalDeviceGeneration) ||
+        !isPositiveDecimal(event.providerGeneration) ||
+        event.ingressLogicalDeviceId !== event.logicalDeviceId ||
+        event.ingressLogicalDeviceGeneration !==
+          event.logicalDeviceGeneration ||
+        event.ingressProviderGeneration !== event.providerGeneration ||
+        event.operationProviderGeneration !== event.providerGeneration ||
+        !isPositiveDecimal(event.operationInstanceId) ||
+        !isCanonicalU64Decimal(event.promiseId, false) ||
+        (event.providerAdmission === 0
+          ? event.physicalSequence !== '0' ||
+            event.backendClass !== 0
+          : event.providerAdmission !== 1 ||
+            !isPositiveDecimal(event.physicalSequence) ||
+            !Number.isInteger(event.backendClass) ||
+            event.backendClass < 1 ||
+            event.backendClass > 5) ||
+        !device ||
+        !device.eventTarget ||
+        (sealedTerminal
+          ? event.promiseId !== '0' ||
+            pending !== undefined ||
+            sealedTerminal.deviceKey !== routedDeviceKey
+          : event.promiseId !== '0'
+            ? !pending ||
+              pending.route !== selected ||
+              pending.promiseId !== event.promiseId ||
+              pending.deviceKey !== routedDeviceKey
+            : pending !== undefined)
+      ) {
+        throw new TypeError('Malformed uncaptured-error provenance');
+      }
+      if (
+        !INTRINSIC_TYPED_ARRAY_BYTE_LENGTH_GETTER ||
+        !INTRINSIC_TYPED_ARRAY_TAG_GETTER ||
+        INTRINSIC_REFLECT_APPLY(
+          INTRINSIC_TYPED_ARRAY_TAG_GETTER,
+          event.payload,
+          [],
+        ) !== 'Uint8Array'
+      ) {
+        throw new TypeError('Malformed uncaptured-error diagnostic bytes');
+      }
+      diagnosticByteLength = INTRINSIC_REFLECT_APPLY(
+        INTRINSIC_TYPED_ARRAY_BYTE_LENGTH_GETTER,
+        event.payload,
+        [],
+      ) as number;
+      if (
+        !Number.isSafeInteger(diagnosticByteLength) ||
+        diagnosticByteLength < 0 ||
+        diagnosticByteLength > MAX_UNCAPTURED_ERROR_DIAGNOSTIC_BYTES
+      ) {
+        throw new TypeError('Uncaptured-error diagnostic exceeds its bound');
+      }
+      diagnostic = copyExactUint8View(
+        event.payload,
+        diagnosticByteLength,
+        'Uncaptured-error diagnostic',
+      );
+      // Validate canonical UTF-8 and the redacted diagnostic control policy
+      // synchronously, before retaining or scheduling any app-visible work.
+      message = decodeCanonicalGpuErrorDiagnostic(diagnostic);
+    } catch {
+      closeForMalformedUncapturedError();
+      return;
+    }
+    if (
+      realm.pendingUncapturedErrors.length >=
+        MAX_UNCAPTURED_ERROR_COUNT ||
+      diagnosticByteLength >
+        MAX_UNCAPTURED_ERROR_QUEUED_DIAGNOSTIC_BYTES -
+          realm.pendingUncapturedDiagnosticBytes
+    ) {
+      closeRealmCounterIndependently(
+        'uncaptured-error-queue-overflow',
+        'The WebGPU realm closed after uncaptured-error queue overflow',
+      );
+      return;
+    }
+    let error: object;
+    try {
+      error = makeUncapturedGpuError(
+        event.errorKind as 1 | 2 | 3,
+        message,
+      );
+    } catch {
+      closeRealmCounterIndependently(
+        'uncaptured-error-dispatch-invariant',
+        'The WebGPU realm closed after uncaptured-error construction failed',
+      );
+      return;
+    }
+    realm.pendingUncapturedErrors.push(INTRINSIC_OBJECT_FREEZE({
+      deviceKey: routedDeviceKey,
+      target: device.eventTarget,
+      message,
+      error,
+      eventByteLength: diagnosticByteLength,
+    }));
+    realm.pendingUncapturedDiagnosticBytes += diagnosticByteLength;
+    scheduleNextUncapturedErrorTask();
   });
 
   const gpuState = allocateWrapper('GPU', undefined, {
@@ -3231,11 +4718,6 @@ export function createProductionWebGpuPrivateBinding(
       context.configurationGeneration,
       'canvas configuration generation',
     );
-    const servicePlan = prepareServiceCounters(
-      'GPUCanvasContext.configure',
-      context,
-      configuredDevice,
-    );
     const copiedConfiguration = cloneConfiguration(converted);
     let submissionFailure: ServiceSubmissionFailureKind | undefined;
     const configureServiceAuthority: ProductionGpuCanvasServiceEncoding =
@@ -3256,13 +4738,22 @@ export function createProductionWebGpuPrivateBinding(
         surfaceAccountToken: canvasAuthority.surfaceAccountToken,
         surfaceAccountGeneration: canvasAuthority.surfaceAccountGeneration,
       });
+    // Preflight queue exhaustion before publishing the replacement
+    // configuration or expiring its current texture. A reconfiguration
+    // expiry legitimately consumes device ingress but never queue ingress,
+    // so the committed plan is recomputed after that expiry.
+    prepareServiceCounters(
+      'GPUCanvasContext.configure',
+      context,
+      configuredDevice,
+    );
     // LLP 0380 §2.2 installs the copied configuration immediately after the
     // synchronous content checks. Native payload encoding and service
     // admission are downstream implementation work: neither a deterministic
     // non-admission nor a later device-timeline validation may resurrect the
     // old configuration or current texture.
+    const replacedTexture = detachCurrentTextureForExpiry(context);
     unlinkConfiguredCanvasContext(context);
-    expireCurrentTexture(context);
     context.configurationGeneration = nextConfigurationGeneration;
     context.configuration = copiedConfiguration;
     context.configuredDevice = configuredDevice;
@@ -3273,6 +4764,19 @@ export function createProductionWebGpuPrivateBinding(
       context.canvasContextLifecycle = 'lost';
       configuredDevice.configuredCanvasContexts.delete(context);
     }
+    if (replacedTexture) {
+      submitCanvasTextureExpiry(
+        replacedTexture,
+        'canvas-reconfigure-expiry-threw',
+        'The WebGPU realm closed because replaced Canvas texture expiry threw',
+      );
+      finalizeCanvasTextureExpiry(replacedTexture);
+    }
+    const servicePlan = prepareServiceCounters(
+      'GPUCanvasContext.configure',
+      context,
+      configuredDevice,
+    );
     // The semantic call carries the configured device as ingress while the
     // service receiver remains the complete canvas-context reference.
     context.device = configuredDevice;
@@ -3381,28 +4885,73 @@ export function createProductionWebGpuPrivateBinding(
         if (current.currentOrigin === undefined) {
           throw new Error('GPUCanvasContext current texture lacks immutable origin');
         }
-        const committedCurrentRecord = recordLocal(
+        const localRecordPlan = prepareLocalRecord(
           'GPUCanvasContext.getCurrentTexture',
           context,
-          current,
-          Object.freeze({ currentOrigin: current.currentOrigin }),
-          undefined,
+          context.configuredDevice,
         );
-        let pendingOrigin = context.configuredDevice
-          .pendingCurrentTextureMaterializations.get(current);
-        if (!pendingOrigin) {
-          pendingOrigin = {
-            records: [],
-            materializesOnPrefixCarrier:
-              !current.materialized && !current.destroyed,
-          };
-          context.configuredDevice.pendingCurrentTextureMaterializations.set(
-            current,
-            pendingOrigin,
+        const retained = nativePresentationAuthority(
+          current.currentOrigin.presentationAuthority,
+        );
+        let allowed = false;
+        try {
+          allowed = bridge.recheckPresentationAuthority(
+            route('GPUCanvasContext.getCurrentTexture').wireId,
+            presentationAuthorityMetadata(context, current, localRecordPlan),
+            retained,
+          );
+        } catch {
+          closeRealmCounterIndependently(
+            'canvas-presentation-recheck-invalid',
+            'The WebGPU realm closed because Canvas presentation recheck failed structurally',
+          );
+          throw namedError(
+            'OperationError',
+            'GPUCanvasContext presentation authority recheck failed',
           );
         }
-        pendingOrigin.records.push(committedCurrentRecord.sealedRecord);
-        return context.currentTexture;
+        if (!allowed) {
+          throw namedError(
+            'SecurityError',
+            'GPUCanvasContext current presentation authority was denied',
+          );
+        }
+        let localCommitStarted = false;
+        try {
+          const pendingOrigin = context.configuredDevice
+            .pendingCurrentTextureMaterializations.get(current) ?? {
+              records: [],
+              materializesOnPrefixCarrier:
+                !current.materialized && !current.destroyed,
+            };
+          localCommitStarted = true;
+          const committedCurrentRecord = commitLocalRecord(
+            localRecordPlan,
+            context,
+            current,
+            Object.freeze({ currentOrigin: current.currentOrigin }),
+            undefined,
+          );
+          if (
+            !context.configuredDevice
+              .pendingCurrentTextureMaterializations.has(current)
+          ) {
+            context.configuredDevice.pendingCurrentTextureMaterializations.set(
+              current,
+              pendingOrigin,
+            );
+          }
+          pendingOrigin.records.push(committedCurrentRecord.sealedRecord);
+          return context.currentTexture;
+        } catch (error) {
+          if (localCommitStarted && realm.active) {
+            closeRealmCounterIndependently(
+              'canvas-current-recheck-publication-failed',
+              'The WebGPU realm closed after a partial current-texture recheck publication',
+            );
+          }
+          throw error;
+        }
       }
       if (
         context.drawingBufferWidth === undefined ||
@@ -3428,15 +4977,18 @@ export function createProductionWebGpuPrivateBinding(
         context.currentEpoch,
         'canvas current epoch',
       );
+      const configuredDevice = context.configuredDevice;
+      const configuredDeviceWrapper = context.configuredDeviceWrapper;
       const localRecordPlan = prepareLocalRecord(
         'GPUCanvasContext.getCurrentTexture',
         context,
-        context.configuredDevice,
+        configuredDevice,
       );
-      const texture = allocateWrapper(
+      const textureAllocation = prepareWrapperAllocation(
         'GPUTexture',
-        context.configuredDevice,
+        configuredDevice,
       );
+      const texture = textureAllocation.state;
       texture.textureDimension = '2d';
       texture.textureFormat = configuredFormat;
       texture.textureWidth = context.drawingBufferWidth;
@@ -3451,67 +5003,127 @@ export function createProductionWebGpuPrivateBinding(
         deviceIngressOrdinal: localRecordPlan.deviceIngressOrdinal,
       });
       const authority = context.canvasAuthority;
-      const receiverTextureRef = reference(texture.wrapper, 'GPUTexture');
-      const contextRef = referenceWithDevice(context, context.configuredDevice);
+      const receiverTextureRef = referenceWithDevice(
+        texture,
+        configuredDevice,
+      );
+      const contextRef = referenceWithDevice(context, configuredDevice);
       const configuredDeviceRef = reference(
-        context.configuredDeviceWrapper,
+        configuredDeviceWrapper,
         'GPUDevice',
       );
-      const digestInput: ProductionGpuTextureOriginDigestInput = Object.freeze({
-        originClass: 'canvas-current',
-        receiverTextureRef,
-        contextRef,
-        attachmentGeneration: authority.attachmentGeneration,
-        contextGeneration: authority.contextGeneration,
-        configurationGeneration: context.configurationGeneration,
-        currentEpoch: nextCurrentEpoch,
-        mintOperationProvenance,
-        configuredDeviceRef,
-        format: configuredFormat,
-        usage: configuredUsage,
-        alphaMode: configuredAlphaMode,
-        colorSpace: configuredColorSpace,
-        targetAuthorityDigest: authority.targetAuthorityDigest,
-        surfaceAccountToken: authority.surfaceAccountToken,
-        surfaceAccountGeneration: authority.surfaceAccountGeneration,
-      });
-      const textureOriginDigest = codecs.deriveTextureOriginDigest(digestInput);
-      context.currentEpoch = nextCurrentEpoch;
-      const currentOrigin: CanvasCurrentTextureOriginState = Object.freeze({
-        originClass: digestInput.originClass,
-        contextRef: digestInput.contextRef,
-        attachmentGeneration: digestInput.attachmentGeneration,
-        contextGeneration: digestInput.contextGeneration,
-        configurationGeneration: digestInput.configurationGeneration,
-        currentEpoch: digestInput.currentEpoch,
-        mintOperationProvenance: digestInput.mintOperationProvenance,
-        textureOriginDigest,
-        configuredDeviceRef: digestInput.configuredDeviceRef,
-        format: digestInput.format,
-        usage: digestInput.usage,
-        alphaMode: digestInput.alphaMode,
-        colorSpace: digestInput.colorSpace,
-        targetAuthorityDigest: digestInput.targetAuthorityDigest,
-        surfaceAccountToken: digestInput.surfaceAccountToken,
-        surfaceAccountGeneration: digestInput.surfaceAccountGeneration,
-      });
-      texture.currentOrigin = currentOrigin;
-      const committedMintRecord = commitLocalRecord(
-        localRecordPlan,
-        context,
-        texture,
-        Object.freeze({ currentOrigin }),
-        undefined,
-      );
-      context.configuredDevice.pendingCurrentTextureMaterializations.set(
-        texture,
-        {
-          records: [committedMintRecord.sealedRecord],
-          materializesOnPrefixCarrier: true,
-        },
-      );
-      context.currentTexture = texture.wrapper;
-      return texture.wrapper;
+      const capturedPresentationAuthority =
+        bridge.capturePresentationAuthority(
+          route('GPUCanvasContext.getCurrentTexture').wireId,
+          presentationAuthorityMetadata(context, texture, localRecordPlan),
+        );
+      if (capturedPresentationAuthority === null) {
+        throw namedError(
+          'SecurityError',
+          'GPUCanvasContext presentation authority was denied',
+        );
+      }
+      let committedMintRecord:
+        | Readonly<{
+            operationInstanceId: string;
+            deviceIngressOrdinal: string;
+            sealedRecord: Readonly<Record<string, unknown>>;
+          }>
+        | undefined;
+      let publicationCommitStarted = false;
+      try {
+        const presentationAuthority = encodePresentationAuthority(
+          capturedPresentationAuthority,
+          localRecordPlan.capturedScopeId,
+        );
+        const digestInput: ProductionGpuTextureOriginDigestInput = Object.freeze({
+          originClass: 'canvas-current',
+          receiverTextureRef,
+          contextRef,
+          attachmentGeneration: authority.attachmentGeneration,
+          contextGeneration: authority.contextGeneration,
+          configurationGeneration: context.configurationGeneration,
+          currentEpoch: nextCurrentEpoch,
+          mintOperationProvenance,
+          presentationAuthority,
+          configuredDeviceRef,
+          format: configuredFormat,
+          usage: configuredUsage,
+          alphaMode: configuredAlphaMode,
+          colorSpace: configuredColorSpace,
+          targetAuthorityDigest: authority.targetAuthorityDigest,
+          surfaceAccountToken: authority.surfaceAccountToken,
+          surfaceAccountGeneration: authority.surfaceAccountGeneration,
+        });
+        const textureOriginDigest =
+          codecs.deriveTextureOriginDigest(digestInput);
+        const currentOrigin: CanvasCurrentTextureOriginState = Object.freeze({
+          originClass: digestInput.originClass,
+          contextRef: digestInput.contextRef,
+          attachmentGeneration: digestInput.attachmentGeneration,
+          contextGeneration: digestInput.contextGeneration,
+          configurationGeneration: digestInput.configurationGeneration,
+          currentEpoch: digestInput.currentEpoch,
+          mintOperationProvenance: digestInput.mintOperationProvenance,
+          presentationAuthority: digestInput.presentationAuthority,
+          textureOriginDigest,
+          configuredDeviceRef: digestInput.configuredDeviceRef,
+          format: digestInput.format,
+          usage: digestInput.usage,
+          alphaMode: digestInput.alphaMode,
+          colorSpace: digestInput.colorSpace,
+          targetAuthorityDigest: digestInput.targetAuthorityDigest,
+          surfaceAccountToken: digestInput.surfaceAccountToken,
+          surfaceAccountGeneration: digestInput.surfaceAccountGeneration,
+        });
+        texture.currentOrigin = currentOrigin;
+        publicationCommitStarted = true;
+        commitWrapperAllocation(textureAllocation);
+        committedMintRecord = commitLocalRecord(
+          localRecordPlan,
+          context,
+          texture,
+          Object.freeze({ currentOrigin }),
+          undefined,
+        );
+        configuredDevice.pendingCurrentTextureMaterializations.set(
+          texture,
+          {
+            records: [committedMintRecord.sealedRecord],
+            materializesOnPrefixCarrier: true,
+          },
+        );
+        context.currentEpoch = nextCurrentEpoch;
+        context.currentTexture = texture.wrapper;
+        return texture.wrapper;
+      } catch (error) {
+        configuredDevice.pendingCurrentTextureMaterializations.delete(
+          texture,
+        );
+        if (committedMintRecord !== undefined) {
+          const recordIndex = configuredDevice.pendingLocalTimeline.indexOf(
+            committedMintRecord.sealedRecord,
+          );
+          if (recordIndex >= 0) {
+            configuredDevice.pendingLocalTimeline.splice(recordIndex, 1);
+          }
+        }
+        texture.textureExpired = true;
+        try {
+          retirePresentationAuthorityOrClose(
+            texture,
+            capturedPresentationAuthority,
+          );
+        } finally {
+          if (publicationCommitStarted && realm.active) {
+            closeRealmCounterIndependently(
+              'canvas-current-first-publication-failed',
+              'The WebGPU realm closed after a partial first current-texture publication',
+            );
+          }
+        }
+        throw error;
+      }
     },
   );
 
@@ -3531,6 +5143,15 @@ export function createProductionWebGpuPrivateBinding(
       context.configurationGeneration,
       'canvas configuration generation',
     );
+    // Preflight queue exhaustion before current-texture expiry. The expiry
+    // consumes device ingress only, so the committed plan is recomputed
+    // afterward without weakening the queue preflight.
+    prepareServiceCounters(
+      'GPUCanvasContext.unconfigure',
+      context,
+      configuredDevice,
+    );
+    expireCurrentTexture(context);
     const servicePlan = prepareServiceCounters(
       'GPUCanvasContext.unconfigure',
       context,
@@ -3572,7 +5193,6 @@ export function createProductionWebGpuPrivateBinding(
       context.device = undefined;
     }
     unlinkConfiguredCanvasContext(context);
-    expireCurrentTexture(context);
     context.configurationGeneration = nextConfigurationGeneration;
     context.configuration = undefined;
     context.configuredDevice = undefined;
@@ -3879,6 +5499,50 @@ export function createProductionWebGpuPrivateBinding(
     return texture.wrapper;
   });
 
+  defineMethod(mutablePrototypes.GPUDevice, 'createQuerySet', function (
+    this: object,
+    descriptor: unknown,
+  ) {
+    const state = requireState(this, 'GPUDevice');
+    const device = state.device;
+    if (!device) throw new Error('GPUDevice lacks logical device state');
+    const converted = convert(
+      'GPUDevice.createQuerySet',
+      [descriptor],
+    ) as Readonly<{
+      count: number;
+      label: string;
+      type: 'occlusion' | 'timestamp';
+    }>;
+    // This is the operation's content-timeline feature gate. It precedes
+    // target allocation, ingress counters, and every semantic-service call.
+    if (
+      converted.type === 'timestamp' &&
+      !device.featureNames.includes('timestamp-query')
+    ) {
+      throw new TypeError(
+        'GPUQuerySet type timestamp requires feature timestamp-query',
+      );
+    }
+    const servicePlan = prepareServiceCounters(
+      'GPUDevice.createQuerySet',
+      state,
+      device,
+    );
+    const querySet = allocateWrapper('GPUQuerySet', device);
+    querySet.querySetCount = converted.count;
+    querySet.querySetType = converted.type;
+    submitService(
+      'GPUDevice.createQuerySet',
+      state,
+      querySet,
+      converted,
+      false,
+      servicePlan,
+    );
+    return querySet.wrapper;
+  });
+
   defineMethod(mutablePrototypes.GPUDevice, 'createCommandEncoder', function (
     this: object,
     descriptor?: unknown,
@@ -4038,7 +5702,10 @@ export function createProductionWebGpuPrivateBinding(
     filter: unknown,
   ) {
     const state = requireState(this, 'GPUDevice');
-    const converted = convert('GPUDevice.pushErrorScope', [filter]);
+    const converted = convert(
+      'GPUDevice.pushErrorScope',
+      [filter],
+    ) as 'validation' | 'out-of-memory' | 'internal';
     const device = state.device!;
     const scopePlan = consumeNextCounterOrClose(
       device.nextScope,
@@ -4046,6 +5713,12 @@ export function createProductionWebGpuPrivateBinding(
       'error scope identity',
     );
     const scopeId = scopePlan.value;
+    const scopeStackGeneration = device.scopeStackGeneration;
+    const nextScopeStackGeneration = advanceCounterOrClose(
+      scopeStackGeneration,
+      'error scope stack generation',
+    );
+    const precedingScopeId = currentScopeId(device);
     const servicePlan = prepareServiceCounters(
       'GPUDevice.pushErrorScope',
       state,
@@ -4055,7 +5728,7 @@ export function createProductionWebGpuPrivateBinding(
       'GPUDevice.pushErrorScope',
       state,
       undefined,
-      Object.freeze({ converted, scopeId }),
+      converted,
       false,
       servicePlan,
       () => {
@@ -4073,44 +5746,74 @@ export function createProductionWebGpuPrivateBinding(
         device.nextScope = scopePlan.next;
         device.scopeExhausted = scopePlan.exhaustedAfter;
       },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      Object.freeze({
+        kind: 'push-error-scope-v1',
+        scopeId,
+        filter: converted,
+        scopeStackGeneration,
+        precedingScopeId,
+      }),
     );
-    if (!device.lost.settled) {
-      device.scopes.push(
-        Object.freeze({ id: scopeId, filter: String(converted) }),
-      );
-    }
+    device.scopes.push(
+      Object.freeze({ id: scopeId, filter: converted }),
+    );
+    device.scopeStackGeneration = nextScopeStackGeneration;
   });
 
   defineMethod(mutablePrototypes.GPUDevice, 'popErrorScope', function (
     this: object,
   ) {
     const state = requireState(this, 'GPUDevice');
-    return Promise.resolve().then(() => {
+    try {
       const converted = convert('GPUDevice.popErrorScope', []);
       const device = state.device!;
-      const scope = device.lost.settled || device.scopes.length === 0
-        ? undefined
-        : device.scopes[device.scopes.length - 1];
+      const scope = device.scopes[device.scopes.length - 1];
+      if (!scope) {
+        return Promise.reject(
+          namedError('OperationError', 'The error scope stack is empty'),
+        );
+      }
+      const scopeStackGeneration = device.scopeStackGeneration;
+      const nextScopeStackGeneration = advanceCounterOrClose(
+        scopeStackGeneration,
+        'error scope stack generation',
+      );
+      if (device.lost.settled) {
+        device.scopes.pop();
+        device.scopeStackGeneration = nextScopeStackGeneration;
+        return Promise.resolve(null);
+      }
       const receipt = submitService(
         'GPUDevice.popErrorScope',
         state,
         undefined,
-        Object.freeze({
-          converted,
-          scopeId: scope?.id ?? '0',
-          deviceLost: device.lost.settled,
-        }),
+        converted,
         true,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        Object.freeze({
+          kind: 'pop-error-scope-v1',
+          scopeId: scope.id,
+          scopeStackGeneration,
+        }),
       ) as Promise<ProductionGpuDecodedResult>;
-      if (!device.lost.settled && scope) device.scopes.pop();
+      device.scopes.pop();
+      device.scopeStackGeneration = nextScopeStackGeneration;
       return receipt.then((decoded) => {
         if (device.lost.settled) return null;
-        if (!scope) {
-          throw namedError('OperationError', 'The error scope stack is empty');
-        }
         return decoded.kind === 'value' ? decoded.value : null;
       });
-    });
+    } catch (error) {
+      return Promise.reject(error);
+    }
   });
 
   const stateIsUsableOnDevice = (
@@ -4256,15 +5959,55 @@ export function createProductionWebGpuPrivateBinding(
     appendCommandRecord(commandTargets, committed.sealedRecord);
   };
 
+  const passTimestampWritesAreInvalid = (
+    timestampWrites: Readonly<Record<string, unknown>> | null,
+    querySet: WrapperState | undefined,
+    device: DeviceState | undefined,
+  ): boolean => {
+    if (timestampWrites === null) return false;
+    const beginningOfPassWriteIndex =
+      timestampWrites.beginningOfPassWriteIndex as number | null;
+    const endOfPassWriteIndex =
+      timestampWrites.endOfPassWriteIndex as number | null;
+    const count = querySet?.querySetCount;
+    return (
+      device === undefined ||
+      !device.featureNames.includes('timestamp-query') ||
+      querySet === undefined ||
+      querySet.kind !== 'GPUQuerySet' ||
+      !stateIsUsableOnDevice(querySet, device) ||
+      querySet.querySetType !== 'timestamp' ||
+      count === undefined ||
+      (
+        beginningOfPassWriteIndex === null &&
+        endOfPassWriteIndex === null
+      ) ||
+      (
+        beginningOfPassWriteIndex !== null &&
+        beginningOfPassWriteIndex >= count
+      ) ||
+      (
+        endOfPassWriteIndex !== null &&
+        endOfPassWriteIndex >= count
+      ) ||
+      (
+        beginningOfPassWriteIndex !== null &&
+        endOfPassWriteIndex !== null &&
+        beginningOfPassWriteIndex === endOfPassWriteIndex
+      )
+    );
+  };
+
   defineMethod(mutablePrototypes.GPUCommandEncoder, 'beginComputePass', function (
     this: object,
     descriptor?: unknown,
   ) {
     const encoder = requireState(this, 'GPUCommandEncoder');
     const source = stagedDictionary(descriptor, 'GPUComputePassDescriptor');
-    const label = source.label === undefined
+    const labelValue = source.label;
+    const label = labelValue === undefined
       ? ''
-      : stagedUsvString(source.label, 'GPUComputePassDescriptor.label');
+      : stagedUsvString(labelValue, 'GPUComputePassDescriptor.label');
     const timestampWritesValue = source.timestampWrites;
     let timestampQuerySet: WrapperState | undefined;
     let timestampWrites: Readonly<Record<string, unknown>> | null = null;
@@ -4273,33 +6016,32 @@ export function createProductionWebGpuPrivateBinding(
         timestampWritesValue,
         'GPUComputePassTimestampWrites',
       );
-      const beginningOfPassWriteIndex = timestampSource.beginningOfPassWriteIndex ===
-          undefined
+      const beginningOfPassWriteIndexValue =
+        timestampSource.beginningOfPassWriteIndex;
+      const beginningOfPassWriteIndex = beginningOfPassWriteIndexValue === undefined
         ? null
         : stagedU32(
-          timestampSource.beginningOfPassWriteIndex,
+          beginningOfPassWriteIndexValue,
           'GPUComputePassTimestampWrites.beginningOfPassWriteIndex',
         );
-      const endOfPassWriteIndex = timestampSource.endOfPassWriteIndex === undefined
+      const endOfPassWriteIndexValue = timestampSource.endOfPassWriteIndex;
+      const endOfPassWriteIndex = endOfPassWriteIndexValue === undefined
         ? null
         : stagedU32(
-          timestampSource.endOfPassWriteIndex,
+          endOfPassWriteIndexValue,
           'GPUComputePassTimestampWrites.endOfPassWriteIndex',
         );
       const querySetValue = timestampSource.querySet;
-      if (querySetValue !== undefined) {
-        try {
-          timestampQuerySet = requireState(querySetValue);
-        } catch (error) {
-          if (!(error instanceof TypeError)) throw error;
-        }
+      if (querySetValue === undefined) {
+        throw new TypeError(
+          'GPUComputePassTimestampWrites.querySet is required',
+        );
       }
+      timestampQuerySet = requireState(querySetValue, 'GPUQuerySet');
       timestampWrites = Object.freeze({
         beginningOfPassWriteIndex,
         endOfPassWriteIndex,
-        querySet: timestampQuerySet
-          ? reference(timestampQuerySet.wrapper)
-          : null,
+        querySet: reference(querySetValue, 'GPUQuerySet'),
       });
     }
     const converted = Object.freeze({ label, timestampWrites });
@@ -4321,10 +6063,10 @@ export function createProductionWebGpuPrivateBinding(
       encoder.activePass = pass;
       realm.activePassCount += 1;
     }
-    const timestampInvalid = timestampWrites !== null && (
-      timestampQuerySet === undefined ||
-      (timestampQuerySet.kind as string) !== 'GPUQuerySet' ||
-      !stateIsUsableOnDevice(timestampQuerySet, encoder.device)
+    const timestampInvalid = passTimestampWritesAreInvalid(
+      timestampWrites,
+      timestampQuerySet,
+      encoder.device,
     );
     const error = !canLock
       ? namedError('GPUValidationError', 'Command encoder cannot begin a compute pass')
@@ -4602,12 +6344,105 @@ export function createProductionWebGpuPrivateBinding(
     },
   );
 
+  defineMethod(mutablePrototypes.GPUCommandEncoder, 'resolveQuerySet', function (
+    this: object,
+    querySetValue: unknown,
+    firstQueryValue: unknown,
+    queryCountValue: unknown,
+    destinationValue: unknown,
+    destinationOffsetValue: unknown,
+  ) {
+    const encoder = requireState(this, 'GPUCommandEncoder');
+    const { converted, statesByReference } = convertWithCapturedStates(
+      'GPUCommandEncoder.resolveQuerySet',
+      [
+        querySetValue,
+        firstQueryValue,
+        queryCountValue,
+        destinationValue,
+        destinationOffsetValue,
+      ],
+    );
+    const body = asRecord(converted, 'resolveQuerySet converted arguments');
+    const querySet = stateForCapturedReference(
+      statesByReference,
+      body.querySet,
+      'resolveQuerySet querySet',
+    );
+    const destination = stateForCapturedReference(
+      statesByReference,
+      body.destination,
+      'resolveQuerySet destination',
+    );
+    const firstQuery = body.firstQuery as number;
+    const queryCount = body.queryCount as number;
+    const destinationOffset = body.destinationOffset as number;
+    const commandTargets = preflightCommandRecordCapacity([encoder]);
+    const localRecordPlan = prepareLocalRecord(
+      'GPUCommandEncoder.resolveQuerySet',
+      encoder,
+      encoder.device,
+    );
+    const destinationRemaining = destination.bufferSize === undefined ||
+        destinationOffset > destination.bufferSize
+      ? -1
+      : destination.bufferSize - destinationOffset;
+    const resolvedBytes = queryCount * 8;
+    const invalid =
+      encoder.status !== 'recording' ||
+      Boolean(encoder.activePass) ||
+      encoder.invalid ||
+      !stateIsUsableOnDevice(querySet, encoder.device) ||
+      querySet.querySetCount === undefined ||
+      firstQuery >= querySet.querySetCount ||
+      firstQuery + queryCount > querySet.querySetCount ||
+      !stateIsUsableOnDevice(destination, encoder.device) ||
+      destination.bufferSize === undefined ||
+      (destination.bufferUsage !== undefined &&
+        (destination.bufferUsage & 512) === 0) ||
+      destinationOffset % 256 !== 0 ||
+      destinationRemaining < 0 ||
+      resolvedBytes > destinationRemaining;
+    const error = invalid
+      ? namedError('GPUValidationError', 'Query-set resolve is invalid')
+      : undefined;
+    if (invalid) encoder.invalid = true;
+    const committed = commitLocalRecord(
+      localRecordPlan,
+      encoder,
+      undefined,
+      converted,
+      error,
+    );
+    appendCommandRecord(commandTargets, committed.sealedRecord);
+  });
+
   defineMethod(mutablePrototypes.GPUCommandEncoder, 'beginRenderPass', function (
     this: object,
     descriptor: unknown,
   ) {
     const encoder = requireState(this, 'GPUCommandEncoder');
-    const converted = convert('GPUCommandEncoder.beginRenderPass', [descriptor]);
+    const { converted, statesByReference } = convertWithCapturedStates(
+      'GPUCommandEncoder.beginRenderPass',
+      [descriptor],
+    );
+    const convertedBody = asRecord(
+      converted,
+      'beginRenderPass converted arguments',
+    );
+    const timestampWrites = convertedBody.timestampWrites === null
+      ? null
+      : asRecord(
+        convertedBody.timestampWrites,
+        'GPURenderPassTimestampWrites',
+      );
+    const timestampQuerySet = timestampWrites === null
+      ? undefined
+      : stateForCapturedReference(
+        statesByReference,
+        timestampWrites.querySet,
+        'GPURenderPassTimestampWrites.querySet',
+      );
     const commandTargets = preflightCommandRecordCapacity([encoder]);
     const localRecordPlan = prepareLocalRecord(
       'GPUCommandEncoder.beginRenderPass',
@@ -4620,14 +6455,29 @@ export function createProductionWebGpuPrivateBinding(
     pass.encoder = encoder;
     pass.status = canOpen ? 'open' : 'invalid';
     pass.invalid = !canOpen;
-    const error = canOpen
-      ? undefined
-      : namedError('GPUValidationError', 'Command encoder cannot begin a pass');
     if (canOpen) {
       encoder.activePass = pass;
       realm.activePassCount += 1;
     }
-    else encoder.invalid = true;
+    const timestampInvalid = passTimestampWritesAreInvalid(
+      timestampWrites,
+      timestampQuerySet,
+      encoder.device,
+    );
+    const error = !canOpen
+      ? namedError('GPUValidationError', 'Command encoder cannot begin a pass')
+      : timestampInvalid
+        ? namedError(
+          'GPUValidationError',
+          'Render pass timestamp writes are unavailable or invalid',
+        )
+        : undefined;
+    if (error) {
+      pass.invalid = true;
+      // As with compute passes, a post-lock timestamp failure is owned by
+      // this pass. Its end() transition unlocks before poisoning the parent.
+      if (!canOpen) encoder.invalid = true;
+    }
     const committed = commitLocalRecord(
       localRecordPlan,
       encoder,
@@ -4718,6 +6568,107 @@ export function createProductionWebGpuPrivateBinding(
     appendCommandRecord(commandTargets, committed.sealedRecord);
   });
 
+  defineMethod(mutablePrototypes.GPURenderPassEncoder, 'drawIndexed', function (
+    this: object,
+    indexCount: unknown,
+    instanceCount?: unknown,
+    firstIndex?: unknown,
+    baseVertex?: unknown,
+    firstInstance?: unknown,
+  ) {
+    const pass = requireState(this, 'GPURenderPassEncoder');
+    const converted = convert(
+      'GPURenderPassEncoder.drawIndexed',
+      [indexCount, instanceCount, firstIndex, baseVertex, firstInstance],
+    ) as Readonly<{
+      indexCount: number;
+      instanceCount: number;
+      firstIndex: number;
+      baseVertex: number;
+      firstInstance: number;
+    }>;
+    const commandTargets = preflightCommandRecordCapacity([pass, pass.encoder]);
+    const localRecordPlan = prepareLocalRecord(
+      'GPURenderPassEncoder.drawIndexed',
+      pass,
+      pass.device,
+    );
+    const binding = pass.indexBufferBinding;
+    const indexByteSize = binding?.indexFormat === 'uint16' ? 2 : 4;
+    const availableIndexCount = binding === undefined
+      ? -1
+      : Math.floor(binding.size / indexByteSize);
+    const invalid =
+      pass.status !== 'open' ||
+      pass.invalid ||
+      !pass.currentPipeline ||
+      binding === undefined ||
+      converted.firstIndex + converted.indexCount > availableIndexCount;
+    const error = invalid
+      ? namedError('GPUValidationError', 'Indexed draw is invalid for this render pass')
+      : undefined;
+    if (invalid) invalidatePass(pass);
+    const committed = commitLocalRecord(
+      localRecordPlan,
+      pass,
+      undefined,
+      converted,
+      error,
+    );
+    appendCommandRecord(commandTargets, committed.sealedRecord);
+  });
+
+  defineMethod(mutablePrototypes.GPURenderPassEncoder, 'drawIndirect', function (
+    this: object,
+    indirectBufferValue: unknown,
+    indirectOffsetValue: unknown,
+  ) {
+    const pass = requireState(this, 'GPURenderPassEncoder');
+    const { converted, statesByReference } = convertWithCapturedStates(
+      'GPURenderPassEncoder.drawIndirect',
+      [indirectBufferValue, indirectOffsetValue],
+    );
+    const body = asRecord(converted, 'drawIndirect converted arguments');
+    const indirectBuffer = stateForCapturedReference(
+      statesByReference,
+      body.indirectBuffer,
+      'drawIndirect indirectBuffer',
+    );
+    const indirectOffset = body.indirectOffset as number;
+    const commandTargets = preflightCommandRecordCapacity([pass, pass.encoder]);
+    const localRecordPlan = prepareLocalRecord(
+      'GPURenderPassEncoder.drawIndirect',
+      pass,
+      pass.device,
+    );
+    const remaining = indirectBuffer.bufferSize === undefined ||
+        indirectOffset > indirectBuffer.bufferSize
+      ? -1
+      : indirectBuffer.bufferSize - indirectOffset;
+    const invalid =
+      pass.status !== 'open' ||
+      pass.invalid ||
+      !pass.currentPipeline ||
+      !stateIsUsableOnDevice(indirectBuffer, pass.device) ||
+      indirectBuffer.bufferSize === undefined ||
+      (indirectBuffer.bufferUsage !== undefined &&
+        (indirectBuffer.bufferUsage & 256) === 0) ||
+      indirectOffset % 4 !== 0 ||
+      remaining < 16;
+    const error = invalid
+      ? namedError('GPUValidationError', 'Indirect draw is invalid for this render pass')
+      : undefined;
+    if (invalid) invalidatePass(pass);
+    const committed = commitLocalRecord(
+      localRecordPlan,
+      pass,
+      undefined,
+      converted,
+      error,
+    );
+    appendCommandRecord(commandTargets, committed.sealedRecord);
+  });
+
   defineMethod(mutablePrototypes.GPURenderPassEncoder, 'setPipeline', function (
     this: object,
     pipelineValue: unknown,
@@ -4741,6 +6692,8 @@ export function createProductionWebGpuPrivateBinding(
     if (invalid) {
       pass.invalid = true;
       if (pass.encoder) pass.encoder.invalid = true;
+    } else {
+      pass.currentPipeline = pipeline;
     }
     const committed = commitLocalRecord(
       localRecordPlan,
@@ -4761,6 +6714,81 @@ export function createProductionWebGpuPrivateBinding(
         args,
         true,
       );
+    },
+  );
+
+  defineMethod(
+    mutablePrototypes.GPURenderPassEncoder,
+    'setIndexBuffer',
+    function (
+      this: object,
+      bufferValue: unknown,
+      indexFormatValue: unknown,
+      offsetValue?: unknown,
+      sizeValue?: unknown,
+    ) {
+      const pass = requireState(this, 'GPURenderPassEncoder');
+      const { converted, statesByReference } = convertWithCapturedStates(
+        'GPURenderPassEncoder.setIndexBuffer',
+        [bufferValue, indexFormatValue, offsetValue, sizeValue],
+      );
+      const body = asRecord(converted, 'setIndexBuffer converted arguments');
+      const buffer = stateForCapturedReference(
+        statesByReference,
+        body.buffer,
+        'setIndexBuffer buffer',
+      );
+      const indexFormat = body.indexFormat as 'uint16' | 'uint32';
+      const offset = body.offset as number;
+      const sizePresent = body.sizePresent as boolean;
+      const encodedSize = body.size as number;
+      const normalizedSize = sizePresent
+        ? encodedSize
+        : Math.max(0, (buffer.bufferSize ?? 0) - offset);
+      const commandTargets = preflightCommandRecordCapacity([pass, pass.encoder]);
+      const localRecordPlan = prepareLocalRecord(
+        'GPURenderPassEncoder.setIndexBuffer',
+        pass,
+        pass.device,
+      );
+      const remaining = buffer.bufferSize === undefined ||
+          offset > buffer.bufferSize
+        ? -1
+        : buffer.bufferSize - offset;
+      const alignment = indexFormat === 'uint16' ? 2 : 4;
+      const invalid =
+        pass.status !== 'open' ||
+        pass.invalid ||
+        !stateIsUsableOnDevice(buffer, pass.device) ||
+        buffer.bufferSize === undefined ||
+        (buffer.bufferUsage !== undefined && (buffer.bufferUsage & 16) === 0) ||
+        offset % alignment !== 0 ||
+        remaining < 0 ||
+        normalizedSize > remaining;
+      const error = invalid
+        ? namedError(
+          'GPUValidationError',
+          'Index buffer is invalid for this render pass',
+        )
+        : undefined;
+      if (invalid) {
+        invalidatePass(pass);
+      } else {
+        pass.indexBufferBinding = Object.freeze({
+          buffer,
+          indexFormat,
+          offset,
+          size: normalizedSize,
+        });
+      }
+      const committed = commitLocalRecord(
+        localRecordPlan,
+        pass,
+        undefined,
+        converted,
+        error,
+      );
+      appendCommandRecord(commandTargets, committed.sealedRecord);
     },
   );
 
@@ -4995,19 +7023,22 @@ export function createProductionWebGpuPrivateBinding(
       pass,
       pass.device,
     );
-    const invalid = pass.status !== 'open';
-    const error = invalid
-      ? namedError('GPUValidationError', 'Render pass already ended')
-      : undefined;
+    const wasOpen = pass.status === 'open';
     pass.status = 'ended';
     if (pass.encoder?.activePass === pass) {
       pass.encoder.activePass = undefined;
       realm.activePassCount -= 1;
     }
-    if (invalid) {
-      pass.invalid = true;
-      if (pass.encoder) pass.encoder.invalid = true;
-    }
+    const invalid = !wasOpen || pass.invalid;
+    const error = invalid
+      ? namedError(
+        'GPUValidationError',
+        !wasOpen
+          ? 'Render pass already ended'
+          : 'Render pass is invalid',
+      )
+      : undefined;
+    if (invalid) invalidatePass(pass);
     const committed = commitLocalRecord(
       localRecordPlan,
       pass,
@@ -6016,9 +8047,6 @@ export function createProductionWebGpuPrivateBinding(
 
   for (const prototype of Object.values(mutablePrototypes)) Object.freeze(prototype);
 
-  const gpuErrorPrototype = Object.freeze(
-    Object.assign(Object.create(null) as object, { name: 'GPUError' }),
-  );
   const interfaceObjects: Record<string, object> = {
     GPU: makeIllegalConstructor('GPU', mutablePrototypes.GPU),
     GPUAdapter: makeIllegalConstructor('GPUAdapter', mutablePrototypes.GPUAdapter),
@@ -6058,10 +8086,11 @@ export function createProductionWebGpuPrivateBinding(
       deviceLostInfoPrototype,
     ),
     GPUError: makeIllegalConstructor('GPUError', gpuErrorPrototype),
-    GPUInternalError: makeMessageConstructor('GPUInternalError', gpuErrorPrototype),
-    GPUOutOfMemoryError: makeMessageConstructor(
-      'GPUOutOfMemoryError',
-      gpuErrorPrototype,
+    GPUInternalError: gpuInternalErrorConstructor,
+    GPUOutOfMemoryError: gpuOutOfMemoryErrorConstructor,
+    GPUQuerySet: makeIllegalConstructor(
+      'GPUQuerySet',
+      mutablePrototypes.GPUQuerySet,
     ),
     GPUQueue: makeIllegalConstructor('GPUQueue', mutablePrototypes.GPUQueue),
     GPURenderPassEncoder: makeIllegalConstructor(
@@ -6091,12 +8120,9 @@ export function createProductionWebGpuPrivateBinding(
     ),
     GPUUncapturedErrorEvent: makeIllegalConstructor(
       'GPUUncapturedErrorEvent',
-      Object.freeze(Object.create(null) as object),
+      gpuUncapturedErrorEventPrototype,
     ),
-    GPUValidationError: makeMessageConstructor(
-      'GPUValidationError',
-      gpuErrorPrototype,
-    ),
+    GPUValidationError: gpuValidationErrorConstructor,
   };
   for (const key of Object.keys(interfaceObjects)) {
     Object.freeze(interfaceObjects[key]);
@@ -6315,12 +8341,22 @@ export function createProductionWebGpuPrivateBinding(
     checkpointHostTask,
     revoke() {
       if (revoked) return;
-      revoked = true;
-      privateImageBitmaps?.revoke();
-      closeRealmCounterIndependently(
-        'realm-revoked',
-        'The WebGPU realm was revoked',
-      );
+      let expiryFailure: unknown;
+      try {
+        if (realm.active && realm.closeReason === undefined) {
+          checkpointHostTask();
+        }
+      } catch (error) {
+        expiryFailure = error;
+      } finally {
+        revoked = true;
+        privateImageBitmaps?.revoke();
+        closeRealmCounterIndependently(
+          'realm-revoked',
+          'The WebGPU realm was revoked',
+        );
+      }
+      if (expiryFailure !== undefined) throw expiryFailure;
     },
   });
 }
@@ -6342,6 +8378,7 @@ const PUBLIC_INTERFACE_NAMES = Object.freeze([
   'GPUError',
   'GPUInternalError',
   'GPUOutOfMemoryError',
+  'GPUQuerySet',
   'GPUQueue',
   'GPURenderPassEncoder',
   'GPURenderPipeline',

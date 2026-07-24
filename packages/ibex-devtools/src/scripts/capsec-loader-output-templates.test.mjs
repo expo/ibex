@@ -71,13 +71,16 @@ describe("source-bound module-loader output recipes", () => {
         ];
       }),
     );
-    expect(rows).toHaveLength(162);
+    // The authenticated dev-served loader seam adds five reviewed helpers,
+    // while addResolved becomes an explicit reviewed residual as well. None
+    // has a bounded public invocation, so the authored partition is unchanged.
+    expect(rows).toHaveLength(168);
     expect(counts).toEqual({
       base: { authored: 8, residual: 4 },
       "internal-loader-route": { authored: 47, residual: 0 },
       "lazy-loader-installer-route": { authored: 39, residual: 0 },
       "loader-entry-route": { authored: 9, residual: 3 },
-      "loader-function": { authored: 14, residual: 36 },
+      "loader-function": { authored: 14, residual: 42 },
       "loader-kind-branch": { authored: 1, residual: 1 },
     });
     const authored = rows.filter(
@@ -87,7 +90,7 @@ describe("source-bound module-loader output recipes", () => {
       ({ invocation }) => invocation.route.operation === "unexercisable",
     );
     expect(authored).toHaveLength(118);
-    expect(residual).toHaveLength(44);
+    expect(residual).toHaveLength(50);
     expect(
       residual
         .filter(({ surface }) =>
@@ -173,7 +176,7 @@ describe("source-bound module-loader output recipes", () => {
       /var exactRequire = function\(specifier\)[\s\S]*?checkImportGate\(specifier\)[\s\S]*?return load\(specifier, ""\)/,
     );
     expect(moduleLoaderSource).toMatch(
-      /var importImpl = function\(specifier, options, referrer, parent\)[\s\S]*?checkImportGate\(specifier\)/,
+      /var importImpl = function\(specifier, options, referrer, parent\)[\s\S]*?checkImportGate\(\s*devServedImportGateSpecifier\(specifier, referrer\)\s*\)/,
     );
   });
 

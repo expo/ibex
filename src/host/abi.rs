@@ -1313,6 +1313,7 @@ pub fn install_armed_host(snapshot: &[u8], expected_json: &[u8]) -> Result<(), S
     let expected: ExpectedArmingIdentity = serde_json::from_value(expected_value)
         .map_err(|error| format!("invalid expected arming identity: {error}"))?;
     let armed = ArmedSnapshot::load(snapshot, &expected).map_err(|error| error.to_string())?;
+    validate_dev_served_project_root_pairing(&armed)?;
     let host = Host::new_armed(
         super::HostConfig {
             mode: super::SecurityMode::Enforce,
@@ -1344,6 +1345,7 @@ pub fn install_exact_experimental_webgpu_pre1a_armed_host(
     let expected: ExpectedArmingIdentity = serde_json::from_value(expected_value)
         .map_err(|error| format!("invalid expected arming identity: {error}"))?;
     let armed = ArmedSnapshot::load(snapshot, &expected).map_err(|error| error.to_string())?;
+    validate_dev_served_project_root_pairing(&armed)?;
     let host = Host::new_exact_experimental_webgpu_pre1a(
         super::HostConfig {
             mode: super::SecurityMode::Enforce,
@@ -1354,6 +1356,46 @@ pub fn install_exact_experimental_webgpu_pre1a_armed_host(
     .map_err(|error| error.to_string())?;
     if install_host(host) == 0 {
         return Err("failed to allocate an armed Host context token".into());
+    }
+    Ok(())
+}
+
+pub(super) fn validate_dev_served_project_root_pairing(
+    armed: &capsec_semantics::arming::ArmedSnapshot,
+) -> Result<(), String> {
+    use capsec_semantics::model::{LogicalPath, LogicalRoot};
+
+    let admits_dev_served = armed
+        .bootstrap_compatibility_modes()
+        .iter()
+        .any(|mode| mode == "dev-served");
+    let claimed_root = armed.document().get("devServedProjectRoot");
+    if !admits_dev_served {
+        return if claimed_root.is_none() {
+            Ok(())
+        } else {
+            Err("dev-served project root requires the dev-served compatibility mode".into())
+        };
+    }
+    let claimed_root: LogicalPath =
+        serde_json::from_value(claimed_root.cloned().ok_or_else(|| {
+            "dev-served compatibility mode requires an explicit dev project root binding".to_owned()
+        })?)
+        .map_err(|error| format!("invalid dev-served project root binding: {error}"))?;
+    let project_binding = armed
+        .root_bindings()
+        .map_err(|error| error.to_string())?
+        .iter()
+        .find(|binding| binding.logical_root == LogicalRoot::Project)
+        .ok_or_else(|| {
+            "dev-served compatibility mode requires the project root binding".to_owned()
+        })?;
+    if claimed_root != project_binding.host_path
+        || claimed_root != armed.project_root_discovery().selected_root
+    {
+        return Err(
+            "dev-served project root must equal the authenticated project root binding".into(),
+        );
     }
     Ok(())
 }
@@ -1464,6 +1506,8 @@ pub unsafe extern "C" fn ex_host_prepare_exact_armed_embedder_artifacts(
 pub unsafe extern "C" fn ex_host_build_exact_armed_embedder_artifacts(
     project_root_utf8: *const u8,
     project_root_utf8_len: usize,
+    dev_project_root_utf8: *const u8,
+    dev_project_root_utf8_len: usize,
     operation_manifest: *const u8,
     operation_manifest_len: usize,
 ) -> *mut c_char {
@@ -1483,8 +1527,17 @@ pub unsafe extern "C" fn ex_host_build_exact_armed_embedder_artifacts(
             .map_err(|error| anyhow::anyhow!("Exact project root is not UTF-8: {error}"));
         let manifest =
             unsafe { std::slice::from_raw_parts(operation_manifest, operation_manifest_len) };
+        let dev_root = unsafe {
+            optional_utf8_path(
+                dev_project_root_utf8,
+                dev_project_root_utf8_len,
+                "Exact dev project root",
+            )
+        };
         root.and_then(|root| {
-            super::embedder_artifacts::build_exact_embedder_artifacts(root, manifest)
+            dev_root.and_then(|dev_root| {
+                super::embedder_artifacts::build_exact_embedder_artifacts(root, dev_root, manifest)
+            })
         })
     };
     let envelope = match result {
@@ -1511,6 +1564,8 @@ pub unsafe extern "C" fn ex_host_build_exact_armed_embedder_artifacts(
 pub unsafe extern "C" fn ex_host_build_exact_gpu_armed_embedder_artifacts(
     project_root_utf8: *const u8,
     project_root_utf8_len: usize,
+    dev_project_root_utf8: *const u8,
+    dev_project_root_utf8_len: usize,
     operation_manifest: *const u8,
     operation_manifest_len: usize,
     gpu_provider_binding: *const u8,
@@ -1541,10 +1596,19 @@ pub unsafe extern "C" fn ex_host_build_exact_gpu_armed_embedder_artifacts(
         let binding =
             unsafe { std::slice::from_raw_parts(gpu_provider_binding, gpu_provider_binding_len) };
         let profile = unsafe { std::slice::from_raw_parts(webgpu_profile, webgpu_profile_len) };
-        root.and_then(|root| {
-            super::embedder_artifacts::build_exact_gpu_embedder_artifacts(
-                root, manifest, binding, profile,
+        let dev_root = unsafe {
+            optional_utf8_path(
+                dev_project_root_utf8,
+                dev_project_root_utf8_len,
+                "Exact dev project root",
             )
+        };
+        root.and_then(|root| {
+            dev_root.and_then(|dev_root| {
+                super::embedder_artifacts::build_exact_gpu_embedder_artifacts(
+                    root, dev_root, manifest, binding, profile,
+                )
+            })
         })
     };
     let envelope = match result {
@@ -1568,6 +1632,8 @@ pub unsafe extern "C" fn ex_host_build_exact_gpu_armed_embedder_artifacts(
 pub unsafe extern "C" fn ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts(
     project_root_utf8: *const u8,
     project_root_utf8_len: usize,
+    dev_project_root_utf8: *const u8,
+    dev_project_root_utf8_len: usize,
     operation_manifest: *const u8,
     operation_manifest_len: usize,
     gpu_provider_binding: *const u8,
@@ -1598,10 +1664,19 @@ pub unsafe extern "C" fn ex_host_build_exact_experimental_webgpu_pre1a_armed_emb
         let binding =
             unsafe { std::slice::from_raw_parts(gpu_provider_binding, gpu_provider_binding_len) };
         let profile = unsafe { std::slice::from_raw_parts(webgpu_profile, webgpu_profile_len) };
-        root.and_then(|root| {
-            super::embedder_artifacts::build_exact_experimental_webgpu_pre1a_embedder_artifacts(
-                root, manifest, binding, profile,
+        let dev_root = unsafe {
+            optional_utf8_path(
+                dev_project_root_utf8,
+                dev_project_root_utf8_len,
+                "Exact dev project root",
             )
+        };
+        root.and_then(|root| {
+            dev_root.and_then(|dev_root| {
+                super::embedder_artifacts::build_exact_experimental_webgpu_pre1a_embedder_artifacts(
+                    root, dev_root, manifest, binding, profile,
+                )
+            })
         })
     };
     let envelope = match result {
@@ -1611,6 +1686,24 @@ pub unsafe extern "C" fn ex_host_build_exact_experimental_webgpu_pre1a_armed_emb
     CString::new(envelope.to_string())
         .map(CString::into_raw)
         .unwrap_or(std::ptr::null_mut())
+}
+
+unsafe fn optional_utf8_path<'a>(
+    bytes: *const u8,
+    len: usize,
+    label: &str,
+) -> anyhow::Result<Option<&'a std::path::Path>> {
+    if bytes.is_null() && len == 0 {
+        return Ok(None);
+    }
+    anyhow::ensure!(
+        !bytes.is_null() && len > 0,
+        "{label} pointer and length must be supplied together"
+    );
+    let bytes = unsafe { std::slice::from_raw_parts(bytes, len) };
+    let text = std::str::from_utf8(bytes)
+        .map_err(|error| anyhow::anyhow!("{label} is not UTF-8: {error}"))?;
+    Ok(Some(std::path::Path::new(text)))
 }
 
 fn with_host<T>(f: impl FnOnce(&Host) -> T, default: T) -> T {
@@ -2676,8 +2769,16 @@ pub unsafe extern "C" fn ex_host_authorize_exact_gpu_provider_v2(
 ///
 /// `principals` addresses `principal_count` readable `u64` values and
 /// `out_digest` addresses exactly 32 writable bytes.
-#[no_mangle]
-pub unsafe extern "C" fn ex_host_capture_exact_gpu_authority_context_v2(
+enum ExactGpuAuthorityCaptureDestinationV2 {
+    Operation,
+    Presentation,
+    PresentationRecheck {
+        retained: super::gpu_authority::CapturedPresentationAuthorityV2,
+        retained_authority_context_digest: [u8; 32],
+    },
+}
+
+unsafe fn capture_exact_gpu_authority_context_v2_inner(
     context_id: u64,
     runtime_address: u64,
     runtime_nonce: u64,
@@ -2691,10 +2792,34 @@ pub unsafe extern "C" fn ex_host_capture_exact_gpu_authority_context_v2(
     facts: *const super::gpu_authority::ExactGpuAuthoritySessionFactsV2,
     out_digest: *mut u8,
     out_authority_session_id: *mut u64,
+    out_present_authority_session_id: *mut u64,
+    destination: ExactGpuAuthorityCaptureDestinationV2,
 ) -> i32 {
     if !out_authority_session_id.is_null() {
         unsafe { *out_authority_session_id = 0 };
     }
+    if !out_present_authority_session_id.is_null() {
+        unsafe { *out_present_authority_session_id = 0 };
+    }
+    let output_shape_is_valid = match &destination {
+        ExactGpuAuthorityCaptureDestinationV2::Operation => {
+            !out_authority_session_id.is_null() && out_present_authority_session_id.is_null()
+        }
+        ExactGpuAuthorityCaptureDestinationV2::Presentation => {
+            !out_authority_session_id.is_null() && !out_present_authority_session_id.is_null()
+        }
+        ExactGpuAuthorityCaptureDestinationV2::PresentationRecheck { .. } => {
+            out_authority_session_id.is_null() && out_present_authority_session_id.is_null()
+        }
+    };
+    let capture_failure_status = if matches!(
+        &destination,
+        ExactGpuAuthorityCaptureDestinationV2::PresentationRecheck { .. }
+    ) {
+        super::gpu_authority::GPU_AUTHORITY_INVALID
+    } else {
+        super::gpu_authority::GPU_AUTHORITY_DENIED
+    };
     if context_id == 0
         || runtime_address == 0
         || runtime_nonce == 0
@@ -2705,9 +2830,9 @@ pub unsafe extern "C" fn ex_host_capture_exact_gpu_authority_context_v2(
         || principal_count > 257
         || facts.is_null()
         || out_digest.is_null()
-        || out_authority_session_id.is_null()
+        || !output_shape_is_valid
     {
-        return 0;
+        return capture_failure_status;
     }
     let facts = unsafe { *facts };
     if facts.struct_size
@@ -2720,7 +2845,7 @@ pub unsafe extern "C" fn ex_host_capture_exact_gpu_authority_context_v2(
         || facts.realm.runtime.runtime_nonce != runtime_nonce
         || facts.authority_context_digest != [0; 32]
     {
-        return 0;
+        return capture_failure_status;
     }
     let principals = unsafe { std::slice::from_raw_parts(principals, principal_count) };
     // Principal 0 is the authenticated application-root projection in Ibex,
@@ -2754,7 +2879,7 @@ pub unsafe extern "C" fn ex_host_capture_exact_gpu_authority_context_v2(
             .enumerate()
             .any(|(index, principal)| principals[..index].contains(principal))
     {
-        return 0;
+        return capture_failure_status;
     }
     let host = HOST_CONTEXTS.get().and_then(|contexts| {
         contexts.read().ok().and_then(|contexts| {
@@ -2765,26 +2890,26 @@ pub unsafe extern "C" fn ex_host_capture_exact_gpu_authority_context_v2(
         })
     });
     let Some(host) = host else {
-        return 0;
+        return capture_failure_status;
     };
     let Some(snapshot) = host.armed_snapshot() else {
         // Diagnostic/allow-all contexts cannot satisfy V2 provenance.
-        return 0;
+        return capture_failure_status;
     };
     let Some(generations) = host.typed_generations() else {
-        return 0;
+        return capture_failure_status;
     };
     let Some(actor) = host.typed_principal_for_module(&actor_principal.to_string()) else {
-        return 0;
+        return capture_failure_status;
     };
     let Some(effect_owner) = host.typed_principal_for_module(&effect_owner_principal.to_string())
     else {
-        return 0;
+        return capture_failure_status;
     };
     let scheduler = if has_scheduler_principal == 1 {
         let Some(scheduler) = host.typed_principal_for_module(&scheduler_principal.to_string())
         else {
-            return 0;
+            return capture_failure_status;
         };
         Some(scheduler)
     } else {
@@ -2798,7 +2923,7 @@ pub unsafe extern "C" fn ex_host_capture_exact_gpu_authority_context_v2(
             capsec_semantics::model::canonicalize_principal_set(principals).ok()
         })
     else {
-        return 0;
+        return capture_failure_status;
     };
 
     use sha2::{Digest as _, Sha256};
@@ -2858,17 +2983,199 @@ pub unsafe extern "C" fn ex_host_capture_exact_gpu_authority_context_v2(
         dynamic_generation: generations.dynamic.get(),
         handle_generation: generations.handle.get(),
     };
-    let Some(authority_session_id) = super::gpu_authority::capture_session(
-        context_id,
-        Arc::clone(&host),
-        attribution,
-        carrier_facts,
-    ) else {
-        return 0;
+    let captured = match destination {
+        ExactGpuAuthorityCaptureDestinationV2::Operation => {
+            let Some(authority_session_id) = super::gpu_authority::capture_session(
+                context_id,
+                Arc::clone(&host),
+                attribution,
+                carrier_facts,
+            ) else {
+                return capture_failure_status;
+            };
+            Some((authority_session_id, None))
+        }
+        ExactGpuAuthorityCaptureDestinationV2::Presentation => {
+            let Some(presentation) = super::gpu_authority::capture_presentation_authority(
+                context_id,
+                Arc::clone(&host),
+                attribution,
+                carrier_facts,
+            ) else {
+                return capture_failure_status;
+            };
+            Some((
+                presentation.acquire_session_id,
+                Some(presentation.present_session_id),
+            ))
+        }
+        ExactGpuAuthorityCaptureDestinationV2::PresentationRecheck {
+            retained,
+            retained_authority_context_digest,
+        } => {
+            let status = super::gpu_authority::recheck_presentation_acquire_entry(
+                context_id,
+                Arc::clone(&host),
+                attribution,
+                carrier_facts,
+                retained,
+                retained_authority_context_digest,
+            );
+            if status != super::gpu_authority::GPU_AUTHORITY_ALLOWED {
+                return status;
+            }
+            None
+        }
     };
     unsafe { std::ptr::copy_nonoverlapping(digest.as_ptr(), out_digest, digest.len()) };
-    unsafe { *out_authority_session_id = authority_session_id };
+    if let Some((authority_session_id, present_authority_session_id)) = captured {
+        unsafe { *out_authority_session_id = authority_session_id };
+        if let Some(present_authority_session_id) = present_authority_session_id {
+            unsafe { *out_present_authority_session_id = present_authority_session_id };
+        }
+    }
     1
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn ex_host_capture_exact_gpu_authority_context_v2(
+    context_id: u64,
+    runtime_address: u64,
+    runtime_nonce: u64,
+    context_kind: u32,
+    actor_principal: u64,
+    effect_owner_principal: u64,
+    scheduler_principal: u64,
+    has_scheduler_principal: u32,
+    principals: *const u64,
+    principal_count: usize,
+    facts: *const super::gpu_authority::ExactGpuAuthoritySessionFactsV2,
+    out_digest: *mut u8,
+    out_authority_session_id: *mut u64,
+) -> i32 {
+    unsafe {
+        capture_exact_gpu_authority_context_v2_inner(
+            context_id,
+            runtime_address,
+            runtime_nonce,
+            context_kind,
+            actor_principal,
+            effect_owner_principal,
+            scheduler_principal,
+            has_scheduler_principal,
+            principals,
+            principal_count,
+            facts,
+            out_digest,
+            out_authority_session_id,
+            std::ptr::null_mut(),
+            ExactGpuAuthorityCaptureDestinationV2::Operation,
+        )
+    }
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn ex_host_capture_exact_gpu_presentation_authority_v2(
+    context_id: u64,
+    runtime_address: u64,
+    runtime_nonce: u64,
+    context_kind: u32,
+    actor_principal: u64,
+    effect_owner_principal: u64,
+    scheduler_principal: u64,
+    has_scheduler_principal: u32,
+    principals: *const u64,
+    principal_count: usize,
+    facts: *const super::gpu_authority::ExactGpuAuthoritySessionFactsV2,
+    out_digest: *mut u8,
+    out_acquire_authority_session_id: *mut u64,
+    out_present_authority_session_id: *mut u64,
+) -> i32 {
+    unsafe {
+        capture_exact_gpu_authority_context_v2_inner(
+            context_id,
+            runtime_address,
+            runtime_nonce,
+            context_kind,
+            actor_principal,
+            effect_owner_principal,
+            scheduler_principal,
+            has_scheduler_principal,
+            principals,
+            principal_count,
+            facts,
+            out_digest,
+            out_acquire_authority_session_id,
+            out_present_authority_session_id,
+            ExactGpuAuthorityCaptureDestinationV2::Presentation,
+        )
+    }
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn ex_host_recheck_exact_gpu_presentation_authority_v2(
+    context_id: u64,
+    runtime_address: u64,
+    runtime_nonce: u64,
+    context_kind: u32,
+    actor_principal: u64,
+    effect_owner_principal: u64,
+    scheduler_principal: u64,
+    has_scheduler_principal: u32,
+    principals: *const u64,
+    principal_count: usize,
+    facts: *const super::gpu_authority::ExactGpuAuthoritySessionFactsV2,
+    retained_acquire_authority_session_id: u64,
+    retained_present_authority_session_id: u64,
+    retained_authority_context_digest: *const u8,
+    out_recheck_digest: *mut u8,
+) -> i32 {
+    if retained_acquire_authority_session_id == 0
+        || retained_present_authority_session_id == 0
+        || retained_acquire_authority_session_id == retained_present_authority_session_id
+        || retained_authority_context_digest.is_null()
+    {
+        return super::gpu_authority::GPU_AUTHORITY_INVALID;
+    }
+    let mut digest = [0u8; 32];
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            retained_authority_context_digest,
+            digest.as_mut_ptr(),
+            digest.len(),
+        );
+    }
+    if digest == [0; 32] {
+        return super::gpu_authority::GPU_AUTHORITY_INVALID;
+    }
+    unsafe {
+        capture_exact_gpu_authority_context_v2_inner(
+            context_id,
+            runtime_address,
+            runtime_nonce,
+            context_kind,
+            actor_principal,
+            effect_owner_principal,
+            scheduler_principal,
+            has_scheduler_principal,
+            principals,
+            principal_count,
+            facts,
+            out_recheck_digest,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            ExactGpuAuthorityCaptureDestinationV2::PresentationRecheck {
+                retained: super::gpu_authority::CapturedPresentationAuthorityV2 {
+                    acquire_session_id: retained_acquire_authority_session_id,
+                    present_session_id: retained_present_authority_session_id,
+                },
+                retained_authority_context_digest: digest,
+            },
+        )
+    }
 }
 
 #[no_mangle]
@@ -2901,6 +3208,38 @@ pub extern "C" fn ex_host_force_retire_exact_gpu_authority_session_v2(
         context_id,
         authority_session_id,
     ))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_retire_exact_gpu_presentation_authority_v2(
+    context_id: u64,
+    acquire_authority_session_id: u64,
+    present_authority_session_id: u64,
+    authority_context_digest: *const u8,
+) -> i32 {
+    if context_id == 0
+        || acquire_authority_session_id == 0
+        || present_authority_session_id == 0
+        || acquire_authority_session_id == present_authority_session_id
+        || authority_context_digest.is_null()
+    {
+        return super::gpu_authority::GPU_AUTHORITY_INVALID;
+    }
+    let mut digest = [0u8; 32];
+    unsafe {
+        std::ptr::copy_nonoverlapping(authority_context_digest, digest.as_mut_ptr(), digest.len());
+    }
+    if digest == [0; 32] {
+        return super::gpu_authority::GPU_AUTHORITY_INVALID;
+    }
+    super::gpu_authority::retire_presentation_authority(
+        context_id,
+        super::gpu_authority::CapturedPresentationAuthorityV2 {
+            acquire_session_id: acquire_authority_session_id,
+            present_session_id: present_authority_session_id,
+        },
+        digest,
+    )
 }
 
 /// Verify that an explicit construction transaction installed exactly the
@@ -5228,7 +5567,12 @@ pub unsafe extern "C" fn ex_host_authorize_typed_listen_stack(
                 .collect::<Option<Vec<_>>>()
             {
                 Some(principals) => principals,
-                None => return -1,
+                None => {
+                    eprintln!(
+                        "error: typed listen authorization refused: principal stack {module_ids:?} is not registered in the authenticated snapshot"
+                    );
+                    return -1;
+                }
             };
             let constrained_principals =
                 match capsec_semantics::model::canonicalize_principal_set(constrained_principals) {
@@ -5263,7 +5607,13 @@ pub unsafe extern "C" fn ex_host_authorize_typed_listen_stack(
                 {
                     1
                 }
-                Ok(_) => 0,
+                Ok(decision) => {
+                    eprintln!(
+                        "error: typed listen authorization denied: outcome={:?} evidence={:?}",
+                        decision.outcome, decision.evidence
+                    );
+                    0
+                }
                 Err(error) => {
                     eprintln!("error: typed listen authorization refused: {error}");
                     -1
@@ -5730,8 +6080,9 @@ pub extern "C" fn ex_host_is_armed() -> i32 {
 
 /// Return the immutable, digest-bound compatibility controls for the active
 /// armed Host. Bits: 0 = Bun facade, 1 = compat fixture mode, 2 = Bun fixture
-/// section. These controls affect trusted compatibility shape only; they are
-/// never projected into `process.env` and grant no external authority.
+/// section, 3 = dev-served module table. These controls affect trusted
+/// compatibility shape only; they are never projected into `process.env` and
+/// grant no external authority.
 #[no_mangle]
 pub extern "C" fn ex_host_armed_bootstrap_compatibility_flags() -> u32 {
     with_host(
@@ -5748,6 +6099,7 @@ pub extern "C" fn ex_host_armed_bootstrap_compatibility_flags() -> u32 {
                             "bun" => 1,
                             "fixture" => 2,
                             "fixture:bun" => 4,
+                            "dev-served" => 8,
                             _ => 0,
                         }
                 })
@@ -10451,7 +10803,14 @@ mod tests {
             .contains("Exact operation manifest are required"));
 
         let build_envelope = take_json(unsafe {
-            ex_host_build_exact_armed_embedder_artifacts(ptr::null(), 0, ptr::null(), 0)
+            ex_host_build_exact_armed_embedder_artifacts(
+                ptr::null(),
+                0,
+                ptr::null(),
+                0,
+                ptr::null(),
+                0,
+            )
         });
         assert_eq!(build_envelope["ok"], false);
         assert!(build_envelope["error"]
@@ -10461,6 +10820,8 @@ mod tests {
 
         let gpu_build_envelope = take_json(unsafe {
             ex_host_build_exact_gpu_armed_embedder_artifacts(
+                ptr::null(),
+                0,
                 ptr::null(),
                 0,
                 ptr::null(),

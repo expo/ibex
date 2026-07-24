@@ -36,7 +36,7 @@ export {
 };
 
 const EXPECTED_QUEUE_SUBMIT_COMMAND_RECORD_TYPE_SHA256 =
-  "0e2cd207c798db8eb19ea99881728f38deed61c30c8f39d0caeb150dfc982a22";
+  "1216c976a45c3fb94ede9d278683c5f0708ff822ce3ab273ef900d34b778a2bf";
 const EXPECTED_QUEUE_SUBMIT_REQUEST_BODY_TYPE_SHA256 =
   "db9e3537ef359719593b74e73ebbe670c35a4a9e4235cbd3bdecc3ce57cf5683";
 const EXPECTED_QUEUE_SUBMIT_NATIVE_ROUTE_SHA256 =
@@ -46,7 +46,7 @@ const EXPECTED_RENDER_PIPELINE_DESCRIPTOR_TYPE_SHA256 =
 const EXPECTED_COMPUTE_PIPELINE_DESCRIPTOR_TYPE_SHA256 =
   "a3acb8ac3e4c8a8b19efdbc015819f2387297686265b40d1c3fe79578c0a4ac5";
 const EXPECTED_CANVAS_NATIVE_PROGRAM_SHA256 =
-  "fd05a301ceb2e3f476d732a81ac084aa1b3c9ef27ea4c5ee4d46ed59ad120db3";
+  "dcd7026b5eed0da5e7d0d4a77bb583084e40864325ec83779bb8dd716ad9bb05";
 
 function assert(condition, message) {
   if (!condition) throw new Error("webgpu test-wrapper authority: " + message);
@@ -67,6 +67,43 @@ export function canonicalJson(value) {
     );
   }
   return JSON.stringify(value);
+}
+
+export const EXPECTED_CONDITIONAL_EXECUTION_LANE = Object.freeze({
+  buildCondition:
+    "EXACT_EXPERIMENTAL_WEBGPU_PRE1A && !EXACT_DIAGNOSTIC_RUNTIME",
+  classification: "experimental-selected-build-only",
+  appRealmInstallation: "authenticated-bootstrap-installed",
+  installedOperationCount: 63,
+  workloadOperationCount: 51,
+  codecDelivery: "authenticated-explicit-injection",
+  nativeServiceExecution: "active",
+  providerExecution: "active",
+  presentationExecution: "present-blit-active",
+  newlyActivatedGapTerminals: Object.freeze([
+    "GPUQueue.writeBuffer",
+    "GPUQueue.copyExternalImageToTexture",
+    "GPUQueue.submit",
+    "PresentBlit",
+  ]),
+  executionEvidence: "source-activated-no-platform-or-cts-evidence",
+  defaultRuntimeInstallation: "absent",
+  publicSupportSurface:
+    "absent-no-advertisement-no-positive-grant-issuer",
+  workerInstallation: "absent",
+  ctsEvidence: "absent",
+  platformQualificationEvidence: "absent",
+  supportClaim: "none",
+});
+
+export function assertExactConditionalExecutionLane(
+  lane,
+  label = "conditional execution lane",
+) {
+  assert(
+    canonicalJson(lane) === canonicalJson(EXPECTED_CONDITIONAL_EXECUTION_LANE),
+    label + " drifted from the exact selected-build/default-absent boundary",
+  );
 }
 
 export function canonicalDigest(domain, value) {
@@ -464,7 +501,7 @@ function validateNativeCodecPrograms(payload) {
   assert(
     program?.schema === "ibex/webgpu-native-codec-programs/2" &&
       program.disposition ===
-        "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-native-codec-not-installed-no-support-claim",
+        "selected-build-authenticated-explicit-codec-injection-active-default-ambient-undefined-no-support-claim",
     "native codec program identity or disposition drifted",
   );
   assertCanonical(
@@ -567,6 +604,7 @@ function validateNativeCodecPrograms(payload) {
       "bufferMapAsyncRequestBodyV1",
       "canonicalValueV1",
       "canvasConfigureRequestBodyV1",
+      "canvasCurrentPresentationAuthorityV1",
       "canvasCurrentTextureOriginV1",
       "canvasUnconfigureRequestBodyV1",
       "canvasViewFormatSequenceV1",
@@ -574,12 +612,18 @@ function validateNativeCodecPrograms(payload) {
       "commandRecordV1",
       "completeDeviceLimitsV1",
       "computePipelineDescriptorV1",
+      "drawIndexedRecordV1",
+      "drawIndirectRecordV1",
       "gpuDeviceCompletionBodyV1",
+      "gpuErrorCompletionBodyV1",
       "headerV1",
       "objectReferenceV1",
       "optionalReferenceV1",
       "ownedBytesV1",
       "pipelineLayoutDescriptorV1",
+      "popErrorScopeRequestBodyV1",
+      "pushErrorScopeRequestBodyV1",
+      "querySetDescriptorV1",
       "queueCopyExternalImageToTextureRequestBodyV1",
       "queueSubmitRequestBodyV1",
       "queueWriteBufferRequestBodyV1",
@@ -587,7 +631,10 @@ function validateNativeCodecPrograms(payload) {
       "renderPipelineDescriptorV1",
       "requestAdapterOptionsV1",
       "requestDeviceDescriptorV1",
+      "resolveQuerySetRecordV1",
       "samplerDescriptorV1",
+      "sealedPendingLocalTimelineRecordSequenceV1",
+      "setIndexBufferRecordV1",
       "sha256DigestV1",
       "shaderModuleDescriptorV1",
       "sortedUniqueFeatureSequenceV1",
@@ -760,6 +807,25 @@ function validateNativeCodecPrograms(payload) {
     "native canvas unconfigure request body type",
   );
   assertCanonical(
+    types.canvasCurrentPresentationAuthorityV1,
+    {
+      kind: "struct",
+      fields: [
+        { name: "acquireSessionId", type: "u64le" },
+        { name: "presentSessionId", type: "u64le" },
+        { name: "authorityContextDigest", type: "sha256DigestV1" },
+        { name: "capturedScopeId", type: "u64le" },
+      ],
+      invariants: [
+        "acquire-and-present-session-identities-are-positive-and-distinct",
+        "authorityContextDigest-is-the-common-original-caller-context-digest",
+        "capturedScopeId-is-the-original-getCurrentTexture-scope-or-zero",
+        "carrier-is-source-affine-and-cannot-be-supplied-by-public-arguments",
+      ],
+    },
+    "native canvas-current presentation authority type",
+  );
+  assertCanonical(
     types.canvasCurrentTextureOriginV1,
     {
       kind: "struct",
@@ -771,13 +837,17 @@ function validateNativeCodecPrograms(payload) {
         { name: "currentEpoch", type: "u64le" },
         { name: "mintOperationInstanceId", type: "u64le" },
         { name: "mintDeviceIngressOrdinal", type: "u64le" },
+        {
+          name: "presentationAuthority",
+          type: "canvasCurrentPresentationAuthorityV1",
+        },
         { name: "textureOriginDigest", type: "sha256DigestV1" },
       ],
       invariants: [
         "contextRef-is-a-current-generation-GPUCanvasContext-on-the-receiver-device",
         "all-generations-epoch-and-mint-provenance-are-positive-source-affine-wrapper-values",
-        "textureOriginDigest-authenticates-the-complete-codec-owned-current-origin-input",
-        "origin-is-compared-to-the-retained-current-texture-table-and-never-materialized-ambiently",
+        "textureOriginDigest-authenticates-the-complete-codec-owned-current-origin-input-including-the-original-acquire-present-authority-pair",
+        "origin-is-compared-to-the-retained-current-texture-table-and-materializes-only-through-an-authenticated-first-carrier-never-ambiently",
       ],
     },
     "native canvas-current texture origin type",
@@ -988,6 +1058,10 @@ function validateNativeCodecPrograms(payload) {
       { name: "GPURenderPassEncoder.draw", tag: 13, identityClass: "active-route", recordRole: "command-program" },
       { name: "GPURenderPassEncoder.end", tag: 14, identityClass: "active-route", recordRole: "command-program" },
       { name: "GPUCommandEncoder.finish", tag: 15, identityClass: "active-route", recordRole: "command-program" },
+      { name: "GPUCommandEncoder.resolveQuerySet", tag: 16, identityClass: "active-route", recordRole: "command-program" },
+      { name: "GPURenderPassEncoder.drawIndexed", tag: 17, identityClass: "active-route", recordRole: "command-program" },
+      { name: "GPURenderPassEncoder.drawIndirect", tag: 18, identityClass: "active-route", recordRole: "command-program" },
+      { name: "GPURenderPassEncoder.setIndexBuffer", tag: 19, identityClass: "active-route", recordRole: "command-program" },
     ],
     "native queue submit operation-variant table",
   );
@@ -997,7 +1071,7 @@ function validateNativeCodecPrograms(payload) {
       "closed-canvas-current-origin-record" &&
       Array.isArray(types.commandRecordV1.invariants) &&
       types.commandRecordV1.invariants.includes(
-        "canvas-current-records-carry-a-complete-source-affine-origin-whose-digest-binds-the-wrapper-allocated-texture-target",
+        "canvas-current-records-carry-a-complete-source-affine-origin-whose-digest-binds-the-wrapper-allocated-texture-target-and-original-acquire-present-authority-pair",
       ),
     "native queue submit canvas-current records do not close origin provenance",
   );
@@ -1680,6 +1754,20 @@ function validateNativeCodecPrograms(payload) {
                   ],
                 },
               },
+              {
+                name: "presentationAuthority",
+                required: true,
+                value: {
+                  kind: "closed-dictionary",
+                  unknownFields: "reject",
+                  fields: [
+                    { name: "acquireSessionId", required: true, value: { kind: "string", constraints: ["positive-u64-canonical-decimal"] } },
+                    { name: "presentSessionId", required: true, value: { kind: "string", constraints: ["positive-u64-canonical-decimal"] } },
+                    { name: "authorityContextDigest", required: true, value: { kind: "string", constraints: ["sha256-hex"] } },
+                    { name: "capturedScopeId", required: true, value: { kind: "string", constraints: ["u64-canonical-decimal"] } },
+                  ],
+                },
+              },
               { name: "textureOriginDigest", required: true, value: { kind: "string", constraints: ["sha256-hex"] } },
               { name: "configuredDeviceRef", required: true, value: { kind: "full-object-reference" } },
               { name: "format", required: true, value: { kind: "string-enum", valuesFrom: "webIdlVocabulary.gpuTextureFormats" } },
@@ -1804,6 +1892,8 @@ function validateNativeCodecPrograms(payload) {
           canvasConfigureRequestBodyV1: types.canvasConfigureRequestBodyV1,
           canvasViewFormatSequenceV1: types.canvasViewFormatSequenceV1,
           canvasUnconfigureRequestBodyV1: types.canvasUnconfigureRequestBodyV1,
+          canvasCurrentPresentationAuthorityV1:
+            types.canvasCurrentPresentationAuthorityV1,
           canvasCurrentTextureOriginV1: types.canvasCurrentTextureOriginV1,
           textureDestroyRequestBodyV1: types.textureDestroyRequestBodyV1,
         },
@@ -4162,32 +4252,49 @@ export function validateWebGpuWrapperAuthority(authority) {
   );
   const localPromotions = authority.provenance?.localPromotions;
   const computePipelinePromotion = {
-      operationId: "GPUDevice.createComputePipeline",
-      sourceRepository: "ccheever/exact",
-      sourceCommit: "4b158f8480395c78463bdd99eb58794f3cca791a",
-      sourceArtifactPath: "tests/gpu/typegpu-semantic-authority-v1.json",
-      sourceArtifactSha256:
-        "bf00879b067bf632334b45e9790d9209e2351e5b7cf5ca587e99b8efd06fbc04",
-      sourceOperationWireId: 2342501516,
-      sourceOperationSemanticSha256:
-        "26b046d57388a595abc66ac3c96e2722ea737b5f80fce67f6a34c8a79d77d590",
-      sourceWorkloadCohortSha256:
-        "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
-      disposition:
-        "construction-private-route-promotion-codec-and-native-ingress-only-public-install-and-support-absent",
-    };
+    operationId: "GPUDevice.createComputePipeline",
+    sourceRepository: "ccheever/exact",
+    sourceCommit: "4b158f8480395c78463bdd99eb58794f3cca791a",
+    sourceArtifactPath: "tests/gpu/typegpu-semantic-authority-v1.json",
+    sourceArtifactSha256:
+      "bf00879b067bf632334b45e9790d9209e2351e5b7cf5ca587e99b8efd06fbc04",
+    sourceOperationWireId: 2342501516,
+    sourceOperationSemanticSha256:
+      "26b046d57388a595abc66ac3c96e2722ea737b5f80fce67f6a34c8a79d77d590",
+    sourceWorkloadCohortSha256:
+      "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
+    disposition:
+      "construction-private-route-promotion-codec-and-native-ingress-only-public-install-and-support-absent",
+  };
   const commandProgramPromotionIds = [
     "GPUCommandEncoder.beginComputePass",
     "GPUCommandEncoder.clearBuffer",
     "GPUCommandEncoder.copyBufferToBuffer",
     "GPUCommandEncoder.copyTextureToTexture",
+    "GPUCommandEncoder.resolveQuerySet",
     "GPUComputePassEncoder.dispatchWorkgroups",
     "GPUComputePassEncoder.end",
     "GPUComputePassEncoder.setBindGroup",
     "GPUComputePassEncoder.setPipeline",
+    "GPURenderPassEncoder.drawIndexed",
+    "GPURenderPassEncoder.drawIndirect",
     "GPURenderPassEncoder.setBindGroup",
+    "GPURenderPassEncoder.setIndexBuffer",
     "GPURenderPassEncoder.setVertexBuffer",
   ];
+  const productCommandProgramPromotionIds = new Set([
+    "GPUCommandEncoder.resolveQuerySet",
+    "GPURenderPassEncoder.drawIndexed",
+    "GPURenderPassEncoder.drawIndirect",
+    "GPURenderPassEncoder.setIndexBuffer",
+  ]);
+  const productCommandProgramPromotionProvenance = Object.freeze({
+    sourceCommit: "52fb441e8c0701bebe85c95d9656e069d9a143b2",
+    sourceArtifactSha256:
+      "83d33951ae93ef06336150e0e6f0bc1e932ac4a1b77056925feb233d00b77482",
+    sourceWorkloadCohortSha256:
+      "355dc9fb0a7004b070f2f763e64298716ba7dcf9cd7b2aa2940a936ff0520f69",
+  });
   assert(
     Array.isArray(localPromotions) &&
       canonicalJson(localPromotions[0]) ===
@@ -4195,21 +4302,36 @@ export function validateWebGpuWrapperAuthority(authority) {
       canonicalJson(localPromotions.slice(1).map((entry) => entry.operationId)) ===
         canonicalJson(commandProgramPromotionIds) &&
       localPromotions.slice(1).every(
-        (entry) =>
-          entry.sourceRepository === "ccheever/exact" &&
-          entry.sourceCommit ===
-            "671381b20b7dfb22a5342b3ccc73b0c245b58c7a" &&
-          entry.sourceArtifactPath ===
-            "tests/gpu/typegpu-semantic-authority-v1.json" &&
-          entry.sourceArtifactSha256 ===
-            "96f902bef8960ee924ec82a2cce58f5cf02157530dc3a9ee01dfdd1a9f8eeed5" &&
-          Number.isInteger(entry.sourceOperationWireId) &&
-          entry.sourceOperationWireId > 0 &&
-          /^[0-9a-f]{64}$/u.test(entry.sourceOperationSemanticSha256) &&
-          entry.sourceWorkloadCohortSha256 ===
-            "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe" &&
-          entry.disposition ===
-            "construction-private-command-program-route-promotion-public-install-and-support-absent",
+        (entry) => {
+          const productPromotion =
+            productCommandProgramPromotionIds.has(entry.operationId);
+          return (
+            entry.sourceRepository === "ccheever/exact" &&
+            entry.sourceArtifactPath ===
+              (productPromotion
+                ? "tests/gpu/webgpu-product-semantic-extension-v1.json"
+                : "tests/gpu/typegpu-semantic-authority-v1.json") &&
+            (productPromotion
+              ? entry.sourceCommit ===
+                  productCommandProgramPromotionProvenance.sourceCommit &&
+                entry.sourceArtifactSha256 ===
+                  productCommandProgramPromotionProvenance.sourceArtifactSha256
+              : entry.sourceCommit ===
+                  "671381b20b7dfb22a5342b3ccc73b0c245b58c7a" &&
+                entry.sourceArtifactSha256 ===
+                  "96f902bef8960ee924ec82a2cce58f5cf02157530dc3a9ee01dfdd1a9f8eeed5") &&
+            Number.isInteger(entry.sourceOperationWireId) &&
+            entry.sourceOperationWireId > 0 &&
+            /^[0-9a-f]{64}$/u.test(entry.sourceOperationSemanticSha256) &&
+            (productPromotion
+              ? entry.sourceWorkloadCohortSha256 ===
+                productCommandProgramPromotionProvenance.sourceWorkloadCohortSha256
+              : entry.sourceWorkloadCohortSha256 ===
+                "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe") &&
+            entry.disposition ===
+              "construction-private-command-program-route-promotion-public-install-and-support-absent"
+          );
+        },
       ),
     "authenticated local promotion provenance drifted",
   );
@@ -4227,23 +4349,45 @@ export function validateWebGpuWrapperAuthority(authority) {
   const payload = authority.payload;
   assert(payload && typeof payload === "object", "payload is missing");
   assert(payload.claims?.supportClaim === "none", "support claim must remain none");
-  assert(payload.claims?.actualRuntimeInstall === "not-installed", "runtime install claim changed");
-  assert(payload.claims?.publicGlobalStatus === "not-installed", "public global claim changed");
-  assert(payload.claims?.nativeBindingStatus === "not-installed", "native binding claim changed");
+  assert(
+    payload.claims?.actualRuntimeInstall === "default-runtime-not-installed",
+    "default runtime install claim changed",
+  );
+  assert(
+    payload.claims?.publicGlobalStatus ===
+      "canonical-public-support-surface-absent",
+    "canonical public-global claim changed",
+  );
+  assert(
+    payload.claims?.nativeBindingStatus ===
+      "default-runtime-absent-selected-build-installed",
+    "conditional native binding claim changed",
+  );
   assert(
     payload.claims?.wireCodecStatus ===
-      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-native-codec-not-installed",
+      "selected-build-authenticated-explicit-injection-default-ambient-undefined",
     "wire codec readiness claim drifted",
   );
   assert(
-    payload.claims?.nativeServiceDecoderStatus === "not-installed" &&
-      payload.claims?.semanticServiceStatus === "not-installed" &&
-      payload.claims?.embeddedCodecStatus === "undefined",
+    payload.claims?.nativeServiceDecoderStatus ===
+      "selected-build-active-default-runtime-absent" &&
+      payload.claims?.semanticServiceStatus ===
+        "selected-build-active-default-runtime-absent" &&
+      payload.claims?.embeddedCodecStatus ===
+        "undefined-ambient-selected-build-explicit-injection",
     "native decoder, semantic service, or embedded codec claim changed",
   );
   assert(
-    payload.installInventory?.actualInstalledOperationCount === 0,
-    "fixture claims installed operations",
+    payload.installInventory?.actualInstalledOperationCount === 0 &&
+      payload.installInventory?.actualInstalledOperationCountScope ===
+        "default-runtime" &&
+      payload.installInventory?.selectedBuildInstalledOperationCount ===
+        payload.operations?.length,
+    "fixture must preserve default absence and the selected-build install count",
+  );
+  assertExactConditionalExecutionLane(
+    payload.conditionalExecutionLane,
+    "wrapper-authority conditional execution lane",
   );
   assert(
     payload.wireEnvelope?.scalarRules?.dictionary ===

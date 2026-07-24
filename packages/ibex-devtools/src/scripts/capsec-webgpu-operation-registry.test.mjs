@@ -7,6 +7,7 @@ import fs from "node:fs";
 import {
   assertExactWebGpuPrivateOperationRegistry,
   authenticateWebGpuProductionPlan,
+  buildWebGpuPrivateOperationRegistry,
   buildWebGpuOperationSurfaces,
   loadAuthenticatedWebGpuProductionPlan,
   parseWebGpuProductionPlanSource,
@@ -14,7 +15,6 @@ import {
   WEBGPU_WRAPPER_AUTHORITY_PATH,
   webGpuOperationSemantics,
 } from "./capsec-webgpu-operation-registry.mjs";
-import { renderCapsecRegistry } from "./generate-capsec-registry.mjs";
 
 const repoRoot = new URL("../../../..", import.meta.url).pathname;
 
@@ -35,26 +35,47 @@ function readInputs() {
   };
 }
 
+function readRegistryInputs(authenticated) {
+  const readJson = (relativePath) =>
+    JSON.parse(
+      fs.readFileSync(
+        new URL(`../../../../${relativePath}`, import.meta.url),
+        "utf8",
+      ),
+    );
+  return {
+    authenticated,
+    coverage: readJson("capsec/registry/coverage-edges.json"),
+    implementationRows: readJson(
+      "capsec/generated/implementation-manifest.json",
+    ).surfaces,
+    targetCells: readJson("capsec/registry/target-cells.json"),
+    targetAdvertisements: readJson(
+      "capsec/generated/target-advertisements.json",
+    ),
+  };
+}
+
 describe("construction-private WebGPU CapSec operation registry", () => {
   test("derives one reviewed edge source from every authenticated active route", () => {
     const authenticated = loadAuthenticatedWebGpuProductionPlan(repoRoot);
     const surfaces = buildWebGpuOperationSurfaces(authenticated);
-    expect(authenticated.routes).toHaveLength(58);
-    expect(surfaces).toHaveLength(58);
+    expect(authenticated.routes).toHaveLength(63);
+    expect(surfaces).toHaveLength(65);
     expect(new Set(surfaces.map((surface) => surface.observedKey)).size).toBe(
-      58,
+      65,
     );
     expect(
       authenticated.routes.filter(
         (route) => webGpuOperationSemantics(route).classification === "closed",
       ),
-    ).toHaveLength(21);
+    ).toHaveLength(22);
     expect(
       authenticated.routes.filter(
         (route) =>
           webGpuOperationSemantics(route).classification === "non-capability",
       ),
-    ).toHaveLength(37);
+    ).toHaveLength(41);
   });
 
   test("rejects removed, mutated, and forged route identities", () => {
@@ -84,37 +105,86 @@ describe("construction-private WebGPU CapSec operation registry", () => {
 
   test(
     "keeps native authority sessions bijective while WP1 and public issuance stay closed",
-    async () => {
-      const rendered = await renderCapsecRegistry();
-      const generated = JSON.parse(
-        rendered.rendered.get(
-          new URL(
-            "../../../../capsec/generated/webgpu-private-operation-registry.json",
-            import.meta.url,
-          ).pathname,
-        ),
+    () => {
+      const authenticated = loadAuthenticatedWebGpuProductionPlan(repoRoot);
+      const registryInputs = readRegistryInputs(authenticated);
+      const generated = buildWebGpuPrivateOperationRegistry(registryInputs);
+      expect(generated.webgpuOperationRegistrySchema).toBe(
+        "ibex/webgpu-private-capsec-operations/2",
       );
-      expect(generated.operationCount).toBe(58);
-      expect(generated.privateTargetCellCount).toBe(58);
+      expect(generated.operationCount).toBe(63);
+      expect(generated.privateTargetCellCount).toBe(65);
       expect(
         generated.operations.filter((operation) => operation.authoritySession),
-      ).toHaveLength(26);
+      ).toHaveLength(27);
       expect(generated.providerIdentity).toMatchObject({
         abiVersion: 0x0002_0000,
         topologyId: 1,
         profileId: "exact-webgpu-v1-draft",
         profileDigest:
-          "eeda83784ff4297760619cb7df54f0e2f227a70562561909c47ecc9dc3232d95",
+          "6144f1569b6f5b93fbee4fd8a63f954312b3fb1a2709f1f83267645aaf89fd49",
       });
-      expect(generated.providerIdentity.sortedOperationIds).toHaveLength(58);
+      expect(generated.providerIdentity.sortedOperationIds).toHaveLength(63);
       expect(
         new Set(generated.operations.map((operation) => operation.edgeId)).size,
-      ).toBe(58);
+      ).toBe(63);
       expect(
         new Set(
           generated.privateTargetCells.map((cell) => cell.id),
         ).size,
-      ).toBe(58);
+      ).toBe(65);
+      expect(generated.presentationAuthority).toMatchObject({
+        schema: "ibex/webgpu-presentation-authority/1",
+        captureOperationId: "GPUCanvasContext.getCurrentTexture",
+        branches: [
+          {
+            id: "acquire",
+            operationId: "navigator.gpu.canvas.acquire",
+            action: "gpu:operation",
+          },
+          {
+            id: "present",
+            operationId: "navigator.gpu.canvas.present",
+            action: "gpu:operation",
+          },
+        ],
+        phasePrograms: [
+          {
+            phase: "entry",
+            decisions: [{ invocation: "capture-and-retain" }],
+          },
+          {
+            phase: "entry-recheck",
+            decisions: [{ invocation: "transient-current-call" }],
+          },
+          {
+            phase: "acquire-admission",
+            decisions: [
+              { branch: "acquire", invocation: "evaluate" },
+              { branch: "present", invocation: "evaluate" },
+            ],
+          },
+          {
+            phase: "candidate-commit",
+            decisions: [
+              {
+                branch: "acquire",
+                invocation: "evaluate-and-then-batch",
+              },
+              {
+                branch: "present",
+                invocation: "evaluate-and-then-batch",
+              },
+            ],
+            continuationAfter: { branch: "present", stage: "commit" },
+          },
+          {
+            phase: "handoff-repeat",
+            decisions: [{ invocation: "evaluate-and-then-batch" }],
+            continuationAfter: { branch: "present", stage: "repeat" },
+          },
+        ],
+      });
       expect(
         generated.privateTargetCells.every(
           (cell) =>
@@ -170,12 +240,12 @@ describe("construction-private WebGPU CapSec operation registry", () => {
           targetCellDisposition: "complete",
         },
       }));
-      expect(rendered.targetAdvertisements.advertisements).toEqual([]);
+      expect(registryInputs.targetAdvertisements.advertisements).toEqual([]);
       const operationEdgeIds = new Set(
         generated.operations.map((operation) => operation.edgeId),
       );
       expect(
-        rendered.targetCells.cells
+        registryInputs.targetCells.cells
           .filter((cell) => operationEdgeIds.has(cell.edgeId))
           .every(
             (cell) =>
@@ -191,4 +261,52 @@ describe("construction-private WebGPU CapSec operation registry", () => {
     },
     90_000,
   );
+
+  test("fails closed when full CapSec branch projections are stale", () => {
+    const authenticated = loadAuthenticatedWebGpuProductionPlan(repoRoot);
+    const base = readRegistryInputs(authenticated);
+    const operationId = "GPU.requestAdapter";
+    const edge = base.coverage.edges.find(
+      (candidate) =>
+        candidate.surface?.kind === "native-op" &&
+        candidate.surface?.name ===
+          `construction-private:webgpu:${operationId}`,
+    );
+    expect(edge).toBeDefined();
+    const implementationIndex = base.implementationRows.findIndex(
+      (row) => row.edgeId === edge.id,
+    );
+    const targetCellIndex = base.targetCells.cells.findIndex(
+      (cell) => cell.edgeId === edge.id,
+    );
+    expect(implementationIndex).toBeGreaterThanOrEqual(0);
+    expect(targetCellIndex).toBeGreaterThanOrEqual(0);
+
+    const mutations = [
+      (inputs) => {
+        inputs.implementationRows[implementationIndex].branchId += ".stale";
+      },
+      (inputs) => {
+        inputs.implementationRows[implementationIndex].sourceRefs[0] +=
+          ":stale";
+      },
+      (inputs) => {
+        inputs.implementationRows[
+          implementationIndex
+        ].enforcementRoute.sourceRefs[0] += ":stale";
+      },
+      (inputs) => {
+        inputs.targetCells.cells[
+          targetCellIndex
+        ].implementationBranchIds[0] += ".stale";
+      },
+    ];
+    for (const mutate of mutations) {
+      const inputs = structuredClone(base);
+      mutate(inputs);
+      expect(() => buildWebGpuPrivateOperationRegistry(inputs)).toThrow(
+        /GPU\.requestAdapter: full CapSec projections are stale for authenticated wire ID 1574056057; run bun run generate:capsec-registry before generate:webgpu-capsec-registry/,
+      );
+    }
+  });
 });

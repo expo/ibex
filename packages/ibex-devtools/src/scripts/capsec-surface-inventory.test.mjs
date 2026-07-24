@@ -3858,14 +3858,17 @@ ${GPU_CANONICAL_INCLUDE_BLOCK}
     );
   });
 
-  test("V2 construction-private bridge discovers all six guarded methods and fails closed under mutation", () => {
+  test("V2 construction-private bridge discovers all nine guarded methods and fails closed under mutation", () => {
     const sourcePath = "src/engine/hermes_runtime_gpu_v2.cc";
     const source = fs.readFileSync(path.join(repoRoot, sourcePath), "utf8");
     const expected = [
       "construction-private:gpuNativeBridgeV2.cancel",
+      "construction-private:gpuNativeBridgeV2.capturePresentationAuthority",
       "construction-private:gpuNativeBridgeV2.createMappedRangeAlias",
       "construction-private:gpuNativeBridgeV2.detachMappedRange",
+      "construction-private:gpuNativeBridgeV2.recheckPresentationAuthority",
       "construction-private:gpuNativeBridgeV2.retire",
+      "construction-private:gpuNativeBridgeV2.retirePresentationAuthority",
       "construction-private:gpuNativeBridgeV2.setEventSink",
       "construction-private:gpuNativeBridgeV2.submit",
     ];
@@ -3879,17 +3882,35 @@ ${GPU_CANONICAL_INCLUDE_BLOCK}
         row.metadata.identityGuardCount,
       ]),
     ).toEqual([
-      ["cancel", 2, "cancelGpuV2BridgeCall", 7],
+      ["cancel", 2, "cancelGpuV2BridgeCall", 10],
+      [
+        "capturePresentationAuthority",
+        2,
+        "captureGpuPresentationAuthorityBridgeCall",
+        10,
+      ],
       [
         "createMappedRangeAlias",
         3,
         "createGpuV2MappedRangeAliasBridgeCall",
-        7,
+        10,
       ],
-      ["detachMappedRange", 1, "detachGpuV2MappedRangeBridgeCall", 7],
-      ["retire", 1, "retireGpuV2BridgeCall", 7],
-      ["setEventSink", 1, "setGpuV2EventSinkBridgeCall", 7],
-      ["submit", 4, "submitGpuV2BridgeCall", 7],
+      ["detachMappedRange", 1, "detachGpuV2MappedRangeBridgeCall", 10],
+      [
+        "recheckPresentationAuthority",
+        3,
+        "recheckGpuPresentationAuthorityBridgeCall",
+        10,
+      ],
+      ["retire", 1, "retireGpuV2BridgeCall", 10],
+      [
+        "retirePresentationAuthority",
+        1,
+        "retireGpuPresentationAuthorityBridgeCall",
+        10,
+      ],
+      ["setEventSink", 1, "setGpuV2EventSinkBridgeCall", 10],
+      ["submit", 4, "submitGpuV2BridgeCall", 10],
     ]);
 
     const guardError =
@@ -5210,6 +5231,18 @@ int main() { return 0; }
       "kind:esm",
       "kind:native-addon",
       "kind:wasm",
+    ]);
+
+    const publicRust = scanRustLoaderSurfaces(
+      String.raw`
+        fn output_has_esm_module_syntax() {}
+        pub fn transpile_module_to_cjs() {}
+      `,
+      "transpile.rs",
+      { publicOnly: true },
+    );
+    expect(publicRust.map((row) => row.name)).toEqual([
+      "function:rust:transpile_module_to_cjs",
     ]);
 
     const productionAfterTests = scanRustLoaderSurfaces(
@@ -7511,6 +7544,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       "global:GPUMapMode",
       "global:GPUOutOfMemoryError",
       "global:GPUPipelineLayout",
+      "global:GPUQuerySet",
       "global:GPUQueue",
       "global:GPURenderPassEncoder",
       "global:GPURenderPipeline",
@@ -7979,7 +8013,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           row.name === "ex_host_install_armed_experimental_webgpu_pre1a",
       ),
     ).toBe(true);
-    expect(first.hostAbi).toHaveLength(353);
+    expect(first.hostAbi).toHaveLength(356);
     for (const [name, sourceRef] of [
       [
         "evaluation:installGlobals:native-freeze-conformance-observation",
@@ -8054,7 +8088,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .sort(),
       ),
     ).toEqual({
-      "output-bearing": 303,
+      "output-bearing": 306,
       "structural-only": 50,
     });
     expect(
@@ -8087,7 +8121,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .map(([role, channels]) => [role, channels.length])
           .sort(),
       ),
-    ).toEqual({ callback: 59, out: 213, return: 285 });
+    ).toEqual({ callback: 59, out: 217, return: 288 });
     expect(
       Object.fromEntries(
         [
@@ -8103,7 +8137,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       "none:void": 68,
       "value:aggregate": 17,
       "value:pointer": 51,
-      "value:scalar": 217,
+      "value:scalar": 220,
     });
     expect(
       Object.fromEntries(
@@ -8119,8 +8153,8 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual({
       "callback-payload": 38,
       inout: 9,
-      input: 873,
-      output: 84,
+      input: 909,
+      output: 88,
     });
 
     const accountFor = (name) =>
@@ -8358,10 +8392,10 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     }
     expect(
       first.startup.find((row) => row.name === "runtime-create").sourceRefs,
-    ).toEqual(["src/engine/hermes_runtime.cc#ex_hermes_create_armed"]);
+      ).toEqual(["src/engine/hermes_runtime.cc#ex_hermes_create_armed"]);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")),
-    ).toHaveLength(160);
+    ).toHaveLength(163);
     expect(
       first.hostAbi.some((row) => row.name === "ex_host_seal_bootstrap_phase"),
     ).toBe(true);
@@ -8723,9 +8757,12 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       "construction-private:gpuNativeBridge.retire",
       "construction-private:gpuNativeBridge.submit",
       "construction-private:gpuNativeBridgeV2.cancel",
+      "construction-private:gpuNativeBridgeV2.capturePresentationAuthority",
       "construction-private:gpuNativeBridgeV2.createMappedRangeAlias",
       "construction-private:gpuNativeBridgeV2.detachMappedRange",
+      "construction-private:gpuNativeBridgeV2.recheckPresentationAuthority",
       "construction-private:gpuNativeBridgeV2.retire",
+      "construction-private:gpuNativeBridgeV2.retirePresentationAuthority",
       "construction-private:gpuNativeBridgeV2.setEventSink",
       "construction-private:gpuNativeBridgeV2.submit",
     ]);
@@ -8741,12 +8778,27 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       ["submit", 5, "submitGpuBridgeCall"],
       ["cancel", 2, "cancelGpuV2BridgeCall"],
       [
+        "capturePresentationAuthority",
+        2,
+        "captureGpuPresentationAuthorityBridgeCall",
+      ],
+      [
         "createMappedRangeAlias",
         3,
         "createGpuV2MappedRangeAliasBridgeCall",
       ],
       ["detachMappedRange", 1, "detachGpuV2MappedRangeBridgeCall"],
+      [
+        "recheckPresentationAuthority",
+        3,
+        "recheckGpuPresentationAuthorityBridgeCall",
+      ],
       ["retire", 1, "retireGpuV2BridgeCall"],
+      [
+        "retirePresentationAuthority",
+        1,
+        "retireGpuPresentationAuthorityBridgeCall",
+      ],
       ["setEventSink", 1, "setGpuV2EventSinkBridgeCall"],
       ["submit", 4, "submitGpuV2BridgeCall"],
     ]);

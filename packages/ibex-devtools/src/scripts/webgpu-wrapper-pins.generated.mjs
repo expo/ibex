@@ -2,14 +2,14 @@
 // Do not edit in Ibex; the normalized Exact authorities own these identities.
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  "projection": "a0922b3fdbe355137dc91f0c3864f41379d3d52eff6dafd05c1b4bfa65797974",
-  "operationSet": "54695d036b1e460efa2ccb1e45447de7046892b97d4d0ed6c20ecfb60d865f37",
-  "semanticProgramSet": "db92e5dd36d33450c96e19c202319ccbb820202d861ebaf372162fdfcc21b7ba",
-  "runtimeRouting": "62b7af1c32e8611340e7f61b343c5cc4803045033e3b51f1fed45daf4a1d119e",
-  "webgpuCVocabulary": "2b4f91ca7d179058e1c748114bfc059db337ec1a710998a5790b527177039007"
+  "projection": "27c719994a3152f1e8e8929db9771d85b4e6fa2e537ed0a5d9e01abd2dee2b54",
+  "operationSet": "79a28de75b150f3e4923f59e0656391033049a8ba1ee970f90f3ad54dd7ecd2e",
+  "semanticProgramSet": "7f00a7cefab951bf745e35e09248f6d45b51a6a116f9481b152c1e0ad70e894e",
+  "runtimeRouting": "4973d8bf1b98eb72644930ebd4c7ed2fd7fccbb1cb23d8b1c9ef68c1a46c4ae8",
+  "webgpuCVocabulary": "8a76a7d68d0257af4abfc1bd8351bd355fddbf8d760d56a2d66ecbb09d142ca5"
 });
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
-  "semanticProjection": "8372a1fe6c77b1c3402ef75ed1e7a04696cb2947c86672763af46e515ddc8844",
+  "semanticProjection": "be4e8b4c646355e9479cd069de4d800aef83cfc6a3fb08edeb637caa4a208dc8",
   "fakeClientData": "d4b76e9a5a4c9b3097cae44d666eff71c10d4c71f638016898627fbfbc58643e"
 });
 export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
@@ -360,6 +360,36 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
     "GPUTexture",
     "destroy",
     "method"
+  ],
+  [
+    "GPUDevice.createQuerySet",
+    "GPUDevice",
+    "createQuerySet",
+    "method"
+  ],
+  [
+    "GPUCommandEncoder.resolveQuerySet",
+    "GPUCommandEncoder",
+    "resolveQuerySet",
+    "method"
+  ],
+  [
+    "GPURenderPassEncoder.drawIndexed",
+    "GPURenderPassEncoder",
+    "drawIndexed",
+    "method"
+  ],
+  [
+    "GPURenderPassEncoder.drawIndirect",
+    "GPURenderPassEncoder",
+    "drawIndirect",
+    "method"
+  ],
+  [
+    "GPURenderPassEncoder.setIndexBuffer",
+    "GPURenderPassEncoder",
+    "setIndexBuffer",
+    "method"
   ]
 ]);
 export const NATIVE_CODEC_ROUTE_IDS = Object.freeze([
@@ -373,9 +403,12 @@ export const NATIVE_CODEC_ROUTE_IDS = Object.freeze([
   "GPUDevice.createRenderPipeline",
   "GPUDevice.createSampler",
   "GPUDevice.createTexture",
+  "GPUDevice.createQuerySet",
   "GPUTexture.createView",
   "GPUDevice.createCommandEncoder",
   "GPUDevice.createShaderModule",
+  "GPUDevice.pushErrorScope",
+  "GPUDevice.popErrorScope",
   "GPUDevice.destroy",
   "GPUBuffer.destroy",
   "GPUBuffer.mapAsync",
@@ -406,6 +439,7 @@ export const CONDITIONAL_PROVIDER_OPERATION_IDS = Object.freeze([
   "GPUDevice.createSampler",
   "GPUDevice.createShaderModule",
   "GPUDevice.createTexture",
+  "GPUDevice.createQuerySet",
   "GPUDevice.destroy",
   "GPUDevice.popErrorScope",
   "GPUQueue.submit",
@@ -519,5 +553,5 @@ export const TEXTURE_FORMAT_REQUIRED_FEATURES = Object.freeze({
   "astc-12x12-unorm-srgb": "texture-compression-astc"
 });
 export const TEXTURE_FORMAT_CAPABILITY_ROWS_SHA256 = "15c3a739357af9380618651982d07bb725db3e507e5b944a4b9c6ea34d7c7c04";
-export const WRAPPER_ROUTE_COUNT = 58;
-export const CONDITIONAL_PROVIDER_ROUTE_COUNT = 25;
+export const WRAPPER_ROUTE_COUNT = 63;
+export const CONDITIONAL_PROVIDER_ROUTE_COUNT = 26;

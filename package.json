@@ -11,6 +11,8 @@
     "generate:capability-bits": "bun packages/ibex-devtools/src/scripts/generate-capability-bits.mjs",
     "generate:capsec-contract": "bun packages/ibex-devtools/src/scripts/capsec-contract.mjs --write",
     "generate:capsec-registry": "bun packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs --write",
+    "generate:webgpu-capsec-registry": "bun packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs --write --webgpu-only",
+    "check:webgpu-capsec-registry": "bun packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs --check --webgpu-only",
     "generate:capsec-conformance": "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance.mjs",
     "generate:capsec-runtime-projection": "bun packages/ibex-devtools/src/scripts/generate-capsec-runtime-projection.mjs",
     "generate:compiled-environment-profile": "bun packages/ibex-devtools/src/scripts/generate-compiled-environment-profile.mjs",

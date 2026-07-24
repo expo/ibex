@@ -5,6 +5,8 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-23 (the Exact dev-served builder grants its root only a loopback, TCP, ephemeral listener selector so the authenticated Acto server can bind without ambient or fixed-port listen authority; release compositions remain unchanged); 2026-07-21 (implements the `dev-served` bootstrap compatibility mode and its construction-private one-shot module-table seam: dev-served compositions install a frozen URL-space table of in-band transformed sources ahead of the private native resolver fallback, gated by armed material carrying the mode together with an explicit dev project-root binding; the resolver seal, host-path authorization for non-table specifiers, import gating, and ordinary target cells are unchanged, and misuse quarantines the generation — Exact ENG-25076)
+**Revised:** 2026-07-20 (gives the production WebGPU runtime section a stable heading so the reviewed Hermes patch stack can reference its governing contract without changing patch bytes)
 **Revised:** 2026-07-20 (separates immutable compute-pipeline promotion provenance from its reviewed active content-addressed operation identity, so an outer Exact repin can rebind the active route without rewriting its source history)
 **Revised:** 2026-07-20 (adds an owner-thread outer host-task checkpoint to the construction-private V2 result: eval/result coercion, explicit promise advance, Exact poll callback batches, each timer, prepared runApp, native module/view/dispatch, structured evaluation, and debugger evaluation retain one Canvas epoch through nextTick and complete microtask drain; bounded Windows drains retain the same task across slices; the fifth exact frozen callback emits a distinct authenticated `texture-expire-v1` control under `GPUTexture.destroy`, while manual destroy remains orthogonal; ambiguous checkpoint failure quarantines the realm)
 **Revised:** 2026-07-20 (adds the named owner-thread `ex_hermes_seal_armed_shared_runtime_globals_v1` trusted-bootstrap transition: Ibex owns the single reviewed ambient/global closure program, diagnostic/off-owner/reentrant/provisional calls execute none of it, a thrown or native failure quarantines the generation, and `ex_hermes_finish_bootstrap` now requires the successful seal witness before its pristine descriptor sweep)
@@ -704,7 +706,71 @@ function semver-major minimum. Until this Draft spec is accepted, a breaking
 change requires an atomic Ibex commit plus Exact submodule/consumer update; it
 must never silently preserve an older ambient bridge.
 
-### The optional Exact GPU service registration seam
+### The dev-served module-table seam
+
+Armed materials carry a `bootstrapCompatibilityModes` set (`bun`,
+`dev-served`, `fixture`, `fixture:bun`; sorted, unique, bounded at four
+entries). The `dev-served` member gates the one-shot seam below. The seam is
+implemented by the Exact builders, armed installer, Hermes bootstrap lifecycle,
+and trusted module loader `[observed]` (`src/host/embedder_artifacts.rs`,
+`src/host/abi.rs`, `src/engine/hermes_runtime.cc`,
+`src/engine/bootstrap/module-loader.js`).
+
+Motivation. In armed mode the loader captures the native resolver privately
+and deletes the raw resolver globals before any app code runs, and every
+native resolution authorizes the module's canonical host path against the
+armed snapshot's `rootBindings`. Both rules are correct and stay. But a
+dev-served composition executes modules keyed by dev-server URL-space ids
+(`/src/main.tsx`, `/@fs/...`) whose transformed sources arrive in-band inside
+the dev envelope; they have no host-path identity, so the sealed loader can
+never resolve them and armed dev boot fails closed. Weakening the seal or the
+path authorization is not an acceptable fix.
+
+The seam. When (and only when) the armed material admits `dev-served`:
+
+- The embedder's artifact builder emits the mode solely when the embedder
+  passed an explicit dev project root override; the mode and the dev project
+  binding travel together, and release/embedded materials never carry either.
+  `ex_host_install_armed*` refuses a material claiming `dev-served` without
+  that binding.
+- Bootstrap exposes one construction-private, one-shot capability
+  (`__ibexCaptureDevServedModuleTable`, following the GPU rendezvous capture
+  idiom) that the dev envelope consumes before app evaluation. Consumption
+  installs a frozen URL-space module table ahead of the loader's private
+  native fallback; the hook deletes itself on first use and is removed by
+  bootstrap finish if unconsumed.
+- Table hits serve only in-band, already-transformed source; no disk read,
+  no host-path derivation. `checkImportGate` and principal gating apply to
+  table hits exactly as to native resolutions. Specifiers absent from the
+  table take the unchanged native path, including host-path authorization
+  against `rootBindings`.
+- Vite optimizer records under `/node_modules/.vite/` are transport artifacts,
+  not a package named `.vite`: optimizer-to-optimizer edges are gated as
+  relative edges and execute under the importing module's existing principal.
+- The mode admits only this table seam. It does not re-expose the deleted
+  resolver globals, relax the resolver seal, widen `rootBindings`, or alter
+  any resolver or path-authorization target cell.
+- The Exact builder's dev-served root floor additionally carries one
+  `network:listen` selector constrained to TCP, loopback peers and an ephemeral
+  port. This is the minimum listener authority required by the authenticated
+  Acto server when the envelope requests port zero; it grants neither remote
+  peers nor a caller-selected fixed port, and installed/release compositions
+  do not carry it. The named WebGPU Pre-1A installer derives and re-proves
+  this same selector from the authenticated `dev-served` mode in addition to
+  the checked private GPU registry and completes only the construction-private
+  `__exactHttpServe` target cell needed to exercise it. The cell is not
+  advertised or selected through canonical public arming, and no
+  caller-provided selector or target disposition is accepted. The builder
+  carries that same single selector in the digest-bound root ceiling so the
+  floor cannot be admitted by profile validation yet denied later by the
+  immutable ceiling; the installed/release ceiling remains empty.
+- Second consumption, a malformed or non-frozen table, or consumption at or
+  after `runApp` quarantines the generation for destruction, matching the
+  GPU capture's failure semantics.
+
+### WebGPU production runtime
+
+#### The optional Exact GPU service registration seam
 
 Ibex exposes a versioned, optional registration boundary for an Exact-owned GPU
 service. This is deliberately **not** the physical wgpu-native API. Raw

@@ -7,8 +7,8 @@
 // @ref LLP 0013#policy
 var _httpNetModule = null;
 var _httpStreamModule = null;
-try { _httpNetModule = require('net'); } catch (_netModuleErr) {}
-try { _httpStreamModule = require('node:stream'); } catch (_streamModuleErr) {}
+try { _httpNetModule = require('net'); } catch (_netModuleErr) { /* optional builtin: profile may exclude net; http degrades to stream-less paths */ }
+try { _httpStreamModule = require('node:stream'); } catch (_streamModuleErr) { /* optional builtin: profile may exclude stream; IncomingMessage falls back to plain emitter */ }
 var _swallowDebugLog = function() {};
 function _swallowDebug(msg, err) {
   _swallowDebugLog(msg, err);

@@ -1,7 +1,7 @@
 {
   "outputDispositionPolicySchema": "ibex/capsec-output-disposition-policy/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-J45HM4qxmSwOrpgi5rhOAQUIof14JOGyZwtJICqCUtk",
+  "catalogKeyDigest": "sha256-VW9BlhTmDt0PjLexF04LrXPWmoRK5O97XVHJ8TLN50E",
   "defaultDisposition": "non-path",
   "defaultRationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them.",
   "overrides": [

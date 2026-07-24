@@ -10,7 +10,11 @@
 
 export const webGpuTestWrapperMarker = "IBEX_WEBGPU_TEST_WRAPPER_RESULT:";
 
-export async function webGpuTestWrapperCorpus(createHarness) {
+export async function webGpuTestWrapperCorpus(
+  createHarness,
+  expectedRouteInventory,
+  expectedConditionalProviderOperationIds,
+) {
   "use strict";
 
   var assertionCount = 0;
@@ -83,6 +87,63 @@ export async function webGpuTestWrapperCorpus(createHarness) {
         message + " condition " + names[index],
       );
     }
+  }
+
+  assert(
+    Array.isArray(expectedRouteInventory) &&
+      expectedRouteInventory.length > 0,
+    "generated route inventory is missing",
+  );
+  var expectedRouteIds = [];
+  var expectedRouteByOperationId = Object.create(null);
+  for (
+    var routeIndex = 0;
+    routeIndex < expectedRouteInventory.length;
+    routeIndex += 1
+  ) {
+    var expectedRoute = expectedRouteInventory[routeIndex];
+    assert(
+      expectedRoute !== null &&
+        typeof expectedRoute === "object" &&
+        typeof expectedRoute.operationId === "string" &&
+        typeof expectedRoute.interfaceName === "string" &&
+        typeof expectedRoute.memberName === "string" &&
+        (expectedRoute.memberKind === "method" ||
+          expectedRoute.memberKind === "property"),
+      "generated route inventory row " + routeIndex + " is malformed",
+    );
+    assert(
+      expectedRouteByOperationId[expectedRoute.operationId] === undefined,
+      "generated route inventory repeats " + expectedRoute.operationId,
+    );
+    expectedRouteIds.push(expectedRoute.operationId);
+    expectedRouteByOperationId[expectedRoute.operationId] = expectedRoute;
+  }
+  assert(
+    Array.isArray(expectedConditionalProviderOperationIds) &&
+      expectedConditionalProviderOperationIds.length > 0,
+    "generated conditional-provider inventory is missing",
+  );
+  var expectedConditionalProviderOperations = Object.create(null);
+  for (
+    var providerRouteIndex = 0;
+    providerRouteIndex < expectedConditionalProviderOperationIds.length;
+    providerRouteIndex += 1
+  ) {
+    var expectedConditionalProviderOperationId =
+      expectedConditionalProviderOperationIds[providerRouteIndex];
+    assert(
+      typeof expectedConditionalProviderOperationId === "string" &&
+        expectedConditionalProviderOperations[
+          expectedConditionalProviderOperationId
+        ] === undefined,
+      "generated conditional-provider inventory row " +
+        providerRouteIndex +
+        " is malformed or repeated",
+    );
+    expectedConditionalProviderOperations[
+      expectedConditionalProviderOperationId
+    ] = true;
   }
 
   var expectedOperations = [
@@ -308,9 +369,46 @@ export async function webGpuTestWrapperCorpus(createHarness) {
       GPURenderPassEncoder: pass,
       GPUTexture: texture,
     };
-    assert(observation.routeIdentityMatrix.length === 25, "route identity matrix has 25 rows");
-    for (index = 0; index < observation.routeIdentityMatrix.length; index += 1) {
-      var matrix = observation.routeIdentityMatrix[index];
+    var routeIdentityByOperationId = Object.create(null);
+    var observedRouteIds = [];
+    for (
+      index = 0;
+      index < observation.routeIdentityMatrix.length;
+      index += 1
+    ) {
+      var observedRoute = observation.routeIdentityMatrix[index];
+      observedRouteIds.push(observedRoute.operationId);
+      assert(
+        routeIdentityByOperationId[observedRoute.operationId] === undefined,
+        "planned route identity matrix repeats " + observedRoute.operationId,
+      );
+      routeIdentityByOperationId[observedRoute.operationId] = observedRoute;
+      var authoritativeRoute =
+        expectedRouteByOperationId[observedRoute.operationId];
+      assert(
+        Boolean(authoritativeRoute),
+        observedRoute.operationId +
+          " is absent from generated planned-route inventory",
+      );
+      assert(
+        observedRoute.interfaceName === authoritativeRoute.interfaceName &&
+          observedRoute.memberName === authoritativeRoute.memberName &&
+        observedRoute.memberKind === authoritativeRoute.memberKind,
+        observedRoute.operationId +
+          " wrapper assignment differs from generated planned-route inventory",
+      );
+    }
+    same(
+      observedRouteIds.slice().sort(),
+      expectedRouteIds.slice().sort(),
+      "planned route identity matrix matches the generated route inventory",
+    );
+    for (index = 0; index < expectedOperations.length; index += 1) {
+      var matrix = routeIdentityByOperationId[expectedOperations[index]];
+      assert(
+        Boolean(matrix),
+        expectedOperations[index] + " has a route identity record",
+      );
       var call = publicCall(observation, matrix.operationId);
       assert(Boolean(call), matrix.operationId + " has a public identity record");
       assert(call.expectedReceiverKind === matrix.receiverHandleKind, matrix.operationId + " expected receiver is route-derived");
@@ -382,6 +480,8 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     }
     return {
       operationCount: observedNames.length,
+      plannedRouteCount: observedRouteIds.length,
+      portableInstalledDescriptorCount: expectedOperations.length,
       publicCallCount: observation.publicCalls.length,
       serviceReceiptCount: observation.serviceReceipts.length,
       eventCount: observation.events.length,
@@ -712,8 +812,11 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     }
     assert(configureReceipts.length === 2, "two configure receipts");
     assert(configureReceipts[0].authenticatedIngressContext.deviceIngressOrdinal === 1, "first configure ingress one");
+    assert(configureReceipts[0].authenticatedIngressContext.queueIngressOrdinal === 1, "first configure queue ingress one");
     assert(configureReceipts[1].authenticatedIngressContext.deviceIngressOrdinal === 1, "reconfigure touches only new device ingress one");
+    assert(configureReceipts[1].authenticatedIngressContext.queueIngressOrdinal === 1, "reconfigure touches only new device queue ingress one");
     assert(unconfigureReceipt.authenticatedIngressContext.deviceIngressOrdinal === 2, "unconfigure consumes new device ingress two");
+    assert(unconfigureReceipt.authenticatedIngressContext.queueIngressOrdinal === 2, "unconfigure consumes new device queue ingress two");
     var textureOrdinals = [];
     for (index = 0; index < flushReceipt.sealedLocalTimelinePrefix.length; index += 1) {
       if (flushReceipt.sealedLocalTimelinePrefix[index].operationName === "GPUCanvasContext.getCurrentTexture") {
@@ -850,8 +953,19 @@ export async function webGpuTestWrapperCorpus(createHarness) {
       return receipt;
     }
 
-    var configuredUnconfigure = assertBranch("GPUCanvasContext.unconfigure", 0, true, "configured unconfigure");
-    var unconfiguredUnconfigure = assertBranch("GPUCanvasContext.unconfigure", 1, false, "unconfigured unconfigure");
+    var unconfigureReceipts = operationReceipts(
+      observation,
+      "GPUCanvasContext.unconfigure",
+    );
+    assert(
+      unconfigureReceipts.length === 1,
+      "repeated unconfigure emits no second service call",
+    );
+    var configuredUnconfigure = unconfigureReceipts[0];
+    assert(
+      configuredUnconfigure.providerAdmission.admitted,
+      "configured unconfigure admission branch",
+    );
     var firstTextureDestroy = assertBranch("GPUTexture.destroy", 0, true, "first texture destroy");
     var repeatedTextureDestroy = assertBranch("GPUTexture.destroy", 1, false, "repeated texture destroy");
     var nonemptyPop = assertBranch("GPUDevice.popErrorScope", 0, true, "nonempty popErrorScope");
@@ -859,7 +973,15 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     var firstDeviceDestroy = assertBranch("GPUDevice.destroy", 0, true, "first device destroy");
     var repeatedDeviceDestroy = assertBranch("GPUDevice.destroy", 1, false, "repeated device destroy");
     assert(configuredUnconfigure.authenticatedIngressContext.logicalDeviceId !== 0, "configured unconfigure carries device ingress");
-    assert(unconfiguredUnconfigure.authenticatedIngressContext.logicalDeviceId === 0, "unconfigured unconfigure has no device ingress");
+    assert(configuredUnconfigure.authenticatedIngressContext.queueIngressOrdinal === 2, "configured unconfigure consumes queue ingress two");
+    var configureReceipts = operationReceipts(
+      observation,
+      "GPUCanvasContext.configure",
+    );
+    assert(configureReceipts.length === 2, "two configured service calls remain");
+    assert(configureReceipts[0].authenticatedIngressContext.queueIngressOrdinal === 1, "first configure consumes queue ingress one");
+    assert(configureReceipts[1].authenticatedIngressContext.queueIngressOrdinal === 3, "repeat unconfigure consumes no queue ingress before reconfigure");
+    assert(configureReceipts[1].authenticatedIngressContext.deviceIngressOrdinal === 3, "repeat unconfigure consumes no device ingress before reconfigure");
     assert(firstTextureDestroy.untrustedWrapperPayload.argumentBody.alreadyDestroyed === false, "first texture destroy branch fact");
     assert(repeatedTextureDestroy.untrustedWrapperPayload.argumentBody.alreadyDestroyed === true, "repeated texture destroy branch fact");
     assert(nonemptyPop.untrustedWrapperPayload.argumentBody.scopeId !== 0, "nonempty pop carries scope");
@@ -921,7 +1043,7 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     assert(expiredDestroy.untrustedWrapperPayload.argumentBody.expired === true, "expired texture destroy carries expiry fact");
     return {
       providerBranches: 4,
-      noProviderBranches: 8,
+      noProviderBranches: 7,
       postLossNoProviderBranches: 3,
       expiredTextureNoProviderBranches: 1,
       firstProviderSequences: [
@@ -1161,25 +1283,11 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     ) !== -1,
     "provider-ready predicate authenticates raw descriptor exclusion",
   );
-  assert(catalog.providerRoutingPrograms.length === 12, "authenticated conditional provider-routing catalog has 12 rows");
   same(
     catalog.providerRoutingPrograms.map(function (program) {
       return program.operationId;
     }),
-    [
-      "GPU.requestAdapter",
-      "GPUAdapter.requestDevice",
-      "GPUCanvasContext.configure",
-      "GPUCanvasContext.unconfigure",
-      "GPUDevice.createCommandEncoder",
-      "GPUDevice.createRenderPipeline",
-      "GPUDevice.createShaderModule",
-      "GPUDevice.destroy",
-      "GPUDevice.popErrorScope",
-      "GPUQueue.submit",
-      "GPUTexture.createView",
-      "GPUTexture.destroy",
-    ],
+    expectedConditionalProviderOperationIds,
     "conditional provider-routing catalog preserves outer authority order",
   );
   var terminalCases = [];
@@ -1207,6 +1315,11 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     schema: "ibex/webgpu-test-wrapper-corpus-result/1",
     assertionCount: assertionCount,
     operationCount: allOperations.operationCount,
+    plannedRouteCount: allOperations.plannedRouteCount,
+    portableInstalledDescriptorCount:
+      allOperations.portableInstalledDescriptorCount,
+    plannedConditionalProviderRouteCount:
+      catalog.providerRoutingPrograms.length,
     terminalCount: terminals.length,
     allOperations: allOperations,
     terminals: terminals,

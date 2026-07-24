@@ -53,7 +53,8 @@ fn generated_wrapper_matches_exact_node_and_real_hermes() {
         "non-empty exact conformance count missing:\n{stdout}"
     );
     assert!(
-        stdout.contains("25 operations, 17 requestDevice terminals"),
+        stdout.contains("25 installed and exercised portable descriptors against ")
+            && stdout.contains(" planned authority routes, 17 requestDevice terminals"),
         "operation/terminal coverage count missing:\n{stdout}"
     );
 }

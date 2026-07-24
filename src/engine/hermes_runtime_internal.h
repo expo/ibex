@@ -300,6 +300,7 @@ enum class NativeCommonJsRequireTargetKind : uint8_t {
 struct NativeCommonJsRequireBinding {
   NativeCommonJsRequireTargetKind kind{NativeCommonJsRequireTargetKind::CommonJs};
   uint64_t record_id{0};
+  bool esm_synchronous_eligible{false};
 };
 
 struct NativeCommonJsRecordEntry {
@@ -570,6 +571,9 @@ struct ExactHermesRuntime {
   bool bootstrap_bun_compat{false};
   bool bootstrap_fixture_compat{false};
   bool bootstrap_bun_fixture{false};
+  bool bootstrap_dev_served{false};
+  std::unique_ptr<facebook::jsi::Function>
+      dev_served_module_table_lifecycle;
   // The legacy lazy-bootstrap callbacks can execute after diagnostic package
   // code begins. Their source/HBC choices are therefore captured during the
   // native bootstrap and never re-read from the process environment.

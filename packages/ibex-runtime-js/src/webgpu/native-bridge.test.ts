@@ -15,6 +15,16 @@ import {
   type NativeGpuBridgeCaptureInstallation,
 } from './native-bridge';
 
+const PRESENTATION_AUTHORITY_BRIDGE_METHODS = Object.freeze({
+  capturePresentationAuthority: () => Object.freeze({
+    acquireSessionId: '31',
+    presentSessionId: '32',
+    authorityContextDigest: new Uint8Array(32).fill(0x5a),
+  }),
+  recheckPresentationAuthority: () => true,
+  retirePresentationAuthority: () => 1 as const,
+});
+
 describe('construction-private GPU bridge capture', () => {
   beforeEach(() => {
     resetExactGpuCanvasRuntimeIntegrationForTests();
@@ -50,6 +60,7 @@ describe('construction-private GPU bridge capture', () => {
       rootAccountId: '23',
       rootAccountGeneration: '29',
       rootAuthorityDigest: new Uint8Array(32).fill(7),
+      ...PRESENTATION_AUTHORITY_BRIDGE_METHODS,
       decodedImageAuthority: Object.freeze({
         async decodePng(request) {
           return Object.freeze({
@@ -151,6 +162,7 @@ describe('construction-private GPU bridge capture', () => {
         rootAccountId: '23',
         rootAccountGeneration: '29',
         rootAuthorityDigest: new Uint8Array(32).fill(7),
+        ...PRESENTATION_AUTHORITY_BRIDGE_METHODS,
         submit: () => ({
           operationInstanceId: '1',
           promiseId: '0',
@@ -164,13 +176,21 @@ describe('construction-private GPU bridge capture', () => {
         setEventSink: () => undefined,
       };
       const minters: object[] = [];
+      const roots: unknown[] = [];
       const receipts: Array<{ bundle: number; receipt: unknown }> = [];
       let minterReleases = 0;
+      let rootReleases = 0;
       let expectTerminalReduction = false;
       let terminalGlobalsClosed = false;
       let retainedWrapperClosed: Promise<boolean> | undefined;
       let priorReleaseSawCaptureAbsent: Promise<boolean> | undefined;
       const integration = (bundle: number) => Object.freeze({
+        installCanvasProtocolRoot(identity) {
+          roots.push(identity);
+          return () => {
+            rootReleases += 1;
+          };
+        },
         installCanvasContextMinter(minter) {
           minters.push(minter);
           const retainedGpu = constructionGlobal.navigator.gpu;
@@ -237,6 +257,13 @@ describe('construction-private GPU bridge capture', () => {
       );
       expect(captureResult.finishCanvasAppBundle(true)).toBe(true);
       expect(minters).toHaveLength(1);
+      expect(roots).toEqual([{
+        protocolRootId: 0,
+        runtimeGeneration: '13',
+        rootInstanceId: '13',
+        rootGeneration: '1',
+      }]);
+      expect(Object.isFrozen(roots[0])).toBe(true);
       expect(Object.isFrozen(minters[0])).toBe(true);
       expect(Reflect.ownKeys(minters[0])).toEqual(['mintCanvasContext']);
 
@@ -248,6 +275,7 @@ describe('construction-private GPU bridge capture', () => {
       await expect(priorReleaseSawCaptureAbsent).resolves.toBe(true);
       const secondCapture = captureResult.beginCanvasAppBundle(1)!;
       expect(minterReleases).toBe(1);
+      expect(rootReleases).toBe(1);
       expect(() => captureResult.canvasReceiptSink(firstReceipt)).toThrow(
         'receipt integration is unavailable',
       );
@@ -257,6 +285,7 @@ describe('construction-private GPU bridge capture', () => {
       secondCapture(integration(2));
       expect(captureResult.finishCanvasAppBundle(true)).toBe(true);
       expect(minters).toHaveLength(2);
+      expect(roots).toHaveLength(2);
       const secondReceipt = Object.freeze({ kind: 'receipt-for-second-bundle' });
       captureResult.canvasReceiptSink(secondReceipt);
       expect(receipts).toEqual([
@@ -268,6 +297,7 @@ describe('construction-private GPU bridge capture', () => {
       captureResult.revoke();
       captureResult.revoke();
       expect(minterReleases).toBe(2);
+      expect(rootReleases).toBe(2);
       expect(terminalGlobalsClosed).toBe(true);
       await expect(retainedWrapperClosed).resolves.toBe(true);
       expect(() => captureResult.canvasReceiptSink(secondReceipt)).toThrow(
@@ -286,6 +316,7 @@ describe('construction-private GPU bridge capture', () => {
       rootAccountId: '23',
       rootAccountGeneration: '29',
       rootAuthorityDigest: new Uint8Array(32).fill(7),
+      ...PRESENTATION_AUTHORITY_BRIDGE_METHODS,
       submit: () => ({
         operationInstanceId: '1',
         promiseId: '0',
@@ -354,13 +385,16 @@ describe('construction-private GPU bridge capture', () => {
     expect(captureResult.beginCanvasAppBundle(0)).toBeUndefined();
     const failedEvaluationCapture = captureResult.beginCanvasAppBundle(1)!;
     failedEvaluationCapture(Object.freeze({
+      installCanvasProtocolRoot: () => () => {
+        releaseCalls += 1;
+      },
       installCanvasContextMinter: () => () => {
         releaseCalls += 1;
       },
       deliverCanvasAttachmentReceipt: () => undefined,
     }));
     expect(captureResult.finishCanvasAppBundle(false)).toBe(true);
-    expect(releaseCalls).toBe(1);
+    expect(releaseCalls).toBe(2);
     expect(() => captureResult.canvasReceiptSink(Object.freeze({}))).toThrow(
       'receipt integration is unavailable',
     );
@@ -393,6 +427,7 @@ describe('construction-private GPU bridge capture', () => {
       rootAccountId: '23',
       rootAccountGeneration: '29',
       rootAuthorityDigest: new Uint8Array(32).fill(7),
+      ...PRESENTATION_AUTHORITY_BRIDGE_METHODS,
       submit: () => ({
         operationInstanceId: '1',
         promiseId: '0',

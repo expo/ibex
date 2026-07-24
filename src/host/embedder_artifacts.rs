@@ -607,10 +607,12 @@ pub fn prepare_embedder_artifacts(
 /// an unsupported target or create a weaker Exact claim plane.
 pub fn build_exact_embedder_artifacts(
     project_root: &Path,
+    dev_project_root: Option<&Path>,
     operation_manifest_bytes: &[u8],
 ) -> Result<PreparedEmbedderArtifacts> {
     build_exact_embedder_artifacts_with_gpu(
         project_root,
+        dev_project_root,
         operation_manifest_bytes,
         None,
         None,
@@ -629,12 +631,14 @@ pub fn build_exact_embedder_artifacts(
 /// construction can install the optional service.
 pub fn build_exact_gpu_embedder_artifacts(
     project_root: &Path,
+    dev_project_root: Option<&Path>,
     operation_manifest_bytes: &[u8],
     gpu_provider_binding_bytes: &[u8],
     webgpu_profile_bytes: &[u8],
 ) -> Result<PreparedEmbedderArtifacts> {
     build_exact_embedder_artifacts_with_gpu(
         project_root,
+        dev_project_root,
         operation_manifest_bytes,
         Some(gpu_provider_binding_bytes),
         Some(webgpu_profile_bytes),
@@ -650,12 +654,14 @@ pub fn build_exact_gpu_embedder_artifacts(
 /// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
 pub fn build_exact_experimental_webgpu_pre1a_embedder_artifacts(
     project_root: &Path,
+    dev_project_root: Option<&Path>,
     operation_manifest_bytes: &[u8],
     gpu_provider_binding_bytes: &[u8],
     webgpu_profile_bytes: &[u8],
 ) -> Result<PreparedEmbedderArtifacts> {
     build_exact_embedder_artifacts_with_gpu(
         project_root,
+        dev_project_root,
         operation_manifest_bytes,
         Some(gpu_provider_binding_bytes),
         Some(webgpu_profile_bytes),
@@ -665,6 +671,7 @@ pub fn build_exact_experimental_webgpu_pre1a_embedder_artifacts(
 
 fn build_exact_embedder_artifacts_with_gpu(
     project_root: &Path,
+    dev_project_root: Option<&Path>,
     operation_manifest_bytes: &[u8],
     gpu_provider_binding_bytes: Option<&[u8]>,
     webgpu_profile_bytes: Option<&[u8]>,
@@ -681,16 +688,30 @@ fn build_exact_embedder_artifacts_with_gpu(
         );
     }
     super::reject_closed_startup_environment()?;
-    let project_root = std::fs::canonicalize(project_root).with_context(|| {
+    let installed_project_root = std::fs::canonicalize(project_root).with_context(|| {
         format!(
             "failed to authenticate Exact project root {}",
             project_root.display()
         )
     })?;
     anyhow::ensure!(
-        project_root.is_dir(),
+        installed_project_root.is_dir(),
         "Exact project root is not a directory"
     );
+    let dev_project_root = dev_project_root
+        .map(|root| {
+            std::fs::canonicalize(root).with_context(|| {
+                format!(
+                    "failed to authenticate Exact dev project root {}",
+                    root.display()
+                )
+            })
+        })
+        .transpose()?;
+    if let Some(root) = dev_project_root.as_ref() {
+        anyhow::ensure!(root.is_dir(), "Exact dev project root is not a directory");
+    }
+    let project_root = dev_project_root.as_ref().unwrap_or(&installed_project_root);
 
     let (vocab_digest, registry_digest) = checked_identity_digests()?;
     let expected_policy_identity = capsec_semantics::policy::ExpectedPolicyIdentity {
@@ -755,6 +776,16 @@ fn build_exact_embedder_artifacts_with_gpu(
         "rootImports": [],
         "principals": [],
     });
+    if dev_project_root.is_some() {
+        policy["rootCeiling"] = serde_json::json!([{
+            "authority": super::exact_dev_served_agent_listener_selector()
+                .map_err(|error| anyhow::anyhow!(error))?,
+            "provenance": [{
+                "kind": "direct",
+                "source": "Exact dev-served agent listener"
+            }]
+        }]);
+    }
     let policy_digest = compute_checked_contract_digest(DigestKind::Policy, &policy)?;
     policy["policyDigest"] = serde_json::json!(policy_digest);
     let canonical_policy = capsec_semantics::policy::CanonicalPolicy::load(
@@ -823,12 +854,23 @@ fn build_exact_embedder_artifacts_with_gpu(
         "binaryDigest": engine.binary_digest,
         "features": engine.structural_features,
     });
+    let mut root_floor = experimental_private_arming
+        .as_ref()
+        .map(|arming| serde_json::to_value(&arming.positive_selectors))
+        .transpose()?
+        .unwrap_or_else(|| serde_json::json!([]));
+    if dev_project_root.is_some() {
+        root_floor
+            .as_array_mut()
+            .expect("serialized authority selector list is an array")
+            .push(serde_json::to_value(
+                super::exact_dev_served_agent_listener_selector()
+                    .map_err(|error| anyhow::anyhow!(error))?,
+            )?);
+    }
     document["principals"] = serde_json::json!([{
         "principal": {"kind": "root", "identity": "project-root"},
-        "floor": experimental_private_arming
-            .as_ref()
-            .map(|arming| arming.positive_selectors.clone())
-            .unwrap_or_default(),
+        "floor": root_floor,
         "denials": [],
         "escalationCeiling": [],
         "imports": {"builtins": root_builtins, "packages": []},
@@ -873,9 +915,13 @@ fn build_exact_embedder_artifacts_with_gpu(
             origin: project_host_path.clone(),
             selected_root: project_host_path.clone(),
             marker_kind: capsec_semantics::arming::ArmedProjectRootMarkerKind::ExplicitProject,
-            marker_path: Some(project_host_path),
+            marker_path: Some(project_host_path.clone()),
             marker_set_version: capsec_semantics::arming::PROJECT_ROOT_MARKER_SET_VERSION.into(),
         })?;
+    if dev_project_root.is_some() {
+        document["bootstrapCompatibilityModes"] = serde_json::json!(["dev-served"]);
+        document["devServedProjectRoot"] = serde_json::to_value(&project_host_path)?;
+    }
     document["pathCanonicalizers"] = serde_json::to_value(bound_volume_path_canonicalizers([
         (project_root.as_path(), &project_object),
         (cache_root.as_path(), &cache_object),
@@ -1404,6 +1450,33 @@ mod tests {
             crate::host::abi::ex_host_build_exact_armed_embedder_artifacts(
                 root.as_ptr(),
                 root.len(),
+                std::ptr::null(),
+                0,
+                manifest.as_ptr(),
+                manifest.len(),
+            )
+        };
+        assert!(!output.is_null());
+        let bytes = unsafe { std::ffi::CStr::from_ptr(output) }
+            .to_bytes()
+            .to_vec();
+        crate::host::abi::ex_host_free_string(output);
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    fn build_exact_dev_through_abi(
+        project_root: &std::path::Path,
+        dev_project_root: &std::path::Path,
+    ) -> serde_json::Value {
+        let root = project_root.to_str().unwrap().as_bytes();
+        let dev_root = dev_project_root.to_str().unwrap().as_bytes();
+        let manifest = exact_manifest();
+        let output = unsafe {
+            crate::host::abi::ex_host_build_exact_armed_embedder_artifacts(
+                root.as_ptr(),
+                root.len(),
+                dev_root.as_ptr(),
+                dev_root.len(),
                 manifest.as_ptr(),
                 manifest.len(),
             )
@@ -1425,6 +1498,8 @@ mod tests {
             crate::host::abi::ex_host_build_exact_gpu_armed_embedder_artifacts(
                 root.as_ptr(),
                 root.len(),
+                std::ptr::null(),
+                0,
                 manifest.as_ptr(),
                 manifest.len(),
                 binding.as_ptr(),
@@ -1649,6 +1724,71 @@ mod tests {
     }
 
     #[test]
+    fn target_local_exact_dev_builder_pairs_mode_with_the_explicit_dev_root() {
+        let installed = tempfile::tempdir().unwrap();
+        let dev = tempfile::tempdir().unwrap();
+        let envelope = build_exact_dev_through_abi(installed.path(), dev.path());
+        assert_eq!(envelope["ok"], true, "{envelope}");
+        let artifacts = &envelope["artifacts"];
+        assert_eq!(
+            artifacts["snapshot"]["bootstrapCompatibilityModes"],
+            serde_json::json!(["dev-served"])
+        );
+        assert_eq!(
+            artifacts["snapshot"]["devServedProjectRoot"],
+            artifacts["snapshot"]["rootBindings"][0]["hostPath"]
+        );
+        assert_eq!(
+            artifacts["snapshot"]["devServedProjectRoot"],
+            artifacts["snapshot"]["projectRootDiscovery"]["selectedRoot"]
+        );
+        assert_eq!(
+            artifacts["snapshot"]["principals"][0]["floor"],
+            serde_json::json!([{
+                "cap": "network:listen",
+                "resource": {
+                    "kind": "listen-inet",
+                    "transport": "tcp",
+                    "bind": {"kind": "loopback"},
+                    "port": {"kind": "ephemeral"},
+                    "dualStack": false,
+                    "peerClasses": ["loopback"],
+                },
+            }]),
+            "dev-served Exact grants only the loopback ephemeral listener used by the agent"
+        );
+        assert_eq!(
+            artifacts["snapshot"]["rootAuthorityCeiling"]["authorities"],
+            artifacts["snapshot"]["principals"][0]["floor"],
+            "the immutable root ceiling admits exactly the scoped dev listener floor"
+        );
+        let mut expected: ExpectedArmingIdentity =
+            serde_json::from_value(artifacts["expectedIdentity"].clone()).unwrap();
+        let snapshot = ArmedSnapshot::load(
+            &serde_json::to_vec(&artifacts["snapshot"]).unwrap(),
+            &expected,
+        )
+        .unwrap();
+        crate::host::abi::validate_dev_served_project_root_pairing(&snapshot).unwrap();
+
+        let mut unpaired = artifacts["snapshot"].clone();
+        unpaired
+            .as_object_mut()
+            .unwrap()
+            .remove("devServedProjectRoot");
+        let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &unpaired).unwrap();
+        unpaired["armedSnapshotDigest"] = serde_json::json!(digest.clone());
+        expected.armed_snapshot_digest = Digest::new(digest).unwrap();
+        let unpaired =
+            ArmedSnapshot::load(&serde_json::to_vec(&unpaired).unwrap(), &expected).unwrap();
+        assert!(
+            crate::host::abi::validate_dev_served_project_root_pairing(&unpaired)
+                .unwrap_err()
+                .contains("requires an explicit dev project root binding")
+        );
+    }
+
+    #[test]
     fn target_local_exact_gpu_builder_protects_the_bound_profile() {
         let project = tempfile::tempdir().unwrap();
         let envelope = build_exact_gpu_through_abi(project.path());
@@ -1723,6 +1863,7 @@ mod tests {
         assert!(!profile_artifact.exists());
         let error = build_exact_gpu_embedder_artifacts(
             project.path(),
+            None,
             &exact_manifest(),
             &binding,
             b"different profile bytes",

@@ -1200,6 +1200,13 @@ fn main() {
     println!("cargo:rerun-if-env-changed=HERMES_BIN_DIR");
     println!("cargo:rerun-if-env-changed=HERMES_LINK_STATIC");
     println!("cargo:rerun-if-env-changed=HERMES_STATIC_LIB_NAME");
+    // Outer embedders that cache Ibex archives publish a digest over the
+    // exact selected compiler/header/link/provenance inputs. Cargo otherwise
+    // cannot detect a byte change restored with identical mtimes.
+    println!("cargo:rerun-if-env-changed=IBEX_HERMES_INPUTS_SHA256");
+    // Outer embedders may likewise bind the complete non-Hermes source closure
+    // without touching shared checkout mtimes to perturb Cargo's fingerprints.
+    println!("cargo:rerun-if-env-changed=IBEX_SOURCE_INPUTS_SHA256");
     println!("cargo:rerun-if-env-changed=IBEX_SFE_LINUX_RELEASE_STUB");
     println!("cargo:rerun-if-env-changed=REACT_ANDROID_DIR");
     println!("cargo:rerun-if-env-changed=REACT_ANDROID_ROOT");

@@ -2263,6 +2263,8 @@ async fn execute_exact_artifact_prepare(recipe: &Recipe) -> ScenarioExecution {
             crate::host::abi::ex_host_build_exact_gpu_armed_embedder_artifacts(
                 root.as_ptr(),
                 root.len(),
+                std::ptr::null(),
+                0,
                 manifest.as_ptr(),
                 manifest.len(),
                 gpu_binding_bytes.as_ptr(),
@@ -2284,6 +2286,8 @@ async fn execute_exact_artifact_prepare(recipe: &Recipe) -> ScenarioExecution {
             crate::host::abi::ex_host_build_exact_armed_embedder_artifacts(
                 root.as_ptr(),
                 root.len(),
+                std::ptr::null(),
+                0,
                 manifest.as_ptr(),
                 manifest.len(),
             )

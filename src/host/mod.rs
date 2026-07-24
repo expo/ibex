@@ -39,6 +39,15 @@ const MAX_TYPED_EVIDENCE_ENTRIES: usize = 1024;
 
 static NEXT_MODULE_RESOLVER_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
+pub(crate) enum TypedDecisionBatchAndThenResult<R> {
+    StalePolicyGeneration,
+    StaleAuthorityGenerations,
+    Evaluated {
+        decisions: Vec<capsec_semantics::decision::Decision>,
+        continuation_result: Option<R>,
+    },
+}
+
 /// Resolve one exact surface through the committed generated registry.
 ///
 /// Stateful adapters select only a closed ABI enum; this lookup supplies the
@@ -528,7 +537,61 @@ fn validate_exact_experimental_webgpu_pre1a_floor(
     expected_selectors: &[capsec_semantics::model::AuthoritySelector],
 ) -> capsec_semantics::Result<()> {
     let authority = snapshot.authority_state()?;
-    validate_exact_experimental_webgpu_pre1a_authority(&authority, expected_selectors)
+    let mut expected_selectors = expected_selectors.to_vec();
+    if snapshot_admits_dev_served(snapshot) {
+        expected_selectors.push(exact_dev_served_agent_listener_selector()?);
+    }
+    validate_exact_experimental_webgpu_pre1a_authority(&authority, &expected_selectors)
+}
+
+const EXACT_DEV_SERVED_AGENT_HTTP_SERVE_EDGE: &str = "surface.native.op.exacthttpserve.1eq8wio";
+
+fn snapshot_admits_dev_served(snapshot: &capsec_semantics::arming::ArmedSnapshot) -> bool {
+    snapshot
+        .bootstrap_compatibility_modes()
+        .iter()
+        .any(|mode| mode == "dev-served")
+}
+
+fn exact_experimental_target_cells(
+    dev_served: bool,
+) -> BTreeMap<String, capsec_semantics::decision::TargetCellDisposition> {
+    let mut cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
+        .iter()
+        .map(|edge| {
+            (
+                (*edge).to_owned(),
+                capsec_semantics::decision::TargetCellDisposition::Closed,
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    if dev_served {
+        cells.insert(
+            EXACT_DEV_SERVED_AGENT_HTTP_SERVE_EDGE.to_owned(),
+            capsec_semantics::decision::TargetCellDisposition::Complete,
+        );
+    }
+    cells
+}
+
+fn exact_dev_served_agent_listener_selector(
+) -> capsec_semantics::Result<capsec_semantics::model::AuthoritySelector> {
+    serde_json::from_value(serde_json::json!({
+        "cap": "network:listen",
+        "resource": {
+            "kind": "listen-inet",
+            "transport": "tcp",
+            "bind": {"kind": "loopback"},
+            "port": {"kind": "ephemeral"},
+            "dualStack": false,
+            "peerClasses": ["loopback"],
+        },
+    }))
+    .map_err(|error| {
+        capsec_semantics::Error::ArmRefused(format!(
+            "invalid built-in dev-served agent listener selector: {error}"
+        ))
+    })
 }
 
 fn validate_exact_experimental_webgpu_pre1a_authority(
@@ -739,15 +802,8 @@ impl Host {
             &armed_snapshot,
             &private_arming.positive_selectors,
         )?;
-        let target_cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
-            .iter()
-            .map(|edge| {
-                (
-                    (*edge).to_owned(),
-                    capsec_semantics::decision::TargetCellDisposition::Closed,
-                )
-            })
-            .collect();
+        let target_cells =
+            exact_experimental_target_cells(snapshot_admits_dev_served(&armed_snapshot));
         Self::new_armed_with_target_cells(
             config,
             armed_snapshot,
@@ -867,6 +923,29 @@ impl Host {
         config: HostConfig,
         armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
     ) -> capsec_semantics::Result<Self> {
+        // V2 GPU fixtures must exercise the same closed-world private target
+        // cells as the named product constructor. A merely descriptor-valid
+        // provider with an empty private-cell map would authenticate at
+        // registration and then fail every operation before service entry.
+        // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+        if let Some(binding) = armed_snapshot.exact_gpu_provider_binding()? {
+            if binding.abi_version == 0x0002_0000 {
+                let private_arming = gpu_authority::experimental_webgpu_pre1a_arming(&binding)
+                    .ok_or_else(|| {
+                        capsec_semantics::Error::ArmRefused(
+                            "test WebGPU V2 registry or provider identity is unavailable".into(),
+                        )
+                    })?;
+                return Self::new_armed_with_target_cells(
+                    config,
+                    armed_snapshot,
+                    complete_test_target_cells(),
+                    AuthenticatedPackageSourceState::default(),
+                    capsec_semantics::decision::TargetArmState::CompleteAdvertised,
+                    private_arming.private_target_cells,
+                );
+            }
+        }
         Self::new_armed_with_target_cells(
             config,
             armed_snapshot,
@@ -3382,6 +3461,90 @@ impl Host {
         gates: &[capsec_semantics::decision::EffectGate],
         projections: Option<&capsec_semantics::decision::PrincipalPathProjections>,
     ) -> capsec_semantics::Result<capsec_semantics::decision::Decision> {
+        self.evaluate_typed_decision_inner_and_then(set, gates, projections, |_| ())
+            .map(|(decision, ())| decision)
+    }
+
+    /// Evaluate one registry-pinned ordered decision batch and run an affine
+    /// continuation only when every decision allows, without releasing the
+    /// decision-context read guard between receipts or before the
+    /// continuation returns.
+    pub(crate) fn evaluate_typed_decision_batch_and_then<R>(
+        &self,
+        requests: &[(
+            &capsec_semantics::model::DecisionSet,
+            &[capsec_semantics::decision::EffectGate],
+        )],
+        expected_policy_generation: u64,
+        expected_generations: capsec_semantics::cache::GenerationSet,
+        on_allowed: impl FnOnce() -> R,
+    ) -> capsec_semantics::Result<TypedDecisionBatchAndThenResult<R>> {
+        if requests.is_empty() || requests.len() > 2 {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "typed decision batch must contain one or two decisions".into(),
+            ));
+        }
+        let context = self.decision_context.as_deref().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "typed decision batch requested without an armed context".into(),
+            )
+        })?;
+        let context = context.read().map_err(|_| {
+            capsec_semantics::Error::ArmRefused("typed decision context lock is poisoned".into())
+        })?;
+        let Some(snapshot) = self.armed_snapshot() else {
+            return Ok(TypedDecisionBatchAndThenResult::StalePolicyGeneration);
+        };
+        if snapshot.generations().policy.get() != expected_policy_generation {
+            return Ok(TypedDecisionBatchAndThenResult::StalePolicyGeneration);
+        }
+        if context.authority().generations != expected_generations {
+            return Ok(TypedDecisionBatchAndThenResult::StaleAuthorityGenerations);
+        }
+        let mut decisions = Vec::with_capacity(requests.len());
+        let mut all_allowed = true;
+        for (set, gates) in requests {
+            let decision = capsec_semantics::decision::evaluate_decision_set(
+                &context,
+                set,
+                gates,
+                capsec_semantics::decision::Workflow::ProductionEnforce,
+                &classify_network_peer,
+            )?;
+            self.typed_decision_count.fetch_add(1, Ordering::Relaxed);
+            #[cfg(any(test, feature = "capsec-conformance-observer"))]
+            {
+                let evidence = capsec_semantics::decision::structure_decision_evidence(
+                    &context, set, &decision,
+                );
+                #[cfg(any(test, feature = "capsec-conformance-observer"))]
+                self.record_typed_decision_for_tests(evidence.clone());
+                self.record_typed_conformance_decision(set, gates, evidence);
+            }
+            all_allowed &= matches!(
+                decision.outcome,
+                capsec_semantics::decision::DecisionOutcome::Allow
+                    | capsec_semantics::decision::DecisionOutcome::AllowWithWouldDenyEvidence
+            );
+            decisions.push(decision);
+            if !all_allowed {
+                break;
+            }
+        }
+        let continuation_result = all_allowed.then(on_allowed);
+        Ok(TypedDecisionBatchAndThenResult::Evaluated {
+            decisions,
+            continuation_result,
+        })
+    }
+
+    fn evaluate_typed_decision_inner_and_then<R>(
+        &self,
+        set: &capsec_semantics::model::DecisionSet,
+        gates: &[capsec_semantics::decision::EffectGate],
+        projections: Option<&capsec_semantics::decision::PrincipalPathProjections>,
+        after_decision: impl FnOnce(&capsec_semantics::decision::Decision) -> R,
+    ) -> capsec_semantics::Result<(capsec_semantics::decision::Decision, R)> {
         let context = self.decision_context.as_deref().ok_or_else(|| {
             capsec_semantics::Error::ArmRefused(
                 "typed decision requested without an armed context".into(),
@@ -3418,7 +3581,8 @@ impl Host {
             self.record_typed_decision_for_tests(evidence.clone());
             self.record_typed_conformance_decision(set, gates, evidence);
         }
-        Ok(decision)
+        let continuation_result = after_decision(&decision);
+        Ok((decision, continuation_result))
     }
 
     /// Evaluate and return the exact evidence envelope produced by that same
@@ -9096,6 +9260,32 @@ mod tests {
         )
         .is_err());
 
+        let dev_listener_selector = exact_dev_served_agent_listener_selector().unwrap();
+        let mut dev_listener = retained.clone();
+        dev_listener.selector = dev_listener_selector.clone();
+        authority
+            .principal_policies
+            .get_mut(&root)
+            .unwrap()
+            .static_floor
+            .push(dev_listener);
+        validate_exact_experimental_webgpu_pre1a_authority(
+            &authority,
+            &[selector.clone(), dev_listener_selector],
+        )
+        .unwrap();
+        assert!(validate_exact_experimental_webgpu_pre1a_authority(
+            &authority,
+            std::slice::from_ref(&selector),
+        )
+        .is_err());
+        authority
+            .principal_policies
+            .get_mut(&root)
+            .unwrap()
+            .static_floor
+            .pop();
+
         authority
             .principal_policies
             .get_mut(&root)
@@ -9107,6 +9297,62 @@ mod tests {
             std::slice::from_ref(&selector),
         )
         .is_err());
+    }
+
+    #[test]
+    fn experimental_webgpu_dev_target_cells_open_only_the_agent_http_listener() {
+        use capsec_semantics::decision::{DecisionOutcome, TargetCellDisposition};
+        use capsec_semantics::model::{
+            IpAddress, ListenBind, ListenPort, ListenTransport, PeerClass,
+        };
+
+        let installed = exact_experimental_target_cells(false);
+        assert_eq!(
+            installed.get(EXACT_DEV_SERVED_AGENT_HTTP_SERVE_EDGE),
+            Some(&TargetCellDisposition::Closed)
+        );
+
+        let dev_served = exact_experimental_target_cells(true);
+        assert_eq!(
+            dev_served.get(EXACT_DEV_SERVED_AGENT_HTTP_SERVE_EDGE),
+            Some(&TargetCellDisposition::Complete)
+        );
+        assert_eq!(
+            dev_served
+                .values()
+                .filter(|disposition| **disposition == TargetCellDisposition::Complete)
+                .count(),
+            1
+        );
+
+        let selector =
+            serde_json::to_value(exact_dev_served_agent_listener_selector().unwrap()).unwrap();
+        let mut host = example_armed_host_with(|value| {
+            value["principals"][0]["floor"] = serde_json::json!([selector]);
+            value["principals"][0]["denials"] = serde_json::json!([]);
+        });
+        host.target_cells = Arc::new(dev_served);
+        let root = host.typed_principal_for_module("0").unwrap();
+        let decision = host
+            .authorize_typed_listen_stage(
+                "0",
+                "http-serve",
+                EXACT_DEV_SERVED_AGENT_HTTP_SERVE_EDGE,
+                vec![root],
+                ListenTransport::Tcp,
+                ListenBind::Address {
+                    address: IpAddress::new("127.0.0.1".parse().unwrap()),
+                },
+                ListenPort::Ephemeral,
+                false,
+                vec![PeerClass::Loopback],
+                capsec_semantics::model::Stage::Requested,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(decision.outcome, DecisionOutcome::Allow);
     }
 
     #[test]
@@ -9756,7 +10002,7 @@ mod tests {
         assert_eq!(host.typed_decision_count(), 0);
     }
 
-    fn example_armed_snapshot_with(
+    pub(super) fn example_armed_snapshot_with(
         mutator: impl FnOnce(&mut serde_json::Value),
     ) -> capsec_semantics::arming::ArmedSnapshot {
         use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
@@ -10460,7 +10706,7 @@ mod tests {
 
         let package_integrity =
             crate::module_loader::package_tree_integrity(&package_root).unwrap();
-        let snapshot = example_armed_snapshot_with(|value| {
+        let snapshot = std::sync::Arc::new(example_armed_snapshot_with(|value| {
             replace_example_package_integrity(
                 value,
                 "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
@@ -10481,14 +10727,11 @@ mod tests {
                 object_identity_for_host_path(std::path::Path::new("/usr/bin/git")).unwrap(),
             )
             .unwrap();
-        });
+        }));
         let armed_digest = CString::new(snapshot.digest().as_str()).unwrap();
         let host = unsafe {
-            Host::new_armed_for_test_with_package_sources(
-                HostConfig::default(),
-                std::sync::Arc::new(snapshot),
-            )
-            .unwrap()
+            Host::new_armed_for_test_with_package_sources(HostConfig::default(), snapshot.clone())
+                .unwrap()
         };
         assert_ne!(crate::host::abi::install_host(host.clone()), 0);
 
@@ -10535,7 +10778,12 @@ mod tests {
             let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
 
             unsafe {
-                assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+                let runtime_host = Host::new_armed_for_test_with_package_sources(
+                    HostConfig::default(),
+                    snapshot.clone(),
+                )
+                .unwrap();
+                assert_ne!(crate::host::abi::install_host(runtime_host), 0);
                 let raw = ex_hermes_create_armed(armed_digest.as_ptr());
                 assert!(!raw.is_null());
                 let nonce = ex_hermes_runtime_nonce(raw);
@@ -10651,6 +10899,17 @@ mod tests {
         let plan = loaded.plan().unwrap();
         let (configs, contexts) = loaded.native_execution_inputs(1).unwrap();
         let private_root = fixture.path().to_string_lossy();
+        for entry in std::fs::read_dir(&cache).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_file() {
+                let bytes = std::fs::read(entry.path()).unwrap();
+                assert!(
+                    !String::from_utf8_lossy(&bytes).contains(private_root.as_ref()),
+                    "prepared publication serialized a backing fixture path in {}",
+                    entry.path().display()
+                );
+            }
+        }
         for (source_id, config) in &configs {
             assert!(
                 !config.source_label.contains(private_root.as_ref()),
@@ -10677,6 +10936,12 @@ mod tests {
             !serialized_index.contains(private_root.as_ref()),
             "prepared index serialized a backing host path"
         );
+        let serialized_index: serde_json::Value = serde_json::from_str(&serialized_index).unwrap();
+        assert!(serialized_index["records"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|record| record.get("path").is_none()));
         let entries = loaded.prepared_entries().unwrap().unwrap();
         let authorizer = ModuleGraphAuthorizer::new(loaded.snapshot());
         crate::host::abi::install_host(crate::host::Host::strict());

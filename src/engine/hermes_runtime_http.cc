@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cmath>
 #include <condition_variable>
+#include <cstdio>
 #include <deque>
 #include <limits>
 #include <mutex>
@@ -181,6 +182,14 @@ bool authorizeTypedHttpListen(
       owner, principals.data(), principals.size(), 1, host.c_str(), port, 0,
       stage, boundAddress.empty() ? nullptr : boundAddress.c_str(), boundPort,
       listenerId.empty() ? nullptr : listenerId.c_str(), nullptr, 0);
+  if (result != 1) {
+    fprintf(
+        stderr,
+        "error: typed HTTP listen authorization failed: result=%d owner=%llu principals=%zu host=%s port=%u stage=%u\n",
+        result, static_cast<unsigned long long>(owner), principals.size(),
+        host.c_str(), static_cast<unsigned int>(port),
+        static_cast<unsigned int>(stage));
+  }
   return result == 1;
 }
 

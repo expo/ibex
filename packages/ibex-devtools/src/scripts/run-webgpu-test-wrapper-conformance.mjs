@@ -22,6 +22,12 @@ import {
   webGpuTestWrapperCorpus,
   webGpuTestWrapperMarker,
 } from "./webgpu-test-wrapper-corpus.mjs";
+import {
+  CONDITIONAL_PROVIDER_OPERATION_IDS,
+  CONDITIONAL_PROVIDER_ROUTE_COUNT,
+  WRAPPER_ROUTE_ASSIGNMENTS,
+  WRAPPER_ROUTE_COUNT,
+} from "./webgpu-wrapper-pins.generated.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, "../../../..");
@@ -29,6 +35,34 @@ const generatedWrapperPath = path.join(
   repositoryRoot,
   "tests/fixtures/webgpu-test-wrapper.generated.js",
 );
+const expectedRouteInventory = WRAPPER_ROUTE_ASSIGNMENTS.map(
+  ([operationId, interfaceName, memberName, memberKind]) => ({
+    operationId,
+    interfaceName,
+    memberName,
+    memberKind,
+  }),
+);
+
+if (
+  expectedRouteInventory.length !== WRAPPER_ROUTE_COUNT ||
+  new Set(expectedRouteInventory.map((route) => route.operationId)).size !==
+    WRAPPER_ROUTE_COUNT
+) {
+  throw new Error(
+    "generated WebGPU route inventory is not a complete unique assignment table",
+  );
+}
+if (
+  CONDITIONAL_PROVIDER_OPERATION_IDS.length !==
+    CONDITIONAL_PROVIDER_ROUTE_COUNT ||
+  new Set(CONDITIONAL_PROVIDER_OPERATION_IDS).size !==
+    CONDITIONAL_PROVIDER_ROUTE_COUNT
+) {
+  throw new Error(
+    "generated WebGPU conditional-provider inventory is not complete and unique",
+  );
+}
 
 function parseArguments(argv) {
   let ibex = "";
@@ -57,7 +91,11 @@ function standaloneProgram() {
     expression +
     ";\nvar runCorpus = (" +
     webGpuTestWrapperCorpus.toString() +
-    ");\nrunCorpus(createHarness).then(function (result) {\n" +
+    ");\nvar expectedRouteInventory = " +
+    JSON.stringify(expectedRouteInventory) +
+    ";\nvar expectedConditionalProviderOperationIds = " +
+    JSON.stringify(CONDITIONAL_PROVIDER_OPERATION_IDS) +
+    ";\nrunCorpus(createHarness, expectedRouteInventory, expectedConditionalProviderOperationIds).then(function (result) {\n" +
     "  console.log(" +
     JSON.stringify(webGpuTestWrapperMarker) +
     " + JSON.stringify(result));\n" +
@@ -154,11 +192,15 @@ function main() {
     if (
       summary.schema !== "ibex/webgpu-test-wrapper-corpus-result/1" ||
       summary.operationCount !== 25 ||
+      summary.portableInstalledDescriptorCount !== 25 ||
+      summary.plannedRouteCount !== WRAPPER_ROUTE_COUNT ||
+      summary.plannedConditionalProviderRouteCount !==
+        CONDITIONAL_PROVIDER_ROUTE_COUNT ||
       summary.terminalCount !== 17 ||
       !Number.isSafeInteger(summary.assertionCount) ||
       summary.assertionCount < 1000 ||
       summary.conditionalProviderBranches?.providerBranches !== 4 ||
-      summary.conditionalProviderBranches?.noProviderBranches !== 8 ||
+      summary.conditionalProviderBranches?.noProviderBranches !== 7 ||
       summary.conditionalProviderBranches?.postLossNoProviderBranches !== 3 ||
       summary.conditionalProviderBranches?.expiredTextureNoProviderBranches !== 1
     ) {
@@ -167,7 +209,9 @@ function main() {
     console.log(
       "webgpu-test-wrapper conformance: 1/1 corpus matched Node 24.13.1 and real Ibex/Hermes (" +
         summary.assertionCount +
-        " assertions, 25 operations, 17 requestDevice terminals)",
+        " assertions, 25 installed and exercised portable descriptors against " +
+        summary.plannedRouteCount +
+        " planned authority routes, 17 requestDevice terminals)",
     );
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });

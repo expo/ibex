@@ -707,6 +707,20 @@ function matchingOpeningToken(tokens, closeIndex, openValue, closeValue) {
   return -1;
 }
 
+function rustFunctionHasPublicVisibility(tokens, fnIndex) {
+  let cursor = fnIndex - 1;
+  while (
+    cursor >= 0 &&
+    new Set(["async", "const", "unsafe"]).has(tokens[cursor]?.value)
+  ) {
+    cursor -= 1;
+  }
+  if (tokens[cursor]?.value === "pub") return true;
+  if (tokens[cursor]?.value !== ")") return false;
+  const open = matchingOpeningToken(tokens, cursor, "(", ")");
+  return open > 0 && tokens[open - 1]?.value === "pub";
+}
+
 function rustImmediateCfgTargetVariant(tokens, itemIndex) {
   let cursor = itemIndex - 1;
   while (tokens[cursor]?.value === "]") {
@@ -12610,6 +12624,9 @@ const CAPSEC_GPU_TERMINAL_GUARD_CONDITION = [
   "    defined(retireGpuBridgeCall)",
 ].join("\n");
 const CAPSEC_GPU_V2_TERMINAL_GUARD_IDENTIFIERS = [
+  "captureGpuPresentationAuthorityBridgeCall",
+  "recheckGpuPresentationAuthorityBridgeCall",
+  "retireGpuPresentationAuthorityBridgeCall",
   "submitGpuV2BridgeCall",
   "cancelGpuV2BridgeCall",
   "retireGpuV2BridgeCall",
@@ -12620,7 +12637,10 @@ const CAPSEC_GPU_V2_TERMINAL_GUARD_IDENTIFIERS = [
 const CAPSEC_GPU_V2_TERMINAL_GUARD_ERROR =
   "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros";
 const CAPSEC_GPU_V2_TERMINAL_GUARD_CONDITION = [
-  "#if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \\",
+  "#if defined(captureGpuPresentationAuthorityBridgeCall) || \\",
+  "    defined(recheckGpuPresentationAuthorityBridgeCall) || \\",
+  "    defined(retireGpuPresentationAuthorityBridgeCall) || \\",
+  "    defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \\",
   "    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \\",
   "    defined(createGpuV2MappedRangeAliasBridgeCall) || \\",
   "    defined(detachGpuV2MappedRangeBridgeCall)",
@@ -19193,7 +19213,11 @@ export function scanJavaScriptLoaderRoutes(
 }
 
 /** Source-derived Rust loader functions and ModuleKind/ModuleType branches. */
-export function scanRustLoaderSurfaces(text, sourcePath = "<loader-source>") {
+export function scanRustLoaderSurfaces(
+  text,
+  sourcePath = "<loader-source>",
+  options = {},
+) {
   const tokens = rustProductionTokens(text, sourcePath);
   const rows = [];
   const functionCounts = new Map();
@@ -19201,6 +19225,12 @@ export function scanRustLoaderSurfaces(text, sourcePath = "<loader-source>") {
 
   for (const definition of rustFunctionDefinitions(tokens)) {
     if (!LOADER_FUNCTION_NAME.test(definition.name)) continue;
+    if (
+      options.publicOnly === true &&
+      !rustFunctionHasPublicVisibility(tokens, definition.fnIndex)
+    ) {
+      continue;
+    }
     const observed = functionCounts.get(definition.name) ?? {
       occurrenceCount: 0,
       targetVariants: new Set(),
@@ -25332,6 +25362,11 @@ export async function discoverRepositorySurfaces(repoRoot) {
       ...scanRustLoaderSurfaces(
         readUtf8(path.join(repoRoot, "src", "module_loader", "mod.rs")),
         "src/module_loader/mod.rs",
+      ),
+      ...scanRustLoaderSurfaces(
+        readUtf8(path.join(repoRoot, "src", "module_loader", "transpile.rs")),
+        "src/module_loader/transpile.rs",
+        { publicOnly: true },
       ),
       ...scanRustLoaderRoutes([
         {

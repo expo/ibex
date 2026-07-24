@@ -511,6 +511,8 @@ impl<'a> Visit<'a> for ForOfHazardVisitor<'_> {
 #[derive(Debug)]
 struct CommonJsDependencyVisitor<'s> {
     scoping: &'s Scoping,
+    dynamic_import_binding: String,
+    computed_require_binding: String,
     require_specifiers: BTreeSet<String>,
     dynamic_edges: Vec<SpikeDynamicEdge>,
     replacements: Vec<Replacement>,
@@ -707,8 +709,8 @@ impl<'a> Visit<'a> for CommonJsDependencyVisitor<'_> {
         self.replacements.push(Replacement {
             span: expression.span,
             text: format!(
-                "dynamicImport(__IBEX_DYNAMIC_KIND_{0}__, __IBEX_DYNAMIC_START_{0}__, __IBEX_DYNAMIC_END_{0}__, __IBEX_DYNAMIC_OPTIONS_{0}__, __IBEX_IMPORT_ARGUMENTS__)",
-                expression.span.start
+                "{}(__IBEX_DYNAMIC_KIND_{1}__, __IBEX_DYNAMIC_START_{1}__, __IBEX_DYNAMIC_END_{1}__, __IBEX_DYNAMIC_OPTIONS_{1}__, __IBEX_IMPORT_ARGUMENTS__)",
+                self.dynamic_import_binding, expression.span.start
             ),
         });
         walk::walk_import_expression(self, expression);
@@ -1523,6 +1525,20 @@ pub fn produce_commonjs_artifact_with_sites_v1(
     producer_binary_digest: CapsecDigest,
 ) -> Result<ProducedModuleArtifactV1> {
     let intermediate = transform_with_oxc_goal(source_path, source, false)?;
+    // The native site-bearing callbacks carry producer-owned authority
+    // metadata. Keep them in an outer compiler-private closure: authored
+    // CommonJS sees only the five ordinary wrapper arguments, and a generated
+    // identifier is selected precisely because it is absent from the complete
+    // transformed source. Direct eval/Function are closed by the armed runtime,
+    // so package code has no reflective route back to these lexical bindings.
+    let private_binding = |stem: &str| {
+        (0_u64..)
+            .map(|index| format!("__ibex_private_{stem}_{index}"))
+            .find(|candidate| !intermediate.code.contains(candidate))
+            .expect("finite source always leaves a private identifier available")
+    };
+    let dynamic_import_binding = private_binding("dynamic_import");
+    let computed_require_binding = private_binding("computed_require");
     let allocator = Allocator::default();
     let parsed = Parser::new(
         &allocator,
@@ -1550,6 +1566,8 @@ pub fn produce_commonjs_artifact_with_sites_v1(
     }
     let mut visitor = CommonJsDependencyVisitor {
         scoping: semantic.semantic.scoping(),
+        dynamic_import_binding: dynamic_import_binding.clone(),
+        computed_require_binding: computed_require_binding.clone(),
         require_specifiers: BTreeSet::new(),
         dynamic_edges: Vec::new(),
         replacements: Vec::new(),
@@ -1571,8 +1589,8 @@ pub fn produce_commonjs_artifact_with_sites_v1(
         visitor.replacements.push(Replacement {
             span: *call,
             text: format!(
-                "computedRequire({}, {}__IBEX_REQUIRE_ARGUMENTS__)",
-                original.start, original.end
+                "{}({}, {}__IBEX_REQUIRE_ARGUMENTS__)",
+                visitor.computed_require_binding, original.start, original.end
             ),
         });
     }
@@ -1644,8 +1662,10 @@ pub fn produce_commonjs_artifact_with_sites_v1(
         Span::new(0, intermediate.code.len() as u32),
         &visitor.replacements,
     )?;
-    let prefix = "function (require, module, exports, __filename, __dirname, dynamicImport, computedRequire) {\n";
-    let suffix = "\n}\n";
+    let prefix = format!(
+        "function (require, module, exports, __filename, __dirname, {dynamic_import_binding}, {computed_require_binding}) {{\nreturn (function (require, module, exports, __filename, __dirname) {{\n\"use strict\";\n"
+    );
+    let suffix = "\n}).call(exports, require, module, exports, __filename, __dirname);\n}\n";
     let factory_source = format!("{prefix}{rewritten}{suffix}");
     let line_origins = (0..intermediate.code.lines().count().max(1))
         .map(|line| Some(line as u32))
@@ -3057,10 +3077,13 @@ mod tests {
             unreachable!()
         };
         assert!(factory_source.starts_with(
-            "function (require, module, exports, __filename, __dirname, dynamicImport, computedRequire)"
+            "function (require, module, exports, __filename, __dirname, __ibex_private_dynamic_import_0, __ibex_private_computed_require_0) {\nreturn (function (require, module, exports, __filename, __dirname) {\n\"use strict\";"
+        ));
+        assert!(factory_source.ends_with(
+            "\n}).call(exports, require, module, exports, __filename, __dirname);\n}\n"
         ));
         assert!(!factory_source.contains("import('./async.mjs')"));
-        assert!(factory_source.contains("dynamicImport(-1,"));
+        assert!(factory_source.contains("__ibex_private_dynamic_import_0(-1,"));
         assert!(
             factory_source.contains("'./async.mjs')")
                 || factory_source.contains("\"./async.mjs\")")
@@ -3086,8 +3109,12 @@ mod tests {
         let dead_end = source[dead_start..].find(')').unwrap() + dead_start + 1;
         let live_start = source.rfind("require(name)").unwrap();
         let live_end = live_start + "require(name)".len();
-        assert!(factory_source.contains(&format!("computedRequire({dead_start}, {dead_end},")));
-        assert!(factory_source.contains(&format!("computedRequire({live_start}, {live_end},")));
+        assert!(factory_source.contains(&format!(
+            "__ibex_private_computed_require_0({dead_start}, {dead_end},"
+        )));
+        assert!(factory_source.contains(&format!(
+            "__ibex_private_computed_require_0({live_start}, {live_end},"
+        )));
         assert!(!factory_source.contains("require(name)"));
     }
 

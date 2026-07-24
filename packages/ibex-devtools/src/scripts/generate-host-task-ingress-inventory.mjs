@@ -137,6 +137,7 @@ export const HOST_TASK_INGRESS_CLASSIFICATIONS = Object.freeze([
     "admission-no-app-code",
     RATIONALE.admission,
     [
+      "driveDevServedModuleTableLifecycle",
       "ex_hermes_begin_app_bundle_evaluation_v1",
       "ex_hermes_structured_session_bind",
       "ex_hermes_structured_submission_admit",
@@ -303,6 +304,7 @@ export const HOST_TASK_INGRESS_CLASSIFICATIONS = Object.freeze([
     RATIONALE.nested,
     [
       "canvasReceiptValueMatchesV1",
+      "captureGpuPresentationAuthorityBridgeCall",
       "closeGpuCanvasAppBundleCaptureRootV1",
       "defineGpuV2Property",
       "deliverGpuV2WrapperEvent",

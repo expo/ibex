@@ -386,7 +386,7 @@ impl ArmedSnapshot {
                 let mode = value
                     .as_str()
                     .ok_or_else(|| invalid("bootstrap compatibility mode must be a string"))?;
-                if !matches!(mode, "bun" | "fixture" | "fixture:bun") {
+                if !matches!(mode, "bun" | "dev-served" | "fixture" | "fixture:bun") {
                     return Err(invalid(format!(
                         "unsupported bootstrap compatibility mode {mode}"
                     )));
@@ -394,7 +394,7 @@ impl ArmedSnapshot {
                 Ok(mode.to_owned())
             })
             .collect::<Result<Vec<_>>>()?;
-        if bootstrap_compatibility_modes.len() > 3
+        if bootstrap_compatibility_modes.len() > 4
             || bootstrap_compatibility_modes
                 .windows(2)
                 .any(|pair| pair[0] >= pair[1])
@@ -2581,6 +2581,22 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("unsupported bootstrap compatibility mode")
+        );
+
+        let mut admitted = value.clone();
+        admitted["bootstrapCompatibilityModes"] =
+            serde_json::json!(["bun", "dev-served", "fixture", "fixture:bun"]);
+        let admitted_digest =
+            compute_checked_contract_digest(DigestKind::ArmedSnapshot, &admitted).unwrap();
+        admitted["armedSnapshotDigest"] = serde_json::json!(admitted_digest.clone());
+        let mut admitted_expected = expected.clone();
+        admitted_expected.armed_snapshot_digest = Digest::new(admitted_digest).unwrap();
+        let loaded =
+            ArmedSnapshot::load(&serde_json::to_vec(&admitted).unwrap(), &admitted_expected)
+                .unwrap();
+        assert_eq!(
+            loaded.bootstrap_compatibility_modes(),
+            &["bun", "dev-served", "fixture", "fixture:bun"]
         );
 
         let mut incomplete = value;

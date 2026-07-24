@@ -127467,6 +127467,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.capture.exact.gpu.presentation.authority.v2.1qbsgam.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.check.capability.1h17wl4",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -131071,6 +131105,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.host.abi.ex.host.recheck.exact.gpu.presentation.authority.v2.01k31wv",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.recheck.exact.gpu.presentation.authority.v2.01k31wv.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.recheck.exact.gpu.presentation.authority.v2.01k31wv",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.recheck.exact.gpu.presentation.authority.v2.01k31wv.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.register.module.package.1ncq2is",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -131202,6 +131270,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.host.abi.ex.host.restore.context.1q77zqb.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.retire.exact.gpu.presentation.authority.v2.1jtflpt",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.retire.exact.gpu.presentation.authority.v2.1jtflpt.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.retire.exact.gpu.presentation.authority.v2.1jtflpt",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.retire.exact.gpu.presentation.authority.v2.1jtflpt.default"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -135099,6 +135201,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.loader.function.javascript.addresolved.123dxvo",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.javascript.addresolved.123dxvo.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.addresolved.123dxvo",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.javascript.addresolved.123dxvo.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.loader.function.javascript.builtincachekeyfor.06poq58",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -135128,6 +135264,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.loader.function.javascript.builtincachekeyfor.06poq58.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.capturedevservedmoduletable.11upuhr",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.javascript.capturedevservedmoduletable.11upuhr.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.capturedevservedmoduletable.11upuhr",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.javascript.capturedevservedmoduletable.11upuhr.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -135366,6 +135536,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.loader.function.javascript.createoriginalmoduleregistry.0w4pqi5.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.devservedimportgatespecifier.0ekc8hh",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.javascript.devservedimportgatespecifier.0ekc8hh.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.devservedimportgatespecifier.0ekc8hh",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.javascript.devservedimportgatespecifier.0ekc8hh.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -136255,6 +136459,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.loader.function.javascript.quarantinedevservedmoduletable.0twssbz",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.javascript.quarantinedevservedmoduletable.0twssbz.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.quarantinedevservedmoduletable.0twssbz",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.javascript.quarantinedevservedmoduletable.0twssbz.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.loader.function.javascript.rejectruntimeloaderoptions.06msoo9",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -136318,6 +136556,74 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.loader.function.javascript.resolveaborterror.06ug0wm.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.resolvedevservedmodule.0n38hjr",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.javascript.resolvedevservedmodule.0n38hjr.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.resolvedevservedmodule.0n38hjr",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.javascript.resolvedevservedmodule.0n38hjr.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.resolvedevservedspecifier.0rbhk81",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.javascript.resolvedevservedspecifier.0rbhk81.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.resolvedevservedspecifier.0rbhk81",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.javascript.resolvedevservedspecifier.0rbhk81.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -138706,6 +139012,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.loader.function.rust.transpile.module.0l4ibfl.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.rust.transpile.module.to.cjs.1n3pocu",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.rust.transpile.module.to.cjs.1n3pocu.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.rust.transpile.module.to.cjs.1n3pocu",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.rust.transpile.module.to.cjs.1n3pocu.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -154075,6 +154415,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.native.op.construction.private.gpunativebridgev2.capturepresentationauthority.1onjdqu",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.gpunativebridgev2.capturepresentationauthority.1onjdqu.construction.private.host.function.0i3h46u"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.gpunativebridgev2.capturepresentationauthority.1onjdqu",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.gpunativebridgev2.capturepresentationauthority.1onjdqu.construction.private.host.function.0i3h46u"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.native.op.construction.private.gpunativebridgev2.createmappedrangealias.1wlkeyh",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -154143,6 +154517,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.native.op.construction.private.gpunativebridgev2.recheckpresentationauthority.1ccx3xx",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.gpunativebridgev2.recheckpresentationauthority.1ccx3xx.construction.private.host.function.0w88lox"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.gpunativebridgev2.recheckpresentationauthority.1ccx3xx",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.gpunativebridgev2.recheckpresentationauthority.1ccx3xx.construction.private.host.function.0w88lox"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -154172,6 +154580,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa.construction.private.host.function.1dv8ls4"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.gpunativebridgev2.retirepresentationauthority.1ppnqer",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.gpunativebridgev2.retirepresentationauthority.1ppnqer.construction.private.host.function.0haasu1"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.gpunativebridgev2.retirepresentationauthority.1ppnqer",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.gpunativebridgev2.retirepresentationauthority.1ppnqer.construction.private.host.function.0haasu1"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -154290,7 +154732,7 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz.authenticated.production.route.1w7f0i7"
+        "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz.authenticated.production.route.0jw89sf"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -154307,7 +154749,7 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz.authenticated.production.route.1w7f0i7"
+        "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz.authenticated.production.route.0jw89sf"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -154392,7 +154834,7 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpubuffer.destroy.1686eph.authenticated.production.route.0xx385h"
+        "surface.native.op.construction.private.webgpu.gpubuffer.destroy.1686eph.authenticated.production.route.1dc7s94"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -154409,7 +154851,7 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpubuffer.destroy.1686eph.authenticated.production.route.0xx385h"
+        "surface.native.op.construction.private.webgpu.gpubuffer.destroy.1686eph.authenticated.production.route.1dc7s94"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -154426,7 +154868,7 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpubuffer.getmappedrange.1xssoqp.authenticated.production.route.0up8q1a"
+        "surface.native.op.construction.private.webgpu.gpubuffer.getmappedrange.1xssoqp.authenticated.production.route.1krbkwz"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -154443,7 +154885,7 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpubuffer.getmappedrange.1xssoqp.authenticated.production.route.0up8q1a"
+        "surface.native.op.construction.private.webgpu.gpubuffer.getmappedrange.1xssoqp.authenticated.production.route.1krbkwz"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -154562,7 +155004,7 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpubuffer.unmap.1so0y44.authenticated.production.route.1ezc0qn"
+        "surface.native.op.construction.private.webgpu.gpubuffer.unmap.1so0y44.authenticated.production.route.0ur76wd"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -154579,7 +155021,7 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [
-        "surface.native.op.construction.private.webgpu.gpubuffer.unmap.1so0y44.authenticated.production.route.1ezc0qn"
+        "surface.native.op.construction.private.webgpu.gpubuffer.unmap.1so0y44.authenticated.production.route.0ur76wd"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -154959,6 +155401,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpucommandencoder.resolvequeryset.00msl6u",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.webgpu.gpucommandencoder.resolvequeryset.00msl6u.authenticated.production.route.0110onz"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpucommandencoder.resolvequeryset.00msl6u",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.webgpu.gpucommandencoder.resolvequeryset.00msl6u.authenticated.production.route.0110onz"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.native.op.construction.private.webgpu.gpucomputepassencoder.dispatchworkgroups.128rff0",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -155294,6 +155770,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.native.op.construction.private.webgpu.gpudevice.createpipelinelayout.18zmjo1.authenticated.production.route.1dw8sab"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createqueryset.0cft5wp",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.webgpu.gpudevice.createqueryset.0cft5wp.authenticated.production.route.1bs2s3v"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createqueryset.0cft5wp",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.webgpu.gpudevice.createqueryset.0cft5wp.authenticated.production.route.1bs2s3v"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -155843,6 +156353,74 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindexed.141dcm7",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindexed.141dcm7.authenticated.production.route.1qfop9p"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindexed.141dcm7",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindexed.141dcm7.authenticated.production.route.1qfop9p"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindirect.1qd6uh8",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindirect.1qd6uh8.authenticated.production.route.1bare3e"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindirect.1qd6uh8",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.webgpu.gpurenderpassencoder.drawindirect.1qd6uh8.authenticated.production.route.1bare3e"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.end.1tvn90t",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -155906,6 +156484,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setbindgroup.1n0cuyu.authenticated.production.route.12hqy1c"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setindexbuffer.0b2ppfi",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setindexbuffer.0b2ppfi.authenticated.production.route.0nok9x0"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setindexbuffer.0b2ppfi",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setindexbuffer.0b2ppfi.authenticated.production.route.0nok9x0"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -156212,6 +156824,74 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.native.op.construction.private.webgpu.gputexture.width.1utkugg.authenticated.production.route.19wexfa"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.acquire.039vdtv",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.acquire.039vdtv.authenticated.presentation.authority.acquire.0jkzice"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.acquire.039vdtv",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.acquire.039vdtv.authenticated.presentation.authority.acquire.0jkzice"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.present.0q60k8s",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.present.0q60k8s.authenticated.presentation.authority.present.115hwrt"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.present.0q60k8s",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.webgpu.presentation.navigator.gpu.canvas.present.0q60k8s.authenticated.presentation.authority.present.115hwrt"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -157966,6 +158646,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.native.op.exactcapabilitycheck.1k7vr6d.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.exactcapturedevservedmoduletablelifecycle.06siznp",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.exactcapturedevservedmoduletablelifecycle.06siznp.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.exactcapturedevservedmoduletablelifecycle.06siznp",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.exactcapturedevservedmoduletablelifecycle.06siznp.default"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -164650,6 +165364,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.native.op.exactprocessipcbootstrap.serialization.1vtmt9s.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.exactquarantinedevservedmoduletable.1e6mwa3",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.exactquarantinedevservedmoduletable.1e6mwa3.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.exactquarantinedevservedmoduletable.1e6mwa3",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.exactquarantinedevservedmoduletable.1e6mwa3.default"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -198080,6 +198828,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.native.op.global.gpupipelinelayout.0a068mr.all"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.global.gpuqueryset.11xx237",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.global.gpuqueryset.11xx237.all"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.native.op.global.gpuqueryset.11xx237",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.global.gpuqueryset.11xx237.all"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."

@@ -50,9 +50,12 @@ const createComputePipelineOperationId = "GPUDevice.createComputePipeline";
 const createRenderPipelineOperationId = "GPUDevice.createRenderPipeline";
 const createSamplerOperationId = "GPUDevice.createSampler";
 const createTextureOperationId = "GPUDevice.createTexture";
+const createQuerySetOperationId = "GPUDevice.createQuerySet";
 const createTextureViewOperationId = "GPUTexture.createView";
 const createCommandEncoderOperationId = "GPUDevice.createCommandEncoder";
 const createShaderModuleOperationId = "GPUDevice.createShaderModule";
+const pushErrorScopeOperationId = "GPUDevice.pushErrorScope";
+const popErrorScopeOperationId = "GPUDevice.popErrorScope";
 const deviceDestroyOperationId = "GPUDevice.destroy";
 const bufferDestroyOperationId = "GPUBuffer.destroy";
 const bufferMapAsyncOperationId = "GPUBuffer.mapAsync";
@@ -65,6 +68,11 @@ const queueWriteTextureOperationId = "GPUQueue.writeTexture";
 const queueCopyExternalImageOperationId =
   "GPUQueue.copyExternalImageToTexture";
 const queueSubmitOperationId = "GPUQueue.submit";
+const SEALED_OPERATION_INSTANCE_ID_BASE = 1n << 63n;
+const CORPUS_NON_EXECUTABLE_NATIVE_ROUTE_EXCEPTIONS = Object.freeze({
+  [requestDeviceOperationId]:
+    "test-only payload-codegen evidence for the two native-owned semantic fields that deliberately keep production request encoding unavailable",
+});
 
 function fail(message) {
   throw new Error(message);
@@ -78,6 +86,10 @@ function toHex(value) {
 
 function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+function sealedOperationInstanceId(offset) {
+  return String(SEALED_OPERATION_INSTANCE_ID_BASE + BigInt(offset));
 }
 
 function canonicalJson(value) {
@@ -106,6 +118,88 @@ function withTrailingByte(value) {
   bytes.set(source);
   bytes[source.byteLength] = 0xa5;
   return bytes;
+}
+
+function validateManifestToCorpusCoverage(corpus) {
+  const exceptions = new Map(
+    Object.entries(CORPUS_NON_EXECUTABLE_NATIVE_ROUTE_EXCEPTIONS),
+  );
+  const expectedOperationIds =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.map(
+      (nativeRoute) => {
+        const planRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+          (candidate) => candidate.operationId === nativeRoute.operationId,
+        );
+        const requestCodec =
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+            (candidate) =>
+              candidate.tag === planRoute?.serviceArgumentCodec,
+          );
+        if (!planRoute || !requestCodec) {
+          fail(
+            `${nativeRoute.operationId} native codec route is not cross-linked to the production manifest`,
+          );
+        }
+        if (!requestCodec.executableFromCurrentAuthenticatedInputs) {
+          const reason = exceptions.get(nativeRoute.operationId);
+          if (typeof reason !== "string" || reason.length === 0) {
+            fail(
+              `${nativeRoute.operationId} is a non-executable native codec route without an explicit corpus exception`,
+            );
+          }
+          exceptions.delete(nativeRoute.operationId);
+        }
+        return nativeRoute.operationId;
+      },
+    );
+  if (exceptions.size !== 0) {
+    fail(
+      `WebGPU codec corpus exceptions do not name current native routes: ${
+        [...exceptions.keys()].join(", ")
+      }`,
+    );
+  }
+
+  const actualOperationIds = corpus.operations.map(
+    (operation) => operation.operationId,
+  );
+  if (
+    new Set(actualOperationIds).size !== actualOperationIds.length ||
+    canonicalJson(actualOperationIds) !== canonicalJson(expectedOperationIds)
+  ) {
+    fail(
+      `WebGPU codec corpus operation coverage drifted: expected ${
+        expectedOperationIds.join(", ")
+      }; received ${actualOperationIds.join(", ")}`,
+    );
+  }
+  const operationByWireId = new Map(
+    corpus.operations.map((operation) => [
+      operation.wireId,
+      operation.operationId,
+    ]),
+  );
+  const vectorOperationIds = new Set(
+    corpus.vectors
+      .map((vector) => {
+        if (typeof vector.operationId === "string") {
+          return vector.operationId;
+        }
+        const wireId = vector.carrierProjection?.operation_id ??
+          vector.carrierProjection?.record?.operation_result?.operation
+            ?.operation_id ??
+          vector.event?.operationId;
+        return operationByWireId.get(wireId);
+      })
+      .filter((candidate) => typeof candidate === "string"),
+  );
+  for (const expectedOperationId of expectedOperationIds) {
+    if (!vectorOperationIds.has(expectedOperationId)) {
+      fail(
+        `${expectedOperationId} has manifest coverage metadata but no language-neutral corpus vector`,
+      );
+    }
+  }
 }
 
 function buildCorpus() {
@@ -3070,8 +3164,18 @@ function buildCorpus() {
       configurationGeneration: "1",
     }));
     const mintOperationProvenance = Object.freeze({
-      operationInstanceId: String(1_000 + spec.traceSequence),
+      operationInstanceId: sealedOperationInstanceId(
+        1_000 + spec.traceSequence,
+      ),
       deviceIngressOrdinal: String(100 + index),
+    });
+    const presentationAuthority = Object.freeze({
+      acquireSessionId: String(10_000 + index * 2),
+      presentSessionId: String(10_001 + index * 2),
+      authorityContextDigest:
+        (spec.sourceWorkload === "typegpu-genetic-racing" ? "a1" : "b2")
+          .repeat(32),
+      capturedScopeId: "2",
     });
     const digestInput = Object.freeze({
       originClass: "canvas-current",
@@ -3082,6 +3186,7 @@ function buildCorpus() {
       configurationGeneration: "1",
       currentEpoch: String(spec.currentEpoch),
       mintOperationProvenance,
+      presentationAuthority,
       configuredDeviceRef: textureViewConfiguredDeviceRef,
       format: "bgra8unorm",
       usage: 16,
@@ -5215,6 +5320,454 @@ function buildCorpus() {
     }),
   });
 
+  const executableNativeRoute = (operationName) => {
+    const planRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (candidate) => candidate.operationId === operationName,
+    );
+    const requestCodec =
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+        (candidate) => candidate.tag === planRoute?.serviceArgumentCodec,
+      );
+    const completionCodec =
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceCompletions.find(
+        (candidate) => candidate.tag === planRoute?.serviceCompletionCodec,
+      );
+    const nativeProgram =
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
+        (candidate) => candidate.operationId === operationName,
+      );
+    if (
+      !planRoute ||
+      !requestCodec?.executableFromCurrentAuthenticatedInputs ||
+      !requestCodec.nativeProgramPrerequisitesRepresented ||
+      requestCodec.unavailableSemanticFields.length !== 0 ||
+      !completionCodec ||
+      !nativeProgram ||
+      nativeProgram.wireId !== planRoute.wireId ||
+      nativeProgram.request.catalog.wireTag !== requestCodec.wireTag ||
+      nativeProgram.completion.catalog.wireTag !== completionCodec.wireTag
+    ) {
+      fail(
+        `${operationName} native codegen program is not executable from authenticated inputs`,
+      );
+    }
+    return Object.freeze({
+      route: planRoute,
+      requestCodec,
+      completionCodec,
+      nativeRoute: nativeProgram,
+    });
+  };
+  const createQuerySetCodec = executableNativeRoute(
+    createQuerySetOperationId,
+  );
+  const pushErrorScopeCodec = executableNativeRoute(
+    pushErrorScopeOperationId,
+  );
+  const popErrorScopeCodec = executableNativeRoute(
+    popErrorScopeOperationId,
+  );
+  const queryAndScopeReceiver = Object.freeze({
+    kind: "GPUDevice",
+    objectId: "80",
+    objectGeneration: "2",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const queryAndScopeIngressDevice = Object.freeze({
+    logical_device_id: "55",
+    logical_device_generation: "1",
+    provider_generation: "9",
+  });
+  const queryAndScopeReceiverCarrier = Object.freeze({
+    kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUDevice,
+    flags: 0,
+    object_id: "80",
+    object_generation: "2",
+  });
+  const zeroTargetCarrier = Object.freeze({
+    kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.None,
+    flags: 0,
+    object_id: "0",
+    object_generation: "0",
+  });
+  const createQuerySetTarget = Object.freeze({
+    kind: "GPUQuerySet",
+    objectId: "86",
+    objectGeneration: "1",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const createQuerySetTargetCarrier = Object.freeze({
+    kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUQuerySet,
+    flags: 0,
+    object_id: "86",
+    object_generation: "1",
+  });
+  const deviceRequestCarrier = ({
+    route,
+    operationInstanceId,
+    promiseId,
+    capturedScopeId,
+    deviceIngressOrdinal,
+    target = zeroTargetCarrier,
+  }) => Object.freeze({
+    operation_id: route.wireId,
+    flags: 0,
+    topology_id:
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.constants
+        .providerTopologyId,
+    ingress_device: queryAndScopeIngressDevice,
+    provider_generation: "9",
+    operation_instance_id: operationInstanceId,
+    promise_id: promiseId,
+    captured_scope_id: capturedScopeId,
+    adapter_ordinal: "0",
+    device_ingress_ordinal: deviceIngressOrdinal,
+    queue_ingress_ordinal: "0",
+    receiver: queryAndScopeReceiverCarrier,
+    target,
+  });
+  const deviceCompletionCarrier = ({
+    requestCarrier,
+    resultKind,
+    providerAdmission,
+    physicalSequence,
+  }) => Object.freeze({
+    kind: 1,
+    record: Object.freeze({
+      operation_result: Object.freeze({
+        result_kind: resultKind,
+        status: 0,
+        operation: Object.freeze({
+          operation_id: requestCarrier.operation_id,
+          operation_instance_id: requestCarrier.operation_instance_id,
+          promise_id: requestCarrier.promise_id,
+          provider_admission: providerAdmission,
+          physical_sequence: physicalSequence,
+          captured_scope_id: requestCarrier.captured_scope_id,
+          adapter_ordinal: requestCarrier.adapter_ordinal,
+          device_ingress_ordinal: requestCarrier.device_ingress_ordinal,
+          queue_ingress_ordinal: requestCarrier.queue_ingress_ordinal,
+          device_transition: 0,
+          ingress_device: requestCarrier.ingress_device,
+          result_device: requestCarrier.ingress_device,
+          provider_generation: requestCarrier.provider_generation,
+          receiver: requestCarrier.receiver,
+          target: requestCarrier.target,
+        }),
+      }),
+    }),
+  });
+  const encodeAndInspectDeviceRequest = ({
+    operationName,
+    metadata,
+    convertedArguments,
+    target,
+    capturedScopeId,
+    deviceIngressOrdinal,
+    sealedLocalTimeline = Object.freeze([]),
+    errorScopeService,
+  }) => {
+    const input = Object.freeze({
+      operationId: operationName,
+      wireId: metadata.route.wireId,
+      convertedArguments,
+      receiver: queryAndScopeReceiver,
+      ...(target ? { target } : {}),
+      capturedScopeId,
+      adapterOrdinal: "0",
+      deviceIngressOrdinal,
+      queueIngressOrdinal: "0",
+      sealedLocalTimeline,
+      ...(errorScopeService ? { errorScopeService } : {}),
+    });
+    const bytes =
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(input);
+    const inspected =
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(bytes);
+    if (
+      canonicalJson(inspected) !== canonicalJson({
+        operationId: operationName,
+        codec: metadata.requestCodec.tag,
+        receiver: queryAndScopeReceiver,
+        target: target ?? null,
+        capturedScopeId,
+        adapterOrdinal: "0",
+        deviceIngressOrdinal,
+        queueIngressOrdinal: "0",
+        sealedLocalTimeline,
+        convertedArguments,
+        ...(errorScopeService ? { errorScopeService } : {}),
+      })
+    ) {
+      fail(
+        `${operationName} generated request does not round-trip through inspection`,
+      );
+    }
+    return Object.freeze({ bytes, inspected });
+  };
+
+  const convertedCreateQuerySetArguments =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      createQuerySetOperationId,
+      [Object.freeze({
+        count: 4,
+        label: "corpus-query-set",
+        type: "occlusion",
+      })],
+      wrapperAccess,
+    );
+  const createQuerySetRequest = encodeAndInspectDeviceRequest({
+    operationName: createQuerySetOperationId,
+    metadata: createQuerySetCodec,
+    convertedArguments: convertedCreateQuerySetArguments,
+    target: createQuerySetTarget,
+    capturedScopeId: "2",
+    deviceIngressOrdinal: "4",
+  });
+  const createQuerySetRequestCarrier = deviceRequestCarrier({
+    route: createQuerySetCodec.route,
+    operationInstanceId: "15",
+    promiseId: "0",
+    capturedScopeId: "2",
+    deviceIngressOrdinal: "4",
+    target: createQuerySetTargetCarrier,
+  });
+  const createQuerySetCompletion =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      createQuerySetOperationId,
+      { kind: "none" },
+    );
+  const createQuerySetCompletionCarrier = deviceCompletionCarrier({
+    requestCarrier: createQuerySetRequestCarrier,
+    resultKind: 0,
+    providerAdmission: 1,
+    physicalSequence: "10",
+  });
+  if (createQuerySetCompletion.byteLength !== 0) {
+    fail("GPUDevice.createQuerySet terminal receipt must have an empty payload");
+  }
+
+  const convertedPushErrorScopeArguments =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      pushErrorScopeOperationId,
+      ["validation"],
+      wrapperAccess,
+    );
+  const pushErrorScopeService = Object.freeze({
+    kind: "push-error-scope-v1",
+    scopeId: "1",
+    filter: "validation",
+    scopeStackGeneration: "1",
+    precedingScopeId: "0",
+  });
+  const pushErrorScopeRequest = encodeAndInspectDeviceRequest({
+    operationName: pushErrorScopeOperationId,
+    metadata: pushErrorScopeCodec,
+    convertedArguments: convertedPushErrorScopeArguments,
+    capturedScopeId: "0",
+    deviceIngressOrdinal: "5",
+    errorScopeService: pushErrorScopeService,
+  });
+  const pushErrorScopeRequestCarrier = deviceRequestCarrier({
+    route: pushErrorScopeCodec.route,
+    operationInstanceId: "16",
+    promiseId: "0",
+    capturedScopeId: "0",
+    deviceIngressOrdinal: "5",
+  });
+  const pushErrorScopeCompletion =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      pushErrorScopeOperationId,
+      { kind: "none" },
+    );
+  const pushErrorScopeCompletionCarrier = deviceCompletionCarrier({
+    requestCarrier: pushErrorScopeRequestCarrier,
+    resultKind: 0,
+    providerAdmission: 0,
+    physicalSequence: "0",
+  });
+  if (pushErrorScopeCompletion.byteLength !== 0) {
+    fail("GPUDevice.pushErrorScope terminal receipt must have an empty payload");
+  }
+
+  const convertedPopErrorScopeArguments =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      popErrorScopeOperationId,
+      [],
+      wrapperAccess,
+    );
+  const popErrorScopeService = Object.freeze({
+    kind: "pop-error-scope-v1",
+    scopeId: "1",
+    scopeStackGeneration: "2",
+  });
+  const popErrorScopeRequest = encodeAndInspectDeviceRequest({
+    operationName: popErrorScopeOperationId,
+    metadata: popErrorScopeCodec,
+    convertedArguments: convertedPopErrorScopeArguments,
+    capturedScopeId: "1",
+    deviceIngressOrdinal: "6",
+    errorScopeService: popErrorScopeService,
+  });
+  const popErrorScopeRequestCarrier = deviceRequestCarrier({
+    route: popErrorScopeCodec.route,
+    operationInstanceId: "17",
+    promiseId: "15",
+    capturedScopeId: "1",
+    deviceIngressOrdinal: "6",
+  });
+  const popNullCompletion =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      popErrorScopeOperationId,
+      { kind: "null" },
+    );
+  const popErrorCompletion =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      popErrorScopeOperationId,
+      {
+        kind: "error",
+        errorKind: 1,
+        message: "corpus validation error",
+      },
+    );
+  const popNoProviderNullCarrier = deviceCompletionCarrier({
+    requestCarrier: popErrorScopeRequestCarrier,
+    resultKind: 2,
+    providerAdmission: 0,
+    physicalSequence: "0",
+  });
+  const popProviderNullCarrier = deviceCompletionCarrier({
+    requestCarrier: popErrorScopeRequestCarrier,
+    resultKind: 2,
+    providerAdmission: 1,
+    physicalSequence: "11",
+  });
+  const popProviderErrorCarrier = deviceCompletionCarrier({
+    requestCarrier: popErrorScopeRequestCarrier,
+    resultKind: 4,
+    providerAdmission: 1,
+    physicalSequence: "11",
+  });
+  const popResultEvent = (carrier, payload) => {
+    const record = carrier.record.operation_result;
+    const operation = record.operation;
+    return Object.freeze({
+      kind: carrier.kind,
+      operationId: operation.operation_id,
+      resultKind: record.result_kind,
+      status: record.status,
+      promiseId: operation.promise_id,
+      providerAdmission: operation.provider_admission,
+      physicalSequence: operation.physical_sequence,
+      deviceTransition: operation.device_transition,
+      ingressLogicalDeviceId:
+        operation.ingress_device.logical_device_id,
+      ingressLogicalDeviceGeneration:
+        operation.ingress_device.logical_device_generation,
+      ingressProviderGeneration:
+        operation.ingress_device.provider_generation,
+      logicalDeviceId: operation.result_device.logical_device_id,
+      logicalDeviceGeneration:
+        operation.result_device.logical_device_generation,
+      providerGeneration: operation.result_device.provider_generation,
+      operationProviderGeneration: operation.provider_generation,
+      capturedScopeId: operation.captured_scope_id,
+      receiverKind: operation.receiver.kind,
+      receiverFlags: operation.receiver.flags,
+      receiverId: operation.receiver.object_id,
+      receiverGeneration: operation.receiver.object_generation,
+      targetKind: operation.target.kind,
+      targetFlags: operation.target.flags,
+      targetId: operation.target.object_id,
+      targetGeneration: operation.target.object_generation,
+      adapterOrdinal: operation.adapter_ordinal,
+      deviceIngressOrdinal: operation.device_ingress_ordinal,
+      queueIngressOrdinal: operation.queue_ingress_ordinal,
+      payload,
+    });
+  };
+  const decodedPopNoProviderNull =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      popErrorScopeOperationId,
+      popResultEvent(popNoProviderNullCarrier, popNullCompletion),
+    );
+  const decodedPopProviderNull =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      popErrorScopeOperationId,
+      popResultEvent(popProviderNullCarrier, popNullCompletion),
+    );
+  const decodedPopProviderError =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      popErrorScopeOperationId,
+      popResultEvent(popProviderErrorCarrier, popErrorCompletion),
+    );
+  if (
+    canonicalJson(decodedPopNoProviderNull) !==
+      canonicalJson({ kind: "null" }) ||
+    canonicalJson(decodedPopProviderNull) !==
+      canonicalJson({ kind: "null" }) ||
+    decodedPopProviderError.kind !== "value" ||
+    decodedPopProviderError.value?.name !== "GPUValidationError" ||
+    decodedPopProviderError.value?.message !== "corpus validation error"
+  ) {
+    fail("GPUDevice.popErrorScope completion variants did not decode exactly");
+  }
+
+  const queryAndScopeBinaryRejections = Object.freeze([
+    {
+      id: "create-query-set-request-trailing-byte-rejected",
+      operationId: createQuerySetOperationId,
+      direction: "request",
+      mutation: "append-trailing-byte",
+      bytes: withTrailingByte(createQuerySetRequest.bytes),
+    },
+    {
+      id: "push-error-scope-request-trailing-byte-rejected",
+      operationId: pushErrorScopeOperationId,
+      direction: "request",
+      mutation: "append-trailing-byte",
+      bytes: withTrailingByte(pushErrorScopeRequest.bytes),
+    },
+    {
+      id: "pop-error-scope-request-trailing-byte-rejected",
+      operationId: popErrorScopeOperationId,
+      direction: "request",
+      mutation: "append-trailing-byte",
+      bytes: withTrailingByte(popErrorScopeRequest.bytes),
+    },
+    {
+      id: "pop-error-scope-result-codec-tag-rejected",
+      operationId: popErrorScopeOperationId,
+      direction: "completion",
+      mutation: "completion-codec-tag-65535",
+      bytes: mutatedBytes(popErrorCompletion, (_bytes, view) => {
+        view.setUint16(6, 0xffff, true);
+      }),
+    },
+  ]);
+  for (const rejection of queryAndScopeBinaryRejections) {
+    let rejected = false;
+    try {
+      if (rejection.direction === "request") {
+        WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+          rejection.bytes,
+        );
+      } else {
+        WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+          popErrorScopeOperationId,
+          popResultEvent(popProviderErrorCarrier, rejection.bytes),
+        );
+      }
+    } catch {
+      rejected = true;
+    }
+    if (!rejected) fail(`${rejection.id} did not fail closed`);
+  }
+
   const deviceDestroyRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === deviceDestroyOperationId,
   );
@@ -5274,7 +5827,7 @@ function buildCorpus() {
     Object.freeze({
       operationId: deviceDestroyLocalRoute.wireId,
       operationName: deviceDestroyLocalRoute.operationId,
-      operationInstanceId: "12",
+      operationInstanceId: sealedOperationInstanceId(12),
       deviceIngressOrdinal: "2",
       capturedScopeId: "2",
       receiverRef: deviceDestroyLocalReceiver,
@@ -5807,6 +6360,7 @@ function buildCorpus() {
     textureDestroyOperationId,
   ];
   const canvasLifecycleRoutes = new Map();
+  const canvasQueueIngressClasses = new Map();
   for (const canvasOperationId of canvasLifecycleOperationIds) {
     const canvasRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
       (candidate) => candidate.operationId === canvasOperationId,
@@ -5836,12 +6390,53 @@ function buildCorpus() {
     ) {
       fail(`${canvasOperationId} canvas lifecycle codec route is not executable`);
     }
-    canvasLifecycleRoutes.set(canvasOperationId, Object.freeze({
-      route: canvasRoute,
-      nativeRoute: canvasNativeRoute,
-      requestCodec: canvasRequestCodec,
-      completionCodec: canvasCompletionCodec,
-    }));
+    const requestQueueConstraint =
+      canvasNativeRoute.request.carrierConstraints.filter(
+        (constraint) =>
+          constraint.carrierPath === "queue_ingress_ordinal",
+      );
+    const completionQueueConstraint =
+      canvasNativeRoute.completion.commonCarrierConstraints.filter(
+        (constraint) =>
+          constraint.carrierPath ===
+          "record.operation_result.operation.queue_ingress_ordinal",
+      );
+    const classifyQueueConstraint = (constraint) =>
+      constraint?.operator === "positive" && constraint.value === undefined
+        ? "positive"
+        : constraint?.operator === "equal" && constraint.value === "0"
+          ? "exact-zero"
+          : "unsupported";
+    const requestQueueClass = classifyQueueConstraint(
+      requestQueueConstraint[0],
+    );
+    const completionQueueClass = classifyQueueConstraint(
+      completionQueueConstraint[0],
+    );
+    const expectedQueueClass =
+      canvasOperationId === textureDestroyOperationId
+        ? "exact-zero"
+        : "positive";
+    if (
+      requestQueueConstraint.length !== 1 ||
+      completionQueueConstraint.length !== 1 ||
+      requestQueueClass !== completionQueueClass ||
+      requestQueueClass !== expectedQueueClass
+    ) {
+      fail(
+        `${canvasOperationId} request/completion queue-ingress class drifted`,
+      );
+    }
+    canvasQueueIngressClasses.set(canvasOperationId, requestQueueClass);
+    canvasLifecycleRoutes.set(
+      canvasOperationId,
+      Object.freeze({
+        route: canvasRoute,
+        nativeRoute: canvasNativeRoute,
+        requestCodec: canvasRequestCodec,
+        completionCodec: canvasCompletionCodec,
+      }),
+    );
   }
   const canvasDeviceBrand = Object.freeze({ corpusBrand: "GPUDevice" });
   const canvasDeviceRef = Object.freeze({
@@ -5972,30 +6567,46 @@ function buildCorpus() {
     surfaceAccountToken: "19",
     surfaceAccountGeneration: "23",
   });
+  const canvasPresentationAuthority = Object.freeze({
+    acquireSessionId: "71",
+    presentSessionId: "73",
+    authorityContextDigest: "ac".repeat(32),
+    capturedScopeId: "2",
+  });
+  const canvasTextureOriginDigestInput = Object.freeze({
+    originClass: "canvas-current",
+    receiverTextureRef: canvasTextureRef,
+    contextRef: canvasContextRef,
+    attachmentGeneration: "3",
+    contextGeneration: "5",
+    configurationGeneration: "8",
+    currentEpoch: "13",
+    mintOperationProvenance: Object.freeze({
+      operationInstanceId: sealedOperationInstanceId(61),
+      deviceIngressOrdinal: "29",
+    }),
+    presentationAuthority: canvasPresentationAuthority,
+    configuredDeviceRef: canvasDeviceRef,
+    format: "bgra8unorm",
+    usage: 17,
+    alphaMode: "premultiplied",
+    colorSpace: "display-p3",
+    targetAuthorityDigest: canvasTargetAuthorityDigest,
+    surfaceAccountToken: "19",
+    surfaceAccountGeneration: "23",
+  });
   const canvasTextureOriginDigest =
     WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.deriveTextureOriginDigest(
-      Object.freeze({
-        originClass: "canvas-current",
-        receiverTextureRef: canvasTextureRef,
-        contextRef: canvasContextRef,
-        attachmentGeneration: "3",
-        contextGeneration: "5",
-        configurationGeneration: "8",
-        currentEpoch: "13",
-        mintOperationProvenance: Object.freeze({
-          operationInstanceId: "61",
-          deviceIngressOrdinal: "29",
-        }),
-        configuredDeviceRef: canvasDeviceRef,
-        format: "bgra8unorm",
-        usage: 17,
-        alphaMode: "premultiplied",
-        colorSpace: "display-p3",
-        targetAuthorityDigest: canvasTargetAuthorityDigest,
-        surfaceAccountToken: "19",
-        surfaceAccountGeneration: "23",
-      }),
+      canvasTextureOriginDigestInput,
     );
+  const {
+    receiverTextureRef: _canvasTimelineReceiverTextureRef,
+    ...canvasCurrentTimelineOriginFacts
+  } = canvasTextureOriginDigestInput;
+  const canvasCurrentTimelineOrigin = Object.freeze({
+    ...canvasCurrentTimelineOriginFacts,
+    textureOriginDigest: canvasTextureOriginDigest,
+  });
   const canvasDestroyCurrentOrigin = Object.freeze({
     kind: "canvas-current-v1",
     contextRef: canvasContextRef,
@@ -6004,9 +6615,10 @@ function buildCorpus() {
     configurationGeneration: "8",
     currentEpoch: "13",
     mintOperationProvenance: Object.freeze({
-      operationInstanceId: "61",
+      operationInstanceId: sealedOperationInstanceId(61),
       deviceIngressOrdinal: "29",
     }),
+    presentationAuthority: canvasPresentationAuthority,
     textureOriginDigest: canvasTextureOriginDigest,
   });
   const textureDestroyBody = (
@@ -6027,11 +6639,47 @@ function buildCorpus() {
     materializationState,
     origin,
   });
+  const currentTextureRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) =>
+      candidate.operationId === "GPUCanvasContext.getCurrentTexture",
+  );
+  if (!currentTextureRoute) {
+    fail("GPUCanvasContext.getCurrentTexture route is absent");
+  }
+  const canvasCurrentRecord = (
+    operationInstanceId,
+    deviceIngressOrdinal,
+  ) => Object.freeze({
+    recordIdentityClass: "active-route",
+    operationId: currentTextureRoute.wireId,
+    operationName: "GPUCanvasContext.getCurrentTexture",
+    operationIdentitySha256: null,
+    operationInstanceId,
+    deviceIngressOrdinal,
+    capturedScopeId: "2",
+    receiverRef: canvasContextRef,
+    commandEncoderRef: null,
+    passRef: null,
+    wrapperAllocatedTargetRef: canvasTextureRef,
+    argumentBody: Object.freeze({
+      currentOrigin: canvasCurrentTimelineOrigin,
+    }),
+    logicalError: null,
+  });
+  const canvasMintAndRecheckTimeline = Object.freeze([
+    canvasCurrentRecord(sealedOperationInstanceId(61), "29"),
+    canvasCurrentRecord(sealedOperationInstanceId(62), "30"),
+  ]);
   const encodeCanvasLifecycleRequest = (
     canvasOperationId,
     receiver,
     convertedArguments,
     canvasService,
+    {
+      deviceIngressOrdinal = "30",
+      operationInstanceId = "62",
+      sealedLocalTimeline = Object.freeze([]),
+    } = {},
   ) => {
     const metadata = canvasLifecycleRoutes.get(canvasOperationId);
     const input = Object.freeze({
@@ -6041,9 +6689,12 @@ function buildCorpus() {
       receiver,
       capturedScopeId: "2",
       adapterOrdinal: "0",
-      deviceIngressOrdinal: "30",
-      queueIngressOrdinal: "0",
-      sealedLocalTimeline: Object.freeze([]),
+      deviceIngressOrdinal,
+      queueIngressOrdinal:
+        canvasQueueIngressClasses.get(canvasOperationId) === "positive"
+          ? "17"
+          : "0",
+      sealedLocalTimeline,
       canvasService,
     });
     const bytes = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
@@ -6056,6 +6707,9 @@ function buildCorpus() {
     return Object.freeze({
       metadata,
       bytes,
+      operationInstanceId,
+      deviceIngressOrdinal,
+      queueIngressOrdinal: input.queueIngressOrdinal,
       inspected: WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
         .inspectServiceRequest(bytes),
     });
@@ -6093,6 +6747,25 @@ function buildCorpus() {
           "unmaterialized",
           Object.freeze({ kind: "device-created-v1" }),
         ),
+      ),
+    }),
+    Object.freeze({
+      id: "texture-destroy-unmaterialized-canvas-current-first-cleanup-request",
+      operationId: textureDestroyOperationId,
+      encoded: encodeCanvasLifecycleRequest(
+        textureDestroyOperationId,
+        canvasTextureRef,
+        convertedTextureDestroy,
+        textureDestroyBody(
+          "first-cleanup",
+          "unmaterialized",
+          canvasDestroyCurrentOrigin,
+        ),
+        {
+          deviceIngressOrdinal: "31",
+          operationInstanceId: "63",
+          sealedLocalTimeline: canvasMintAndRecheckTimeline,
+        },
       ),
     }),
     Object.freeze({
@@ -6137,6 +6810,67 @@ function buildCorpus() {
   const canvasRequestById = new Map(
     canvasLifecycleRequests.map((entry) => [entry.id, entry]),
   );
+  const unmaterializedCanvasDestroyEntry = canvasRequestById.get(
+    "texture-destroy-unmaterialized-canvas-current-first-cleanup-request",
+  );
+  const canvasCleanupEncodingRejections = Object.freeze([
+    Object.freeze({
+      id: "texture-destroy-unmaterialized-canvas-current-missing-prefix-rejected",
+      mutation: "omit-complete-mint-and-recheck-subsequence",
+      sealedLocalTimeline: Object.freeze([]),
+    }),
+    Object.freeze({
+      id: "texture-destroy-unmaterialized-canvas-current-reordered-prefix-rejected",
+      mutation: "recheck-before-mint",
+      sealedLocalTimeline: Object.freeze([
+        canvasMintAndRecheckTimeline[1],
+        canvasMintAndRecheckTimeline[0],
+      ]),
+    }),
+    Object.freeze({
+      id: "texture-destroy-unmaterialized-canvas-current-expired-intent-rejected",
+      mutation: "first-expired-cleanup-before-materialization",
+      terminalIntent: "first-expired-cleanup",
+      sealedLocalTimeline: canvasMintAndRecheckTimeline,
+    }),
+  ]);
+  for (const rejection of canvasCleanupEncodingRejections) {
+    let rejected = false;
+    try {
+      encodeCanvasLifecycleRequest(
+        textureDestroyOperationId,
+        canvasTextureRef,
+        convertedTextureDestroy,
+        textureDestroyBody(
+          rejection.terminalIntent ?? "first-cleanup",
+          "unmaterialized",
+          canvasDestroyCurrentOrigin,
+        ),
+        {
+          deviceIngressOrdinal: "31",
+          operationInstanceId: "63",
+          sealedLocalTimeline: rejection.sealedLocalTimeline,
+        },
+      );
+    } catch {
+      rejected = true;
+    }
+    if (!rejected) fail(`${rejection.id} did not fail closed`);
+  }
+  let unmaterializedHostTaskExpiryRejected = false;
+  try {
+    encodeCanvasLifecycleRequest(
+      textureDestroyOperationId,
+      canvasTextureRef,
+      convertedTextureDestroy,
+      textureExpireBody("unmaterialized", canvasDestroyCurrentOrigin),
+    );
+  } catch {
+    unmaterializedHostTaskExpiryRejected = true;
+  }
+  if (!unmaterializedHostTaskExpiryRejected) {
+    fail("texture-expire-unmaterialized-host-task-state-rejected did not fail closed");
+  }
   const canvasTerminalBytes = new Map([
     [
       `${canvasConfigureOperationId}:operation-success`,
@@ -6179,12 +6913,12 @@ function buildCorpus() {
         provider_generation: "9",
       }),
       provider_generation: "9",
-      operation_instance_id: "62",
+      operation_instance_id: entry.encoded.operationInstanceId,
       promise_id: "0",
       captured_scope_id: "2",
       adapter_ordinal: "0",
-      device_ingress_ordinal: "30",
-      queue_ingress_ordinal: "0",
+      device_ingress_ordinal: entry.encoded.deviceIngressOrdinal,
+      queue_ingress_ordinal: entry.encoded.queueIngressOrdinal,
       receiver: Object.freeze({
         kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags[receiver.kind],
         flags: 0,
@@ -6330,6 +7064,44 @@ function buildCorpus() {
       }));
     }),
   );
+  const canvasQueueIngressCarrierRejections = Object.freeze(
+    canvasCarrierMutationEntries.flatMap((entry) => {
+      const carrier = canvasRequestCarrier(entry);
+      const queueIngressOrdinal = carrier.queue_ingress_ordinal;
+      const cases = [
+        {
+          id: "queue-ingress-wrong-class",
+          value: queueIngressOrdinal === "0" ? "17" : "0",
+        },
+      ];
+      if (queueIngressOrdinal !== "0") {
+        cases.push({
+          id: "queue-ingress-payload-join",
+          value: (BigInt(queueIngressOrdinal) + 1n).toString(),
+        });
+      }
+      return cases.map((mutation) => Object.freeze({
+        id: `${entry.id}-carrier-${mutation.id}-rejected`,
+        operationId: entry.operationId,
+        kind: "carrier-rejection",
+        carrierProjection: Object.freeze({
+          ...carrier,
+          queue_ingress_ordinal: mutation.value,
+        }),
+        authenticatedCarrierMutation: Object.freeze({
+          field: "queue_ingress_ordinal",
+          originalCarrierProjection: carrier,
+        }),
+        bytesHex: toHex(entry.encoded.bytes),
+        expected: Object.freeze({
+          rejection:
+            "authenticated-queue-ingress-class-or-payload-join-mismatch-before-provider-admission",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        }),
+      }));
+    }),
+  );
   const canvasCompletionCarrier = (
     entry,
     providerAdmission,
@@ -6363,6 +7135,90 @@ function buildCorpus() {
       }),
     });
   };
+  const canvasCompletionQueueIngressRejections = Object.freeze(
+    [
+      {
+        entry: canvasRequestById.get(
+          "canvas-configure-next-generation-request",
+        ),
+        terminal: "operation-success",
+        providerAdmission: 1,
+        physicalSequence: "63",
+      },
+      {
+        entry: canvasRequestById.get(
+          "canvas-unconfigure-retiring-generation-request",
+        ),
+        terminal: "first-cleanup-provider",
+        providerAdmission: 1,
+        physicalSequence: "64",
+      },
+      {
+        entry: canvasRequestById.get(
+          "texture-destroy-expired-canvas-current-request",
+        ),
+        terminal: "repeat-cleanup-noop",
+        providerAdmission: 0,
+        physicalSequence: "0",
+      },
+    ].flatMap((entry) => {
+      const carrier = canvasCompletionCarrier(
+        entry.entry,
+        entry.providerAdmission,
+        entry.physicalSequence,
+      );
+      const queueIngressOrdinal =
+        carrier.record.operation_result.operation.queue_ingress_ordinal;
+      const cases = [
+        {
+          id: "queue-ingress-wrong-class",
+          value: queueIngressOrdinal === "0" ? "17" : "0",
+        },
+      ];
+      if (queueIngressOrdinal !== "0") {
+        cases.push({
+          id: "queue-ingress-retained-call-join",
+          value: (BigInt(queueIngressOrdinal) + 1n).toString(),
+        });
+      }
+      return cases.map((mutation) => Object.freeze({
+        id:
+          `${entry.entry.operationId.replaceAll(".", "-").toLowerCase()}-` +
+          `${entry.terminal}-completion-carrier-${mutation.id}-rejected`,
+        operationId: entry.entry.operationId,
+        kind: "completion-carrier-rejection",
+        direction: "completion",
+        semanticTerminalId: entry.terminal,
+        carrierProjection: Object.freeze({
+          ...carrier,
+          record: Object.freeze({
+            ...carrier.record,
+            operation_result: Object.freeze({
+              ...carrier.record.operation_result,
+              operation: Object.freeze({
+                ...carrier.record.operation_result.operation,
+                queue_ingress_ordinal: mutation.value,
+              }),
+            }),
+          }),
+        }),
+        authenticatedCarrierMutation: Object.freeze({
+          field:
+            "record.operation_result.operation.queue_ingress_ordinal",
+          originalCarrierProjection: carrier,
+        }),
+        bytesHex: toHex(canvasTerminalBytes.get(
+          `${entry.entry.operationId}:${entry.terminal}`,
+        )),
+        expected: Object.freeze({
+          rejection:
+            "authenticated-completion-queue-ingress-class-or-retained-call-join-mismatch-before-payload-exposure",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        }),
+      }));
+    }),
+  );
   const configureBytes = canvasRequestById.get(
     "canvas-configure-next-generation-request",
   ).encoded.bytes;
@@ -7347,14 +8203,18 @@ function buildCorpus() {
     "GPUCommandEncoder.clearBuffer",
     "GPUCommandEncoder.copyBufferToBuffer",
     "GPUCommandEncoder.copyTextureToTexture",
+    "GPUCommandEncoder.resolveQuerySet",
     "GPUComputePassEncoder.setPipeline",
     "GPUComputePassEncoder.setBindGroup",
     "GPUComputePassEncoder.dispatchWorkgroups",
     "GPUComputePassEncoder.end",
     "GPURenderPassEncoder.setPipeline",
     "GPURenderPassEncoder.setBindGroup",
+    "GPURenderPassEncoder.setIndexBuffer",
     "GPURenderPassEncoder.setVertexBuffer",
     "GPURenderPassEncoder.draw",
+    "GPURenderPassEncoder.drawIndexed",
+    "GPURenderPassEncoder.drawIndirect",
     "GPURenderPassEncoder.end",
     "GPUCommandEncoder.finish",
   ]);
@@ -7517,6 +8377,14 @@ function buildCorpus() {
       logicalDeviceGeneration: "1",
       providerGeneration: "9",
     }),
+    querySet: Object.freeze({
+      kind: "GPUQuerySet",
+      objectId: "228",
+      objectGeneration: "1",
+      logicalDeviceId: "55",
+      logicalDeviceGeneration: "1",
+      providerGeneration: "9",
+    }),
   });
   const submitRecord = ({
     operationName,
@@ -7530,7 +8398,7 @@ function buildCorpus() {
   }) => Object.freeze({
     ...queueSubmitIdentity(operationName),
     operationName,
-    operationInstanceId: String(100 + ingress),
+    operationInstanceId: sealedOperationInstanceId(100 + ingress),
     deviceIngressOrdinal: String(ingress),
     capturedScopeId: "0",
     receiverRef,
@@ -7549,8 +8417,14 @@ function buildCorpus() {
     configurationGeneration: "8",
     currentEpoch: "13",
     mintOperationProvenance: Object.freeze({
-      operationInstanceId: "110",
+      operationInstanceId: sealedOperationInstanceId(110),
       deviceIngressOrdinal: "10",
+    }),
+    presentationAuthority: Object.freeze({
+      acquireSessionId: "151",
+      presentSessionId: "153",
+      authorityContextDigest: "ed".repeat(32),
+      capturedScopeId: "0",
     }),
     configuredDeviceRef: submitReferences.device,
     format: "bgra8unorm",
@@ -7685,6 +8559,7 @@ function buildCorpus() {
       wrapperAllocatedTargetRef: submitReferences.renderPass,
       argumentBody: Object.freeze({
         label: "render",
+        timestampWrites: null,
         colorAttachments: Object.freeze([
           null,
           Object.freeze({
@@ -7732,8 +8607,47 @@ function buildCorpus() {
       }),
     }),
     submitRecord({
-      operationName: "GPURenderPassEncoder.draw",
+      operationName: "GPURenderPassEncoder.setIndexBuffer",
       ingress: 23,
+      receiverRef: submitReferences.renderPass,
+      commandEncoderRef: submitReferences.encoder,
+      passRef: submitReferences.renderPass,
+      argumentBody: Object.freeze({
+        buffer: submitReferences.destinationBuffer,
+        indexFormat: "uint16",
+        offset: 0,
+        sizePresent: false,
+        size: 0,
+      }),
+    }),
+    submitRecord({
+      operationName: "GPURenderPassEncoder.drawIndexed",
+      ingress: 24,
+      receiverRef: submitReferences.renderPass,
+      commandEncoderRef: submitReferences.encoder,
+      passRef: submitReferences.renderPass,
+      argumentBody: Object.freeze({
+        indexCount: 3,
+        instanceCount: 2,
+        firstIndex: 1,
+        baseVertex: -7,
+        firstInstance: 4,
+      }),
+    }),
+    submitRecord({
+      operationName: "GPURenderPassEncoder.drawIndirect",
+      ingress: 25,
+      receiverRef: submitReferences.renderPass,
+      commandEncoderRef: submitReferences.encoder,
+      passRef: submitReferences.renderPass,
+      argumentBody: Object.freeze({
+        indirectBuffer: submitReferences.sourceBuffer,
+        indirectOffset: 512,
+      }),
+    }),
+    submitRecord({
+      operationName: "GPURenderPassEncoder.draw",
+      ingress: 26,
       receiverRef: submitReferences.renderPass,
       commandEncoderRef: submitReferences.encoder,
       passRef: submitReferences.renderPass,
@@ -7741,15 +8655,28 @@ function buildCorpus() {
     }),
     submitRecord({
       operationName: "GPURenderPassEncoder.end",
-      ingress: 24,
+      ingress: 27,
       receiverRef: submitReferences.renderPass,
       commandEncoderRef: submitReferences.encoder,
       passRef: submitReferences.renderPass,
       argumentBody: null,
     }),
     submitRecord({
+      operationName: "GPUCommandEncoder.resolveQuerySet",
+      ingress: 28,
+      receiverRef: submitReferences.encoder,
+      commandEncoderRef: submitReferences.encoder,
+      argumentBody: Object.freeze({
+        querySet: submitReferences.querySet,
+        firstQuery: 1,
+        queryCount: 2,
+        destination: submitReferences.destinationBuffer,
+        destinationOffset: 256,
+      }),
+    }),
+    submitRecord({
       operationName: "GPUCommandEncoder.finish",
-      ingress: 25,
+      ingress: 29,
       receiverRef: submitReferences.encoder,
       commandEncoderRef: submitReferences.encoder,
       wrapperAllocatedTargetRef: submitReferences.commandBuffer,
@@ -7760,13 +8687,13 @@ function buildCorpus() {
     }),
   ]);
   if (
-    commandRecords.length !== 15 ||
-    new Set(commandRecords.map((record) => record.operationName)).size !== 15 ||
+    commandRecords.length !== 19 ||
+    new Set(commandRecords.map((record) => record.operationName)).size !== 19 ||
     queueSubmitVariants.some((operationName) =>
       operationName !== "GPUCanvasContext.getCurrentTexture" &&
       !commandRecords.some((record) => record.operationName === operationName))
   ) {
-    fail("queue-submit corpus does not cover all 15 command-record variants");
+    fail("queue-submit corpus does not cover all 19 command-record variants");
   }
   const queueSubmitInput = ({
     timeline,
@@ -8229,7 +9156,7 @@ function buildCorpus() {
   return {
     schema: "ibex/webgpu-production-codec-corpus/2",
     disposition:
-      "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
+      "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-query-set-create-texture-view-create-command-encoder-create-shader-module-push-error-scope-pop-error-scope-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
     supportClaim: "none",
     carrierProjectionScope:
       "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
@@ -8453,6 +9380,22 @@ function buildCorpus() {
         semanticStepOrder: textureCorpus.semanticSteps,
       },
       {
+        operationId: createQuerySetOperationId,
+        wireId: createQuerySetCodec.route.wireId,
+        nativeCodecProgramSchema:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+        requestCodec: createQuerySetCodec.requestCodec.tag,
+        requestCodecTag: createQuerySetCodec.requestCodec.wireTag,
+        completionCodec: createQuerySetCodec.completionCodec.tag,
+        completionCodecTag: createQuerySetCodec.completionCodec.wireTag,
+        productionExecutableFromCurrentAuthenticatedInputs: true,
+        semanticTerminalMapping:
+          createQuerySetCodec.nativeRoute.completion.semanticTerminalMapping,
+        bodySchema:
+          createQuerySetCodec.nativeRoute.request.payload.fields.at(-1).type,
+        completionBodySchema: "empty",
+      },
+      {
         operationId: createTextureViewOperationId,
         wireId: createTextureViewRoute.wireId,
         nativeCodecProgramSchema:
@@ -8522,6 +9465,38 @@ function buildCorpus() {
         productionExecutableFromCurrentAuthenticatedInputs: true,
         semanticTerminalMapping:
           createShaderModuleNativeRoute.completion.semanticTerminalMapping,
+      },
+      {
+        operationId: pushErrorScopeOperationId,
+        wireId: pushErrorScopeCodec.route.wireId,
+        nativeCodecProgramSchema:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+        requestCodec: pushErrorScopeCodec.requestCodec.tag,
+        requestCodecTag: pushErrorScopeCodec.requestCodec.wireTag,
+        completionCodec: pushErrorScopeCodec.completionCodec.tag,
+        completionCodecTag: pushErrorScopeCodec.completionCodec.wireTag,
+        productionExecutableFromCurrentAuthenticatedInputs: true,
+        semanticTerminalMapping:
+          pushErrorScopeCodec.nativeRoute.completion.semanticTerminalMapping,
+        bodySchema:
+          pushErrorScopeCodec.nativeRoute.request.payload.fields.at(-1).type,
+        completionBodySchema: "empty",
+      },
+      {
+        operationId: popErrorScopeOperationId,
+        wireId: popErrorScopeCodec.route.wireId,
+        nativeCodecProgramSchema:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+        requestCodec: popErrorScopeCodec.requestCodec.tag,
+        requestCodecTag: popErrorScopeCodec.requestCodec.wireTag,
+        completionCodec: popErrorScopeCodec.completionCodec.tag,
+        completionCodecTag: popErrorScopeCodec.completionCodec.wireTag,
+        productionExecutableFromCurrentAuthenticatedInputs: true,
+        semanticTerminalMapping:
+          popErrorScopeCodec.nativeRoute.completion.semanticTerminalMapping,
+        bodySchema:
+          popErrorScopeCodec.nativeRoute.request.payload.fields.at(-1).type,
+        completionBodySchema: "nullable-gpu-error",
       },
       {
         operationId: deviceDestroyOperationId,
@@ -8643,8 +9618,9 @@ function buildCorpus() {
           queueSubmitNativeRoute.request.payload.fields.at(-1).type,
         commandRecordSchema: "commandRecordV1",
         commandProgramDigestDomain: "exact/webgpu-command-program/v1\\0",
-        commandRecordVariantCount: 15,
-        timelineOnlyRecordVariantCount: 1,
+        commandRecordVariantCount: commandRecords.length,
+        timelineOnlyRecordVariantCount:
+          queueSubmitVariants.length - commandRecords.length,
         completionBodySchema: "empty",
       },
     ],
@@ -8900,6 +9876,27 @@ function buildCorpus() {
       ...textureCorpus.requestVectors,
       textureCorpus.successVector,
       ...textureCorpus.semanticRejections,
+      {
+        id: "create-query-set-request",
+        operationId: createQuerySetOperationId,
+        kind: "request",
+        carrierProjection: createQuerySetRequestCarrier,
+        trust:
+          "untrusted-query-descriptor-and-wrapper-target-join-only-never-authority",
+        semanticOwner:
+          "native-query-set-semantic-service-before-provider-admission",
+        bytesHex: toHex(createQuerySetRequest.bytes),
+        expected: createQuerySetRequest.inspected,
+      },
+      {
+        id: "create-query-set-operation-success-result",
+        operationId: createQuerySetOperationId,
+        kind: "result",
+        semanticTerminalId: "operation-success",
+        carrierProjection: createQuerySetCompletionCarrier,
+        bytesHex: toHex(createQuerySetCompletion),
+        expected: { kind: "terminal-receipt", value: "undefined" },
+      },
       ...textureViewWorkloadVectors,
       textureViewSuccessVector,
       ...textureViewStructuralRejections,
@@ -8989,6 +9986,86 @@ function buildCorpus() {
         bytesHex: toHex(createShaderModuleCompletion),
         expected: { kind: "terminal-receipt", value: "undefined" },
       },
+      {
+        id: "push-error-scope-request",
+        operationId: pushErrorScopeOperationId,
+        kind: "request",
+        carrierProjection: pushErrorScopeRequestCarrier,
+        trust:
+          "source-affine-wrapper-scope-transition-comparison-input-only-never-authority",
+        semanticOwner:
+          "native-device-error-scope-service-before-provider-admission",
+        bytesHex: toHex(pushErrorScopeRequest.bytes),
+        expected: pushErrorScopeRequest.inspected,
+      },
+      {
+        id: "push-error-scope-operation-success-result",
+        operationId: pushErrorScopeOperationId,
+        kind: "result",
+        semanticTerminalId: "operation-success",
+        carrierProjection: pushErrorScopeCompletionCarrier,
+        bytesHex: toHex(pushErrorScopeCompletion),
+        expected: { kind: "terminal-receipt", value: "undefined" },
+      },
+      {
+        id: "pop-error-scope-request",
+        operationId: popErrorScopeOperationId,
+        kind: "request",
+        carrierProjection: popErrorScopeRequestCarrier,
+        trust:
+          "source-affine-wrapper-scope-barrier-and-sealed-prefix-comparison-input-only-never-authority",
+        semanticOwner:
+          "native-device-error-scope-service-before-provider-admission",
+        bytesHex: toHex(popErrorScopeRequest.bytes),
+        expected: popErrorScopeRequest.inspected,
+      },
+      {
+        id: "pop-error-scope-lost-or-empty-null-result",
+        operationId: popErrorScopeOperationId,
+        kind: "result",
+        semanticTerminalIds: [
+          "lost-device-null",
+          "empty-scope-rejection",
+        ],
+        carrierProjection: popNoProviderNullCarrier,
+        bytesHex: toHex(popNullCompletion),
+        expected: { kind: "null" },
+      },
+      {
+        id: "pop-error-scope-provider-barrier-null-result",
+        operationId: popErrorScopeOperationId,
+        kind: "result",
+        semanticTerminalId: "provider-barrier",
+        completionVariant: "provider-barrier-null",
+        carrierProjection: popProviderNullCarrier,
+        bytesHex: toHex(popNullCompletion),
+        expected: { kind: "null" },
+      },
+      {
+        id: "pop-error-scope-provider-barrier-error-result",
+        operationId: popErrorScopeOperationId,
+        kind: "result",
+        semanticTerminalId: "provider-barrier",
+        completionVariant: "provider-barrier-error",
+        carrierProjection: popProviderErrorCarrier,
+        bytesHex: toHex(popErrorCompletion),
+        expected: {
+          kind: "typed-error",
+          name: "GPUValidationError",
+          message: "corpus validation error",
+        },
+      },
+      ...queryAndScopeBinaryRejections.map((rejection) => ({
+        id: rejection.id,
+        operationId: rejection.operationId,
+        kind: "binary-rejection",
+        direction: rejection.direction,
+        mutation: rejection.mutation,
+        bytesHex: toHex(rejection.bytes),
+        expected: {
+          rejection: "fail-closed-before-provider-or-wrapper-exposure",
+        },
+      })),
       {
         id: "device-destroy-sealed-timeline-request",
         kind: "request",
@@ -9144,6 +10221,7 @@ function buildCorpus() {
         expected: entry.encoded.inspected,
       })),
       ...canvasCarrierRejections,
+      ...canvasQueueIngressCarrierRejections,
       ...[
         {
           entry: canvasRequestById.get(
@@ -9202,6 +10280,7 @@ function buildCorpus() {
           expected: { kind: "terminal-receipt", value: "undefined" },
         };
       }),
+      ...canvasCompletionQueueIngressRejections,
       ...canvasBinaryRejections.map((rejection) => ({
         id: rejection.id,
         operationId: rejection.operationId,
@@ -9283,6 +10362,59 @@ function buildCorpus() {
         },
         expected: {
           rejection: "source-affine-generation-mismatch-before-provider-admission",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      },
+      ...canvasCleanupEncodingRejections.map((rejection) => ({
+        id: rejection.id,
+        operationId: textureDestroyOperationId,
+        kind: "encoding-rejection",
+        carrierProjection: canvasRequestCarrier(
+          unmaterializedCanvasDestroyEntry,
+        ),
+        mutation: rejection.mutation,
+        payloadPendingCanvasRecordOrder: rejection.sealedLocalTimeline.map(
+          (record) =>
+            `${record.operationInstanceId}/${record.deviceIngressOrdinal}`,
+        ),
+        expected: {
+          rejection:
+            "incomplete-or-reordered-canvas-current-mint-recheck-subsequence-before-native-submit",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      })),
+      {
+        id: "texture-expire-unmaterialized-host-task-state-rejected",
+        operationId: textureDestroyOperationId,
+        kind: "encoding-rejection",
+        carrierProjection: canvasRequestCarrier(canvasRequestById.get(
+          "texture-expire-host-task-current-request",
+        )),
+        mutation: "materialized-to-unmaterialized",
+        expected: {
+          rejection:
+            "host-task-expiry-requires-materialized-canvas-current-before-native-submit",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      },
+      {
+        id: "texture-destroy-unmaterialized-canvas-current-materialization-state-mismatch-rejected",
+        operationId: textureDestroyOperationId,
+        kind: "semantic-rejection",
+        carrierProjection: canvasRequestCarrier(
+          unmaterializedCanvasDestroyEntry,
+        ),
+        bytesHex: toHex(unmaterializedCanvasDestroyEntry.encoded.bytes),
+        authenticatedStateMutation: {
+          authenticatedMaterializationState: "materialized",
+          payloadMaterializationState: "unmaterialized",
+        },
+        expected: {
+          rejection:
+            "texture-materialization-state-mismatch-before-provider-admission",
           providerTokenCount: 0,
           physicalSequenceCount: 0,
         },
@@ -9637,7 +10769,9 @@ function buildCorpus() {
 }
 
 function main() {
-  const rendered = `${JSON.stringify(buildCorpus(), null, 2)}\n`;
+  const corpus = buildCorpus();
+  validateManifestToCorpusCoverage(corpus);
+  const rendered = `${JSON.stringify(corpus, null, 2)}\n`;
   if (process.argv.includes("--check")) {
     const output = assertConfinedGeneratedFile(
       repositoryRoot,
@@ -9650,7 +10784,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroup 18-call/full-provenance-witness/structural/adversarial, createBindGroupLayout, createBuffer 21-call/accounting/adversarial, createPipelineLayout, createSampler four-call/accounting/adversarial, createTexture five-call/accounting/adversarial, createTextureView 25-call/8-class/device-and-canvas/origin-ordering/adversarial, createCommandEncoder, createShaderModule, device-destroy, GPUBuffer destroy/mapAsync/unmap, canvas configure/unconfigure/texture-destroy generation-and-origin/adversarial, GPUQueue.writeBuffer/writeTexture, and GPUQueue.submit 15-command-record/timeline/digest/adversarial payload-codegen vectors are fresh",
+      "webgpu-production-codec-corpus: all 27 native codec routes are covered, including explicit requestDevice test-only evidence plus createQuerySet and push/popErrorScope positive/adversarial vectors",
     );
     return;
   }

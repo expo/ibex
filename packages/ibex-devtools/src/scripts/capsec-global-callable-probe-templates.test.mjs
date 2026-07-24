@@ -661,12 +661,14 @@ describe("source-bound global callable recipes", () => {
     // non-capability, unexercisable recipe without publishing WebGPU or CapSec
     // support. The authenticated WebGPU operation-identity rebind contributes
     // one additional unexercisable callable without changing that boundary.
-    expect(recipes).toHaveLength(850);
+    // The authenticated dev-served module-table lifecycle contributes two
+    // private native root callables; neither has a bounded public invocation.
+    expect(recipes).toHaveLength(852);
     expect(counts).toEqual({
       call: 601,
       construct: 9,
       get: 4,
-      unexercisable: 236,
+      unexercisable: 238,
     });
   }, 30_000);
 });

@@ -50,6 +50,44 @@ export interface NativeGpuCallMetadataV2 {
   readonly targetKind: number;
   readonly targetId: string;
   readonly targetGeneration: string;
+  /**
+   * Codec-owned, construction-private authority projections for the exact
+   * wrapper-local records sealed into this carrier.
+   */
+  readonly sealedOperations: readonly NativeGpuSealedOperationAuthorityV2[];
+}
+
+export interface NativeGpuSealedOperationReferenceV2 {
+  readonly kind: number;
+  readonly id: string;
+  readonly generation: string;
+}
+
+export interface NativeGpuSealedOperationAuthorityV2 {
+  readonly identityClass: 'active-route' | 'staged-local';
+  readonly authorityContextSource:
+    | 'command-program'
+    | 'enclosing-carrier'
+    | 'staged-record';
+  readonly operationId: number;
+  readonly operationInstanceId: string;
+  readonly deviceIngressOrdinal: string;
+  readonly capturedScopeId: string;
+  readonly receiver: NativeGpuSealedOperationReferenceV2;
+  readonly target?: NativeGpuSealedOperationReferenceV2;
+  readonly authorityContextDigest?: ArrayBufferView;
+}
+
+export interface NativeGpuPresentationAuthorityMetadataV2
+  extends NativeGpuCallMetadataV2 {
+  /** Prepared wrapper-local mint identity; capture never consumes it. */
+  readonly operationInstanceId: string;
+}
+
+export interface NativeGpuPresentationAuthorityV2 {
+  readonly acquireSessionId: string;
+  readonly presentSessionId: string;
+  readonly authorityContextDigest: ArrayBufferView;
 }
 
 export interface NativeGpuOwnedObjectV2 {
@@ -123,6 +161,12 @@ export type NativeGpuEventV2 =
     })
   | (NativeGpuOperationProvenanceV2 & {
       readonly kind: 2;
+      /**
+       * Boolean-only projection of the authenticated kind-2 flag matrix.
+       * True requests one secondary `uncapturederror` task without replacing
+       * the mandatory correlated operation terminal.
+       */
+      readonly uncapturedError: boolean;
       readonly errorKind: number;
       readonly backendClass: number;
       readonly status: number;
@@ -217,6 +261,27 @@ export interface NativeGpuBridgeV2 {
   };
   readonly cancel: (operationInstanceId: string, promiseId: string) => number;
   readonly retire: (objects: readonly NativeGpuOwnedObjectV2[]) => number;
+  /**
+   * Captures the original getCurrentTexture caller context and evaluates the
+   * acquire REQUESTED receipt before any wrapper identity or counter commits.
+   */
+  readonly capturePresentationAuthority: (
+    operationId: number,
+    metadata: NativeGpuPresentationAuthorityMetadataV2,
+  ) => NativeGpuPresentationAuthorityV2 | null;
+  /**
+   * Evaluates a fresh transient acquire REQUESTED child for a later same-epoch
+   * call while leaving the retained original context untouched.
+   */
+  readonly recheckPresentationAuthority: (
+    operationId: number,
+    metadata: NativeGpuPresentationAuthorityMetadataV2,
+    retained: NativeGpuPresentationAuthorityV2,
+  ) => boolean;
+  /** Retires the exact retained acquire/present pair before native takeover. */
+  readonly retirePresentationAuthority: (
+    retained: NativeGpuPresentationAuthorityV2,
+  ) => 1 | 0 | -1 | -2;
   /**
    * Mints one engine-keyed, non-transferable ArrayBuffer alias over an
    * already-owned external mapped byte block. This method never copies bytes.
@@ -318,6 +383,9 @@ export function isNativeGpuBridge(value: unknown): value is NativeGpuBridge {
       typeof candidate.rootAccountId === 'string' &&
       typeof candidate.rootAccountGeneration === 'string' &&
       ArrayBuffer.isView(candidate.rootAuthorityDigest) &&
+      typeof candidate.capturePresentationAuthority === 'function' &&
+      typeof candidate.recheckPresentationAuthority === 'function' &&
+      typeof candidate.retirePresentationAuthority === 'function' &&
       typeof candidate.createMappedRangeAlias === 'function' &&
       typeof candidate.detachMappedRange === 'function' &&
       typeof candidate.setEventSink === 'function';

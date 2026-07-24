@@ -7397,6 +7397,138 @@ fs.writeFileSync(__MARKER_PATH__, 'authenticated-cache-route-ok');
     }
 
     #[test]
+    fn dev_served_module_table_is_one_shot_gated_and_falls_back_to_native() {
+        let (runner, _) = find_js_runner().expect("JavaScript runner");
+        let loader_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("src/engine/bootstrap/module-loader.js");
+        let loader_path = serde_json::to_string(loader_path.to_str().unwrap()).unwrap();
+        let fixture = tempdir().unwrap();
+        let scenarios = [
+            "success",
+            "non-frozen",
+            "malformed",
+            "repeated",
+            "late",
+            "unconsumed-finish",
+        ];
+        for scenario in scenarios {
+            let script = r#"
+const fs = require('fs');
+const loader = fs.readFileSync(__LOADER_PATH__, 'utf8');
+let nativeResolves = 0;
+let importChecks = 0;
+let quarantines = 0;
+let lifecycle = null;
+globalThis.__exactHasSharedRuntimeBundle = true;
+globalThis.__exactCompatModes = Object.freeze(['dev-served']);
+globalThis.__exactCaptureSessionStaticImport = function() {
+  return { resolve: nativeResolve, resolveMeta: nativeResolve };
+};
+globalThis.__exactCheckImport = function(specifier, requester) {
+  importChecks++;
+  return specifier !== '.vite' &&
+    (typeof specifier !== 'string' || specifier.indexOf('/chunk.js') === -1) &&
+    (specifier !== './chunk.js' || requester === 0);
+};
+globalThis.__exactQuarantineDevServedModuleTable = function() { quarantines++; };
+globalThis.__exactCaptureDevServedModuleTableLifecycle = function(value) {
+  if (lifecycle !== null || typeof value !== 'function') return false;
+  lifecycle = value;
+  return true;
+};
+function nativeResolve(specifier) {
+  nativeResolves++;
+  if (specifier !== 'fallback') throw new Error('unexpected native resolve: ' + specifier);
+  return JSON.stringify({
+    schema: 'ibex/module-resolution/1',
+    id: 'fallback',
+    kind: 'builtin',
+    source: 'module.exports=9;',
+    sourceId: 'ibex-source-id-v1:fallback'
+  });
+}
+globalThis.__exactNativeModuleResolve = nativeResolve;
+globalThis.__exactNativeModuleResolveMeta = nativeResolve;
+(0, eval)(loader);
+if (typeof lifecycle !== 'function' || lifecycle('begin') !== true) {
+  throw new Error('dev-served lifecycle did not begin');
+}
+const capture = globalThis.__ibexCaptureDevServedModuleTable;
+const table = {
+  '/src/entry.js': {id:'/src/entry.js',kind:'cjs',path:'/src/entry.js',source:'const dep=require("./dep");const optimized=require("/node_modules/.vite/native/react.js");const asset=require("./asset.txt?url");module.exports={value:dep.value,runs:dep.runs,optimized:optimized,asset:asset,lazy:function(){return import("./lazy");}};'},
+  '/src/dep.ts': {id:'/src/dep.ts',kind:'cjs',path:'/src/dep.ts',source:'globalThis.__devRuns=(globalThis.__devRuns||0)+1;module.exports={value:41,runs:globalThis.__devRuns};'},
+  '/src/lazy.ts': {id:'/src/lazy.ts',kind:'cjs',path:'/src/lazy.ts',source:'module.exports={value:42};'},
+  '/src/asset.txt?url': {id:'/src/asset.txt?url',kind:'cjs',path:'/src/asset.txt?url',source:'module.exports="/src/asset.txt";'},
+  '/node_modules/.vite/native/react.js': {id:'/node_modules/.vite/native/react.js',kind:'cjs',path:'/node_modules/.vite/native/react.js',source:'module.exports=require("/node_modules/.vite/native/chunk.js");'},
+  '/node_modules/.vite/native/chunk.js': {id:'/node_modules/.vite/native/chunk.js',kind:'cjs',path:'/node_modules/.vite/native/chunk.js',source:'module.exports="optimized";'}
+};
+const scenario = __SCENARIO__;
+function freezeTable(value) {
+  Object.keys(value).forEach(function(id) { Object.freeze(value[id]); });
+  return Object.freeze(value);
+}
+function expectQuarantine(action) {
+  let threw = false;
+  try { action(); } catch (_error) { threw = true; }
+  if (!threw || quarantines !== 1) throw new Error('expected one quarantine');
+}
+if (scenario === 'success') {
+  if (capture(freezeTable(table)) !== true) throw new Error('capture failed');
+  const first = globalThis.require('/src/entry.js');
+  const second = globalThis.require('/src/entry.js?v=123');
+  const fallback = globalThis.require('fallback');
+  if (first !== second || first.value !== 41 || first.runs !== 1 ||
+      first.optimized !== 'optimized' || first.asset !== '/src/asset.txt' || fallback !== 9 ||
+      nativeResolves !== 1 || importChecks < 5 ||
+      typeof globalThis.__ibexCaptureDevServedModuleTable !== 'undefined') {
+    throw new Error(JSON.stringify({first, second, fallback, nativeResolves, importChecks}));
+  }
+  first.lazy().then(function(lazy) {
+    if (!lazy || !lazy.default || lazy.default.value !== 42 || nativeResolves !== 1) {
+      throw new Error(JSON.stringify({lazy, nativeResolves}));
+    }
+  }).catch(function(error) {
+    console.error(error && error.stack ? error.stack : error);
+    process.exitCode = 1;
+  });
+} else if (scenario === 'non-frozen') {
+  expectQuarantine(function() { capture(table); });
+} else if (scenario === 'malformed') {
+  table['/src/dep.ts'] = Object.freeze({id:'wrong',kind:'cjs',path:'/src/dep.ts',source:''});
+  expectQuarantine(function() { capture(freezeTable(table)); });
+} else if (scenario === 'repeated') {
+  const frozen = freezeTable(table);
+  capture(frozen);
+  expectQuarantine(function() { capture(frozen); });
+} else if (scenario === 'late') {
+  lifecycle('mark-run-app');
+  expectQuarantine(function() { capture(freezeTable(table)); });
+} else if (scenario === 'unconsumed-finish') {
+  lifecycle('finish');
+  if (typeof globalThis.__ibexCaptureDevServedModuleTable !== 'undefined') {
+    throw new Error('finish retained the unconsumed capture hook');
+  }
+}
+"#
+            .replace("__LOADER_PATH__", &loader_path)
+            .replace("__SCENARIO__", &serde_json::to_string(scenario).unwrap());
+            let script_path = fixture.path().join(format!("dev-served-{scenario}.cjs"));
+            std::fs::write(&script_path, script).unwrap();
+            let output = Command::new(&runner)
+                .arg(&script_path)
+                .output()
+                .expect("run dev-served module-table fixture");
+            assert!(
+                output.status.success(),
+                "dev-served fixture {scenario} failed with {}\nstdout:\n{}\nstderr:\n{}",
+                runner.display(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    #[test]
     fn resolves_directory_import_to_index_ts() {
         // @ref LLP 0004#resolution-order
         let dir = tempdir().unwrap();
