@@ -9160,7 +9160,7 @@ module.exports = JSON.stringify({
     #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     const GPU_V2_REQUEST_DEVICE: u32 = 194_635_792;
     #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
-    const GPU_V2_REQUEST_ADAPTER: u32 = 1_660_448_199;
+    const GPU_V2_REQUEST_ADAPTER: u32 = 1_574_056_057;
     #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     const GPU_V2_MAP_ASYNC: u32 = 1_760_273_919;
     #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
@@ -9168,14 +9168,17 @@ module.exports = JSON.stringify({
     #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     const GPU_V2_PUSH_ERROR_SCOPE: u32 = 1_311_136_574;
     #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
-    const GPU_V2_DESTROY_BUFFER: u32 = 3_314_731_466;
+    const GPU_V2_DESTROY_BUFFER: u32 = 896_157_854;
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    const GPU_V2_CANONICAL_EMPTY_LOSS_PAYLOAD: [u8; 12] =
+        [b'I', b'B', b'G', b'L', 1, 0, 0, 0, 0, 0, 0, 0];
     // The armed snapshot and fake native descriptor must present one identical,
     // source-derived provider identity to the generated registry authentication gate.
     // @ref LLP 0021#generated-semantic-datasets
     #[cfg(feature = "capsec-conformance-observer")]
     const GPU_V2_PROFILE_DIGEST: &str = "sha256-YUTxVptvW5P77k_Ypj-VQxKz-xonCfH4MmdkWq-J_Uk";
     #[cfg(feature = "capsec-conformance-observer")]
-    const GPU_V2_VOCABULARY_DIGEST: &str = "sha256-SHiIMz-nCiOdcUqyPlEPuMumxvrkUbp7uIaPh_cta0E";
+    const GPU_V2_VOCABULARY_DIGEST: &str = "sha256-inan1o0CV69Kv8G9g1G9NV_dv412DVai1m7LsJ0ULKU";
     #[cfg(feature = "capsec-conformance-observer")]
     const GPU_V2_OPERATION_SET_DIGEST: &str = "sha256-eaKN51sVDz5JI_WeBlY5EDMEmouh7pcPkPOtVN1-zS4";
     #[cfg(feature = "capsec-conformance-observer")]
@@ -9395,7 +9398,8 @@ module.exports = JSON.stringify({
         }
         .flatten();
         if let Some(client) = close_during_activate {
-            let event = gpu_v2_realm_close_event(client.realm, 1, 1, &[]);
+            let event =
+                gpu_v2_realm_close_event(client.realm, 1, 1, &GPU_V2_CANONICAL_EMPTY_LOSS_PAYLOAD);
             assert_eq!(
                 client.sink.on_event.unwrap()(client.context as *mut _, &event),
                 1
@@ -9714,6 +9718,79 @@ module.exports = JSON.stringify({
             raw_gpu_digest(GPU_V2_SEMANTIC_PROGRAM_DIGEST),
             raw_gpu_digest(GPU_V2_ROUTING_DIGEST),
         ]
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[test]
+    fn gpu_v2_test_authority_matches_generated_registry() {
+        let registry: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../capsec/generated/webgpu-private-operation-registry.json"
+        ))
+        .expect("generated WebGPU private operation registry must be valid JSON");
+        let provider = registry
+            .get("providerIdentity")
+            .and_then(serde_json::Value::as_object)
+            .expect("generated registry must carry providerIdentity");
+        let expected = [
+            ("profileDigest", GPU_V2_PROFILE_DIGEST),
+            ("webgpuCVocabularyDigest", GPU_V2_VOCABULARY_DIGEST),
+            ("operationSetDigest", GPU_V2_OPERATION_SET_DIGEST),
+            ("semanticProgramDigest", GPU_V2_SEMANTIC_PROGRAM_DIGEST),
+            ("runtimeRoutingDigest", GPU_V2_ROUTING_DIGEST),
+        ];
+
+        for (field, digest) in expected {
+            let actual = raw_gpu_digest(digest)
+                .into_iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            assert_eq!(
+                actual,
+                provider
+                    .get(field)
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_else(|| panic!("generated provider identity must carry {field}")),
+                "test provider identity drifted from generated registry field {field}"
+            );
+        }
+
+        let operations = registry
+            .get("operations")
+            .and_then(serde_json::Value::as_array)
+            .expect("generated registry must carry operations");
+        let expected_operations = [
+            ("GPU.requestAdapter", GPU_V2_REQUEST_ADAPTER),
+            ("GPUAdapter.requestDevice", GPU_V2_REQUEST_DEVICE),
+            ("GPUBuffer.mapAsync", GPU_V2_MAP_ASYNC),
+            ("GPUDevice.createBuffer", GPU_V2_CREATE_BUFFER),
+            ("GPUDevice.pushErrorScope", GPU_V2_PUSH_ERROR_SCOPE),
+            ("GPUBuffer.destroy", GPU_V2_DESTROY_BUFFER),
+        ];
+
+        for (operation_id, wire_id) in expected_operations {
+            let generated_wire_id = operations
+                .iter()
+                .find(|operation| {
+                    operation
+                        .get("operationId")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(operation_id)
+                })
+                .and_then(|operation| operation.get("wireId"))
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or_else(|| {
+                    panic!("generated registry must carry wire ID for {operation_id}")
+                });
+            assert_eq!(
+                u64::from(wire_id),
+                generated_wire_id,
+                "test operation wire ID drifted from generated registry for {operation_id}"
+            );
+        }
     }
 
     #[cfg(all(
@@ -11492,7 +11569,12 @@ module.exports = JSON.stringify({
                 finalize_fake_gpu_v2_runtime(raw, 0);
                 let receipt = gpu_canvas_attached_receipt(ex_hermes_runtime_nonce(raw));
                 let client = fake_gpu_v2_state().lock().unwrap().retained_client.unwrap();
-                let close = gpu_v2_realm_close_event(client.realm, 1, 1, &[]);
+                let close = gpu_v2_realm_close_event(
+                    client.realm,
+                    1,
+                    1,
+                    &GPU_V2_CANONICAL_EMPTY_LOSS_PAYLOAD,
+                );
                 assert_eq!(deliver_gpu_v2_event(&close), 1);
                 assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 1);
                 assert_eq!(ibex_test_gpu_v2_private_bridge_present(raw), 0);
@@ -11807,7 +11889,8 @@ module.exports = JSON.stringify({
             payload: std::ptr::null(),
             payload_len: 0,
         };
-        let canonical_realm_close = gpu_v2_realm_close_event(realm, 1, 1, &[]);
+        let canonical_realm_close =
+            gpu_v2_realm_close_event(realm, 1, 1, &GPU_V2_CANONICAL_EMPTY_LOSS_PAYLOAD);
         let exact_sized_events = [
             (
                 "operation-result",
@@ -14043,7 +14126,12 @@ module.exports = JSON.stringify({
                         }
                         std::thread::yield_now();
                     }
-                    let close = gpu_v2_realm_close_event(client.realm, 1, 1, &[]);
+                    let close = gpu_v2_realm_close_event(
+                        client.realm,
+                        1,
+                        1,
+                        &GPU_V2_CANONICAL_EMPTY_LOSS_PAYLOAD,
+                    );
                     let status = client.sink.on_event.unwrap()(client.context as *mut _, &close);
                     unsafe { ibex_test_gpu_v2_resume_reserved_service_entry() };
                     status
@@ -14060,7 +14148,7 @@ module.exports = JSON.stringify({
                 let owned = ExactGpuOwnedObjectRefV2 {
                     account: call.account,
                     device: call.ingress_device,
-                    object: call.target,
+                    object: call.receiver,
                 };
                 unsafe {
                     assert_eq!(ibex_test_gpu_v2_retire(raw, &owned, 1), -9);
@@ -14106,7 +14194,12 @@ module.exports = JSON.stringify({
             .with_runtime(|raw| {
                 finalize_fake_gpu_v2_runtime(raw, 0);
                 let client = fake_gpu_v2_state().lock().unwrap().retained_client.unwrap();
-                let close = gpu_v2_realm_close_event(client.realm, 1, 1, &[]);
+                let close = gpu_v2_realm_close_event(
+                    client.realm,
+                    1,
+                    1,
+                    &GPU_V2_CANONICAL_EMPTY_LOSS_PAYLOAD,
+                );
                 assert_eq!(deliver_gpu_v2_event(&close), 1);
                 unsafe {
                     assert_eq!(
@@ -14156,7 +14249,12 @@ module.exports = JSON.stringify({
                 let client = fake_gpu_v2_state().lock().unwrap().retained_client.unwrap();
                 unsafe { ibex_test_gpu_v2_pause_realm_close_admission() };
                 std::thread::spawn(move || {
-                    let close = gpu_v2_realm_close_event(client.realm, 1, 1, &[]);
+                    let close = gpu_v2_realm_close_event(
+                        client.realm,
+                        1,
+                        1,
+                        &GPU_V2_CANONICAL_EMPTY_LOSS_PAYLOAD,
+                    );
                     client.sink.on_event.unwrap()(client.context as *mut _, &close)
                 })
             })
@@ -14228,7 +14326,12 @@ module.exports = JSON.stringify({
                         }
                         std::thread::yield_now();
                     }
-                    let close = gpu_v2_realm_close_event(client.realm, 1, 1, &[]);
+                    let close = gpu_v2_realm_close_event(
+                        client.realm,
+                        1,
+                        1,
+                        &GPU_V2_CANONICAL_EMPTY_LOSS_PAYLOAD,
+                    );
                     let status = client.sink.on_event.unwrap()(client.context as *mut _, &close);
                     unsafe { ibex_test_gpu_v2_resume_detach_cleanup() };
                     status
@@ -14267,11 +14370,21 @@ module.exports = JSON.stringify({
                 finalize_fake_gpu_v2_runtime(raw, 0);
                 unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
                 let client = fake_gpu_v2_state().lock().unwrap().retained_client.unwrap();
-                let close = gpu_v2_realm_close_event(client.realm, 1, 1, &[]);
+                let close = gpu_v2_realm_close_event(
+                    client.realm,
+                    1,
+                    1,
+                    &GPU_V2_CANONICAL_EMPTY_LOSS_PAYLOAD,
+                );
                 assert_eq!(deliver_gpu_v2_event(&close), 1);
                 assert_eq!(deliver_gpu_v2_event(&close), 0);
 
-                let mutated = gpu_v2_realm_close_event(client.realm, 2, 1, &[]);
+                let mutated = gpu_v2_realm_close_event(
+                    client.realm,
+                    2,
+                    1,
+                    &GPU_V2_CANONICAL_EMPTY_LOSS_PAYLOAD,
+                );
                 assert_eq!(
                     deliver_gpu_v2_event(&mutated),
                     -1,
@@ -14336,7 +14449,7 @@ module.exports = JSON.stringify({
                             let owned = ExactGpuOwnedObjectRefV2 {
                                 account: template.account,
                                 device: template.ingress_device,
-                                object: template.target,
+                                object: template.receiver,
                             };
                             unsafe {
                                 assert_eq!(
