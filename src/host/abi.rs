@@ -9882,6 +9882,9 @@ mod tests {
         assert!(!with_host(|host| host.is_allow_all(), true));
     }
 
+    // Asserts armed-refusal semantics, which an `insecure` build
+    // deliberately does not have. @ref LLP 0039#secure-mode-must-stay-exercised
+    #[cfg(not(feature = "insecure"))]
     #[test]
     fn armed_legacy_path_outputs_refuse_before_lookup_randomness_or_creation() {
         let _guard = host_test_lock();

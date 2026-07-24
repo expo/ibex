@@ -136,7 +136,21 @@ swc_ecma_transforms_react = "49.0.0"
 # tls-client-identity-openssl is default-on by design: native/CLI builds keep
 # the OpenSSL PKCS#12/encrypted-PKCS#8 client-identity decoders; compile-only
 # cross gates opt out with default-features = false.
-default = ["module-runner", "tls-client-identity-openssl"]
+#
+# `insecure` is in the DEFAULT set on purpose: secure mode cannot arm without a
+# target advertisement (LLP 0036) and is still flaky, so a default build would
+# not run. This is a deliberate, temporary inversion recorded in LLP 0039 — the
+# default flips back once secure mode is dependable.
+#
+# A secure build is therefore explicit:
+#     cargo build --bin ibex --no-default-features \
+#         --features standard,unadvertised-dev-arming
+#
+# `standard` exists so that invocation does not have to re-list the ordinary
+# runtime features by hand.
+# @ref LLP 0039#the-default-is-insecure-for-now
+default = ["standard", "insecure"]
+standard = ["module-runner", "tls-client-identity-openssl"]
 app-host = []
 # Debug/local convenience: arm and run WITHOUT a checked target advertisement so
 # `ibex eval`/`repl`/`run` work before the advertisement pipeline exists. Every
