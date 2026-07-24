@@ -2,7 +2,7 @@
   "rootGlobalDispositionManifestSchema": "ibex/root-global-disposition-manifest/1",
   "profile": "ibex/capsec/1",
   "status": "enforced-by-armed-live-sweep",
-  "sourceDigest": "sha256-6veav0Z6JGj87m3IzWoqbMDFFbEkHqps4DMNUWZb8Ww",
+  "sourceDigest": "sha256-JhVT0appoatq-QzCKmNo1M5TG-t-RnOQGNcpfeW3dhY",
   "sweep": {
     "roots": [
       "globalThis"
@@ -30176,6 +30176,37 @@
       "nativeImplementation": true
     },
     {
+      "installId": "root-global.exactaescbcdecrypt.66983675012747a7",
+      "observedKey": "native-op:__exactAesCbcDecrypt",
+      "registryEdgeId": "surface.native.op.exactaescbcdecrypt.12v0if3",
+      "branch": {
+        "id": "windows",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactAesCbcDecrypt"
+        ],
+        "targetVariant": "windows",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactAesCbcDecrypt"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
       "installId": "root-global.exactaescbcencrypt.258fc68ba6190b2f",
       "observedKey": "native-op:__exactAesCbcEncrypt",
       "registryEdgeId": "surface.native.op.exactaescbcencrypt.03oymej",
@@ -30188,6 +30219,37 @@
           "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactAesCbcEncrypt"
         ],
         "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactAesCbcEncrypt"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.exactaescbcencrypt.c2cb270a00f036e8",
+      "observedKey": "native-op:__exactAesCbcEncrypt",
+      "registryEdgeId": "surface.native.op.exactaescbcencrypt.03oymej",
+      "branch": {
+        "id": "windows",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactAesCbcEncrypt"
+        ],
+        "targetVariant": "windows",
         "activation": "always"
       },
       "property": {
@@ -32842,37 +32904,6 @@
       "nativeImplementation": true
     },
     {
-      "installId": "root-global.exactdnsreverse.dcdebb7eb319062b",
-      "observedKey": "native-op:__exactDnsReverse",
-      "registryEdgeId": "surface.native.op.exactdnsreverse.12dlvmu",
-      "branch": {
-        "id": "windows",
-        "routes": [
-          "native-jsi-global"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactDnsReverse"
-        ],
-        "targetVariant": "windows",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactDnsReverse"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "native-install",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": true
-    },
-    {
       "installId": "root-global.exactdnsreverseasync.abb9d3740d388942",
       "observedKey": "native-op:__exactDnsReverseAsync",
       "registryEdgeId": "surface.native.op.exactdnsreverseasync.0yt21x6",
@@ -33680,6 +33711,37 @@
       "nativeImplementation": true
     },
     {
+      "installId": "root-global.exactfscloseasync.0b9f4bf015554fb7",
+      "observedKey": "native-op:__exactFsCloseAsync",
+      "registryEdgeId": "surface.native.op.exactfscloseasync.117uwo2",
+      "branch": {
+        "id": "windows",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsCloseAsync"
+        ],
+        "targetVariant": "windows",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactFsCloseAsync"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
       "installId": "root-global.exactfscloseasync.714b54bedc016746",
       "observedKey": "native-op:__exactFsCloseAsync",
       "registryEdgeId": "surface.native.op.exactfscloseasync.117uwo2",
@@ -34250,6 +34312,37 @@
           "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsOpenAsync"
         ],
         "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactFsOpenAsync"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.exactfsopenasync.d23f2d5a8ff9a0ef",
+      "observedKey": "native-op:__exactFsOpenAsync",
+      "registryEdgeId": "surface.native.op.exactfsopenasync.1jie13i",
+      "branch": {
+        "id": "windows",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsOpenAsync"
+        ],
+        "targetVariant": "windows",
         "activation": "always"
       },
       "property": {
@@ -35030,6 +35123,37 @@
           "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactGenerateKeyPairSync"
         ],
         "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactGenerateKeyPairSync"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.exactgeneratekeypairsync.c5b1ed69957b2126",
+      "observedKey": "native-op:__exactGenerateKeyPairSync",
+      "registryEdgeId": "surface.native.op.exactgeneratekeypairsync.18brh0u",
+      "branch": {
+        "id": "windows",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactGenerateKeyPairSync"
+        ],
+        "targetVariant": "windows",
         "activation": "always"
       },
       "property": {
@@ -36118,6 +36242,37 @@
           "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactHkdf"
         ],
         "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactHkdf"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.exacthkdf.1fd3d822a29fda56",
+      "observedKey": "native-op:__exactHkdf",
+      "registryEdgeId": "surface.native.op.exacthkdf.05jgsim",
+      "branch": {
+        "id": "windows",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactHkdf"
+        ],
+        "targetVariant": "windows",
         "activation": "always"
       },
       "property": {
@@ -38933,6 +39088,37 @@
       "nativeImplementation": true
     },
     {
+      "installId": "root-global.exactpbkdf2.dc72352f5a7095ec",
+      "observedKey": "native-op:__exactPbkdf2",
+      "registryEdgeId": "surface.native.op.exactpbkdf2.1e25u7w",
+      "branch": {
+        "id": "windows",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactPbkdf2"
+        ],
+        "targetVariant": "windows",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactPbkdf2"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
       "installId": "root-global.exactperformancenow.f6afa33b5d85460d",
       "observedKey": "native-op:__exactPerformanceNow",
       "registryEdgeId": "surface.native.op.exactperformancenow.1gv4akr",
@@ -40323,6 +40509,37 @@
           "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactScryptSync"
         ],
         "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactScryptSync"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.exactscryptsync.80e9fd3a483b0274",
+      "observedKey": "native-op:__exactScryptSync",
+      "registryEdgeId": "surface.native.op.exactscryptsync.0u89mot",
+      "branch": {
+        "id": "windows",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactScryptSync"
+        ],
+        "targetVariant": "windows",
         "activation": "always"
       },
       "property": {
@@ -43597,37 +43814,6 @@
       "nativeImplementation": true
     },
     {
-      "installId": "root-global.exactudpaddress.3e1ad15f5fe0b28e",
-      "observedKey": "native-op:__exactUdpAddress",
-      "registryEdgeId": "surface.native.op.exactudpaddress.05li2xk",
-      "branch": {
-        "id": "windows",
-        "routes": [
-          "native-jsi-global"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpAddress"
-        ],
-        "targetVariant": "windows",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactUdpAddress"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "native-install",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": true
-    },
-    {
       "installId": "root-global.exactudpaddress.95c5b879db2b2df5",
       "observedKey": "native-op:__exactUdpAddress",
       "registryEdgeId": "surface.native.op.exactudpaddress.05li2xk",
@@ -43690,37 +43876,6 @@
       "nativeImplementation": true
     },
     {
-      "installId": "root-global.exactudpbind.5a9e717200866222",
-      "observedKey": "native-op:__exactUdpBind",
-      "registryEdgeId": "surface.native.op.exactudpbind.0urc5z3",
-      "branch": {
-        "id": "windows",
-        "routes": [
-          "native-jsi-global"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpBind"
-        ],
-        "targetVariant": "windows",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactUdpBind"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "native-install",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": true
-    },
-    {
       "installId": "root-global.exactudpclose.4740f25376152154",
       "observedKey": "native-op:__exactUdpClose",
       "registryEdgeId": "surface.native.op.exactudpclose.01qkpuk",
@@ -43733,37 +43888,6 @@
           "src/engine/hermes_runtime_net.cc#jsi-global:__exactUdpClose"
         ],
         "targetVariant": "default",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactUdpClose"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "native-install",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": true
-    },
-    {
-      "installId": "root-global.exactudpclose.ef2d5a213fca9187",
-      "observedKey": "native-op:__exactUdpClose",
-      "registryEdgeId": "surface.native.op.exactudpclose.01qkpuk",
-      "branch": {
-        "id": "windows",
-        "routes": [
-          "native-jsi-global"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpClose"
-        ],
-        "targetVariant": "windows",
         "activation": "always"
       },
       "property": {
@@ -43845,37 +43969,6 @@
       "nativeImplementation": true
     },
     {
-      "installId": "root-global.exactudprecv.3a58be8061541ab2",
-      "observedKey": "native-op:__exactUdpRecv",
-      "registryEdgeId": "surface.native.op.exactudprecv.0kanlvk",
-      "branch": {
-        "id": "windows",
-        "routes": [
-          "native-jsi-global"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpRecv"
-        ],
-        "targetVariant": "windows",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactUdpRecv"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "native-install",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": true
-    },
-    {
       "installId": "root-global.exactudprecv.9553eb95442bf89d",
       "observedKey": "native-op:__exactUdpRecv",
       "registryEdgeId": "surface.native.op.exactudprecv.0kanlvk",
@@ -43925,68 +44018,6 @@
         "root": {
           "kind": "string",
           "value": "__exactUdpSend"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "native-install",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": true
-    },
-    {
-      "installId": "root-global.exactudpsend.a9f21c8f36dad34e",
-      "observedKey": "native-op:__exactUdpSend",
-      "registryEdgeId": "surface.native.op.exactudpsend.0k2gg86",
-      "branch": {
-        "id": "windows",
-        "routes": [
-          "native-jsi-global"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpSend"
-        ],
-        "targetVariant": "windows",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactUdpSend"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "native-install",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": true
-    },
-    {
-      "installId": "root-global.exactudpsocket.17ec0eb5db759430",
-      "observedKey": "native-op:__exactUdpSocket",
-      "registryEdgeId": "surface.native.op.exactudpsocket.043qw7l",
-      "branch": {
-        "id": "windows",
-        "routes": [
-          "native-jsi-global"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpSocket"
-        ],
-        "targetVariant": "windows",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactUdpSocket"
         },
         "path": []
       },
@@ -44124,37 +44155,6 @@
       "nativeImplementation": true
     },
     {
-      "installId": "root-global.exactunixaccept.7b85edd51b92767a",
-      "observedKey": "native-op:__exactUnixAccept",
-      "registryEdgeId": "surface.native.op.exactunixaccept.1x40lrn",
-      "branch": {
-        "id": "windows",
-        "routes": [
-          "native-jsi-global"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixAccept"
-        ],
-        "targetVariant": "windows",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactUnixAccept"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "native-install",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": true
-    },
-    {
       "installId": "root-global.exactunixconnect.55cd84d498940257",
       "observedKey": "native-op:__exactUnixConnect",
       "registryEdgeId": "surface.native.op.exactunixconnect.0z2wmqb",
@@ -44186,37 +44186,6 @@
       "nativeImplementation": true
     },
     {
-      "installId": "root-global.exactunixconnect.64d0c679f2675165",
-      "observedKey": "native-op:__exactUnixConnect",
-      "registryEdgeId": "surface.native.op.exactunixconnect.0z2wmqb",
-      "branch": {
-        "id": "windows",
-        "routes": [
-          "native-jsi-global"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixConnect"
-        ],
-        "targetVariant": "windows",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactUnixConnect"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "native-install",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": true
-    },
-    {
       "installId": "root-global.exactunixlisten.6c83a7917d516e26",
       "observedKey": "native-op:__exactUnixListen",
       "registryEdgeId": "surface.native.op.exactunixlisten.0oo86mg",
@@ -44229,37 +44198,6 @@
           "src/engine/hermes_runtime_net.cc#jsi-global:__exactUnixListen"
         ],
         "targetVariant": "default",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactUnixListen"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "native-install",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": true
-    },
-    {
-      "installId": "root-global.exactunixlisten.bac2e1d8b1ca1e23",
-      "observedKey": "native-op:__exactUnixListen",
-      "registryEdgeId": "surface.native.op.exactunixlisten.0oo86mg",
-      "branch": {
-        "id": "windows",
-        "routes": [
-          "native-jsi-global"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixListen"
-        ],
-        "targetVariant": "windows",
         "activation": "always"
       },
       "property": {
@@ -103466,10 +103404,10 @@
     }
   ],
   "counts": {
-    "installBranches": 2757,
+    "installBranches": 2755,
     "logicalGlobals": 2609,
     "registryEdges": 2609,
     "sealedOrPrivate": 348,
-    "permittedReachable": 2409
+    "permittedReachable": 2407
   }
 }

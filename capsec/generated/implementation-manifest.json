@@ -163419,7 +163419,7 @@
         ],
         "terminalObservedKey": "native-op:__exactAesCbcDecrypt"
       },
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -163431,6 +163431,41 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.native.op.exactaescbcdecrypt.12v0if3.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactaescbcdecrypt.12v0if3",
+      "observedKey": "native-op:__exactAesCbcDecrypt",
+      "branchId": "surface.native.op.exactaescbcdecrypt.12v0if3.windows",
+      "enforcementBranchId": "surface.native.op.exactaescbcdecrypt.12v0if3.windows",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactAesCbcDecrypt"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactAesCbcDecrypt",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactAesCbcDecrypt"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactAesCbcDecrypt",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactAesCbcDecrypt"
+        ],
+        "terminalObservedKey": "native-op:__exactAesCbcDecrypt"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "windows",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "windows"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_crypto_windows.cc#__exactAesCbcDecrypt",
+        "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactAesCbcDecrypt"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.native.op.exactaescbcdecrypt.12v0if3.windows.non-capability"
       ]
     },
     {
@@ -163453,7 +163488,7 @@
         ],
         "terminalObservedKey": "native-op:__exactAesCbcEncrypt"
       },
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -163465,6 +163500,41 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.native.op.exactaescbcencrypt.03oymej.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactaescbcencrypt.03oymej",
+      "observedKey": "native-op:__exactAesCbcEncrypt",
+      "branchId": "surface.native.op.exactaescbcencrypt.03oymej.windows",
+      "enforcementBranchId": "surface.native.op.exactaescbcencrypt.03oymej.windows",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactAesCbcEncrypt"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactAesCbcEncrypt",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactAesCbcEncrypt"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactAesCbcEncrypt",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactAesCbcEncrypt"
+        ],
+        "terminalObservedKey": "native-op:__exactAesCbcEncrypt"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "windows",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "windows"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_crypto_windows.cc#__exactAesCbcEncrypt",
+        "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactAesCbcEncrypt"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.native.op.exactaescbcencrypt.03oymej.windows.non-capability"
       ]
     },
     {
@@ -166062,7 +166132,7 @@
         ],
         "terminalObservedKey": "native-op:__exactDnsReverse"
       },
-      "branchKind": "alternative",
+      "branchKind": "single",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -166078,45 +166148,6 @@
         "enforcement.src.engine.hermes.runtime.dns.cc.exactdnsreverse.0qnqz4r.malformed",
         "enforcement.src.engine.hermes.runtime.dns.cc.exactdnsreverse.0qnqz4r.missing-attribution",
         "enforcement.src.engine.hermes.runtime.dns.cc.exactdnsreverse.0qnqz4r.wrong-principal"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactdnsreverse.12dlvmu",
-      "observedKey": "native-op:__exactDnsReverse",
-      "branchId": "surface.native.op.exactdnsreverse.12dlvmu.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactdnsreverse.1vh83qe",
-      "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
-        "proofPaths": [
-          "native-op:__exactDnsReverse"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactDnsReverse",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactDnsReverse"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactDnsReverse",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactDnsReverse"
-        ],
-        "terminalObservedKey": "native-op:__exactDnsReverse"
-      },
-      "branchKind": "alternative",
-      "targetVariant": "windows",
-      "targetApplicability": {
-        "kind": "operating-system",
-        "value": "windows"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime_platform_windows.cc#__exactDnsReverse",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactDnsReverse"
-      ],
-      "implementationOwner": "WP6",
-      "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactdnsreverse.1vh83qe.allow",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactdnsreverse.1vh83qe.deny",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactdnsreverse.1vh83qe.malformed",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactdnsreverse.1vh83qe.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactdnsreverse.1vh83qe.wrong-principal"
       ]
     },
     {
@@ -167096,7 +167127,7 @@
         ],
         "terminalObservedKey": "native-op:__exactFsCloseAsync"
       },
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -167108,6 +167139,41 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.native.op.exactfscloseasync.117uwo2.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactfscloseasync.117uwo2",
+      "observedKey": "native-op:__exactFsCloseAsync",
+      "branchId": "surface.native.op.exactfscloseasync.117uwo2.windows",
+      "enforcementBranchId": "surface.native.op.exactfscloseasync.117uwo2.windows",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactFsCloseAsync"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_fs_windows.cc#__exactFsCloseAsync",
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsCloseAsync"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_fs_windows.cc#__exactFsCloseAsync",
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsCloseAsync"
+        ],
+        "terminalObservedKey": "native-op:__exactFsCloseAsync"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "windows",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "windows"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_fs_windows.cc#__exactFsCloseAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsCloseAsync"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.native.op.exactfscloseasync.117uwo2.windows.non-capability"
       ]
     },
     {
@@ -167813,7 +167879,7 @@
         ],
         "terminalObservedKey": "native-op:__exactFsOpenAsync"
       },
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -167842,6 +167908,58 @@
         "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.write.malformed",
         "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.write.missing-attribution",
         "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.write.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactfsopenasync.1jie13i",
+      "observedKey": "native-op:__exactFsOpenAsync",
+      "branchId": "surface.native.op.exactfsopenasync.1jie13i.windows",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "native-op:__exactFsOpenAsync"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_fs_windows.cc#__exactFsOpenAsync",
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsOpenAsync"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_fs_windows.cc#__exactFsOpenAsync",
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsOpenAsync"
+        ],
+        "terminalObservedKey": "native-op:__exactFsOpenAsync"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "windows",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "windows"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_fs_windows.cc#__exactFsOpenAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsOpenAsync"
+      ],
+      "implementationOwner": "WP5",
+      "fixtureObligations": [
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read-write.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read-write.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read-write.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read-write.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read-write.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read-write.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.read.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.write.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.write.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.write.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.write.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.write.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsopenasync.10n334p.logical.write.wrong-principal"
       ]
     },
     {
@@ -169022,7 +169140,7 @@
         ],
         "terminalObservedKey": "native-op:__exactGenerateKeyPairSync"
       },
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -169034,6 +169152,41 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.native.op.exactgeneratekeypairsync.18brh0u.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactgeneratekeypairsync.18brh0u",
+      "observedKey": "native-op:__exactGenerateKeyPairSync",
+      "branchId": "surface.native.op.exactgeneratekeypairsync.18brh0u.windows",
+      "enforcementBranchId": "surface.native.op.exactgeneratekeypairsync.18brh0u.windows",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactGenerateKeyPairSync"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactGenerateKeyPairSync",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactGenerateKeyPairSync"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactGenerateKeyPairSync",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactGenerateKeyPairSync"
+        ],
+        "terminalObservedKey": "native-op:__exactGenerateKeyPairSync"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "windows",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "windows"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_crypto_windows.cc#__exactGenerateKeyPairSync",
+        "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactGenerateKeyPairSync"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.native.op.exactgeneratekeypairsync.18brh0u.windows.non-capability"
       ]
     },
     {
@@ -170362,7 +170515,7 @@
         ],
         "terminalObservedKey": "native-op:__exactHkdf"
       },
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -170374,6 +170527,41 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.native.op.exacthkdf.05jgsim.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exacthkdf.05jgsim",
+      "observedKey": "native-op:__exactHkdf",
+      "branchId": "surface.native.op.exacthkdf.05jgsim.windows",
+      "enforcementBranchId": "surface.native.op.exacthkdf.05jgsim.windows",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactHkdf"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactHkdf",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactHkdf"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactHkdf",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactHkdf"
+        ],
+        "terminalObservedKey": "native-op:__exactHkdf"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "windows",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "windows"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_crypto_windows.cc#__exactHkdf",
+        "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactHkdf"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.native.op.exacthkdf.05jgsim.windows.non-capability"
       ]
     },
     {
@@ -173704,7 +173892,7 @@
         ],
         "terminalObservedKey": "native-op:__exactPbkdf2"
       },
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -173716,6 +173904,41 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.native.op.exactpbkdf2.1e25u7w.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactpbkdf2.1e25u7w",
+      "observedKey": "native-op:__exactPbkdf2",
+      "branchId": "surface.native.op.exactpbkdf2.1e25u7w.windows",
+      "enforcementBranchId": "surface.native.op.exactpbkdf2.1e25u7w.windows",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactPbkdf2"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactPbkdf2",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactPbkdf2"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactPbkdf2",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactPbkdf2"
+        ],
+        "terminalObservedKey": "native-op:__exactPbkdf2"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "windows",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "windows"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_crypto_windows.cc#__exactPbkdf2",
+        "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactPbkdf2"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.native.op.exactpbkdf2.1e25u7w.windows.non-capability"
       ]
     },
     {
@@ -175369,7 +175592,7 @@
         ],
         "terminalObservedKey": "native-op:__exactScryptSync"
       },
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -175381,6 +175604,41 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.native.op.exactscryptsync.0u89mot.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactscryptsync.0u89mot",
+      "observedKey": "native-op:__exactScryptSync",
+      "branchId": "surface.native.op.exactscryptsync.0u89mot.windows",
+      "enforcementBranchId": "surface.native.op.exactscryptsync.0u89mot.windows",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactScryptSync"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactScryptSync",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactScryptSync"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactScryptSync",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactScryptSync"
+        ],
+        "terminalObservedKey": "native-op:__exactScryptSync"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "windows",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "windows"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_crypto_windows.cc#__exactScryptSync",
+        "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactScryptSync"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.native.op.exactscryptsync.0u89mot.windows.non-capability"
       ]
     },
     {
@@ -179464,7 +179722,7 @@
         ],
         "terminalObservedKey": "native-op:__exactUdpAddress"
       },
-      "branchKind": "alternative",
+      "branchKind": "single",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -179493,55 +179751,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.exactudpaddress.05li2xk",
-      "observedKey": "native-op:__exactUdpAddress",
-      "branchId": "surface.native.op.exactudpaddress.05li2xk.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpaddress.0bgg5b6",
-      "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
-        "proofPaths": [
-          "native-op:__exactUdpAddress"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpAddress",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpAddress"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpAddress",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpAddress"
-        ],
-        "terminalObservedKey": "native-op:__exactUdpAddress"
-      },
-      "branchKind": "alternative",
-      "targetVariant": "windows",
-      "targetApplicability": {
-        "kind": "operating-system",
-        "value": "windows"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUdpAddress",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpAddress"
-      ],
-      "implementationOwner": "WP6",
-      "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpaddress.0bgg5b6.logical.accepted.allow",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpaddress.0bgg5b6.logical.accepted.branch-selection",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpaddress.0bgg5b6.logical.accepted.deny",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpaddress.0bgg5b6.logical.accepted.malformed",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpaddress.0bgg5b6.logical.accepted.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpaddress.0bgg5b6.logical.accepted.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpaddress.0bgg5b6.logical.metadata.branch-selection",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpaddress.0bgg5b6.logical.metadata.malformed-branch-facts",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpaddress.0bgg5b6.logical.metadata.no-effect",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpaddress.0bgg5b6.logical.outbound.allow",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpaddress.0bgg5b6.logical.outbound.branch-selection",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpaddress.0bgg5b6.logical.outbound.deny",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpaddress.0bgg5b6.logical.outbound.malformed",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpaddress.0bgg5b6.logical.outbound.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpaddress.0bgg5b6.logical.outbound.wrong-principal"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.exactudpbind.0urc5z3",
       "observedKey": "native-op:__exactUdpBind",
       "branchId": "surface.native.op.exactudpbind.0urc5z3.default",
@@ -179561,7 +179770,7 @@
         ],
         "terminalObservedKey": "native-op:__exactUdpBind"
       },
-      "branchKind": "alternative",
+      "branchKind": "single",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -179577,45 +179786,6 @@
         "enforcement.src.engine.hermes.runtime.net.cc.exactudpbind.0vfsquw.malformed",
         "enforcement.src.engine.hermes.runtime.net.cc.exactudpbind.0vfsquw.missing-attribution",
         "enforcement.src.engine.hermes.runtime.net.cc.exactudpbind.0vfsquw.wrong-principal"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactudpbind.0urc5z3",
-      "observedKey": "native-op:__exactUdpBind",
-      "branchId": "surface.native.op.exactudpbind.0urc5z3.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpbind.1175avt",
-      "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
-        "proofPaths": [
-          "native-op:__exactUdpBind"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpBind",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpBind"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpBind",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpBind"
-        ],
-        "terminalObservedKey": "native-op:__exactUdpBind"
-      },
-      "branchKind": "alternative",
-      "targetVariant": "windows",
-      "targetApplicability": {
-        "kind": "operating-system",
-        "value": "windows"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUdpBind",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpBind"
-      ],
-      "implementationOwner": "WP6",
-      "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpbind.1175avt.allow",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpbind.1175avt.deny",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpbind.1175avt.malformed",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpbind.1175avt.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpbind.1175avt.wrong-principal"
       ]
     },
     {
@@ -179638,7 +179808,7 @@
         ],
         "terminalObservedKey": "native-op:__exactUdpClose"
       },
-      "branchKind": "alternative",
+      "branchKind": "single",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -179650,41 +179820,6 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.native.op.exactudpclose.01qkpuk.default.non-capability"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactudpclose.01qkpuk",
-      "observedKey": "native-op:__exactUdpClose",
-      "branchId": "surface.native.op.exactudpclose.01qkpuk.windows",
-      "enforcementBranchId": "surface.native.op.exactudpclose.01qkpuk.windows",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactUdpClose"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpClose",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpClose"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpClose",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpClose"
-        ],
-        "terminalObservedKey": "native-op:__exactUdpClose"
-      },
-      "branchKind": "alternative",
-      "targetVariant": "windows",
-      "targetApplicability": {
-        "kind": "operating-system",
-        "value": "windows"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUdpClose",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpClose"
-      ],
-      "implementationOwner": "WP8",
-      "fixtureObligations": [
-        "surface.native.op.exactudpclose.01qkpuk.windows.non-capability"
       ]
     },
     {
@@ -179775,7 +179910,7 @@
         ],
         "terminalObservedKey": "native-op:__exactUdpRecv"
       },
-      "branchKind": "alternative",
+      "branchKind": "single",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -179791,45 +179926,6 @@
         "enforcement.src.engine.hermes.runtime.net.cc.exactudprecv.07bs054.malformed",
         "enforcement.src.engine.hermes.runtime.net.cc.exactudprecv.07bs054.missing-attribution",
         "enforcement.src.engine.hermes.runtime.net.cc.exactudprecv.07bs054.wrong-principal"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactudprecv.0kanlvk",
-      "observedKey": "native-op:__exactUdpRecv",
-      "branchId": "surface.native.op.exactudprecv.0kanlvk.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudprecv.15dojup",
-      "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
-        "proofPaths": [
-          "native-op:__exactUdpRecv"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpRecv",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpRecv"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpRecv",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpRecv"
-        ],
-        "terminalObservedKey": "native-op:__exactUdpRecv"
-      },
-      "branchKind": "alternative",
-      "targetVariant": "windows",
-      "targetApplicability": {
-        "kind": "operating-system",
-        "value": "windows"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUdpRecv",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpRecv"
-      ],
-      "implementationOwner": "WP6",
-      "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudprecv.15dojup.allow",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudprecv.15dojup.deny",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudprecv.15dojup.malformed",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudprecv.15dojup.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudprecv.15dojup.wrong-principal"
       ]
     },
     {
@@ -179852,7 +179948,7 @@
         ],
         "terminalObservedKey": "native-op:__exactUdpSend"
       },
-      "branchKind": "alternative",
+      "branchKind": "single",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -179868,45 +179964,6 @@
         "enforcement.src.engine.hermes.runtime.net.cc.exactudpsend.1f11bhw.malformed",
         "enforcement.src.engine.hermes.runtime.net.cc.exactudpsend.1f11bhw.missing-attribution",
         "enforcement.src.engine.hermes.runtime.net.cc.exactudpsend.1f11bhw.wrong-principal"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactudpsend.0k2gg86",
-      "observedKey": "native-op:__exactUdpSend",
-      "branchId": "surface.native.op.exactudpsend.0k2gg86.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpsend.1p4i1y3",
-      "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
-        "proofPaths": [
-          "native-op:__exactUdpSend"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpSend",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpSend"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpSend",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpSend"
-        ],
-        "terminalObservedKey": "native-op:__exactUdpSend"
-      },
-      "branchKind": "alternative",
-      "targetVariant": "windows",
-      "targetApplicability": {
-        "kind": "operating-system",
-        "value": "windows"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUdpSend",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpSend"
-      ],
-      "implementationOwner": "WP6",
-      "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpsend.1p4i1y3.allow",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpsend.1p4i1y3.deny",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpsend.1p4i1y3.malformed",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpsend.1p4i1y3.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactudpsend.1p4i1y3.wrong-principal"
       ]
     },
     {
@@ -179929,7 +179986,7 @@
         ],
         "terminalObservedKey": "native-op:__exactUdpSocket"
       },
-      "branchKind": "alternative",
+      "branchKind": "single",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -179941,41 +179998,6 @@
       "implementationOwner": "WP6",
       "fixtureObligations": [
         "surface.native.op.exactudpsocket.043qw7l.default.non-capability"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactudpsocket.043qw7l",
-      "observedKey": "native-op:__exactUdpSocket",
-      "branchId": "surface.native.op.exactudpsocket.043qw7l.windows",
-      "enforcementBranchId": "surface.native.op.exactudpsocket.043qw7l.windows",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactUdpSocket"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpSocket",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpSocket"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUdpSocket",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpSocket"
-        ],
-        "terminalObservedKey": "native-op:__exactUdpSocket"
-      },
-      "branchKind": "alternative",
-      "targetVariant": "windows",
-      "targetApplicability": {
-        "kind": "operating-system",
-        "value": "windows"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUdpSocket",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUdpSocket"
-      ],
-      "implementationOwner": "WP6",
-      "fixtureObligations": [
-        "surface.native.op.exactudpsocket.043qw7l.windows.non-capability"
       ]
     },
     {
@@ -180063,7 +180085,7 @@
         ],
         "terminalObservedKey": "native-op:__exactUnixAccept"
       },
-      "branchKind": "alternative",
+      "branchKind": "single",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -180079,45 +180101,6 @@
         "enforcement.src.engine.hermes.runtime.net.cc.exactunixaccept.0eyss7v.malformed",
         "enforcement.src.engine.hermes.runtime.net.cc.exactunixaccept.0eyss7v.missing-attribution",
         "enforcement.src.engine.hermes.runtime.net.cc.exactunixaccept.0eyss7v.wrong-principal"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactunixaccept.1x40lrn",
-      "observedKey": "native-op:__exactUnixAccept",
-      "branchId": "surface.native.op.exactunixaccept.1x40lrn.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixaccept.0f0mv2w",
-      "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
-        "proofPaths": [
-          "native-op:__exactUnixAccept"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUnixAccept",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixAccept"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUnixAccept",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixAccept"
-        ],
-        "terminalObservedKey": "native-op:__exactUnixAccept"
-      },
-      "branchKind": "alternative",
-      "targetVariant": "windows",
-      "targetApplicability": {
-        "kind": "operating-system",
-        "value": "windows"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUnixAccept",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixAccept"
-      ],
-      "implementationOwner": "WP6",
-      "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixaccept.0f0mv2w.allow",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixaccept.0f0mv2w.deny",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixaccept.0f0mv2w.malformed",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixaccept.0f0mv2w.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixaccept.0f0mv2w.wrong-principal"
       ]
     },
     {
@@ -180140,7 +180123,7 @@
         ],
         "terminalObservedKey": "native-op:__exactUnixConnect"
       },
-      "branchKind": "alternative",
+      "branchKind": "single",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -180156,45 +180139,6 @@
         "enforcement.src.engine.hermes.runtime.net.cc.exactunixconnect.0p5wb2d.malformed",
         "enforcement.src.engine.hermes.runtime.net.cc.exactunixconnect.0p5wb2d.missing-attribution",
         "enforcement.src.engine.hermes.runtime.net.cc.exactunixconnect.0p5wb2d.wrong-principal"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactunixconnect.0z2wmqb",
-      "observedKey": "native-op:__exactUnixConnect",
-      "branchId": "surface.native.op.exactunixconnect.0z2wmqb.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixconnect.12doziy",
-      "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
-        "proofPaths": [
-          "native-op:__exactUnixConnect"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUnixConnect",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixConnect"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUnixConnect",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixConnect"
-        ],
-        "terminalObservedKey": "native-op:__exactUnixConnect"
-      },
-      "branchKind": "alternative",
-      "targetVariant": "windows",
-      "targetApplicability": {
-        "kind": "operating-system",
-        "value": "windows"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUnixConnect",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixConnect"
-      ],
-      "implementationOwner": "WP6",
-      "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixconnect.12doziy.allow",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixconnect.12doziy.deny",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixconnect.12doziy.malformed",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixconnect.12doziy.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixconnect.12doziy.wrong-principal"
       ]
     },
     {
@@ -180217,7 +180161,7 @@
         ],
         "terminalObservedKey": "native-op:__exactUnixListen"
       },
-      "branchKind": "alternative",
+      "branchKind": "single",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -180233,45 +180177,6 @@
         "enforcement.src.engine.hermes.runtime.net.cc.exactunixlisten.1nmvlct.malformed",
         "enforcement.src.engine.hermes.runtime.net.cc.exactunixlisten.1nmvlct.missing-attribution",
         "enforcement.src.engine.hermes.runtime.net.cc.exactunixlisten.1nmvlct.wrong-principal"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactunixlisten.0oo86mg",
-      "observedKey": "native-op:__exactUnixListen",
-      "branchId": "surface.native.op.exactunixlisten.0oo86mg.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixlisten.18de8ms",
-      "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
-        "proofPaths": [
-          "native-op:__exactUnixListen"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUnixListen",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixListen"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUnixListen",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixListen"
-        ],
-        "terminalObservedKey": "native-op:__exactUnixListen"
-      },
-      "branchKind": "alternative",
-      "targetVariant": "windows",
-      "targetApplicability": {
-        "kind": "operating-system",
-        "value": "windows"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime_platform_windows.cc#__exactUnixListen",
-        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixListen"
-      ],
-      "implementationOwner": "WP6",
-      "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixlisten.18de8ms.allow",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixlisten.18de8ms.deny",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixlisten.18de8ms.malformed",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixlisten.18de8ms.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactunixlisten.18de8ms.wrong-principal"
       ]
     },
     {
@@ -270808,17 +270713,19 @@
       "edgeId": "surface.startup.env.ibex.dns.server.0ggdo6d",
       "observedKey": "startup:env:IBEX_DNS_SERVER",
       "branchId": "surface.startup.env.ibex.dns.server.0ggdo6d.main",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
           "startup:env:IBEX_DNS_SERVER"
         ],
         "proofSourceRefs": [
-          "src/engine/hermes_runtime_dns.cc#getenv:IBEX_DNS_SERVER:read"
+          "src/engine/hermes_runtime_dns.cc#getenv:IBEX_DNS_SERVER:read",
+          "src/engine/hermes_runtime_platform_windows.cc#getenvString:IBEX_DNS_SERVER:read"
         ],
         "sourceRefs": [
-          "src/engine/hermes_runtime_dns.cc#getenv:IBEX_DNS_SERVER:read"
+          "src/engine/hermes_runtime_dns.cc#getenv:IBEX_DNS_SERVER:read",
+          "src/engine/hermes_runtime_platform_windows.cc#getenvString:IBEX_DNS_SERVER:read"
         ],
         "terminalObservedKey": "startup:env:IBEX_DNS_SERVER"
       },
@@ -270828,19 +270735,20 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/engine/hermes_runtime_dns.cc#getenv:IBEX_DNS_SERVER:read"
+        "src/engine/hermes_runtime_dns.cc#getenv:IBEX_DNS_SERVER:read",
+        "src/engine/hermes_runtime_platform_windows.cc#getenvString:IBEX_DNS_SERVER:read"
       ],
       "implementationOwner": "WP6",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.set.allow",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.set.branch-selection",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.set.deny",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.set.malformed",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.set.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.set.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.unset.branch-selection",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.unset.malformed-branch-facts",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.unset.no-effect"
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.set.allow",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.set.branch-selection",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.set.deny",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.set.malformed",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.set.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.set.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.unset.branch-selection",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.unset.malformed-branch-facts",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.unset.no-effect"
       ]
     },
     {
@@ -271443,10 +271351,12 @@
           "startup:env:IBEX_TEST_FS_WORKER_MAX_QUEUE"
         ],
         "proofSourceRefs": [
-          "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read"
+          "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read",
+          "src/engine/hermes_runtime_fs_windows.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read"
         ],
         "sourceRefs": [
-          "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read"
+          "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read",
+          "src/engine/hermes_runtime_fs_windows.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read"
         ],
         "terminalObservedKey": "startup:env:IBEX_TEST_FS_WORKER_MAX_QUEUE"
       },
@@ -271456,7 +271366,8 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read"
+        "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read",
+        "src/engine/hermes_runtime_fs_windows.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read"
       ],
       "implementationOwner": "WP9",
       "fixtureObligations": [
@@ -271474,10 +271385,12 @@
           "startup:env:IBEX_TEST_FS_WORKER_THROW_ENQUEUE"
         ],
         "proofSourceRefs": [
-          "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read"
+          "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read",
+          "src/engine/hermes_runtime_fs_windows.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read"
         ],
         "sourceRefs": [
-          "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read"
+          "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read",
+          "src/engine/hermes_runtime_fs_windows.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read"
         ],
         "terminalObservedKey": "startup:env:IBEX_TEST_FS_WORKER_THROW_ENQUEUE"
       },
@@ -271487,7 +271400,8 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read"
+        "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read",
+        "src/engine/hermes_runtime_fs_windows.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read"
       ],
       "implementationOwner": "WP9",
       "fixtureObligations": [
@@ -272248,17 +272162,19 @@
       "edgeId": "surface.startup.env.res.options.0e62k3i",
       "observedKey": "startup:env:RES_OPTIONS",
       "branchId": "surface.startup.env.res.options.0e62k3i.main",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
           "startup:env:RES_OPTIONS"
         ],
         "proofSourceRefs": [
-          "src/engine/hermes_runtime_dns.cc#getenv:RES_OPTIONS:read"
+          "src/engine/hermes_runtime_dns.cc#getenv:RES_OPTIONS:read",
+          "src/engine/hermes_runtime_platform_windows.cc#getenvString:RES_OPTIONS:read"
         ],
         "sourceRefs": [
-          "src/engine/hermes_runtime_dns.cc#getenv:RES_OPTIONS:read"
+          "src/engine/hermes_runtime_dns.cc#getenv:RES_OPTIONS:read",
+          "src/engine/hermes_runtime_platform_windows.cc#getenvString:RES_OPTIONS:read"
         ],
         "terminalObservedKey": "startup:env:RES_OPTIONS"
       },
@@ -272268,19 +272184,20 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/engine/hermes_runtime_dns.cc#getenv:RES_OPTIONS:read"
+        "src/engine/hermes_runtime_dns.cc#getenv:RES_OPTIONS:read",
+        "src/engine/hermes_runtime_platform_windows.cc#getenvString:RES_OPTIONS:read"
       ],
       "implementationOwner": "WP6",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.set.allow",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.set.branch-selection",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.set.deny",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.set.malformed",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.set.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.set.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.unset.branch-selection",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.unset.malformed-branch-facts",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.unset.no-effect"
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.set.allow",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.set.branch-selection",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.set.deny",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.set.malformed",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.set.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.set.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.unset.branch-selection",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.unset.malformed-branch-facts",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.unset.no-effect"
       ]
     },
     {
@@ -281737,7 +281654,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-DDOTdubeHmY1TUz3YpoVNofePXvb1-yqWT1RSkoAwww"
+      "rawContentDigest": "sha256-u7woWM2mn7rteFySxjy_vlvKbuWfLvPPlavbhkHUkWE"
     },
     {
       "kind": "output-disposition-dataset",
@@ -281752,12 +281669,12 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-WZD99pWu3FBBmvoqTHhN8q20Hu2QreIqvXhjn3URoOw"
+      "rawContentDigest": "sha256-PTmzjUqLRtwZz8uMhj_Vr_dF4n8CassLdADxmfACaWw"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-05WBUGx0y34ewruAXNxBf6uxLdNoZQmY0c2OzBGA_LM"
+      "rawContentDigest": "sha256-f_iIFLOvMDt_f4xdONeNWxHUiST9TUIlNtf2OkFsfmM"
     },
     {
       "kind": "registry",
@@ -281767,28 +281684,28 @@
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-g2MaHfQ2Bj3vQykz84WzXAE0rx6w0rPQp48BL5UPc5I"
+      "rawContentDigest": "sha256-4Oo_OlEAnBqIi-dSH3ufkR8LB16O2q_mBq2EiclqXVs"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-aDxan9dZZfX2hIu8gGrUQLrsk6x6La3H1uScmg8SzYg"
+      "rawContentDigest": "sha256-QfUH-e8kC23jBXDUPsHGqdYp8h4cb5QKytWrRAYMkMo"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-5-CmdkOAPRC5BcxHG0AkSmnp5nRKLgSlW8KWQFzw4sI"
+      "rawContentDigest": "sha256-EX3ch0bBqq9KtWQmgr50MtQE7T_RNn4PW9IWOh6e4Gc"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-UWygvsRA-3CCtDFgD5qXEXyrgQVShbnp2r0GTzyfrr4"
+      "rawContentDigest": "sha256-Be3buWbcAEvqZaqdBk5J6zEvuGRME2ks0nsgjohyxIo"
     }
   ],
   "counts": {
     "observedReferences": 13305,
     "logicalSurfaces": 7579,
-    "enforcementBranches": 7799,
+    "enforcementBranches": 7797,
     "coverageEdges": 7579,
     "targetCells": 15158
   }
