@@ -645,6 +645,49 @@ impl Host {
         }
     }
 
+    /// Debug-only development arming that bypasses the checked v2 target
+    /// advertisement. Every other production authenticator still runs — the
+    /// loaded-engine identity, protected artifacts, root bindings, and the full
+    /// armed capability floor are all enforced exactly as in `new_armed`. Only
+    /// the report-derived target promotion is replaced with a synthetic
+    /// complete cell map so the runtime will arm before any advertisement
+    /// exists. This is NOT an advertised target and must never be presented as
+    /// one; it exists purely so `ibex repl`/`eval`/`run` can execute locally
+    /// during development while the advertisement pipeline is built.
+    ///
+    /// Compiled only under the opt-in `unadvertised-dev-arming` feature: the
+    /// constructor does not exist in a default build, so the production
+    /// fail-closed guarantee is untouched.
+    /// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    /// the real advertisement remains the only production arming path.
+    #[cfg(feature = "unadvertised-dev-arming")]
+    #[doc(hidden)]
+    pub fn new_armed_unadvertised_dev(
+        config: HostConfig,
+        armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
+    ) -> capsec_semantics::Result<Self> {
+        validate_loaded_engine_identity(&armed_snapshot)?;
+        validate_snapshot_protected_artifacts(&armed_snapshot)?;
+        let target_cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
+            .iter()
+            .map(|edge| {
+                (
+                    (*edge).to_owned(),
+                    capsec_semantics::decision::TargetCellDisposition::Complete,
+                )
+            })
+            .collect();
+        let authenticated_package_sources = validate_snapshot_root_bindings(&armed_snapshot)?;
+        Self::new_armed_with_target_cells(
+            config,
+            armed_snapshot,
+            target_cells,
+            authenticated_package_sources,
+            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
+            BTreeMap::new(),
+        )
+    }
+
     /// Construct an explicitly armed host. Embedders must authenticate the
     /// snapshot before creating the engine; there is no permissive fallback.
     pub fn new_armed(

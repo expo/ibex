@@ -3236,14 +3236,22 @@ impl Runtime {
     ) -> Result<Self> {
         let snapshot = authenticated_session_worker_snapshot(application, session_io)?;
         let digest = snapshot.digest().as_str().to_owned();
-        let host = Host::new_armed(
-            HostConfig {
-                mode: crate::host::SecurityMode::Enforce,
-                ..Default::default()
-            },
-            snapshot,
-        )
+        let host_config = HostConfig {
+            mode: crate::host::SecurityMode::Enforce,
+            ..Default::default()
+        };
+        // The worker is the same binary as the parent, so it observes the same
+        // compile-time `unadvertised-dev-arming` value with no env channel.
+        #[cfg(feature = "unadvertised-dev-arming")]
+        let host = if unadvertised_dev_arming_active() {
+            Host::new_armed_unadvertised_dev(host_config, snapshot)
+        } else {
+            Host::new_armed(host_config, snapshot)
+        }
         .context("failed to construct authenticated session worker host")?;
+        #[cfg(not(feature = "unadvertised-dev-arming"))]
+        let host = Host::new_armed(host_config, snapshot)
+            .context("failed to construct authenticated session worker host")?;
         crate::host::abi::install_host(host.clone());
         let engine = engine::create_engine("hermes", Some(&digest))?;
         Ok(Self::from_authenticated_session_worker_parts(
@@ -4987,14 +4995,45 @@ fn build_default_armed_host(
     )?);
     validate_optional_home_cache_binding(&snapshot, &cache_root)?;
     let digest = snapshot.digest().as_str().to_owned();
-    let host = Host::new_armed(
-        HostConfig {
-            mode: crate::host::SecurityMode::Enforce,
-            ..Default::default()
-        },
-        snapshot,
-    )?;
+    let host_config = HostConfig {
+        mode: crate::host::SecurityMode::Enforce,
+        ..Default::default()
+    };
+    #[cfg(feature = "unadvertised-dev-arming")]
+    let host = if unadvertised_dev_arming_active() {
+        Host::new_armed_unadvertised_dev(host_config, snapshot)?
+    } else {
+        Host::new_armed(host_config, snapshot)?
+    };
+    #[cfg(not(feature = "unadvertised-dev-arming"))]
+    let host = Host::new_armed(host_config, snapshot)?;
     Ok((host, Some(digest), project_root, cache_root))
+}
+
+/// Whether the opt-in `unadvertised-dev-arming` feature is compiled in. When it
+/// is, `ibex` arms without a checked target advertisement (loud banner; every
+/// other authenticator still runs). The feature is compile-time, so both the
+/// parent process and the re-exec'd session worker (the same binary) observe the
+/// same value with no runtime environment or CLI surface, and a default/shipped
+/// build has no unadvertised arming path at all — the production advertisement
+/// is its sole arming route.
+/// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+pub(crate) fn unadvertised_dev_arming_active() -> bool {
+    cfg!(feature = "unadvertised-dev-arming")
+}
+
+/// Print the one-time dev-arming warning banner at startup when the
+/// `unadvertised-dev-arming` feature is compiled in. No-op otherwise.
+pub(crate) fn emit_unadvertised_dev_arming_banner_if_active() {
+    #[cfg(feature = "unadvertised-dev-arming")]
+    {
+        eprintln!(
+            "\x1b[1;33mibex: DEV ARMING — running WITHOUT a checked target advertisement.\x1b[0m"
+        );
+        eprintln!(
+            "ibex: capabilities are still enforced, but this is NOT an advertised target. Do not ship or trust this run."
+        );
+    }
 }
 
 fn exact_runtime_target() -> String {
