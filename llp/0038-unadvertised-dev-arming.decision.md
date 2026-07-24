@@ -105,6 +105,46 @@ authorize them:
 A loud banner is printed on every run so an unadvertised build is never mistaken
 for a conforming one.
 
+## Fully open mode (dev-capsec-off)
+
+`dev-capsec-off` implies `unadvertised-dev-arming` and additionally:
+
+1. arms `rootAuthorityCeiling` as `{"kind": "unbounded"}`, so `ceiling_allows`
+   is true for every effect and ambient root authorizes any typed capability
+   rather than only the project fs subtree; and
+2. lets the legacy capability shim (`Host::check_capability` and friends)
+   answer normally instead of hard-denying. Those methods return `false`
+   whenever `decision_context.is_some()`, which closes capabilities that have
+   no typed path yet.
+
+**Enforcement is not one switch.** Capability families are gated by different
+mechanisms, and this feature only reaches two of them. Measured behaviour:
+
+| effect | `dev-capsec-off` | gated by |
+|---|---|---|
+| project fs (relative + absolute) | works | typed decision engine — root ceiling |
+| `child_process` spawn | works | legacy shim (`checkCapability("process:spawn")`) |
+| paths outside the project | **still refused** | VFS mount, single backing root |
+| `fetch` / network | **still refused** | native armed gate, see below |
+| `process.env` | **still empty** | never populated from the host env |
+
+Two of these are not permission problems and cannot be granted:
+
+- **Network.** `src/engine/hermes_runtime_fetch.cc` throws
+  `"typed network:fetch transport is unavailable"` whenever
+  `ex_host_is_armed() == 1`. Armed fetch is deliberately closed until the
+  transport reports the requested/candidate/verified-peer facts the typed model
+  needs, and must not fall back to the legacy string oracle (LLP 0021 WP6).
+  Enabling it is feature work, not configuration.
+- **Paths outside the project.** `VirtualFileSystem` has a single
+  `BackingMount` (`/project` → one host root), so a wider mount is an
+  architectural change rather than a grant. The practical workaround is to run
+  Ibex from a project root that contains what the script needs.
+
+So `dev-capsec-off` means "capability *decisions* stop refusing", not "the
+sandbox is gone". Do not read it as a way to reach the host filesystem or the
+network.
+
 ## Consequences
 
 `ibex eval`, `ibex repl`, and `ibex run <file>` work locally. Because the REPL's

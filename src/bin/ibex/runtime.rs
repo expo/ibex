@@ -4871,15 +4871,27 @@ fn build_default_armed_host(
     // The armed root ceiling is exactly the canonical policy's authored root
     // ceiling — never the template's. An absent authored ceiling arms bounded
     // and empty rather than inheriting the example document's unbounded value.
-    value["rootAuthorityCeiling"] = serde_json::json!({
-        "kind": "bounded",
-        "authorities": policy["rootCeiling"]
-            .as_array()
-            .context("canonical root ceiling must be an array")?
-            .iter()
-            .map(|row| row["authority"].clone())
-            .collect::<Vec<_>>(),
-    });
+    // `dev-capsec-off` arms the root ceiling unbounded, so `ceiling_allows` is
+    // true for every effect and ambient root authorizes all capabilities —
+    // capability enforcement is effectively off for local development. The VFS
+    // mount is a separate mechanism and still confines paths to the project.
+    // @ref LLP 0038#fully-open-mode-dev-capsec-off
+    #[cfg(feature = "dev-capsec-off")]
+    {
+        value["rootAuthorityCeiling"] = serde_json::json!({"kind": "unbounded"});
+    }
+    #[cfg(not(feature = "dev-capsec-off"))]
+    {
+        value["rootAuthorityCeiling"] = serde_json::json!({
+            "kind": "bounded",
+            "authorities": policy["rootCeiling"]
+                .as_array()
+                .context("canonical root ceiling must be an array")?
+                .iter()
+                .map(|row| row["authority"].clone())
+                .collect::<Vec<_>>(),
+        });
+    }
     value["bootstrapAuthorityFloor"] = serde_json::json!([]);
     value["engine"] = serde_json::json!({
         "target": exact_runtime_target(),
@@ -5076,6 +5088,13 @@ pub(crate) fn emit_unadvertised_dev_arming_banner_if_active() {
         eprintln!(
             "\x1b[1;33mibex: DEV ARMING — running WITHOUT a checked target advertisement.\x1b[0m"
         );
+        // The two modes make very different security claims, so they must not
+        // print the same banner. @ref LLP 0038#fully-open-mode-dev-capsec-off
+        #[cfg(feature = "dev-capsec-off")]
+        eprintln!(
+            "\x1b[1;31mibex: CAPSEC OFF — capability enforcement is DISABLED (unbounded root ceiling).\x1b[0m\nibex: fs, network, env, and spawn are all permitted. Paths remain confined to the project mount. Do not ship or trust this run."
+        );
+        #[cfg(not(feature = "dev-capsec-off"))]
         eprintln!(
             "ibex: capabilities are still enforced, but this is NOT an advertised target. Do not ship or trust this run."
         );
