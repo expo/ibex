@@ -4702,24 +4702,35 @@ fn build_default_armed_host(
     // because the root-ceiling gate denies first.
     #[cfg(feature = "unadvertised-dev-arming")]
     if !policy_loaded {
-        policy["rootCeiling"] = serde_json::json!(
-            ["fs:list", "fs:read", "fs:write"]
-                .iter()
-                .map(|cap| serde_json::json!({
-                    "authority": {
-                        "cap": cap,
-                        "resource": {
-                            "kind": "path-tree",
-                            "path": {"root": "project", "components": []},
-                        },
-                    },
-                    "provenance": [{
-                        "kind": "direct",
-                        "source": "ibex:unadvertised-dev-arming:project-ceiling",
-                    }],
-                }))
-                .collect::<Vec<_>>()
-        );
+        // Canonically sorted by capability; arming refuses an unsorted ceiling.
+        // `path:cwd-*` is required for *relative* paths: resolving `foo.txt`
+        // observes the session cwd before any fs effect, so without it every
+        // relative read fails with "EACCES: cwd: filesystem policy denied"
+        // even though the fs capabilities are present.
+        let project_tree = serde_json::json!({
+            "kind": "path-tree",
+            "path": {"root": "project", "components": []},
+        });
+        let session_cwd = serde_json::json!({"kind": "session-state", "name": "cwd"});
+        policy["rootCeiling"] = serde_json::json!([
+            ("fs:list", &project_tree),
+            ("fs:read", &project_tree),
+            ("fs:watch", &project_tree),
+            ("fs:write", &project_tree),
+            // `path:cwd-mutate` (process.chdir) is deliberately omitted: the
+            // registry restricts it to `path-exact`, so it could only ever name
+            // one exact directory rather than the project subtree.
+            ("path:cwd-observe", &session_cwd),
+        ]
+        .iter()
+        .map(|(cap, resource)| serde_json::json!({
+            "authority": {"cap": cap, "resource": resource},
+            "provenance": [{
+                "kind": "direct",
+                "source": "ibex:unadvertised-dev-arming:project-ceiling",
+            }],
+        }))
+        .collect::<Vec<_>>());
     }
     let policy_digest = compute_checked_contract_digest(DigestKind::Policy, &policy)?;
     if policy_loaded && policy["policyDigest"].as_str() != Some(policy_digest.as_str()) {
