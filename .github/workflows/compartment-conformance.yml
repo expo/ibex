@@ -103,6 +103,15 @@ jobs:
             exit 1
           fi
 
+      # `insecure` is in Cargo's default feature set (LLP 0039), so ordinary
+      # builds and `cargo test` runs exercise a runtime with no sandbox and
+      # would not notice secure mode breaking. This is the job that notices.
+      # Placed before the full matrix because it is comparatively quick and
+      # its failure ("secure mode no longer enforces") is the more urgent
+      # signal. @ref LLP 0039#secure-mode-must-stay-exercised
+      - name: Guard secure mode against rot
+        run: ./scripts/check-secure-mode.sh
+
       - name: Run the complete CapSec matrix and bind evidence
         run: >-
           bun run verify:capsec-conformance --

@@ -3313,6 +3313,9 @@ function collect() {
         }
     }
 
+    // Asserts armed-refusal semantics, which an `insecure` build
+    // deliberately does not have. @ref LLP 0039#secure-mode-must-stay-exercised
+    #[cfg(not(feature = "insecure"))]
     #[test]
     fn host_policy_is_pinned_to_each_runtime_context() {
         let _host_guard = crate::host::abi::host_test_lock();

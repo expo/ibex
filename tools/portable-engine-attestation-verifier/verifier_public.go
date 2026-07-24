@@ -143,15 +143,33 @@ func parsePublicBundleProfile(raw []byte) (rawBundleProfile, error) {
 		return rawBundleProfile{}, err
 	}
 
-	// GitHub emits the container for TSA material on public bundles but the
-	// observed timestamp authority is the transparency log; any RFC3161
-	// material here is outside the measured profile.
+	// The verified timestamp comes from Rekor integration, not a TSA. The
+	// bundle's timestampVerificationData must therefore carry no RFC3161
+	// timestamp. Two equivalent empty spellings were measured from real
+	// public-repository bundles: an empty object (`{}`, sigstore-go v1.2.2
+	// GitHub CLI export) and an explicit empty array
+	// (`{"rfc3161Timestamps": []}`, GitHub's expo/ibex hermes-artifacts
+	// producer, 2026-07-23). Accept both; reject any other field and any
+	// non-empty timestamp list — real TSA material is outside this profile.
 	timestampData, err := objectAt(material["timestampVerificationData"], "$.verificationMaterial.timestampVerificationData")
 	if err != nil {
 		return rawBundleProfile{}, err
 	}
-	if err := exactFields(timestampData, "$.verificationMaterial.timestampVerificationData"); err != nil {
-		return rawBundleProfile{}, err
+	for key := range timestampData {
+		if key != "rfc3161Timestamps" {
+			return rawBundleProfile{}, fmt.Errorf(
+				"$.verificationMaterial.timestampVerificationData has unexpected field %q", key)
+		}
+	}
+	if raw, present := timestampData["rfc3161Timestamps"]; present {
+		timestamps, err := arrayAt(raw, "$.verificationMaterial.timestampVerificationData.rfc3161Timestamps")
+		if err != nil {
+			return rawBundleProfile{}, err
+		}
+		if len(timestamps) != 0 {
+			return rawBundleProfile{}, fmt.Errorf(
+				"public-good profile rejects %d RFC3161 timestamp(s); the verified timestamp is Rekor-integrated", len(timestamps))
+		}
 	}
 
 	statement, err := parseBundleStatement(rootObject)

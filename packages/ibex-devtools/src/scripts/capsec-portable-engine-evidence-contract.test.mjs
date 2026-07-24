@@ -764,24 +764,24 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
     );
     expect(
       fixture.publicSurfaceExecution.publicSurfaceExecutionDigest,
-    ).toBe("sha256-UWZrlFMFN8hI5P1BDl2BvZodPuJwcu4KBmOXUnTo0Jw");
+    ).toBe("sha256-HXpYSty0JAMPj0e4EauKsB5eQIZiiK79aqiGO-57N58");
     expect(
       fixture.outputDispositionEvidence.observations[0].observationDigest,
     ).toBe("sha256-BnNTBOX_xO0eTu79WUDCocXEKeZOHJYpsGkxcGaIhH4");
     expect(fixture.bindingDigest).toBe(
-      "sha256-6D-I0B_DbuFhQ_I09cV3HGuSBnwEbG5lnDW6cX0Gwqw",
+      "sha256-GNvbKoZjSbaB8qPuh0tx79FkXsZUua97fbYPS23g9cw",
     );
     expect(fixture.fixtureArtifact.artifactDigest).toBe(
-      "sha256-ZQKNUCrH8FrKnPx3oLuoNpMNI1FCflycXJlfrKT71AI",
+      "sha256-kZX9fuN1HDK790HNLEvzNMdzvS6I2CF_NmxyO_ZAbVs",
     );
     expect(fixture.evidence.evidenceDigest).toBe(
-      "sha256-56xJxLAN68R70Wjx5ChJwtsRskMhhFq-WwNe-C_bTec",
+      "sha256-ahlJQu1Wlsde61z7JDo97IpOiqrPUe3aDmEKWSm0w3I",
     );
     expect(fixture.attempt.attemptDigest).toBe(
-      "sha256-pZWLxGhydDKU2DcVM2FJAbZhh_xRiSQFA_48K1kVgw8",
+      "sha256-474uj9bswwgXYhseYG5R2uVb6G31szWuMhrnaS7zxCo",
     );
     expect(fixture.report.conformanceDigest).toBe(
-      "sha256-65piFYyHRlKALchW-JE_y_IvxhQJagMxL-Y7Xl3RiyE",
+      "sha256-HeuO1egSjuTjnjHz7s_kjoVNE3H3LlV9jSo-lUY3XWo",
     );
     expect(fixture.evidence.outputDigests).toEqual([
       fixture.report.executions[0].rawContentDigest,

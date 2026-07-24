@@ -3236,14 +3236,22 @@ impl Runtime {
     ) -> Result<Self> {
         let snapshot = authenticated_session_worker_snapshot(application, session_io)?;
         let digest = snapshot.digest().as_str().to_owned();
-        let host = Host::new_armed(
-            HostConfig {
-                mode: crate::host::SecurityMode::Enforce,
-                ..Default::default()
-            },
-            snapshot,
-        )
+        let host_config = HostConfig {
+            mode: crate::host::SecurityMode::Enforce,
+            ..Default::default()
+        };
+        // The worker is the same binary as the parent, so it observes the same
+        // compile-time `unadvertised-dev-arming` value with no env channel.
+        #[cfg(feature = "unadvertised-dev-arming")]
+        let host = if unadvertised_dev_arming_active() {
+            Host::new_armed_unadvertised_dev(host_config, snapshot)
+        } else {
+            Host::new_armed(host_config, snapshot)
+        }
         .context("failed to construct authenticated session worker host")?;
+        #[cfg(not(feature = "unadvertised-dev-arming"))]
+        let host = Host::new_armed(host_config, snapshot)
+            .context("failed to construct authenticated session worker host")?;
         crate::host::abi::install_host(host.clone());
         let engine = engine::create_engine("hermes", Some(&digest))?;
         Ok(Self::from_authenticated_session_worker_parts(
@@ -4678,6 +4686,52 @@ fn build_default_armed_host(
             anyhow::bail!("canonical production policy has invalid {field}");
         }
     }
+    // Unadvertised dev arming with no authored policy: the root authority ceiling
+    // gates ambient-root authorization (a decision denies at the root-ceiling
+    // stratum before ever reaching the floor). A default build synthesizes an
+    // empty ceiling, so the root principal cannot read the entry program or
+    // project files (`ibex run <file>`, or fs.* in the REPL). Raise the ceiling
+    // to cover the project subtree so ambient root authorizes reads/writes
+    // within the project. External effects (network, environment, paths outside
+    // the project) stay outside the ceiling and remain closed — the capability
+    // model stays meaningful; only the project mount is opened for local
+    // development. Only when synthesizing the default policy; an authored
+    // `ibex-policy.json` is never widened. Compiled only under the feature.
+    // @ref LLP 0038#2-root-authority-ceiling-raised-to-the-project-subtree —
+    // why the ceiling and not a floor: the floor strata are never reached,
+    // because the root-ceiling gate denies first.
+    #[cfg(feature = "unadvertised-dev-arming")]
+    if !policy_loaded {
+        // Canonically sorted by capability; arming refuses an unsorted ceiling.
+        // `path:cwd-*` is required for *relative* paths: resolving `foo.txt`
+        // observes the session cwd before any fs effect, so without it every
+        // relative read fails with "EACCES: cwd: filesystem policy denied"
+        // even though the fs capabilities are present.
+        let project_tree = serde_json::json!({
+            "kind": "path-tree",
+            "path": {"root": "project", "components": []},
+        });
+        let session_cwd = serde_json::json!({"kind": "session-state", "name": "cwd"});
+        policy["rootCeiling"] = serde_json::json!([
+            ("fs:list", &project_tree),
+            ("fs:read", &project_tree),
+            ("fs:watch", &project_tree),
+            ("fs:write", &project_tree),
+            // `path:cwd-mutate` (process.chdir) is deliberately omitted: the
+            // registry restricts it to `path-exact`, so it could only ever name
+            // one exact directory rather than the project subtree.
+            ("path:cwd-observe", &session_cwd),
+        ]
+        .iter()
+        .map(|(cap, resource)| serde_json::json!({
+            "authority": {"cap": cap, "resource": resource},
+            "provenance": [{
+                "kind": "direct",
+                "source": "ibex:unadvertised-dev-arming:project-ceiling",
+            }],
+        }))
+        .collect::<Vec<_>>());
+    }
     let policy_digest = compute_checked_contract_digest(DigestKind::Policy, &policy)?;
     if policy_loaded && policy["policyDigest"].as_str() != Some(policy_digest.as_str()) {
         anyhow::bail!("canonical policy digest is stale or tampered");
@@ -4817,15 +4871,27 @@ fn build_default_armed_host(
     // The armed root ceiling is exactly the canonical policy's authored root
     // ceiling — never the template's. An absent authored ceiling arms bounded
     // and empty rather than inheriting the example document's unbounded value.
-    value["rootAuthorityCeiling"] = serde_json::json!({
-        "kind": "bounded",
-        "authorities": policy["rootCeiling"]
-            .as_array()
-            .context("canonical root ceiling must be an array")?
-            .iter()
-            .map(|row| row["authority"].clone())
-            .collect::<Vec<_>>(),
-    });
+    // `insecure` arms the root ceiling unbounded, so `ceiling_allows` is true
+    // for every effect and ambient root authorizes all capabilities. This is
+    // only one of the three mechanisms that feature turns off; the mount
+    // restriction and the native gates are opened via `ex_host_is_armed()`.
+    // @ref LLP 0038#fully-open-mode-insecure
+    #[cfg(feature = "insecure")]
+    {
+        value["rootAuthorityCeiling"] = serde_json::json!({"kind": "unbounded"});
+    }
+    #[cfg(not(feature = "insecure"))]
+    {
+        value["rootAuthorityCeiling"] = serde_json::json!({
+            "kind": "bounded",
+            "authorities": policy["rootCeiling"]
+                .as_array()
+                .context("canonical root ceiling must be an array")?
+                .iter()
+                .map(|row| row["authority"].clone())
+                .collect::<Vec<_>>(),
+        });
+    }
     value["bootstrapAuthorityFloor"] = serde_json::json!([]);
     value["engine"] = serde_json::json!({
         "target": exact_runtime_target(),
@@ -4987,14 +5053,52 @@ fn build_default_armed_host(
     )?);
     validate_optional_home_cache_binding(&snapshot, &cache_root)?;
     let digest = snapshot.digest().as_str().to_owned();
-    let host = Host::new_armed(
-        HostConfig {
-            mode: crate::host::SecurityMode::Enforce,
-            ..Default::default()
-        },
-        snapshot,
-    )?;
+    let host_config = HostConfig {
+        mode: crate::host::SecurityMode::Enforce,
+        ..Default::default()
+    };
+    #[cfg(feature = "unadvertised-dev-arming")]
+    let host = if unadvertised_dev_arming_active() {
+        Host::new_armed_unadvertised_dev(host_config, snapshot)?
+    } else {
+        Host::new_armed(host_config, snapshot)?
+    };
+    #[cfg(not(feature = "unadvertised-dev-arming"))]
+    let host = Host::new_armed(host_config, snapshot)?;
     Ok((host, Some(digest), project_root, cache_root))
+}
+
+/// Whether the opt-in `unadvertised-dev-arming` feature is compiled in. When it
+/// is, `ibex` arms without a checked target advertisement (loud banner; every
+/// other authenticator still runs). The feature is compile-time, so both the
+/// parent process and the re-exec'd session worker (the same binary) observe the
+/// same value with no runtime environment or CLI surface, and a default/shipped
+/// build has no unadvertised arming path at all — the production advertisement
+/// is its sole arming route.
+/// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+pub(crate) fn unadvertised_dev_arming_active() -> bool {
+    cfg!(feature = "unadvertised-dev-arming")
+}
+
+/// Print the one-time dev-arming warning banner at startup when the
+/// `unadvertised-dev-arming` feature is compiled in. No-op otherwise.
+pub(crate) fn emit_unadvertised_dev_arming_banner_if_active() {
+    #[cfg(feature = "unadvertised-dev-arming")]
+    {
+        eprintln!(
+            "\x1b[1;33mibex: DEV ARMING — running WITHOUT a checked target advertisement.\x1b[0m"
+        );
+        // The two modes make very different security claims, so they must not
+        // print the same banner. @ref LLP 0038#fully-open-mode-insecure
+        #[cfg(feature = "insecure")]
+        eprintln!(
+            "\x1b[1;31mibex: INSECURE BUILD — ALL security enforcement is DISABLED.\x1b[0m\nibex: this process can read and write your entire filesystem, spawn processes, and reach the network. There is no sandbox. Never ship, publish, or run untrusted code with this build."
+        );
+        #[cfg(not(feature = "insecure"))]
+        eprintln!(
+            "ibex: capabilities are still enforced, but this is NOT an advertised target. Do not ship or trust this run."
+        );
+    }
 }
 
 fn exact_runtime_target() -> String {

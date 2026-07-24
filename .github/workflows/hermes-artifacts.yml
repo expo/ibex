@@ -206,7 +206,7 @@ jobs:
           WINDOWS_ASSET_KEY: ${{ needs.identity.outputs.windows_asset_key }}
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REPOSITORY" == "ccheever/ibex" ]]
+          [[ "$GITHUB_REPOSITORY" == "expo/ibex" ]]
           [[ "$GITHUB_REF" == "refs/heads/main" ]]
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$IDENTITY" =~ ^[0-9a-f]{12}-[0-9a-f]{12}$ ]]
@@ -1339,11 +1339,11 @@ jobs:
               raise SystemExit(f"publisher context refused: {message}")
 
           exact = {
-              "REPOSITORY": "ccheever/ibex",
+              "REPOSITORY": "expo/ibex",
               "REPOSITORY_ID": "1268046138",
-              "REPOSITORY_OWNER_ID": "56719",
+              "REPOSITORY_OWNER_ID": "12504344",
               "SOURCE_REF": "refs/heads/main",
-              "WORKFLOW_REF": "ccheever/ibex/.github/workflows/hermes-artifacts.yml@refs/heads/main",
+              "WORKFLOW_REF": "expo/ibex/.github/workflows/hermes-artifacts.yml@refs/heads/main",
               "RUNNER_ENVIRONMENT": "github-hosted",
           }
           for key, expected in exact.items():

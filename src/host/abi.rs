@@ -5716,6 +5716,15 @@ pub extern "C" fn ex_host_is_allow_all() -> i32 {
 
 #[no_mangle]
 pub extern "C" fn ex_host_is_armed() -> i32 {
+    // `insecure` reports unarmed so the ~46 native `ex_host_is_armed()` gates
+    // (fetch, net, http, sqlite, process, fs) take their diagnostic branch
+    // instead of refusing. Those branches fall back to the legacy capability
+    // check, which the same feature makes permissive — so this is the single
+    // point that opens the natively-gated families.
+    // @ref LLP 0038#fully-open-mode-insecure
+    if cfg!(feature = "insecure") {
+        return 0;
+    }
     with_host(|host| i32::from(host.armed_snapshot().is_some()), 0)
 }
 
@@ -9873,6 +9882,9 @@ mod tests {
         assert!(!with_host(|host| host.is_allow_all(), true));
     }
 
+    // Asserts armed-refusal semantics, which an `insecure` build
+    // deliberately does not have. @ref LLP 0039#secure-mode-must-stay-exercised
+    #[cfg(not(feature = "insecure"))]
     #[test]
     fn armed_legacy_path_outputs_refuse_before_lookup_randomness_or_creation() {
         let _guard = host_test_lock();

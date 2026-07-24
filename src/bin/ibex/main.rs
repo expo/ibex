@@ -1047,6 +1047,9 @@ async fn main() {
     let history_was_explicit = cli::history_option_was_explicit(&argv);
     let mut cli = Cli::parse_from(argv);
     cli.history_was_explicit = history_was_explicit;
+    // Print the one-time warning when the opt-in `unadvertised-dev-arming`
+    // feature is compiled in (no-op in a default build).
+    crate::runtime::emit_unadvertised_dev_arming_banner_if_active();
     if trace_startup() {
         eprintln!(
             "[startup] {:<30} {:>6} us ({:>5.1} ms)",

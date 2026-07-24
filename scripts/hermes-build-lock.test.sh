@@ -39,7 +39,7 @@ fail() {
 # A release mirror is transport, not provenance authority. Exercise the real
 # downloader with a hostile mirror override and a fake `gh`: release bytes may
 # come from the override, while attestation lookup, signer identity, and source
-# ref must remain pinned to the reviewed ccheever/ibex workflow on main.
+# ref must remain pinned to the reviewed expo/ibex workflow on main.
 DOWNLOAD_FIXTURE="$TMP/download-authority"
 DOWNLOAD_SCRIPTS="$DOWNLOAD_FIXTURE/scripts"
 DOWNLOAD_BIN="$DOWNLOAD_FIXTURE/bin"
@@ -151,9 +151,9 @@ RELEASE_LINE="$(grep '^release download ' "$GH_LOG" || true)"
 ATTESTATION_LINE="$(grep '^attestation verify ' "$GH_LOG" || true)"
 [[ "$RELEASE_LINE" == *"--repo attacker-controlled/mirror"* ]] \
     || fail "artifact mirror override did not remain limited to release transport"
-[[ "$ATTESTATION_LINE" == *"--repo ccheever/ibex"* ]] \
-    || fail "attestation repository was not pinned to ccheever/ibex"
-[[ "$ATTESTATION_LINE" == *"--signer-workflow ccheever/ibex/.github/workflows/hermes-artifacts.yml"* ]] \
+[[ "$ATTESTATION_LINE" == *"--repo expo/ibex"* ]] \
+    || fail "attestation repository was not pinned to expo/ibex"
+[[ "$ATTESTATION_LINE" == *"--signer-workflow expo/ibex/.github/workflows/hermes-artifacts.yml"* ]] \
     || fail "attestation signer workflow was not pinned to the reviewed workflow"
 [[ "$ATTESTATION_LINE" == *"--source-ref refs/heads/main"* ]] \
     || fail "attestation source ref was not pinned to reviewed main"

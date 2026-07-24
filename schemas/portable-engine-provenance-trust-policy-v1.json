@@ -137,24 +137,24 @@
     "certificateIssuer": "https://token.actions.githubusercontent.com",
     "enabled": true,
     "offlineVerifier": {
-      "binaryDigest": "sha256-f69505f54caad78b6012519ac866eea23c19ade9d274bd61044c791a1e30f594",
-      "binarySize": 25130562,
+      "binaryDigest": "sha256-4c8fe2a985ef765c5986493db934bd12dded4cf18008101b7959f9f6ae11a360",
+      "binarySize": 25164674,
       "goVersion": "go1.26.5",
       "targetTriple": "aarch64-apple-darwin"
     },
-    "repository": "ccheever/ibex",
+    "repository": "expo/ibex",
     "repositoryId": "1268046138",
-    "repositoryOwnerId": "56719",
-    "repositoryVisibility": "private",
+    "repositoryOwnerId": "12504344",
+    "repositoryVisibility": "public",
     "workflowPath": ".github/workflows/hermes-artifacts.yml",
     "workflowName": "Hermes artifact cache",
     "sourceRef": "refs/heads/main",
     "runnerClass": "github-hosted",
     "provenanceRoot": "github-oidc-artifact-attestations",
     "trustedRoot": {
-      "profile": "github-private-signed-timestamp-v1",
-      "sha256": "484cdfe1a7c65479c5ba2a22193d1be90f0020db1997de696ab207434c62fbb7",
-      "size": 31645
+      "profile": "sigstore-public-good-rekor-v1",
+      "sha256": "3c2cc7f357dc064ec527fdcd78da6e9245c21a381e1abaa0f2b62b186bcac1a1",
+      "size": 5748
     }
   },
   "provenanceBundleBytes": {

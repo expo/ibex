@@ -189,6 +189,18 @@ func verifyFiles(bundlePath, artifactPath, expectationsPath string) ([]byte, err
 	if err != nil {
 		return nil, fmt.Errorf("read bundle: %w", err)
 	}
+	return verifyRaw(bundleRaw, bundleSize, expectationsRaw, expectationsSize, func() ([sha256.Size]byte, int64, error) {
+		return digestExactRegular(artifactPath)
+	})
+}
+
+// verifyRaw runs the complete verification pipeline over already-read bundle
+// and expectations bytes. The artifact is consumed only through its digest;
+// resolveArtifact is invoked at exactly the point verifyFiles used to read
+// the artifact from disk, preserving error precedence, and lets the vendored
+// Ibex oracle pin the canonical CLI output without vendoring the 12 MB
+// artifact bytes.
+func verifyRaw(bundleRaw []byte, bundleSize int64, expectationsRaw []byte, expectationsSize int64, resolveArtifact func() ([sha256.Size]byte, int64, error)) ([]byte, error) {
 	// The trust profile is selected by the expectations schema alone. A
 	// schema peek that fails leaves the private default in place; the full
 	// expectations parse below still reports that failure after the bundle
@@ -233,7 +245,7 @@ func verifyFiles(bundlePath, artifactPath, expectationsPath string) ([]byte, err
 		return nil, fmt.Errorf("invalid expectations: %w", err)
 	}
 
-	artifactDigest, artifactSize, err := digestExactRegular(artifactPath)
+	artifactDigest, artifactSize, err := resolveArtifact()
 	if err != nil {
 		return nil, fmt.Errorf("read artifact: %w", err)
 	}
@@ -782,8 +794,21 @@ func parseBundleStatement(rootObject map[string]any) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := exactFields(signature, "$.dsseEnvelope.signatures[0]", "sig"); err != nil {
-		return nil, err
+	// DSSE signatures carry a required `sig` and an OPTIONAL `keyid`. GitHub's
+	// public artifact-attestation producer (expo/ibex hermes-artifacts,
+	// measured 2026-07-23) emits `keyid: ""` because the signing key is
+	// identified by the leaf certificate; the GitHub CLI export used for the
+	// earlier oracles omitted the field. Accept either shape: reject any other
+	// field, and if keyid is present it must be a string.
+	for key := range signature {
+		if key != "sig" && key != "keyid" {
+			return nil, fmt.Errorf("$.dsseEnvelope.signatures[0]: unknown field %q", key)
+		}
+	}
+	if _, present := signature["keyid"]; present {
+		if _, err := stringAt(signature["keyid"], "$.dsseEnvelope.signatures[0].keyid"); err != nil {
+			return nil, err
+		}
 	}
 	if signatureBytes, err := canonicalBase64(signature["sig"], "$.dsseEnvelope.signatures[0].sig"); err != nil {
 		return nil, err
@@ -1006,6 +1031,21 @@ func validateCertificateClaims(leaf *x509.Certificate, expected expectations, cl
 		"20": expected.Trigger,
 		"21": claims.invocationURI,
 		"22": expected.RepositoryVisibility,
+	}
+	// GitHub's public-repository Fulcio leaf carries one additional claim the
+	// CLI-export oracle certs did not: OID .24, a source-repository snapshot
+	// binding owner, owner id, repo, repo id, and ref
+	// (`repo:<owner>@<ownerId>/<repo>@<repoId>:ref:<ref>`, measured on the
+	// expo/ibex hermes-artifacts leaf 2026-07-23). Every component is already
+	// validated above, so bind .24 to its derived value rather than trusting a
+	// free-form string; a format change fails closed and forces re-measurement.
+	if tp.kind == "public" {
+		ownerAndRepo := strings.SplitN(expected.Repository, "/", 2)
+		want["24"] = fmt.Sprintf(
+			"repo:%s@%s/%s@%s:ref:%s",
+			ownerAndRepo[0], expected.RepositoryOwnerID,
+			ownerAndRepo[1], expected.RepositoryID, expected.SourceRef,
+		)
 	}
 	if len(values) != len(want) {
 		return fmt.Errorf("expected %d exact Sigstore claim extensions, got %d", len(want), len(values))

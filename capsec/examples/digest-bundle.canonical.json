@@ -182586,6 +182586,16 @@
             "rationale": "Transforming already-held bytes or strings carries no independent external authority."
           },
           {
+            "id": "surface.loader.route.cache.rust.parse.replacement.expr.0jj9m7h",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "route:cache:rust:parse_replacement_expr"
+            },
+            "rationaleId": "internal-data-transform",
+            "rationale": "Transforming already-held bytes or strings carries no independent external authority."
+          },
+          {
             "id": "surface.loader.route.cache.rust.program.has.top.level.await.00mk5zq",
             "classification": "non-capability",
             "surface": {
@@ -188015,6 +188025,16 @@
             "surface": {
               "kind": "loader",
               "name": "route:load:rust:oxc_target"
+            },
+            "rationaleId": "internal-data-transform",
+            "rationale": "Transforming already-held bytes or strings carries no independent external authority."
+          },
+          {
+            "id": "surface.loader.route.load.rust.parse.replacement.expr.0t1tshl",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "route:load:rust:parse_replacement_expr"
             },
             "rationaleId": "internal-data-transform",
             "rationale": "Transforming already-held bytes or strings carries no independent external authority."
@@ -195266,6 +195286,16 @@
             },
             "rationaleId": "module-reachability-only",
             "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
+          },
+          {
+            "id": "surface.loader.route.resolution.rust.parse.replacement.expr.0d3t2xz",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "route:resolution:rust:parse_replacement_expr"
+            },
+            "rationaleId": "internal-data-transform",
+            "rationale": "Transforming already-held bytes or strings carries no independent external authority."
           },
           {
             "id": "surface.loader.route.resolution.rust.pick.package.import.path.1upjq1x",
@@ -204038,6 +204068,16 @@
             "surface": {
               "kind": "loader",
               "name": "route:transform:rust:oxc_target"
+            },
+            "rationaleId": "internal-data-transform",
+            "rationale": "Transforming already-held bytes or strings carries no independent external authority."
+          },
+          {
+            "id": "surface.loader.route.transform.rust.parse.replacement.expr.06s964b",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "route:transform:rust:parse_replacement_expr"
             },
             "rationaleId": "internal-data-transform",
             "rationale": "Transforming already-held bytes or strings carries no independent external authority."
@@ -280945,7 +280985,7 @@
         "profile": "ibex/capsec/1",
         "semanticCore": "capsec/semantics/1",
         "coreOwnership": {
-          "repository": "ccheever/ibex",
+          "repository": "expo/ibex",
           "contractPath": "capsec",
           "rustCratePath": "crates/capsec-semantics",
           "secondConsumerRule": "consume-this-source-or-explicitly-move-ownership-never-copy"
@@ -288693,7 +288733,7 @@
             ],
             "properties": {
               "repository": {
-                "const": "ccheever/ibex"
+                "const": "expo/ibex"
               },
               "contractPath": {
                 "const": "capsec"

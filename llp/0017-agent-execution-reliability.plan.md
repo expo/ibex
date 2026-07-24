@@ -153,7 +153,7 @@ Acceptance criteria:
 - A regression test or shell smoke covers both relevant hook paths:
   - a fresh Ibex worktree with `.agent-skill-sources/` absent runs the hook path
     and asserts the original repo's `origin` remains
-    `https://github.com/ccheever/ibex.git`;
+    `https://github.com/expo/ibex.git`;
   - a malformed or wrong-identity managed source path that could make
     `git -C "$dir"` resolve outside the intended source checkout is refused
     before `remote set-url`, fetch, switch, or pull can run.
@@ -361,7 +361,7 @@ pushes to `main` remain allowed for agent work, subject to these guardrails,
 which the agent playbook must enforce before landing:
 
 - push through an **explicit repository URL**
-  (`git push https://github.com/ccheever/ibex.git HEAD:main`), never a bare
+  (`git push https://github.com/expo/ibex.git HEAD:main`), never a bare
   `git push origin` — a defense-in-depth habit even though item 1 makes a
   mispointed `origin` far less likely;
 - `bun run check:drift` passes (no stale committed generated artifacts);

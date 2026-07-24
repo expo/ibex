@@ -38,8 +38,8 @@ const POLICY_PATH = "schemas/portable-engine-provenance-trust-policy-v1.json";
 const POLICY_SCHEMA_PATH = "schemas/portable-engine-provenance-trust-policy-v1.schema.json";
 const MANIFEST_PATH = "META-INF/portable-engine-manifest.json";
 const RECEIPT_PATH = "share/hermes/profile-provenance.json";
-const EXPECTATIONS_SCHEMA = "ibex/github-private-artifact-attestation-expectations/2";
-const VERIFICATION_SCHEMA = "ibex/github-private-artifact-attestation-verification/2";
+const EXPECTATIONS_SCHEMA = "ibex/github-public-artifact-attestation-expectations/1";
+const VERIFICATION_SCHEMA = "ibex/github-public-artifact-attestation-verification/1";
 const RECEIPT_SCHEMA = "ibex/portable-engine-installation-receipt/1";
 const COMPLETION_SCHEMA = "ibex/portable-engine-local-completion/1";
 const TRANSPORT_COMPLETION_SCHEMA = "ibex/portable-engine-local-transport-completion/1";
@@ -1172,7 +1172,7 @@ function validateCanonicalVerificationResult(resultBytes, { expectationsBytes, e
   assert(result.provenance.invocationId === invocation, "verified invocation does not join signer run/attempt");
   assert(result.provenance.buildType === expectations.buildType && result.provenance.builderId === san, "verified build type/builder differs from fixed current workflow policy");
   assertExactKeys(result.timestamp, ["type", "uri", "value"], "verification timestamp");
-  assert(result.timestamp.type === "TimestampAuthority" && typeof result.timestamp.uri === "string" && result.timestamp.uri.length > 0, "verification result lacks one timestamp-authority observation");
+  assert(result.timestamp.type === "Tlog" && typeof result.timestamp.uri === "string" && result.timestamp.uri.length > 0, "verification result lacks one transparency-log-integrated timestamp observation");
   assert(typeof result.timestamp.value === "string" && Number.isFinite(Date.parse(result.timestamp.value)), "verification timestamp is not RFC3339-like");
   return result;
 }

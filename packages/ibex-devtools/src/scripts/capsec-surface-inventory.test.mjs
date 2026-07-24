@@ -4846,7 +4846,7 @@ int main() { return 0; }
       {
         ...inputs,
         windowsInstallerText: inputs.windowsInstallerText.replace(
-          '"ccheever/ibex"',
+          '"expo/ibex"',
           '"example/reviewed-fork"',
         ),
       },

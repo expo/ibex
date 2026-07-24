@@ -645,6 +645,49 @@ impl Host {
         }
     }
 
+    /// Debug-only development arming that bypasses the checked v2 target
+    /// advertisement. Every other production authenticator still runs — the
+    /// loaded-engine identity, protected artifacts, root bindings, and the full
+    /// armed capability floor are all enforced exactly as in `new_armed`. Only
+    /// the report-derived target promotion is replaced with a synthetic
+    /// complete cell map so the runtime will arm before any advertisement
+    /// exists. This is NOT an advertised target and must never be presented as
+    /// one; it exists purely so `ibex repl`/`eval`/`run` can execute locally
+    /// during development while the advertisement pipeline is built.
+    ///
+    /// Compiled only under the opt-in `unadvertised-dev-arming` feature: the
+    /// constructor does not exist in a default build, so the production
+    /// fail-closed guarantee is untouched.
+    /// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    /// the real advertisement remains the only production arming path.
+    #[cfg(feature = "unadvertised-dev-arming")]
+    #[doc(hidden)]
+    pub fn new_armed_unadvertised_dev(
+        config: HostConfig,
+        armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
+    ) -> capsec_semantics::Result<Self> {
+        validate_loaded_engine_identity(&armed_snapshot)?;
+        validate_snapshot_protected_artifacts(&armed_snapshot)?;
+        let target_cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
+            .iter()
+            .map(|edge| {
+                (
+                    (*edge).to_owned(),
+                    capsec_semantics::decision::TargetCellDisposition::Complete,
+                )
+            })
+            .collect();
+        let authenticated_package_sources = validate_snapshot_root_bindings(&armed_snapshot)?;
+        Self::new_armed_with_target_cells(
+            config,
+            armed_snapshot,
+            target_cells,
+            authenticated_package_sources,
+            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
+            BTreeMap::new(),
+        )
+    }
+
     /// Construct an explicitly armed host. Embedders must authenticate the
     /// snapshot before creating the engine; there is no permissive fallback.
     pub fn new_armed(
@@ -4151,6 +4194,12 @@ impl Host {
 
     /// Check if a capability is granted
     pub fn check_capability(&self, module_id: &str, capability: &str) -> bool {
+        // The legacy shim hard-denies whenever typed arming is active, which
+        // closes capabilities (process:spawn) that have no typed path yet.
+        // @ref LLP 0038#fully-open-mode-insecure
+        if cfg!(feature = "insecure") {
+            return true;
+        }
         if self.unarmed_closed || self.decision_context.is_some() {
             return false;
         }
@@ -4159,6 +4208,12 @@ impl Host {
 
     /// Check whether a principal may mint a passable authority-bearing handle.
     pub fn check_handle_mint(&self, module_id: &str, capability: &str) -> bool {
+        // The legacy shim hard-denies whenever typed arming is active, which
+        // closes capabilities (process:spawn) that have no typed path yet.
+        // @ref LLP 0038#fully-open-mode-insecure
+        if cfg!(feature = "insecure") {
+            return true;
+        }
         if self.unarmed_closed || self.decision_context.is_some() {
             return false;
         }
@@ -4170,6 +4225,12 @@ impl Host {
     /// no-follow-final normalization while preserving normal audit/enforce
     /// semantics.
     pub fn check_capability_no_follow_final(&self, module_id: &str, capability: &str) -> bool {
+        // The legacy shim hard-denies whenever typed arming is active, which
+        // closes capabilities (process:spawn) that have no typed path yet.
+        // @ref LLP 0038#fully-open-mode-insecure
+        if cfg!(feature = "insecure") {
+            return true;
+        }
         if self.unarmed_closed || self.decision_context.is_some() {
             return false;
         }
@@ -4181,6 +4242,12 @@ impl Host {
     /// effective grant is the AND of every principal on the call stack
     /// (innermost-first). @ref LLP 0013#phase-5
     pub fn check_capability_stack(&self, stack: &[&str], capability: &str) -> bool {
+        // The legacy shim hard-denies whenever typed arming is active, which
+        // closes capabilities (process:spawn) that have no typed path yet.
+        // @ref LLP 0038#fully-open-mode-insecure
+        if cfg!(feature = "insecure") {
+            return true;
+        }
         if self.unarmed_closed || self.decision_context.is_some() {
             return false;
         }
@@ -4188,6 +4255,12 @@ impl Host {
     }
 
     pub fn check_capability_stack_no_follow_final(&self, stack: &[&str], capability: &str) -> bool {
+        // The legacy shim hard-denies whenever typed arming is active, which
+        // closes capabilities (process:spawn) that have no typed path yet.
+        // @ref LLP 0038#fully-open-mode-insecure
+        if cfg!(feature = "insecure") {
+            return true;
+        }
         if self.unarmed_closed || self.decision_context.is_some() {
             return false;
         }
@@ -10209,6 +10282,9 @@ mod tests {
     // allowed_hosts, .. }` must actually get the restriction it asked for, in
     // every mode. These are Host-level (embedding API) assertions; the
     // manager-level fence matrix lives in capability.rs.
+    // Asserts armed-refusal semantics, which an `insecure` build
+    // deliberately does not have. @ref LLP 0039#secure-mode-must-stay-exercised
+    #[cfg(not(feature = "insecure"))]
     #[test]
     fn embedder_host_boundary_fields_are_enforced() {
         for mode in [
@@ -10565,15 +10641,23 @@ mod tests {
         let cache =
             publish_prepared_source_graph_v1(&graph, &artifact_dir, deployment.clone()).unwrap();
         let loaded = load_prepared_source_graph_v1(&cache, &graph, &deployment).unwrap();
-        assert_eq!(loaded.records().count(), 4);
-        assert_eq!(loaded.prepared_entries().unwrap().unwrap().len(), 4);
+        // The prepared cache round-trips every record — `publish_prepared_source_graph_v1`
+        // iterates all of `graph.records` without filtering — so these track the
+        // count asserted above rather than being an independent subset. They were
+        // left at 4 when the fixture grew to 6 records, which masked the
+        // execution-input defects this test then hits (ENG-25424).
+        assert_eq!(loaded.records().count(), 6);
+        assert_eq!(loaded.prepared_entries().unwrap().unwrap().len(), 6);
         let plan = loaded.plan().unwrap();
         let (configs, contexts) = loaded.native_execution_inputs(1).unwrap();
         let private_root = fixture.path().to_string_lossy();
         for (source_id, config) in &configs {
             assert!(
                 !config.source_label.contains(private_root.as_ref()),
-                "native source label leaked the backing fixture path"
+                "native source label leaked the backing fixture path: \
+                 source_id={source_id:?} label={} virtual_path={:?}",
+                config.source_label,
+                config.virtual_path,
             );
             if matches!(
                 source_id,
@@ -10945,6 +11029,9 @@ mod tests {
         }
     }
 
+    // Asserts armed-refusal semantics, which an `insecure` build
+    // deliberately does not have. @ref LLP 0039#secure-mode-must-stay-exercised
+    #[cfg(not(feature = "insecure"))]
     #[test]
     fn armed_host_evaluates_typed_authority_and_records_structured_evidence() {
         use capsec_semantics::decision::{DecisionOutcome, EffectGate};

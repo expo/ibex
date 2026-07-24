@@ -816,7 +816,7 @@ attestations, and the platform installers constrain verification to this
 repository's `hermes-artifacts.yml` signer workflow before installation.
 `IBEX_HERMES_ARTIFACT_REPO` may redirect release-byte transport to a mirror,
 but attestation lookup and signer identity remain fixed to
-`ccheever/ibex/.github/workflows/hermes-artifacts.yml` on
+`expo/ibex/.github/workflows/hermes-artifacts.yml` on
 `refs/heads/main`; mirror control or a workflow dispatch from an unreviewed
 branch cannot become build-authority control. A dynamic Linux
 `libhermesvm.so` also receives the source-profile receipt; a static archive

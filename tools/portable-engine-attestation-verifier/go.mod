@@ -1,4 +1,4 @@
-module github.com/ccheever/ibex/tools/portable-engine-attestation-verifier
+module github.com/expo/ibex/tools/portable-engine-attestation-verifier
 
 go 1.25.8
 

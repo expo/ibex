@@ -5,6 +5,18 @@
 **Systems:** Security, Engine, Build, Distribution, CI, Runtime, Host ABI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
+**Revised:** 2026-07-23 (public flip: the repository transferred to
+`expo/ibex` and became public. Every repository-identity pin moved to
+`expo/ibex`/owner `12504344`/visibility `public`, and artifact attestation
+moved from the GitHub-private signed-timestamp profile to the Sigstore
+public-good Rekor profile selected by the
+`ibex/github-public-artifact-attestation-expectations/1` schema. The first
+real public attestation was measured, three shape deltas were admitted
+exactly, and its bundle is vendored as the Ibex oracle with the canonical
+verifier output pinned. See "Public-flip record and the two trust
+profiles" below; folded from the executed
+`tools/portable-engine-attestation-verifier/PUBLIC-MIGRATION.md` runbook,
+which this revision retires.)
 **Revised:** 2026-07-23 (closes 31 of the 41 host-ABI output-shape residual
 rows through five physically proven slices and classifies the remaining ten:
 one borrowed-pointer return with no bounded output by contract, two success-path
@@ -222,11 +234,15 @@ The initial promotion trust roots are:
 
 - the checked-in expected repository and numeric repository/owner IDs,
   publisher workflow name/path, protected `refs/heads/main` source ref,
-  private visibility, GitHub-hosted runner class, allowed triggers, current
+  public visibility, GitHub-hosted runner class, allowed triggers, current
   GitHub workflow build type, and OIDC issuer;
-- GitHub's OIDC-backed artifact-attestation verification root;
-- the exact checked-in private signed-timestamp trust-root digest/size and the
-  exact Go 1.26.5 Darwin arm64 offline-verifier output digest/size;
+- GitHub's OIDC-backed artifact-attestation verification root, signing
+  public-repository workflow provenance through the Sigstore public-good
+  Fulcio/Rekor authorities;
+- the exact checked-in Sigstore public-good trust-root digest/size and the
+  exact Go 1.26.5 Darwin arm64 offline-verifier output digest/size (the
+  GitHub-private signed-timestamp root remains embedded beside it for the
+  retained pre-flip oracle);
 - GitHub-hosted runner isolation for the reviewed publisher, authoritative
   shards, and aggregate; and
 - the reviewed Ibex source revision and suite plan.
@@ -262,6 +278,68 @@ artifact-service identity to the selected producer job and current workflow
 run. This separation limits a compromised compiler, linker, packaging tool,
 or generated native binary to inert output bytes rather than handing it a
 release token or OIDC-backed attestation capability.
+
+### Public-flip record and the two trust profiles
+
+Folded from the executed `PUBLIC-MIGRATION.md` runbook (2026-07-23), this is
+the record of the transfer of `ccheever/ibex` to public `expo/ibex` and the
+attestation-authority switch it required.
+
+The offline verifier carries two parallel, mutually rejecting trust
+profiles, selected exclusively by the expectations schema — a bundle can
+never choose its own profile:
+
+- **`github-private-signed-timestamp-v1`** (schema
+  `ibex/github-private-artifact-attestation-expectations/2`): GitHub-private
+  Fulcio (issuer organization "GitHub, Inc."), no transparency material,
+  RFC3161 signed timestamp from GitHub's TSA. This signed every pre-flip
+  Ibex artifact. The profile and its oracle
+  (`testdata/oracle/github-cli-v2.93.0-private/`) stay in the verifier for
+  retained pre-flip artifacts; no Ibex consumer selects it anymore.
+- **`sigstore-public-good-rekor-v1`** (schema
+  `ibex/github-public-artifact-attestation-expectations/1`): public-good
+  Fulcio chain (issuer organization `sigstore.dev`), embedded SCT required,
+  exactly one `dsse` Rekor entry carrying both inclusion promise and proof,
+  verified timestamp taken from Rekor integration (`Tlog`), never a TSA.
+  Verification remains fully offline against the pinned public-good root
+  (`trust/sigstore-public-good/`, sha256 `3c2cc7f3…bcac1a1`, 5,748 bytes),
+  with the same reviewed-rotation discipline as the private root.
+
+The flip was executed in the runbook's order: every repository-identity
+authoring site moved to `expo/ibex` (owner id `12504344`, repository id
+`1268046138` unchanged by the transfer, visibility `public`), generated
+artifacts were regenerated through their generators, and the LLP 0032/
+ENG-24933 restamp chain was settled end to end (windows-installer evaluator
+authority → evaluator review ID → inherited-intrinsic digests →
+output-disposition catalog). Landed as `63181c76` with follow-ups
+`dd6bb1ef` (installer expects the `Tlog` timestamp observation) and the
+re-measurement commits below.
+
+The public profile was originally measured on a GitHub-CLI export bundle
+(cli/cli v2.93.0). The first real `expo/ibex` attestation
+(`hermes-artifacts.yml` run 30004214526 at `63181c76`) differed in three
+measured, deliberately admitted shapes — each pinned exactly, never
+loosened (`968987b3`):
+
+1. `timestampVerificationData` arrives as `{"rfc3161Timestamps": []}`
+   rather than the exactly-empty object; both spellings of "no RFC3161
+   material" are admitted, a populated list or any other field is not.
+2. The DSSE signature carries an optional `keyid` (empty here) beside
+   `sig`; the signing key is identified by the leaf certificate.
+3. The public-good Fulcio leaf carries claim OID `1.3.6.1.4.1.57264.1.24`,
+   a repository snapshot `repo:<owner>@<ownerId>/<repo>@<repoId>:ref:<ref>`
+   bound to the expectations-derived value (`hermes-artifacts.yml` uses no
+   `environment:`, and no `.23` appears).
+
+That bundle is vendored byte-exact as the
+`ibex-hermes-portable-macos-arm64-v63181c76` oracle together with the
+Ibex-authored expectations document, carrying the roles the cli/cli oracle
+cannot: single-subject Ibex statement validation, the full public
+certificate-claim set including `.24`, and the byte-pinned canonical
+verifier output re-derived through the production pipeline from the pinned
+subject identity (`e92b8338`). Consumers (installer, packaging, promotion
+workflow) select only the public schema; no Ibex private-profile
+expectations documents remain.
 
 ## Portable package contract
 
@@ -1485,7 +1563,7 @@ engine-using final PE audit and those tests pass on the physical target.
 Implementation checkpoint (2026-07-19): the checked-in closed schemas,
 trust policy, and valid/invalid vectors now freeze the outer manifest,
 installation receipt, portable and mapped identities, coordinator assignment
-chain, and diagnostic shard DAG. The policy admits only the `ccheever/ibex`
+chain, and diagnostic shard DAG. The policy admits only the `expo/ibex`
 `hermes-artifacts.yml` publisher on `refs/heads/main` with a GitHub-hosted
 runner, retains same-runner-only conformance authority, explicitly disables
 portable artifact acceptance, and disables cross-runner assignment, diagnostic
