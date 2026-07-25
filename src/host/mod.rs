@@ -11052,6 +11052,7 @@ mod tests {
         let cache =
             publish_prepared_source_graph_v1(&graph, &artifact_dir, deployment.clone()).unwrap();
         let loaded = load_prepared_source_graph_v1(&cache, &graph, &deployment).unwrap();
+        assert_eq!(loaded.prepared_access_receipt_count(), 1);
         // The prepared cache round-trips every record — `publish_prepared_source_graph_v1`
         // iterates all of `graph.records` without filtering — so these track the
         // count asserted above rather than being an independent subset. They were

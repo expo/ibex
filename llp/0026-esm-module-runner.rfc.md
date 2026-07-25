@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-24 (the production source graph now authorizes each exact dependency edge before executable-source acquisition and retains the finalized digest-bound access receipt; launch-entry, cache, and prepared-carrier admission keep their separately named remaining joins)
+**Revised:** 2026-07-24 (the production source graph authorizes each exact dependency edge before source acquisition and retains its digest-bound receipt; prepared dependency carriers now derive a carrier-read receipt from that exact continuation and read only inside its closure, while entry-only carriers remain joined to the authenticated launch request and armed transpilation has no persistent cache)
 **Revised:** 2026-07-18 (the Phase-0 compatibility baseline now records the
 post-native-switch namespace/CommonJS observations and successful dynamic-import
 source-map line recovery instead of retaining the superseded shim failure)
@@ -673,12 +673,17 @@ dependency source acquisition now consumes the graph-operation algebra before
 disclosure: metadata resolution yields the exact target identity, the typed
 edge authorizes, the retained-object read runs inside a pending access closure,
 and its observed digest finalizes a source-acquisition receipt before bytes
-reach the producer. That receipt remains graph-owned. Launch-entry acquisition
-remains joined to its authenticated file request; cache and prepared-carrier
-reads still rely on their exact Host/cache authentication and have not yet
-consumed their access receipts. The unauthenticated linker remains test-only,
-and target cells stay unsupported until their executed fixture evidence
-exists.
+reach the producer. That receipt remains graph-owned. A prepared carrier
+containing an authored dependency derives `PreparedCarrierRead` from the
+matching retained source-acquisition receipt, revalidates the exact source
+integrity, carrier digest, target, graph generation, snapshot digest, and
+authority generations, and keeps the manifest/payload read inside that
+closure; the prepared graph retains the new receipt. A carrier with no
+dependency receipt is accepted only when it contains the launch entry, whose
+acquisition and prepared selection remain joined to its authenticated file
+request. Armed transpilation is fresh/in-memory and therefore has no persistent
+`CacheRead` hit. The unauthenticated linker remains test-only, and target cells
+stay unsupported until their executed fixture evidence exists.
 
 **Binding cells live in the Hermes runner, behind opaque native handles.**
 JavaScript-side cells keep every binding read and setter dispatch inside the

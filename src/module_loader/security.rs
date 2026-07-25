@@ -451,15 +451,21 @@ impl<'policy, P: GraphImportPolicy> ModuleGraphAuthorizer<'policy, P> {
     }
 
     /// Derive a non-delegable source/cache/carrier receipt from an already
-    /// authorized exact edge. Co-resident entries cannot be substituted.
+    /// authorized exact edge, or a prepared-carrier receipt from that edge's
+    /// retained source-acquisition continuation. Co-resident entries cannot
+    /// be substituted.
     pub fn authorize_access(
         &self,
-        edge: &AuthorizedGraphOperation,
+        prior: &AuthorizedGraphOperation,
         kind: GraphOperationKind,
         source_integrity: Option<Digest>,
         carrier_digest: Option<Digest>,
     ) -> Result<AuthorizedGraphOperation> {
-        if !edge.decision.kind.is_edge() {
+        let is_source_continuation = prior.decision.kind == GraphOperationKind::SourceAcquisition
+            && kind == GraphOperationKind::PreparedCarrierRead
+            && prior.decision.resource.source_integrity == source_integrity
+            && prior.decision.resource.carrier_digest.is_none();
+        if !prior.decision.kind.is_edge() && !is_source_continuation {
             bail!("trusted-loader access requires an authorized import edge");
         }
         if !matches!(
@@ -482,13 +488,13 @@ impl<'policy, P: GraphImportPolicy> ModuleGraphAuthorizer<'policy, P> {
         if !integrity_shape_is_valid {
             bail!("trusted-loader access is missing its exact source or carrier integrity");
         }
-        if edge.snapshot_digest != *self.policy.snapshot_digest()
-            || edge.generations != self.policy.snapshot_generations()
+        if prior.snapshot_digest != *self.policy.snapshot_digest()
+            || prior.generations != self.policy.snapshot_generations()
         {
             bail!("module edge receipt belongs to stale authority");
         }
-        let resource = &edge.decision.resource;
-        let mut context = edge.decision.context.clone();
+        let resource = &prior.decision.resource;
+        let mut context = prior.decision.context.clone();
         context.stage = if kind == GraphOperationKind::CacheRead {
             Stage::Repeat
         } else {
@@ -507,8 +513,8 @@ impl<'policy, P: GraphImportPolicy> ModuleGraphAuthorizer<'policy, P> {
         )?;
         Ok(AuthorizedGraphOperation {
             decision,
-            snapshot_digest: edge.snapshot_digest.clone(),
-            generations: edge.generations,
+            snapshot_digest: prior.snapshot_digest.clone(),
+            generations: prior.generations,
         })
     }
 
@@ -564,6 +570,46 @@ impl<'policy, P: GraphImportPolicy> ModuleGraphAuthorizer<'policy, P> {
             || Ok(acquired),
         )?;
         Ok((acquired, receipt))
+    }
+
+    /// Derive and consume a prepared-carrier receipt from the retained
+    /// digest-bound source-acquisition receipt for the same exact target.
+    ///
+    /// The source receipt is the opaque continuation of the already-authorized
+    /// import edge. Requiring its exact integrity here prevents a caller from
+    /// using one co-resident record to authorize another record or a different
+    /// carrier. The carrier read remains inside the revalidation closure.
+    // @ref LLP 0021#module-initialization-and-trusted-source-acquisition
+    pub fn authorize_then_read_prepared_carrier<T>(
+        &self,
+        source_receipt: &AuthorizedGraphOperation,
+        expected_source_integrity: &Digest,
+        carrier_digest: Digest,
+        access: impl FnOnce() -> Result<T>,
+    ) -> Result<(T, AuthorizedGraphOperation)> {
+        if source_receipt.decision.kind != GraphOperationKind::SourceAcquisition
+            || source_receipt.decision.resource.source_integrity.as_ref()
+                != Some(expected_source_integrity)
+            || source_receipt.decision.resource.carrier_digest.is_some()
+        {
+            bail!("prepared carrier access requires the matching source-acquisition receipt");
+        }
+        let target = source_receipt.decision.resource.target.clone();
+        let graph_generation = source_receipt.decision.context.graph_generation;
+        let receipt = self.authorize_access(
+            source_receipt,
+            GraphOperationKind::PreparedCarrierRead,
+            Some(expected_source_integrity.clone()),
+            Some(carrier_digest),
+        )?;
+        let value = self.with_authorized_access(
+            &receipt,
+            GraphOperationKind::PreparedCarrierRead,
+            &target,
+            graph_generation,
+            access,
+        )?;
+        Ok((value, receipt))
     }
 
     /// Execute the source/cache/carrier action only after its exact receipt is
@@ -865,6 +911,59 @@ mod tests {
                 || Ok(())
             )
             .is_err());
+    }
+
+    #[test]
+    fn prepared_carrier_read_is_derived_from_exact_source_receipt_and_no_probes() {
+        let importer = principal("app");
+        let target = source(principal("dep"), "index.mjs");
+        let policy = Policy {
+            digest: digest("snapshot"),
+            generations: generations(1),
+            allow: true,
+        };
+        let authorizer = ModuleGraphAuthorizer::new(&policy);
+        let (_, source_receipt) = authorizer
+            .authorize_then_acquire_source(
+                decision(importer, target),
+                || Ok(b"authenticated source".to_vec()),
+                |_| Ok(digest("source")),
+            )
+            .unwrap();
+        let accessed = Cell::new(false);
+        let (_, carrier_receipt) = authorizer
+            .authorize_then_read_prepared_carrier(
+                &source_receipt,
+                &digest("source"),
+                digest("carrier"),
+                || {
+                    accessed.set(true);
+                    Ok(b"prepared carrier".to_vec())
+                },
+            )
+            .unwrap();
+        assert!(accessed.get());
+        assert_eq!(
+            carrier_receipt.decision().kind,
+            GraphOperationKind::PreparedCarrierRead
+        );
+
+        accessed.set(false);
+        assert!(authorizer
+            .authorize_then_read_prepared_carrier(
+                &source_receipt,
+                &digest("other-source"),
+                digest("carrier"),
+                || {
+                    accessed.set(true);
+                    Ok(())
+                },
+            )
+            .is_err());
+        assert!(
+            !accessed.get(),
+            "mismatched source receipt must refuse before the carrier read"
+        );
     }
 
     #[test]

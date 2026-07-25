@@ -301,6 +301,7 @@ pub struct SourceModuleGraphV1 {
     producer_binary_digest: Digest,
     records: BTreeMap<SourceId, SourceGraphRecordV1>,
     _source_access_receipts: Vec<AuthorizedGraphOperation>,
+    _prepared_access_receipts: Vec<AuthorizedGraphOperation>,
 }
 
 impl SourceModuleGraphV1 {
@@ -315,6 +316,11 @@ impl SourceModuleGraphV1 {
     #[cfg(test)]
     pub(crate) fn source_access_receipt_count(&self) -> usize {
         self._source_access_receipts.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn prepared_access_receipt_count(&self) -> usize {
+        self._prepared_access_receipts.len()
     }
 
     /// Join a post-admission graph back to the exact structured file request
@@ -1505,6 +1511,7 @@ fn build_authenticated_source_graph_v1_with_host(
         producer_binary_digest,
         records,
         _source_access_receipts: source_access_receipts,
+        _prepared_access_receipts: Vec::new(),
     };
     graph.plan()?;
     Ok(SourceModuleGraphBuildV1::Native(graph))
@@ -1699,6 +1706,8 @@ pub fn prepared_graph_cache_dir(artifact_dir: &Path, deployment_graph_digest: &D
 
 struct RenderedPreparedCarrierV2 {
     defining_principal: Principal,
+    member_source_ids: Vec<SourceId>,
+    carrier_digest: Digest,
     manifest_file: String,
     manifest_bytes: Vec<u8>,
     bytes_file: String,
@@ -1786,6 +1795,10 @@ fn render_prepared_source_graph_v2(
         )?;
         let manifest_file = format!("carrier-{carrier_index}.json");
         let bytes_file = format!("carrier-{carrier_index}.js");
+        let member_source_ids = entries
+            .iter()
+            .map(|(source_id, _)| source_id.clone())
+            .collect();
         for (source_id, entry_id) in entries {
             prepared_artifacts.insert(
                 source_id,
@@ -1799,6 +1812,8 @@ fn render_prepared_source_graph_v2(
         });
         rendered_carriers.push(RenderedPreparedCarrierV2 {
             defining_principal: principal,
+            member_source_ids,
+            carrier_digest: manifest.carrier_digest.clone(),
             manifest_file,
             manifest_bytes: manifest.encode_canonical()?,
             bytes_file,
@@ -2030,29 +2045,9 @@ pub fn load_prepared_source_graph_v1(
         "graph index",
     )?;
     let mut expected_files = BTreeSet::from(["index.json".to_owned()]);
-    let mut retained_carrier_files = BTreeMap::new();
     for carrier in &expected.carriers {
         expected_files.insert(carrier.manifest_file.clone());
         expected_files.insert(carrier.bytes_file.clone());
-        let manifest_bytes = read_authenticated_prepared_file(
-            &cache_dir.join(&carrier.manifest_file),
-            &carrier.manifest_bytes,
-            "carrier manifest",
-        )?;
-        let carrier_bytes = read_authenticated_prepared_file(
-            &cache_dir.join(&carrier.bytes_file),
-            &carrier.bytes,
-            "carrier bytes",
-        )?;
-        if retained_carrier_files
-            .insert(carrier.manifest_file.clone(), manifest_bytes)
-            .is_some()
-            || retained_carrier_files
-                .insert(carrier.bytes_file.clone(), carrier_bytes)
-                .is_some()
-        {
-            bail!("prepared carrier publication repeats a filename");
-        }
     }
     let mut retained_candidate_files = BTreeMap::new();
     for candidate in &expected.candidate_tables {
@@ -2133,6 +2128,8 @@ pub fn load_prepared_source_graph_v1(
         .collect::<BTreeSet<_>>();
     let producer_id =
         NonEmptyString::new(PREPARED_GRAPH_PRODUCER_ID).map_err(anyhow::Error::msg)?;
+    let authorizer = ModuleGraphAuthorizer::new(authenticated_source_graph.snapshot.as_ref());
+    let mut prepared_access_receipts = Vec::new();
     let mut carriers = Vec::with_capacity(index.carriers.len());
     for (carrier_index, carrier) in index.carriers.iter().enumerate() {
         if carrier.manifest_file.contains('/')
@@ -2142,16 +2139,62 @@ pub fn load_prepared_source_graph_v1(
         {
             bail!("prepared carrier filename escapes its cache directory");
         }
-        let manifest_bytes = retained_carrier_files
-            .get(&carrier.manifest_file)
-            .ok_or_else(|| anyhow!("prepared carrier manifest was not retained"))?;
-        let carrier_bytes = retained_carrier_files
-            .get(&carrier.bytes_file)
-            .ok_or_else(|| anyhow!("prepared carrier bytes were not retained"))?;
         let expected_carrier = expected
             .carriers
             .get(carrier_index)
             .ok_or_else(|| anyhow!("prepared graph names an unexpected carrier"))?;
+        let dependency_source_receipt =
+            expected_carrier.member_source_ids.iter().find_map(|source_id| {
+            let record = authenticated_source_graph.records.get(source_id)?;
+            authenticated_source_graph
+                ._source_access_receipts
+                .iter()
+                .find(|receipt| {
+                    receipt.decision().kind == GraphOperationKind::SourceAcquisition
+                        && receipt.decision().resource.target == *source_id
+                        && receipt.decision().resource.source_integrity.as_ref()
+                            == Some(&record.artifact.semantics.source_integrity)
+                })
+                .map(|receipt| (receipt, record.artifact.semantics.source_integrity.clone()))
+        });
+        let read_carrier = || {
+            Ok((
+                read_authenticated_prepared_file(
+                    &cache_dir.join(&carrier.manifest_file),
+                    &expected_carrier.manifest_bytes,
+                    "carrier manifest",
+                )?,
+                read_authenticated_prepared_file(
+                    &cache_dir.join(&carrier.bytes_file),
+                    &expected_carrier.bytes,
+                    "carrier bytes",
+                )?,
+            ))
+        };
+        let (manifest_bytes, carrier_bytes) =
+            if let Some((source_receipt, source_integrity)) = dependency_source_receipt {
+                let (bytes, receipt) = authorizer.authorize_then_read_prepared_carrier(
+                    source_receipt,
+                    &source_integrity,
+                    expected_carrier.carrier_digest.clone(),
+                    read_carrier,
+                )?;
+                prepared_access_receipts.push(receipt);
+                bytes
+            } else {
+                // A carrier with no dependency source receipt is admissible
+                // only when it contains the separately authenticated launch
+                // entry. Production reaches this function after the structured
+                // entry request has joined to this exact source graph.
+                // @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
+                if !expected_carrier
+                    .member_source_ids
+                    .contains(&authenticated_source_graph.entry)
+                {
+                    bail!("prepared dependency carrier has no retained source-access receipt");
+                }
+                read_carrier()?
+            };
         let admission = PreparedCarrierAdmissionV2 {
             expected_principal: expected_carrier.defining_principal.clone(),
             expected_producer_id: producer_id.clone(),
@@ -2162,8 +2205,8 @@ pub fn load_prepared_source_graph_v1(
             expected_bytecode_version: None,
         };
         carriers.push(Arc::new(AdmittedPreparedCarrierV2::decode_and_admit(
-            manifest_bytes,
-            carrier_bytes,
+            &manifest_bytes,
+            &carrier_bytes,
             &admission,
         )?));
     }
@@ -2258,6 +2301,7 @@ pub fn load_prepared_source_graph_v1(
         producer_binary_digest: authenticated_source_graph.producer_binary_digest.clone(),
         records,
         _source_access_receipts: authenticated_source_graph._source_access_receipts.clone(),
+        _prepared_access_receipts: prepared_access_receipts,
     };
     graph.plan()?;
     if !graph.records.contains_key(graph.entry()) {

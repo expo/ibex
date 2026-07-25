@@ -68,9 +68,10 @@ ticket closes.
   reconciled LLP 0039's description of the gate.
 - Test environment note: the isolated worktree does not contain the untracked
   Hermes framework/compiler cache. Tests use explicit read-only paths into the
-  primary checkout's `ios/Frameworks` and `tools/hermes` artifacts. The
-  catalog-compiler real-HBC test now honors the standard `HERMESC` override so
-  the no-exclusions gate works in isolated worktrees and fleet checkouts.
+  primary checkout's `ios/Frameworks` artifacts. Fleet validation stages the
+  compiler at its standard repository-relative test path; making the test read
+  a new process environment variable would itself add an unclassified startup
+  surface to the generated CapSec registry.
 - Verification: `./ref-check` passes (37 LLPs, 2,016 checked refs); the complete
   secure-mode gate passes with 629 library tests passed, 3 hosted/diagnostic
   tests intentionally ignored, and the behavioral denial smoke reporting every
@@ -100,6 +101,67 @@ ticket closes.
   completion contract; roughly 76% complete for the security-critical runtime
   mechanism set.**
 
+### 2026-07-24 — reconciled the target-advertisement program from moving main
+
+- Observed `main` advance from `86df42ba` to `f85443a3` while the source-access
+  slice was in progress. Checkpointed the slice and rebased both security
+  milestones cleanly onto the new tip.
+- The landed LLP 0036/0037 program closes producer attestation, accepts the six
+  gate-1 residual output rows by author decision, and reclassifies 3,727
+  internal-invariant recipes under a separately auditable
+  `internally-verified` disposition.
+- No target is advertised yet. On Apple, gate 2 still has 18,266 reachable
+  unresolved recipe rows after the reclassification (2,592 fully executable
+  in the measured catalog); the new plan correctly frames the remainder as
+  thousands of distinct public invocation shapes, not a cheap bulk-labeling
+  exercise.
+- Current rebased commits are `72a3b154` (prepared publication) and `d8380b9b`
+  (source acquisition) on `codex/capsec-rev2-completion`.
+- Reconciled estimate: **52% complete for the full LLP 0021 completion
+  contract; roughly 76% complete for the security-critical runtime mechanism
+  set.** The full-contract increase reflects landed promotion machinery and
+  governed recipe-family authoring, not target promotion.
+
+### 2026-07-24 — fleet-validated the rebased security milestones
+
+- Staged the rebased worktree plus the exact Hermes framework/compiler inputs
+  on the M4 fleet host (`100.106.94.95`). The advertised M5 host
+  (`100.88.75.121`) currently refuses its documented SSH key, so it could not
+  be used.
+- The first M4 run found two diagnostic subprocess-transpiler failures because
+  that host's `node` resolves to a deliberately non-invocable Volta shim. After
+  placing the host's real Bun binary first in `PATH`, both race tests passed.
+- The complete secure-mode gate then passed on the rebased source: 629 library
+  tests passed, 3 hosted/diagnostic tests remained intentionally ignored, and
+  the project-read/outside-read/outside-write/spawn/environment behavioral
+  probes all reported the expected enforced outcomes.
+
+### 2026-07-24 — receipt-gated prepared dependency carriers
+
+- A retained `SourceAcquisition` receipt can now continue only into a
+  `PreparedCarrierRead` for the same exact target and source integrity. The new
+  receipt additionally binds the deterministic carrier digest, graph
+  generation, snapshot digest, and all authority generations.
+- Prepared dependency manifest/payload bytes are read only inside the
+  revalidated carrier receipt closure, and the prepared graph retains the new
+  receipt for its lifetime. A mismatch refuses before the access closure is
+  entered.
+- A carrier with no dependency receipt is admissible only if it contains the
+  launch entry. That is not treated as an import edge: production prepared
+  selection already follows the exact structured entry-request join.
+- Armed transpilation is fresh and in-memory, so there is no persistent
+  transpile-cache hit requiring a `CacheRead` receipt. The operation remains in
+  the closed graph algebra for any future cache-bearing path.
+- Verification: the focused prepared-cache regression passed on the M4,
+  including forged-publication refusal and the retained carrier-receipt count.
+  The M4's 228 GiB temporary volume then reached 100% while rebuilding the
+  complete native archive; its exact 7.0 GiB disposable worktree `target/` was
+  removed, restoring that space. The final local secure-mode gate passed with
+  630 library tests, 3 intentional ignores, and every behavioral denial probe
+  enforced. The generated CapSec registry check and `ref-check` also pass.
+- Current estimate: **53% complete for the full LLP 0021 completion contract;
+  roughly 78% complete for the security-critical runtime mechanism set.**
+
 ## Current hard parts
 
 - Exact-target completion is deliberately all-or-nothing. Existing evidence
@@ -127,6 +189,8 @@ ticket closes.
 
 ## Next milestone
 
-Audit the current secure-mode and generated-registry gates, then close the
-highest-priority live enforcement gap that can be proved on the current
-macOS/arm64 target. Reconcile `main` before committing.
+Run the focused prepared-carrier regression and full secure gate for the new
+receipt continuation, reconcile moving `main`, then select the next proved
+enforcement gap. Dynamic call-time activation and bootstrap-floor authorship
+remain blocked on the named design/runtime capabilities above rather than safe
+local substitutions.
