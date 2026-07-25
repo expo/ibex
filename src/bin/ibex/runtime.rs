@@ -12090,6 +12090,7 @@ pub(crate) mod tests {
             bootstrap_compatibility_modes,
             false,
             true,
+            true,
         )
     }
 
@@ -12108,6 +12109,7 @@ pub(crate) mod tests {
             &[],
             true,
             true,
+            true,
         )
     }
 
@@ -12120,6 +12122,7 @@ pub(crate) mod tests {
         bootstrap_compatibility_modes: &[&str],
         grant_root_fs_read: bool,
         allow_fixture_package_dynamic_import: bool,
+        allow_fixture_package_commonjs_require: bool,
     ) -> Host {
         use capsec_semantics::arming::{
             ArmedEntry, ArmedSnapshot, ExpectedArmingIdentity, ExpectedProtectedArtifact,
@@ -12207,6 +12210,9 @@ pub(crate) mod tests {
                 ("esm-static", vec!["import", "node"]),
             ] {
                 if kind == "dynamic-import" && !allow_fixture_package_dynamic_import {
+                    continue;
+                }
+                if kind == "common-js-require" && !allow_fixture_package_commonjs_require {
                     continue;
                 }
                 typed_edges.push(serde_json::json!({
@@ -12383,6 +12389,7 @@ pub(crate) mod tests {
             mode,
             false,
             true,
+            true,
         )
     }
 
@@ -12398,6 +12405,7 @@ pub(crate) mod tests {
             entry_kind,
             entry_identity,
             mode,
+            true,
             true,
             true,
         )
@@ -12418,6 +12426,26 @@ pub(crate) mod tests {
             mode,
             false,
             allow_fixture_package_dynamic_import,
+            true,
+        )
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    fn session_conformance_direct_runtime_with_package_commonjs_require_policy(
+        project_root: &Path,
+        entry_kind: capsec_semantics::arming::ArmedEntryKind,
+        entry_identity: &str,
+        mode: capsec_semantics::arming::ArmedExecutionMode,
+        allow_fixture_package_commonjs_require: bool,
+    ) -> Result<Runtime> {
+        session_conformance_direct_runtime_with_authority(
+            project_root,
+            entry_kind,
+            entry_identity,
+            mode,
+            false,
+            true,
+            allow_fixture_package_commonjs_require,
         )
     }
 
@@ -12429,6 +12457,7 @@ pub(crate) mod tests {
         mode: capsec_semantics::arming::ArmedExecutionMode,
         grant_root_fs_read: bool,
         allow_fixture_package_dynamic_import: bool,
+        allow_fixture_package_commonjs_require: bool,
     ) -> Result<Runtime> {
         use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
 
@@ -12467,6 +12496,7 @@ pub(crate) mod tests {
                 &[],
                 false,
                 allow_fixture_package_dynamic_import,
+                allow_fixture_package_commonjs_require,
             )
         };
         let plan = ingress_test_plan(entry_kind, mode);
@@ -13094,6 +13124,182 @@ pub(crate) mod tests {
         )
     ))]
     #[tokio::test(flavor = "current_thread")]
+    async fn authenticated_commonjs_require_reports_esm_cycle_without_partial_publication() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::set_var("EXACT_COMPAT_TEST", "1");
+        let directory = tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("package.json"),
+            r#"{"name":"native-commonjs-esm-cycle","private":true,"type":"commonjs"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("entry.cjs"),
+            "const namespace = require('./a.mjs');\nif (namespace.status !== 51) throw new Error('bad recovered cycle result');\nprocess.exitCode = namespace.status;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("a.mjs"),
+            "import { cycleStatus } from './b.cjs';\nexport const status = cycleStatus + 1;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("b.cjs"),
+            "let cycleStatus = 0;\ntry { require('./a.mjs'); } catch (error) {\n  if (!String(error && error.message).includes('ERR_REQUIRE_CYCLE_MODULE')) throw error;\n  cycleStatus = 50;\n}\nexports.cycleStatus = cycleStatus;\n",
+        )
+        .unwrap();
+        let runtime = session_conformance_direct_runtime(
+            directory.path(),
+            capsec_semantics::arming::ArmedEntryKind::File,
+            "file:///project/entry.cjs",
+            capsec_semantics::arming::ArmedExecutionMode::Program,
+        )
+        .unwrap();
+        let engine = runtime.engine.clone();
+        let mut ingress = runtime.authenticated_file_ingress().unwrap();
+        let request = ingress.file_request(&[]).unwrap();
+        let preflight = ingress
+            .prepare_authenticated_module_graph(&request)
+            .unwrap();
+        let crate::engine::AuthenticatedModuleGraphPreparation::Native(graph) = preflight else {
+            panic!("the CommonJS/ESM cycle selected the compatibility loader")
+        };
+        assert_eq!(graph.records().count(), 1);
+
+        let session = ingress.session.clone();
+        let evaluation = engine
+            .evaluate_authenticated_module_graph(
+                &session,
+                request,
+                Box::new(|admitted| ingress.prepare_authenticated_module_graph(admitted)),
+            )
+            .await
+            .expect("the recoverable CommonJS/ESM cycle graph failed");
+        if let crate::engine::AuthenticatedEvaluation::Value { receipt, .. } = evaluation {
+            if let Some(receipt) = receipt {
+                engine.release_undisplayed_value(receipt).await.unwrap();
+            }
+        } else {
+            assert!(
+                matches!(evaluation, crate::engine::AuthenticatedEvaluation::Empty),
+                "unexpected recovered CommonJS/ESM cycle evaluation: {evaluation:?}"
+            );
+        }
+        assert_eq!(runtime.lifecycle_exit_code(), 51);
+    }
+
+    #[cfg(all(
+        feature = "module-runner",
+        feature = "capsec-conformance-observer",
+        any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64")
+        )
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn authenticated_commonjs_require_failure_does_not_poison_later_activation() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::set_var("EXACT_COMPAT_TEST", "1");
+        let directory = tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("package.json"),
+            r#"{"name":"native-commonjs-retry","private":true,"type":"commonjs"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("entry.cjs"),
+            "let refusals = 0;\nfor (let attempt = 0; attempt < 2; attempt += 1) {\n  try { require('./missing.cjs'); } catch (_) { refusals += 1; }\n}\nconst target = require('./ok.cjs');\nif (refusals !== 2 || target.status !== 52 || globalThis.__requireRetryRuns !== 1) throw new Error('require failure poisoned provider state');\nprocess.exitCode = target.status;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("ok.cjs"),
+            "globalThis.__requireRetryRuns = (globalThis.__requireRetryRuns || 0) + 1;\nmodule.exports = { status: 52 };\n",
+        )
+        .unwrap();
+        let runtime = session_conformance_direct_runtime(
+            directory.path(),
+            capsec_semantics::arming::ArmedEntryKind::File,
+            "file:///project/entry.cjs",
+            capsec_semantics::arming::ArmedExecutionMode::Program,
+        )
+        .unwrap();
+        runtime.load_runtime().await.unwrap();
+        assert_eq!(
+            runtime.run_authenticated_file_program(&[]).await.unwrap(),
+            AuthenticatedFileProgramOutcome::Completed
+        );
+        assert_eq!(runtime.lifecycle_exit_code(), 52);
+    }
+
+    #[cfg(all(
+        feature = "module-runner",
+        feature = "capsec-conformance-observer",
+        any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64")
+        )
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn authenticated_commonjs_require_policy_denial_never_evaluates_target() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::set_var("EXACT_COMPAT_TEST", "1");
+        let directory = tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("package.json"),
+            r#"{"name":"native-commonjs-policy-denial","private":true,"type":"commonjs"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("entry.cjs"),
+            "let denied = false;\ntry { require('image-lib'); } catch (error) {\n  denied = String(error && error.message).includes('CommonJS require activation refused');\n}\nif (!denied || globalThis.__deniedRequireTargetRan) throw new Error('policy-denied require reached its target');\nprocess.exitCode = 53;\n",
+        )
+        .unwrap();
+        let package = directory.path().join("node_modules/image-lib");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(
+            package.join("package.json"),
+            r#"{"name":"image-lib","version":"2.4.1","type":"commonjs","exports":"./index.cjs"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            package.join("index.cjs"),
+            "globalThis.__deniedRequireTargetRan = true;\nthrow new Error('policy-denied require target evaluated');\n",
+        )
+        .unwrap();
+        let runtime = session_conformance_direct_runtime_with_package_commonjs_require_policy(
+            directory.path(),
+            capsec_semantics::arming::ArmedEntryKind::File,
+            "file:///project/entry.cjs",
+            capsec_semantics::arming::ArmedExecutionMode::Program,
+            false,
+        )
+        .unwrap();
+        runtime.load_runtime().await.unwrap();
+        assert_eq!(
+            runtime.run_authenticated_file_program(&[]).await.unwrap(),
+            AuthenticatedFileProgramOutcome::Completed
+        );
+        assert_eq!(runtime.lifecycle_exit_code(), 53);
+    }
+
+    #[cfg(all(
+        feature = "module-runner",
+        feature = "capsec-conformance-observer",
+        any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64")
+        )
+    ))]
+    #[tokio::test(flavor = "current_thread")]
     async fn authenticated_commonjs_require_cannot_borrow_bootstrap_internal_objects() {
         let _lock = crate::engine::hermes::hermes_engine_test_lock()
             .lock()
@@ -13234,7 +13440,7 @@ pub(crate) mod tests {
         )
     ))]
     #[tokio::test]
-    async fn authenticated_file_graph_selects_only_an_exact_prepared_cache_hit() {
+    async fn authenticated_prepared_initial_graph_activates_inline_commonjs_target() {
         use ibex_runtime::module_loader::artifact::digest_bytes;
         use ibex_runtime::module_loader::runner_pipeline::publish_prepared_source_graph_v1;
 
@@ -13248,14 +13454,28 @@ pub(crate) mod tests {
         std::fs::create_dir(&project).unwrap();
         std::fs::write(
             project.join("package.json"),
-            r#"{"name":"native-prepared-hit","private":true,"type":"module"}"#,
+            r#"{"name":"native-prepared-require","private":true,"type":"commonjs"}"#,
         )
         .unwrap();
-        let source_entry = project.join("entry.mjs");
-        std::fs::write(&source_entry, "export const value = 42;\n").unwrap();
+        let source_entry = project.join("entry.cjs");
+        std::fs::write(
+            &source_entry,
+            "const target = require('./target.cjs');\nprocess.exitCode = target.status;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            project.join("target.cjs"),
+            "module.exports = { status: 54 };\n",
+        )
+        .unwrap();
 
-        let spy = Arc::new(AuthenticatedModuleGraphSpyEngine::default());
-        let runtime = authenticated_module_graph_spy_runtime(&project, spy).unwrap();
+        let runtime = session_conformance_direct_runtime(
+            &project,
+            capsec_semantics::arming::ArmedEntryKind::File,
+            "file:///project/entry.cjs",
+            capsec_semantics::arming::ArmedExecutionMode::Program,
+        )
+        .unwrap();
         let mut ingress = runtime.authenticated_file_ingress().unwrap();
         let request = ingress.file_request(&[]).unwrap();
         let inline = match ingress
@@ -13299,7 +13519,19 @@ pub(crate) mod tests {
         let deployment_digest =
             digest_bytes("ibex/rolldown-deployment-graph/1", graph_digest.as_bytes()).unwrap();
         publish_prepared_source_graph_v1(&inline, &artifact_dir, deployment_digest).unwrap();
+        drop(ingress);
+        drop(runtime);
 
+        let runtime = session_conformance_direct_runtime(
+            &project,
+            capsec_semantics::arming::ArmedEntryKind::File,
+            "file:///project/entry.cjs",
+            capsec_semantics::arming::ArmedExecutionMode::Program,
+        )
+        .unwrap();
+        let engine = runtime.engine.clone();
+        let mut ingress = runtime.authenticated_file_ingress().unwrap();
+        let request = ingress.file_request(&[]).unwrap();
         let prepared = match ingress
             .prepare_authenticated_module_graph(&request)
             .unwrap()
@@ -13313,6 +13545,32 @@ pub(crate) mod tests {
             prepared.prepared_entries().unwrap().is_some(),
             "the exact source-derived prepared publication was not selected"
         );
+        assert_eq!(
+            prepared.records().count(),
+            1,
+            "the deferred CommonJS target was discovered while selecting the prepared entry"
+        );
+
+        let session = ingress.session.clone();
+        let evaluation = engine
+            .evaluate_authenticated_module_graph(
+                &session,
+                request,
+                Box::new(|admitted| ingress.prepare_authenticated_module_graph(admitted)),
+            )
+            .await
+            .expect("the prepared-initial CommonJS graph failed");
+        if let crate::engine::AuthenticatedEvaluation::Value { receipt, .. } = evaluation {
+            if let Some(receipt) = receipt {
+                engine.release_undisplayed_value(receipt).await.unwrap();
+            }
+        } else {
+            assert!(
+                matches!(evaluation, crate::engine::AuthenticatedEvaluation::Empty),
+                "unexpected prepared-initial evaluation: {evaluation:?}"
+            );
+        }
+        assert_eq!(runtime.lifecycle_exit_code(), 54);
     }
 
     #[cfg(all(

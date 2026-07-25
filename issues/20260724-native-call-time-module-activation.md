@@ -125,9 +125,27 @@ production execution:
   bootstrap-owned objects such as `internal/test/binding`. Native startup
   captures and seals the bootstrap resolver; authored modules still enter
   ordinary resolution and cannot borrow it.
+- The production source-path matrix now covers repeated resolution failure
+  followed by a successful activation, package-policy denial without target
+  evaluation, CommonJS partial-export cycles, and a CJS→ESM→CJS cycle that
+  reports `ERR_REQUIRE_CYCLE_MODULE` and then recovers when authored code
+  catches it.
+- Synchronous ESM execution now publishes `evaluating` before calling authored
+  code, and its dependency walk recognizes CommonJS adapter records. A new CJS
+  dependency is evaluated through its owning CommonJS record; re-entry through
+  an adapter whose owner is already evaluating fails with the stable cycle
+  error instead of recursively executing a merely-declared record.
+- A prepared initial CommonJS carrier can activate and publish a fresh inline
+  target at the reached `require()` site. Selecting the prepared entry still
+  leaves the target undiscovered before invocation.
+- Owner-thread runtime shutdown clears every retained provider registration
+  while the native runtime is live and serialized. The provider unit test also
+  proves that dropping a token removes its native generation entry by
+  reinstalling the same generation before unpinning it.
 
-Still open are invocation-time prepared-carrier discovery and its
-source/prepared failure matrix.
+Still open are invocation-time prepared-carrier discovery and its prepared
+hit/miss/denial/failure matrix. The source-path failure, cycle, denial, retry,
+teardown, and prepared-initial cases are now pinned.
 
 ## Done when
 

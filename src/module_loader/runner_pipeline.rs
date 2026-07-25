@@ -2235,27 +2235,27 @@ fn prepare_embedded_records_v1(
                 ))
             })
             .collect::<Result<Vec<_>>>()?,
-            computed_candidate_site_map(records)?,
-            records
-                .iter()
-                .filter(|(_, record)| record.deferred_dynamic.enabled)
-                .map(|(source_id, _)| source_id.clone())
-                .collect(),
-            records
-                .iter()
-                .filter(|(_, record)| !record.deferred_commonjs_requires.is_empty())
-                .map(|(source_id, _)| source_id.clone())
-                .collect(),
-            records
-                .iter()
-                .filter(|(_, record)| !record.bootstrap_internal_commonjs_requires.is_empty())
-                .map(|(source_id, record)| {
-                    (
-                        source_id.clone(),
-                        record.bootstrap_internal_commonjs_requires.clone(),
-                    )
-                })
-                .collect(),
+        computed_candidate_site_map(records)?,
+        records
+            .iter()
+            .filter(|(_, record)| record.deferred_dynamic.enabled)
+            .map(|(source_id, _)| source_id.clone())
+            .collect(),
+        records
+            .iter()
+            .filter(|(_, record)| !record.deferred_commonjs_requires.is_empty())
+            .map(|(source_id, _)| source_id.clone())
+            .collect(),
+        records
+            .iter()
+            .filter(|(_, record)| !record.bootstrap_internal_commonjs_requires.is_empty())
+            .map(|(source_id, record)| {
+                (
+                    source_id.clone(),
+                    record.bootstrap_internal_commonjs_requires.clone(),
+                )
+            })
+            .collect(),
     )?;
     if !records.contains_key(entry) {
         bail!("embedded source graph entry is absent");
@@ -2877,19 +2877,24 @@ pub fn load_prepared_source_graph_v1(
             .get(carrier_index)
             .ok_or_else(|| anyhow!("prepared graph names an unexpected carrier"))?;
         let dependency_source_receipt =
-            expected_carrier.member_source_ids.iter().find_map(|source_id| {
-            let record = authenticated_source_graph.records.get(source_id)?;
-            authenticated_source_graph
-                ._source_access_receipts
+            expected_carrier
+                .member_source_ids
                 .iter()
-                .find(|receipt| {
-                    receipt.decision().kind == GraphOperationKind::SourceAcquisition
-                        && receipt.decision().resource.target == *source_id
-                        && receipt.decision().resource.source_integrity.as_ref()
-                            == Some(&record.artifact.semantics.source_integrity)
-                })
-                .map(|receipt| (receipt, record.artifact.semantics.source_integrity.clone()))
-        });
+                .find_map(|source_id| {
+                    let record = authenticated_source_graph.records.get(source_id)?;
+                    authenticated_source_graph
+                        ._source_access_receipts
+                        .iter()
+                        .find(|receipt| {
+                            receipt.decision().kind == GraphOperationKind::SourceAcquisition
+                                && receipt.decision().resource.target == *source_id
+                                && receipt.decision().resource.source_integrity.as_ref()
+                                    == Some(&record.artifact.semantics.source_integrity)
+                        })
+                        .map(|receipt| {
+                            (receipt, record.artifact.semantics.source_integrity.clone())
+                        })
+                });
         let read_carrier = || {
             Ok((
                 read_authenticated_prepared_file(

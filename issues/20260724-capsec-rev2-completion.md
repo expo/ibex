@@ -475,6 +475,33 @@ ticket closes.
   Invocation-time prepared activation and the broad cross-kind/failure matrix
   remain before this mechanism slice can be called complete.
 
+### 2026-07-25 — closed the synchronous source-path activation matrix
+
+- Nine production CommonJS `require()` integrations now cover exact CJS and
+  synchronous ESM activation, VFS-backed builtins, async-taint refusal,
+  CommonJS partial-export cycles, CJS→ESM→CJS cycle refusal, package-policy
+  denial, failure/retry isolation, and bootstrap-internal denial.
+- The mixed cycle fixture exposed a real native lifecycle defect: an ESM
+  execute function remained `declared` while authored code was on its stack,
+  and synchronous ESM closure evaluation treated a newly published CommonJS
+  adapter as an ordinary executable ESM record. Execution now publishes
+  `evaluating` before entering authored code, evaluates adapters through their
+  CommonJS owners, and reports `ERR_REQUIRE_CYCLE_MODULE` on adapter re-entry.
+- A prepared initial CommonJS carrier now runs end to end and activates its
+  reached target as a fresh inline record without discovering that target
+  while selecting the prepared entry.
+- Owner-thread shutdown now clears retained provider registrations before
+  destroying the native runtime. The native-provider regression drops and
+  reinstalls the same generation token, proving the callback entry and borrowed
+  bridge were removed before unpin.
+- Focused verification passes for all 9 production `authenticated_commonjs_require_`
+  tests, the prepared-initial activation test, and the native provider
+  publication/teardown test.
+- Current estimate: **62% complete for the full LLP 0021 completion contract;
+  roughly 90% complete for the security-critical runtime mechanism set.**
+  Invocation-time prepared-carrier discovery is now the remaining activation
+  mechanism rather than an unbounded source-path state-machine gap.
+
 ## Current hard parts
 
 - Exact-target completion is deliberately all-or-nothing. Existing evidence
@@ -510,9 +537,8 @@ ticket closes.
 
 ## Next milestone
 
-Complete the synchronous source-path matrix (denial/no-probe, CommonJS cycles,
-ESM cycle refusal, teardown, and prepared-initial targets), then implement
-invocation-time prepared activation without reading an index or carrier before
-the exact reached edge. Bootstrap-floor authorship and
+Implement invocation-time prepared activation without reading an index or
+carrier before the exact reached edge, then pin its hit/miss/denial/failure
+matrix against the now-complete source path. Bootstrap-floor authorship and
 `malformed-branch-facts` remain named gaps rather than unsafe local
 substitutions.

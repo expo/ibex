@@ -1803,7 +1803,7 @@ mod tests {
             deferred_commonjs_plan
                 .linkage_order_for_authorized(&commonjs_entry_id, &BTreeMap::new())
                 .unwrap(),
-             [commonjs_entry_id.clone()]
+            [commonjs_entry_id.clone()]
         );
 
         let builtin_owner_id = SourceId::builtin("ibex-runtime", "builtin-owner").unwrap();
@@ -1837,7 +1837,7 @@ mod tests {
             .err()
             .expect("generated builtin call-time deferral was accepted")
             .to_string()
-             .contains("generated builtin require edges cannot be deferred")
+            .contains("generated builtin require edges cannot be deferred")
         );
 
         struct AllowAllPolicy {

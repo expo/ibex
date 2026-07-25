@@ -942,7 +942,33 @@ bool beginRecordExecute(
   if (entry.state == NativeModuleRecordState::Evaluated) return false;
   if (entry.state != NativeModuleRecordState::Declared ||
       !entry.execute_function) {
-    throw facebook::jsi::JSError(rt, "module record is not ready to execute");
+    const char* state = "unknown";
+    switch (entry.state) {
+      case NativeModuleRecordState::New:
+        state = "new";
+        break;
+      case NativeModuleRecordState::Instantiated:
+        state = "instantiated";
+        break;
+      case NativeModuleRecordState::Declared:
+        state = "declared";
+        break;
+      case NativeModuleRecordState::Evaluating:
+        state = "evaluating";
+        break;
+      case NativeModuleRecordState::Evaluated:
+        state = "evaluated";
+        break;
+      case NativeModuleRecordState::Errored:
+        state = "errored";
+        break;
+    }
+    throw facebook::jsi::JSError(
+        rt,
+        "module record is not ready to execute (state=" +
+            std::string(state) + ", execute=" +
+            (entry.execute_function ? "present" : "absent") +
+            ", source=" + entry.source_id + ")");
   }
   auto graphContext = runtime->graph_contexts.find(entry.context_handle_id);
   if (graphContext == runtime->graph_contexts.end()) {
@@ -953,7 +979,18 @@ bool beginRecordExecute(
       graphContext->second.constrained_principals.end());
   ScopedNativePrincipal scheduledPrincipal(graphContext->second.schedule_owner);
   ScopedTypedPrincipalStack constrainedScope(constrained);
-  auto result = entry.execute_function->call(rt);
+  // Publish the evaluating state before entering authored code. A synchronous
+  // CJS→ESM→CJS re-entry can otherwise observe this record as merely declared
+  // while its execute function is already on the stack and recursively run it.
+  // @ref LLP 0026#6-top-level-await-and-dynamic-import
+  entry.state = NativeModuleRecordState::Evaluating;
+  facebook::jsi::Value result;
+  try {
+    result = entry.execute_function->call(rt);
+  } catch (...) {
+    entry.state = NativeModuleRecordState::Declared;
+    throw;
+  }
   if (result.isObject()) {
     auto object = result.asObject(rt);
     auto thenValue = object.getProperty(rt, "then");
@@ -1006,7 +1043,6 @@ bool beginRecordExecute(
       auto retainedPromise = facebook::jsi::Value(rt, object).asObject(rt);
       entry.evaluation_promise =
           std::make_shared<facebook::jsi::Object>(std::move(retainedPromise));
-      entry.state = NativeModuleRecordState::Evaluating;
       try {
         thenFunction.callWithThis(rt, object, fulfilled, rejected);
       } catch (...) {
@@ -1288,6 +1324,33 @@ void evaluateSynchronousRequiredEsm(
       visited,
       order);
   for (uint64_t recordId : order) {
+    auto commonjs = std::find_if(
+        runtime->commonjs_records.begin(),
+        runtime->commonjs_records.end(),
+        [recordId](const auto& entry) {
+          return entry.second.adapter_record_id == recordId;
+        });
+    if (commonjs != runtime->commonjs_records.end()) {
+      if (commonjs->second.graph_generation != graphGeneration ||
+          !commonjs->second.published) {
+        throw facebook::jsi::JSError(
+            rt, "CommonJS require ESM closure contains a stale CJS adapter");
+      }
+      if (commonjs->second.state == NativeCommonJsRecordState::Evaluating) {
+        throw facebook::jsi::JSError(
+            rt,
+            "ERR_REQUIRE_CYCLE_MODULE: require() encountered a CommonJS/ESM cycle");
+      }
+      evaluateCommonJsRecord(rt, runtime, commonjs->first);
+      auto adapter = runtime->module_records.find(recordId);
+      if (adapter == runtime->module_records.end() ||
+          adapter->second.graph_generation != graphGeneration ||
+          adapter->second.state != NativeModuleRecordState::Evaluated) {
+        throw facebook::jsi::JSError(
+            rt, "CommonJS require ESM dependency adapter did not evaluate");
+      }
+      continue;
+    }
     auto found = runtime->module_records.find(recordId);
     if (found == runtime->module_records.end() ||
         found->second.graph_generation != graphGeneration ||

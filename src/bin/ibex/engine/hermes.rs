@@ -2865,6 +2865,18 @@ impl SharedRuntime {
                 Ok(guard) => guard,
                 Err(poisoned) => poisoned.into_inner(),
             };
+            #[cfg(feature = "module-runner")]
+            {
+                // Provider registrations contain native callback contexts.
+                // Clear them while the owner-thread runtime is still live;
+                // dropping them after `ex_hermes_destroy` would call the
+                // provider-clear ABI through a stale pointer.
+                // @ref LLP 0026#6-top-level-await-and-dynamic-import
+                self.retained_module_activations
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clear();
+            }
             self.raw.swap(std::ptr::null_mut(), Ordering::SeqCst)
         };
         // Drain in-flight debugger-thread ops WITHOUT holding `ffi_lock`, so a
