@@ -180,6 +180,30 @@ pub const RUNTIME_GATED_NODE_BUILTINS: &[&str] = &[
 ];
 
 #[rustfmt::skip]
+pub(crate) const BOOTSTRAP_INTERNAL_MODULE_SPECIFIERS: &[&str] = &[
+    r"internal/util/debuglog",
+    r"internal/linkedlist",
+    r"internal/util",
+    r"internal/util/inspect",
+    r"internal/options",
+    r"internal/http",
+    r"internal/net",
+    r"internal/async_hooks",
+    r"internal/timers",
+    r"internal/assert/myers_diff",
+    r"internal/crypto/util",
+    r"internal/crypto/x509",
+    r"internal/url",
+    r"internal/fs/utils",
+    r"internal/test/binding",
+    r"internal/child_process",
+    r"stream/consumers",
+    r"node:stream/consumers",
+    r"stream/promises",
+    r"node:stream/promises",
+];
+
+#[rustfmt::skip]
 pub(crate) const BUILTIN_MANIFEST_DEBUG_ENTRIES: &[BuiltinManifestDebugEntry] = &[
     BuiltinManifestDebugEntry { specifier: r"exact:process", source_key: r"exact_process", source_kind: r"generated", source_path: Some(r"builtins/process.js"), platform_availability: r"all", module_builtin: false, bundle_external: true },
     BuiltinManifestDebugEntry { specifier: r"exact:crypto", source_key: r"exact_crypto", source_kind: r"generated", source_path: Some(r"builtins/crypto.js"), platform_availability: r"all", module_builtin: false, bundle_external: true },

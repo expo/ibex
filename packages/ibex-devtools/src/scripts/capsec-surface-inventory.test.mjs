@@ -919,6 +919,9 @@ describe("LLP 0021 WP1 source surface inventory", () => {
           ExWorkletSharedValueHandle handle,
           float* out_value,
           void* context);
+        typedef struct ExactModuleRunnerHandle {
+          uint64_t opaque[3];
+        } ExactModuleRunnerHandle;
         typedef struct ExactGpuClientSinkV1 {
           void (*retain_client)(void* context);
         } ExactGpuClientSinkV1;
@@ -933,6 +936,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "ExHermesOwnedBytes",
       "ExHermesSourcePosition",
       "ExWorkletSharedValueHandle",
+      "ExactModuleRunnerHandle",
     ]);
     expect(Object.keys(typeRegistry.callbacks)).toEqual([
       "ExWorkletReadCallback",
@@ -8013,7 +8017,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           row.name === "ex_host_install_armed_experimental_webgpu_pre1a",
       ),
     ).toBe(true);
-    expect(first.hostAbi).toHaveLength(361);
+    expect(first.hostAbi).toHaveLength(375);
     for (const [name, sourceRef] of [
       [
         "evaluation:installGlobals:native-freeze-conformance-observation",
@@ -8088,7 +8092,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .sort(),
       ),
     ).toEqual({
-      "output-bearing": 311,
+      "output-bearing": 325,
       "structural-only": 50,
     });
     expect(
@@ -8121,7 +8125,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .map(([role, channels]) => [role, channels.length])
           .sort(),
       ),
-    ).toEqual({ callback: 59, out: 219, return: 293 });
+    ).toEqual({ callback: 66, out: 235, return: 306 });
     expect(
       Object.fromEntries(
         [
@@ -8134,10 +8138,10 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .sort(),
       ),
     ).toEqual({
-      "none:void": 68,
+      "none:void": 69,
       "value:aggregate": 17,
       "value:pointer": 51,
-      "value:scalar": 225,
+      "value:scalar": 238,
     });
     expect(
       Object.fromEntries(
@@ -8151,10 +8155,10 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .sort(),
       ),
     ).toEqual({
-      "callback-payload": 38,
-      inout: 9,
-      input: 915,
-      output: 90,
+      "callback-payload": 39,
+      inout: 10,
+      input: 971,
+      output: 91,
     });
 
     const accountFor = (name) =>

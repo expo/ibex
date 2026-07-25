@@ -15372,7 +15372,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
   },
   "objectKindAuthority": {
     "path": "include/exact_runtime.h",
-    "sha256": "8e95f70f03c780e87d9ce744d280940412b6c32255a025d017b5b90ca3da1662"
+    "sha256": "cb8aed427497fee666937adef00600175b55738eefc6c2abff93bb608fcdd9a0"
   },
   "objectKindTags": {
     "None": 0,

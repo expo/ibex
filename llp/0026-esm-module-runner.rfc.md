@@ -5,6 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
+**Revised:** 2026-07-24 (authenticated literal CommonJS `require()` now activates its exact reached target synchronously inside the existing runtime drive, authorizes and receipt-acquires only that target's static closure, rejects async-tainted ESM before publication, and rolls failed source/native expansion back without reusable graph authority)
 **Revised:** 2026-07-24 (authenticated ESM and CommonJS `import()` now defer target discovery until an exact reached-site mailbox request, authorize and acquire only that target's static closure, publish new native records atomically, and retain the live graph across ordinary quiescence and `--keep-alive`; synchronous authored CommonJS `require()` remains refused)
 **Revised:** 2026-07-24 (the production source graph authorizes exact dependency acquisition and receipt-gates dependency carriers; an opaque graph/request join now gates all prepared-cache discovery and entry-only carriers, while armed transpilation has no persistent cache)
 **Revised:** 2026-07-24 (the interim no-probe guard moved authored dynamic-import and CommonJS `require()` refusal ahead of target discovery; the later revision above replaces that guard for asynchronous `import()` while retaining it for synchronous `require()`)
@@ -24,9 +25,8 @@ On advertised native-runner targets, Ibex uses an **ESM module runner** for
 ordinary authenticated ESM: an authenticated module graph that parses and
 lowers source before Hermes sees it, creates real module records, links static
 edges, preserves live bindings and cycles, and evaluates asynchronous graphs
-including dependency-level top-level `await`. Explicitly unsupported call-time
-interop shapes such as synchronous authored CommonJS `require()`, and
-unadvertised targets while the 0.1 window remains open,
+including dependency-level top-level `await`. Explicitly unsupported interop
+shapes and unadvertised targets while the 0.1 window remains open
 retain the file-at-a-time ESM-to-CommonJS compatibility path. An unadvertised
 target refuses once that window closes.
 
@@ -949,6 +949,12 @@ Interop rules are explicit and corpus-tested:
   production bundler and runtime loader implement the same rule, and the
   detector's version is part of `transform_fingerprint`.
 - CommonJS `require()` of CommonJS remains synchronous.
+- Literal authored `require()` target discovery occurs only when the exact
+  retained spelling is reached. The generation-bound provider validates the
+  requester record handle and source identity, authorizes before target
+  acquisition, then atomically publishes the admitted static closure. Failure
+  rolls back source-graph additions and native staging; it does not install a
+  cache binding or retain activation authority.
 - CommonJS `require()` of ESM may synchronously drive the full
   load → link → evaluate pipeline for the target graph, including file I/O and
   transform, when the statically reachable ESM closure is proven free of
@@ -1459,11 +1465,14 @@ which is bounded to Ibex 0.1 and can be closed early with
 imports have native record/table machinery. Authenticated production ESM and
 CommonJS `import()` now use §6's reached-site mailbox, receipt-gated target
 static-closure acquisition, and atomic incremental native publication; dead
-branches do not resolve or read their targets. Authored synchronous CommonJS
-`require()` remains refused at source-graph ingress until the narrower private
-in-drive activation capability exists. Generated manifest-builtin fan-out
-remains the only native synchronous `require()` exception. Hosted platform and
-performance evidence remains the final release gate; the CI workflow records
+branches do not resolve or read their targets. Authored literal CommonJS
+`require()` uses a narrower synchronous, generation-bound in-drive provider:
+only module graph mutation may reenter, exact reached targets are
+receipt-acquired and published atomically, and async-tainted ESM refuses before
+publication. Generated manifest-builtin fan-out remains eager; exact
+bootstrap-owned object dependencies are separate sealed private edges rather
+than resolver targets. Hosted platform and performance evidence remains the
+final release gate; the CI workflow records
 both default and no-default build coverage plus the prepared-cache end-to-end
 test.
 

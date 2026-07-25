@@ -463,6 +463,23 @@ facebook::jsi::Value evaluateCommonJsRecord(
           const std::string specifier = args[0].asString(rt).utf8(rt);
           auto binding = current->second.require_bindings.find(specifier);
           if (binding == current->second.require_bindings.end()) {
+            if (current->second.bootstrap_internal_commonjs_requires.count(
+                    specifier) != 0) {
+              if (current->second.source_goal != 3 ||
+                  !target.runtime->module_bootstrap_internal_resolver) {
+                throw facebook::jsi::JSError(
+                    rt, "bootstrap-internal CommonJS require is unavailable");
+              }
+              auto internal =
+                  target.runtime->module_bootstrap_internal_resolver->call(
+                      rt,
+                      facebook::jsi::String::createFromUtf8(rt, specifier));
+              if (internal.isNull() || internal.isUndefined()) {
+                throw facebook::jsi::JSError(
+                    rt, "bootstrap-internal CommonJS require is stale");
+              }
+              return internal;
+            }
             if (current->second.deferred_commonjs_requires.count(specifier) ==
                 0) {
               throw facebook::jsi::JSError(
@@ -2238,24 +2255,51 @@ extern "C" int32_t ex_hermes_commonjs_record_defer_require(
   return EXACT_RUNTIME_DRIVE_OK;
 }
 
+extern "C" int32_t
+ex_hermes_commonjs_record_link_bootstrap_internal_require(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len) {
+  observeModuleRunnerAbi(__func__);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
+  if (!drive) return drive.status();
+  auto* entry = commonJsRecordFor(runtime, record);
+  if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state != NativeCommonJsRecordState::New ||
+      entry->source_goal != 3 || specifier == nullptr || specifier_len == 0 ||
+      runtime->module_bootstrap_internal_resolver == nullptr) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const std::string spelling(
+      reinterpret_cast<const char*>(specifier), specifier_len);
+  if (entry->require_bindings.count(spelling) != 0 ||
+      entry->deferred_commonjs_requires.count(spelling) != 0 ||
+      !entry->bootstrap_internal_commonjs_requires.insert(spelling).second) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
 extern "C" int32_t ex_hermes_module_set_commonjs_require_provider(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     uint64_t graph_generation,
-    ExactCommonJsRequireProvider provider,
-    void* provider_context) {
+    ExactCommonJsRequireProviderCallback provider,
+    void* context) {
   observeModuleRunnerAbi(__func__);
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   if (graph_generation == 0 || provider == nullptr ||
-      provider_context == nullptr ||
+      context == nullptr ||
       runtime->commonjs_require_provider_call_active ||
       runtime->pinned_module_generations.count(graph_generation) == 0) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
   NativeCommonJsRequireProviderEntry entry;
   entry.provider = provider;
-  entry.context = provider_context;
+  entry.context = context;
   if (!runtime->commonjs_require_providers
            .emplace(graph_generation, entry)
            .second) {
@@ -2713,8 +2757,6 @@ extern "C" int32_t ex_hermes_module_publish_records(
         runtime->module_records.find(commonjs->second.adapter_record_id);
     if (commonjs->second.published ||
         commonjs->second.state != NativeCommonJsRecordState::New ||
-        (!commonjs->second.deferred_commonjs_requires.empty() &&
-         runtime->commonjs_require_providers.count(handle.opaque[1]) == 0) ||
         adapter == runtime->module_records.end() ||
         adapter->second.published ||
         adapter->second.graph_generation != handle.opaque[1] ||
@@ -3143,15 +3185,15 @@ extern "C" int32_t ex_hermes_module_record_defer_computed_dynamic_import(
   return EXACT_RUNTIME_DRIVE_OK;
 }
 
-// @abi-output ex_hermes_module_take_dynamic_activation_request out_request role=output kind=aggregate schema=ExactModuleDynamicActivationRequest members=* ownership=caller-storage member-ownership=caller-frees:ex_hermes_module_dynamic_activation_request_dispose
+// @abi-output ex_hermes_module_take_dynamic_activation_request out_request role=output kind=aggregate schema=ExHermesModuleDynamicActivationRequest members=* ownership=caller-storage member-ownership=caller-frees:ex_hermes_module_dynamic_activation_request_dispose
 extern "C" int32_t ex_hermes_module_take_dynamic_activation_request(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     uint64_t graph_generation,
-    ExactModuleDynamicActivationRequest* out_request) {
+    ExHermesModuleDynamicActivationRequest* out_request) {
   observeModuleRunnerAbi(__func__);
   if (out_request == nullptr) return EXACT_RUNTIME_DRIVE_INVALID;
-  *out_request = ExactModuleDynamicActivationRequest{};
+  *out_request = ExHermesModuleDynamicActivationRequest{};
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   if (graph_generation == 0) return EXACT_RUNTIME_DRIVE_INVALID;
@@ -3212,12 +3254,13 @@ extern "C" int32_t ex_hermes_module_take_dynamic_activation_request(
   return EXACT_RUNTIME_DRIVE_OK;
 }
 
+// @abi-output ex_hermes_module_dynamic_activation_request_dispose request role=inout kind=aggregate schema=ExHermesModuleDynamicActivationRequest members=* ownership=caller-storage member-ownership=caller-frees:ex_hermes_module_dynamic_activation_request_dispose
 extern "C" void ex_hermes_module_dynamic_activation_request_dispose(
-    ExactModuleDynamicActivationRequest* request) {
+    ExHermesModuleDynamicActivationRequest* request) {
   if (request == nullptr) return;
   std::free(request->requester_source_id);
   std::free(request->specifier);
-  *request = ExactModuleDynamicActivationRequest{};
+  *request = ExHermesModuleDynamicActivationRequest{};
 }
 
 extern "C" int32_t ex_hermes_module_complete_dynamic_activation(

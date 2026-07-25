@@ -38515,6 +38515,39 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.defer.computed.dynamic.import.07bcu78",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_defer_computed_dynamic_import"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.defer.dynamic.import.0gatkvq",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_defer_dynamic_import"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.defer.require.181w35k",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_defer_require"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -38526,6 +38559,17 @@
         "out:error",
         "out:error_token",
         "out:evicted"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.link.bootstrap.internal.require.0kb976n",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_bootstrap_internal_require"
+      ],
+      "outputKinds": [
+        "[[return]]"
       ]
     },
     {
@@ -39210,6 +39254,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.module.clear.commonjs.require.provider.01fzf0s",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_clear_commonjs_require_provider"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -39224,6 +39279,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.module.complete.dynamic.activation.0xmajeq",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_complete_dynamic_activation"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.module.create.record.0hokcts",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -39233,6 +39299,35 @@
       "outputKinds": [
         "[[return]]",
         "out:record"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.discard.unpublished.record.1a8xjd2",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_discard_unpublished_record"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_dynamic_activation_request_dispose"
+      ],
+      "outputKinds": [
+        "out:request.graph_generation",
+        "out:request.kind",
+        "out:request.request_id",
+        "out:request.requester_record.opaque",
+        "out:request.requester_source_id",
+        "out:request.runtime_nonce",
+        "out:request.site",
+        "out:request.specifier"
       ]
     },
     {
@@ -39273,11 +39368,44 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.module.publish.records.093gl2m",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_publish_records"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/engine/hermes_module_runner.cc#ex_hermes_module_record_declare_export"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.record.defer.computed.dynamic.import.0vj6w7m",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_defer_computed_dynamic_import"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.record.defer.dynamic.import.181t13w",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_defer_dynamic_import"
       ],
       "outputKinds": [
         "[[return]]"
@@ -39415,6 +39543,43 @@
       ],
       "outputKinds": [
         "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_set_commonjs_require_provider"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "callback:provider/0",
+        "callback:provider/1",
+        "callback:provider/11",
+        "callback:provider/2",
+        "callback:provider/3.opaque",
+        "callback:provider/4",
+        "callback:provider/6"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_take_dynamic_activation_request"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:out_request.graph_generation",
+        "out:out_request.kind",
+        "out:out_request.request_id",
+        "out:out_request.requester_record.opaque",
+        "out:out_request.requester_source_id",
+        "out:out_request.runtime_nonce",
+        "out:out_request.site",
+        "out:out_request.specifier"
       ]
     },
     {
@@ -45403,6 +45568,15 @@
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
         "src/module_loader/mod.rs#duplicate_resolver_fd"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.function.rust.is.bootstrap.internal.module.specifier.0zbp3gp",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#is_bootstrap_internal_module_specifier"
       ],
       "outputKinds": []
     },
@@ -51422,6 +51596,19 @@
       ],
       "outputKinds": [
         "native-invocation"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.exactcapturebootstrapinternalmodule.1mscx9o",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#__exactCaptureBootstrapInternalModule",
+        "src/engine/hermes_runtime.cc#__exactCaptureBootstrapInternalModule",
+        "src/engine/hermes_runtime.cc#jsi-global:__exactCaptureBootstrapInternalModule"
+      ],
+      "outputKinds": [
+        "public-property-read"
       ]
     },
     {
@@ -86422,15 +86609,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-rWwfIsorazR219OL2R1VEBf16hyc1jGc8HoxkZ129RI",
+  "catalogKeyDigest": "sha256-P-BHTGCLB9pukvnrgyw0K0W88BExZ-CLrwnvY06paHg",
   "counts": {
-    "coverageSurfaces": 7612,
-    "outputBearingSurfaces": 5850,
-    "structuralOnlySurfaces": 1673,
+    "coverageSurfaces": 7627,
+    "outputBearingSurfaces": 5864,
+    "structuralOnlySurfaces": 1674,
     "unresolvedSurfaces": 89,
-    "catalogRows": 6533,
+    "catalogRows": 6569,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6126,
+    "sourceInventoryRows": 6162,
     "structuredRows": 407
   },
   "rows": [
@@ -149558,6 +149745,69 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.defer.computed.dynamic.import.07bcu78",
+        "output": "[[return]]",
+        "alias": "ex_hermes_commonjs_record_defer_computed_dynamic_import",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_record_defer_computed_dynamic_import"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_defer_computed_dynamic_import"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.defer.dynamic.import.0gatkvq",
+        "output": "[[return]]",
+        "alias": "ex_hermes_commonjs_record_defer_dynamic_import",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_record_defer_dynamic_import"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_defer_dynamic_import"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.defer.require.181w35k",
+        "output": "[[return]]",
+        "alias": "ex_hermes_commonjs_record_defer_require",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_record_defer_require"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_defer_require"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn",
         "output": "[[return]]",
         "alias": "ex_hermes_commonjs_record_evaluate",
@@ -149636,6 +149886,27 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_evaluate"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.link.bootstrap.internal.require.0kb976n",
+        "output": "[[return]]",
+        "alias": "ex_hermes_commonjs_record_link_bootstrap_internal_require",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_record_link_bootstrap_internal_require"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_bootstrap_internal_require"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -152546,6 +152817,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.clear.commonjs.require.provider.01fzf0s",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_clear_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_clear_commonjs_require_provider"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_clear_commonjs_require_provider"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
         "output": "[[return]]",
         "alias": "ex_hermes_module_compile_factory",
@@ -152630,6 +152922,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.complete.dynamic.activation.0xmajeq",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_complete_dynamic_activation",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_complete_dynamic_activation"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_complete_dynamic_activation"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.module.create.record.0hokcts",
         "output": "[[return]]",
         "alias": "ex_hermes_module_create_record",
@@ -152666,6 +152979,195 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_module_runner.cc#ex_hermes_module_create_record"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.discard.unpublished.record.1a8xjd2",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_discard_unpublished_record",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_discard_unpublished_record"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_discard_unpublished_record"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+        "output": "out:request.graph_generation",
+        "alias": "ex_hermes_module_dynamic_activation_request_dispose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_dynamic_activation_request_dispose"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_dynamic_activation_request_dispose"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+        "output": "out:request.kind",
+        "alias": "ex_hermes_module_dynamic_activation_request_dispose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_dynamic_activation_request_dispose"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_dynamic_activation_request_dispose"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+        "output": "out:request.request_id",
+        "alias": "ex_hermes_module_dynamic_activation_request_dispose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_dynamic_activation_request_dispose"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_dynamic_activation_request_dispose"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+        "output": "out:request.requester_record.opaque",
+        "alias": "ex_hermes_module_dynamic_activation_request_dispose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_dynamic_activation_request_dispose"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_dynamic_activation_request_dispose"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+        "output": "out:request.requester_source_id",
+        "alias": "ex_hermes_module_dynamic_activation_request_dispose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_dynamic_activation_request_dispose"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_dynamic_activation_request_dispose"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+        "output": "out:request.runtime_nonce",
+        "alias": "ex_hermes_module_dynamic_activation_request_dispose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_dynamic_activation_request_dispose"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_dynamic_activation_request_dispose"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+        "output": "out:request.site",
+        "alias": "ex_hermes_module_dynamic_activation_request_dispose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_dynamic_activation_request_dispose"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_dynamic_activation_request_dispose"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+        "output": "out:request.specifier",
+        "alias": "ex_hermes_module_dynamic_activation_request_dispose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_dynamic_activation_request_dispose"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_dynamic_activation_request_dispose"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -152819,6 +153321,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.publish.records.093gl2m",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_publish_records",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_publish_records"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_publish_records"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7",
         "output": "[[return]]",
         "alias": "ex_hermes_module_record_declare_export",
@@ -152834,6 +153357,48 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_module_runner.cc#ex_hermes_module_record_declare_export"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.defer.computed.dynamic.import.0vj6w7m",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_record_defer_computed_dynamic_import",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_defer_computed_dynamic_import"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_defer_computed_dynamic_import"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.defer.dynamic.import.181t13w",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_record_defer_dynamic_import",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_defer_dynamic_import"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_defer_dynamic_import"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -153338,6 +153903,363 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_module_runner.cc#ex_hermes_module_release_handle"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_set_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_set_commonjs_require_provider"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_set_commonjs_require_provider"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+        "output": "callback:provider/0",
+        "alias": "ex_hermes_module_set_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_set_commonjs_require_provider"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_set_commonjs_require_provider"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+        "output": "callback:provider/1",
+        "alias": "ex_hermes_module_set_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_set_commonjs_require_provider"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_set_commonjs_require_provider"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+        "output": "callback:provider/11",
+        "alias": "ex_hermes_module_set_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_set_commonjs_require_provider"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_set_commonjs_require_provider"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+        "output": "callback:provider/2",
+        "alias": "ex_hermes_module_set_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_set_commonjs_require_provider"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_set_commonjs_require_provider"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+        "output": "callback:provider/3.opaque",
+        "alias": "ex_hermes_module_set_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_set_commonjs_require_provider"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_set_commonjs_require_provider"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+        "output": "callback:provider/4",
+        "alias": "ex_hermes_module_set_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_set_commonjs_require_provider"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_set_commonjs_require_provider"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+        "output": "callback:provider/6",
+        "alias": "ex_hermes_module_set_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_set_commonjs_require_provider"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_set_commonjs_require_provider"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_take_dynamic_activation_request"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_take_dynamic_activation_request"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "out:out_request.graph_generation",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_take_dynamic_activation_request"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_take_dynamic_activation_request"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "out:out_request.kind",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_take_dynamic_activation_request"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_take_dynamic_activation_request"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "out:out_request.request_id",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_take_dynamic_activation_request"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_take_dynamic_activation_request"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "out:out_request.requester_record.opaque",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_take_dynamic_activation_request"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_take_dynamic_activation_request"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "out:out_request.requester_source_id",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_take_dynamic_activation_request"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_take_dynamic_activation_request"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "out:out_request.runtime_nonce",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_take_dynamic_activation_request"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_take_dynamic_activation_request"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "out:out_request.site",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_take_dynamic_activation_request"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_take_dynamic_activation_request"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "out:out_request.specifier",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_take_dynamic_activation_request"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_take_dynamic_activation_request"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -162741,6 +163663,29 @@
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#__exactCapabilityCheck",
           "src/engine/hermes_runtime.cc#jsi-global:__exactCapabilityCheck"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactcapturebootstrapinternalmodule.1mscx9o",
+        "output": "[[value]]",
+        "alias": "__exactCaptureBootstrapInternalModule",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:__exactCaptureBootstrapInternalModule"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#__exactCaptureBootstrapInternalModule",
+          "src/engine/hermes_runtime.cc#__exactCaptureBootstrapInternalModule",
+          "src/engine/hermes_runtime.cc#jsi-global:__exactCaptureBootstrapInternalModule"
         ]
       },
       "requiredValueProof": "live-value-observation"

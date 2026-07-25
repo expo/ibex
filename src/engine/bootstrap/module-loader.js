@@ -3615,6 +3615,14 @@
     }
     return cache[normalized].exports;
   }
+  // Native authenticated builtin records execute outside this loader's
+  // CommonJS wrapper but still need the exact bootstrap-owned objects above.
+  // Publish a temporary capture hook; native startup retains the function and
+  // deletes the global before any package body can execute.
+  // @ref LLP 0004#one-source-many-specifiers
+  g.__exactCaptureBootstrapInternalModule = function(specifier) {
+    return loadInternal(specifier);
+  };
   function isSameModule(a, b) {
     if (!a || !b) return false;
     return a === b;

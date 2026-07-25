@@ -38,7 +38,7 @@ typedef struct ExactModuleRunnerHandle {
 /// Rust graph owner to authorize and materialize its exact target. Byte
 /// strings are length-bearing and caller-owned after `take`; dispose them with
 /// `ex_hermes_module_dynamic_activation_request_dispose`.
-typedef struct ExactModuleDynamicActivationRequest {
+typedef struct ExHermesModuleDynamicActivationRequest {
     uint64_t runtime_nonce;
     uint64_t request_id;
     uint64_t graph_generation;
@@ -50,13 +50,13 @@ typedef struct ExactModuleDynamicActivationRequest {
     size_t requester_source_id_len;
     uint8_t* specifier;
     size_t specifier_len;
-} ExactModuleDynamicActivationRequest;
+} ExHermesModuleDynamicActivationRequest;
 
 /// Synchronous, generation-scoped provider for one exactly reached authored
 /// CommonJS `require()` spelling. The provider may use only the module
 /// mutation ABI while it is active; it must publish the returned target but
 /// must not evaluate it. `out_target_kind` is 0 for CommonJS and 1 for ESM.
-typedef int32_t (*ExactCommonJsRequireProvider)(
+typedef int32_t (*ExactCommonJsRequireProviderCallback)(
     void* context,
     uint64_t runtime_nonce,
     uint64_t graph_generation,
@@ -67,8 +67,8 @@ typedef int32_t (*ExactCommonJsRequireProvider)(
     size_t specifier_len,
     ExactModuleRunnerHandle* out_target_record,
     uint32_t* out_target_kind,
-    uint8_t* error_buffer,
-    size_t error_buffer_capacity,
+    uint8_t* out_error,
+    size_t out_error_capacity,
     size_t* out_error_len);
 
 typedef enum ExactRuntimeDriveStatus {
@@ -1537,16 +1537,26 @@ int32_t ex_hermes_commonjs_record_defer_require(
     const uint8_t* specifier,
     size_t specifier_len);
 
+/// Bind one generated-builtin `require()` spelling to an object owned by the
+/// sealed bootstrap loader closure. This has no ModuleRecord target and is
+/// invalid for authored CommonJS records.
+int32_t ex_hermes_commonjs_record_link_bootstrap_internal_require(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len);
+
 /// Install or remove the sole synchronous require provider for a graph
-/// generation. Installation must precede publication of records carrying
+/// generation. Installation must precede evaluation of records carrying
 /// deferred require declarations. Clearing is idempotent after generation
 /// teardown and never invokes the provider.
 int32_t ex_hermes_module_set_commonjs_require_provider(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     uint64_t graph_generation,
-    ExactCommonJsRequireProvider provider,
-    void* provider_context);
+    ExactCommonJsRequireProviderCallback provider,
+    void* context);
 
 int32_t ex_hermes_module_clear_commonjs_require_provider(
     ExactHermesRuntime* runtime,
@@ -1771,10 +1781,10 @@ int32_t ex_hermes_module_take_dynamic_activation_request(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     uint64_t graph_generation,
-    ExactModuleDynamicActivationRequest* out_request);
+    ExHermesModuleDynamicActivationRequest* out_request);
 
 void ex_hermes_module_dynamic_activation_request_dispose(
-    ExactModuleDynamicActivationRequest* request);
+    ExHermesModuleDynamicActivationRequest* request);
 
 /// Complete one taken request. Success supplies the fully linked target
 /// record. Failure supplies a length-bearing diagnostic and a zero handle.

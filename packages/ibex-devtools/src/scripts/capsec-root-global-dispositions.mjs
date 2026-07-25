@@ -28,6 +28,7 @@ const DYNAMIC_SENTINEL = /\[\[dynamic-table:[^\]]+\]\]/u;
 const EFFECTFUL_PROXY_ROOTS = new Set(["localStorage", "sessionStorage"]);
 
 const PRIVATE_CONSUMERS = new Map([
+  ["__exactCaptureBootstrapInternalModule", "trusted-module-loader"],
   // @ref LLP 0002#the-dev-served-module-table-seam — dev
   // module-table lifecycle/quarantine bridges are bootstrap-only rendezvous,
   // captured in trusted loader state and absent before project evaluation.

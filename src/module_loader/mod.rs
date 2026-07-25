@@ -1079,6 +1079,15 @@ pub(crate) fn is_registered_builtin_specifier(specifier: &str) -> bool {
         .any(|registration| registration.specifier == specifier)
 }
 
+/// Whether the bootstrap loader owns this exact internal object spelling.
+/// These names are not registry modules and never enter package resolution.
+/// Native builtin execution uses the same generated list to retain the edge
+/// as a sealed bootstrap-closure lookup instead of inventing a module record.
+/// @ref LLP 0004#one-source-many-specifiers
+pub(crate) fn is_bootstrap_internal_module_specifier(specifier: &str) -> bool {
+    BOOTSTRAP_INTERNAL_MODULE_SPECIFIERS.contains(&specifier)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BuiltinManifestDebugEntry {
     pub specifier: &'static str,

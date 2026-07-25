@@ -268,6 +268,9 @@ export function renderRustBuiltinManifest(): string {
   const gatedBuiltinLines = manifest.runtimeGatedNodeBuiltins.map(
     (name) => `    ${rustStringLiteral(name)},`,
   );
+  const bootstrapInternalLines = manifest.staticBootstrapInternalModules.map(
+    (name) => `    ${rustStringLiteral(name)},`,
+  );
   const sourceLines = Object.entries(sources).map(
     ([sourceKey, source]) =>
       `        ${rustStringLiteral(sourceKey)} => ${renderRustSourceExpression(source)},`,
@@ -284,6 +287,11 @@ ${registrationLines.join('\n')}
 #[rustfmt::skip]
 pub const RUNTIME_GATED_NODE_BUILTINS: &[&str] = &[
 ${gatedBuiltinLines.join('\n')}
+];
+
+#[rustfmt::skip]
+pub(crate) const BOOTSTRAP_INTERNAL_MODULE_SPECIFIERS: &[&str] = &[
+${bootstrapInternalLines.join('\n')}
 ];
 
 #[rustfmt::skip]

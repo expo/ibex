@@ -764,7 +764,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-native-graph-join",
       "    async fn evaluate_native_module_graph(",
       "    async fn install_capsec_context_test_observer(",
-      "sha256-Z2exVRU0L096-QhJSBLd38uFspz1KAiymZHs_y-T8D4",
+      "sha256-1mc4V0V3qe59d2lMJV8lqCNuLjdXSebchEcrOjMwpZs",
     ),
   ]),
   "src/bin/ibex/terminal_session.rs": Object.freeze([

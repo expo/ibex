@@ -426,6 +426,55 @@ ticket closes.
   set.** The ABI proof removes the reentrancy uncertainty but does not count as
   a shipped security mechanism until production graph state owns it.
 
+### 2026-07-24 — shipped synchronous `require()` activation in production
+
+- Retained production graph state now owns the generation-scoped provider
+  before any module body executes and mutates the same published native record
+  index used by dynamic activation.
+- Literal CommonJS `require()` validates the exact requester handle, source
+  identity, generation, and retained spelling; authorizes before acquisition;
+  receipt-acquires only the reached target's static closure; and publishes it
+  atomically inside the existing runtime drive.
+- Production tests cover CJS→CJS caching, CJS→synchronous ESM plus its static
+  closure, and `ERR_REQUIRE_ASYNC_MODULE` before any target body or record is
+  published.
+- Failed synchronous and asynchronous activations now roll source-graph
+  records, principals, matched candidates, and retained receipts back to their
+  pre-request checkpoint. Native staging was already atomic, so failure leaves
+  neither a require cache binding nor reusable graph authority.
+- Reached `node:fs` exposed a latent eager-runner defect: generated builtin
+  source references bootstrap-owned objects such as
+  `internal/test/binding`, which are intentionally absent from the public
+  manifest resolver. The generated bootstrap-internal list now produces a
+  distinct private edge with no ModuleRecord target. Startup captures its
+  resolver in native state and seals the temporary global before package
+  execution; authored modules cannot enter this path.
+- Both reached CJS→`node:fs` VFS execution and the existing eager ESM→`node:fs`
+  callback-only TLA regression pass. A closed compatibility window now retains
+  dead `import()` and literal `require()` as native call-time declarations.
+- The generated gates found two review defects that narrower runtime tests did
+  not expose. The temporary bootstrap-object capture hook was initially
+  classified as a reachable root; it is now a named
+  `trusted-module-loader` private consumer whose required armed disposition is
+  absent. The new provider/disposer ABI was initially incomplete in the
+  output-shape inventory; its callback directions, opaque handle schema, and
+  aggregate disposal contract are now source-derived with no new unresolved
+  host-ABI rows.
+- CapSec generation now accounts for 7,602 coverage edges, 7,822 enforcement
+  branches, 15,204 target cells, 13,331 source references, and 222 reviewed
+  host-task ingress sites. The complete generated-drift chain and all focused
+  coverage, surface-inventory, output-disposition, root-disposition, and
+  host-task tests pass after the reviewed count/digest rotation.
+- Verification also passes for 639 library tests with 3 intentional ignores,
+  the six production `authenticated_commonjs_require_` integrations, five
+  retained activation/rollback tests, the exact retained-import test,
+  `cargo check` for the module-runner binary, `ref-check`, and diff hygiene.
+- `main` remains at `f85443a3` while this production checkpoint is prepared.
+- Current estimate: **61% complete for the full LLP 0021 completion contract;
+  roughly 89% complete for the security-critical runtime mechanism set.**
+  Invocation-time prepared activation and the broad cross-kind/failure matrix
+  remain before this mechanism slice can be called complete.
+
 ## Current hard parts
 
 - Exact-target completion is deliberately all-or-nothing. Existing evidence
@@ -445,13 +494,11 @@ ticket closes.
   portable engine artifact; the reviewed local framework reports no portable
   identity, so it cannot honestly produce that evidence.
 - `malformed-branch-facts` has no owning-language proof and remains residual.
-- Authored `import()` now has receipt-gated reached-site source activation and
-  atomic live-graph publication. The synchronous in-drive CommonJS
-  `require()` boundary is proven in isolation; the hard remaining step is
-  installing retained production graph state before evaluation so its exact
-  callback can mutate the same published index without a mutex/reentrancy
-  deadlock. Invocation-time prepared carriers and their failure matrix remain
-  open, tracked in
+- Authored `import()` and literal CommonJS `require()` now have receipt-gated
+  reached-site source activation and atomic live-graph publication. The hard
+  remaining activation work is invocation-time prepared-carrier discovery and
+  the complete source/prepared denial, cycle, teardown, and interop matrix,
+  tracked in
   `issues/20260724-native-call-time-module-activation.md`.
 - The root/bootstrap mechanism seals correctly, but both builders still emit an
   empty `bootstrapAuthorityFloor`. Current bootstrap host inputs are
@@ -463,9 +510,9 @@ ticket closes.
 
 ## Next milestone
 
-Install the exact CommonJS provider on retained production graph state before
-initial evaluation, publish a synchronously admissible target closure through
-the shared native index, and cover denial, async-taint, cycle, and teardown
-paths. Then return to invocation-time prepared activation. Bootstrap-floor
-authorship and `malformed-branch-facts` remain named gaps rather than unsafe
-local substitutions.
+Complete the synchronous source-path matrix (denial/no-probe, CommonJS cycles,
+ESM cycle refusal, teardown, and prepared-initial targets), then implement
+invocation-time prepared activation without reading an index or carrier before
+the exact reached edge. Bootstrap-floor authorship and
+`malformed-branch-facts` remain named gaps rather than unsafe local
+substitutions.

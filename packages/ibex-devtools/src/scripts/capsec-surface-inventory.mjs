@@ -1501,7 +1501,10 @@ export function scanCppAbiTypeRegistry(text, sourcePath = "<native-header>") {
   const tokens = lexCpp(text, sourcePath);
   const aggregates = {};
   for (const definition of cppTypeDefinitions(tokens)) {
-    if (!/^Ex(?:Hermes|Worklet|Motion)[A-Za-z0-9_]*$/u.test(definition.name)) {
+    if (
+      !/^Ex(?:Hermes|Worklet|Motion)[A-Za-z0-9_]*$/u.test(definition.name) &&
+      definition.name !== "ExactModuleRunnerHandle"
+    ) {
       continue;
     }
     const alias = tokens[definition.bodyClose + 1];

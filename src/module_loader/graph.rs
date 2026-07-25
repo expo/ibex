@@ -140,6 +140,7 @@ pub struct SynchronousGraphPlan<'artifact> {
     computed_candidate_sites: ComputedCandidateSiteMap,
     deferred_dynamic_sources: BTreeSet<SourceId>,
     deferred_commonjs_require_sources: BTreeSet<SourceId>,
+    bootstrap_internal_commonjs_requires: BTreeMap<SourceId, BTreeSet<String>>,
 }
 
 /// One strongly connected component in dependency-first order. Records inside
@@ -271,6 +272,32 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         deferred_dynamic_sources: BTreeSet<SourceId>,
         deferred_commonjs_require_sources: BTreeSet<SourceId>,
     ) -> Result<Self, GraphError> {
+        Self::new_typed_with_private_commonjs_edges(
+            records,
+            computed_candidate_sites,
+            deferred_dynamic_sources,
+            deferred_commonjs_require_sources,
+            BTreeMap::new(),
+        )
+    }
+
+    /// Build a graph that additionally retains exact generated-builtin
+    /// `require()` spellings resolved by the sealed bootstrap closure. These
+    /// private object edges have no ModuleRecord target and are never available
+    /// to authored CommonJS activation.
+    // @ref LLP 0004#one-source-many-specifiers
+    pub fn new_typed_with_private_commonjs_edges(
+        records: impl IntoIterator<
+            Item = (
+                VerifiedModuleArtifactV1<'artifact>,
+                BTreeMap<GraphEdgeKey, SourceId>,
+            ),
+        >,
+        computed_candidate_sites: ComputedCandidateSiteMap,
+        deferred_dynamic_sources: BTreeSet<SourceId>,
+        deferred_commonjs_require_sources: BTreeSet<SourceId>,
+        bootstrap_internal_commonjs_requires: BTreeMap<SourceId, BTreeSet<String>>,
+    ) -> Result<Self, GraphError> {
         let mut planned = BTreeMap::new();
         for (artifact, edges) in records {
             let semantics = &artifact.artifact().semantics;
@@ -286,6 +313,21 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                     )));
                 }
                 expected.retain(|key| key.resolution_kind != ResolutionKind::CommonJsRequire);
+            }
+            if let Some(specifiers) = bootstrap_internal_commonjs_requires.get(&source_id) {
+                if semantics.source_goal != SourceGoalV1::Builtin || specifiers.is_empty() {
+                    return Err(GraphError::link(format!(
+                        "bootstrap-internal require declarations belong to a non-builtin or empty record {source_id:?}"
+                    )));
+                }
+                for specifier in specifiers {
+                    let key = GraphEdgeKey::new(specifier, ResolutionKind::CommonJsRequire);
+                    if !expected.remove(&key) {
+                        return Err(GraphError::link(format!(
+                            "bootstrap-internal require {specifier:?} is not declared by {source_id:?}"
+                        )));
+                    }
+                }
             }
             let observed: BTreeSet<_> = edges.keys().cloned().collect();
             let has_computed_dynamic_import = semantics
@@ -359,6 +401,7 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             computed_candidate_sites,
             deferred_dynamic_sources,
             deferred_commonjs_require_sources,
+            bootstrap_internal_commonjs_requires,
         })
     }
 
@@ -372,6 +415,23 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
 
     pub fn defers_commonjs_require_edges(&self, source_id: &SourceId) -> bool {
         self.deferred_commonjs_require_sources.contains(source_id)
+    }
+
+    pub fn bootstrap_internal_commonjs_requires(&self, source_id: &SourceId) -> BTreeSet<String> {
+        self.bootstrap_internal_commonjs_requires
+            .get(source_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn is_bootstrap_internal_commonjs_require(
+        &self,
+        source_id: &SourceId,
+        specifier: &str,
+    ) -> bool {
+        self.bootstrap_internal_commonjs_requires
+            .get(source_id)
+            .is_some_and(|specifiers| specifiers.contains(specifier))
     }
 
     pub fn artifact(
@@ -410,6 +470,9 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                     continue;
                 };
                 if self.defers_commonjs_require_edges(source_id) {
+                    continue;
+                }
+                if self.is_bootstrap_internal_commonjs_require(source_id, specifier.as_str()) {
                     continue;
                 }
                 if semantics.source_goal != SourceGoalV1::Builtin {
@@ -533,6 +596,9 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         for edge in &record.artifact.artifact().semantics.static_edges {
             if let StaticEdgeV1::CommonJsRequire { specifier } = edge {
                 if self.defers_commonjs_require_edges(source_id) {
+                    continue;
+                }
+                if self.is_bootstrap_internal_commonjs_require(source_id, specifier.as_str()) {
                     continue;
                 }
                 bindings.push((
@@ -1347,6 +1413,16 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         let record = self.record(source_id)?;
         let mut targets = BTreeSet::new();
         for edge in &record.artifact.artifact().semantics.static_edges {
+            if matches!(
+                edge,
+                StaticEdgeV1::CommonJsRequire { specifier }
+                    if self.is_bootstrap_internal_commonjs_require(
+                        source_id,
+                        specifier.as_str()
+                    )
+            ) {
+                continue;
+            }
             if self.defers_commonjs_require_edges(source_id)
                 && matches!(edge, StaticEdgeV1::CommonJsRequire { .. })
             {
@@ -1838,6 +1914,53 @@ mod tests {
             builtin_plan.evaluation_order(&builtin_owner_id).unwrap(),
             [builtin_owner_id.clone()]
         );
+
+        let bootstrap_owner_id =
+            SourceId::builtin("ibex-runtime", "bootstrap-internal-owner").unwrap();
+        let bootstrap_owner = builtin_artifact(
+            bootstrap_owner_id.clone(),
+            vec![StaticEdgeV1::CommonJsRequire {
+                specifier: name("internal/test/binding"),
+            }],
+        );
+        let bootstrap_plan = SynchronousGraphPlan::new_typed_with_private_commonjs_edges(
+            [(verify(&bootstrap_owner), BTreeMap::new())],
+            BTreeMap::new(),
+            BTreeSet::new(),
+            BTreeSet::new(),
+            BTreeMap::from([(
+                bootstrap_owner_id.clone(),
+                BTreeSet::from(["internal/test/binding".to_owned()]),
+            )]),
+        )
+        .unwrap();
+        bootstrap_plan
+            .ensure_native_call_time_edges_supported()
+            .unwrap();
+        assert!(bootstrap_plan
+            .commonjs_require_bindings(&bootstrap_owner_id)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            bootstrap_plan
+                .linkage_order_for_authorized(&bootstrap_owner_id, &BTreeMap::new())
+                .unwrap(),
+            [bootstrap_owner_id.clone()]
+        );
+        assert!(SynchronousGraphPlan::new_typed_with_private_commonjs_edges(
+            [(verify(&commonjs_entry), BTreeMap::new())],
+            BTreeMap::new(),
+            BTreeSet::new(),
+            BTreeSet::new(),
+            BTreeMap::from([(
+                commonjs_entry_id.clone(),
+                BTreeSet::from(["./commonjs-target.cjs".to_owned()]),
+            )]),
+        )
+        .err()
+        .expect("non-builtin bootstrap-internal edge was accepted")
+        .to_string()
+        .contains("non-builtin"));
 
         let non_builtin_target_id = SourceId::file(
             root.clone(),

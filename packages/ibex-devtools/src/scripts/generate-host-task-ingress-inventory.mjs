@@ -103,6 +103,7 @@ export const HOST_TASK_INGRESS_CLASSIFICATIONS = Object.freeze([
       "ex_hermes_commonjs_record_evaluate",
       "ex_hermes_commonjs_record_create_esm_adapter",
       "ex_hermes_module_compile_factory",
+      "ex_hermes_module_complete_dynamic_activation",
       "ex_hermes_module_load_carrier_factory",
       "ex_hermes_module_record_instantiate",
       "ex_hermes_module_record_namespace_json",
@@ -114,7 +115,12 @@ export const HOST_TASK_INGRESS_CLASSIFICATIONS = Object.freeze([
     "src/engine/hermes_module_runner.cc",
     "joins-outer-host-task",
     RATIONALE.nested,
-    ["beginRecordExecute", "evaluateCommonJsRecord", "finalizeCommonJsAdapter"],
+    [
+      "beginRecordExecute",
+      "evaluateCommonJsRecord",
+      "finalizeCommonJsAdapter",
+      "pendingDynamicActivationPromise",
+    ],
   ),
 
   ...classificationsFor(
@@ -393,6 +399,7 @@ export const REQUIRED_HOST_TASK_INGRESS_ROWS = Object.freeze([
       "ex_hermes_commonjs_record_create_esm_adapter",
       "ex_hermes_commonjs_record_evaluate",
       "ex_hermes_module_compile_factory",
+      "ex_hermes_module_complete_dynamic_activation",
       "ex_hermes_module_load_carrier_factory",
       "ex_hermes_module_record_instantiate",
       "ex_hermes_module_record_namespace_json",

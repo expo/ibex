@@ -148629,6 +148629,36 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.host.abi.ex.hermes.commonjs.record.defer.computed.dynamic.import.07bcu78",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_commonjs_record_defer_computed_dynamic_import"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.commonjs.record.defer.dynamic.import.0gatkvq",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_commonjs_record_defer_dynamic_import"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.commonjs.record.defer.require.181w35k",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_commonjs_record_defer_require"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn",
             "classification": "non-capability",
             "surface": {
@@ -148637,6 +148667,16 @@
             },
             "rationaleId": "module-reachability-only",
             "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.commonjs.record.link.bootstrap.internal.require.0kb976n",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_commonjs_record_link_bootstrap_internal_require"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
             "id": "surface.host.abi.ex.hermes.commonjs.record.link.computed.dynamic.import.1b3mrxc",
@@ -149179,6 +149219,16 @@
             "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
           },
           {
+            "id": "surface.host.abi.ex.hermes.module.clear.commonjs.require.provider.01fzf0s",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_module_clear_commonjs_require_provider"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
             "classification": "non-capability",
             "surface": {
@@ -149189,6 +149239,16 @@
             "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
           },
           {
+            "id": "surface.host.abi.ex.hermes.module.complete.dynamic.activation.0xmajeq",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_module_complete_dynamic_activation"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.module.create.record.0hokcts",
             "classification": "non-capability",
             "surface": {
@@ -149197,6 +149257,26 @@
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.module.discard.unpublished.record.1a8xjd2",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_module_discard_unpublished_record"
+            },
+            "rationaleId": "authority-release",
+            "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_module_dynamic_activation_request_dispose"
+            },
+            "rationaleId": "authority-release",
+            "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
           },
           {
             "id": "surface.host.abi.ex.hermes.module.load.carrier.factory.0m3jepm",
@@ -149229,11 +149309,41 @@
             "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
           },
           {
+            "id": "surface.host.abi.ex.hermes.module.publish.records.093gl2m",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_module_publish_records"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7",
             "classification": "non-capability",
             "surface": {
               "kind": "host-abi",
               "name": "ex_hermes_module_record_declare_export"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.module.record.defer.computed.dynamic.import.0vj6w7m",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_module_record_defer_computed_dynamic_import"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.module.record.defer.dynamic.import.181t13w",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_module_record_defer_dynamic_import"
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -149347,6 +149457,26 @@
             },
             "rationaleId": "authority-release",
             "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_module_set_commonjs_require_provider"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_module_take_dynamic_activation_request"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
             "id": "surface.host.abi.ex.hermes.module.unpin.generation.0bvxkc5",
@@ -166449,6 +166579,16 @@
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.loader.function.rust.is.bootstrap.internal.module.specifier.0zbp3gp",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "function:rust:is_bootstrap_internal_module_specifier"
+            },
+            "rationaleId": "module-reachability-only",
+            "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
           },
           {
             "id": "surface.loader.function.rust.is.builtin.specifier.036pq2l",
@@ -209901,6 +210041,16 @@
             "surface": {
               "kind": "native-op",
               "name": "__exactCapabilityCheck"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.exactcapturebootstrapinternalmodule.1mscx9o",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "__exactCaptureBootstrapInternalModule"
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."

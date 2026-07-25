@@ -31,11 +31,11 @@ use crate::module_loader::security::{
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct NativeModuleHandle {
-    pub(crate) opaque: [u64; 3],
+struct NativeModuleHandle {
+    opaque: [u64; 3],
 }
 
-pub(crate) type NativeCommonJsRequireProvider = unsafe extern "C" fn(
+type NativeCommonJsRequireProvider = unsafe extern "C" fn(
     context: *mut c_void,
     runtime_nonce: u64,
     graph_generation: u64,
@@ -201,6 +201,13 @@ unsafe extern "C" {
         synchronous_eligible: i32,
     ) -> i32;
     fn ex_hermes_commonjs_record_defer_require(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        specifier: *const u8,
+        specifier_len: usize,
+    ) -> i32;
+    fn ex_hermes_commonjs_record_link_bootstrap_internal_require(
         runtime: *mut c_void,
         runtime_nonce: u64,
         record: NativeModuleHandle,
@@ -705,11 +712,150 @@ pub struct NativeModuleRuntime<'runtime> {
 /// Owner-thread registration of one generation's exact synchronous
 /// CommonJS-require activation provider. The context allocation is owned by
 /// the caller and must outlive this token.
-pub(crate) struct NativeCommonJsRequireProviderRegistration {
+pub struct NativeCommonJsRequireProviderRegistration {
     raw: NonNull<c_void>,
     nonce: u64,
     graph_generation: u64,
-    _owner_thread: PhantomData<Rc<()>>,
+    provider_bridge: Option<NonNull<c_void>>,
+    drop_provider_bridge: unsafe fn(NonNull<c_void>),
+}
+
+// The token may be stored behind the embedding runtime's owner-thread mutex.
+// Its Drop implementation never dereferences or frees the provider bridge
+// after an off-owner clear refusal, preserving the callback context alongside
+// an intentionally leaked thread-affine runtime.
+unsafe impl Send for NativeCommonJsRequireProviderRegistration {}
+
+struct CommonJsRequireProviderBridge<T> {
+    raw: NonNull<c_void>,
+    nonce: u64,
+    graph_generation: u64,
+    context: NonNull<T>,
+    provider: fn(
+        &mut T,
+        &NativeModuleRuntime<'_>,
+        CommonJsRequireActivationRequest,
+    ) -> Result<NativeCommonJsRequireActivationTarget>,
+}
+
+unsafe fn drop_commonjs_require_provider_bridge<T>(bridge: NonNull<c_void>) {
+    unsafe {
+        drop(Box::from_raw(
+            bridge.cast::<CommonJsRequireProviderBridge<T>>().as_ptr(),
+        ));
+    }
+}
+
+unsafe fn write_commonjs_require_provider_error(
+    message: &str,
+    error_buffer: *mut u8,
+    error_buffer_capacity: usize,
+    out_error_len: *mut usize,
+) {
+    let bytes = message.as_bytes();
+    let length = bytes.len().min(error_buffer_capacity);
+    if length != 0 && !error_buffer.is_null() {
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), error_buffer, length);
+        }
+    }
+    if !out_error_len.is_null() {
+        unsafe {
+            *out_error_len = length;
+        }
+    }
+}
+
+unsafe extern "C" fn commonjs_require_provider_trampoline<T>(
+    context: *mut c_void,
+    runtime_nonce: u64,
+    graph_generation: u64,
+    requester_record: NativeModuleHandle,
+    requester_source_id: *const u8,
+    requester_source_id_len: usize,
+    specifier: *const u8,
+    specifier_len: usize,
+    out_target_record: *mut NativeModuleHandle,
+    out_target_kind: *mut u32,
+    error_buffer: *mut u8,
+    error_buffer_capacity: usize,
+    out_error_len: *mut usize,
+) -> i32 {
+    if !out_target_record.is_null() {
+        unsafe { *out_target_record = NativeModuleHandle::default() };
+    }
+    if !out_target_kind.is_null() {
+        unsafe { *out_target_kind = u32::MAX };
+    }
+    if !out_error_len.is_null() {
+        unsafe { *out_error_len = 0 };
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let bridge = NonNull::new(context.cast::<CommonJsRequireProviderBridge<T>>())
+            .ok_or_else(|| anyhow!("CommonJS require provider context is null"))?;
+        if requester_source_id.is_null()
+            || specifier.is_null()
+            || out_target_record.is_null()
+            || out_target_kind.is_null()
+        {
+            bail!("CommonJS require provider received invalid native pointers");
+        }
+        let bridge = unsafe { bridge.as_ptr().as_mut().expect("non-null provider bridge") };
+        if runtime_nonce != bridge.nonce
+            || graph_generation != bridge.graph_generation
+            || requester_record.opaque[0] != runtime_nonce
+            || requester_record.opaque[1] != graph_generation
+        {
+            bail!("CommonJS require provider token is stale");
+        }
+        let requester = std::str::from_utf8(unsafe {
+            std::slice::from_raw_parts(requester_source_id, requester_source_id_len)
+        })
+        .context("CommonJS requester SourceId is not UTF-8")
+        .and_then(SourceId::decode)?;
+        let specifier =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(specifier, specifier_len) })
+                .context("CommonJS require spelling is not UTF-8")?
+                .to_owned();
+        let runtime = unsafe { NativeModuleRuntime::from_raw(bridge.raw, bridge.nonce)? };
+        let request = CommonJsRequireActivationRequest {
+            graph_generation,
+            requester_record,
+            requester,
+            specifier,
+        };
+        let target = (bridge.provider)(unsafe { bridge.context.as_mut() }, &runtime, request)?;
+        unsafe {
+            *out_target_record = target.0.publication_handle();
+            *out_target_kind = target.0.commonjs_require_kind();
+        }
+        Ok::<(), anyhow::Error>(())
+    }));
+    match result {
+        Ok(Ok(())) => 0,
+        Ok(Err(error)) => {
+            unsafe {
+                write_commonjs_require_provider_error(
+                    &format!("CommonJS require activation refused: {error}"),
+                    error_buffer,
+                    error_buffer_capacity,
+                    out_error_len,
+                );
+            }
+            -1
+        }
+        Err(_) => {
+            unsafe {
+                write_commonjs_require_provider_error(
+                    "CommonJS require activation provider panicked",
+                    error_buffer,
+                    error_buffer_capacity,
+                    out_error_len,
+                );
+            }
+            -1
+        }
+    }
 }
 
 impl<'runtime> NativeModuleRuntime<'runtime> {
@@ -738,32 +884,48 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
     /// `provider_context` must remain valid until the returned token is
     /// dropped, and the provider must not evaluate JavaScript or call any ABI
     /// outside the module-mutation subset.
-    pub(crate) unsafe fn install_commonjs_require_provider(
+    pub unsafe fn install_commonjs_require_provider<T>(
         &self,
         graph_generation: u64,
-        provider: NativeCommonJsRequireProvider,
-        provider_context: NonNull<c_void>,
+        provider_context: NonNull<T>,
+        provider: fn(
+            &mut T,
+            &NativeModuleRuntime<'_>,
+            CommonJsRequireActivationRequest,
+        ) -> Result<NativeCommonJsRequireActivationTarget>,
     ) -> Result<NativeCommonJsRequireProviderRegistration> {
         if graph_generation == 0 {
             bail!("CommonJS require provider generation must be nonzero");
         }
+        let provider_bridge = Box::new(CommonJsRequireProviderBridge {
+            raw: self.raw,
+            nonce: self.nonce,
+            graph_generation,
+            context: provider_context,
+            provider,
+        });
+        let provider_bridge =
+            NonNull::new(Box::into_raw(provider_bridge)).expect("Box pointer is non-null");
+        let erased_bridge = provider_bridge.cast::<c_void>();
         let status = unsafe {
             ex_hermes_module_set_commonjs_require_provider(
                 self.raw.as_ptr(),
                 self.nonce,
                 graph_generation,
-                provider,
-                provider_context.as_ptr(),
+                commonjs_require_provider_trampoline::<T>,
+                erased_bridge.as_ptr(),
             )
         };
         if status != 0 {
+            unsafe { drop_commonjs_require_provider_bridge::<T>(erased_bridge) };
             bail!("native CommonJS require provider installation refused ({status})");
         }
         Ok(NativeCommonJsRequireProviderRegistration {
             raw: self.raw,
             nonce: self.nonce,
             graph_generation,
-            _owner_thread: PhantomData,
+            provider_bridge: Some(erased_bridge),
+            drop_provider_bridge: drop_commonjs_require_provider_bridge::<T>,
         })
     }
 
@@ -1183,10 +1345,20 @@ impl Drop for NativeCommonJsRequireProviderRegistration {
                 self.graph_generation,
             )
         };
-        debug_assert!(
-            matches!(status, 0 | -2 | -6),
-            "native CommonJS require provider clear refused ({status})"
-        );
+        if matches!(status, 0 | -2 | -6) {
+            if let Some(bridge) = self.provider_bridge.take() {
+                unsafe { (self.drop_provider_bridge)(bridge) };
+            }
+        } else {
+            // The native runtime remains live (most notably an off-owner
+            // thread-affine runtime leak), so its callback context must remain
+            // live too.
+            let _ = self.provider_bridge.take();
+            debug_assert_eq!(
+                status, -3,
+                "native CommonJS require provider clear refused ({status})"
+            );
+        }
     }
 }
 
@@ -1526,6 +1698,25 @@ impl<'runtime> NativeCommonJsRecord<'runtime> {
         Ok(())
     }
 
+    fn link_bootstrap_internal_require(&mut self, specifier: &str) -> Result<()> {
+        if specifier.is_empty() {
+            bail!("bootstrap-internal CommonJS require specifier must not be empty");
+        }
+        let status = unsafe {
+            ex_hermes_commonjs_record_link_bootstrap_internal_require(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                specifier.as_ptr(),
+                specifier.len(),
+            )
+        };
+        if status != 0 {
+            bail!("native bootstrap-internal CommonJS require link refused ({status})");
+        }
+        Ok(())
+    }
+
     pub fn link_dynamic_import(
         &mut self,
         specifier: &str,
@@ -1699,6 +1890,20 @@ pub struct DynamicModuleActivationRequest {
     pub requester: SourceId,
     pub kind: DynamicModuleActivationKind,
     pub specifier: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommonJsRequireActivationRequest {
+    graph_generation: u64,
+    requester_record: NativeModuleHandle,
+    pub requester: SourceId,
+    pub specifier: String,
+}
+
+impl CommonJsRequireActivationRequest {
+    pub fn graph_generation(&self) -> u64 {
+        self.graph_generation
+    }
 }
 
 impl DynamicModuleActivationRequest {
@@ -2157,6 +2362,46 @@ enum PublishedNativeRecord {
     },
 }
 
+#[cfg(any(test, feature = "module-runner"))]
+impl PublishedNativeRecord {
+    fn from_linked(record: &NativeLinkedRecord<'_>) -> Result<Self> {
+        Ok(match record {
+            NativeLinkedRecord::Esm(record) => Self::Esm {
+                record: record.live_handle()?,
+            },
+            NativeLinkedRecord::CommonJs { record, adapter } => Self::CommonJs {
+                record: record.live_handle()?,
+                adapter: adapter.live_handle()?,
+            },
+        })
+    }
+
+    fn publication_handle(self) -> NativeModuleHandle {
+        match self {
+            Self::Esm { record } | Self::CommonJs { record, .. } => record,
+        }
+    }
+
+    fn esm_link_handle(self) -> NativeModuleHandle {
+        match self {
+            Self::Esm { record } => record,
+            Self::CommonJs { adapter, .. } => adapter,
+        }
+    }
+
+    fn commonjs_require_kind(self) -> u32 {
+        match self {
+            Self::CommonJs { .. } => 0,
+            Self::Esm { .. } => 1,
+        }
+    }
+}
+
+/// Opaque native target returned by a successful synchronous CommonJS
+/// activation. Only the internal provider bridge can project its handle.
+#[cfg(any(test, feature = "module-runner"))]
+pub struct NativeCommonJsRequireActivationTarget(PublishedNativeRecord);
+
 /// Runtime-independent index over records retained by a pinned native graph
 /// generation. It carries no JSI owner-thread values: each late activation
 /// reconstructs short-lived Rust wrappers while holding the live runtime
@@ -2189,6 +2434,111 @@ impl NativePublishedGraphIndex {
                 PublishedNativeRecord::Esm { record }
                 | PublishedNativeRecord::CommonJs { record, .. } => *record == requester_handle,
             })
+    }
+
+    fn owns_commonjs_requester(
+        &self,
+        requester: &SourceId,
+        requester_record: NativeModuleHandle,
+    ) -> bool {
+        self.records.get(requester).is_some_and(|record| {
+            matches!(
+                record,
+                PublishedNativeRecord::CommonJs { record, .. }
+                    if *record == requester_record
+            )
+        })
+    }
+
+    /// Publish the synchronously admissible static closure selected by one
+    /// exact reached literal `require()`. Async-tainted ESM closures are
+    /// refused before staging or publication.
+    // @ref LLP 0026#7-commonjs-interop
+    pub fn publish_authorized_require_activation<'runtime, P: GraphImportPolicy>(
+        &mut self,
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        request: &CommonJsRequireActivationRequest,
+        target: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+        deferred: &DeferredDynamicImportLinks,
+        prepared_entries: Option<&BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>>,
+    ) -> Result<NativeCommonJsRequireActivationTarget> {
+        if request.graph_generation != self.graph_generation
+            || !self.owns_commonjs_requester(&request.requester, request.requester_record)
+        {
+            bail!("CommonJS activation does not belong to this published native graph");
+        }
+        let declarations = deferred
+            .get(&request.requester)
+            .ok_or_else(|| anyhow!("CommonJS requester has no deferred declarations"))?;
+        if !declarations
+            .commonjs_require_specifiers
+            .contains(&request.specifier)
+            || !plan.defers_commonjs_require_edges(&request.requester)
+        {
+            bail!("CommonJS activation disagrees with the authenticated requester spelling");
+        }
+        plan.synchronous_evaluation_order(target).map_err(|error| {
+            anyhow!("ERR_REQUIRE_ASYNC_MODULE: require() target graph is asynchronous: {error}")
+        })?;
+
+        let records = self
+            .records
+            .iter()
+            .map(|(source_id, record)| {
+                let linked = match record {
+                    PublishedNativeRecord::Esm { record } => {
+                        NativeLinkedRecord::Esm(NativeModuleRecord {
+                            runtime,
+                            handle: Some(*record),
+                            published: true,
+                        })
+                    }
+                    PublishedNativeRecord::CommonJs { record, adapter } => {
+                        NativeLinkedRecord::CommonJs {
+                            record: NativeCommonJsRecord {
+                                runtime,
+                                handle: Some(*record),
+                                published: true,
+                            },
+                            adapter: NativeModuleRecord {
+                                runtime,
+                                handle: Some(*adapter),
+                                published: true,
+                            },
+                        }
+                    }
+                };
+                (source_id.clone(), linked)
+            })
+            .collect();
+        let mut facade = NativeSynchronousGraph {
+            entry: self.entry.clone(),
+            graph_generation: self.graph_generation,
+            evaluation_order: Vec::new(),
+            records,
+            evaluation_outcome: None,
+            _authorization_receipts: std::mem::take(&mut self.authorization_receipts),
+        };
+        let result = facade
+            .publish_authorized_target(
+                runtime,
+                plan,
+                target,
+                configs,
+                authorizer,
+                authority_contexts,
+                deferred,
+                prepared_entries,
+            )
+            .map(NativeCommonJsRequireActivationTarget);
+        self.records = published_record_index(&facade.records)
+            .expect("published native graph facade retains live record handles");
+        self.authorization_receipts = std::mem::take(&mut facade._authorization_receipts);
+        result
     }
 
     pub fn publish_authorized_activation<'runtime, P: GraphImportPolicy>(
@@ -2322,6 +2672,7 @@ pub struct DeferredDynamicImportBindings {
     pub literal_specifiers: BTreeSet<String>,
     pub computed_candidates: BTreeSet<(u32, String)>,
     pub commonjs_require_specifiers: BTreeSet<String>,
+    pub bootstrap_internal_commonjs_specifiers: BTreeSet<String>,
 }
 
 pub type DeferredDynamicImportLinks = BTreeMap<SourceId, DeferredDynamicImportBindings>;
@@ -2352,6 +2703,7 @@ fn validate_deferred_dynamic_records(
                 })
                 .collect()
         };
+        let expected_bootstrap_internals = plan.bootstrap_internal_commonjs_requires(source_id);
         let expected_literals = artifact
             .semantics
             .dynamic_edges
@@ -2374,6 +2726,7 @@ fn validate_deferred_dynamic_records(
             .collect::<BTreeSet<_>>();
         if expected_literals != declarations.literal_specifiers
             || expected_commonjs_requires != declarations.commonjs_require_specifiers
+            || expected_bootstrap_internals != declarations.bootstrap_internal_commonjs_specifiers
             || declarations
                 .computed_candidates
                 .iter()
@@ -2559,7 +2912,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         plan: &SynchronousGraphPlan<'_>,
         request: &DynamicModuleActivationRequest,
         target: &SourceId,
-        mut configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
         authorizer: &ModuleGraphAuthorizer<'_, P>,
         authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
         deferred: &DeferredDynamicImportLinks,
@@ -2598,6 +2951,30 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             bail!("dynamic activation disagrees with the authenticated requester site");
         }
 
+        let activated = self.publish_authorized_target(
+            runtime,
+            plan,
+            target,
+            configs,
+            authorizer,
+            authority_contexts,
+            deferred,
+            prepared_entries,
+        )?;
+        runtime.complete_dynamic_activation_handle(request, activated.esm_link_handle())
+    }
+
+    fn publish_authorized_target<P: GraphImportPolicy>(
+        &mut self,
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        target: &SourceId,
+        mut configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+        deferred: &DeferredDynamicImportLinks,
+        prepared_entries: Option<&BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>>,
+    ) -> Result<PublishedNativeRecord> {
         let empty = BTreeMap::new();
         let linkage_order = plan.linkage_order_for_authorized(target, &empty)?;
         validate_deferred_dynamic_records(plan, &linkage_order, deferred)?;
@@ -2617,13 +2994,12 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             .cloned()
             .collect::<Vec<_>>();
         if new_order.is_empty() {
-            let target_handle = self
+            let target_record = self
                 .records
                 .get(target)
-                .ok_or_else(|| anyhow!("activation target is absent from the live graph"))?
-                .esm_link_handle()?;
+                .ok_or_else(|| anyhow!("activation target is absent from the live graph"))?;
             self._authorization_receipts.extend(receipts);
-            return runtime.complete_dynamic_activation_handle(request, target_handle);
+            return PublishedNativeRecord::from_linked(target_record);
         }
 
         let mut pending = BTreeMap::new();
@@ -2839,6 +3215,17 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                 }
             }
             if let Some(bindings) = deferred.get(source_id) {
+                for specifier in &bindings.bootstrap_internal_commonjs_specifiers {
+                    pending
+                        .get_mut(source_id)
+                        .and_then(NativeLinkedRecord::commonjs_mut)
+                        .ok_or_else(|| {
+                            anyhow!(
+                                "bootstrap-internal CommonJS require belongs to a non-CommonJS record"
+                            )
+                        })?
+                        .link_bootstrap_internal_require(specifier)?;
+                }
                 for specifier in &bindings.commonjs_require_specifiers {
                     pending
                         .get_mut(source_id)
@@ -2901,15 +3288,14 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             record.run_declare()?;
         }
         publish_linked_records(runtime, &mut pending)?;
-        let target_handle = pending
+        let target_record = pending
             .get(target)
             .or_else(|| self.records.get(target))
-            .ok_or_else(|| anyhow!("published activation omitted its target"))?
-            .esm_link_handle()?;
-        let completion = runtime.complete_dynamic_activation_handle(request, target_handle);
+            .ok_or_else(|| anyhow!("published activation omitted its target"))?;
+        let activated = PublishedNativeRecord::from_linked(target_record)?;
         self.records.append(&mut pending);
         self._authorization_receipts.extend(receipts);
-        completion
+        Ok(activated)
     }
 
     pub fn published_activation_index(&self) -> Result<NativePublishedGraphIndex> {
@@ -3262,6 +3648,17 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             }
             if let Some(deferred) = deferred_dynamic {
                 if let Some(bindings) = deferred.get(source_id) {
+                    for specifier in &bindings.bootstrap_internal_commonjs_specifiers {
+                        records
+                            .get_mut(source_id)
+                            .and_then(NativeLinkedRecord::commonjs_mut)
+                            .ok_or_else(|| {
+                                anyhow!(
+                                    "bootstrap-internal CommonJS require belongs to a non-CommonJS record"
+                                )
+                            })?
+                            .link_bootstrap_internal_require(specifier)?;
+                    }
                     for specifier in &bindings.commonjs_require_specifiers {
                         records
                             .get_mut(source_id)
@@ -4405,69 +4802,16 @@ mod tests {
         reentrant_eval_status: i32,
     }
 
-    unsafe fn write_require_provider_error(
-        message: &[u8],
-        error_buffer: *mut u8,
-        error_buffer_capacity: usize,
-        out_error_len: *mut usize,
-    ) {
-        let length = message.len().min(error_buffer_capacity);
-        if length != 0 && !error_buffer.is_null() {
-            unsafe {
-                std::ptr::copy_nonoverlapping(message.as_ptr(), error_buffer, length);
-            }
-        }
-        if !out_error_len.is_null() {
-            unsafe {
-                *out_error_len = length;
-            }
-        }
-    }
-
-    unsafe extern "C" fn test_commonjs_require_provider(
-        context: *mut c_void,
-        runtime_nonce: u64,
-        graph_generation: u64,
-        _requester_record: NativeModuleHandle,
-        requester_source_id: *const u8,
-        requester_source_id_len: usize,
-        specifier: *const u8,
-        specifier_len: usize,
-        out_target_record: *mut NativeModuleHandle,
-        out_target_kind: *mut u32,
-        error_buffer: *mut u8,
-        error_buffer_capacity: usize,
-        out_error_len: *mut usize,
-    ) -> i32 {
-        if context.is_null()
-            || requester_source_id.is_null()
-            || specifier.is_null()
-            || out_target_record.is_null()
-            || out_target_kind.is_null()
+    fn test_commonjs_require_provider(
+        state: &mut RequireProviderTestContext,
+        _runtime: &NativeModuleRuntime<'_>,
+        request: CommonJsRequireActivationRequest,
+    ) -> Result<NativeCommonJsRequireActivationTarget> {
+        if request.requester.encode()?.as_bytes() != state.expected_requester
+            || request.specifier.as_bytes() != state.expected_specifier
+            || request.graph_generation() != 23
         {
-            return -1;
-        }
-        unsafe {
-            *out_target_record = NativeModuleHandle::default();
-            *out_target_kind = u32::MAX;
-        }
-        let state = unsafe { &mut *(context.cast::<RequireProviderTestContext>()) };
-        let requester =
-            unsafe { std::slice::from_raw_parts(requester_source_id, requester_source_id_len) };
-        let spelling = unsafe { std::slice::from_raw_parts(specifier, specifier_len) };
-        if requester != state.expected_requester
-            || spelling != state.expected_specifier
-            || graph_generation != 23
-        {
-            unsafe {
-                write_require_provider_error(
-                    b"provider received the wrong requester token",
-                    error_buffer,
-                    error_buffer_capacity,
-                    out_error_len,
-                );
-            }
-            return -1;
+            bail!("provider received the wrong requester token");
         }
         state.invocations += 1;
         let source = b"1";
@@ -4493,7 +4837,7 @@ mod tests {
         let create_status = unsafe {
             ex_hermes_commonjs_create_record(
                 state.raw,
-                runtime_nonce,
+                request.requester_record.opaque[0],
                 state.target_factory,
                 state.target_context,
                 state.target_source_id.as_ptr(),
@@ -4506,15 +4850,7 @@ mod tests {
             )
         };
         if create_status != 0 {
-            unsafe {
-                write_require_provider_error(
-                    b"provider could not create target",
-                    error_buffer,
-                    error_buffer_capacity,
-                    out_error_len,
-                );
-            }
-            return create_status;
+            bail!("provider could not create target ({create_status})");
         }
         let mut adapter = NativeModuleHandle::default();
         let mut adapter_error = std::ptr::null_mut();
@@ -4522,7 +4858,7 @@ mod tests {
         let adapter_status = unsafe {
             ex_hermes_commonjs_record_create_esm_adapter(
                 state.raw,
-                runtime_nonce,
+                request.requester_record.opaque[0],
                 target,
                 &mut adapter,
                 &mut adapter_error,
@@ -4534,38 +4870,38 @@ mod tests {
         }
         if adapter_status != 0 {
             unsafe {
-                ex_hermes_module_discard_unpublished_record(state.raw, runtime_nonce, target);
-                write_require_provider_error(
-                    b"provider could not create target adapter",
-                    error_buffer,
-                    error_buffer_capacity,
-                    out_error_len,
+                ex_hermes_module_discard_unpublished_record(
+                    state.raw,
+                    request.requester_record.opaque[0],
+                    target,
                 );
             }
-            return adapter_status;
+            bail!("provider could not create target adapter ({adapter_status})");
         }
-        let publish_status =
-            unsafe { ex_hermes_module_publish_records(state.raw, runtime_nonce, &target, 1) };
+        let publish_status = unsafe {
+            ex_hermes_module_publish_records(
+                state.raw,
+                request.requester_record.opaque[0],
+                &target,
+                1,
+            )
+        };
         if publish_status != 0 {
             unsafe {
-                ex_hermes_module_discard_unpublished_record(state.raw, runtime_nonce, target);
-                write_require_provider_error(
-                    b"provider could not publish target",
-                    error_buffer,
-                    error_buffer_capacity,
-                    out_error_len,
+                ex_hermes_module_discard_unpublished_record(
+                    state.raw,
+                    request.requester_record.opaque[0],
+                    target,
                 );
             }
-            return publish_status;
+            bail!("provider could not publish target ({publish_status})");
         }
-        unsafe {
-            *out_target_record = target;
-            *out_target_kind = 0;
-            if !out_error_len.is_null() {
-                *out_error_len = 0;
-            }
-        }
-        0
+        Ok(NativeCommonJsRequireActivationTarget(
+            PublishedNativeRecord::CommonJs {
+                record: target,
+                adapter,
+            },
+        ))
     }
 
     #[test]
@@ -6759,7 +7095,7 @@ mod tests {
             assert!(
                 mismatch
                     .to_string()
-                    .contains("deferred dynamic declarations disagree"),
+                    .contains("deferred call-time declarations disagree"),
                 "unexpected declaration mismatch: {mismatch:#}"
             );
 
@@ -6779,6 +7115,7 @@ mod tests {
                     literal_specifiers: BTreeSet::from(["./target.mjs".to_owned()]),
                     computed_candidates: BTreeSet::new(),
                     commonjs_require_specifiers: BTreeSet::new(),
+                    bootstrap_internal_commonjs_specifiers: BTreeSet::new(),
                 },
             )]);
             let mut graph = NativeSynchronousGraph::link_authorized_deferred(
@@ -6921,6 +7258,7 @@ mod tests {
                     literal_specifiers: BTreeSet::from(["./target.mjs".to_owned()]),
                     computed_candidates: BTreeSet::new(),
                     commonjs_require_specifiers: BTreeSet::new(),
+                    bootstrap_internal_commonjs_specifiers: BTreeSet::new(),
                 },
             )]);
             let mut graph = NativeAsynchronousGraph::link_authorized_deferred(

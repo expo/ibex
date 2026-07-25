@@ -457,13 +457,13 @@ IBEX_C_ABI_ASSERT(import_binding_kind_after_names,
                       offsetof(ExHermesSessionImportBinding,
                                imported_name_length));
 IBEX_C_ABI_ASSERT(dynamic_activation_request_id_after_nonce,
-                  offsetof(ExactModuleDynamicActivationRequest, request_id) >
-                      offsetof(ExactModuleDynamicActivationRequest,
+                  offsetof(ExHermesModuleDynamicActivationRequest, request_id) >
+                      offsetof(ExHermesModuleDynamicActivationRequest,
                                runtime_nonce));
 IBEX_C_ABI_ASSERT(dynamic_activation_specifier_length_after_pointer,
-                  offsetof(ExactModuleDynamicActivationRequest,
+                  offsetof(ExHermesModuleDynamicActivationRequest,
                            specifier_len) >
-                      offsetof(ExactModuleDynamicActivationRequest,
+                      offsetof(ExHermesModuleDynamicActivationRequest,
                                specifier));
 
 /* Function-pointer assignments type-check the callable C surface without
@@ -641,10 +641,10 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
       ExactHermesRuntime*,
       uint64_t,
       uint64_t,
-      ExactModuleDynamicActivationRequest*) =
+      ExHermesModuleDynamicActivationRequest*) =
       ex_hermes_module_take_dynamic_activation_request;
   void (*dispose_dynamic_activation_request)(
-      ExactModuleDynamicActivationRequest*) =
+      ExHermesModuleDynamicActivationRequest*) =
       ex_hermes_module_dynamic_activation_request_dispose;
   int32_t (*complete_dynamic_activation)(
       ExactHermesRuntime*,

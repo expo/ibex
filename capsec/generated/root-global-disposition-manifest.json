@@ -2,7 +2,7 @@
   "rootGlobalDispositionManifestSchema": "ibex/root-global-disposition-manifest/1",
   "profile": "ibex/capsec/1",
   "status": "enforced-by-armed-live-sweep",
-  "sourceDigest": "sha256-QEfgOLebQFbaTRO0ilNeDZU_ZK6FB3OnXmTJ59EytPE",
+  "sourceDigest": "sha256-Ls_QSc4vg_NAUtHbHxNOGqLvyCdPD1a4KbxXBFTnMwk",
   "sweep": {
     "roots": [
       "globalThis"
@@ -77,6 +77,7 @@
       "surface.native.op.exactbrotlidecompresssync.1nqrylx",
       "surface.native.op.exactbytestoutf8string.17y16zr",
       "surface.native.op.exactcapabilitycheck.1k7vr6d",
+      "surface.native.op.exactcapturebootstrapinternalmodule.1mscx9o",
       "surface.native.op.exactcapturedevservedmoduletablelifecycle.06siznp",
       "surface.native.op.exactcapturesessionstaticimport.01e19jo",
       "surface.native.op.exactcheckimport.1bhraoq",
@@ -31998,6 +31999,39 @@
       "disposition": "converted",
       "traversal": "descend",
       "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.exactcapturebootstrapinternalmodule.d6f0ea313184ec7e",
+      "observedKey": "native-op:__exactCaptureBootstrapInternalModule",
+      "registryEdgeId": "surface.native.op.exactcapturebootstrapinternalmodule.1mscx9o",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "legacy-bootstrap",
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#__exactCaptureBootstrapInternalModule",
+          "src/engine/hermes_runtime.cc#jsi-global:__exactCaptureBootstrapInternalModule"
+        ],
+        "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactCaptureBootstrapInternalModule"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": "trusted-module-loader",
+      "disposition": "private",
+      "traversal": "descend",
+      "liveExpectation": "absent",
       "resolution": "static",
       "nativeImplementation": true
     },
@@ -103562,10 +103596,10 @@
     }
   ],
   "counts": {
-    "installBranches": 2760,
-    "logicalGlobals": 2612,
-    "registryEdges": 2612,
-    "sealedOrPrivate": 350,
+    "installBranches": 2761,
+    "logicalGlobals": 2613,
+    "registryEdges": 2613,
+    "sealedOrPrivate": 351,
     "permittedReachable": 2410
   }
 }

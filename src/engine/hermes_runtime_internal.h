@@ -308,7 +308,7 @@ struct NativeCommonJsRequireBinding {
 };
 
 struct NativeCommonJsRequireProviderEntry {
-  ExactCommonJsRequireProvider provider{nullptr};
+  ExactCommonJsRequireProviderCallback provider{nullptr};
   void* context{nullptr};
 };
 
@@ -322,6 +322,7 @@ struct NativeCommonJsRecordEntry {
   NativeCommonJsRecordState state{NativeCommonJsRecordState::New};
   std::map<std::string, NativeCommonJsRequireBinding> require_bindings;
   std::set<std::string> deferred_commonjs_requires;
+  std::set<std::string> bootstrap_internal_commonjs_requires;
   std::map<std::string, uint64_t> dynamic_import_bindings;
   std::map<std::pair<uint32_t, std::string>, uint64_t>
       computed_dynamic_import_bindings;
@@ -718,6 +719,9 @@ struct ExactHermesRuntime {
   // ABI and are released on the runtime owner thread during teardown.
   std::shared_ptr<facebook::jsi::Function> module_function_constructor;
   std::shared_ptr<facebook::jsi::Function> module_compartment_binder;
+  // Exact bootstrap-internal object resolver captured from the trusted module
+  // loader and removed from the root global before package evaluation.
+  std::shared_ptr<facebook::jsi::Function> module_bootstrap_internal_resolver;
   uint64_t next_module_handle_id{1};
   std::unordered_map<uint64_t, ModuleFactoryEntry> module_factories;
   std::unordered_map<uint64_t, GraphContextEntry> graph_contexts;

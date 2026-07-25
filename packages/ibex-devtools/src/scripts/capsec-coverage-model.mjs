@@ -67,6 +67,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactBytesToUtf8String",
   "__exactCancel",
   "__exactCapabilityCheck",
+  "__exactCaptureBootstrapInternalModule",
   "__exactCaptureDevServedModuleTableLifecycle",
   "__exactCaptureSessionStaticImport",
   "__exactCheckImport",
@@ -5210,7 +5211,11 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_commonjs_create_record",
     "ex_hermes_commonjs_record_create_esm_adapter",
     "ex_hermes_commonjs_record_declare_export",
+    "ex_hermes_commonjs_record_defer_computed_dynamic_import",
+    "ex_hermes_commonjs_record_defer_dynamic_import",
+    "ex_hermes_commonjs_record_defer_require",
     "ex_hermes_commonjs_record_evaluate",
+    "ex_hermes_commonjs_record_link_bootstrap_internal_require",
     "ex_hermes_commonjs_record_link_computed_dynamic_import",
     "ex_hermes_commonjs_record_link_dynamic_import",
     "ex_hermes_commonjs_record_link_require",
@@ -5265,12 +5270,19 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_graph_context_create",
     "ex_hermes_graph_context_retain",
     "ex_hermes_has_pending_tasks",
+    "ex_hermes_module_clear_commonjs_require_provider",
     "ex_hermes_module_compile_factory",
+    "ex_hermes_module_complete_dynamic_activation",
     "ex_hermes_module_create_record",
+    "ex_hermes_module_discard_unpublished_record",
+    "ex_hermes_module_dynamic_activation_request_dispose",
     "ex_hermes_module_load_carrier_factory",
     "ex_hermes_module_pin_generation",
     "ex_hermes_module_preflight_bytecode",
+    "ex_hermes_module_publish_records",
     "ex_hermes_module_record_declare_export",
+    "ex_hermes_module_record_defer_computed_dynamic_import",
+    "ex_hermes_module_record_defer_dynamic_import",
     "ex_hermes_module_record_instantiate",
     "ex_hermes_module_record_link_computed_dynamic_import",
     "ex_hermes_module_record_link_dependency",
@@ -5282,6 +5294,8 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_module_record_run_declare",
     "ex_hermes_module_record_run_execute",
     "ex_hermes_module_release_handle",
+    "ex_hermes_module_set_commonjs_require_provider",
+    "ex_hermes_module_take_dynamic_activation_request",
     "ex_hermes_module_unpin_generation",
     "ex_hermes_next_timer",
     "ex_hermes_notify_callback",
@@ -6283,6 +6297,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:rust:build_builtin_registry",
     "function:rust:builtin_module_debug_entries",
     "function:rust:duplicate_resolver_fd",
+    "function:rust:is_bootstrap_internal_module_specifier",
     "function:rust:is_builtin_specifier",
     "function:rust:is_registered_builtin_specifier",
     "function:rust:lexical_absolute_path_for_resolver",
@@ -10705,6 +10720,7 @@ function loaderClassification(surface) {
         "function:javascript:wrapasyncmodule",
         "function:javascript:wrapdynamicimportvalue",
         "function:rust:build_builtin_registry",
+        "function:rust:is_bootstrap_internal_module_specifier",
         "function:rust:is_builtin_specifier",
         "function:rust:is_registered_builtin_specifier",
         "function:rust:module_kind_from_path",
@@ -13954,20 +13970,31 @@ function classifyConcreteSurface(surface) {
       new Set([
         "ex_hermes_commonjs_create_record",
         "ex_hermes_commonjs_record_declare_export",
+        "ex_hermes_commonjs_record_defer_computed_dynamic_import",
+        "ex_hermes_commonjs_record_defer_dynamic_import",
+        "ex_hermes_commonjs_record_defer_require",
+        "ex_hermes_commonjs_record_link_bootstrap_internal_require",
         "ex_hermes_commonjs_record_link_computed_dynamic_import",
         "ex_hermes_commonjs_record_link_dynamic_import",
         "ex_hermes_commonjs_record_link_require",
         "ex_hermes_commonjs_record_link_require_esm",
         "ex_hermes_graph_context_create",
         "ex_hermes_graph_context_retain",
+        "ex_hermes_module_clear_commonjs_require_provider",
+        "ex_hermes_module_complete_dynamic_activation",
         "ex_hermes_module_create_record",
+        "ex_hermes_module_publish_records",
         "ex_hermes_module_record_declare_export",
+        "ex_hermes_module_record_defer_computed_dynamic_import",
+        "ex_hermes_module_record_defer_dynamic_import",
         "ex_hermes_module_record_link_dependency",
         "ex_hermes_module_record_link_computed_dynamic_import",
         "ex_hermes_module_record_link_dynamic_import",
         "ex_hermes_module_record_link_export",
         "ex_hermes_module_record_link_import",
         "ex_hermes_module_pin_generation",
+        "ex_hermes_module_set_commonjs_require_provider",
+        "ex_hermes_module_take_dynamic_activation_request",
       ]).has(surface.name)
     ) {
       return nonCapabilitySpec("authority-control-plane", "WP8");
@@ -13975,6 +14002,8 @@ function classifyConcreteSurface(surface) {
     if (
       new Set([
         "ex_hermes_module_release_handle",
+        "ex_hermes_module_discard_unpublished_record",
+        "ex_hermes_module_dynamic_activation_request_dispose",
         "ex_hermes_module_unpin_generation",
         "ex_hermes_try_destroy",
       ]).has(surface.name)
@@ -14379,6 +14408,9 @@ function classifyConcreteSurface(surface) {
     return nonCapabilitySpec("authority-control-plane", "WP4");
   }
   if (/resolvemanifestbuiltininternal/u.test(name)) {
+    return nonCapabilitySpec("authority-control-plane", "WP4");
+  }
+  if (/capturebootstrapinternalmodule/u.test(name)) {
     return nonCapabilitySpec("authority-control-plane", "WP4");
   }
   if (/capturesessionstaticimport/u.test(name)) {

@@ -18,11 +18,10 @@ must resolve, read, transform, compile, and link dynamic targets eagerly.
 Normal module-runner FFI also rejects reentrant runtime drives, so a Hermes host
 callback cannot safely call the existing outer-drive APIs.
 
-Authenticated source graphs now implement the asynchronous `import()` half of
-this issue without eager target discovery. The issue remains open for the
-synchronous authored CommonJS `require()` callback, invocation-time prepared
-carrier lookup, and the remaining prepared-source matrix. Generated
-manifest-builtin fan-out remains the only synchronous `require()` exception.
+Authenticated source graphs now implement asynchronous `import()` and literal
+synchronous CommonJS `require()` without eager target discovery. The issue
+remains open for invocation-time prepared-carrier lookup and the remaining
+prepared-source/failure matrix.
 
 ## Required design
 
@@ -115,10 +114,20 @@ production execution:
   spelling. Only module mutation/publication may nest while it runs; a
   real-Hermes regression proves target publication and single evaluation while
   general eval remains reentrancy-refused.
+- Retained production graph state installs that provider before initial
+  evaluation and mutates the same published native index. End-to-end tests
+  cover CommonJS targets, synchronous ESM static closures, builtin/VFS use, and
+  prepublication `ERR_REQUIRE_ASYNC_MODULE` refusal.
+- Failed synchronous and asynchronous activations roll the source graph back
+  to its pre-request record, principal, candidate, and receipt checkpoint;
+  native staging remains atomic and no failed require binding is cached.
+- Generated builtin bodies use a distinct manifest-derived private edge for
+  bootstrap-owned objects such as `internal/test/binding`. Native startup
+  captures and seals the bootstrap resolver; authored modules still enter
+  ordinary resolution and cannot borrow it.
 
-Still open are invocation-time prepared-carrier discovery, its source/prepared
-failure matrix, and installing the synchronous authored CommonJS `require()`
-provider on retained production graph state before initial evaluation.
+Still open are invocation-time prepared-carrier discovery and its
+source/prepared failure matrix.
 
 ## Done when
 

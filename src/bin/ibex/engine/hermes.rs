@@ -2440,8 +2440,79 @@ struct RuntimeHandle {
 
 #[cfg(feature = "module-runner")]
 struct RetainedModuleActivationState {
+    // Drop the native callback registration before its borrowed state.
+    commonjs_require_provider:
+        Option<ibex_runtime::engine::module_runner::NativeCommonJsRequireProviderRegistration>,
     source_graph: ibex_runtime::module_loader::runner_pipeline::SourceModuleGraphV1,
     native_graph: ibex_runtime::engine::module_runner::NativePublishedGraphIndex,
+}
+
+#[cfg(feature = "module-runner")]
+fn activate_retained_commonjs_require(
+    state: &mut RetainedModuleActivationState,
+    native_runtime: &ibex_runtime::engine::module_runner::NativeModuleRuntime<'_>,
+    request: ibex_runtime::engine::module_runner::CommonJsRequireActivationRequest,
+) -> Result<ibex_runtime::engine::module_runner::NativeCommonJsRequireActivationTarget> {
+    use ibex_runtime::module_loader::security::ModuleGraphAuthorizer;
+
+    let generation = request.graph_generation();
+    let checkpoint = state.source_graph.activation_checkpoint();
+    let activation = (|| {
+        let target = state.source_graph.activate_commonjs_require_target(
+            &request.requester,
+            &request.specifier,
+            generation,
+        )?;
+        let plan = state.source_graph.plan()?;
+        let (configs, contexts) = state.source_graph.native_execution_inputs(generation)?;
+        let deferred = state.source_graph.deferred_dynamic_links();
+        let prepared = state.source_graph.available_prepared_entries()?;
+        let authorizer = ModuleGraphAuthorizer::new(state.source_graph.snapshot());
+        state.native_graph.publish_authorized_require_activation(
+            native_runtime,
+            &plan,
+            &request,
+            &target,
+            configs,
+            &authorizer,
+            &contexts,
+            &deferred,
+            Some(&prepared),
+        )
+    })();
+    if activation.is_err() {
+        state.source_graph.rollback_activation(checkpoint);
+    }
+    activation
+}
+
+#[cfg(feature = "module-runner")]
+impl RetainedModuleActivationState {
+    fn install_commonjs_require_provider(
+        &mut self,
+        native_runtime: &ibex_runtime::engine::module_runner::NativeModuleRuntime<'_>,
+    ) -> Result<()> {
+        let deferred = self.source_graph.deferred_dynamic_links();
+        if !deferred
+            .values()
+            .any(|bindings| !bindings.commonjs_require_specifiers.is_empty())
+        {
+            return Ok(());
+        }
+        let generation = self.native_graph.graph_generation();
+        let state = NonNull::from(&mut *self);
+        // SAFETY: this state is already inside a stable Box before
+        // registration, owns the returned token as its first field, and is
+        // retained until that token clears the native callback.
+        self.commonjs_require_provider = Some(unsafe {
+            native_runtime.install_commonjs_require_provider(
+                generation,
+                state,
+                activate_retained_commonjs_require,
+            )?
+        });
+        Ok(())
+    }
 }
 
 struct SharedRuntime {
@@ -2461,7 +2532,7 @@ struct SharedRuntime {
     // @ref LLP 0026#6-top-level-await-and-dynamic-import
     module_generation_pinned: AtomicU64,
     #[cfg(feature = "module-runner")]
-    retained_module_activations: std::sync::Mutex<Vec<RetainedModuleActivationState>>,
+    retained_module_activations: std::sync::Mutex<Vec<Box<RetainedModuleActivationState>>>,
     // Hermes/JSI values have thread-affine destruction. Keep the creator here
     // as a Rust-side fail-safe so a legal `Arc<dyn Engine + Send + Sync>` last
     // drop on another thread leaks the native runtime instead of crossing the
@@ -2633,22 +2704,18 @@ impl SharedRuntime {
     #[cfg(feature = "module-runner")]
     fn retain_module_activation_state(
         &self,
-        source_graph: ibex_runtime::module_loader::runner_pipeline::SourceModuleGraphV1,
-        native_graph: ibex_runtime::engine::module_runner::NativePublishedGraphIndex,
+        state: Box<RetainedModuleActivationState>,
     ) -> Result<()> {
         let pinned = self.module_generation_pinned.load(Ordering::Acquire);
         anyhow::ensure!(
-            pinned != 0 && pinned == native_graph.graph_generation(),
+            pinned != 0 && pinned == state.native_graph.graph_generation(),
             "retained module activation graph does not belong to the pinned generation"
         );
         let mut retained = self
             .retained_module_activations
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        retained.push(RetainedModuleActivationState {
-            source_graph,
-            native_graph,
-        });
+        retained.push(state);
         Ok(())
     }
 
@@ -2696,10 +2763,13 @@ impl SharedRuntime {
                 )?;
                 continue;
             };
+            let state = state.as_mut();
             let RetainedModuleActivationState {
+                commonjs_require_provider: _,
                 source_graph,
                 native_graph,
             } = state;
+            let checkpoint = source_graph.activation_checkpoint();
             let activation = source_graph
                 .activate_dynamic_target(&request)
                 .and_then(|target| {
@@ -2721,6 +2791,7 @@ impl SharedRuntime {
                     )
                 });
             if let Err(error) = activation {
+                source_graph.rollback_activation(checkpoint);
                 let diagnostic = format!("dynamic module activation refused: {error}");
                 if let Err(refusal_error) =
                     native_runtime.refuse_dynamic_activation(&request, &diagnostic)
@@ -3292,7 +3363,7 @@ impl HermesEngine {
         .map_err(anyhow::Error::new)?;
         phase.mark("graph_admit_prepare");
 
-        let (mut graph, mut structured) = match admitted {
+        let (graph, mut structured) = match admitted {
             AuthenticatedModuleGraphAdmission::Native {
                 preparation,
                 evaluation,
@@ -3336,7 +3407,7 @@ impl HermesEngine {
             .ok_or_else(|| anyhow!("Hermes module runtime pointer is null"))?;
         let native_runtime = unsafe { NativeModuleRuntime::from_raw(raw_module_runtime, nonce)? };
         let mut forced_terminal = None;
-        let mut retained_native_graph = None;
+        let mut retained_activation_state = None;
 
         let graph_result: Result<()> = async {
             let plan = graph.plan()?;
@@ -3396,11 +3467,18 @@ impl HermesEngine {
                     )?,
                 };
                 phase.mark("graph_link");
-                linked.evaluate()?;
-                phase.mark("graph_evaluate");
+                let native_graph = linked.published_activation_index()?;
                 drop(plan);
                 drop(authorizer);
                 drop(prepared_entries);
+                let mut activation_state = Box::new(RetainedModuleActivationState {
+                    commonjs_require_provider: None,
+                    source_graph: graph,
+                    native_graph,
+                });
+                activation_state.install_commonjs_require_provider(&native_runtime)?;
+                linked.evaluate()?;
+                phase.mark("graph_evaluate");
 
                 let mut activation_count = 0usize;
                 loop {
@@ -3417,17 +3495,22 @@ impl HermesEngine {
                             )?;
                             anyhow::bail!("dynamic module activation budget exhausted");
                         }
-                        let activation = graph
+                        let checkpoint = activation_state.source_graph.activation_checkpoint();
+                        let activation = activation_state
+                            .source_graph
                             .activate_dynamic_target(&request)
                             .and_then(|target| {
-                                let expanded_plan = graph.plan()?;
+                                let expanded_plan = activation_state.source_graph.plan()?;
                                 let (configs, contexts) =
-                                    graph.native_execution_inputs(generation)?;
-                                let expanded_deferred = graph.deferred_dynamic_links();
-                                let available_prepared = graph.available_prepared_entries()?;
-                                let authorizer =
-                                    ModuleGraphAuthorizer::new(graph.snapshot());
-                                linked.publish_authorized_activation(
+                                    activation_state.source_graph.native_execution_inputs(generation)?;
+                                let expanded_deferred =
+                                    activation_state.source_graph.deferred_dynamic_links();
+                                let available_prepared =
+                                    activation_state.source_graph.available_prepared_entries()?;
+                                let authorizer = ModuleGraphAuthorizer::new(
+                                    activation_state.source_graph.snapshot(),
+                                );
+                                activation_state.native_graph.publish_authorized_activation(
                                     &native_runtime,
                                     &expanded_plan,
                                     &request,
@@ -3440,6 +3523,9 @@ impl HermesEngine {
                                 )
                             });
                         if let Err(error) = activation {
+                            activation_state
+                                .source_graph
+                                .rollback_activation(checkpoint);
                             let diagnostic = format!(
                                 "dynamic module activation refused: {error}"
                             );
@@ -3462,7 +3548,7 @@ impl HermesEngine {
                         );
                     }
                 }
-                retained_native_graph = Some(linked.published_activation_index()?);
+                retained_activation_state = Some(activation_state);
                 return Ok(());
             }
 
@@ -3506,9 +3592,16 @@ impl HermesEngine {
                     &authority_contexts,
                 )?,
             };
+            let native_graph = linked.published_activation_index()?;
             drop(plan);
             drop(authorizer);
             drop(prepared_entries);
+            let mut activation_state = Box::new(RetainedModuleActivationState {
+                commonjs_require_provider: None,
+                source_graph: graph,
+                native_graph,
+            });
+            activation_state.install_commonjs_require_provider(&native_runtime)?;
             // `ex_hermes_poll` always drains the Hermes job queue, but its
             // return value counts host callbacks/timers rather than Promise
             // jobs. Give the suspended graph one advancement attempt after
@@ -3546,18 +3639,22 @@ impl HermesEngine {
                         )?;
                         anyhow::bail!("dynamic module activation budget exhausted");
                     }
-                    let activation = graph
+                    let checkpoint = activation_state.source_graph.activation_checkpoint();
+                    let activation = activation_state
+                        .source_graph
                         .activate_dynamic_target(&request)
                         .and_then(|target| {
-                            let expanded_plan = graph.plan()?;
+                            let expanded_plan = activation_state.source_graph.plan()?;
                             let (configs, contexts) =
-                                graph.native_execution_inputs(generation)?;
-                            let expanded_deferred = graph.deferred_dynamic_links();
+                                activation_state.source_graph.native_execution_inputs(generation)?;
+                            let expanded_deferred =
+                                activation_state.source_graph.deferred_dynamic_links();
                             let available_prepared =
-                                graph.available_prepared_entries()?;
-                            let authorizer =
-                                ModuleGraphAuthorizer::new(graph.snapshot());
-                            linked.publish_authorized_activation(
+                                activation_state.source_graph.available_prepared_entries()?;
+                            let authorizer = ModuleGraphAuthorizer::new(
+                                activation_state.source_graph.snapshot(),
+                            );
+                            activation_state.native_graph.publish_authorized_activation(
                                 &native_runtime,
                                 &expanded_plan,
                                 &request,
@@ -3570,6 +3667,9 @@ impl HermesEngine {
                             )
                         });
                     if let Err(error) = activation {
+                        activation_state
+                            .source_graph
+                            .rollback_activation(checkpoint);
                         let diagnostic =
                             format!("dynamic module activation refused: {error}");
                         if let Err(refusal_error) = native_runtime
@@ -3592,7 +3692,7 @@ impl HermesEngine {
                 }
                 match graph_poll {
                     AsyncGraphPoll::Evaluated => {
-                        retained_native_graph = Some(linked.published_activation_index()?);
+                        retained_activation_state = Some(activation_state);
                         return Ok(());
                     }
                     AsyncGraphPoll::Suspended => match unsafe { structured.suspend() }? {
@@ -3677,9 +3777,11 @@ impl HermesEngine {
                 .unwrap_or(ModuleGraphExecutionOutcome::EngineFault),
         });
         let settled = unsafe { structured.finish(terminal) }.map_err(anyhow::Error::new);
-        if graph_result.is_ok() && settled.is_ok() && !graph.deferred_dynamic_links().is_empty() {
-            if let Some(native_graph) = retained_native_graph {
-                runtime.retain_module_activation_state(graph, native_graph)?;
+        if graph_result.is_ok() && settled.is_ok() {
+            if let Some(state) = retained_activation_state {
+                if state.source_graph.has_call_time_activation_links() {
+                    runtime.retain_module_activation_state(state)?;
+                }
             }
         }
         drop(lease);

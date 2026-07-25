@@ -1,7 +1,7 @@
 {
   "outputDispositionDatasetSchema": "ibex/capsec-output-dispositions/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-rWwfIsorazR219OL2R1VEBf16hyc1jGc8HoxkZ129RI",
+  "catalogKeyDigest": "sha256-P-BHTGCLB9pukvnrgyw0K0W88BExZ-CLrwnvY06paHg",
   "evidence": {
     "status": "unpromotable",
     "reason": "The output corpus remains unpromotable: one native module-marker surface account and three inherited-intrinsic alias surface accounts are unresolved; the construction-private WebGPU program contributes 54 additional unresolved accounts (two callback ingresses, seven private bridge methods, and 45 operation routes) while public installation and platform support remain absent; and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes these account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
@@ -51141,6 +51141,57 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.defer.computed.dynamic.import.07bcu78",
+        "output": "[[return]]",
+        "alias": "ex_hermes_commonjs_record_defer_computed_dynamic_import",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.defer.dynamic.import.0gatkvq",
+        "output": "[[return]]",
+        "alias": "ex_hermes_commonjs_record_defer_dynamic_import",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.defer.require.181w35k",
+        "output": "[[return]]",
+        "alias": "ex_hermes_commonjs_record_defer_require",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn",
         "output": "[[return]]",
         "alias": "ex_hermes_commonjs_record_evaluate",
@@ -51195,6 +51246,23 @@
         "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn",
         "output": "out:evicted",
         "alias": "ex_hermes_commonjs_record_evaluate",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.link.bootstrap.internal.require.0kb976n",
+        "output": "[[return]]",
+        "alias": "ex_hermes_commonjs_record_link_bootstrap_internal_require",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -53555,6 +53623,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.clear.commonjs.require.provider.01fzf0s",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_clear_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
         "output": "[[return]]",
         "alias": "ex_hermes_module_compile_factory",
@@ -53623,6 +53708,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.complete.dynamic.activation.0xmajeq",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_complete_dynamic_activation",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.module.create.record.0hokcts",
         "output": "[[return]]",
         "alias": "ex_hermes_module_create_record",
@@ -53643,6 +53745,159 @@
         "surfaceId": "surface.host.abi.ex.hermes.module.create.record.0hokcts",
         "output": "out:record",
         "alias": "ex_hermes_module_create_record",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.discard.unpublished.record.1a8xjd2",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_discard_unpublished_record",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+        "output": "out:request.graph_generation",
+        "alias": "ex_hermes_module_dynamic_activation_request_dispose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+        "output": "out:request.kind",
+        "alias": "ex_hermes_module_dynamic_activation_request_dispose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+        "output": "out:request.request_id",
+        "alias": "ex_hermes_module_dynamic_activation_request_dispose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+        "output": "out:request.requester_record.opaque",
+        "alias": "ex_hermes_module_dynamic_activation_request_dispose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+        "output": "out:request.requester_source_id",
+        "alias": "ex_hermes_module_dynamic_activation_request_dispose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+        "output": "out:request.runtime_nonce",
+        "alias": "ex_hermes_module_dynamic_activation_request_dispose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+        "output": "out:request.site",
+        "alias": "ex_hermes_module_dynamic_activation_request_dispose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.dynamic.activation.request.dispose.0lbnsla",
+        "output": "out:request.specifier",
+        "alias": "ex_hermes_module_dynamic_activation_request_dispose",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -53776,9 +54031,60 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.publish.records.093gl2m",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_publish_records",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7",
         "output": "[[return]]",
         "alias": "ex_hermes_module_record_declare_export",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.defer.computed.dynamic.import.0vj6w7m",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_record_defer_computed_dynamic_import",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.defer.dynamic.import.181t13w",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_record_defer_dynamic_import",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -54187,6 +54493,295 @@
         "surfaceId": "surface.host.abi.ex.hermes.module.release.handle.1cr80y8",
         "output": "[[return]]",
         "alias": "ex_hermes_module_release_handle",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_set_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+        "output": "callback:provider/0",
+        "alias": "ex_hermes_module_set_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+        "output": "callback:provider/1",
+        "alias": "ex_hermes_module_set_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+        "output": "callback:provider/11",
+        "alias": "ex_hermes_module_set_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+        "output": "callback:provider/2",
+        "alias": "ex_hermes_module_set_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+        "output": "callback:provider/3.opaque",
+        "alias": "ex_hermes_module_set_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+        "output": "callback:provider/4",
+        "alias": "ex_hermes_module_set_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.set.commonjs.require.provider.1whsqbd",
+        "output": "callback:provider/6",
+        "alias": "ex_hermes_module_set_commonjs_require_provider",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "out:out_request.graph_generation",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "out:out_request.kind",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "out:out_request.request_id",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "out:out_request.requester_record.opaque",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "out:out_request.requester_source_id",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "out:out_request.runtime_nonce",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "out:out_request.site",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.take.dynamic.activation.request.1vo44qc",
+        "output": "out:out_request.specifier",
+        "alias": "ex_hermes_module_take_dynamic_activation_request",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -61790,6 +62385,23 @@
         "sourceKind": "native-op",
         "returnVariant": "default",
         "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactcapturebootstrapinternalmodule.1mscx9o",
+        "output": "[[value]]",
+        "alias": "__exactCaptureBootstrapInternalModule",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
       },
       "disposition": "non-path",
       "expectation": {
@@ -111083,12 +111695,12 @@
     }
   ],
   "counts": {
-    "catalogRows": 6533,
-    "dispositionRows": 6533,
+    "catalogRows": 6569,
+    "dispositionRows": 6569,
     "byDisposition": {
       "absent": 152,
       "closed": 28,
-      "non-path": 6205,
+      "non-path": 6241,
       "private-native-path": 5,
       "refused": 12,
       "reserved-constant": 1,

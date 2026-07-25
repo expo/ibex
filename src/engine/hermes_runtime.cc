@@ -5736,6 +5736,24 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactEnsureNet", std::move(ensureNetFn));
   sharedRuntimeInstalled = installModuleLoader(handle);
   handle->shared_runtime_bundle_installed = sharedRuntimeInstalled;
+  {
+    auto resolver =
+        rt.global().getProperty(rt, "__exactCaptureBootstrapInternalModule");
+    if (!resolver.isObject() || !resolver.asObject(rt).isFunction(rt)) {
+      if (handle->armed) {
+        throw std::runtime_error(
+            "native bootstrap-internal module resolver is unavailable");
+      }
+    } else {
+      handle->module_bootstrap_internal_resolver =
+          std::make_shared<facebook::jsi::Function>(
+              resolver.asObject(rt).asFunction(rt));
+    }
+    rt.global().setProperty(
+        rt,
+        "__exactCaptureBootstrapInternalModule",
+        facebook::jsi::Value::undefined());
+  }
   // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
   // Armed code must never fall back to the legacy native process object: its
   // eager env snapshot and other compatibility state are intentionally not a
@@ -6074,7 +6092,8 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   var hatches = ['__exactSetActiveModuleId', '__exactGrantCapability',
                  '__exactSetPendingPackageId', '__exactRegisterPackage',
                  '__exactCheckImport', '__exactSetCompartmentFor',
-                 '__exactResolveManifestBuiltinInternal'];
+                 '__exactResolveManifestBuiltinInternal',
+                 '__exactCaptureBootstrapInternalModule'];
   if (sealSelfGrant) {
     hatches.push('__exactModuleResolve', '__exactModuleResolveMeta',
                  '__exactNativeModuleResolve', '__exactNativeModuleResolveMeta');
@@ -8707,6 +8726,7 @@ static bool verifyArmedRuntimePosture(ExactHermesRuntime* handle) {
         "__exactRegisterPackage",
         "__exactSetPendingPackageId",
         "__exactResolveManifestBuiltinInternal",
+        "__exactCaptureBootstrapInternalModule",
         "__exactModuleResolve",
         "__exactModuleResolveMeta",
         "__exactNativeModuleResolve",
