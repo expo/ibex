@@ -31,9 +31,25 @@ use crate::module_loader::security::{
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct NativeModuleHandle {
-    opaque: [u64; 3],
+pub(crate) struct NativeModuleHandle {
+    pub(crate) opaque: [u64; 3],
 }
+
+pub(crate) type NativeCommonJsRequireProvider = unsafe extern "C" fn(
+    context: *mut c_void,
+    runtime_nonce: u64,
+    graph_generation: u64,
+    requester_record: NativeModuleHandle,
+    requester_source_id: *const u8,
+    requester_source_id_len: usize,
+    specifier: *const u8,
+    specifier_len: usize,
+    out_target_record: *mut NativeModuleHandle,
+    out_target_kind: *mut u32,
+    error_buffer: *mut u8,
+    error_buffer_capacity: usize,
+    out_error_len: *mut usize,
+) -> i32;
 
 #[repr(C)]
 #[derive(Debug, Default)]
@@ -183,6 +199,25 @@ unsafe extern "C" {
         specifier_len: usize,
         target_record: NativeModuleHandle,
         synchronous_eligible: i32,
+    ) -> i32;
+    fn ex_hermes_commonjs_record_defer_require(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        specifier: *const u8,
+        specifier_len: usize,
+    ) -> i32;
+    fn ex_hermes_module_set_commonjs_require_provider(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        graph_generation: u64,
+        provider: NativeCommonJsRequireProvider,
+        provider_context: *mut c_void,
+    ) -> i32;
+    fn ex_hermes_module_clear_commonjs_require_provider(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        graph_generation: u64,
     ) -> i32;
     fn ex_hermes_commonjs_record_link_dynamic_import(
         runtime: *mut c_void,
@@ -667,6 +702,16 @@ pub struct NativeModuleRuntime<'runtime> {
     _owner_thread: PhantomData<Rc<()>>,
 }
 
+/// Owner-thread registration of one generation's exact synchronous
+/// CommonJS-require activation provider. The context allocation is owned by
+/// the caller and must outlive this token.
+pub(crate) struct NativeCommonJsRequireProviderRegistration {
+    raw: NonNull<c_void>,
+    nonce: u64,
+    graph_generation: u64,
+    _owner_thread: PhantomData<Rc<()>>,
+}
+
 impl<'runtime> NativeModuleRuntime<'runtime> {
     /// # Safety
     ///
@@ -681,6 +726,43 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
             raw,
             nonce,
             _runtime: PhantomData,
+            _owner_thread: PhantomData,
+        })
+    }
+
+    /// Install the exact provider invoked only for authenticated deferred
+    /// `require()` spellings in this pinned graph generation.
+    ///
+    /// # Safety
+    ///
+    /// `provider_context` must remain valid until the returned token is
+    /// dropped, and the provider must not evaluate JavaScript or call any ABI
+    /// outside the module-mutation subset.
+    pub(crate) unsafe fn install_commonjs_require_provider(
+        &self,
+        graph_generation: u64,
+        provider: NativeCommonJsRequireProvider,
+        provider_context: NonNull<c_void>,
+    ) -> Result<NativeCommonJsRequireProviderRegistration> {
+        if graph_generation == 0 {
+            bail!("CommonJS require provider generation must be nonzero");
+        }
+        let status = unsafe {
+            ex_hermes_module_set_commonjs_require_provider(
+                self.raw.as_ptr(),
+                self.nonce,
+                graph_generation,
+                provider,
+                provider_context.as_ptr(),
+            )
+        };
+        if status != 0 {
+            bail!("native CommonJS require provider installation refused ({status})");
+        }
+        Ok(NativeCommonJsRequireProviderRegistration {
+            raw: self.raw,
+            nonce: self.nonce,
+            graph_generation,
             _owner_thread: PhantomData,
         })
     }
@@ -1092,6 +1174,22 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
     }
 }
 
+impl Drop for NativeCommonJsRequireProviderRegistration {
+    fn drop(&mut self) {
+        let status = unsafe {
+            ex_hermes_module_clear_commonjs_require_provider(
+                self.raw.as_ptr(),
+                self.nonce,
+                self.graph_generation,
+            )
+        };
+        debug_assert!(
+            matches!(status, 0 | -2 | -6),
+            "native CommonJS require provider clear refused ({status})"
+        );
+    }
+}
+
 /// Complete context carried by graph operations and asynchronous continuations.
 /// Principal IDs are runtime-local projections; the requesting SourceId remains
 /// stable and authenticated.
@@ -1405,6 +1503,25 @@ impl<'runtime> NativeCommonJsRecord<'runtime> {
         };
         if status != 0 {
             bail!("native CommonJS require-ESM link refused ({status})");
+        }
+        Ok(())
+    }
+
+    fn defer_require_handle(&mut self, specifier: &str) -> Result<()> {
+        if specifier.is_empty() {
+            bail!("CommonJS deferred require specifier must not be empty");
+        }
+        let status = unsafe {
+            ex_hermes_commonjs_record_defer_require(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                specifier.as_ptr(),
+                specifier.len(),
+            )
+        };
+        if status != 0 {
+            bail!("native CommonJS require deferral refused ({status})");
         }
         Ok(())
     }
@@ -2204,6 +2321,7 @@ pub type ComputedDynamicImportLinks = BTreeMap<SourceId, BTreeMap<(u32, String),
 pub struct DeferredDynamicImportBindings {
     pub literal_specifiers: BTreeSet<String>,
     pub computed_candidates: BTreeSet<(u32, String)>,
+    pub commonjs_require_specifiers: BTreeSet<String>,
 }
 
 pub type DeferredDynamicImportLinks = BTreeMap<SourceId, DeferredDynamicImportBindings>;
@@ -2216,17 +2334,24 @@ fn validate_deferred_dynamic_records(
 ) -> Result<()> {
     for source_id in source_ids {
         let artifact = plan.artifact(source_id)?.artifact();
-        if artifact.semantics.static_edges.iter().any(|edge| {
-            matches!(
-                edge,
-                crate::module_loader::artifact::StaticEdgeV1::CommonJsRequire { .. }
-            )
-        }) && artifact.semantics.source_goal
-            != crate::module_loader::artifact::SourceGoalV1::Builtin
-        {
-            bail!("native call-time CommonJS require activation is unavailable for {source_id:?}");
-        }
         let declarations = deferred.get(source_id).cloned().unwrap_or_default();
+        let expected_commonjs_requires = if artifact.semantics.source_goal
+            == crate::module_loader::artifact::SourceGoalV1::Builtin
+        {
+            BTreeSet::new()
+        } else {
+            artifact
+                .semantics
+                .static_edges
+                .iter()
+                .filter_map(|edge| match edge {
+                    crate::module_loader::artifact::StaticEdgeV1::CommonJsRequire { specifier } => {
+                        Some(specifier.as_str().to_owned())
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
         let expected_literals = artifact
             .semantics
             .dynamic_edges
@@ -2248,15 +2373,18 @@ fn validate_deferred_dynamic_records(
             })
             .collect::<BTreeSet<_>>();
         if expected_literals != declarations.literal_specifiers
+            || expected_commonjs_requires != declarations.commonjs_require_specifiers
             || declarations
                 .computed_candidates
                 .iter()
                 .any(|(site, spelling)| !admitted_sites.contains(site) || spelling.is_empty())
             || (!artifact.semantics.dynamic_edges.is_empty()
                 && !plan.defers_dynamic_edges(source_id))
+            || (!expected_commonjs_requires.is_empty()
+                && !plan.defers_commonjs_require_edges(source_id))
         {
             bail!(
-                "deferred dynamic declarations disagree with authenticated artifact {source_id:?}"
+                "deferred call-time declarations disagree with authenticated artifact {source_id:?}"
             );
         }
     }
@@ -2711,6 +2839,15 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                 }
             }
             if let Some(bindings) = deferred.get(source_id) {
+                for specifier in &bindings.commonjs_require_specifiers {
+                    pending
+                        .get_mut(source_id)
+                        .and_then(NativeLinkedRecord::commonjs_mut)
+                        .ok_or_else(|| {
+                            anyhow!("deferred CommonJS require belongs to a non-CommonJS record")
+                        })?
+                        .defer_require_handle(specifier)?;
+                }
                 for specifier in &bindings.literal_specifiers {
                     match pending
                         .get_mut(source_id)
@@ -3125,6 +3262,17 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             }
             if let Some(deferred) = deferred_dynamic {
                 if let Some(bindings) = deferred.get(source_id) {
+                    for specifier in &bindings.commonjs_require_specifiers {
+                        records
+                            .get_mut(source_id)
+                            .and_then(NativeLinkedRecord::commonjs_mut)
+                            .ok_or_else(|| {
+                                anyhow!(
+                                    "deferred CommonJS require belongs to a non-CommonJS record"
+                                )
+                            })?
+                            .defer_require_handle(specifier)?;
+                    }
                     for specifier in &bindings.literal_specifiers {
                         match records
                             .get_mut(source_id)
@@ -4244,6 +4392,180 @@ mod tests {
         ) -> bool {
             true
         }
+    }
+
+    struct RequireProviderTestContext {
+        raw: *mut c_void,
+        expected_requester: Vec<u8>,
+        expected_specifier: Vec<u8>,
+        target_factory: NativeModuleHandle,
+        target_context: NativeModuleHandle,
+        target_source_id: Vec<u8>,
+        invocations: usize,
+        reentrant_eval_status: i32,
+    }
+
+    unsafe fn write_require_provider_error(
+        message: &[u8],
+        error_buffer: *mut u8,
+        error_buffer_capacity: usize,
+        out_error_len: *mut usize,
+    ) {
+        let length = message.len().min(error_buffer_capacity);
+        if length != 0 && !error_buffer.is_null() {
+            unsafe {
+                std::ptr::copy_nonoverlapping(message.as_ptr(), error_buffer, length);
+            }
+        }
+        if !out_error_len.is_null() {
+            unsafe {
+                *out_error_len = length;
+            }
+        }
+    }
+
+    unsafe extern "C" fn test_commonjs_require_provider(
+        context: *mut c_void,
+        runtime_nonce: u64,
+        graph_generation: u64,
+        _requester_record: NativeModuleHandle,
+        requester_source_id: *const u8,
+        requester_source_id_len: usize,
+        specifier: *const u8,
+        specifier_len: usize,
+        out_target_record: *mut NativeModuleHandle,
+        out_target_kind: *mut u32,
+        error_buffer: *mut u8,
+        error_buffer_capacity: usize,
+        out_error_len: *mut usize,
+    ) -> i32 {
+        if context.is_null()
+            || requester_source_id.is_null()
+            || specifier.is_null()
+            || out_target_record.is_null()
+            || out_target_kind.is_null()
+        {
+            return -1;
+        }
+        unsafe {
+            *out_target_record = NativeModuleHandle::default();
+            *out_target_kind = u32::MAX;
+        }
+        let state = unsafe { &mut *(context.cast::<RequireProviderTestContext>()) };
+        let requester =
+            unsafe { std::slice::from_raw_parts(requester_source_id, requester_source_id_len) };
+        let spelling = unsafe { std::slice::from_raw_parts(specifier, specifier_len) };
+        if requester != state.expected_requester
+            || spelling != state.expected_specifier
+            || graph_generation != 23
+        {
+            unsafe {
+                write_require_provider_error(
+                    b"provider received the wrong requester token",
+                    error_buffer,
+                    error_buffer_capacity,
+                    out_error_len,
+                );
+            }
+            return -1;
+        }
+        state.invocations += 1;
+        let source = b"1";
+        let source_url = b"require-provider-reentry.js\0";
+        let mut reentrant_output = std::ptr::null_mut();
+        state.reentrant_eval_status = unsafe {
+            ex_hermes_eval(
+                state.raw,
+                source.as_ptr(),
+                source.len(),
+                source_url.as_ptr().cast(),
+                0,
+                &mut reentrant_output,
+            )
+        };
+        if !reentrant_output.is_null() {
+            unsafe { ex_hermes_free_string(reentrant_output) };
+        }
+
+        let filename = b"/project/activated-target.cjs";
+        let dirname = b"/project";
+        let mut target = NativeModuleHandle::default();
+        let create_status = unsafe {
+            ex_hermes_commonjs_create_record(
+                state.raw,
+                runtime_nonce,
+                state.target_factory,
+                state.target_context,
+                state.target_source_id.as_ptr(),
+                state.target_source_id.len(),
+                filename.as_ptr(),
+                filename.len(),
+                dirname.as_ptr(),
+                dirname.len(),
+                &mut target,
+            )
+        };
+        if create_status != 0 {
+            unsafe {
+                write_require_provider_error(
+                    b"provider could not create target",
+                    error_buffer,
+                    error_buffer_capacity,
+                    out_error_len,
+                );
+            }
+            return create_status;
+        }
+        let mut adapter = NativeModuleHandle::default();
+        let mut adapter_error = std::ptr::null_mut();
+        let mut adapter_error_token = 0;
+        let adapter_status = unsafe {
+            ex_hermes_commonjs_record_create_esm_adapter(
+                state.raw,
+                runtime_nonce,
+                target,
+                &mut adapter,
+                &mut adapter_error,
+                &mut adapter_error_token,
+            )
+        };
+        if !adapter_error.is_null() {
+            unsafe { ex_hermes_free_string(adapter_error) };
+        }
+        if adapter_status != 0 {
+            unsafe {
+                ex_hermes_module_discard_unpublished_record(state.raw, runtime_nonce, target);
+                write_require_provider_error(
+                    b"provider could not create target adapter",
+                    error_buffer,
+                    error_buffer_capacity,
+                    out_error_len,
+                );
+            }
+            return adapter_status;
+        }
+        let publish_status =
+            unsafe { ex_hermes_module_publish_records(state.raw, runtime_nonce, &target, 1) };
+        if publish_status != 0 {
+            unsafe {
+                ex_hermes_module_discard_unpublished_record(state.raw, runtime_nonce, target);
+                write_require_provider_error(
+                    b"provider could not publish target",
+                    error_buffer,
+                    error_buffer_capacity,
+                    out_error_len,
+                );
+            }
+            return publish_status;
+        }
+        unsafe {
+            *out_target_record = target;
+            *out_target_kind = 0;
+            if !out_error_len.is_null() {
+                *out_error_len = 0;
+            }
+        }
+        0
     }
 
     #[test]
@@ -6456,6 +6778,7 @@ mod tests {
                 DeferredDynamicImportBindings {
                     literal_specifiers: BTreeSet::from(["./target.mjs".to_owned()]),
                     computed_candidates: BTreeSet::new(),
+                    commonjs_require_specifiers: BTreeSet::new(),
                 },
             )]);
             let mut graph = NativeSynchronousGraph::link_authorized_deferred(
@@ -6597,6 +6920,7 @@ mod tests {
                 DeferredDynamicImportBindings {
                     literal_specifiers: BTreeSet::from(["./target.mjs".to_owned()]),
                     computed_candidates: BTreeSet::new(),
+                    commonjs_require_specifiers: BTreeSet::new(),
                 },
             )]);
             let mut graph = NativeAsynchronousGraph::link_authorized_deferred(

@@ -39,6 +39,38 @@ class ScopedActiveCommonJsEvaluation {
   }
 };
 
+class ScopedCommonJsRequireProviderCall {
+ public:
+  ScopedCommonJsRequireProviderCall(
+      ExactHermesRuntime* runtime, uint64_t graphGeneration)
+      : runtime_(runtime) {
+    if (runtime_ == nullptr ||
+        runtime_->commonjs_require_provider_call_active) {
+      return;
+    }
+    runtime_->commonjs_require_provider_call_active = true;
+    runtime_->commonjs_require_provider_call_generation = graphGeneration;
+    active_ = true;
+  }
+
+  ScopedCommonJsRequireProviderCall(
+      const ScopedCommonJsRequireProviderCall&) = delete;
+  ScopedCommonJsRequireProviderCall& operator=(
+      const ScopedCommonJsRequireProviderCall&) = delete;
+
+  ~ScopedCommonJsRequireProviderCall() {
+    if (!active_) return;
+    runtime_->commonjs_require_provider_call_generation = 0;
+    runtime_->commonjs_require_provider_call_active = false;
+  }
+
+  explicit operator bool() const { return active_; }
+
+ private:
+  ExactHermesRuntime* runtime_{nullptr};
+  bool active_{false};
+};
+
 bool isActiveCommonJsEvaluationOwner(
     ExactHermesRuntime* runtime, uint64_t recordId) {
   return !activeCommonJsEvaluations.empty() &&
@@ -171,6 +203,14 @@ facebook::jsi::PropNameID moduleExportPropertyName(
   return facebook::jsi::PropNameID::forUtf8(rt, name);
 }
 
+bool commonJsRequireMutationTargetsGeneration(
+    ExactHermesRuntime* runtime, uint64_t graphGeneration) {
+  return runtime != nullptr &&
+      (!runtime->commonjs_require_provider_call_active ||
+       runtime->commonjs_require_provider_call_generation ==
+           graphGeneration);
+}
+
 uint64_t nextHandleId(ExactHermesRuntime* runtime) {
   const uint64_t id = runtime->next_module_handle_id++;
   if (id == 0 || runtime->next_module_handle_id == 0) {
@@ -263,6 +303,12 @@ facebook::jsi::Object pendingDynamicActivationPromise(
     bool computed,
     uint32_t site,
     const std::string& specifier);
+
+void evaluateSynchronousRequiredEsm(
+    facebook::jsi::Runtime& rt,
+    ExactHermesRuntime* runtime,
+    uint64_t graphGeneration,
+    uint64_t targetRecordId);
 
 facebook::jsi::Value readBinding(
     facebook::jsi::Runtime& rt,
@@ -417,11 +463,120 @@ facebook::jsi::Value evaluateCommonJsRecord(
           const std::string specifier = args[0].asString(rt).utf8(rt);
           auto binding = current->second.require_bindings.find(specifier);
           if (binding == current->second.require_bindings.end()) {
-            throw facebook::jsi::JSError(
-                rt, "CommonJS require target is not linked");
+            if (current->second.deferred_commonjs_requires.count(specifier) ==
+                0) {
+              throw facebook::jsi::JSError(
+                  rt, "CommonJS require target is not linked");
+            }
+            auto provider =
+                target.runtime->commonjs_require_providers.find(
+                    graphGeneration);
+            if (provider ==
+                    target.runtime->commonjs_require_providers.end() ||
+                provider->second.provider == nullptr) {
+              throw facebook::jsi::JSError(
+                  rt, "CommonJS require activation provider is unavailable");
+            }
+            const std::string requesterSourceId = current->second.source_id;
+            const NativeCommonJsRequireProviderEntry providerEntry =
+                provider->second;
+            ExactModuleRunnerHandle requesterHandle{{
+                target.runtime->runtime_nonce,
+                graphGeneration,
+                recordId,
+            }};
+            ExactModuleRunnerHandle targetHandle{{0, 0, 0}};
+            uint32_t targetKind = UINT32_MAX;
+            uint8_t errorBuffer[1024] = {};
+            size_t errorLength = 0;
+            int32_t providerStatus = EXACT_RUNTIME_DRIVE_INVALID;
+            {
+              ScopedCommonJsRequireProviderCall providerCall(
+                  target.runtime, graphGeneration);
+              if (!providerCall) {
+                throw facebook::jsi::JSError(
+                    rt, "CommonJS require activation is already active");
+              }
+              providerStatus = providerEntry.provider(
+                  providerEntry.context,
+                  target.runtime->runtime_nonce,
+                  graphGeneration,
+                  requesterHandle,
+                  reinterpret_cast<const uint8_t*>(
+                      requesterSourceId.data()),
+                  requesterSourceId.size(),
+                  reinterpret_cast<const uint8_t*>(specifier.data()),
+                  specifier.size(),
+                  &targetHandle,
+                  &targetKind,
+                  errorBuffer,
+                  sizeof(errorBuffer),
+                  &errorLength);
+            }
+            if (providerStatus != EXACT_RUNTIME_DRIVE_OK) {
+              const size_t boundedLength =
+                  std::min(errorLength, sizeof(errorBuffer));
+              const std::string detail(
+                  reinterpret_cast<const char*>(errorBuffer),
+                  boundedLength);
+              throw facebook::jsi::JSError(
+                  rt,
+                  detail.empty()
+                      ? "CommonJS require activation was refused"
+                      : detail);
+            }
+            current = target.runtime->commonjs_records.find(recordId);
+            if (current == target.runtime->commonjs_records.end() ||
+                current->second.graph_generation != graphGeneration ||
+                current->second.source_id != requesterSourceId ||
+                current->second.state !=
+                    NativeCommonJsRecordState::Evaluating ||
+                current->second.deferred_commonjs_requires.count(specifier) ==
+                    0 ||
+                targetHandle.opaque[0] != target.runtime->runtime_nonce ||
+                targetHandle.opaque[1] != graphGeneration ||
+                (targetKind != 0 && targetKind != 1)) {
+              throw facebook::jsi::JSError(
+                  rt, "CommonJS require activation returned a stale target");
+            }
+            NativeCommonJsRequireBinding activatedBinding;
+            activatedBinding.kind =
+                targetKind == 0
+                ? NativeCommonJsRequireTargetKind::CommonJs
+                : NativeCommonJsRequireTargetKind::Esm;
+            activatedBinding.record_id = targetHandle.opaque[2];
+            if (targetKind == 0) {
+              auto* activated =
+                  commonJsRecordFor(target.runtime, targetHandle);
+              if (activated == nullptr || !activated->published) {
+                throw facebook::jsi::JSError(
+                    rt,
+                    "CommonJS require activation returned an unpublished CommonJS target");
+              }
+            } else {
+              auto* activated = recordFor(target.runtime, targetHandle);
+              if (activated == nullptr || !activated->published) {
+                throw facebook::jsi::JSError(
+                    rt,
+                    "CommonJS require activation returned an unpublished ESM target");
+              }
+            }
+            auto [inserted, unique] =
+                current->second.require_bindings.emplace(
+                    specifier, activatedBinding);
+            if (!unique) {
+              throw facebook::jsi::JSError(
+                  rt, "CommonJS require activation raced an existing target");
+            }
+            binding = inserted;
           }
           if (binding->second.kind ==
               NativeCommonJsRequireTargetKind::Esm) {
+            evaluateSynchronousRequiredEsm(
+                rt,
+                target.runtime,
+                graphGeneration,
+                binding->second.record_id);
             return requireEsmRecord(
                 rt,
                 target.runtime,
@@ -1100,6 +1255,65 @@ std::vector<std::vector<uint64_t>> dynamicEvaluationSccs(
   return components;
 }
 
+void evaluateSynchronousRequiredEsm(
+    facebook::jsi::Runtime& rt,
+    ExactHermesRuntime* runtime,
+    uint64_t graphGeneration,
+    uint64_t targetRecordId) {
+  std::set<uint64_t> visiting;
+  std::set<uint64_t> visited;
+  std::vector<uint64_t> order;
+  collectDynamicEvaluationOrder(
+      runtime,
+      graphGeneration,
+      targetRecordId,
+      visiting,
+      visited,
+      order);
+  for (uint64_t recordId : order) {
+    auto found = runtime->module_records.find(recordId);
+    if (found == runtime->module_records.end() ||
+        found->second.graph_generation != graphGeneration ||
+        !found->second.published) {
+      throw facebook::jsi::JSError(
+          rt, "CommonJS require ESM closure contains a stale record");
+    }
+    auto& record = found->second;
+    if (record.state == NativeModuleRecordState::Evaluated) continue;
+    if (record.state == NativeModuleRecordState::Errored) {
+      throw facebook::jsi::JSError(
+          rt,
+          record.error_message.empty() ? "module record is errored"
+                                       : record.error_message);
+    }
+    if (record.state == NativeModuleRecordState::Evaluating) {
+      throw facebook::jsi::JSError(
+          rt,
+          "ERR_REQUIRE_CYCLE_MODULE: require() encountered an evaluating ES module");
+    }
+    try {
+      if (beginRecordExecute(rt, runtime, recordId, record)) {
+        throw facebook::jsi::JSError(
+            rt,
+            "ERR_REQUIRE_ASYNC_MODULE: require() target graph is asynchronous");
+      }
+    } catch (const facebook::jsi::JSError& error) {
+      rememberRecordError(
+          record,
+          "required ES module evaluation threw",
+          exactRetainStructuredModuleGraphError(runtime, error));
+      throw;
+    } catch (const std::exception& error) {
+      rememberRecordError(record, error.what());
+      throw;
+    } catch (...) {
+      rememberRecordError(
+          record, "unknown required ES module evaluation failure");
+      throw;
+    }
+  }
+}
+
 facebook::jsi::Object appendPromiseThen(
     facebook::jsi::Runtime& rt,
     facebook::jsi::Object chain,
@@ -1434,8 +1648,12 @@ extern "C" int32_t ex_hermes_module_compile_factory(
   if (out_error_token) *out_error_token = 0;
   if (out_factory) *out_factory = ExactModuleRunnerHandle{{0, 0, 0}};
 
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
+  if (!commonJsRequireMutationTargetsGeneration(
+          runtime, graph_generation)) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
   if (!exactRuntimeEnterUserExecution(runtime)) {
     writeError(out_error,
                "module factory compile refused before embedder "
@@ -1633,8 +1851,12 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
   if (out_error) *out_error = nullptr;
   if (out_factory) *out_factory = ExactModuleRunnerHandle{{0, 0, 0}};
 
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
+  if (!commonJsRequireMutationTargetsGeneration(
+          runtime, graph_generation)) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
   if (!exactRuntimeEnterUserExecution(runtime)) {
     writeError(
         out_error,
@@ -1853,7 +2075,7 @@ extern "C" int32_t ex_hermes_commonjs_create_record(
     ExactModuleRunnerHandle* out_record) {
   observeModuleRunnerAbi(__func__);
   if (out_record) *out_record = ExactModuleRunnerHandle{{0, 0, 0}};
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   if (out_record == nullptr || source_id == nullptr || source_id_len == 0 ||
       filename == nullptr || filename_len == 0 || dirname == nullptr ||
@@ -1911,7 +2133,7 @@ extern "C" int32_t ex_hermes_commonjs_record_declare_export(
     const uint8_t* export_name,
     size_t export_name_len) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   auto* entry = commonJsRecordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
@@ -1936,7 +2158,7 @@ extern "C" int32_t ex_hermes_commonjs_record_link_require(
     size_t specifier_len,
     ExactModuleRunnerHandle target_record) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   auto* entry = commonJsRecordFor(runtime, record);
   auto* target = commonJsRecordFor(runtime, target_record);
@@ -1967,7 +2189,7 @@ extern "C" int32_t ex_hermes_commonjs_record_link_require_esm(
     ExactModuleRunnerHandle target_record,
     int32_t synchronous_eligible) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   auto* entry = commonJsRecordFor(runtime, record);
   auto* target = recordFor(runtime, target_record);
@@ -1991,6 +2213,74 @@ extern "C" int32_t ex_hermes_commonjs_record_link_require_esm(
   return EXACT_RUNTIME_DRIVE_OK;
 }
 
+extern "C" int32_t ex_hermes_commonjs_record_defer_require(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len) {
+  observeModuleRunnerAbi(__func__);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
+  if (!drive) return drive.status();
+  auto* entry = commonJsRecordFor(runtime, record);
+  if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state != NativeCommonJsRecordState::New ||
+      entry->source_goal == 3 || specifier == nullptr ||
+      specifier_len == 0) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const std::string spelling(
+      reinterpret_cast<const char*>(specifier), specifier_len);
+  if (entry->require_bindings.count(spelling) != 0 ||
+      !entry->deferred_commonjs_requires.insert(spelling).second) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int32_t ex_hermes_module_set_commonjs_require_provider(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t graph_generation,
+    ExactCommonJsRequireProvider provider,
+    void* provider_context) {
+  observeModuleRunnerAbi(__func__);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  if (graph_generation == 0 || provider == nullptr ||
+      provider_context == nullptr ||
+      runtime->commonjs_require_provider_call_active ||
+      runtime->pinned_module_generations.count(graph_generation) == 0) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  NativeCommonJsRequireProviderEntry entry;
+  entry.provider = provider;
+  entry.context = provider_context;
+  if (!runtime->commonjs_require_providers
+           .emplace(graph_generation, entry)
+           .second) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int32_t ex_hermes_module_clear_commonjs_require_provider(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t graph_generation) {
+  observeModuleRunnerAbi(__func__);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, true);
+  if (!drive) return drive.status();
+  if (graph_generation == 0 ||
+      (runtime->commonjs_require_provider_call_active &&
+       runtime->commonjs_require_provider_call_generation ==
+           graph_generation)) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  runtime->commonjs_require_providers.erase(graph_generation);
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
 extern "C" int32_t ex_hermes_commonjs_record_link_dynamic_import(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
@@ -1999,7 +2289,7 @@ extern "C" int32_t ex_hermes_commonjs_record_link_dynamic_import(
     size_t specifier_len,
     ExactModuleRunnerHandle target_record) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   auto* entry = commonJsRecordFor(runtime, record);
   auto* target = recordFor(runtime, target_record);
@@ -2029,7 +2319,7 @@ extern "C" int32_t ex_hermes_commonjs_record_link_computed_dynamic_import(
     size_t specifier_len,
     ExactModuleRunnerHandle target_record) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   auto* entry = commonJsRecordFor(runtime, record);
   auto* target = recordFor(runtime, target_record);
@@ -2056,7 +2346,7 @@ extern "C" int32_t ex_hermes_commonjs_record_defer_dynamic_import(
     const uint8_t* specifier,
     size_t specifier_len) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   auto* entry = commonJsRecordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
@@ -2083,7 +2373,7 @@ ex_hermes_commonjs_record_defer_computed_dynamic_import(
     const uint8_t* specifier,
     size_t specifier_len) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   auto* entry = commonJsRecordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
@@ -2172,7 +2462,7 @@ extern "C" int32_t ex_hermes_commonjs_record_create_esm_adapter(
   if (out_adapter) *out_adapter = ExactModuleRunnerHandle{{0, 0, 0}};
   if (out_error) *out_error = nullptr;
   if (out_error_token) *out_error_token = 0;
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   if (!exactRuntimeEnterUserExecution(runtime)) {
     writeError(
@@ -2271,9 +2561,15 @@ extern "C" int32_t ex_hermes_module_unpin_generation(
   observeModuleRunnerAbi(__func__);
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
+  if (runtime->commonjs_require_provider_call_active &&
+      runtime->commonjs_require_provider_call_generation ==
+          graph_generation) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
   if (runtime->pinned_module_generations.erase(graph_generation) != 1) {
     return EXACT_RUNTIME_DRIVE_STALE;
   }
+  runtime->commonjs_require_providers.erase(graph_generation);
   for (auto it =
            runtime->module_dynamic_activation_requests.begin();
        it != runtime->module_dynamic_activation_requests.end();) {
@@ -2320,7 +2616,7 @@ extern "C" int32_t ex_hermes_module_release_handle(
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle handle) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   if (handle.opaque[0] != runtime_nonce || handle.opaque[1] == 0 ||
       handle.opaque[2] == 0) {
@@ -2379,7 +2675,7 @@ extern "C" int32_t ex_hermes_module_publish_records(
     const ExactModuleRunnerHandle* handles,
     size_t handles_len) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   if (handles == nullptr || handles_len == 0) {
     return EXACT_RUNTIME_DRIVE_INVALID;
@@ -2417,6 +2713,8 @@ extern "C" int32_t ex_hermes_module_publish_records(
         runtime->module_records.find(commonjs->second.adapter_record_id);
     if (commonjs->second.published ||
         commonjs->second.state != NativeCommonJsRecordState::New ||
+        (!commonjs->second.deferred_commonjs_requires.empty() &&
+         runtime->commonjs_require_providers.count(handle.opaque[1]) == 0) ||
         adapter == runtime->module_records.end() ||
         adapter->second.published ||
         adapter->second.graph_generation != handle.opaque[1] ||
@@ -2443,7 +2741,7 @@ extern "C" int32_t ex_hermes_module_discard_unpublished_record(
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle handle) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   auto module = runtime->module_records.find(handle.opaque[2]);
   if (module != runtime->module_records.end() &&
@@ -2511,8 +2809,12 @@ extern "C" int32_t ex_hermes_graph_context_create(
     ExactModuleRunnerHandle* out_context) {
   observeModuleRunnerAbi(__func__);
   if (out_context) *out_context = ExactModuleRunnerHandle{{0, 0, 0}};
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
+  if (!commonJsRequireMutationTargetsGeneration(
+          runtime, graph_generation)) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
   if (runtime_nonce == 0 || graph_generation == 0 || out_context == nullptr ||
       requesting_source_id == nullptr || requesting_source_id_len == 0 ||
       (constrained_principals_len != 0 && constrained_principals == nullptr) ||
@@ -2549,7 +2851,7 @@ extern "C" int32_t ex_hermes_graph_context_retain(
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle context) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   if (context.opaque[0] != runtime_nonce || context.opaque[1] == 0 ||
       context.opaque[2] == 0) {
@@ -2575,7 +2877,7 @@ extern "C" int32_t ex_hermes_module_create_record(
     ExactModuleRunnerHandle* out_record) {
   observeModuleRunnerAbi(__func__);
   if (out_record) *out_record = ExactModuleRunnerHandle{{0, 0, 0}};
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   if (out_record == nullptr || source_id == nullptr || source_id_len == 0 ||
       factory.opaque[0] != runtime_nonce || context.opaque[0] != runtime_nonce ||
@@ -2619,7 +2921,7 @@ extern "C" int32_t ex_hermes_module_record_declare_export(
     const uint8_t* export_name,
     size_t export_name_len) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   auto* entry = recordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
@@ -2644,7 +2946,7 @@ extern "C" int32_t ex_hermes_module_record_link_export(
     const uint8_t* target_export,
     size_t target_export_len) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   auto* entry = recordFor(runtime, record);
   auto* target = recordFor(runtime, target_record);
@@ -2683,7 +2985,7 @@ extern "C" int32_t ex_hermes_module_record_link_import(
     const uint8_t* target_export,
     size_t target_export_len) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   auto* entry = recordFor(runtime, record);
   auto* target = recordFor(runtime, target_record);
@@ -2720,7 +3022,7 @@ extern "C" int32_t ex_hermes_module_record_link_dependency(
     ExactModuleRunnerHandle record,
     ExactModuleRunnerHandle target_record) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   auto* entry = recordFor(runtime, record);
   auto* target = recordFor(runtime, target_record);
@@ -2741,7 +3043,7 @@ extern "C" int32_t ex_hermes_module_record_link_dynamic_import(
     size_t specifier_len,
     ExactModuleRunnerHandle target_record) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   auto* entry = recordFor(runtime, record);
   auto* target = recordFor(runtime, target_record);
@@ -2770,7 +3072,7 @@ extern "C" int32_t ex_hermes_module_record_link_computed_dynamic_import(
     size_t specifier_len,
     ExactModuleRunnerHandle target_record) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   auto* entry = recordFor(runtime, record);
   auto* target = recordFor(runtime, target_record);
@@ -2797,7 +3099,7 @@ extern "C" int32_t ex_hermes_module_record_defer_dynamic_import(
     const uint8_t* specifier,
     size_t specifier_len) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   auto* entry = recordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
@@ -2822,7 +3124,7 @@ extern "C" int32_t ex_hermes_module_record_defer_computed_dynamic_import(
     const uint8_t* specifier,
     size_t specifier_len) {
   observeModuleRunnerAbi(__func__);
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   auto* entry = recordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
@@ -3094,7 +3396,7 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
   observeModuleRunnerAbi(__func__);
   if (out_error) *out_error = nullptr;
   if (out_error_token) *out_error_token = 0;
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   if (!exactRuntimeEnterUserExecution(runtime)) {
     writeError(
@@ -3467,7 +3769,7 @@ extern "C" int32_t ex_hermes_module_record_run_declare(
   observeModuleRunnerAbi(__func__);
   if (out_error) *out_error = nullptr;
   if (out_error_token) *out_error_token = 0;
-  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce, false, false, true);
   if (!drive) return drive.status();
   if (!exactRuntimeEnterUserExecution(runtime)) {
     writeError(

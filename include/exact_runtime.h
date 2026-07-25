@@ -52,6 +52,25 @@ typedef struct ExactModuleDynamicActivationRequest {
     size_t specifier_len;
 } ExactModuleDynamicActivationRequest;
 
+/// Synchronous, generation-scoped provider for one exactly reached authored
+/// CommonJS `require()` spelling. The provider may use only the module
+/// mutation ABI while it is active; it must publish the returned target but
+/// must not evaluate it. `out_target_kind` is 0 for CommonJS and 1 for ESM.
+typedef int32_t (*ExactCommonJsRequireProvider)(
+    void* context,
+    uint64_t runtime_nonce,
+    uint64_t graph_generation,
+    ExactModuleRunnerHandle requester_record,
+    const uint8_t* requester_source_id,
+    size_t requester_source_id_len,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    ExactModuleRunnerHandle* out_target_record,
+    uint32_t* out_target_kind,
+    uint8_t* error_buffer,
+    size_t error_buffer_capacity,
+    size_t* out_error_len);
+
 typedef enum ExactRuntimeDriveStatus {
     EXACT_RUNTIME_DRIVE_OK = 0,
     EXACT_RUNTIME_DRIVE_INVALID = -1,
@@ -1508,6 +1527,31 @@ int32_t ex_hermes_commonjs_record_link_require_esm(
     size_t specifier_len,
     ExactModuleRunnerHandle target_record,
     int32_t synchronous_eligible);
+
+/// Retain one authenticated literal `require()` spelling for exact call-time
+/// activation. No target lookup occurs while this declaration is installed.
+int32_t ex_hermes_commonjs_record_defer_require(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len);
+
+/// Install or remove the sole synchronous require provider for a graph
+/// generation. Installation must precede publication of records carrying
+/// deferred require declarations. Clearing is idempotent after generation
+/// teardown and never invokes the provider.
+int32_t ex_hermes_module_set_commonjs_require_provider(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t graph_generation,
+    ExactCommonJsRequireProvider provider,
+    void* provider_context);
+
+int32_t ex_hermes_module_clear_commonjs_require_provider(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t graph_generation);
 
 /// Bind one authenticated CommonJS `import(specifier)` spelling to an ESM
 /// record. The body receives a promise-returning `dynamicImport` factory

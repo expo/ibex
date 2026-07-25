@@ -106,9 +106,19 @@ production execution:
 - Generation teardown removes pending requests and every record in the
   generation. Completion-before-unpin is one-shot; unpin-before-completion
   makes both a late success and a late refusal stale.
+- Source graph algebra and authenticated construction now defer authored
+  non-builtin literal `require()` spellings without target discovery.
+  Reaching an exact spelling authorizes and receipt-gates only its target
+  closure; nested dead requires remain deferred.
+- The native synchronous boundary now has a generation-scoped provider token.
+  Its callback carries the exact requester handle, source identity, and
+  spelling. Only module mutation/publication may nest while it runs; a
+  real-Hermes regression proves target publication and single evaluation while
+  general eval remains reentrancy-refused.
 
 Still open are invocation-time prepared-carrier discovery, its source/prepared
-failure matrix, and the synchronous authored CommonJS `require()` callback.
+failure matrix, and installing the synchronous authored CommonJS `require()`
+provider on retained production graph state before initial evaluation.
 
 ## Done when
 

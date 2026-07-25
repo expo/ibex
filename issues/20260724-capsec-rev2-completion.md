@@ -397,6 +397,35 @@ ticket closes.
   stronger activation matrix closes evidence gaps without inflating the
   mechanism estimate.
 
+### 2026-07-24 — proved the synchronous literal-`require()` activation boundary
+
+- Authenticated source construction now retains authored non-builtin literal
+  `require()` spellings without resolving or reading their targets. Generated
+  manifest-builtin fan-out remains eager and cannot enter the deferred path.
+- Reaching an exact retained spelling authorizes and receipt-gates acquisition
+  of only its target's static closure. Nested dead `require()` declarations
+  remain deferred, and an undeclared spelling fails before resolver entry.
+- Added a generation-scoped native provider token and exact requester
+  handle/source/spelling callback. During the callback, only module
+  construction, linking, declaration, rollback, and atomic publication may
+  nest; public eval and the rest of the runtime drive surface remain
+  reentrancy-closed.
+- A real-Hermes ABI regression publishes a new CommonJS record inside the
+  reached callback, evaluates it exactly once, and proves a second identical
+  `require()` reuses the cached target binding. An attempted general `eval`
+  from the callback is still refused as reentrant.
+- This is a mechanism checkpoint, not production completion. The retained
+  source/native graph state still needs to own the provider context before
+  initial evaluation, and the provider must drive the real authorization,
+  acquisition, transform, link, synchronous-closure, denial, and teardown
+  paths.
+- `main` remained at `f85443a3` at this checkpoint despite the expected
+  concurrent branch landings.
+- Current estimate remains **59% complete for the full LLP 0021 completion
+  contract; roughly 87% complete for the security-critical runtime mechanism
+  set.** The ABI proof removes the reentrancy uncertainty but does not count as
+  a shipped security mechanism until production graph state owns it.
+
 ## Current hard parts
 
 - Exact-target completion is deliberately all-or-nothing. Existing evidence
@@ -417,9 +446,12 @@ ticket closes.
   identity, so it cannot honestly produce that evidence.
 - `malformed-branch-facts` has no owning-language proof and remains residual.
 - Authored `import()` now has receipt-gated reached-site source activation and
-  atomic live-graph publication. The remaining call-time module gap is the
-  synchronous in-drive CommonJS `require()` capability, plus invocation-time
-  prepared carriers and their failure matrix, tracked in
+  atomic live-graph publication. The synchronous in-drive CommonJS
+  `require()` boundary is proven in isolation; the hard remaining step is
+  installing retained production graph state before evaluation so its exact
+  callback can mutate the same published index without a mutex/reentrancy
+  deadlock. Invocation-time prepared carriers and their failure matrix remain
+  open, tracked in
   `issues/20260724-native-call-time-module-activation.md`.
 - The root/bootstrap mechanism seals correctly, but both builders still emit an
   empty `bootstrapAuthorityFloor`. Current bootstrap host inputs are
@@ -431,7 +463,9 @@ ticket closes.
 
 ## Next milestone
 
-Checkpoint the expanded receipt-authorized live-graph activation matrix. Then
-address invocation-time prepared activation and the synchronous CommonJS
-`require()` callback. Bootstrap-floor authorship and `malformed-branch-facts`
-remain named gaps rather than unsafe local substitutions.
+Install the exact CommonJS provider on retained production graph state before
+initial evaluation, publish a synchronously admissible target closure through
+the shared native index, and cover denial, async-taint, cycle, and teardown
+paths. Then return to invocation-time prepared activation. Bootstrap-floor
+authorship and `malformed-branch-facts` remain named gaps rather than unsafe
+local substitutions.

@@ -2776,7 +2776,8 @@ ExactRuntimeDriveGuard::ExactRuntimeDriveGuard(
     ExactHermesRuntime* runtime,
     uint64_t expectedNonce,
     bool allowQuarantined,
-    bool allowAppBundleEvaluation)
+    bool allowAppBundleEvaluation,
+    bool allowCommonJsRequireMutation)
     : runtime_(runtime) {
   if (runtime == nullptr) return;
   {
@@ -2804,6 +2805,13 @@ ExactRuntimeDriveGuard::ExactRuntimeDriveGuard(
       return;
     }
     if (it->second.drive_active) {
+      if (allowCommonJsRequireMutation &&
+          runtime->commonjs_require_provider_call_active) {
+        nonce_ = it->second.nonce;
+        nested_commonjs_require_mutation_ = true;
+        status_ = EXACT_RUNTIME_DRIVE_OK;
+        return;
+      }
       status_ = EXACT_RUNTIME_DRIVE_REENTRANT;
       return;
     }
@@ -2884,6 +2892,7 @@ extern "C" int32_t ex_hermes_quarantine_runtime_v1(
 
 ExactRuntimeDriveGuard::~ExactRuntimeDriveGuard() {
   if (status_ != EXACT_RUNTIME_DRIVE_OK || runtime_ == nullptr) return;
+  if (nested_commonjs_require_mutation_) return;
   if (dynamic_scope_active_) {
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
     g_vm_runtime = previous_attribution_runtime_;

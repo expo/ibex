@@ -307,6 +307,11 @@ struct NativeCommonJsRequireBinding {
   bool esm_synchronous_eligible{false};
 };
 
+struct NativeCommonJsRequireProviderEntry {
+  ExactCommonJsRequireProvider provider{nullptr};
+  void* context{nullptr};
+};
+
 struct NativeCommonJsRecordEntry {
   uint64_t graph_generation{0};
   uint8_t source_goal{0};
@@ -316,6 +321,7 @@ struct NativeCommonJsRecordEntry {
   std::shared_ptr<facebook::jsi::Function> factory;
   NativeCommonJsRecordState state{NativeCommonJsRecordState::New};
   std::map<std::string, NativeCommonJsRequireBinding> require_bindings;
+  std::set<std::string> deferred_commonjs_requires;
   std::map<std::string, uint64_t> dynamic_import_bindings;
   std::map<std::pair<uint32_t, std::string>, uint64_t>
       computed_dynamic_import_bindings;
@@ -717,6 +723,10 @@ struct ExactHermesRuntime {
   std::unordered_map<uint64_t, GraphContextEntry> graph_contexts;
   std::unordered_map<uint64_t, NativeModuleRecordEntry> module_records;
   std::unordered_map<uint64_t, NativeCommonJsRecordEntry> commonjs_records;
+  std::map<uint64_t, NativeCommonJsRequireProviderEntry>
+      commonjs_require_providers;
+  bool commonjs_require_provider_call_active{false};
+  uint64_t commonjs_require_provider_call_generation{0};
   std::set<uint64_t> pinned_module_generations;
   uint64_t next_module_dynamic_activation_request_id{1};
   std::unordered_map<uint64_t, NativeModuleDynamicActivationEntry>
@@ -892,7 +902,8 @@ class ExactRuntimeDriveGuard {
       ExactHermesRuntime* runtime,
       uint64_t expectedNonce = 0,
       bool allowQuarantined = false,
-      bool allowAppBundleEvaluation = false);
+      bool allowAppBundleEvaluation = false,
+      bool allowCommonJsRequireMutation = false);
   ~ExactRuntimeDriveGuard();
   ExactRuntimeDriveGuard(const ExactRuntimeDriveGuard&) = delete;
   ExactRuntimeDriveGuard& operator=(const ExactRuntimeDriveGuard&) = delete;
@@ -913,6 +924,7 @@ class ExactRuntimeDriveGuard {
 #endif
   bool principal_scope_active_{false};
   bool dynamic_scope_active_{false};
+  bool nested_commonjs_require_mutation_{false};
   int32_t status_{EXACT_RUNTIME_DRIVE_INVALID};
 };
 

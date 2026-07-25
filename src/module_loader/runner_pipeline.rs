@@ -256,6 +256,7 @@ struct SourceGraphRecordV1 {
     bindings: BTreeMap<GraphEdgeKey, SourceId>,
     candidate_tables: Vec<ComputedCandidateTableV1>,
     deferred_dynamic: DeferredSourceDynamicBindingsV1,
+    deferred_commonjs_requires: BTreeSet<String>,
     prepared: Option<PreparedRecordV1>,
 }
 
@@ -449,7 +450,7 @@ impl SourceModuleGraphV1 {
     }
 
     pub fn plan(&self) -> Result<SynchronousGraphPlan<'_>> {
-        SynchronousGraphPlan::new_typed_with_call_time_deferred(
+        SynchronousGraphPlan::new_typed_with_call_time_deferred_edges(
             self.records
                 .iter()
                 .map(|(_, record)| {
@@ -465,6 +466,11 @@ impl SourceModuleGraphV1 {
                 .filter(|(_, record)| record.deferred_dynamic.enabled)
                 .map(|(source_id, _)| source_id.clone())
                 .collect(),
+            self.records
+                .iter()
+                .filter(|(_, record)| !record.deferred_commonjs_requires.is_empty())
+                .map(|(source_id, _)| source_id.clone())
+                .collect(),
         )
         .map_err(anyhow::Error::from)
     }
@@ -473,7 +479,8 @@ impl SourceModuleGraphV1 {
         self.records
             .iter()
             .filter_map(|(source_id, record)| {
-                if !record.deferred_dynamic.enabled {
+                if !record.deferred_dynamic.enabled && record.deferred_commonjs_requires.is_empty()
+                {
                     return None;
                 }
                 Some((
@@ -491,6 +498,7 @@ impl SourceModuleGraphV1 {
                             .keys()
                             .cloned()
                             .collect(),
+                        commonjs_require_specifiers: record.deferred_commonjs_requires.clone(),
                     },
                 ))
             })
@@ -506,11 +514,6 @@ impl SourceModuleGraphV1 {
         &mut self,
         request: &DynamicModuleActivationRequest,
     ) -> Result<SourceId> {
-        let graph_generation = request.graph_generation();
-        let host = self
-            .activation_host
-            .clone()
-            .ok_or_else(|| anyhow!("source graph has no retained activation Host"))?;
         let requester = self
             .records
             .get(&request.requester)
@@ -529,23 +532,78 @@ impl SourceModuleGraphV1 {
         .ok_or_else(|| {
             anyhow!("dynamic activation site and spelling are not authenticated declarations")
         })?;
-        let key = GraphEdgeKey::new(&request.specifier, ResolutionKind::DynamicImport);
+        self.activate_call_time_target(
+            &request.requester,
+            &request.specifier,
+            ResolutionKind::DynamicImport,
+            GraphOperationKind::DynamicImport,
+            attributes,
+            request.graph_generation(),
+        )
+    }
+
+    /// Resolve and acquire one exactly reached authored CommonJS `require()`.
+    /// Merely constructing the source graph retains the spelling but neither
+    /// resolves nor reads the target.
+    // @ref LLP 0024#3-source-goal
+    // @ref LLP 0026#7-commonjs-interop
+    pub fn activate_commonjs_require_target(
+        &mut self,
+        requester: &SourceId,
+        specifier: &str,
+        graph_generation: u64,
+    ) -> Result<SourceId> {
+        let record = self
+            .records
+            .get(requester)
+            .ok_or_else(|| anyhow!("CommonJS activation requester is absent from source graph"))?;
+        if !record.deferred_commonjs_requires.contains(specifier) {
+            bail!("CommonJS require spelling is not an authenticated declaration");
+        }
+        self.activate_call_time_target(
+            requester,
+            specifier,
+            ResolutionKind::CommonJsRequire,
+            GraphOperationKind::LiteralRequire,
+            super::identity::ImportAttributes::default(),
+            graph_generation,
+        )
+    }
+
+    fn activate_call_time_target(
+        &mut self,
+        requester_id: &SourceId,
+        specifier: &str,
+        resolution_kind: ResolutionKind,
+        operation_kind: GraphOperationKind,
+        attributes: super::identity::ImportAttributes,
+        graph_generation: u64,
+    ) -> Result<SourceId> {
+        let host = self
+            .activation_host
+            .clone()
+            .ok_or_else(|| anyhow!("source graph has no retained activation Host"))?;
+        let requester = self
+            .records
+            .get(requester_id)
+            .ok_or_else(|| anyhow!("call-time activation requester is absent from source graph"))?;
+        let key = GraphEdgeKey::new(specifier, resolution_kind);
         let authorizer = ModuleGraphAuthorizer::new(self.snapshot.as_ref());
         let target_meta = host.resolve_meta(
-            &request.specifier,
+            specifier,
             Some(&requester.path),
-            ResolutionKind::DynamicImport,
+            resolution_kind,
             &attributes,
         )?;
         let target_id = target_meta
             .artifact_source_id
             .clone()
-            .ok_or_else(|| anyhow!("dynamic activation resolution produced no SourceId"))?;
+            .ok_or_else(|| anyhow!("call-time activation resolution produced no SourceId"))?;
         if self.records.contains_key(&target_id) {
             let decision = graph_edge_decision(
-                &request.requester,
+                requester_id,
                 &key,
-                GraphOperationKind::DynamicImport,
+                operation_kind,
                 &attributes,
                 graph_generation,
                 target_id.clone(),
@@ -558,9 +616,9 @@ impl SourceModuleGraphV1 {
         let (target, target_receipt) = authorize_source_acquisition(
             &host,
             &authorizer,
-            &request.requester,
+            requester_id,
             &key,
-            GraphOperationKind::DynamicImport,
+            operation_kind,
             &attributes,
             graph_generation,
             target_meta,
@@ -661,6 +719,7 @@ impl SourceModuleGraphV1 {
             ensure_source_graph_call_time_edges_supported(&artifact, true)?;
             let mut bindings = BTreeMap::new();
             let mut deferred_dynamic = DeferredSourceDynamicBindingsV1::default();
+            let deferred_commonjs_requires = deferred_commonjs_require_specifiers(&artifact, true);
             deferred_dynamic.enabled = !artifact.semantics.dynamic_edges.is_empty();
             for edge in &artifact.semantics.dynamic_edges {
                 if let DynamicEdgeV1::Literal {
@@ -680,7 +739,11 @@ impl SourceModuleGraphV1 {
 
             for dependency_key in artifact_edge_requests(&artifact)
                 .into_iter()
-                .filter(|edge| edge.resolution_kind != ResolutionKind::DynamicImport)
+                .filter(|edge| {
+                    edge.resolution_kind != ResolutionKind::DynamicImport
+                        && !(edge.resolution_kind == ResolutionKind::CommonJsRequire
+                            && deferred_commonjs_requires.contains(&edge.specifier))
+                })
             {
                 let dependency_attributes = artifact_edge_attributes(&artifact, &dependency_key)?;
                 let dependency_meta = if module.kind == ModuleKind::Builtin {
@@ -788,6 +851,7 @@ impl SourceModuleGraphV1 {
                     bindings,
                     candidate_tables: Vec::new(),
                     deferred_dynamic,
+                    deferred_commonjs_requires,
                     prepared: None,
                 },
             );
@@ -818,7 +882,14 @@ impl SourceModuleGraphV1 {
             .filter(|(_, record)| record.deferred_dynamic.enabled)
             .map(|(source_id, _)| source_id.clone())
             .collect();
-        SynchronousGraphPlan::new_typed_with_call_time_deferred(
+        let deferred_commonjs_sources = self
+            .records
+            .iter()
+            .chain(pending_records.iter())
+            .filter(|(_, record)| !record.deferred_commonjs_requires.is_empty())
+            .map(|(source_id, _)| source_id.clone())
+            .collect();
+        SynchronousGraphPlan::new_typed_with_call_time_deferred_edges(
             self.records
                 .iter()
                 .chain(pending_records.iter())
@@ -831,6 +902,7 @@ impl SourceModuleGraphV1 {
                 .collect::<Result<Vec<_>>>()?,
             BTreeMap::new(),
             deferred_sources,
+            deferred_commonjs_sources,
         )?;
 
         self.records.append(&mut pending_records);
@@ -1279,6 +1351,7 @@ pub fn capture_embedded_source_graph_v1(
                 bindings,
                 candidate_tables,
                 deferred_dynamic: DeferredSourceDynamicBindingsV1::default(),
+                deferred_commonjs_requires: BTreeSet::new(),
                 prepared: None,
             },
         );
@@ -1594,10 +1667,10 @@ fn artifact_edge_operation_kind(
 // @ref LLP 0026#6-top-level-await-and-dynamic-import
 fn ensure_source_graph_call_time_edges_supported(
     artifact: &ModuleArtifactV1,
-    dynamic_activation_available: bool,
+    call_time_activation_available: bool,
 ) -> Result<()> {
     let source_id = &artifact.semantics.source_id.0;
-    if !artifact.semantics.dynamic_edges.is_empty() && !dynamic_activation_available {
+    if !artifact.semantics.dynamic_edges.is_empty() && !call_time_activation_available {
         bail!("native call-time dynamic-import activation is unavailable for {source_id:?}");
     }
     if artifact.semantics.source_goal != super::artifact::SourceGoalV1::Builtin
@@ -1606,10 +1679,31 @@ fn ensure_source_graph_call_time_edges_supported(
             .static_edges
             .iter()
             .any(|edge| matches!(edge, StaticEdgeV1::CommonJsRequire { .. }))
+        && !call_time_activation_available
     {
         bail!("native call-time CommonJS require activation is unavailable for {source_id:?}");
     }
     Ok(())
+}
+
+fn deferred_commonjs_require_specifiers(
+    artifact: &ModuleArtifactV1,
+    call_time_activation_available: bool,
+) -> BTreeSet<String> {
+    if !call_time_activation_available
+        || artifact.semantics.source_goal == super::artifact::SourceGoalV1::Builtin
+    {
+        return BTreeSet::new();
+    }
+    artifact
+        .semantics
+        .static_edges
+        .iter()
+        .filter_map(|edge| match edge {
+            StaticEdgeV1::CommonJsRequire { specifier } => Some(specifier.as_str().to_owned()),
+            _ => None,
+        })
+        .collect()
 }
 
 fn authorize_source_acquisition(
@@ -1866,6 +1960,8 @@ fn build_authenticated_source_graph_v1_with_host(
         ensure_source_graph_call_time_edges_supported(&artifact, activation_host.is_some())?;
         let mut bindings = BTreeMap::new();
         let mut deferred_dynamic = DeferredSourceDynamicBindingsV1::default();
+        let deferred_commonjs_requires =
+            deferred_commonjs_require_specifiers(&artifact, activation_host.is_some());
         deferred_dynamic.enabled = !artifact.semantics.dynamic_edges.is_empty();
         for edge in &artifact.semantics.dynamic_edges {
             if let DynamicEdgeV1::Literal {
@@ -1882,10 +1978,11 @@ fn build_authenticated_source_graph_v1_with_host(
                 }
             }
         }
-        for key in artifact_edge_requests(&artifact)
-            .into_iter()
-            .filter(|key| key.resolution_kind != ResolutionKind::DynamicImport)
-        {
+        for key in artifact_edge_requests(&artifact).into_iter().filter(|key| {
+            key.resolution_kind != ResolutionKind::DynamicImport
+                && !(key.resolution_kind == ResolutionKind::CommonJsRequire
+                    && deferred_commonjs_requires.contains(&key.specifier))
+        }) {
             let attributes = artifact_edge_attributes(&artifact, &key)?;
             let target = if module.kind == ModuleKind::Builtin {
                 if key.resolution_kind != ResolutionKind::CommonJsRequire || !attributes.is_empty()
@@ -1964,6 +2061,7 @@ fn build_authenticated_source_graph_v1_with_host(
                 bindings,
                 candidate_tables,
                 deferred_dynamic,
+                deferred_commonjs_requires,
                 prepared: None,
             },
         );
@@ -2031,7 +2129,7 @@ fn prepare_embedded_records_v1(
     records: &BTreeMap<SourceId, SourceGraphRecordV1>,
     producer_binary_digest: &Digest,
 ) -> Result<PreparedEmbeddedSourceGraphV1> {
-    SynchronousGraphPlan::new_typed_with_call_time_deferred(
+    SynchronousGraphPlan::new_typed_with_call_time_deferred_edges(
         records
             .values()
             .map(|record| {
@@ -2045,6 +2143,11 @@ fn prepare_embedded_records_v1(
             records
                 .iter()
                 .filter(|(_, record)| record.deferred_dynamic.enabled)
+                .map(|(source_id, _)| source_id.clone())
+                .collect(),
+            records
+                .iter()
+                .filter(|(_, record)| !record.deferred_commonjs_requires.is_empty())
                 .map(|(source_id, _)| source_id.clone())
                 .collect(),
     )?;
@@ -2810,6 +2913,7 @@ pub fn load_prepared_source_graph_v1(
                 bindings,
                 candidate_tables: record_candidate_tables,
                 deferred_dynamic: trusted_record.deferred_dynamic.clone(),
+                deferred_commonjs_requires: trusted_record.deferred_commonjs_requires.clone(),
                 prepared: Some(PreparedRecordV1 {
                     carrier,
                     entry_id: indexed.entry_id,
@@ -3375,21 +3479,30 @@ mod tests {
         )
         .unwrap();
         let cjs_entry = std::fs::canonicalize(cjs_entry).unwrap();
-        let error = match build_authenticated_source_graph_v1_for_host(
+        let cjs_graph = match build_authenticated_source_graph_v1_for_host(
             &host,
             &cjs_entry,
             producer_digest,
             "hermes-test",
-        ) {
-            Ok(_) => panic!("authored CommonJS require reached graph construction"),
-            Err(error) => error,
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!("dead literal require required legacy execution: {requirement:?}")
+            }
         };
-        let message = format!("{error:#}");
-        assert!(message.contains("CommonJS require activation"), "{message}");
-        assert!(
-            !message.contains("target-that-must-not-be-probed"),
-            "CommonJS refusal exposed target-resolution output: {message}"
-        );
+        assert_eq!(cjs_graph.records().count(), 1);
+        assert!(cjs_graph
+            .plan()
+            .unwrap()
+            .defers_commonjs_require_edges(cjs_graph.entry()));
+        assert!(cjs_graph
+            .records
+            .get(cjs_graph.entry())
+            .unwrap()
+            .deferred_commonjs_requires
+            .contains("./target-that-must-not-be-probed.cjs"));
     }
 
     #[test]
@@ -3442,6 +3555,73 @@ mod tests {
         let error = graph.activate_dynamic_target(&absent).unwrap_err();
         assert!(
             error.to_string().contains("not authenticated declarations"),
+            "{error:#}"
+        );
+        assert_eq!(graph.records().count(), 2);
+        assert_eq!(graph.activation_receipt_count(), 1);
+    }
+
+    #[test]
+    fn reached_commonjs_require_receipt_gates_only_its_target_static_closure() {
+        let project = tempfile::tempdir().unwrap();
+        let producer_digest =
+            Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let host = armed_file_host(project.path());
+        let entry = project.path().join("entry.cjs");
+        let target = project.path().join("target.cjs");
+        std::fs::write(
+            &entry,
+            "exports.load = () => require('./target.cjs'); if (false) require('./dead.cjs');\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &target,
+            "exports.value = 42; if (false) require('./nested-dead.cjs');\n",
+        )
+        .unwrap();
+        let entry = std::fs::canonicalize(entry).unwrap();
+        let mut graph = match build_authenticated_source_graph_v1_for_host(
+            &host,
+            &entry,
+            producer_digest,
+            "hermes-test",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "literal CommonJS require required legacy execution: {}",
+                    requirement.reason
+                )
+            }
+        };
+        let requester = graph.entry().clone();
+        assert_eq!(graph.records().count(), 1);
+        assert_eq!(graph.activation_receipt_count(), 0);
+        let target_id = graph
+            .activate_commonjs_require_target(&requester, "./target.cjs", 1)
+            .unwrap();
+        assert_ne!(target_id, requester);
+        assert_eq!(graph.records().count(), 2);
+        assert_eq!(graph.activation_receipt_count(), 1);
+        let target_record = graph.records.get(&target_id).unwrap();
+        assert!(target_record.bindings.is_empty());
+        assert!(target_record
+            .deferred_commonjs_requires
+            .contains("./nested-dead.cjs"));
+        assert!(graph
+            .plan()
+            .unwrap()
+            .defers_commonjs_require_edges(&target_id));
+
+        let error = graph
+            .activate_commonjs_require_target(&requester, "./not-declared.cjs", 1)
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("not an authenticated declaration"),
             "{error:#}"
         );
         assert_eq!(graph.records().count(), 2);
@@ -3620,6 +3800,7 @@ mod tests {
                 bindings,
                 candidate_tables: Vec::new(),
                 deferred_dynamic: DeferredSourceDynamicBindingsV1::default(),
+                deferred_commonjs_requires: BTreeSet::new(),
                 prepared: None,
             }
         };

@@ -139,6 +139,7 @@ pub struct SynchronousGraphPlan<'artifact> {
     records: BTreeMap<SourceId, PlannedRecord<'artifact>>,
     computed_candidate_sites: ComputedCandidateSiteMap,
     deferred_dynamic_sources: BTreeSet<SourceId>,
+    deferred_commonjs_require_sources: BTreeSet<SourceId>,
 }
 
 /// One strongly connected component in dependency-first order. Records inside
@@ -246,6 +247,30 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         computed_candidate_sites: ComputedCandidateSiteMap,
         deferred_dynamic_sources: BTreeSet<SourceId>,
     ) -> Result<Self, GraphError> {
+        Self::new_typed_with_call_time_deferred_edges(
+            records,
+            computed_candidate_sites,
+            deferred_dynamic_sources,
+            BTreeSet::new(),
+        )
+    }
+
+    /// Build a static closure while retaining both asynchronous `import()`
+    /// declarations and synchronous authored CommonJS `require()` spellings
+    /// as exact call-time edges. Generated builtin `require()` fan-out is
+    /// never deferred through this path.
+    // @ref LLP 0026#7-commonjs-interop
+    pub fn new_typed_with_call_time_deferred_edges(
+        records: impl IntoIterator<
+            Item = (
+                VerifiedModuleArtifactV1<'artifact>,
+                BTreeMap<GraphEdgeKey, SourceId>,
+            ),
+        >,
+        computed_candidate_sites: ComputedCandidateSiteMap,
+        deferred_dynamic_sources: BTreeSet<SourceId>,
+        deferred_commonjs_require_sources: BTreeSet<SourceId>,
+    ) -> Result<Self, GraphError> {
         let mut planned = BTreeMap::new();
         for (artifact, edges) in records {
             let semantics = &artifact.artifact().semantics;
@@ -253,6 +278,14 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             let mut expected: BTreeSet<_> = artifact_edge_keys(artifact).collect();
             if deferred_dynamic_sources.contains(&source_id) {
                 expected.retain(|key| key.resolution_kind != ResolutionKind::DynamicImport);
+            }
+            if deferred_commonjs_require_sources.contains(&source_id) {
+                if semantics.source_goal == SourceGoalV1::Builtin {
+                    return Err(GraphError::link(format!(
+                        "generated builtin require edges cannot be deferred for {source_id:?}"
+                    )));
+                }
+                expected.retain(|key| key.resolution_kind != ResolutionKind::CommonJsRequire);
             }
             let observed: BTreeSet<_> = edges.keys().cloned().collect();
             let has_computed_dynamic_import = semantics
@@ -325,6 +358,7 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             records: planned,
             computed_candidate_sites,
             deferred_dynamic_sources,
+            deferred_commonjs_require_sources,
         })
     }
 
@@ -334,6 +368,10 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
 
     pub fn defers_dynamic_edges(&self, source_id: &SourceId) -> bool {
         self.deferred_dynamic_sources.contains(source_id)
+    }
+
+    pub fn defers_commonjs_require_edges(&self, source_id: &SourceId) -> bool {
+        self.deferred_commonjs_require_sources.contains(source_id)
     }
 
     pub fn artifact(
@@ -347,11 +385,55 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         self.records.contains_key(source_id)
     }
 
+    /// Refuse production-native plans that would need an authored call-time
+    /// edge before the runtime has a private in-drive loader capability.
+    ///
+    /// The source-graph ingress applies the same boundary before resolving a
+    /// deferred target. Keep this independent check at the authenticated
+    /// linker boundary so a prepared graph or another internal caller cannot
+    /// reintroduce eager authorization through the prelinked lookup tables.
+    /// Exact manifest-owned builtin fan-out is a private synchronous
+    /// initialization dependency; native code separately proves that its
+    /// `require` closure cannot be used after that initialization returns.
+    // @ref LLP 0024#3-source-goal
+    // @ref LLP 0021#module-initialization-and-trusted-source-acquisition
+    pub fn ensure_native_call_time_edges_supported(&self) -> Result<(), GraphError> {
+        for (source_id, record) in &self.records {
+            let semantics = &record.artifact.artifact().semantics;
+            if !semantics.dynamic_edges.is_empty() {
+                return Err(GraphError::link(format!(
+                    "native call-time dynamic-import activation is unavailable for {source_id:?}"
+                )));
+            }
+            for edge in &semantics.static_edges {
+                let StaticEdgeV1::CommonJsRequire { specifier } = edge else {
+                    continue;
+                };
+                if self.defers_commonjs_require_edges(source_id) {
+                    continue;
+                }
+                if semantics.source_goal != SourceGoalV1::Builtin {
+                    return Err(GraphError::link(format!(
+                        "native call-time CommonJS require activation is unavailable for {source_id:?}"
+                    )));
+                }
+                let target =
+                    self.edge_target(record, specifier.as_str(), ResolutionKind::CommonJsRequire)?;
+                if self.artifact(target)?.artifact().semantics.source_goal != SourceGoalV1::Builtin
+                {
+                    return Err(GraphError::link(format!(
+                        "manifest builtin private dependency {specifier:?} from {source_id:?} is not a builtin record"
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Dependency-first execution order for the entry's eager ESM closure.
-    /// Authenticated CommonJS require targets are materialized and linked but
-    /// excluded from this traversal because `require()` reaches and evaluates
-    /// them only when the CommonJS body invokes that exact edge. Computed
-    /// require remains a fail-closed invocation-time operation.
+    /// CommonJS require targets are linked but excluded from this traversal
+    /// because `require()` reaches and evaluates them only when invoked. A CJS
+    /// record reached by an ESM edge is scheduled before its importer.
     /// A visiting record is reused, so cycles append each record exactly once.
     /// @ref LLP 0026#7-commonjs-interop
     pub fn evaluation_order(&self, entry: &SourceId) -> Result<Vec<SourceId>, GraphError> {
@@ -450,6 +532,9 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         let mut bindings = Vec::new();
         for edge in &record.artifact.artifact().semantics.static_edges {
             if let StaticEdgeV1::CommonJsRequire { specifier } = edge {
+                if self.defers_commonjs_require_edges(source_id) {
+                    continue;
+                }
                 bindings.push((
                     specifier.as_str().to_owned(),
                     self.edge_target(record, specifier.as_str(), ResolutionKind::CommonJsRequire)?
@@ -742,6 +827,11 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                         }
                         continue;
                     }
+                }
+                if self.defers_commonjs_require_edges(&source_id)
+                    && matches!(edge, StaticEdgeV1::CommonJsRequire { .. })
+                {
+                    continue;
                 }
                 let (specifier, attributes, kind, resolution_kind) = match edge {
                     StaticEdgeV1::CommonJsRequire { specifier } => (
@@ -1257,6 +1347,11 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         let record = self.record(source_id)?;
         let mut targets = BTreeSet::new();
         for edge in &record.artifact.artifact().semantics.static_edges {
+            if self.defers_commonjs_require_edges(source_id)
+                && matches!(edge, StaticEdgeV1::CommonJsRequire { .. })
+            {
+                continue;
+            }
             targets.insert(self.static_edge_target(record, edge)?.clone());
         }
         let allowed = allowed_dynamic_bindings.get(source_id);
@@ -1609,6 +1704,31 @@ mod tests {
             commonjs_plan.linkage_order(&commonjs_entry_id).unwrap(),
             [commonjs_target_id, commonjs_entry_id]
         );
+        assert!(commonjs_plan
+            .ensure_native_call_time_edges_supported()
+            .unwrap_err()
+            .to_string()
+            .contains("CommonJS require activation"));
+        let deferred_commonjs_plan = SynchronousGraphPlan::new_typed_with_call_time_deferred_edges(
+            [(verify(&commonjs_entry), BTreeMap::new())],
+            BTreeMap::new(),
+            BTreeSet::new(),
+            BTreeSet::from([commonjs_entry_id.clone()]),
+        )
+        .unwrap();
+        deferred_commonjs_plan
+            .ensure_native_call_time_edges_supported()
+            .unwrap();
+        assert!(deferred_commonjs_plan
+            .commonjs_require_bindings(&commonjs_entry_id)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            deferred_commonjs_plan
+                .linkage_order_for_authorized(&commonjs_entry_id, &BTreeMap::new())
+                .unwrap(),
+             [commonjs_entry_id.clone()]
+        );
 
         let builtin_owner_id = SourceId::builtin("ibex-runtime", "builtin-owner").unwrap();
         let builtin_target_id = SourceId::builtin("ibex-runtime", "builtin-target").unwrap();
@@ -1628,6 +1748,21 @@ mod tests {
             (verify(&builtin_target), BTreeMap::new()),
         ])
         .unwrap();
+        builtin_plan
+            .ensure_native_call_time_edges_supported()
+            .unwrap();
+        assert!(
+            SynchronousGraphPlan::new_typed_with_call_time_deferred_edges(
+                [(verify(&builtin_owner), BTreeMap::new())],
+                BTreeMap::new(),
+                BTreeSet::new(),
+                BTreeSet::from([builtin_owner_id.clone()]),
+            )
+            .err()
+            .expect("generated builtin call-time deferral was accepted")
+            .to_string()
+             .contains("generated builtin require edges cannot be deferred")
+        );
 
         struct AllowAllPolicy {
             digest: Digest,
