@@ -25,6 +25,10 @@ static BYTECODE_INCOMPATIBLE: AtomicBool = AtomicBool::new(false);
 #[cfg(feature = "module-runner")]
 const LEGACY_MODULE_LOADER_LAST_SUPPORTED_MINOR: &str = "0.1";
 
+#[cfg(all(test, feature = "module-runner"))]
+static PREPARED_ACTIVATION_LOCATOR_CALLS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 #[cfg(feature = "module-runner")]
 fn legacy_module_loader_window_is_open() -> bool {
     let version = env!("CARGO_PKG_VERSION");
@@ -2142,6 +2146,100 @@ pub(crate) struct AuthenticatedFileIngress {
     session_io: crate::terminal_session::SessionIoPlan,
 }
 
+#[cfg(feature = "module-runner")]
+struct RuntimePreparedActivationCacheLocator {
+    runtime_cache_root: PathBuf,
+    project_root: PathBuf,
+    source_entry: PathBuf,
+    bundle_format: BundleFormat,
+}
+
+#[cfg(feature = "module-runner")]
+impl ibex_runtime::module_loader::runner_pipeline::PreparedActivationCacheLocatorV1
+    for RuntimePreparedActivationCacheLocator
+{
+    fn locate(
+        &self,
+        _target: &ibex_runtime::module_loader::identity::SourceId,
+    ) -> Result<Vec<ibex_runtime::module_loader::runner_pipeline::PreparedActivationCacheCandidateV1>>
+    {
+        #[cfg(test)]
+        PREPARED_ACTIVATION_LOCATOR_CALLS.fetch_add(1, Ordering::SeqCst);
+
+        use ibex_runtime::module_loader::artifact::digest_bytes;
+        use ibex_runtime::module_loader::runner_pipeline::{
+            prepared_graph_cache_dir, PreparedActivationCacheCandidateV1,
+        };
+
+        let checked_cache = ibex_runtime::cache_topology::authenticate_internal_cache_root(
+            &self.runtime_cache_root,
+            std::slice::from_ref(&self.project_root),
+        )
+        .context("authenticated activation cache no longer has safe topology")?;
+        anyhow::ensure!(
+            checked_cache == self.runtime_cache_root,
+            "authenticated activation cache canonical path changed after arming"
+        );
+        let bundles_root = self.runtime_cache_root.join("bundles");
+        let metadata = match std::fs::symlink_metadata(&bundles_root) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
+        };
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Ok(Vec::new());
+        }
+        let canonical_bundles_root = match std::fs::canonicalize(&bundles_root) {
+            Ok(path) if path.parent() == Some(self.runtime_cache_root.as_path()) => path,
+            _ => return Ok(Vec::new()),
+        };
+
+        let mut formats = vec![self.bundle_format];
+        if self.bundle_format == BundleFormat::Cjs {
+            formats.push(BundleFormat::Esm);
+        }
+        let mut discovered = Vec::new();
+        for format in formats {
+            let cache_key = bundle_cache_key(&self.source_entry, format)?;
+            let artifact_root = bundle_artifact_root(&canonical_bundles_root, &cache_key);
+            let mut artifact_dirs = match std::fs::read_dir(&artifact_root) {
+                Ok(entries) => entries
+                    .filter_map(std::result::Result::ok)
+                    .filter_map(|entry| {
+                        entry
+                            .file_type()
+                            .ok()
+                            .filter(|kind| kind.is_dir() && !kind.is_symlink())
+                            .filter(|_| !entry.file_name().to_string_lossy().starts_with('.'))
+                            .map(|_| entry.path())
+                    })
+                    .collect::<Vec<_>>(),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(_) => continue,
+            };
+            artifact_dirs.sort();
+            for artifact_dir in artifact_dirs {
+                let output = bundle_entry_path(&artifact_dir, format);
+                let Ok(manifest) = read_bundle_manifest_once(&output) else {
+                    continue;
+                };
+                if !matches!(manifest.version, 3 | 4) || !valid_sha256(&manifest.graph_digest) {
+                    continue;
+                }
+                let deployment_graph_digest = digest_bytes(
+                    "ibex/rolldown-deployment-graph/1",
+                    manifest.graph_digest.as_bytes(),
+                )?;
+                discovered.push(PreparedActivationCacheCandidateV1 {
+                    cache_dir: prepared_graph_cache_dir(&artifact_dir, &deployment_graph_digest),
+                    deployment_graph_digest,
+                });
+            }
+        }
+        Ok(discovered)
+    }
+}
+
 struct PreparedAuthenticatedGeneratedEntry {
     entry: crate::engine::AuthenticatedGeneratedEntry,
 }
@@ -2835,7 +2933,7 @@ impl AuthenticatedFileIngress {
         // between native admission and evaluation.
         // @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
         // @ref LLP 0027#canonical-encoding-and-validation
-        let graph = match build_authenticated_source_graph_v1_for_host(
+        let mut graph = match build_authenticated_source_graph_v1_for_host(
             &self.host,
             &source_entry,
             module_producer_binary_digest()?,
@@ -2857,6 +2955,14 @@ impl AuthenticatedFileIngress {
             }
         };
         phase.mark("graph_build");
+        graph.set_prepared_activation_cache_locator(Arc::new(
+            RuntimePreparedActivationCacheLocator {
+                runtime_cache_root: self.runtime_cache_root.clone(),
+                project_root: self.project_root.clone(),
+                source_entry: source_entry.clone(),
+                bundle_format: self.bundle_format,
+            },
+        ));
         let entry_join = graph.validate_authenticated_entry_request(request)?;
         let (_, retained_entry_path, _) = graph
             .records()
@@ -13440,9 +13546,11 @@ pub(crate) mod tests {
         )
     ))]
     #[tokio::test]
-    async fn authenticated_prepared_initial_graph_activates_inline_commonjs_target() {
+    async fn authenticated_prepared_initial_graph_activates_prepared_commonjs_target() {
         use ibex_runtime::module_loader::artifact::digest_bytes;
-        use ibex_runtime::module_loader::runner_pipeline::publish_prepared_source_graph_v1;
+        use ibex_runtime::module_loader::runner_pipeline::{
+            publish_prepared_activation_records_v1, publish_prepared_source_graph_v1,
+        };
 
         let _lock = crate::engine::hermes::hermes_engine_test_lock()
             .lock()
@@ -13478,7 +13586,7 @@ pub(crate) mod tests {
         .unwrap();
         let mut ingress = runtime.authenticated_file_ingress().unwrap();
         let request = ingress.file_request(&[]).unwrap();
-        let inline = match ingress
+        let mut inline = match ingress
             .prepare_authenticated_module_graph(&request)
             .unwrap()
         {
@@ -13518,7 +13626,29 @@ pub(crate) mod tests {
         .unwrap();
         let deployment_digest =
             digest_bytes("ibex/rolldown-deployment-graph/1", graph_digest.as_bytes()).unwrap();
-        publish_prepared_source_graph_v1(&inline, &artifact_dir, deployment_digest).unwrap();
+        publish_prepared_source_graph_v1(&inline, &artifact_dir, deployment_digest.clone())
+            .unwrap();
+        let initial_ids = inline
+            .records()
+            .map(|(source_id, _, _)| source_id.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        let entry_id = inline.entry().clone();
+        inline
+            .activate_commonjs_require_target(&entry_id, "./target.cjs", 1)
+            .unwrap();
+        let activated_ids = inline
+            .records()
+            .map(|(source_id, _, _)| source_id.clone())
+            .filter(|source_id| !initial_ids.contains(source_id))
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(activated_ids.len(), 1);
+        publish_prepared_activation_records_v1(
+            &inline,
+            &activated_ids,
+            &artifact_dir,
+            deployment_digest,
+        )
+        .unwrap();
         drop(ingress);
         drop(runtime);
 
@@ -13551,6 +13681,7 @@ pub(crate) mod tests {
             "the deferred CommonJS target was discovered while selecting the prepared entry"
         );
 
+        PREPARED_ACTIVATION_LOCATOR_CALLS.store(0, Ordering::SeqCst);
         let session = ingress.session.clone();
         let evaluation = engine
             .evaluate_authenticated_module_graph(
@@ -13571,6 +13702,11 @@ pub(crate) mod tests {
             );
         }
         assert_eq!(runtime.lifecycle_exit_code(), 54);
+        assert_eq!(
+            PREPARED_ACTIVATION_LOCATOR_CALLS.load(Ordering::SeqCst),
+            1,
+            "production did not discover the prepared target at its exact reached require"
+        );
     }
 
     #[cfg(all(

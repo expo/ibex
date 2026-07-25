@@ -23,8 +23,8 @@ use crate::engine::module_runner::{
 };
 
 use super::artifact::{
-    source_integrity, ArtifactAdmissionV1, DynamicEdgeV1, ModuleArtifactV1, StaticEdgeV1,
-    VerifiedModuleArtifactV1,
+    digest_bytes, source_integrity, ArtifactAdmissionV1, DynamicEdgeV1, ModuleArtifactV1,
+    StaticEdgeV1, VerifiedModuleArtifactV1,
 };
 use super::carrier::{
     AdmittedPreparedCarrierV2, PreparedCarrierAdmissionV2, PreparedModuleCarrierV2,
@@ -170,6 +170,8 @@ impl SourceGraphHost for crate::host::Host {
 
 const PREPARED_GRAPH_INDEX_SCHEMA_V2: &str = "ibex/prepared-module-graph/2";
 const PREPARED_GRAPH_PRODUCER_ID: &str = "ibex-rolldown-module-preparer";
+const PREPARED_ACTIVATION_CACHE_KEY_DOMAIN_V1: &str =
+    "ibex/prepared-activation-carrier-cache-key/1";
 const EMBEDDED_GRAPH_PRODUCER_ID: &str = "ibex-sfe-graph-preparer";
 
 /// One manifest/payload pair ready to become typed executable-envelope
@@ -306,6 +308,20 @@ struct PreparedRecordV1 {
     admission: ArtifactAdmissionV1,
 }
 
+#[derive(Clone, Debug)]
+pub struct PreparedActivationCacheCandidateV1 {
+    pub cache_dir: PathBuf,
+    pub deployment_graph_digest: Digest,
+}
+
+/// Opaque runtime-owned discovery capability for invocation-time prepared
+/// carriers. The graph calls it only after an exact reached edge has been
+/// authorized and its source closure has produced retained acquisition
+/// receipts.
+pub trait PreparedActivationCacheLocatorV1: Send + Sync {
+    fn locate(&self, target: &SourceId) -> Result<Vec<PreparedActivationCacheCandidateV1>>;
+}
+
 pub struct SourceModuleGraphV1 {
     entry: SourceId,
     entry_vfs_source_id: Option<crate::vfs::SourceId>,
@@ -317,6 +333,7 @@ pub struct SourceModuleGraphV1 {
     project_root: PathBuf,
     candidate_declarations: BTreeMap<(String, String), Vec<NonEmptyString>>,
     matched_candidate_declarations: BTreeSet<(String, String)>,
+    prepared_activation_cache_locator: Option<Arc<dyn PreparedActivationCacheLocatorV1>>,
     _source_access_receipts: Vec<AuthorizedGraphOperation>,
     _prepared_access_receipts: Vec<AuthorizedGraphOperation>,
     _activation_receipts: Vec<AuthorizedGraphOperation>,
@@ -326,6 +343,7 @@ pub struct SourceGraphActivationCheckpoint {
     record_ids: BTreeSet<SourceId>,
     principal_ids: BTreeMap<Principal, u32>,
     matched_candidate_declarations: BTreeSet<(String, String)>,
+    prepared_access_receipt_count: usize,
     activation_receipt_count: usize,
 }
 
@@ -347,6 +365,7 @@ impl SourceModuleGraphV1 {
             record_ids: self.records.keys().cloned().collect(),
             principal_ids: self.principal_ids.clone(),
             matched_candidate_declarations: self.matched_candidate_declarations.clone(),
+            prepared_access_receipt_count: self._prepared_access_receipts.len(),
             activation_receipt_count: self._activation_receipts.len(),
         }
     }
@@ -356,8 +375,17 @@ impl SourceModuleGraphV1 {
             .retain(|source_id, _| checkpoint.record_ids.contains(source_id));
         self.principal_ids = checkpoint.principal_ids;
         self.matched_candidate_declarations = checkpoint.matched_candidate_declarations;
+        self._prepared_access_receipts
+            .truncate(checkpoint.prepared_access_receipt_count);
         self._activation_receipts
             .truncate(checkpoint.activation_receipt_count);
+    }
+
+    pub fn set_prepared_activation_cache_locator(
+        &mut self,
+        locator: Arc<dyn PreparedActivationCacheLocatorV1>,
+    ) {
+        self.prepared_activation_cache_locator = Some(locator);
     }
 
     pub fn entry(&self) -> &SourceId {
@@ -974,10 +1002,27 @@ impl SourceModuleGraphV1 {
                 .collect(),
         )?;
 
+        let activated_record_ids = pending_records.keys().cloned().collect::<BTreeSet<_>>();
         self.records.append(&mut pending_records);
         self.principal_ids = pending_principal_ids;
         self.matched_candidate_declarations = pending_matched;
         self._activation_receipts.extend(pending_receipts);
+        if let Some(locator) = self.prepared_activation_cache_locator.clone() {
+            if let Ok(candidates) = locator.locate(&target_id) {
+                for candidate in candidates {
+                    if load_prepared_activation_records_v1(
+                        self,
+                        &activated_record_ids,
+                        &candidate.cache_dir,
+                        &candidate.deployment_graph_digest,
+                    )
+                    .is_ok()
+                    {
+                        break;
+                    }
+                }
+            }
+        }
         Ok(target_id)
     }
 
@@ -2200,6 +2245,7 @@ fn build_authenticated_source_graph_v1_with_host(
         project_root,
         candidate_declarations,
         matched_candidate_declarations,
+        prepared_activation_cache_locator: None,
         _source_access_receipts: source_access_receipts,
         _prepared_access_receipts: Vec::new(),
         _activation_receipts: Vec::new(),
@@ -2601,6 +2647,268 @@ fn render_prepared_source_graph_v2(
         carriers: rendered_carriers,
         candidate_tables: rendered_candidate_tables,
     })
+}
+
+fn prepared_activation_record_cache_dir(
+    cache_dir: &Path,
+    source_id: &SourceId,
+    semantic_digest: &Digest,
+) -> Result<PathBuf> {
+    let identity = capsec_semantics::canonical::to_jcs_bytes(&serde_json::json!({
+        "semanticDigest": semantic_digest,
+        "sourceId": source_id,
+    }))
+    .map_err(|error| anyhow!("cannot canonicalize prepared activation identity: {error}"))?;
+    let key = digest_bytes(PREPARED_ACTIVATION_CACHE_KEY_DOMAIN_V1, &identity)?;
+    let key = key
+        .as_str()
+        .strip_prefix("sha256-")
+        .unwrap_or_else(|| key.as_str());
+    Ok(cache_dir.join("activation").join(key))
+}
+
+fn prepared_record_principal(
+    graph: &SourceModuleGraphV1,
+    source_id: &SourceId,
+) -> Result<Principal> {
+    source_id
+        .defining_principal()
+        .cloned()
+        .or_else(|| {
+            matches!(source_id, SourceId::Builtin { .. })
+                .then(|| {
+                    graph
+                        .records
+                        .keys()
+                        .filter_map(SourceId::defining_principal)
+                        .find(|principal| principal.is_root())
+                        .cloned()
+                })
+                .flatten()
+        })
+        .ok_or_else(|| anyhow!("prepared activation record has no defining principal"))
+}
+
+/// Publish deterministic one-record carriers for an invocation-time activated
+/// closure. There is deliberately no activation index: after source
+/// acquisition the exact SourceId and semantic digest derive each immutable
+/// path directly.
+// @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
+pub fn publish_prepared_activation_records_v1(
+    graph: &SourceModuleGraphV1,
+    record_ids: &BTreeSet<SourceId>,
+    artifact_dir: &Path,
+    deployment_graph_digest: Digest,
+) -> Result<PathBuf> {
+    if record_ids.is_empty() {
+        bail!("prepared activation publication requires at least one record");
+    }
+    let cache_dir = prepared_graph_cache_dir(artifact_dir, &deployment_graph_digest);
+    let activation_root = cache_dir.join("activation");
+    std::fs::create_dir_all(&activation_root)?;
+    let producer_id =
+        NonEmptyString::new(PREPARED_GRAPH_PRODUCER_ID).map_err(anyhow::Error::msg)?;
+
+    for source_id in record_ids {
+        let record = graph
+            .records
+            .get(source_id)
+            .ok_or_else(|| anyhow!("prepared activation record is absent from source graph"))?;
+        if record.prepared.is_some() {
+            bail!("only an admitted inline record can be published for call-time activation");
+        }
+        let verified = verify_record(record, &graph.producer_binary_digest)?;
+        let entry_id = NonEmptyString::new(record.artifact.semantic_digest.as_str())
+            .map_err(anyhow::Error::msg)?;
+        let principal = prepared_record_principal(graph, source_id)?;
+        let (manifest, payload) = PreparedModuleCarrierV2::from_inline_artifacts(
+            principal,
+            producer_id.clone(),
+            graph.producer_binary_digest.clone(),
+            deployment_graph_digest.clone(),
+            [(entry_id, verified)],
+        )?;
+        let destination = prepared_activation_record_cache_dir(
+            &cache_dir,
+            source_id,
+            &record.artifact.semantic_digest,
+        )?;
+        if destination.join("manifest.json").is_file() && destination.join("payload.js").is_file() {
+            continue;
+        }
+        let staging = activation_root.join(format!(
+            ".stage-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&staging)?;
+        let result = (|| -> Result<()> {
+            std::fs::write(staging.join("manifest.json"), manifest.encode_canonical()?)?;
+            std::fs::write(staging.join("payload.js"), payload)?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+        match std::fs::rename(&staging, &destination) {
+            Ok(()) => {}
+            Err(_)
+                if destination.join("manifest.json").is_file()
+                    && destination.join("payload.js").is_file() =>
+            {
+                let _ = std::fs::remove_dir_all(&staging);
+            }
+            Err(error) => {
+                let _ = std::fs::remove_dir_all(&staging);
+                return Err(error.into());
+            }
+        }
+    }
+    Ok(cache_dir)
+}
+
+/// Atomically replace the selected inline records with already-published
+/// invocation-time prepared carriers. Every carrier read derives from that
+/// record's retained source-acquisition receipt; a miss or invalid member
+/// leaves the graph entirely inline.
+// @ref LLP 0021#module-initialization-and-trusted-source-acquisition
+// @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
+pub fn load_prepared_activation_records_v1(
+    graph: &mut SourceModuleGraphV1,
+    record_ids: &BTreeSet<SourceId>,
+    cache_dir: &Path,
+    expected_deployment_graph_digest: &Digest,
+) -> Result<()> {
+    if record_ids.is_empty() {
+        bail!("prepared activation load requires at least one record");
+    }
+    let producer_id =
+        NonEmptyString::new(PREPARED_GRAPH_PRODUCER_ID).map_err(anyhow::Error::msg)?;
+    let authorizer = ModuleGraphAuthorizer::new(graph.snapshot.as_ref());
+    let mut pending = Vec::with_capacity(record_ids.len());
+    let mut receipts = Vec::with_capacity(record_ids.len());
+
+    for source_id in record_ids {
+        let record = graph
+            .records
+            .get(source_id)
+            .ok_or_else(|| anyhow!("prepared activation record is absent from source graph"))?;
+        if record.prepared.is_some() {
+            bail!("prepared activation record was already prepared");
+        }
+        let source_integrity = record.artifact.semantics.source_integrity.clone();
+        let source_receipt = graph
+            ._activation_receipts
+            .iter()
+            .find(|receipt| {
+                receipt.decision().kind == GraphOperationKind::SourceAcquisition
+                    && receipt.decision().resource.target == *source_id
+                    && receipt.decision().resource.source_integrity.as_ref()
+                        == Some(&source_integrity)
+            })
+            .ok_or_else(|| {
+                anyhow!("prepared activation record has no retained source-access receipt")
+            })?;
+        let entry_id = NonEmptyString::new(record.artifact.semantic_digest.as_str())
+            .map_err(anyhow::Error::msg)?;
+        let principal = prepared_record_principal(graph, source_id)?;
+        let verified = verify_record(record, &graph.producer_binary_digest)?;
+        let (expected_manifest, expected_payload) = PreparedModuleCarrierV2::from_inline_artifacts(
+            principal.clone(),
+            producer_id.clone(),
+            graph.producer_binary_digest.clone(),
+            expected_deployment_graph_digest.clone(),
+            [(entry_id.clone(), verified)],
+        )?;
+        let carrier_digest = expected_manifest.carrier_digest.clone();
+        let record_dir = prepared_activation_record_cache_dir(
+            cache_dir,
+            source_id,
+            &record.artifact.semantic_digest,
+        )?;
+        let expected_manifest_bytes = expected_manifest.encode_canonical()?;
+        let ((manifest_bytes, payload), receipt) = authorizer
+            .authorize_then_read_prepared_carrier(
+                source_receipt,
+                &source_integrity,
+                carrier_digest.clone(),
+                || {
+                    Ok((
+                        read_authenticated_prepared_file(
+                            &record_dir.join("manifest.json"),
+                            &expected_manifest_bytes,
+                            "activation carrier manifest",
+                        )?,
+                        read_authenticated_prepared_file(
+                            &record_dir.join("payload.js"),
+                            &expected_payload,
+                            "activation carrier payload",
+                        )?,
+                    ))
+                },
+            )?;
+        if manifest_bytes != expected_manifest_bytes || payload != expected_payload {
+            bail!("prepared activation carrier differs from authenticated source");
+        }
+        let authorized_semantic_digests = BTreeSet::from([record.artifact.semantic_digest.clone()]);
+        let prepared_artifact = expected_manifest.prepared_artifact(entry_id.as_str())?;
+        let admission = PreparedCarrierAdmissionV2 {
+            expected_principal: principal,
+            expected_producer_id: producer_id.clone(),
+            producer_binary_digest: graph.producer_binary_digest.clone(),
+            deployment_graph_digest: expected_deployment_graph_digest.clone(),
+            authorized_semantic_digests: authorized_semantic_digests.clone(),
+            expected_engine_binding: None,
+            expected_bytecode_version: None,
+        };
+        let carrier = Arc::new(AdmittedPreparedCarrierV2::decode_and_admit(
+            &manifest_bytes,
+            &payload,
+            &admission,
+        )?);
+        let artifact_admission = ArtifactAdmissionV1::DigestBoundPrepared {
+            expected_source_id: source_id.clone(),
+            expected_source_integrity: source_integrity,
+            expected_producer_id: producer_id.clone(),
+            producer_binary_digest: graph.producer_binary_digest.clone(),
+            deployment_graph_digest: expected_deployment_graph_digest.clone(),
+            expected_carrier_digest: carrier_digest,
+            expected_entry_id: entry_id.clone(),
+            authorized_semantic_digests,
+            transform_fingerprint_digest: record
+                .artifact
+                .semantics
+                .transform_fingerprint
+                .digest()?,
+        };
+        prepared_artifact.verify_for_admission(&artifact_admission)?;
+        carrier.entry(entry_id.as_str())?;
+        pending.push((
+            source_id.clone(),
+            prepared_artifact,
+            PreparedRecordV1 {
+                carrier,
+                entry_id,
+                admission: artifact_admission,
+            },
+        ));
+        receipts.push(receipt);
+    }
+
+    for (source_id, artifact, prepared) in pending {
+        let record = graph
+            .records
+            .get_mut(&source_id)
+            .expect("prepared activation record remained present");
+        record.artifact = artifact;
+        record.prepared = Some(prepared);
+    }
+    graph._prepared_access_receipts.extend(receipts);
+    Ok(())
 }
 
 /// Publish one immutable, per-principal JavaScript carrier set beside the
@@ -3049,6 +3357,9 @@ pub fn load_prepared_source_graph_v1(
         matched_candidate_declarations: authenticated_source_graph
             .matched_candidate_declarations
             .clone(),
+        prepared_activation_cache_locator: authenticated_source_graph
+            .prepared_activation_cache_locator
+            .clone(),
         _source_access_receipts: authenticated_source_graph._source_access_receipts.clone(),
         _prepared_access_receipts: prepared_access_receipts,
         _activation_receipts: authenticated_source_graph._activation_receipts.clone(),
@@ -3161,6 +3472,19 @@ pub fn artifact_edge_attributes(
 mod tests {
     use super::*;
     use capsec_semantics::model::PathComponent;
+
+    struct CountingPreparedActivationLocator {
+        probes: Arc<std::sync::atomic::AtomicUsize>,
+        candidates: Vec<PreparedActivationCacheCandidateV1>,
+    }
+
+    impl PreparedActivationCacheLocatorV1 for CountingPreparedActivationLocator {
+        fn locate(&self, _target: &SourceId) -> Result<Vec<PreparedActivationCacheCandidateV1>> {
+            self.probes
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(self.candidates.clone())
+        }
+    }
 
     #[cfg(unix)]
     fn armed_file_host(project_root: &Path) -> crate::host::Host {
@@ -3749,6 +4073,342 @@ mod tests {
         );
         assert_eq!(graph.records().count(), 2);
         assert_eq!(graph.activation_receipt_count(), 1);
+    }
+
+    #[test]
+    fn invocation_time_prepared_carrier_is_discovered_only_after_exact_reached_edge() {
+        let project = tempfile::tempdir().unwrap();
+        let producer_digest =
+            Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let host = armed_file_host(project.path());
+        let entry = project.path().join("entry.cjs");
+        std::fs::write(&entry, "exports.load = () => require('./target.cjs');\n").unwrap();
+        std::fs::write(
+            project.path().join("target.cjs"),
+            "module.exports = { value: 42 };\n",
+        )
+        .unwrap();
+        let entry = std::fs::canonicalize(entry).unwrap();
+        let deployment = digest_bytes("prepared-activation-test", b"deployment").unwrap();
+        let artifact_dir = project.path().join("bundle-artifact");
+        std::fs::create_dir(&artifact_dir).unwrap();
+
+        let mut publisher = match build_authenticated_source_graph_v1_for_host(
+            &host,
+            &entry,
+            producer_digest.clone(),
+            "hermes-test",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "prepared activation publisher required legacy execution: {}",
+                    requirement.reason
+                )
+            }
+        };
+        let publisher_entry = publisher.entry().clone();
+        let target_id = publisher
+            .activate_commonjs_require_target(&publisher_entry, "./target.cjs", 1)
+            .unwrap();
+        let activated = BTreeSet::from([target_id]);
+        let cache_dir = publish_prepared_activation_records_v1(
+            &publisher,
+            &activated,
+            &artifact_dir,
+            deployment.clone(),
+        )
+        .unwrap();
+        load_prepared_activation_records_v1(&mut publisher, &activated, &cache_dir, &deployment)
+            .unwrap();
+
+        let mut graph = match build_authenticated_source_graph_v1_for_host(
+            &host,
+            &entry,
+            producer_digest,
+            "hermes-test",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "prepared activation consumer required legacy execution: {}",
+                    requirement.reason
+                )
+            }
+        };
+        let probes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        graph.set_prepared_activation_cache_locator(Arc::new(CountingPreparedActivationLocator {
+            probes: probes.clone(),
+            candidates: vec![PreparedActivationCacheCandidateV1 {
+                cache_dir,
+                deployment_graph_digest: deployment,
+            }],
+        }));
+        assert_eq!(
+            probes.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "constructing the graph probed the prepared activation cache"
+        );
+        let requester = graph.entry().clone();
+        let error = graph
+            .activate_commonjs_require_target(&requester, "./not-declared.cjs", 1)
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("not an authenticated declaration"),
+            "{error:#}"
+        );
+        assert_eq!(
+            probes.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "a candidate spelling miss probed the prepared activation cache"
+        );
+
+        let target_id = graph
+            .activate_commonjs_require_target(&requester, "./target.cjs", 1)
+            .unwrap();
+        assert_eq!(
+            probes.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the reached exact edge did not invoke prepared discovery exactly once"
+        );
+        assert!(
+            graph
+                .available_prepared_entries()
+                .unwrap()
+                .contains_key(&target_id),
+            "the invocation-time carrier was not admitted for the reached target"
+        );
+        assert_eq!(graph.prepared_access_receipt_count(), 1);
+        let repeated = graph
+            .activate_commonjs_require_target(&requester, "./target.cjs", 1)
+            .unwrap();
+        assert_eq!(repeated, target_id);
+        assert_eq!(
+            probes.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "a repeated binding re-probed the prepared activation cache"
+        );
+        assert_eq!(graph.prepared_access_receipt_count(), 1);
+    }
+
+    #[test]
+    fn invocation_time_prepared_dynamic_import_uses_the_same_receipt_boundary() {
+        let project = tempfile::tempdir().unwrap();
+        let producer_digest =
+            Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let host = armed_file_host(project.path());
+        let entry = project.path().join("entry.mjs");
+        std::fs::write(
+            &entry,
+            "export const load = () => import('./target.mjs');\n",
+        )
+        .unwrap();
+        std::fs::write(
+            project.path().join("target.mjs"),
+            "export const value = 42;\n",
+        )
+        .unwrap();
+        let entry = std::fs::canonicalize(entry).unwrap();
+        let deployment = digest_bytes("prepared-dynamic-activation-test", b"deployment").unwrap();
+        let artifact_dir = project.path().join("bundle-artifact");
+        std::fs::create_dir(&artifact_dir).unwrap();
+
+        let mut publisher = match build_authenticated_source_graph_v1_for_host(
+            &host,
+            &entry,
+            producer_digest.clone(),
+            "hermes-test",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "prepared dynamic publisher required legacy execution: {}",
+                    requirement.reason
+                )
+            }
+        };
+        let publisher_request = DynamicModuleActivationRequest::for_test(
+            1,
+            publisher.entry().clone(),
+            DynamicModuleActivationKind::Literal,
+            "./target.mjs",
+        );
+        let target_id = publisher
+            .activate_dynamic_target(&publisher_request)
+            .unwrap();
+        let activated = BTreeSet::from([target_id]);
+        let cache_dir = publish_prepared_activation_records_v1(
+            &publisher,
+            &activated,
+            &artifact_dir,
+            deployment.clone(),
+        )
+        .unwrap();
+
+        let mut graph = match build_authenticated_source_graph_v1_for_host(
+            &host,
+            &entry,
+            producer_digest,
+            "hermes-test",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "prepared dynamic consumer required legacy execution: {}",
+                    requirement.reason
+                )
+            }
+        };
+        let probes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        graph.set_prepared_activation_cache_locator(Arc::new(CountingPreparedActivationLocator {
+            probes: probes.clone(),
+            candidates: vec![PreparedActivationCacheCandidateV1 {
+                cache_dir,
+                deployment_graph_digest: deployment,
+            }],
+        }));
+        let absent = DynamicModuleActivationRequest::for_test(
+            1,
+            graph.entry().clone(),
+            DynamicModuleActivationKind::Literal,
+            "./not-declared.mjs",
+        );
+        graph.activate_dynamic_target(&absent).unwrap_err();
+        assert_eq!(probes.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+        let request = DynamicModuleActivationRequest::for_test(
+            1,
+            graph.entry().clone(),
+            DynamicModuleActivationKind::Literal,
+            "./target.mjs",
+        );
+        let target_id = graph.activate_dynamic_target(&request).unwrap();
+        assert_eq!(probes.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(graph
+            .available_prepared_entries()
+            .unwrap()
+            .contains_key(&target_id));
+        assert_eq!(graph.prepared_access_receipt_count(), 1);
+    }
+
+    #[test]
+    fn invalid_invocation_time_prepared_closure_falls_back_atomically_to_inline() {
+        let project = tempfile::tempdir().unwrap();
+        let producer_digest =
+            Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let host = armed_file_host(project.path());
+        let entry = project.path().join("entry.cjs");
+        std::fs::write(&entry, "exports.load = () => require('./target.mjs');\n").unwrap();
+        std::fs::write(
+            project.path().join("target.mjs"),
+            "import { value } from './dependency.mjs'; export { value };\n",
+        )
+        .unwrap();
+        std::fs::write(
+            project.path().join("dependency.mjs"),
+            "export const value = 42;\n",
+        )
+        .unwrap();
+        let entry = std::fs::canonicalize(entry).unwrap();
+        let deployment = digest_bytes("prepared-activation-failure-test", b"deployment").unwrap();
+        let artifact_dir = project.path().join("bundle-artifact");
+        std::fs::create_dir(&artifact_dir).unwrap();
+
+        let mut publisher = match build_authenticated_source_graph_v1_for_host(
+            &host,
+            &entry,
+            producer_digest.clone(),
+            "hermes-test",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "prepared failure publisher required legacy execution: {}",
+                    requirement.reason
+                )
+            }
+        };
+        let initial_ids = publisher.records.keys().cloned().collect::<BTreeSet<_>>();
+        let publisher_entry = publisher.entry().clone();
+        publisher
+            .activate_commonjs_require_target(&publisher_entry, "./target.mjs", 1)
+            .unwrap();
+        let activated = publisher
+            .records
+            .keys()
+            .filter(|source_id| !initial_ids.contains(*source_id))
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        assert_eq!(activated.len(), 2);
+        let cache_dir = publish_prepared_activation_records_v1(
+            &publisher,
+            &activated,
+            &artifact_dir,
+            deployment.clone(),
+        )
+        .unwrap();
+        let tampered_id = activated.iter().next_back().unwrap();
+        let tampered_record = publisher.records.get(tampered_id).unwrap();
+        let tampered_dir = prepared_activation_record_cache_dir(
+            &cache_dir,
+            tampered_id,
+            &tampered_record.artifact.semantic_digest,
+        )
+        .unwrap();
+        std::fs::write(tampered_dir.join("payload.js"), b"tampered").unwrap();
+
+        let mut graph = match build_authenticated_source_graph_v1_for_host(
+            &host,
+            &entry,
+            producer_digest,
+            "hermes-test",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "prepared failure consumer required legacy execution: {}",
+                    requirement.reason
+                )
+            }
+        };
+        let probes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        graph.set_prepared_activation_cache_locator(Arc::new(CountingPreparedActivationLocator {
+            probes: probes.clone(),
+            candidates: vec![PreparedActivationCacheCandidateV1 {
+                cache_dir,
+                deployment_graph_digest: deployment,
+            }],
+        }));
+        let requester = graph.entry().clone();
+        let target_id = graph
+            .activate_commonjs_require_target(&requester, "./target.mjs", 1)
+            .unwrap();
+        assert_eq!(probes.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(graph.plan().unwrap().contains_record(&target_id));
+        assert_eq!(graph.records().count(), 3);
+        assert!(
+            graph.available_prepared_entries().unwrap().is_empty(),
+            "one valid member of a failed prepared closure was partially adopted"
+        );
+        assert_eq!(
+            graph.prepared_access_receipt_count(),
+            0,
+            "failed prepared closure receipts escaped atomic admission"
+        );
     }
 
     #[test]

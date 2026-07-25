@@ -1,6 +1,6 @@
 # Native invocation-time module activation
 
-**Status:** Open
+**Status:** Resolved
 **Severity:** P1
 **Systems:** Module Loader, Engine, Runtime, CapSec
 **Author:** Codex, directed by Charlie Cheever
@@ -18,10 +18,9 @@ must resolve, read, transform, compile, and link dynamic targets eagerly.
 Normal module-runner FFI also rejects reentrant runtime drives, so a Hermes host
 callback cannot safely call the existing outer-drive APIs.
 
-Authenticated source graphs now implement asynchronous `import()` and literal
-synchronous CommonJS `require()` without eager target discovery. The issue
-remains open for invocation-time prepared-carrier lookup and the remaining
-prepared-source/failure matrix.
+Authenticated source graphs now implement asynchronous `import()`, literal
+synchronous CommonJS `require()`, and invocation-time prepared-carrier
+selection without eager target or activation-cache discovery.
 
 ## Required design
 
@@ -142,10 +141,33 @@ production execution:
   while the native runtime is live and serialized. The provider unit test also
   proves that dropping a token removes its native generation entry by
   reinstalling the same generation before unpinning it.
+- Invocation-time prepared records have no cache index. Each newly
+  receipt-acquired `(SourceId, semantic digest)` derives a deterministic
+  one-record carrier path beneath a selected deployment cache. An opaque
+  runtime locator is invoked only after the exact reached edge has authorized
+  and acquired its source closure.
+- Every prepared member derives `PreparedCarrierRead` from its own retained
+  source-acquisition receipt. A closure is changed from inline to prepared only
+  after every member validates; a miss, wrong receipt, or malformed member
+  leaves the complete closure inline.
+- Literal ESM import and authored CommonJS require fixtures prove candidate
+  misses make no locator probe, exact hits retain carrier receipts, and
+  repeated bindings do not re-probe. A two-record closure with one tampered
+  carrier proves atomic inline fallback.
+- Authenticated production execution now starts from a prepared CommonJS entry,
+  discovers the exact target cache only at its reached `require()`, publishes
+  the prepared target into the live native generation, and evaluates it once.
 
-Still open are invocation-time prepared-carrier discovery and its prepared
-hit/miss/denial/failure matrix. The source-path failure, cycle, denial, retry,
-teardown, and prepared-initial cases are now pinned.
+The source and prepared paths now cover the required denial/no-probe,
+failure/rollback, cycle, teardown, TLA, repeated/concurrent, requester/site,
+and reentrancy boundaries.
+
+## Resolution
+
+Resolved on 2026-07-25. The complete secure-mode gate passed with 642 library
+tests, 3 intentional ignores, and all behavioral enforcement probes reporting
+the expected protected outcome. Generated-artifact, CapSec registry, and LLP
+reference checks are recorded in the parent completion ticket.
 
 ## Done when
 

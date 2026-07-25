@@ -738,7 +738,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "closed-ingress-types",
       "pub(crate) struct ReplSessionIngress {",
       "impl AuthenticatedFileIngress {",
-      "sha256-eIcEuViyjAfgr3RbNXpQpW_ppLVjcRcHgTi60VBluPo",
+      "sha256-HHcVXVMkehf_gRGI8S8XgqR57Y5155xZJV_WsA70A7M",
     ),
     freezeReviewedRange(
       "runtime-ingress-constructors",
@@ -750,7 +750,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-file-ingress",
       "impl AuthenticatedFileIngress {",
       "fn expected_identity_from_snapshot(",
-      "sha256-nflRsMveZ12tgSfMJgHwYjGwBLJy-BRGx9kR48icLnA",
+      "sha256-FRoDfs_tGPgQoij3mjsGgYiUELTZrI1lwyt-sD1mBGE",
     ),
     freezeReviewedRange(
       "runtime-file-execution",

@@ -502,6 +502,38 @@ ticket closes.
   Invocation-time prepared-carrier discovery is now the remaining activation
   mechanism rather than an unbounded source-path state-machine gap.
 
+### 2026-07-25 — completed invocation-time prepared activation
+
+- Added an index-free prepared form for call-time activation. Each newly
+  authenticated record derives its immutable carrier path directly from the
+  exact `SourceId` and semantic digest beneath the selected deployment cache;
+  there is no activation index to inspect early.
+- The source graph retains an opaque cache-locator capability, but invokes it
+  only after an exact reached edge has authorized and receipt-acquired its
+  target closure. Undeclared ESM and CommonJS spellings return before resolver,
+  filesystem, locator, or carrier access.
+- Each carrier read derives `PreparedCarrierRead` from the matching record's
+  retained source-acquisition receipt. The graph stages every member before
+  changing any record to prepared, so cache absence, denial, stale identity, or
+  malformed bytes leave the entire reached closure inline.
+- Focused library fixtures cover literal ESM import, authored CommonJS require,
+  zero-probe spelling misses, exact hits, retained receipts, repeated-binding
+  no-reprobe, and atomic fallback for a two-record closure with one tampered
+  carrier.
+- The authenticated production fixture now begins with a prepared CommonJS
+  entry, reaches its deferred `require()`, discovers the deployment cache once,
+  publishes the prepared target into the live generation, and evaluates it
+  successfully.
+- The complete secure-mode gate passes: 642 library tests pass, 3 hosted or
+  diagnostic tests remain intentionally ignored, and project read,
+  outside-read/write, spawn, and environment-sentinel probes all report the
+  expected enforced result.
+- Current estimate: **64% complete for the full LLP 0021 completion contract;
+  roughly 92% complete for the security-critical runtime mechanism set.**
+  Invocation-time module activation is no longer an open mechanism slice; the
+  remaining work is the secure/generated gate, issue closure, and the broader
+  LLP 0021 exact-target, bootstrap-floor, and residual-evidence audit.
+
 ## Current hard parts
 
 - Exact-target completion is deliberately all-or-nothing. Existing evidence
@@ -522,11 +554,11 @@ ticket closes.
   identity, so it cannot honestly produce that evidence.
 - `malformed-branch-facts` has no owning-language proof and remains residual.
 - Authored `import()` and literal CommonJS `require()` now have receipt-gated
-  reached-site source activation and atomic live-graph publication. The hard
-  remaining activation work is invocation-time prepared-carrier discovery and
-  the complete source/prepared denial, cycle, teardown, and interop matrix,
-  tracked in
-  `issues/20260724-native-call-time-module-activation.md`.
+  reached-site source/prepared activation and atomic live-graph publication.
+  The completed activation matrix is tracked in
+  `issues/closed/20260724-native-call-time-module-activation.md`; the next risk is
+  integration drift across the full secure/generated gate rather than a known
+  activation state-machine gap.
 - The root/bootstrap mechanism seals correctly, but both builders still emit an
   empty `bootstrapAuthorityFloor`. Current bootstrap host inputs are
   authenticated projections consumed under the transparent runtime principal,
@@ -537,8 +569,7 @@ ticket closes.
 
 ## Next milestone
 
-Implement invocation-time prepared activation without reading an index or
-carrier before the exact reached edge, then pin its hit/miss/denial/failure
-matrix against the now-complete source path. Bootstrap-floor authorship and
-`malformed-branch-facts` remain named gaps rather than unsafe local
-substitutions.
+Finish the generated-artifact and LLP gates, reconcile any concurrent `main`
+movement, and resume the LLP 0021 completion-criteria audit. Bootstrap-floor
+authorship and `malformed-branch-facts` remain named gaps rather than unsafe
+local substitutions.
