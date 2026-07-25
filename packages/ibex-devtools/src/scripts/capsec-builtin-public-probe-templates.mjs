@@ -649,6 +649,60 @@ const NODE_NET_CALL_SPECS = Object.freeze({
   isIPv6: rootCall([jsonArgument("::1")], "boolean"),
 });
 
+const NODE_FS_CALL_SPECS = Object.freeze({
+  _toUnixTimestamp: rootCall([jsonArgument(1)], "number"),
+  Stats: constructTarget([
+    jsonArgument({ is_file: true }),
+    jsonArgument(false),
+  ]),
+  Dirent: constructTarget([
+    jsonArgument("entry.txt"),
+    jsonArgument(1),
+  ]),
+  "Dirent.isBlockDevice": constructedOwner(
+    "Dirent",
+    [],
+    "boolean",
+    [jsonArgument("entry.txt"), jsonArgument(1)],
+  ),
+  "Dirent.isCharacterDevice": constructedOwner(
+    "Dirent",
+    [],
+    "boolean",
+    [jsonArgument("entry.txt"), jsonArgument(1)],
+  ),
+  "Dirent.isDirectory": constructedOwner(
+    "Dirent",
+    [],
+    "boolean",
+    [jsonArgument("entry.txt"), jsonArgument(1)],
+  ),
+  "Dirent.isFIFO": constructedOwner(
+    "Dirent",
+    [],
+    "boolean",
+    [jsonArgument("entry.txt"), jsonArgument(1)],
+  ),
+  "Dirent.isFile": constructedOwner(
+    "Dirent",
+    [],
+    "boolean",
+    [jsonArgument("entry.txt"), jsonArgument(1)],
+  ),
+  "Dirent.isSocket": constructedOwner(
+    "Dirent",
+    [],
+    "boolean",
+    [jsonArgument("entry.txt"), jsonArgument(1)],
+  ),
+  "Dirent.isSymbolicLink": constructedOwner(
+    "Dirent",
+    [],
+    "boolean",
+    [jsonArgument("entry.txt"), jsonArgument(1)],
+  ),
+});
+
 // These tables are deliberately keyed by the scanner's sourceKey and exact
 // exportName. They are an allowlist derived from the corresponding builtin
 // source, not a generic "call every function" mechanism.
@@ -662,6 +716,7 @@ const ROOT_CALL_SPECS = Object.freeze({
   node_http2: Object.freeze({
     getDefaultSettings: rootCall([], "object"),
   }),
+  node_fs: NODE_FS_CALL_SPECS,
   node_stream_web: Object.freeze({
     isReadableStream: rootCall([jsonArgument({})], "boolean"),
     isWritableStream: rootCall([jsonArgument({})], "boolean"),
@@ -1516,6 +1571,7 @@ const CALL_TEMPLATE_IDS = Object.freeze({
   node_dns: "node-dns-pure-v1",
   node_http2: "node-http2-pure-v1",
   node_events: "node-events-bounded-v1",
+  node_fs: "node-fs-pure-v1",
   node_module: "node-module-pure-v1",
   node_net: "node-net-bounded-v1",
   node_perf_hooks: "node-perf-hooks-bounded-v1",

@@ -736,6 +736,7 @@ fn expected_template_id(source_key: &str) -> Option<&'static str> {
         "node_assert" => Some("node-assert-bounded-v1"),
         "node_buffer" => Some("node-buffer-bounded-v1"),
         "node_dns" => Some("node-dns-pure-v1"),
+        "node_fs" => Some("node-fs-pure-v1"),
         "node_http2" => Some("node-http2-pure-v1"),
         "node_events" => Some("node-events-bounded-v1"),
         "node_module" => Some("node-module-pure-v1"),

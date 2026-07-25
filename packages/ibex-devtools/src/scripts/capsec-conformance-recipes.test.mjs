@@ -341,12 +341,12 @@ describe("exact-target CapSec executable recipes", () => {
     // production graph deliberately uses deferred call-time links. The net-new
     // WebGPU obligations remain unresolved until their public-surface probes
     // are authored.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_606);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_616);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_114);
-    expect(recipes.summary.unresolvedFixtures).toBe(18_320);
+    expect(recipes.summary.unresolvedFixtures).toBe(18_310);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -445,11 +445,11 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(23_925);
-    // Windows keeps 2,230: its node_fs enforcement route is ambiguous, so the
-    // fs:read readFileSync probe (LLP 0037) is authored on Apple only.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_230);
+    // Windows gains the same ten zero-decision node_fs constructor/pure-helper
+    // proofs, while its effectful filesystem route remains ambiguous.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_240);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_102);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_593);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_583);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -3613,6 +3613,7 @@ describe("exact-target CapSec executable recipes", () => {
         "node_buffer",
         "node_dns",
         "node_events",
+        "node_fs",
         "node_http2",
         "node_module",
         "node_net",
@@ -3632,7 +3633,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     expect(
       Object.fromEntries(
-        ["exact_crypto", "node_module", "node_net", "node_v8"].map(
+        ["exact_crypto", "node_fs", "node_module", "node_net", "node_v8"].map(
           (sourceKey) => [
             sourceKey,
             publicCalls.filter(
@@ -3645,6 +3646,7 @@ describe("exact-target CapSec executable recipes", () => {
       ),
     ).toEqual({
       exact_crypto: 97,
+      node_fs: 10,
       node_module: 3,
       node_net: 22,
       node_v8: 1,

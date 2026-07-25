@@ -963,6 +963,32 @@ ticket closes.
   reviewed helper edges explicitly, rather than discarding their decisions or
   pretending the realpath terminal ran on denial.
 
+### 2026-07-25 — pure `node:fs` value tranche
+
+- Added bounded, source-keyed zero-decision calls for ten non-capability
+  `node:fs` surfaces: `Stats`, `Dirent`, all seven `Dirent.is*` predicates, and
+  `_toUnixTimestamp`. Constructors receive fixed in-memory values; predicate
+  receivers are freshly constructed `Dirent` instances; no filesystem handle
+  or path enters the invocation.
+- Fresh exact-target catalogs move ten rows on each target: Apple is now
+  24,040 required / 2,616 fully executable / 3,114 internally verified /
+  18,310 unresolved, and Windows is 23,925 / 2,240 / 3,102 / 18,583.
+  Criterion 7's Apple denominator is 5,730/24,040 (23.8%) proven.
+- The complete non-capability builtin Hermes batch executes all 1,148 export
+  recipes and passes; the independent promotion aggregate accepts each of the
+  ten new engine observations as a source-bound normal return with zero typed
+  decisions.
+- The combined template/recipe/promotion-evidence suite passes 149 tests with
+  112,444 assertions. Regenerating the runtime-environment inventory changed
+  only the two source offsets moved by the Rust template allowlist; complete
+  generated drift, `./ref-check`, `cargo fmt --check`, and `git diff --check`
+  pass.
+- Hard part: similarly named object predicates cannot be bulk-classified.
+  `Dirent.is*` is generated as non-capability and can be proven on an in-memory
+  receiver, while `Stats.is*` still inherits an effect classification in the
+  current source graph and remains residual. This tranche promotes only the ten
+  obligations whose generated classification and real execution agree.
+
 ## Next milestone
 
 Attack criterion 7's exact-target evidence gap through real public-surface

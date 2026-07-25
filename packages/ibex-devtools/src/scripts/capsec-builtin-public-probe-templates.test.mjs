@@ -417,6 +417,65 @@ describe("source-bound builtin public probes", () => {
     });
   });
 
+  test("constructs zero-effect node:fs values and their pure predicates", () => {
+    expect(
+      probeFor({
+        sourceKey: "node_fs",
+        exportName: "_toUnixTimestamp",
+        moduleSpecifiers: ["fs", "node:fs"],
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        templateId: "node-fs-pure-v1",
+        arguments: [{ kind: "json", value: 1 }],
+        setup: { kind: "root-call" },
+        bodyEntryProof: { resultType: "number" },
+      },
+    });
+    expect(
+      probeFor({
+        sourceKey: "node_fs",
+        exportName: "Stats",
+        moduleSpecifiers: ["fs", "node:fs"],
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        templateId: "node-fs-pure-v1",
+        arguments: [
+          { kind: "json", value: { is_file: true } },
+          { kind: "json", value: false },
+        ],
+        setup: { kind: "construct-target" },
+        bodyEntryProof: { resultType: "object" },
+      },
+    });
+    expect(
+      probeFor({
+        sourceKey: "node_fs",
+        exportName: "Dirent.isFile",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["fs", "node:fs"],
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        templateId: "node-fs-pure-v1",
+        arguments: [],
+        setup: {
+          kind: "constructed-owner",
+          ownerExportName: "Dirent",
+          constructorArguments: [
+            { kind: "json", value: "entry.txt" },
+            { kind: "json", value: 1 },
+          ],
+        },
+        bodyEntryProof: { resultType: "boolean" },
+      },
+    });
+  });
+
   test("exports expectation-free output invocations from the same authored recipes", () => {
     const invocation = authoredNonCapabilityBuiltinOutputInvocation({
       target: "aarch64-apple-darwin",
