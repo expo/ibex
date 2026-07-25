@@ -3675,6 +3675,22 @@ export function validatePublicFixtureRuntimeObservation(
   const nonCapabilityBuiltinModuleImport =
     authored.invocationSchema ===
     "ibex/capsec-builtin-module-import-no-effect-invocation/1";
+  // The aggregate independently repeats the producer's narrow D2 allowance:
+  // only these reviewed open-then-act exports may observe fs:list in addition
+  // to their declared semantic operation.
+  // @ref LLP 0037#d2--declared-vs-incidental-capabilities-in-the-coverage-edge
+  const builtinOpenThenActAction = new Map([
+    ["readFileSync", "fs:read"],
+    ["writeFileSync", "fs:write"],
+  ]).get(authored.exportName);
+  const builtinOpenThenAct =
+    authored.invocationSchema ===
+      "ibex/capsec-builtin-export-invocation/1" &&
+    authored.kind === "builtin-export-call" &&
+    authored.moduleSpecifier === "node:fs" &&
+    typeof builtinOpenThenActAction === "string" &&
+    canonicalJson(authored.expectedActionIds) ===
+      canonicalJson([builtinOpenThenActAction]);
   const outcomeDeclaredCarrier = callbackInvariant || startupEnvironment;
   const auxiliaryCarrier =
     outcomeDeclaredCarrier ||
@@ -3890,10 +3906,58 @@ export function validatePublicFixtureRuntimeObservation(
       authored.invocationSchema ===
         "ibex/capsec-builtin-module-import-invocation/1" &&
       recipe.scenario === "deny";
+    const decisionActions = canonicalSet(
+      set.effects.map((effect) => effect.cap),
+    );
+    const openTraversalDecision =
+      builtinOpenThenAct &&
+      canonicalJson(decisionActions) === canonicalJson(["fs:list"]);
+    if (
+      builtinOpenThenAct &&
+      decisionActions.includes("fs:list") &&
+      !openTraversalDecision
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: incidental fs:list was mixed into an operation decision`,
+      );
+    }
+    if (openTraversalDecision) {
+      // Surplus fs:list is accepted only when the decision itself proves an
+      // ambient path-opening traversal. A directory-listing operation cannot
+      // borrow this exception by carrying the same capability name.
+      const actor = set.context.actor;
+      const decisiveEvidence = decision.evidence?.evidence;
+      const decisiveEntry = decisiveEvidence?.[0];
+      if (
+        !new Set(["requested", "discovery", "repeat"]).has(
+          set.context.stage,
+        ) ||
+        typeof set.operationId !== "string" ||
+        !set.operationId.startsWith("fs-open:") ||
+        !set.effects.every(
+          (effect) =>
+            effect.resource?.kind === "path-occurrence" &&
+            canonicalJson(effect.effectOwner) === canonicalJson(actor),
+        ) ||
+        !Array.isArray(decisiveEvidence) ||
+        decisiveEvidence.length !== 1 ||
+        decisiveEntry?.effectIndex !== 0 ||
+        canonicalJson(decisiveEntry?.principal) !== canonicalJson(actor) ||
+        decisiveEntry?.stratum !== "ambient-root" ||
+        decisiveEntry?.reason !== "ambient-root" ||
+        decisiveEntry?.sourceId !== null
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: incidental fs:list decision is not an ambient open traversal`,
+        );
+      }
+    }
+    const deniedByExpectedResult =
+      authored.expectedResult === "permission-denied" &&
+      !openTraversalDecision;
     const expectedOutcome = outcomeDeclaredCarrier
       ? authored.expectedTypedOutcomes[decisionIndex]
-      : authored.expectedResult === "permission-denied" ||
-          deniedReturningModuleImport
+      : deniedByExpectedResult || deniedReturningModuleImport
         ? "deny"
         : "allow";
     if (decision.evidence?.outcome !== expectedOutcome) {
@@ -4144,16 +4208,20 @@ export function validatePublicFixtureRuntimeObservation(
       );
     }
   }
+  const expectedActions =
+    authored.expectedResult === "absent" ? [] : authored.expectedActionIds;
+  const observedActions = [...actions].sort(compareText);
+  const observedActionSet = new Set(observedActions);
+  const actionSetMatches = builtinOpenThenAct
+    ? expectedActions.every((action) => observedActionSet.has(action)) &&
+      observedActions.every(
+        (action) => expectedActions.includes(action) || action === "fs:list",
+      )
+    : canonicalJson(observedActions) ===
+      canonicalJson([...expectedActions].sort(compareText));
   if (
     canonicalJson(stages) !== canonicalJson(authored.expectedTypedStages) ||
-    canonicalJson([...actions].sort(compareText)) !==
-      canonicalJson(
-        [
-          ...(authored.expectedResult === "absent"
-            ? []
-            : authored.expectedActionIds),
-        ].sort(compareText),
-      ) ||
+    !actionSetMatches ||
     (observation.typedDecisions.length > 0 && edgeIds.size === 0)
   ) {
     throw new Error(

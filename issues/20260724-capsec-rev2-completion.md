@@ -727,6 +727,15 @@ ticket closes.
   on arm64 and 369.5 minutes on Windows). The plan/supervisor regression suite
   passes 19 tests, and full generated drift plus LLP reference validation
   remain clean.
+- With timeout policy v2, all eight public commands completed and the repaired
+  callback batch passed in the full runner. Aggregate validation then exposed
+  an older JavaScript exact-action-set check on `readFileSync`: the Rust
+  producer already enforced LLP 0037 D2's accepted rule that declared
+  `fs:read`/`fs:write` actions must be observed while the only permitted
+  surplus is a proven ambient `fs:list` open traversal. The aggregate now
+  mirrors that narrow rule, including D4's mixed allow-traversal/deny-operation
+  outcome. All 2,596 retained fully executable arm64 observations revalidate,
+  and the focused public-evidence suite passes 44 tests with 252 assertions.
 
 ## Next milestone
 

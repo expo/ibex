@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import path from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   assertPublicSurfaceExecutionComplete,
@@ -14,13 +15,31 @@ import {
   computeRecipeCatalogDigest,
   assertRecipeCatalogComplete,
 } from "./capsec-conformance-recipes.mjs";
-import { canonicalJson } from "./capsec-contract.mjs";
+import {
+  canonicalJson,
+  capsecRoot,
+  readJsonStrict,
+} from "./capsec-contract.mjs";
 
 const taggedDigest = (value) =>
   `sha256-${crypto
     .createHash("sha256")
     .update(canonicalJson(value), "utf8")
     .digest("base64url")}`;
+const registryBundle = readJsonStrict(
+  path.join(capsecRoot, "examples/registry-digest-bundle.canonical.json"),
+);
+const digestVectors = readJsonStrict(
+  path.join(capsecRoot, "examples/digest-vectors.canonical.json"),
+);
+const semanticRegistryIdentity = {
+  vocabDigest: registryBundle.members.find(
+    (member) => member.logicalName === "vocab-digest",
+  ).document.digest,
+  registryDigest: digestVectors.vectors.find(
+    (vector) => vector.id === "registry",
+  ).expectedDigest,
+};
 const builtinCacheSourceId = (sourceKey) =>
   `ibex-source-id-v1:${Buffer.from(
     canonicalJson({
@@ -318,6 +337,130 @@ function runtimeObservation(recipe) {
   };
 }
 
+function openThenActFixture(scenario = "allow") {
+  const catalog = completeCatalog();
+  const recipe = catalog.recipes[0];
+  const denial = scenario === "deny";
+  recipe.fixtureId = `fixture.public.read-file-sync.${scenario}`;
+  recipe.scenario = scenario;
+  recipe.actionIds = ["fs:read"];
+  recipe.terminalObservedKey = "builtin:export:node_fs:readFileSync";
+  recipe.route = {
+    surfaceObservedKeys: [recipe.terminalObservedKey],
+    alternatives: [
+      {
+        terminalObservedKey: "native-op:__exactFsOpen",
+        proofPaths: ["export:readFileSync -> __exactFsOpen"],
+      },
+    ],
+    ambiguousCallees: [],
+  };
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  invocation.moduleSpecifier = "node:fs";
+  invocation.exportName = "readFileSync";
+  invocation.sourceDescriptor = {
+    kind: "builtin-export",
+    sourceKey: "node_fs",
+    exportName: "readFileSync",
+    moduleSpecifiers: ["node:fs"],
+    sourceRef: "src/builtins/fs.js#exports:readFileSync",
+  };
+  invocation.sourceDescriptorDigest = taggedDigest(invocation.sourceDescriptor);
+  invocation.expectedResult = denial ? "permission-denied" : "return";
+  invocation.expectedTypedStages = ["requested", "commit"];
+  invocation.expectedTypedDecisionCount = 2;
+  invocation.allowedCoverageEdgeIds = ["edge.fsopen-worker"];
+  invocation.expectedActionIds = ["fs:read"];
+  catalog.summary.byScenario = { [scenario]: 1 };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+
+  const actor = { kind: "root", identity: "project-root" };
+  const decision = ({ stage, action, outcome, traversal }) => ({
+    decisionSet: {
+      decisionSetSchema: "ibex/capsec-decision-set/1",
+      operationId: "fs-open:0:fixture",
+      atomicityGroup: "edge.fsopen-worker.decision",
+      combination: "conjunction",
+      context: {
+        stage,
+        actor,
+        constrainedPrincipals: [actor],
+        presentedHandleIds: [],
+      },
+      effects: [
+        {
+          cap: action,
+          effectOwner: actor,
+          resource: traversal
+            ? {
+                kind: "path-occurrence",
+                requested: {
+                  root: "project",
+                  components: [{ encoding: "utf8", value: "fixture.txt" }],
+                },
+                followMode: "follow-final",
+                objectState: "unknown",
+              }
+            : {
+                kind: "path-occurrence",
+                requested: {
+                  root: "project",
+                  components: [{ encoding: "utf8", value: "fixture.txt" }],
+                },
+                followMode: "follow-final",
+                objectState: "existing",
+              },
+        },
+      ],
+    },
+    gates: [
+      {
+        coverageEdgeId: "edge.fsopen-worker",
+        targetCell: "complete",
+        definitionAndEdgePredicatesSatisfied: true,
+      },
+    ],
+    evidence: {
+      outcome,
+      evidence: traversal
+        ? [
+            {
+              effectIndex: 0,
+              principal: actor,
+              stratum: "ambient-root",
+              reason: "ambient-root",
+              sourceId: null,
+            },
+          ]
+        : [],
+    },
+  });
+  const observation = runtimeObservation(recipe);
+  observation.invocation.result = denial
+    ? {
+        kind: "throw",
+        errorName: "Error",
+        errorMessage: "Permission denied",
+      }
+    : { kind: "return", valueType: "object" };
+  observation.typedDecisions = [
+    decision({
+      stage: "requested",
+      action: "fs:list",
+      outcome: "allow",
+      traversal: true,
+    }),
+    decision({
+      stage: "commit",
+      action: "fs:read",
+      outcome: denial ? "deny" : "allow",
+      traversal: false,
+    }),
+  ];
+  return { catalog, recipe, observation };
+}
+
 function effectBuiltinModuleImportRecipe(
   scenario = "allow",
   moduleSpecifier = "node:util",
@@ -433,8 +576,7 @@ function effectBuiltinModuleImportObservation(recipe) {
   const decisionIdentity = {
     profile: "ibex/capsec/1",
     semanticCore: "capsec/semantics/1",
-    vocabDigest: "sha256-qKBYd07iqVIW7uVZDctu4UulGauP0yJq3nAFMRph4lk",
-    registryDigest: "sha256-uCWFc569qnDYw2eZ1EVQ85j0ykyumzi6NLV1BRiNRNI",
+    ...semanticRegistryIdentity,
     policyDigest: `sha256-${"P".repeat(43)}`,
     armedSnapshotDigest: `sha256-${"S".repeat(43)}`,
   };
@@ -2634,6 +2776,65 @@ describe("CapSec public-surface promotion evidence", () => {
         expectedFixtureIds: ["fixture.public.allow"],
       }),
     ).not.toThrow();
+  });
+
+  test("accepts only ambient fs:list traversal surplus for open-then-act builtins", () => {
+    for (const scenario of ["allow", "deny"]) {
+      const { recipe, observation } = openThenActFixture(scenario);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observation,
+          coverage,
+        }),
+      ).not.toThrow();
+    }
+
+    const wrongCapability = openThenActFixture();
+    wrongCapability.observation.typedDecisions[0].decisionSet.effects[0].cap =
+      "network:connect";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongCapability.recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongCapability.observation,
+        coverage,
+      }),
+    ).toThrow(/typed stages, actions, or gates drifted/);
+
+    const mixedTraversal = openThenActFixture();
+    mixedTraversal.observation.typedDecisions[1].decisionSet.effects.push(
+      structuredClone(
+        mixedTraversal.observation.typedDecisions[0].decisionSet.effects[0],
+      ),
+    );
+    mixedTraversal.observation.typedDecisions[1].gates.push(
+      structuredClone(mixedTraversal.observation.typedDecisions[1].gates[0]),
+    );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: mixedTraversal.recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: mixedTraversal.observation,
+        coverage,
+      }),
+    ).toThrow(/mixed into an operation decision/);
+
+    const wrongTraversal = openThenActFixture();
+    wrongTraversal.observation.typedDecisions[0].decisionSet.effects[0].resource =
+      {
+        kind: "system-info-occurrence",
+        requested: { kind: "system-info", name: "platform" },
+      };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongTraversal.recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongTraversal.observation,
+        coverage,
+      }),
+    ).toThrow(/not an ambient open traversal/);
   });
 
   test("accepts only source-bound fresh-engine effect builtin imports", () => {

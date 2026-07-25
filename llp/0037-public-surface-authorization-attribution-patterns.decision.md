@@ -5,6 +5,7 @@
 **Systems:** Security, Runtime, Devtools, Verification
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-23
+**Revised:** 2026-07-25 (aligns the promotion aggregate with the accepted D1/D2/D4 open-then-act rule: declared read/write actions must be observed, and the only permitted surplus is an ambient, path-occurrence-bound `fs:list` open traversal; the Rust producer and JavaScript aggregate now enforce the same invariant)
 **Revised:** 2026-07-23 (author accepted the recommended rulings on D1/D2/D3)
 **Related:** LLP 0021 (capsec registry / WP10 target proof); LLP 0023 (virtual filesystem namespace / staged authorization identity); LLP 0036 (target advertisement completion plan); ENG-24933; ENG-24578
 
