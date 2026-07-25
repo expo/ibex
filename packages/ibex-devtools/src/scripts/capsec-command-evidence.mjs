@@ -70,7 +70,9 @@ function assertOwnedRegularPath(filePath, opened) {
     current.dev !== opened.dev ||
     current.ino !== opened.ino
   ) {
-    throw new Error(`${filePath}: command log identity changed during execution`);
+    throw new Error(
+      `${filePath}: command log identity changed during execution`,
+    );
   }
 }
 
@@ -171,12 +173,16 @@ function declaredOutputRecord(filePath) {
     metadata.nlink !== 1 ||
     !ownedByCurrentUser(metadata)
   ) {
-    throw new Error(`${filePath}: declared output is not an owned regular file`);
+    throw new Error(
+      `${filePath}: declared output is not an owned regular file`,
+    );
   }
   const bytes = fs.readFileSync(filePath);
   const current = fs.lstatSync(filePath);
   if (current.dev !== metadata.dev || current.ino !== metadata.ino) {
-    throw new Error(`${filePath}: declared output identity changed while reading`);
+    throw new Error(
+      `${filePath}: declared output identity changed while reading`,
+    );
   }
   return {
     path: filePath,
@@ -204,11 +210,10 @@ function processGroupExists(processGroupId) {
 }
 
 function listPosixProcesses() {
-  const result = spawnSync(
-    "ps",
-    ["-axo", "pid=,ppid=,pgid=,comm="],
-    { encoding: "utf8", timeout: 5000 },
-  );
+  const result = spawnSync("ps", ["-axo", "pid=,ppid=,pgid=,comm="], {
+    encoding: "utf8",
+    timeout: 5000,
+  });
   if (result.status !== 0 || result.error) return [];
   return result.stdout
     .split("\n")
@@ -243,8 +248,12 @@ const delay = (milliseconds) =>
 
 async function waitForExit(child) {
   return new Promise((resolve) => {
-    child.once("error", (error) => resolve({ error, code: null, signal: null }));
-    child.once("close", (code, signal) => resolve({ error: null, code, signal }));
+    child.once("error", (error) =>
+      resolve({ error, code: null, signal: null }),
+    );
+    child.once("close", (code, signal) =>
+      resolve({ error: null, code, signal }),
+    );
   });
 }
 
@@ -286,7 +295,11 @@ async function terminateProcessTree({
   }
   try {
     process.kill(-child.pid, "SIGTERM");
-    actions.push({ mechanism: "process-group", signal: "SIGTERM", result: "sent" });
+    actions.push({
+      mechanism: "process-group",
+      signal: "SIGTERM",
+      result: "sent",
+    });
   } catch (error) {
     actions.push({
       mechanism: "process-group",
@@ -298,25 +311,36 @@ async function terminateProcessTree({
   if (processGroupExists(child.pid)) {
     try {
       process.kill(-child.pid, "SIGKILL");
-      actions.push({ mechanism: "process-group", signal: "SIGKILL", result: "sent" });
+      actions.push({
+        mechanism: "process-group",
+        signal: "SIGKILL",
+        result: "sent",
+      });
     } catch (error) {
       actions.push({
         mechanism: "process-group",
         signal: "SIGKILL",
-        result: error.code === "ESRCH" ? "already-exited" : `error:${error.code}`,
+        result:
+          error.code === "ESRCH" ? "already-exited" : `error:${error.code}`,
       });
     }
   }
   for (const pid of escapedDescendants.keys()) {
     try {
       process.kill(pid, "SIGKILL");
-      actions.push({ mechanism: "escaped-descendant", pid, signal: "SIGKILL", result: "sent" });
+      actions.push({
+        mechanism: "escaped-descendant",
+        pid,
+        signal: "SIGKILL",
+        result: "sent",
+      });
     } catch (error) {
       actions.push({
         mechanism: "escaped-descendant",
         pid,
         signal: "SIGKILL",
-        result: error.code === "ESRCH" ? "already-exited" : `error:${error.code}`,
+        result:
+          error.code === "ESRCH" ? "already-exited" : `error:${error.code}`,
       });
     }
   }
@@ -351,7 +375,9 @@ export class CapsecCommandSupervisor {
     this.plan = suitePlanBinding.plan;
     this.target = suitePlanBinding.target;
     if (!/^[a-z0-9][a-z0-9-]*$/u.test(executionShard)) {
-      throw new Error("command supervisor requires an execution shard identifier");
+      throw new Error(
+        "command supervisor requires an execution shard identifier",
+      );
     }
     this.executionShard = executionShard;
     this.platform = platform;
@@ -368,7 +394,8 @@ export class CapsecCommandSupervisor {
     this.liveStatusPath =
       liveStatusPath ?? path.join(evidenceDirectory, "live-status.json");
     this.contaminationMarkerPath =
-      contaminationMarkerPath ?? path.join(evidenceDirectory, "contaminated.json");
+      contaminationMarkerPath ??
+      path.join(evidenceDirectory, "contaminated.json");
     this.outerBudgetPath =
       outerBudgetPath ?? path.join(evidenceDirectory, "outer-budget.json");
     this.attempts = [];
@@ -520,7 +547,9 @@ export class CapsecCommandSupervisor {
     const budget = this.plan.targets[this.target];
     const outerDeadlineMs = this.jobStartedAtMs + budget.outerTimeoutMs;
     if (
-      now + policy.deadlineMs + policy.gracePeriodMs +
+      now +
+        policy.deadlineMs +
+        policy.gracePeriodMs +
         budget.cleanupUploadReserveMs >
       outerDeadlineMs
     ) {
@@ -669,7 +698,10 @@ export class CapsecCommandSupervisor {
           Math.min(this.heartbeatIntervalMs, 1000),
         );
       }
-      timeoutHandle = setTimeout(() => stopExecution("timeout"), policy.deadlineMs);
+      timeoutHandle = setTimeout(
+        () => stopExecution("timeout"),
+        policy.deadlineMs,
+      );
       const abort = () => stopExecution("cancellation");
       abortSignal?.addEventListener("abort", abort, { once: true });
       if (abortSignal?.aborted) abort();
@@ -686,7 +718,11 @@ export class CapsecCommandSupervisor {
       timedOut = first.kind === "timeout";
       canceled = first.kind === "cancellation";
       const statusFailed = first.kind === "status-failure";
-      let cleanup = { actions: [], cleanupProven: true, escapedDescendants: [] };
+      let cleanup = {
+        actions: [],
+        cleanupProven: true,
+        escapedDescendants: [],
+      };
       if (timedOut || canceled || statusFailed) {
         cleanup = await terminateProcessTree({
           child,
@@ -804,12 +840,17 @@ export class CapsecCommandSupervisor {
         statusDigest: computeDomainDigest(STATUS_RECORD_DOMAIN, terminalStatus),
       });
       if (classification !== "success") {
+        const streamDetail = [
+          attempt.stderr.tail ? `stderr:\n${attempt.stderr.tail}` : null,
+          attempt.stdout.tail ? `stdout:\n${attempt.stdout.tail}` : null,
+        ]
+          .filter(Boolean)
+          .join("\n");
         const detail =
           statusWriteError?.message ??
           outputValidationError?.message ??
           result.error?.message ??
-          attempt.stderr.tail ??
-          attempt.stdout.tail;
+          (streamDetail || "command produced no diagnostic output");
         const error = new Error(
           `${id} ${classification} (${attempt.exitCode}): ${detail}`,
         );
