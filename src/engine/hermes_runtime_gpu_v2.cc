@@ -583,7 +583,15 @@ int32_t captureGpuAuthorityContextV2(
   if (outAuthoritySessionId) *outAuthoritySessionId = 0;
   if (outPresentAuthoritySessionId) *outPresentAuthoritySessionId = 0;
   auto collectedPrincipals = exactCollectTypedPrincipalStack();
-  const uint64_t actor = currentPrincipalId();
+  // The production WebGPU wrapper queues promise-returning algorithms before
+  // entering this bridge. Its runtime-owned reaction has no live user frame,
+  // while Hermes' authenticated stack collector retains the scheduling
+  // principal as the innermost constrained principal (LLP 0013 mechanism 3).
+  // Use that source-derived head as the actor instead of re-sampling the empty
+  // live frame and falsely denying the app's queued operation.
+  const uint64_t actor = collectedPrincipals.empty()
+      ? currentPrincipalId()
+      : collectedPrincipals.front();
   // These values mirror Hermes' reserved package-domain IDs even when this
   // build lacks the optional frame-attribution patch (and therefore does not
   // declare the helper constants in hermes_runtime_internal.h).

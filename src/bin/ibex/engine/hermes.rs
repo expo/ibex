@@ -12665,6 +12665,79 @@ module.exports = JSON.stringify({
         feature = "capsec-conformance-observer"
     ))]
     #[tokio::test(flavor = "current_thread")]
+    async fn gpu_v2_public_request_adapter_captures_root_authority() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_gpu_v2_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| finalize_fake_gpu_v2_runtime(raw, 0))
+            .unwrap();
+        engine.load_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                let source_url = CString::new("/project/entry.js").unwrap();
+                let source = b"navigator.gpu.requestAdapter();";
+                let mut out = std::ptr::null_mut();
+                assert_eq!(
+                    ex_hermes_begin_app_bundle_evaluation_v1(
+                        raw,
+                        EXACT_PREPARED_NATIVE_STARTUP_NONE_V1,
+                    ),
+                    0
+                );
+                assert_eq!(
+                    ex_hermes_begin_gpu_canvas_app_bundle_v1(
+                        raw,
+                        EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_VALID_V1,
+                    ),
+                    EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1
+                );
+                let status = ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+                    raw,
+                    source.as_ptr(),
+                    source.len(),
+                    source_url.as_ptr(),
+                    0,
+                    &mut out,
+                );
+                let detail = (!out.is_null()).then(|| {
+                    let detail = CStr::from_ptr(out).to_string_lossy().into_owned();
+                    ex_hermes_free_string(out);
+                    detail
+                });
+                assert_eq!(status, 0, "public requestAdapter failed: {detail:?}");
+                assert_eq!(
+                    ex_hermes_verify_prepared_native_startup_absent_v1(raw),
+                    EXACT_PREPARED_NATIVE_STARTUP_OK_V1
+                );
+                assert_eq!(
+                    ex_hermes_finish_gpu_canvas_app_bundle_v1(raw, 1),
+                    EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_V1
+                );
+                assert_eq!(ex_hermes_finish_app_bundle_evaluation_v1(raw, 1), 0);
+                assert!(ex_hermes_poll(raw, ex_hermes_now_ms()) >= 0);
+            })
+            .unwrap();
+        let submitted_operations = fake_gpu_v2_state()
+            .lock()
+            .unwrap()
+            .submit_calls
+            .iter()
+            .map(|record| record.call.operation_id)
+            .collect::<Vec<_>>();
+        assert_eq!(submitted_operations, vec![GPU_V2_REQUEST_ADAPTER]);
+        drop(runtime);
+        drop(engine);
+        release_fake_gpu_v2_client();
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
     async fn gpu_v2_publication_reverifies_after_bootstrap_finished_first() {
         let _lock = hermes_engine_test_lock().lock().await;
         let (_reset, digest) = install_armed_gpu_v2_test_host();
