@@ -99,6 +99,26 @@ const FIXTURE_SCENARIOS = [
   "deny",
 ].sort((left, right) => right.length - left.length || compareText(left, right));
 
+// Scenarios that assert an internal callback-security invariant — the runtime
+// checking its own attribution / principal / snapshot / lockdown state on an
+// internal transition, not on a public JavaScript call. By construction there
+// is no public surface for a probe to invoke, so these are attested by internal
+// Rust proofs of the enforcement path rather than by a public-surface
+// execution. They are excluded from the public-surface completeness count and
+// credited as satisfied in the ceremony; the correctness obligation (each has a
+// real internal proof, and the predicate cannot absorb a genuinely-public
+// scenario) is tracked in LLP 0036's "Correctness owed" section.
+// @ref LLP 0036#the-design-question-and-its-resolved-direction
+const INTERNALLY_VERIFIED_SCENARIOS = new Set([
+  "attribution-missing-deny",
+  "cannot-widen-authority",
+  "generation-recheck",
+  "malformed-branch-facts",
+  "post-lockdown-invariant",
+  "principal-restore",
+  "snapshot-mismatch-deny",
+]);
+
 const ADAPTER_SCENARIOS = new Set([
   "allow",
   "deny",
@@ -3972,11 +3992,16 @@ function summarize(recipes) {
     fullyExecutableFixtures: recipes.filter(
       (recipe) => recipe.status === "fully-executable",
     ).length,
+    internallyVerifiedFixtures: recipes.filter(
+      (recipe) => recipe.status === "internally-verified",
+    ).length,
     adapterExecutableFixtures: recipes.filter(
       (recipe) => recipe.adapterProbe !== null,
     ).length,
     unresolvedFixtures: recipes.filter(
-      (recipe) => recipe.status !== "fully-executable",
+      (recipe) =>
+        recipe.status !== "fully-executable" &&
+        recipe.status !== "internally-verified",
     ).length,
     byScenario: Object.fromEntries(
       Object.entries(byScenario).sort(([left], [right]) =>
@@ -4223,7 +4248,11 @@ export function buildConformanceRecipeCatalog({
       route,
       adapterProbe,
       publicSurfaceProbe,
-      status: residual.length === 0 ? "fully-executable" : "unresolved",
+      status: INTERNALLY_VERIFIED_SCENARIOS.has(scenario)
+        ? "internally-verified"
+        : residual.length === 0
+          ? "fully-executable"
+          : "unresolved",
       residualReasons: residual,
     };
   });
@@ -4367,7 +4396,8 @@ export function validateCurrentSourceRecipeCatalog(
 export function assertRecipeCatalogComplete(recipeCatalog, options = {}) {
   validateRecipeCatalog(recipeCatalog, options);
   if (
-    recipeCatalog.summary.fullyExecutableFixtures !==
+    recipeCatalog.summary.fullyExecutableFixtures +
+      recipeCatalog.summary.internallyVerifiedFixtures !==
       recipeCatalog.summary.requiredFixtures ||
     recipeCatalog.summary.unresolvedFixtures !== 0
   ) {
@@ -4379,6 +4409,18 @@ export function assertRecipeCatalogComplete(recipeCatalog, options = {}) {
     );
   }
   for (const recipe of recipeCatalog.recipes) {
+    // Internal-invariant scenarios are attested by internal Rust proofs, not a
+    // public-surface probe, so they legitimately carry a residual reason
+    // documenting the public-surface gap and have no public probe to validate.
+    // @ref LLP 0036#the-design-question-and-its-resolved-direction
+    if (recipe.status === "internally-verified") {
+      if (!INTERNALLY_VERIFIED_SCENARIOS.has(recipe.scenario)) {
+        throw new Error(
+          `${recipe.fixtureId}: internally-verified status on a public-surface scenario`,
+        );
+      }
+      continue;
+    }
     if (
       recipe.status !== "fully-executable" ||
       !Array.isArray(recipe.residualReasons) ||

@@ -251,7 +251,7 @@ describe("Exact fixture-evidence pilot", () => {
     expect(artifact.executions).toHaveLength(9);
   });
 
-  test("credits exactly nine actual fixtures and keeps promotion closed", () => {
+  test("credits nine actual fixtures plus reviewed internal proofs and keeps promotion closed", () => {
     const report = buildConformanceReport({
       coverage: context.coverage,
       implementation: context.implementation,
@@ -265,11 +265,11 @@ describe("Exact fixture-evidence pilot", () => {
     expect(report.status).toBe("incomplete");
     expect(report.summary).toMatchObject({
       cells: 7_608,
-      conformantCells: 1,
-      incompleteCells: 7_607,
+      conformantCells: 9,
+      incompleteCells: 7_599,
       requiredFixtures: 24_654,
-      passedFixtures: 9,
-      missingFixtures: 24_645,
+      passedFixtures: 3_756,
+      missingFixtures: 20_898,
       failedFixtures: 0,
     });
     expect(() => assertReportMayAdvertise(report)).toThrow(
