@@ -1640,9 +1640,9 @@ describe('generated injection-only WebGPU executable codecs', () => {
     )).toBe(true);
     expect(inspectedHostileRequest.convertedArguments.requiredLimits.__proto__)
       .toBe(4);
-    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
       hostileRequestInput,
-    )).toThrow('missing authenticated semantic fields');
+    )).toEqual(hostilePayload);
 
     expect(
       WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
@@ -3428,7 +3428,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       )).toThrow('Unreviewed WebGPU operation');
   });
 
-  test('encodes every currently complete service codec and fails closed for all others', () => {
+  test('encodes every native-service route and fails closed for all other incomplete codecs', () => {
     for (const route of WEBGPU_PRODUCTION_PLAN.routes) {
       const codec = WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
         (candidate) => candidate.tag === route.serviceArgumentCodec,
@@ -3438,13 +3438,26 @@ describe('generated injection-only WebGPU executable codecs', () => {
           WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
             serviceInput(route.operationId),
           )).toThrow('has no service request codec');
-      } else if (!codec.executableFromCurrentAuthenticatedInputs) {
+      } else if (
+        !codec.executableFromCurrentAuthenticatedInputs &&
+        route.operationId !== 'GPUAdapter.requestDevice'
+      ) {
         expect(codec.unavailableSemanticFields.length).toBeGreaterThan(0);
         expect(() =>
           WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
             serviceInput(route.operationId),
           )).toThrow('missing authenticated semantic fields');
       } else {
+        if (route.operationId === 'GPUAdapter.requestDevice') {
+          expect(codec).toMatchObject({
+            nativeProgramPrerequisitesRepresented: true,
+            executableFromCurrentAuthenticatedInputs: false,
+            unavailableSemanticFields: [
+              'generatedLogicalProviderDescriptor',
+              'authenticatedResultSelectionIdentity',
+            ],
+          });
+        }
         const payload = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
           serviceInput(route.operationId),
         );
@@ -3459,6 +3472,13 @@ describe('generated injection-only WebGPU executable codecs', () => {
               featureLevel: 'core',
               forceFallbackAdapter: false,
               xrCompatible: false,
+            }
+            : route.operationId === 'GPUAdapter.requestDevice'
+            ? {
+              label: 'device',
+              requiredFeatures: ['timestamp-query'],
+              requiredLimits: { maxBindGroups: 4 },
+              defaultQueue: { label: 'queue' },
             }
             : route.operationId === 'GPUDevice.destroy' ||
                 route.operationId === 'GPUBuffer.destroy' ||
@@ -4342,7 +4362,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
     )).toThrow('must be zero');
   });
 
-  test('executes requestDevice payload codegen only through test support while production stays blocked', () => {
+  test('hands requestDevice ingress to the native semantic service without wrapper-supplying native fields', () => {
     const input = serviceInput('GPUAdapter.requestDevice');
     const codec = WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
       (candidate) => candidate.tag === 'gpu-request-device-service-request-v1',
@@ -4353,12 +4373,11 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'generatedLogicalProviderDescriptor',
       'authenticatedResultSelectionIdentity',
     ]);
-    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-      input,
-    )).toThrow('missing authenticated semantic fields');
 
     const payload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
       .encodeNativeCodegenRequest(input);
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(input))
+      .toEqual(payload);
     expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
       payload,
     )).toMatchObject({

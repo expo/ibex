@@ -16239,7 +16239,25 @@ export function createExecutableWebGpuCodecs(
     }
     const codec = serviceCodecs.get(route.serviceArgumentCodec);
     if (!codec) throw new TypeError('Unknown WebGPU service request codec');
-    if (!codec.executableFromCurrentAuthenticatedInputs) {
+    // requestDevice deliberately transports only the converted, untrusted
+    // descriptor into the native semantic service. The service derives the
+    // logical provider descriptor and allocates result identity after it has
+    // authenticated the retained call, adapter, account, and live-device
+    // reservation. Those fields must therefore remain unavailable to this
+    // wrapper encoder; their absence is the authenticated handoff contract,
+    // not an incomplete IBGQ request.
+    const nativeRequestDeviceSemanticHandoff =
+      route.operationId === REQUEST_DEVICE_OPERATION_ID &&
+      codec.nativeProgramPrerequisitesRepresented &&
+      canonicalManifestJson(codec.unavailableSemanticFields) ===
+        canonicalManifestJson([
+          'generatedLogicalProviderDescriptor',
+          'authenticatedResultSelectionIdentity',
+        ]);
+    if (
+      !codec.executableFromCurrentAuthenticatedInputs &&
+      !nativeRequestDeviceSemanticHandoff
+    ) {
       throw new TypeError(
         `${route.serviceArgumentCodec} is injection-incomplete; missing authenticated semantic fields: ` +
           codec.unavailableSemanticFields.join(', '),

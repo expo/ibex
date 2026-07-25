@@ -12738,6 +12738,134 @@ module.exports = JSON.stringify({
         feature = "capsec-conformance-observer"
     ))]
     #[tokio::test(flavor = "current_thread")]
+    async fn gpu_v2_public_request_device_reaches_native_semantic_service() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_gpu_v2_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| finalize_fake_gpu_v2_runtime(raw, 0))
+            .unwrap();
+        engine.load_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                let source_url = CString::new("/project/entry.js").unwrap();
+                let source = br#"
+globalThis.__requestDeviceFailure = "";
+navigator.gpu.requestAdapter()
+  .then(function (adapter) {
+    if (adapter === null) throw new Error("requestAdapter returned null");
+    return adapter.requestDevice();
+  })
+  .catch(function (error) {
+    globalThis.__requestDeviceFailure = String(error && error.message || error);
+  });
+"#;
+                let mut out = std::ptr::null_mut();
+                assert_eq!(
+                    ex_hermes_begin_app_bundle_evaluation_v1(
+                        raw,
+                        EXACT_PREPARED_NATIVE_STARTUP_NONE_V1,
+                    ),
+                    0
+                );
+                assert_eq!(
+                    ex_hermes_begin_gpu_canvas_app_bundle_v1(
+                        raw,
+                        EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_VALID_V1,
+                    ),
+                    EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1
+                );
+                let status = ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
+                    raw,
+                    source.as_ptr(),
+                    source.len(),
+                    source_url.as_ptr(),
+                    0,
+                    &mut out,
+                );
+                let detail = (!out.is_null()).then(|| {
+                    let detail = CStr::from_ptr(out).to_string_lossy().into_owned();
+                    ex_hermes_free_string(out);
+                    detail
+                });
+                assert_eq!(status, 0, "public WebGPU chain failed: {detail:?}");
+                assert_eq!(
+                    ex_hermes_verify_prepared_native_startup_absent_v1(raw),
+                    EXACT_PREPARED_NATIVE_STARTUP_OK_V1
+                );
+                assert_eq!(
+                    ex_hermes_finish_gpu_canvas_app_bundle_v1(raw, 1),
+                    EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_V1
+                );
+                assert_eq!(ex_hermes_finish_app_bundle_evaluation_v1(raw, 1), 0);
+                assert!(ex_hermes_poll(raw, ex_hermes_now_ms()) >= 0);
+
+                let adapter_call = {
+                    let state = fake_gpu_v2_state().lock().unwrap();
+                    assert_eq!(state.submit_calls.len(), 1);
+                    assert_eq!(
+                        state.submit_calls[0].call.operation_id,
+                        GPU_V2_REQUEST_ADAPTER
+                    );
+                    state.submit_calls[0].call
+                };
+                let mut adapter_provenance = gpu_v2_provenance(&adapter_call, true, 1);
+                adapter_provenance.provider_generation = 9;
+                let mut adapter_payload = Vec::new();
+                adapter_payload.extend_from_slice(b"IBGR");
+                adapter_payload.extend_from_slice(&1_u16.to_le_bytes());
+                adapter_payload.extend_from_slice(&6_u16.to_le_bytes());
+                adapter_payload.extend_from_slice(&GPU_V2_REQUEST_ADAPTER.to_le_bytes());
+                adapter_payload.push(1);
+                adapter_payload.extend_from_slice(&70_u64.to_le_bytes());
+                adapter_payload.extend_from_slice(&1_u64.to_le_bytes());
+                adapter_payload.extend_from_slice(&9_u64.to_le_bytes());
+                adapter_payload.push(0);
+                adapter_payload.extend_from_slice(&0_u32.to_le_bytes());
+                let adapter_event =
+                    gpu_v2_typed_result_event(adapter_provenance, 3, &adapter_payload);
+                assert_eq!(deliver_gpu_v2_event(&adapter_event), 1);
+
+                for _ in 0..8 {
+                    assert!(ex_hermes_poll(raw, ex_hermes_now_ms()) >= 0);
+                    if fake_gpu_v2_state().lock().unwrap().submit_calls.len() >= 2 {
+                        break;
+                    }
+                }
+                let state = fake_gpu_v2_state().lock().unwrap();
+                assert_eq!(
+                    state
+                        .submit_calls
+                        .iter()
+                        .map(|record| record.call.operation_id)
+                        .collect::<Vec<_>>(),
+                    vec![GPU_V2_REQUEST_ADAPTER, GPU_V2_REQUEST_DEVICE]
+                );
+                let request_device = &state.submit_calls[1];
+                assert_eq!(request_device.call.receiver.kind, 2);
+                assert_eq!(request_device.call.receiver.object_id, 70);
+                assert_eq!(request_device.call.receiver.object_generation, 1);
+                assert_eq!(request_device.call.provider_generation, 9);
+                assert_eq!(request_device.call.adapter_ordinal, 1);
+                assert_eq!(request_device.payload.get(..4), Some(b"IBGQ".as_slice()));
+                assert_eq!(
+                    request_device.payload.get(6..8),
+                    Some(3_u16.to_le_bytes().as_slice())
+                );
+            })
+            .unwrap();
+        drop(runtime);
+        drop(engine);
+        release_fake_gpu_v2_client();
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
     async fn gpu_v2_publication_reverifies_after_bootstrap_finished_first() {
         let _lock = hermes_engine_test_lock().lock().await;
         let (_reset, digest) = install_armed_gpu_v2_test_host();
