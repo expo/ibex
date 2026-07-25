@@ -376,7 +376,11 @@ function openThenActFixture(scenario = "allow", exportName = "readFileSync") {
   const recipe = catalog.recipes[0];
   const denial = scenario === "deny";
   const truncate = exportName === "truncateSync";
-  const action = truncate ? "fs:write" : "fs:read";
+  const action = new Set(["appendFileSync", "truncateSync", "writeFileSync"]).has(
+    exportName,
+  )
+    ? "fs:write"
+    : "fs:read";
   const terminal = truncate ? "__exactTruncate" : "__exactFsOpen";
   const edgeId = truncate ? "edge.truncate-worker" : "edge.fsopen-worker";
   recipe.fixtureId = `fixture.public.${exportName}.${scenario}`;
@@ -3029,7 +3033,11 @@ describe("CapSec public-surface promotion evidence", () => {
   });
 
   test("accepts only ambient fs:list traversal surplus for open-then-act builtins", () => {
-    for (const exportName of ["readFileSync", "truncateSync"]) {
+    for (const exportName of [
+      "appendFileSync",
+      "readFileSync",
+      "truncateSync",
+    ]) {
       for (const scenario of ["allow", "deny"]) {
         const { recipe, observation } = openThenActFixture(
           scenario,

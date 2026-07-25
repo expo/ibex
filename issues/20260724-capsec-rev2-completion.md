@@ -1065,6 +1065,29 @@ ticket closes.
   retained-object-bound. Important enforcement mechanisms remain about 96%
   complete and the overall requested task remains about 86%.
 
+### 2026-07-25 — `appendFileSync` open/write mutation evidence
+
+- Added all five Apple `node:fs.appendFileSync` scenarios to the reviewed
+  open/write family. The allow sequence is `requested, requested, discovery,
+  requested, repeat, commit, repeat`; denial retains the ambient traversal and
+  stops at the denied `fs:write` commit.
+- The complete 175-recipe builtin Hermes batch passes with byte-level
+  postconditions. Allowed scenarios preserve the exact original prefix and
+  append the complete literal suffix; denial preserves the original bytes.
+  The producer and independent promotion validator both restrict incidental
+  `fs:list` to the exact `appendFileSync`/`fs:write`/`fs-open:` tuple.
+- The independent validator accepts all five real engine observations and
+  derives `native-op:__exactFsOpen`. Apple is now 24,040 required / 2,636 fully
+  executable / 3,114 internally verified / 18,290 unresolved. Windows remains
+  23,925 / 2,240 / 3,102 / 18,583. Criterion 7's literal Apple denominator is
+  5,750/24,040 (23.9%) proven.
+- Hard part: the public export's source graph contains descriptor, flush, and
+  dynamic fast-path alternatives. The fixed string/path/default-options
+  invocation physically selects the ordinary retained open/write route, but
+  the evidence still authenticates the complete source-derived edge allowlist
+  and refuses any terminal outside it. Important enforcement mechanisms remain
+  about 96% complete and the overall requested task remains about 86%.
+
 ## Next milestone
 
 Attack criterion 7's exact-target evidence gap through real public-surface

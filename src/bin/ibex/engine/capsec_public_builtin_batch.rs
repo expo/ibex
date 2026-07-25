@@ -418,11 +418,12 @@ fn expected_authored_builtin_recipe_count(target: &str) -> usize {
     match target {
         // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
         // +5 each on Apple for fs:list accessSync/existsSync/realpathSync/statfsSync,
-        // fs:read readFileSync, and fs:write truncateSync/writeFileSync (their
-        // allow/deny/malformed/missing-attribution/wrong-principal matrices).
+        // fs:read readFileSync, and fs:write appendFileSync/truncateSync/
+        // writeFileSync (their allow/deny/malformed/missing-attribution/
+        // wrong-principal matrices).
         // Windows keeps 120: its node_fs enforcement route is ambiguous, so
         // these public probes are not authored there.
-        "aarch64-apple-darwin" => 170,
+        "aarch64-apple-darwin" => 175,
         "x86_64-pc-windows-msvc" => 120,
         target => panic!("builtin public recipe batch has no reviewed target shape for {target}"),
     }
@@ -432,7 +433,7 @@ fn expected_authored_builtin_recipe_count(target: &str) -> usize {
 fn capsec_public_builtin_recipe_counts_are_target_specific() {
     assert_eq!(
         expected_authored_builtin_recipe_count("aarch64-apple-darwin"),
-        170
+        175
     );
     assert_eq!(
         expected_authored_builtin_recipe_count("x86_64-pc-windows-msvc"),
@@ -486,12 +487,23 @@ impl PreparedInvocation {
             .as_deref()
             .expect("filesystem fixture invocation has no export name");
         let expected = match (export_name, scenario) {
-            ("writeFileSync", "deny") | ("truncateSync", "deny") => original,
+            ("appendFileSync" | "truncateSync" | "writeFileSync", "deny") => {
+                original.to_vec()
+            }
+            ("appendFileSync", _) => [
+                original,
+                invocation.arguments[1]["value"]
+                    .as_str()
+                    .expect("appendFileSync postcondition payload must be a string")
+                    .as_bytes(),
+            ]
+            .concat(),
             ("writeFileSync", _) => invocation.arguments[1]["value"]
                 .as_str()
                 .expect("writeFileSync postcondition payload must be a string")
-                .as_bytes(),
-            ("truncateSync", _) => &original[..2],
+                .as_bytes()
+                .to_vec(),
+            ("truncateSync", _) => original[..2].to_vec(),
             _ => return,
         };
         let fixture_path = self
@@ -560,7 +572,7 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
                 | "statfsSync"
                 | "statSync" => "fs:list",
                 "readFileSync" => "fs:read",
-                "truncateSync" | "writeFileSync" => "fs:write",
+                "appendFileSync" | "truncateSync" | "writeFileSync" => "fs:write",
                 other => panic!("unsupported filesystem-file fs export {other}"),
             };
             if export_name == "realpathSync" {
@@ -624,7 +636,7 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
             let mut runtime_arguments = vec![serde_json::Value::String(
                 "/project/capsec-stat-fixture.txt".to_owned(),
             )];
-            if export_name == "writeFileSync" {
+            if matches!(export_name, "appendFileSync" | "writeFileSync") {
                 // The write export takes a literal payload as its second
                 // argument; the read/list exports take only the path.
                 assert_eq!(invocation.arguments.len(), 2);
@@ -743,6 +755,7 @@ fn reviewed_open_traversal_prefix(invocation: &BuiltinInvocation) -> Option<&'st
         invocation.expected_action_ids.as_slice(),
     ) {
         (Some("readFileSync"), [action]) if action == "fs:read" => Some("fs-open:"),
+        (Some("appendFileSync"), [action]) if action == "fs:write" => Some("fs-open:"),
         (Some("truncateSync"), [action]) if action == "fs:write" => Some("fs-truncate:"),
         (Some("writeFileSync"), [action]) if action == "fs:write" => Some("fs-open:"),
         _ => None,

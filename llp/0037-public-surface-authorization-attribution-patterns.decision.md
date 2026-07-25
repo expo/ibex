@@ -5,6 +5,7 @@
 **Systems:** Security, Runtime, Devtools, Verification
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-23
+**Revised:** 2026-07-25 (`node:fs.appendFileSync` joins the reviewed open/write family with exact prefix-plus-suffix and deny-no-mutation postconditions; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.truncateSync` binds a six-decision retained-object mutation chain, denies at `fs:write` commit, and proves the exact two-byte postcondition; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.existsSync` binds its swallowed permission denial to both the exact denied `fs:list` decision and an exact boolean `false` public result; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.statfsSync` extends the direct metadata family using an engine-observed six-decision allow sequence and first-request denial; five Apple fixture rows move from residual to executable)
@@ -162,6 +163,22 @@ accepts the incidental `fs:list` decisions only under the source-bound
 `fs-truncate:` operation identity; they cannot borrow the broader `fs-open:`
 allowance used by whole-file read/write carriers. The complete 170-recipe
 builtin batch and independent validator accept all five scenario observations.
+
+### Open/write mutation evidence: `appendFileSync`
+
+`node:fs.appendFileSync` uses the reviewed `fs-open:` open-then-act family on
+the bound Apple engine. Its allow path emits seven decisions:
+`requested, requested, discovery, requested, repeat` for ambient `fs:list`
+traversal, followed by `commit, repeat` for floor-gated `fs:write`. Denial stops
+at the denied commit and emits no write repeat.
+
+The native batch proves the observable mutation in addition to the decision
+sequence. Allowed scenarios preserve the complete known prefix and append the
+complete literal suffix; denial preserves the prefix byte-for-byte. The
+producer and promotion aggregate both restrict incidental `fs:list` to this
+exact reviewed export, declared `fs:write` action, and `fs-open:` operation
+identity. The complete 175-recipe builtin batch and independent validator
+accept all five real scenario observations.
 
 ### Additional multi-edge metadata evidence: `realpathSync`
 

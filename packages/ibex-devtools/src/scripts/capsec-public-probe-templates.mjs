@@ -75,7 +75,7 @@ const FS_READ_EXPORTS = new Set(["readFileSync"]);
 // commit gated by the static floor). Same open-then-act shape as fs:read; the
 // typed sequence is observed from the bound engine, never guessed (LLP 0037 D3).
 // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
-const FS_WRITE_EXPORTS = new Set(["writeFileSync"]);
+const FS_WRITE_EXPORTS = new Set(["appendFileSync", "writeFileSync"]);
 const FS_TRUNCATE_EXPORTS = new Set(["truncateSync"]);
 const FS_WRITE_PAYLOAD = "ibex-capsec-write-fixture\n";
 const FS_FIXTURE_PATH = Object.freeze({
@@ -463,10 +463,10 @@ export function authoredBuiltinPublicProbe({
     };
   }
 
-  // fs:write family — synchronous, path-taking writes of the authenticated
-  // fixture file. Same open-then-act shape as fs:read (LLP 0037 D1/D4): the
-  // open's fs:list traversal is ambient-mount, the fs:write commit is
-  // floor-gated. Takes the path plus a literal payload argument.
+  // fs:write family — synchronous, path-taking whole-file writes/appends of
+  // the authenticated fixture file. Same open-then-act shape as fs:read
+  // (LLP 0037 D1/D4): the open's fs:list traversal is ambient-mount, the
+  // fs:write commit is floor-gated. Takes the path plus a literal payload.
   // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
   if (
     plan.actionIds.length === 1 &&
@@ -508,12 +508,11 @@ export function authoredBuiltinPublicProbe({
           },
         ],
         expectedResult: publicDenial ? "permission-denied" : "return",
-        // Observed from the bound engine (LLP 0037 D3): writeFileSync opens the
-        // fixture (the fs:list traversal, ambient-mount) then writes it (the
-        // fs:write commit and one retained repeat) — a 7-decision sequence on
-        // allow. On deny the open still succeeds and only the fs:write commit is
-        // refused, giving the 6-decision open chain ending at the denied commit
-        // (LLP 0037 D4).
+        // Observed from the bound engine (LLP 0037 D3): these carriers open the
+        // fixture (the fs:list traversal, ambient-mount) then write or append
+        // (the fs:write commit and one retained repeat) — a 7-decision sequence
+        // on allow. On deny only the fs:write commit is refused, giving the
+        // 6-decision open chain ending at the denied commit (LLP 0037 D4).
         expectedTypedDecisionCount: publicDenial ? 6 : 7,
         expectedTypedStages: publicDenial
           ? ["requested", "requested", "discovery", "requested", "repeat", "commit"]

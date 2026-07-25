@@ -3710,6 +3710,7 @@ export function validatePublicFixtureRuntimeObservation(
   // to their declared semantic operation.
   // @ref LLP 0037#d2--declared-vs-incidental-capabilities-in-the-coverage-edge
   const builtinOpenThenActDescriptor = new Map([
+    ["appendFileSync", { action: "fs:write", operationPrefix: "fs-open:" }],
     ["readFileSync", { action: "fs:read", operationPrefix: "fs-open:" }],
     [
       "truncateSync",
