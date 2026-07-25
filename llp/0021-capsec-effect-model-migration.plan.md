@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-25 (deletes the legacy `PolicyFile` parser, public module, `HostConfig` policy/path/allow/deny seams, policy-string mode parser, and runtime readiness dependency; foreground audit remains an explicitly policyless diagnostic host and historical compatibility-manager algebra is covered only through private test setup)
 **Revised:** 2026-07-25 (removes `insecure` from Cargo defaults: plain builds enforce the supported profile and refuse before project code while no exact target is advertised; unadvertised secure development and no-sandbox execution require explicit compile-time features; invocation-time ESM import and CommonJS require now cover source and prepared targets)
 **Revised:** 2026-07-24 (production native-graph dependency source reads authorize the exact typed edge and retain a digest-bound receipt; dependency carriers derive a carrier receipt from that continuation, while entry-only carriers require an opaque graph/request join minted before any cache discovery; armed transpilation has no persistent cache-read path; every promotion-facing conformance Cargo executor now disables defaults and selects the production observer feature set explicitly)
 **Revised:** 2026-07-20 (extends authenticated fresh-engine, zero-decision source receipts to 30 additional reviewed public builtin spellings, binds their exact root value types, and leaves both `stream/consumers` spellings residual because compatibility loading shadows their manifest source)
@@ -2271,18 +2272,21 @@ revise LLP 0016's assessment, update LLP 0002/0004/0005 where their contracts
 change, refresh demos and documentation, and delete dead code/generators/tests
 for the legacy plane.
 
-Implementation status (2026-07-11): production CLI/runtime construction no
-longer loads or executes `PolicyFile`; only the explicitly diagnostic legacy
-Audit constructor may receive an already parsed value for historical test
-coverage. LLP 0013, LLP 0014, and LLP 0016 now identify their old mode, flag,
-and string-policy passages as superseded. The canonical typed artifact, armed
-snapshot, and target-bound conformance report are the current contracts.
-ENG-24263 subsequently retired LLP 0013's executable string-policy corpus and
-its 127 legacy fixtures. A checked 69-case retirement join names the current
-typed, armed-engine, production-closure, or migrated diagnostic coverage for
-every former test; the live callback harness now also proves package-global
-withholding and native-freeze hatch removal, while process signaling is covered
-inside the authenticated armed process-closure test.
+Implementation status (2026-07-25): the `PolicyFile` parser and public module,
+the `HostConfig` policy/path/allow/deny seams, and the policy-string mode parser
+have been deleted. Foreground audit deliberately constructs a policyless
+diagnostic Host under LLP 0030; no durable string-policy value is representable
+at that boundary. Historical compatibility-manager import/deputy/dynamic
+algebra remains covered only through private test setup, not a parser or
+embedder configuration surface. LLP 0013, LLP 0014, and LLP 0016 identify their
+old mode, flag, and string-policy passages as superseded. The canonical typed
+artifact, armed snapshot, and target-bound conformance report are the current
+contracts. ENG-24263 retired LLP 0013's executable string-policy corpus and its
+127 legacy fixtures. A checked 69-case retirement join names the current typed,
+armed-engine, production-closure, or migrated diagnostic coverage for every
+former test; the live callback harness also proves package-global withholding
+and native-freeze hatch removal, while process signaling is covered inside the
+authenticated armed process-closure test.
 
 Acceptance:
 

@@ -4703,7 +4703,7 @@ fn build_default_armed_host(
     for line in check_capsec_readiness(
         crate::host::SecurityMode::Enforce,
         CapsecStage::Run,
-        capsec_readiness(cli, None),
+        capsec_readiness(cli),
         false,
     )? {
         eprintln!("{line}");
@@ -6927,9 +6927,7 @@ pub(crate) fn apply_build_isolation(cli: &Cli) -> Result<crate::host::SecurityMo
         anyhow::bail!("foreground audit cannot be persisted as a production build posture");
     }
     let mode = crate::host::SecurityMode::Enforce;
-    for line in
-        check_capsec_readiness(mode, CapsecStage::Build, capsec_readiness(cli, None), false)?
-    {
+    for line in check_capsec_readiness(mode, CapsecStage::Build, capsec_readiness(cli), false)? {
         eprintln!("{line}");
     }
     Ok(mode)
@@ -6986,19 +6984,16 @@ pub(crate) enum CapsecStage {
 /// Gather the live readiness snapshot. Call after
 /// `enable_isolation_prerequisites` so `IBEX_PER_PACKAGE_CHUNKS` reflects the
 /// enforce/audit default; a remaining `0` is an explicit operator opt-out.
-fn capsec_readiness(
-    _cli: &Cli,
-    policy: Option<&crate::host::policy::PolicyFile>,
-) -> CapsecReadiness {
+fn capsec_readiness(_cli: &Cli) -> CapsecReadiness {
     let package_isolation = PackageIsolation::Enabled;
-    let dynamic_ceiling = policy
-        .map(|policy| !policy.ceiling.is_empty())
-        .unwrap_or(false);
     CapsecReadiness {
         frame_attribution: cfg!(exact_frame_attribution),
         package_isolation,
         lockdown: true,
-        dynamic_ceiling,
+        // Foreground audit is policyless; production dynamic authority comes
+        // from the immutable typed snapshot rather than this compatibility
+        // readiness diagnostic.
+        dynamic_ceiling: false,
     }
 }
 

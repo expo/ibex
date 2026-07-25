@@ -561,14 +561,14 @@ ticket closes.
 
 | Criterion | Status | Current evidence or contradiction |
 |---|---|---|
-| 1. Typed effect model is the only production plane | Implemented | Armed production hosts construct `VerifiedDecisionContext`; legacy `PolicyFile` input is rejected at armed startup and retained only by the separately named diagnostic Audit constructor and its historical tests. |
+| 1. Typed effect model is the only production plane | Implemented | Armed production hosts construct `VerifiedDecisionContext`; the legacy `PolicyFile` parser and all HostConfig policy/path/override inputs have been deleted. |
 | 2. Every production surface has classification and target cell | Implemented | The generated registry currently validates 7,602 coverage edges and 15,204 target cells with zero drift. |
 | 3. Canonical policy and snapshots are typed, deterministic, digest-bound, fail-closed | Implemented | Strict policy/snapshot schemas, canonical-JCS digests, protected-artifact joins, and mismatch/forgery suites pass in the secure gate. |
 | 4. Filesystem/network bind used object or peer with staged authorization | Implemented for the supported runtime surface | Retained VFS objects, symlink/race fixtures, verified-peer records, and repeat-stage leases pass. Residual operations remain closed rather than entering an advertised profile. |
 | 5. Handles, dynamic authority, deputy intersection, import gating, and audit share immutable semantics | Implemented | Generated operation algebra, generation-bound receipts, graph authority contexts, handle/revocation suites, and structured evidence all pass. |
 | 6. Plain `ibex` enforces and has no silent weakening path | Implemented | `insecure` is absent from Cargo defaults. Plain and explicit-enforce startup produce the same pre-code target-admission refusal; secure-development and no-sandbox postures require separately named compile-time features. |
 | 7. Every advertised target has a passing generated report | Blocked, honestly closed | The advertisement set is empty. Apple and Windows are candidates only; current physical reports remain incomplete and cannot authorize promotion. |
-| 8. Legacy code/docs/demos/stale claims removed or revised | Partial | Armed production no longer consumes legacy policy. LLP 0039 and default-build documentation are being reconciled now, but the diagnostic `PolicyFile` implementation and historical tests still exist and require an explicit retirement decision or deletion. |
+| 8. Legacy code/docs/demos/stale claims removed or revised | Implemented | The string-policy parser, public module, HostConfig ingestion seams, policy-string mode parser, and readiness dependency are deleted. LLP 0013/0014 retain only explicitly superseded historical rationale; current demos use canonical policy v2 or the separately named policyless foreground audit. |
 
 ## Current hard parts
 
@@ -579,9 +579,9 @@ ticket closes.
   as passing.
 - `main` is moving as old worktrees are landed, so generated CapSec artifacts
   and source-review identities can rotate during this effort.
-- Plain builds are being restored to the secure fail-closed posture. Until a
-  target is advertised they intentionally refuse before project code; usable
-  development requires an explicit secure-development or insecure feature.
+- Plain builds have the secure fail-closed posture. Until a target is advertised
+  they intentionally refuse before project code; usable development requires
+  an explicit secure-development or insecure feature.
 - Rich conformance now consumes executed internal-invariant proof, but portable
   promotion now has a distinct mapped-process producer for the dedicated
   internal executor and joins detached per-row artifacts through the Phase-2
@@ -603,9 +603,35 @@ ticket closes.
   needs either a named root-attributed bootstrap operation or a revised
   requirement before the requested real retained-callback fixture is honest.
 
+### 2026-07-25 — retired the string-policy ingestion plane
+
+- Deleted `src/host/policy.rs`, its public module export, and the unversioned
+  `PolicyFile`, `ModulePolicy`, and `PackagePolicy` deserializers.
+- Removed `HostConfig.policy_path`, `HostConfig.policy`, and the legacy
+  allow/deny override vectors. Neither diagnostic embedders nor production
+  arming can express the retired artifact now.
+- Removed `CapabilityManager::apply_policy` and the policy-string
+  `SecurityMode` parser. Historical import-memo and dynamic-permission algebra
+  remains covered through private unit-test setters, without creating a live
+  parser or configuration channel.
+- Simplified readiness reporting so it no longer accepts a legacy policy
+  object. Foreground audit remains policyless exactly as LLP 0030 requires;
+  production dynamic authority comes from the immutable typed snapshot.
+- Corrected the secure-mode script and full-matrix workflow comments that still
+  claimed `insecure` was a Cargo default.
+- Current demos were already migrated: production examples contain canonical,
+  versioned, digest-bound policy v2 artifacts; the audit example has no policy
+  file and uses `ibex capsec audit`.
+- Validation is green: 641 library tests pass with 3 intentional ignores; the
+  feature-minimal binary compiles; the behavior smoke proves project read,
+  outside read/write, process spawn, and ambient environment handling; generated
+  drift validates 7,602 edges and 15,204 cells; `ref-check` reports zero errors.
+- Criterion 8 is now implemented. The full LLP 0021 estimate is **68%** and the
+  security-critical mechanism estimate is **95%**; exact-target physical
+  evidence and promotion are the dominant remaining completion gap.
+
 ## Next milestone
 
-Attack criterion 8's diagnostic legacy-plane residue and criterion 7's
-exact-target evidence gap. Bootstrap-floor authorship and
+Attack criterion 7's exact-target evidence gap. Bootstrap-floor authorship and
 `malformed-branch-facts` remain named gaps rather than unsafe local
 substitutions.

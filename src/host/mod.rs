@@ -21,7 +21,6 @@ pub mod handles;
 // feature-gated; without it the C++ adapter links no-op stubs.
 #[cfg(feature = "host-http-server")]
 pub mod http_server;
-pub mod policy;
 mod portable_target_admission;
 pub mod process;
 
@@ -145,38 +144,11 @@ pub enum SecurityMode {
     Enforce,
 }
 
-impl SecurityMode {
-    /// Parse a policy-file `mode` string. Surrounding whitespace is trimmed
-    /// (`"enforce "` must not silently become an unrecognized value that degrades
-    /// to permissive); unknown values return `None`.
-    pub fn from_policy_str(s: &str) -> Option<SecurityMode> {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "legacy" | "permissive" => Some(SecurityMode::Permissive),
-            "audit" => Some(SecurityMode::Audit),
-            // `strict`/`capability` are retained as back-compat aliases for the
-            // single enforced mode.
-            "enforce" | "strict" | "capability" => Some(SecurityMode::Enforce),
-            _ => None,
-        }
-    }
-}
-
 /// The host configuration
 #[derive(Debug, Clone)]
 pub struct HostConfig {
     /// Security mode
     pub mode: SecurityMode,
-    /// Optional policy file path
-    pub policy_path: Option<std::path::PathBuf>,
-    /// The parsed policy artifact, when the caller already loaded it. The CLI
-    /// path parses the policy file exactly once per startup and threads it
-    /// through here; when absent, `Host::new` falls back to loading from
-    /// `policy_path` (the embedder/ABI path). (ENG-22644)
-    pub policy: Option<Arc<policy::PolicyFile>>,
-    /// Explicit allow list (CLI overrides)
-    pub allow: Vec<String>,
-    /// Explicit deny list (CLI overrides)
-    pub deny: Vec<String>,
     /// Host-boundary fence for filesystem access: when set, EVERY `fs:*`
     /// capability value (module loading included) must name a path inside this
     /// root or it is denied. The fence is enforced in every `SecurityMode` —
@@ -203,10 +175,6 @@ impl Default for HostConfig {
     fn default() -> Self {
         Self {
             mode: SecurityMode::Enforce,
-            policy_path: None,
-            policy: None,
-            allow: Vec::new(),
-            deny: Vec::new(),
             root_dir: None,
             allowed_hosts: None,
             session_lifecycle: None,
@@ -696,15 +664,11 @@ impl Host {
         #[cfg(feature = "host-http-server")]
         http_server::capture_immutable_environment_configuration();
         let session_lifecycle = config.session_lifecycle.clone().unwrap_or_default();
-        // The legacy string-policy plane is diagnostic/test-only. Production
-        // hosts arm an authenticated typed snapshot through `new_armed`; this
-        // constructor never reads a policy path and only accepts an already
-        // parsed legacy artifact for the separately named Audit workflow.
+        // This constructor is the policyless diagnostic/compatibility host.
+        // Production hosts arm an authenticated typed snapshot through
+        // `new_armed`; the retired string-policy artifact is not representable
+        // in HostConfig.
         // @ref LLP 0021#wp11--reconcile-the-corpus-and-remove-the-legacy-plane
-        let policy_file = (config.mode == SecurityMode::Audit)
-            .then(|| config.policy.clone())
-            .flatten();
-
         let mut manager = capability::CapabilityManager::new(config.mode);
         // Translate the embedder's host-boundary fields into the enforced
         // fence before the manager is shared; they were previously stored but
@@ -713,18 +677,6 @@ impl Host {
         manager.set_host_boundary(config.root_dir.as_deref(), config.allowed_hosts.as_deref());
         let manager = Arc::new(manager);
         let loader = Arc::new(ModuleLoader::new());
-
-        if let Some(policy) = policy_file {
-            manager.apply_policy(&policy);
-        }
-
-        // Apply overrides (allow/deny)
-        for cap in &config.allow {
-            manager.grant("*", cap, None);
-        }
-        for cap in &config.deny {
-            manager.deny("*", cap, None);
-        }
 
         let resolver_session_ordinal = NEXT_MODULE_RESOLVER_SESSION_ID
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
@@ -924,15 +876,6 @@ impl Host {
         if config.mode != SecurityMode::Enforce {
             return Err(capsec_semantics::Error::ArmRefused(
                 "an armed host requires enforce mode".into(),
-            ));
-        }
-        if config.policy.is_some()
-            || config.policy_path.is_some()
-            || !config.allow.is_empty()
-            || !config.deny.is_empty()
-        {
-            return Err(capsec_semantics::Error::ArmRefused(
-                "legacy policy and allow/deny overrides are forbidden on an armed host".into(),
             ));
         }
         if config.root_dir.is_some() || config.allowed_hosts.is_some() {

@@ -4,7 +4,6 @@
 //! and the generated-policy algebra in LLP 0014.
 
 use super::SecurityMode;
-use crate::host::policy::PolicyFile;
 use crate::module_loader::RUNTIME_GATED_NODE_BUILTINS;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Component, Path, PathBuf};
@@ -93,8 +92,8 @@ pub struct CapabilityManager {
     /// `gate_and_record` records only would-denies, skipping it for an allowed
     /// decision drops no audit entry. Denials are never memoized (every denied
     /// import re-runs the full path and records). Invalidated when either
-    /// input changes: `apply_policy` clears it, `register_module_package`
-    /// purges the re-registered principal. Bounded by the real import graph
+    /// input changes: diagnostic test policy replacement clears it, while
+    /// `register_module_package` purges the re-registered principal. Bounded by the real import graph
     /// (registered principals × specifiers they successfully import).
     /// (ENG-22644) @ref LLP 0013#policy
     import_allowed_memo: RwLock<HashMap<String, HashSet<String>>>,
@@ -246,66 +245,41 @@ impl CapabilityManager {
         });
     }
 
-    /// Apply policy file allow/deny rules
-    pub fn apply_policy(&self, policy: &PolicyFile) {
-        for cap in &policy.allow {
-            self.grant("*", cap, None);
+    /// Install one historical diagnostic import disposition without reviving
+    /// the retired string-policy parser or exposing a production configuration
+    /// seam. The compatibility manager's import behavior remains covered while
+    /// foreground audit itself stays policyless.
+    #[cfg(test)]
+    fn set_import_policy_for_test(
+        &self,
+        selector: &str,
+        builtins: Option<Vec<String>>,
+        packages: Option<Vec<String>>,
+    ) {
+        if let Ok(mut map) = self.import_policy.write() {
+            map.insert(selector.to_owned(), ImportPolicy { builtins, packages });
         }
-        for cap in &policy.deny {
-            self.deny("*", cap, None);
-        }
-        for (module_id, module_policy) in &policy.modules {
-            for cap in &module_policy.allow {
-                self.grant(module_id, cap, None);
-            }
-            for cap in &module_policy.deny {
-                self.deny(module_id, cap, None);
-            }
-        }
-        // @ref LLP 0013#policy — per-package declarations grant host
-        // capabilities and constrain the import graph, keyed by the package
-        // selector (name). Coexisting `name@version` entries are separate keys.
-        for (selector, package_policy) in &policy.packages {
-            for cap in &package_policy.capabilities {
-                self.grant_package(selector, cap);
-            }
-            for cap in &package_policy.deny {
-                self.deny_package(selector, cap);
-            }
-            if package_policy.builtins.is_some() || package_policy.packages.is_some() {
-                if let Ok(mut map) = self.import_policy.write() {
-                    map.insert(
-                        selector.clone(),
-                        ImportPolicy {
-                            builtins: package_policy.builtins.clone(),
-                            packages: package_policy.packages.clone(),
-                        },
-                    );
-                }
-            }
-        }
-        // @ref LLP 0013#phase-5 — optional deputy hardening classes.
-        if !policy.deputy_classes.is_empty() {
-            self.set_deputy_classes(policy.deputy_classes.iter().cloned());
-        }
-        // @ref LLP 0013 — §dynamic permissions — the runtime-grant ceiling.
-        if !policy.ceiling.is_empty() {
-            if let Ok(mut c) = self.ceiling.write() {
-                *c = policy
-                    .ceiling
-                    .iter()
-                    .map(|s| normalize_capability(s))
-                    .collect();
-                self.bump_authorization_generation();
-            }
-        }
-        // The import policy just changed: every memoized allowed-import
-        // decision is stale. Cleared LAST so a check that raced the partial
-        // application above cannot leave a decision computed against the old
-        // policy behind. (In practice apply_policy runs once, at host setup,
-        // before user code.) (ENG-22644)
         if let Ok(mut memo) = self.import_allowed_memo.write() {
             memo.clear();
+        }
+    }
+
+    /// Exercise the legacy manager's dynamic-permission algebra directly in
+    /// unit tests. Production dynamic authority is supplied by the immutable
+    /// typed decision context, never by this test-only setter.
+    #[cfg(test)]
+    fn set_ceiling_for_test<I, S>(&self, capabilities: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        if let Ok(mut ceiling) = self.ceiling.write() {
+            *ceiling = capabilities
+                .into_iter()
+                .map(Into::into)
+                .map(|capability| normalize_capability(&capability))
+                .collect();
+            self.bump_authorization_generation();
         }
     }
 
@@ -1627,10 +1601,7 @@ mod tests {
     #[test]
     fn retained_resource_generation_tracks_every_authority_mutation() {
         let manager = CapabilityManager::new(SecurityMode::Enforce);
-        manager.apply_policy(&PolicyFile {
-            ceiling: vec!["sqlite:write".into()],
-            ..Default::default()
-        });
+        manager.set_ceiling_for_test(["sqlite:write"]);
         let initial = manager.authorization_generation();
         manager.grant("0", "sqlite:write", None);
         let granted = manager.authorization_generation();
@@ -2153,24 +2124,17 @@ mod tests {
     // packages axis must NOT unrestrict the builtins axis a bare-name entry set.
     #[test]
     fn import_policy_axes_resolve_independently_across_selectors() {
-        use crate::host::policy::PackagePolicy;
         let m = CapabilityManager::new(SecurityMode::Enforce);
-        let mut policy = PolicyFile::default();
-        policy.packages.insert(
-            "foo".to_string(),
-            PackagePolicy {
-                builtins: Some(vec![]), // bare name: deny all builtins
-                ..Default::default()
-            },
+        m.set_import_policy_for_test(
+            "foo",
+            Some(vec![]), // bare name: deny all builtins
+            None,
         );
-        policy.packages.insert(
-            "foo@1.0.0".to_string(),
-            PackagePolicy {
-                packages: Some(vec!["allowed-dep".to_string()]), // pin: only the packages axis
-                ..Default::default()
-            },
+        m.set_import_policy_for_test(
+            "foo@1.0.0",
+            None,
+            Some(vec!["allowed-dep".to_string()]), // pin: only the packages axis
         );
-        m.apply_policy(&policy);
         m.register_module_package("1", "foo", Some("foo@1.0.0"));
         // The version pin constrains only `packages`; the bare name's empty
         // `builtins` still governs the builtins axis → node:fs denied.
@@ -2214,15 +2178,7 @@ mod tests {
         assert!(is_builtin_specifier("bun:fs"));
         assert!(is_builtin_specifier("node:test"));
         let m = CapabilityManager::new(SecurityMode::Enforce);
-        let mut policy = PolicyFile::default();
-        policy.packages.insert(
-            "evil".to_string(),
-            crate::host::policy::PackagePolicy {
-                builtins: Some(vec![]), // deny all builtins
-                ..Default::default()
-            },
-        );
-        m.apply_policy(&policy);
+        m.set_import_policy_for_test("evil", Some(vec![]), None);
         m.register_module_package("1", "evil", None);
         for alias in [
             "exact:sqlite",
@@ -2335,10 +2291,7 @@ mod tests {
     #[test]
     fn ceiling_restores_root_gating_for_dynamic_permissions() {
         let manager = CapabilityManager::new(SecurityMode::Enforce);
-        manager.apply_policy(&PolicyFile {
-            ceiling: vec!["network:fetch".to_string()],
-            ..Default::default()
-        });
+        manager.set_ceiling_for_test(["network:fetch"]);
         // In-ceiling but not yet granted: denied until a runtime grant moves the
         // floor (the tri-state prompt state).
         assert!(!manager.check("0", "network:fetch:api.example.com"));
@@ -2377,22 +2330,16 @@ mod tests {
     #[test]
     fn import_policy_gates_builtins() {
         let manager = CapabilityManager::new(SecurityMode::Enforce);
-        let policy = PolicyFile {
-            packages: HashMap::from([(
-                "node-fetch".to_string(),
-                crate::host::policy::PackagePolicy {
-                    capabilities: vec!["network:fetch".to_string()],
-                    builtins: Some(vec![
-                        "node:http".to_string(),
-                        "node:https".to_string(),
-                        "node:test".to_string(),
-                    ]),
-                    ..Default::default()
-                },
-            )]),
-            ..Default::default()
-        };
-        manager.apply_policy(&policy);
+        manager.grant_package("node-fetch", "network:fetch");
+        manager.set_import_policy_for_test(
+            "node-fetch",
+            Some(vec![
+                "node:http".to_string(),
+                "node:https".to_string(),
+                "node:test".to_string(),
+            ]),
+            None,
+        );
         manager.register_module_package("42", "node-fetch", None);
 
         assert!(manager.check_import("42", "node:http"));
@@ -2408,17 +2355,7 @@ mod tests {
     #[test]
     fn import_policy_audit_mode_proceeds() {
         let manager = CapabilityManager::new(SecurityMode::Audit);
-        let policy = PolicyFile {
-            packages: HashMap::from([(
-                "evil".to_string(),
-                crate::host::policy::PackagePolicy {
-                    builtins: Some(vec![]), // deny all builtins
-                    ..Default::default()
-                },
-            )]),
-            ..Default::default()
-        };
-        manager.apply_policy(&policy);
+        manager.set_import_policy_for_test("evil", Some(vec![]), None);
         manager.register_module_package("5", "evil", None);
         // Audit proceeds...
         assert!(manager.check_import("5", "node:child_process"));
@@ -2431,65 +2368,35 @@ mod tests {
     #[test]
     fn import_memo_is_purged_when_a_principal_is_registered() {
         let manager = CapabilityManager::new(SecurityMode::Enforce);
-        let policy = PolicyFile {
-            packages: HashMap::from([(
-                "evil".to_string(),
-                crate::host::policy::PackagePolicy {
-                    builtins: Some(vec![]), // deny all builtins
-                    ..Default::default()
-                },
-            )]),
-            ..Default::default()
-        };
-        manager.apply_policy(&policy);
+        manager.set_import_policy_for_test("evil", Some(vec![]), None);
 
         // Unregistered principal is trusted: allowed (and memoized).
         assert!(manager.check_import("9", "node:fs"));
         assert!(manager.check_import("9", "node:fs"));
 
-        // Registration flips the principal from trusted to policied; the memo
+        // Registration flips the principal from trusted to constrained; the memo
         // entry for it must not survive.
         manager.register_module_package("9", "evil", None);
         assert!(!manager.check_import("9", "node:fs"));
     }
 
     #[test]
-    fn import_memo_is_cleared_when_policy_is_applied() {
+    fn import_memo_is_cleared_when_diagnostic_disposition_changes() {
         let manager = CapabilityManager::new(SecurityMode::Enforce);
         manager.register_module_package("7", "leftpad", None);
 
         // No import policy yet: unrestricted (allowed, memoized).
         assert!(manager.check_import("7", "node:fs"));
 
-        // Applying a policy that restricts the package must defeat the memo.
-        let policy = PolicyFile {
-            packages: HashMap::from([(
-                "leftpad".to_string(),
-                crate::host::policy::PackagePolicy {
-                    builtins: Some(vec![]), // deny all builtins
-                    ..Default::default()
-                },
-            )]),
-            ..Default::default()
-        };
-        manager.apply_policy(&policy);
+        // Replacing the diagnostic import disposition must defeat the memo.
+        manager.set_import_policy_for_test("leftpad", Some(vec![]), None);
         assert!(!manager.check_import("7", "node:fs"));
     }
 
     #[test]
     fn denied_imports_are_never_memoized_and_keep_recording() {
         let manager = CapabilityManager::new(SecurityMode::Audit);
-        let policy = PolicyFile {
-            packages: HashMap::from([(
-                "evil".to_string(),
-                crate::host::policy::PackagePolicy {
-                    builtins: Some(vec![]),
-                    ..Default::default()
-                },
-            )]),
-            ..Default::default()
-        };
-        manager.apply_policy(&policy);
+        manager.set_import_policy_for_test("evil", Some(vec![]), None);
         manager.register_module_package("5", "evil", None);
 
         // Two denied (audit: proceed-but-record) imports → two audit entries,
@@ -2557,29 +2464,6 @@ mod tests {
         assert_eq!(capability_class("fs:write:/etc/passwd"), "fs:write");
         assert_eq!(capability_class("process:spawn"), "process:spawn");
         assert_eq!(capability_class("crypto"), "crypto");
-    }
-
-    #[test]
-    fn security_mode_from_policy_str() {
-        assert_eq!(
-            SecurityMode::from_policy_str("strict"),
-            Some(SecurityMode::Enforce)
-        );
-        assert_eq!(
-            SecurityMode::from_policy_str("audit"),
-            Some(SecurityMode::Audit)
-        );
-        assert_eq!(SecurityMode::from_policy_str("bogus"), None);
-        // Surrounding whitespace must be trimmed — "enforce " must not become an
-        // unrecognized value that silently degrades an Auto run. (review follow-up)
-        assert_eq!(
-            SecurityMode::from_policy_str("  enforce\n"),
-            Some(SecurityMode::Enforce)
-        );
-        assert_eq!(
-            SecurityMode::from_policy_str("AUDIT "),
-            Some(SecurityMode::Audit)
-        );
     }
 
     // ENG-22630 review: a root builtin allowlist entry covers its subpaths, so the

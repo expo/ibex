@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Guard against secure-mode rot.
 #
-# `insecure` is in Cargo's default feature set (LLP 0039), so an ordinary
-# `cargo build` and `cargo test` exercise a runtime with no sandbox. Nothing in
-# the default path would notice if secure mode stopped compiling, stopped
-# running, or silently stopped enforcing. This script is what notices.
+# `insecure` is intentionally absent from Cargo's default feature set (LLP
+# 0039). Ordinary builds exercise secure mode; this explicit feature-minimal
+# gate additionally catches accidental coupling to a default-only feature and
+# proves enforcement behavior end to end.
 #
 # It checks three things, cheapest first:
 #   1. secure mode still compiles;
