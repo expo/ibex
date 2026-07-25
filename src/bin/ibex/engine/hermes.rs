@@ -8866,12 +8866,12 @@ cp \"$input\" \"$out\"\n";
     }
 
     fn install_test_host_with_allow(allow: &[&str]) -> HostResetGuard {
+        // This helper predates the typed snapshot plane. Its capability names
+        // only document the host effects exercised by broad Hermes integration
+        // tests; they must never recreate the retired HostConfig allowlist.
+        debug_assert!(allow.iter().all(|capability| !capability.is_empty()));
         crate::host::abi::install_host(crate::host::Host::new(crate::host::HostConfig {
             mode: crate::host::SecurityMode::Enforce,
-            allow: allow
-                .iter()
-                .map(|capability| capability.to_string())
-                .collect(),
             ..Default::default()
         }));
         HostResetGuard

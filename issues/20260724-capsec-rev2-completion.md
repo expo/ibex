@@ -652,6 +652,14 @@ ticket closes.
   even when it only uncovers a source-review bookkeeping defect. No physical
   command from the failed attempt is credited; the Windows run will restart
   from a new clean immutable revision.
+- The next exact run passed every preflight and reached the loaded-engine
+  attestation, where the Windows-only bin-test build found one remaining
+  `HostConfig.allow` initializer in a broad Hermes test helper. The helper now
+  keeps its capability-name inputs as documentation only and constructs the
+  policyless host directly; it does not recreate an allowlist or parser seam.
+- The exact attestation feature closure now compiles locally through the full
+  `ibex` bin-test link. The next Windows revision can reuse the warm native
+  build cache while still restarting command evidence from attempt one.
 
 ## Next milestone
 
