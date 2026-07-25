@@ -6983,7 +6983,11 @@ Promise.resolve().then(function capsecSafeThrowMetadataFixture() {
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
-    mod capsec_public_callback_invariant_batch {
+    // Keep the module name disjoint from each contained test's Cargo substring
+    // filter. Otherwise the public callback command also selects the separately
+    // bound internal-evidence producer merely because its module path matches.
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    mod capsec_callback_invariant_evidence {
         include!("capsec_public_callback_invariant_batch.rs");
     }
 

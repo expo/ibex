@@ -6,7 +6,7 @@ import {
 import { PUBLIC_SURFACE_EXECUTOR_DESCRIPTORS } from "./capsec-public-executors.mjs";
 
 describe("CapSec secure conformance commands", () => {
-  test("exclude Cargo's insecure default and include the production profile", () => {
+  test("pins the production profile and excludes insecure mode", () => {
     const command = capsecSecureCargoTestCommand("proof_test", true);
     expect(command).toEqual([
       "cargo",

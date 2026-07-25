@@ -5147,7 +5147,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_exact_fixture_evidence_batch",
-          "sourceOffset": 26382,
+          "sourceOffset": 26378,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read",
           "stage": "armed-bootstrap-host-read"
@@ -5364,7 +5364,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_exact_fixture_evidence_batch",
-          "sourceOffset": 28771,
+          "sourceOffset": 28767,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read",
           "stage": "armed-bootstrap-host-read"

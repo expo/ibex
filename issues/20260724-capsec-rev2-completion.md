@@ -702,6 +702,21 @@ ticket closes.
   eligible native, host-ABI, and module-loader public fixtures in 295.83
   seconds. The six residual eager-link ABIs are absent from the batch by
   authenticated recipe construction rather than skipped at execution time.
+- A full runner restart passed all preflights, loaded-engine attestation,
+  typed adapters, and public batches 000–004, including the repaired 554-row
+  native batch. Batch 005 then exposed a Cargo-filter collision: the public
+  callback test name was also the containing Rust module name, so its substring
+  filter selected the callback smoke and separately bound internal-evidence
+  producer too. The internal producer correctly refused without its owned
+  binding input. The module now has a disjoint name so each evidence command
+  selects only its intended test.
+- The repaired public Cargo command selected exactly one test and passed its
+  callback evidence batch (626 other tests filtered out). The corresponding
+  internal command independently selected exactly one test and, with no recipe
+  catalog supplied, took only its documented skip path. The focused recipe
+  suite passes 82 tests with 111,102 assertions; generated drift, Rust format,
+  and LLP reference validation also pass (39 documents, 2,058 refs, zero
+  errors, one intentionally unchecked URL).
 
 ## Next milestone
 

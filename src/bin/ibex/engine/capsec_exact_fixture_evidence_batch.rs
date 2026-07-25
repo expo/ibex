@@ -677,7 +677,7 @@ async fn capsec_exact_fixture_evidence_batch() {
             )
             .await
         } else {
-            super::capsec_public_callback_invariant_batch::execute_exact_fixture_runtime_observation(
+            super::capsec_callback_invariant_evidence::execute_exact_fixture_runtime_observation(
                 recipe,
             )
             .await

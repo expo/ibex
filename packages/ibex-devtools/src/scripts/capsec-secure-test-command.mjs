@@ -1,11 +1,11 @@
 /**
  * Canonical Cargo invocation for every authority-bearing CapSec conformance
- * test. Cargo's default features deliberately include `insecure`, so a
- * conformance command that omits `--no-default-features` observes the
- * diagnostic bypass instead of the production decision plane.
+ * test. Plain Cargo defaults are secure, but promotion evidence still pins an
+ * explicit feature closure so future default changes cannot silently alter the
+ * observed decision plane.
  *
  * @ref LLP 0039#secure-mode-must-stay-exercised — security evidence must run
- * with `insecure` absent, even while ordinary developer builds default to it.
+ * with `insecure` absent.
  */
 
 export const CAPSEC_SECURE_TEST_FEATURES =
