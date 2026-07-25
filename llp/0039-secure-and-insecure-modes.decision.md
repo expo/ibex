@@ -5,6 +5,7 @@
 **Systems:** Runtime, CapSec, Build, Product
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-24
+**Revised:** 2026-07-24 (the secure prepared/live-graph path now defers ESM and CommonJS `import()` discovery until an exact reached site; synchronous authored CommonJS `require()` retains the no-probe refusal)
 **Revised:** 2026-07-24 (ENG-25424 closes prepared-graph backing-path disclosure and removes the secure-gate test exclusion; promotion-facing CapSec executors now explicitly disable Cargo defaults so conformance cannot inherit the insecure mode)
 **Related:** LLP 0021 (target advertisement + conformance report); LLP 0036 (advertisement completion); LLP 0038 (unadvertised dev arming, insecure build)
 
@@ -150,9 +151,10 @@ The secure-mode script has no test exclusions. The former ENG-25424 exclusion
 was removed after prepared graphs stopped projecting private backing paths into
 Hermes source labels, `import.meta`, stack traces, and source maps. Its
 regression also retains the independent fail-closed boundary for authored
-call-time dynamic imports: until the runtime owns an in-drive activation
-capability, the prepared linker refuses that graph rather than eagerly
-authorizing a dead branch.
+call-time module work: ESM and CommonJS `import()` retain only exact deferred
+site declarations and cannot resolve, acquire, or read a target carrier before
+the site is reached; synchronous authored CommonJS `require()` remains refused
+until the narrower in-drive activation capability exists.
 
 Promotion-facing CapSec execution is part of this guard, not an exception to
 it. Every generated fixture, adapter, public-surface, callback, startup,

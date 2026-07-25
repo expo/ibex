@@ -21,7 +21,7 @@ callback cannot safely call the existing outer-drive APIs.
 Authenticated source graphs now implement the asynchronous `import()` half of
 this issue without eager target discovery. The issue remains open for the
 synchronous authored CommonJS `require()` callback, invocation-time prepared
-carrier lookup, and the deeper nested/cycle failure matrix. Generated
+carrier lookup, and the remaining prepared-source matrix. Generated
 manifest-builtin fan-out remains the only synchronous `require()` exception.
 
 ## Required design
@@ -92,12 +92,23 @@ production execution:
 - End-to-end regressions cover delayed ESM and CommonJS `import()` after
   ordinary program quiescence, plus dead-target no-discovery and exact
   receipt-gated target closure growth.
+- Production ingress also covers a delayed TLA target that reaches a second
+  import, a reached resolution failure that rejects only its public Promise,
+  and atomic publication/evaluation of a newly discovered static cycle.
+- A production computed-site manifest retains every declared spelling without
+  adding a target to the initial graph, then acquires and evaluates only the
+  exact candidate selected at runtime. The unchosen candidate is never read or
+  evaluated.
+- A separately bound package with its authenticated `dynamic-import` edge
+  removed is refused at the reached site. The refusal becomes only a rejected
+  public `import()` Promise, leaves keep-alive healthy, and never evaluates the
+  otherwise resolvable package body.
 - Generation teardown removes pending requests and every record in the
   generation. Completion-before-unpin is one-shot; unpin-before-completion
   makes both a late success and a late refusal stale.
 
-Still open are invocation-time prepared-carrier discovery, deeper nested/cycle
-failure matrices, and the synchronous authored CommonJS `require()` callback.
+Still open are invocation-time prepared-carrier discovery, its source/prepared
+failure matrix, and the synchronous authored CommonJS `require()` callback.
 
 ## Done when
 

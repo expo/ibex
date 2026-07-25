@@ -378,6 +378,12 @@ ticket closes.
   routing, generation teardown in both completion orderings, closed-window
   CommonJS refusal, and delayed ESM/CommonJS imports that settle after ordinary
   program quiescence.
+- Additional production-ingress regressions pass for nested TLA imports,
+  reached resolution failure isolated to its public Promise, and atomic
+  publication/evaluation of a newly discovered static cycle. A declared
+  computed site acquires only its chosen spelling, while an otherwise
+  resolvable package with no authenticated dynamic-import edge rejects only
+  the reached Promise and is never evaluated.
 - The complete secure-mode gate passes against the reviewed Hermes framework:
   637 library tests pass, 3 hosted/diagnostic tests remain intentionally
   ignored, and the behavioral smoke enforces project read plus outside-read,
@@ -387,8 +393,9 @@ ticket closes.
 - Current estimate: **59% complete for the full LLP 0021 completion contract;
   roughly 87% complete for the security-critical runtime mechanism set.**
   Invocation-time prepared carriers, synchronous authored CommonJS
-  `require()`, deeper activation failure matrices, and the larger exact-target
-  evidence program remain open.
+  `require()`, and the larger exact-target evidence program remain open. The
+  stronger activation matrix closes evidence gaps without inflating the
+  mechanism estimate.
 
 ## Current hard parts
 
@@ -412,7 +419,7 @@ ticket closes.
 - Authored `import()` now has receipt-gated reached-site source activation and
   atomic live-graph publication. The remaining call-time module gap is the
   synchronous in-drive CommonJS `require()` capability, plus invocation-time
-  prepared carriers and deeper failure-matrix coverage, tracked in
+  prepared carriers and their failure matrix, tracked in
   `issues/20260724-native-call-time-module-activation.md`.
 - The root/bootstrap mechanism seals correctly, but both builders still emit an
   empty `bootstrapAuthorityFloor`. Current bootstrap host inputs are
@@ -424,8 +431,7 @@ ticket closes.
 
 ## Next milestone
 
-Run the full secure-mode gate and checkpoint the receipt-authorized live-graph
-activation slice. Then address invocation-time prepared activation and the
-synchronous CommonJS `require()` callback. Bootstrap-floor authorship and
-`malformed-branch-facts` remain named gaps rather than unsafe local
-substitutions.
+Checkpoint the expanded receipt-authorized live-graph activation matrix. Then
+address invocation-time prepared activation and the synchronous CommonJS
+`require()` callback. Bootstrap-floor authorship and `malformed-branch-facts`
+remain named gaps rather than unsafe local substitutions.

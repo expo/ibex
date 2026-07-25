@@ -12089,6 +12089,7 @@ pub(crate) mod tests {
             mode,
             bootstrap_compatibility_modes,
             false,
+            true,
         )
     }
 
@@ -12106,6 +12107,7 @@ pub(crate) mod tests {
             mode,
             &[],
             true,
+            true,
         )
     }
 
@@ -12117,6 +12119,7 @@ pub(crate) mod tests {
         mode: capsec_semantics::arming::ArmedExecutionMode,
         bootstrap_compatibility_modes: &[&str],
         grant_root_fs_read: bool,
+        allow_fixture_package_dynamic_import: bool,
     ) -> Host {
         use capsec_semantics::arming::{
             ArmedEntry, ArmedSnapshot, ExpectedArmingIdentity, ExpectedProtectedArtifact,
@@ -12203,6 +12206,9 @@ pub(crate) mod tests {
                 ("dynamic-import", vec!["import", "node"]),
                 ("esm-static", vec!["import", "node"]),
             ] {
+                if kind == "dynamic-import" && !allow_fixture_package_dynamic_import {
+                    continue;
+                }
                 typed_edges.push(serde_json::json!({
                     "importer": edge["importer"],
                     "imported": edge["imported"],
@@ -12376,6 +12382,7 @@ pub(crate) mod tests {
             entry_identity,
             mode,
             false,
+            true,
         )
     }
 
@@ -12392,6 +12399,25 @@ pub(crate) mod tests {
             entry_identity,
             mode,
             true,
+            true,
+        )
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    fn session_conformance_direct_runtime_with_package_dynamic_import_policy(
+        project_root: &Path,
+        entry_kind: capsec_semantics::arming::ArmedEntryKind,
+        entry_identity: &str,
+        mode: capsec_semantics::arming::ArmedExecutionMode,
+        allow_fixture_package_dynamic_import: bool,
+    ) -> Result<Runtime> {
+        session_conformance_direct_runtime_with_authority(
+            project_root,
+            entry_kind,
+            entry_identity,
+            mode,
+            false,
+            allow_fixture_package_dynamic_import,
         )
     }
 
@@ -12402,6 +12428,7 @@ pub(crate) mod tests {
         entry_identity: &str,
         mode: capsec_semantics::arming::ArmedExecutionMode,
         grant_root_fs_read: bool,
+        allow_fixture_package_dynamic_import: bool,
     ) -> Result<Runtime> {
         use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
 
@@ -12432,7 +12459,15 @@ pub(crate) mod tests {
                 mode,
             )
         } else {
-            armed_ingress_test_host(&project_root, entry_kind, entry_identity, mode)
+            armed_ingress_test_host_with_options(
+                &project_root,
+                entry_kind,
+                entry_identity,
+                mode,
+                &[],
+                false,
+                allow_fixture_package_dynamic_import,
+            )
         };
         let plan = ingress_test_plan(entry_kind, mode);
         let digest = host
@@ -13423,6 +13458,408 @@ pub(crate) mod tests {
             tokio::task::yield_now().await;
         }
         assert_eq!(runtime.lifecycle_exit_code(), 38);
+    }
+
+    #[cfg(all(
+        feature = "module-runner",
+        feature = "capsec-conformance-observer",
+        any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64")
+        )
+    ))]
+    #[tokio::test]
+    async fn retained_native_activation_drains_nested_tla_imports() {
+        use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
+
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::set_var("EXACT_COMPAT_TEST", "1");
+        let directory = tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("package.json"),
+            r#"{"name":"nested-native-activation","private":true,"type":"module"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("entry.mjs"),
+            "const delayed = setTimeout(() => { import('./middle.mjs').then(({ status }) => { process.exitCode = status; }); }, 50);\nif (delayed && typeof delayed.unref === 'function') delayed.unref();\nelse if (typeof globalThis.__exactTimerUnref === 'function') globalThis.__exactTimerUnref(delayed);\nelse throw new Error('timer unref unavailable');\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("middle.mjs"),
+            "const dependency = await import('./dep.mjs');\nexport const status = dependency.status;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("dep.mjs"),
+            "export const status = 40;\n",
+        )
+        .unwrap();
+        let mut runtime = session_conformance_direct_runtime(
+            directory.path(),
+            ArmedEntryKind::File,
+            "file:///project/entry.mjs",
+            ArmedExecutionMode::Program,
+        )
+        .unwrap();
+        runtime.exec_argv.push("--keep-alive".to_owned());
+        {
+            let mut ingress = runtime.authenticated_file_ingress().unwrap();
+            let request = ingress.file_request(&[]).unwrap();
+            let preflight = ingress
+                .prepare_authenticated_module_graph(&request)
+                .unwrap_or_else(|error| panic!("nested import preflight failed: {error:#}"));
+            let crate::engine::AuthenticatedModuleGraphPreparation::Native(graph) = preflight
+            else {
+                panic!("nested dynamic imports required the compatibility loader")
+            };
+            assert_eq!(graph.records().count(), 1);
+            assert_eq!(graph.deferred_dynamic_links().len(), 1);
+        }
+        runtime.load_runtime().await.unwrap();
+        assert_eq!(
+            runtime.run_authenticated_file_program(&[]).await.unwrap(),
+            AuthenticatedFileProgramOutcome::Completed
+        );
+        assert_eq!(runtime.lifecycle_exit_code(), 0);
+        tokio::time::sleep(std::time::Duration::from_millis(75)).await;
+        for _ in 0..40 {
+            let outcome = runtime.settle_authenticated_file_keep_alive_tick().await;
+            assert!(
+                outcome.is_none(),
+                "nested TLA imports should settle without terminating keep-alive: {outcome:?}"
+            );
+            if runtime.lifecycle_exit_code() == 40 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(runtime.lifecycle_exit_code(), 40);
+    }
+
+    #[cfg(all(
+        feature = "module-runner",
+        feature = "capsec-conformance-observer",
+        any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64")
+        )
+    ))]
+    #[tokio::test]
+    async fn retained_native_activation_rejects_only_the_failed_import() {
+        use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
+
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::set_var("EXACT_COMPAT_TEST", "1");
+        let directory = tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("package.json"),
+            r#"{"name":"failed-native-activation","private":true,"type":"module"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("entry.mjs"),
+            "const delayed = setTimeout(() => { import('./missing.mjs').then(() => { process.exitCode = 99; }, (error) => { if (!String(error).includes('dynamic module activation refused')) throw error; process.exitCode = 41; }); }, 50);\nif (delayed && typeof delayed.unref === 'function') delayed.unref();\nelse if (typeof globalThis.__exactTimerUnref === 'function') globalThis.__exactTimerUnref(delayed);\nelse throw new Error('timer unref unavailable');\n",
+        )
+        .unwrap();
+        let mut runtime = session_conformance_direct_runtime(
+            directory.path(),
+            ArmedEntryKind::File,
+            "file:///project/entry.mjs",
+            ArmedExecutionMode::Program,
+        )
+        .unwrap();
+        runtime.exec_argv.push("--keep-alive".to_owned());
+        {
+            let mut ingress = runtime.authenticated_file_ingress().unwrap();
+            let request = ingress.file_request(&[]).unwrap();
+            let preflight = ingress
+                .prepare_authenticated_module_graph(&request)
+                .unwrap_or_else(|error| panic!("failed import preflight failed: {error:#}"));
+            let crate::engine::AuthenticatedModuleGraphPreparation::Native(graph) = preflight
+            else {
+                panic!("a deferred missing import required the compatibility loader")
+            };
+            assert_eq!(graph.records().count(), 1);
+            assert_eq!(graph.deferred_dynamic_links().len(), 1);
+        }
+        runtime.load_runtime().await.unwrap();
+        assert_eq!(
+            runtime.run_authenticated_file_program(&[]).await.unwrap(),
+            AuthenticatedFileProgramOutcome::Completed
+        );
+        assert_eq!(runtime.lifecycle_exit_code(), 0);
+        tokio::time::sleep(std::time::Duration::from_millis(75)).await;
+        for _ in 0..20 {
+            let outcome = runtime.settle_authenticated_file_keep_alive_tick().await;
+            assert!(
+                outcome.is_none(),
+                "a rejected import should not terminate keep-alive: {outcome:?}"
+            );
+            if runtime.lifecycle_exit_code() == 41 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(runtime.lifecycle_exit_code(), 41);
+    }
+
+    #[cfg(all(
+        feature = "module-runner",
+        feature = "capsec-conformance-observer",
+        any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64")
+        )
+    ))]
+    #[tokio::test]
+    async fn retained_native_activation_publishes_a_static_cycle_atomically() {
+        use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
+
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::set_var("EXACT_COMPAT_TEST", "1");
+        let directory = tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("package.json"),
+            r#"{"name":"cyclic-native-activation","private":true,"type":"module"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("entry.mjs"),
+            "const delayed = setTimeout(() => { import('./a.mjs').then(({ status }) => { process.exitCode = status; }); }, 50);\nif (delayed && typeof delayed.unref === 'function') delayed.unref();\nelse if (typeof globalThis.__exactTimerUnref === 'function') globalThis.__exactTimerUnref(delayed);\nelse throw new Error('timer unref unavailable');\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("a.mjs"),
+            "import { valueB } from './b.mjs';\nexport const valueA = 20;\nexport const status = valueB() + 2;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("b.mjs"),
+            "import { valueA } from './a.mjs';\nexport function valueB() { return valueA * 2; }\n",
+        )
+        .unwrap();
+        let mut runtime = session_conformance_direct_runtime(
+            directory.path(),
+            ArmedEntryKind::File,
+            "file:///project/entry.mjs",
+            ArmedExecutionMode::Program,
+        )
+        .unwrap();
+        runtime.exec_argv.push("--keep-alive".to_owned());
+        {
+            let mut ingress = runtime.authenticated_file_ingress().unwrap();
+            let request = ingress.file_request(&[]).unwrap();
+            let preflight = ingress
+                .prepare_authenticated_module_graph(&request)
+                .unwrap_or_else(|error| panic!("cyclic import preflight failed: {error:#}"));
+            let crate::engine::AuthenticatedModuleGraphPreparation::Native(graph) = preflight
+            else {
+                panic!("a deferred cyclic target required the compatibility loader")
+            };
+            assert_eq!(graph.records().count(), 1);
+            assert_eq!(graph.deferred_dynamic_links().len(), 1);
+        }
+        runtime.load_runtime().await.unwrap();
+        assert_eq!(
+            runtime.run_authenticated_file_program(&[]).await.unwrap(),
+            AuthenticatedFileProgramOutcome::Completed
+        );
+        assert_eq!(runtime.lifecycle_exit_code(), 0);
+        tokio::time::sleep(std::time::Duration::from_millis(75)).await;
+        for _ in 0..20 {
+            let outcome = runtime.settle_authenticated_file_keep_alive_tick().await;
+            assert!(
+                outcome.is_none(),
+                "a cyclic target should settle without terminating keep-alive: {outcome:?}"
+            );
+            if runtime.lifecycle_exit_code() == 42 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(runtime.lifecycle_exit_code(), 42);
+    }
+
+    #[cfg(all(
+        feature = "module-runner",
+        feature = "capsec-conformance-observer",
+        any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64")
+        )
+    ))]
+    #[tokio::test]
+    async fn retained_native_activation_reaches_only_the_chosen_computed_candidate() {
+        use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
+
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::set_var("EXACT_COMPAT_TEST", "1");
+        let directory = tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("package.json"),
+            r#"{"name":"computed-native-activation","private":true,"type":"module","ibex":{"computedCandidates":{"sites":[{"requester":"entry.mjs","label":"routes","specifiers":["./chosen.mjs","./dead.mjs"]}]}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("entry.mjs"),
+            "const chosen = './chosen.mjs';\nconst delayed = setTimeout(() => { import(chosen, { with: { 'ibex:site': 'routes' } }).then(({ status }) => { process.exitCode = status; }); }, 50);\nif (delayed && typeof delayed.unref === 'function') delayed.unref();\nelse if (typeof globalThis.__exactTimerUnref === 'function') globalThis.__exactTimerUnref(delayed);\nelse throw new Error('timer unref unavailable');\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("chosen.mjs"),
+            "export const status = 43;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("dead.mjs"),
+            "throw new Error('an unchosen computed candidate was evaluated');\n",
+        )
+        .unwrap();
+        let mut runtime = session_conformance_direct_runtime(
+            directory.path(),
+            ArmedEntryKind::File,
+            "file:///project/entry.mjs",
+            ArmedExecutionMode::Program,
+        )
+        .unwrap();
+        runtime.exec_argv.push("--keep-alive".to_owned());
+        {
+            let mut ingress = runtime.authenticated_file_ingress().unwrap();
+            let request = ingress.file_request(&[]).unwrap();
+            let preflight = ingress
+                .prepare_authenticated_module_graph(&request)
+                .unwrap_or_else(|error| panic!("computed import preflight failed: {error:#}"));
+            let crate::engine::AuthenticatedModuleGraphPreparation::Native(graph) = preflight
+            else {
+                panic!("a deferred computed import required the compatibility loader")
+            };
+            assert_eq!(graph.records().count(), 1);
+            let deferred = graph.deferred_dynamic_links();
+            assert_eq!(deferred.len(), 1);
+            let candidates = &deferred.values().next().unwrap().computed_candidates;
+            assert_eq!(candidates.len(), 2);
+            assert!(candidates
+                .iter()
+                .any(|(_, spelling)| spelling == "./chosen.mjs"));
+            assert!(candidates
+                .iter()
+                .any(|(_, spelling)| spelling == "./dead.mjs"));
+        }
+        runtime.load_runtime().await.unwrap();
+        assert_eq!(
+            runtime.run_authenticated_file_program(&[]).await.unwrap(),
+            AuthenticatedFileProgramOutcome::Completed
+        );
+        assert_eq!(runtime.lifecycle_exit_code(), 0);
+        tokio::time::sleep(std::time::Duration::from_millis(75)).await;
+        for _ in 0..20 {
+            let outcome = runtime.settle_authenticated_file_keep_alive_tick().await;
+            assert!(
+                outcome.is_none(),
+                "a computed candidate should settle without terminating keep-alive: {outcome:?}"
+            );
+            if runtime.lifecycle_exit_code() == 43 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(runtime.lifecycle_exit_code(), 43);
+    }
+
+    #[cfg(all(
+        feature = "module-runner",
+        feature = "capsec-conformance-observer",
+        any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64")
+        )
+    ))]
+    #[tokio::test]
+    async fn retained_native_activation_turns_package_policy_denial_into_a_rejected_import() {
+        use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
+
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::set_var("EXACT_COMPAT_TEST", "1");
+        let directory = tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("package.json"),
+            r#"{"name":"denied-native-activation","private":true,"type":"module"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("entry.mjs"),
+            "const delayed = setTimeout(() => { import('image-lib').then(() => { process.exitCode = 99; }, (error) => { if (!String(error).includes('dynamic module activation refused')) throw error; process.exitCode = 44; }); }, 50);\nif (delayed && typeof delayed.unref === 'function') delayed.unref();\nelse if (typeof globalThis.__exactTimerUnref === 'function') globalThis.__exactTimerUnref(delayed);\nelse throw new Error('timer unref unavailable');\n",
+        )
+        .unwrap();
+        let package = directory.path().join("node_modules/image-lib");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(
+            package.join("package.json"),
+            r#"{"name":"image-lib","version":"2.4.1","type":"module","exports":"./index.mjs"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            package.join("index.mjs"),
+            "throw new Error('a policy-denied package target was evaluated');\n",
+        )
+        .unwrap();
+        let mut runtime = session_conformance_direct_runtime_with_package_dynamic_import_policy(
+            directory.path(),
+            ArmedEntryKind::File,
+            "file:///project/entry.mjs",
+            ArmedExecutionMode::Program,
+            false,
+        )
+        .unwrap();
+        runtime.exec_argv.push("--keep-alive".to_owned());
+        {
+            let mut ingress = runtime.authenticated_file_ingress().unwrap();
+            let request = ingress.file_request(&[]).unwrap();
+            let preflight = ingress
+                .prepare_authenticated_module_graph(&request)
+                .unwrap_or_else(|error| panic!("denied import preflight failed: {error:#}"));
+            let crate::engine::AuthenticatedModuleGraphPreparation::Native(graph) = preflight
+            else {
+                panic!("a deferred denied import required the compatibility loader")
+            };
+            assert_eq!(graph.records().count(), 1);
+            assert_eq!(graph.deferred_dynamic_links().len(), 1);
+        }
+        runtime.load_runtime().await.unwrap();
+        assert_eq!(
+            runtime.run_authenticated_file_program(&[]).await.unwrap(),
+            AuthenticatedFileProgramOutcome::Completed
+        );
+        assert_eq!(runtime.lifecycle_exit_code(), 0);
+        tokio::time::sleep(std::time::Duration::from_millis(75)).await;
+        for _ in 0..20 {
+            let outcome = runtime.settle_authenticated_file_keep_alive_tick().await;
+            assert!(
+                outcome.is_none(),
+                "a denied import should reject without terminating keep-alive: {outcome:?}"
+            );
+            if runtime.lifecycle_exit_code() == 44 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(runtime.lifecycle_exit_code(), 44);
     }
 
     #[cfg(all(
