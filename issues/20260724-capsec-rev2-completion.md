@@ -892,6 +892,28 @@ ticket closes.
   final combined drift/reference gates after these source changes, and a
   contention-free exact ceremony.
 
+### 2026-07-25 — criterion 7 proof-boundary audit
+
+- Audited the portable promotion bundle, checked report admission, target
+  advertisement contract, and production Host arming path at exact target-cell
+  granularity.
+- A per-cell advertisement is not a mechanical shortcut in the current model.
+  The recipe and public-execution completeness checks cover the entire target;
+  the target-cell catalog requires one row per generated edge; and production
+  arming independently refuses unless every edge is present with a `Complete`
+  or `Closed` disposition.
+- Treating an unproved row as closed would be an overclaim: many residual
+  non-capability/public surfaces have no effect gate at which a target-cell
+  denial could make them unreachable. A security-honest restricted target
+  therefore has to actually remove or centrally close every omitted public
+  surface and prove that closure. It cannot merely weaken the report predicate
+  or relabel unsupported cells.
+- Criterion 7 now has a product-level fork: retain the full public profile and
+  complete the measured 18,330-row Apple authoring/closure program, or define a
+  deliberately restricted advertised profile whose unproved surface is
+  structurally absent/closed. The empty-advertisement state remains secure and
+  fail-closed but is not treated as substantive completion.
+
 ## Next milestone
 
 Attack criterion 7's exact-target evidence gap through real public-surface
