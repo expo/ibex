@@ -18,10 +18,11 @@ must resolve, read, transform, compile, and link dynamic targets eagerly.
 Normal module-runner FFI also rejects reentrant runtime drives, so a Hermes host
 callback cannot safely call the existing outer-drive APIs.
 
-Until this issue closes, authenticated source-graph construction refuses an
-authored call-time edge before resolving or acquiring its target, and every
-production native linker repeats the refusal. Generated manifest-builtin
-fan-out is the only synchronous `require()` exception.
+Authenticated source graphs now implement the asynchronous `import()` half of
+this issue without eager target discovery. The issue remains open for the
+synchronous authored CommonJS `require()` callback, invocation-time prepared
+carrier lookup, and teardown/race completion evidence. Generated
+manifest-builtin fan-out remains the only synchronous `require()` exception.
 
 ## Required design
 
@@ -54,8 +55,8 @@ fan-out is the only synchronous `require()` exception.
 
 ## Progress
 
-The safe `import()` activation foundation now exists, but it is not yet wired
-to production source-graph acquisition:
+The safe `import()` activation path is wired end to end in authenticated
+production execution:
 
 - Hermes can register exact deferred literal and computed-site spellings on
   both ESM and CommonJS records. Only an invocation of an exact registered
@@ -74,11 +75,27 @@ to production source-graph acquisition:
   wrong-generation reads, fresh concurrent public Promises, one-shot
   completion/refusal, an authenticated graph with no target record, and the
   CommonJS `import()` mailbox.
+- Production source graphs retain exact literal attributes and computed
+  declarations without resolving targets. A reached request first authorizes
+  its exact edge, then receipt-gates acquisition of only the target's static
+  closure and validates the expanded graph before publication.
+- The native graph reuses existing record identities, links and declares every
+  new record, then atomically publishes the batch. Unpublished partial batches
+  are explicitly discarded even while the generation is pinned.
+- Synchronous and TLA graphs both resume through incremental target
+  publication. Prepared initial records can coexist with an inline activated
+  target without a pre-invocation carrier/index read.
+- Foreground settlement retains the authenticated source graph plus an opaque
+  native handle index. Normal quiescence, ready-only, and `--keep-alive` pumps
+  drain late requests; exact requester handles prevent cross-routing between
+  equal `SourceId`s in separate native graph incarnations.
+- End-to-end regressions cover delayed ESM and CommonJS `import()` after
+  ordinary program quiescence, plus dead-target no-discovery and exact
+  receipt-gated target closure growth.
 
-Still open are production source-graph declaration ingestion, receipt-gated
-call-time resolution/acquisition, atomic incremental publication/linking,
-asynchronous and prepared-graph integration, generation-teardown coverage,
-and the synchronous authored CommonJS `require()` callback.
+Still open are invocation-time prepared-carrier discovery, explicit
+generation-teardown/race coverage, deeper nested/cycle failure matrices, and
+the synchronous authored CommonJS `require()` callback.
 
 ## Done when
 

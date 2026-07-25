@@ -2438,6 +2438,12 @@ struct RuntimeHandle {
     shared: Arc<SharedRuntime>,
 }
 
+#[cfg(feature = "module-runner")]
+struct RetainedModuleActivationState {
+    source_graph: ibex_runtime::module_loader::runner_pipeline::SourceModuleGraphV1,
+    native_graph: ibex_runtime::engine::module_runner::NativePublishedGraphIndex,
+}
+
 struct SharedRuntime {
     raw: AtomicPtr<HermesRuntimeOpaque>,
     // Native structured controls and Rust-owned session ingress carry the
@@ -2454,6 +2460,8 @@ struct SharedRuntime {
     // so `--keep-alive` can later run unref'd timers and delayed imports.
     // @ref LLP 0026#6-top-level-await-and-dynamic-import
     module_generation_pinned: AtomicU64,
+    #[cfg(feature = "module-runner")]
+    retained_module_activations: std::sync::Mutex<Vec<RetainedModuleActivationState>>,
     // Hermes/JSI values have thread-affine destruction. Keep the creator here
     // as a Rust-side fail-safe so a legal `Arc<dyn Engine + Send + Sync>` last
     // drop on another thread leaks the native runtime instead of crossing the
@@ -2542,6 +2550,8 @@ impl SharedRuntime {
             raw: AtomicPtr::new(raw),
             runtime_nonce,
             module_generation_pinned: AtomicU64::new(0),
+            #[cfg(feature = "module-runner")]
+            retained_module_activations: std::sync::Mutex::new(Vec::new()),
             owner_thread: std::thread::current().id(),
             ffi_lock: std::sync::Mutex::new(()),
             debugger_inflight: AtomicUsize::new(0),
@@ -2618,6 +2628,118 @@ impl SharedRuntime {
         self.module_generation_pinned
             .store(generation, Ordering::Release);
         Ok(())
+    }
+
+    #[cfg(feature = "module-runner")]
+    fn retain_module_activation_state(
+        &self,
+        source_graph: ibex_runtime::module_loader::runner_pipeline::SourceModuleGraphV1,
+        native_graph: ibex_runtime::engine::module_runner::NativePublishedGraphIndex,
+    ) -> Result<()> {
+        let pinned = self.module_generation_pinned.load(Ordering::Acquire);
+        anyhow::ensure!(
+            pinned != 0 && pinned == native_graph.graph_generation(),
+            "retained module activation graph does not belong to the pinned generation"
+        );
+        let mut retained = self
+            .retained_module_activations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        retained.push(RetainedModuleActivationState {
+            source_graph,
+            native_graph,
+        });
+        Ok(())
+    }
+
+    /// Resolve and publish requests minted by graphs whose foreground
+    /// evaluation has already settled. The caller holds `ffi_lock`; this
+    /// routine never reacquires it and routes each request by its exact native
+    /// requester handle before touching the retained resolver state.
+    // @ref LLP 0026#6-top-level-await-and-dynamic-import
+    #[cfg(feature = "module-runner")]
+    fn drive_retained_module_activations_locked(
+        &self,
+        raw: *mut HermesRuntimeOpaque,
+    ) -> Result<usize> {
+        use ibex_runtime::engine::module_runner::NativeModuleRuntime;
+        use ibex_runtime::module_loader::security::ModuleGraphAuthorizer;
+
+        const ACTIVATION_BUDGET: usize = 1024;
+
+        let generation = self.module_generation_pinned.load(Ordering::Acquire);
+        if generation == 0 {
+            return Ok(0);
+        }
+        let raw_module_runtime =
+            NonNull::new(raw.cast()).ok_or_else(|| anyhow!("Hermes module runtime is null"))?;
+        let native_runtime =
+            unsafe { NativeModuleRuntime::from_raw(raw_module_runtime, self.runtime_nonce.get())? };
+        let mut retained = self
+            .retained_module_activations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut processed = 0usize;
+
+        while processed < ACTIVATION_BUDGET {
+            let Some(request) = native_runtime.take_dynamic_activation_request(generation)? else {
+                break;
+            };
+            processed += 1;
+            let Some(state) = retained
+                .iter_mut()
+                .find(|state| state.native_graph.owns_activation(&request))
+            else {
+                native_runtime.refuse_dynamic_activation(
+                    &request,
+                    "dynamic module activation has no retained authenticated graph",
+                )?;
+                continue;
+            };
+            let RetainedModuleActivationState {
+                source_graph,
+                native_graph,
+            } = state;
+            let activation = source_graph
+                .activate_dynamic_target(&request)
+                .and_then(|target| {
+                    let plan = source_graph.plan()?;
+                    let (configs, contexts) = source_graph.native_execution_inputs(generation)?;
+                    let deferred = source_graph.deferred_dynamic_links();
+                    let prepared = source_graph.available_prepared_entries()?;
+                    let authorizer = ModuleGraphAuthorizer::new(source_graph.snapshot());
+                    native_graph.publish_authorized_activation(
+                        &native_runtime,
+                        &plan,
+                        &request,
+                        &target,
+                        configs,
+                        &authorizer,
+                        &contexts,
+                        &deferred,
+                        Some(&prepared),
+                    )
+                });
+            if let Err(error) = activation {
+                let diagnostic = format!("dynamic module activation refused: {error}");
+                if let Err(refusal_error) =
+                    native_runtime.refuse_dynamic_activation(&request, &diagnostic)
+                {
+                    return Err(error.context(format!(
+                        "activation refusal completion failed: {refusal_error}"
+                    )));
+                }
+            }
+        }
+        Ok(processed)
+    }
+
+    #[cfg(not(feature = "module-runner"))]
+    fn drive_retained_module_activations_locked(
+        &self,
+        _raw: *mut HermesRuntimeOpaque,
+    ) -> Result<usize> {
+        Ok(0)
     }
 
     /// Debugger-thread FFI (CDP: pause/resume/eval/breakpoints/…). Runs WITHOUT
@@ -3170,7 +3292,7 @@ impl HermesEngine {
         .map_err(anyhow::Error::new)?;
         phase.mark("graph_admit_prepare");
 
-        let (graph, mut structured) = match admitted {
+        let (mut graph, mut structured) = match admitted {
             AuthenticatedModuleGraphAdmission::Native {
                 preparation,
                 evaluation,
@@ -3214,6 +3336,7 @@ impl HermesEngine {
             .ok_or_else(|| anyhow!("Hermes module runtime pointer is null"))?;
         let native_runtime = unsafe { NativeModuleRuntime::from_raw(raw_module_runtime, nonce)? };
         let mut forced_terminal = None;
+        let mut retained_native_graph = None;
 
         let graph_result: Result<()> = async {
             let plan = graph.plan()?;
@@ -3223,6 +3346,7 @@ impl HermesEngine {
             let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
             let prepared_entries = graph.prepared_entries()?;
             phase.mark("graph_prepared_entries");
+            let deferred = graph.deferred_dynamic_links();
             let has_top_level_await = plan.evaluation_order(graph.entry())?.iter().try_fold(
                 false,
                 |found, source_id| {
@@ -3231,8 +3355,29 @@ impl HermesEngine {
             )?;
 
             if !has_top_level_await {
-                let mut linked = match prepared_entries.as_ref() {
-                    Some(entries) => NativeSynchronousGraph::link_authorized_prepared(
+                let mut linked = match (prepared_entries.as_ref(), deferred.is_empty()) {
+                    (Some(entries), false) => {
+                        NativeSynchronousGraph::link_authorized_deferred_prepared(
+                            &native_runtime,
+                            &plan,
+                            graph.entry(),
+                            configs,
+                            &authorizer,
+                            &authority_contexts,
+                            &deferred,
+                            entries,
+                        )?
+                    }
+                    (None, false) => NativeSynchronousGraph::link_authorized_deferred(
+                        &native_runtime,
+                        &plan,
+                        graph.entry(),
+                        configs,
+                        &authorizer,
+                        &authority_contexts,
+                        &deferred,
+                    )?,
+                    (Some(entries), true) => NativeSynchronousGraph::link_authorized_prepared(
                         &native_runtime,
                         &plan,
                         graph.entry(),
@@ -3241,7 +3386,7 @@ impl HermesEngine {
                         &authority_contexts,
                         entries,
                     )?,
-                    None => NativeSynchronousGraph::link_authorized(
+                    (None, true) => NativeSynchronousGraph::link_authorized(
                         &native_runtime,
                         &plan,
                         graph.entry(),
@@ -3253,11 +3398,97 @@ impl HermesEngine {
                 phase.mark("graph_link");
                 linked.evaluate()?;
                 phase.mark("graph_evaluate");
+                drop(plan);
+                drop(authorizer);
+                drop(prepared_entries);
+
+                let mut activation_count = 0usize;
+                loop {
+                    let mut processed = false;
+                    while let Some(request) =
+                        native_runtime.take_dynamic_activation_request(generation)?
+                    {
+                        processed = true;
+                        activation_count += 1;
+                        if activation_count > 1024 {
+                            native_runtime.refuse_dynamic_activation(
+                                &request,
+                                "dynamic module activation budget exhausted",
+                            )?;
+                            anyhow::bail!("dynamic module activation budget exhausted");
+                        }
+                        let activation = graph
+                            .activate_dynamic_target(&request)
+                            .and_then(|target| {
+                                let expanded_plan = graph.plan()?;
+                                let (configs, contexts) =
+                                    graph.native_execution_inputs(generation)?;
+                                let expanded_deferred = graph.deferred_dynamic_links();
+                                let available_prepared = graph.available_prepared_entries()?;
+                                let authorizer =
+                                    ModuleGraphAuthorizer::new(graph.snapshot());
+                                linked.publish_authorized_activation(
+                                    &native_runtime,
+                                    &expanded_plan,
+                                    &request,
+                                    &target,
+                                    configs,
+                                    &authorizer,
+                                    &contexts,
+                                    &expanded_deferred,
+                                    Some(&available_prepared),
+                                )
+                            });
+                        if let Err(error) = activation {
+                            let diagnostic = format!(
+                                "dynamic module activation refused: {error}"
+                            );
+                            if let Err(refusal_error) = native_runtime
+                                .refuse_dynamic_activation(&request, &diagnostic)
+                            {
+                                return Err(error.context(format!(
+                                    "activation refusal completion failed: {refusal_error}"
+                                )));
+                            }
+                        }
+                    }
+                    if !processed {
+                        break;
+                    }
+                    let executed = unsafe { ex_hermes_poll(raw, current_time_ms()) };
+                    if executed < 0 {
+                        anyhow::bail!(
+                            "Hermes task execution failed while completing dynamic module activation"
+                        );
+                    }
+                }
+                retained_native_graph = Some(linked.published_activation_index()?);
                 return Ok(());
             }
 
-            let mut linked = match prepared_entries.as_ref() {
-                Some(entries) => NativeAsynchronousGraph::link_authorized_prepared(
+            let mut linked = match (prepared_entries.as_ref(), deferred.is_empty()) {
+                (Some(entries), false) => {
+                    NativeAsynchronousGraph::link_authorized_deferred_prepared(
+                        &native_runtime,
+                        &plan,
+                        graph.entry(),
+                        configs,
+                        &authorizer,
+                        &authority_contexts,
+                        &deferred,
+                        entries,
+                    )?
+                }
+                (None, false) => NativeAsynchronousGraph::link_authorized_deferred(
+                    &native_runtime,
+                    &plan,
+                    graph.entry(),
+                    configs,
+                    &authorizer,
+                    &authority_contexts,
+                    &deferred,
+                )?,
+                (Some(entries), true) => NativeAsynchronousGraph::link_authorized_prepared(
                     &native_runtime,
                     &plan,
                     graph.entry(),
@@ -3266,7 +3497,7 @@ impl HermesEngine {
                     &authority_contexts,
                     entries,
                 )?,
-                None => NativeAsynchronousGraph::link_authorized(
+                (None, true) => NativeAsynchronousGraph::link_authorized(
                     &native_runtime,
                     &plan,
                     graph.entry(),
@@ -3275,6 +3506,9 @@ impl HermesEngine {
                     &authority_contexts,
                 )?,
             };
+            drop(plan);
+            drop(authorizer);
+            drop(prepared_entries);
             // `ex_hermes_poll` always drains the Hermes job queue, but its
             // return value counts host callbacks/timers rather than Promise
             // jobs. Give the suspended graph one advancement attempt after
@@ -3285,6 +3519,7 @@ impl HermesEngine {
             let mut retry_graph_after_runtime_poll = true;
             let trace_graph = self.loop_trace_enabled;
             let mut graph_poll_iteration = 0usize;
+            let mut activation_count = 0usize;
 
             loop {
                 graph_poll_iteration += 1;
@@ -3298,8 +3533,68 @@ impl HermesEngine {
                         }
                     );
                 }
+                let mut processed_activation = false;
+                while let Some(request) =
+                    native_runtime.take_dynamic_activation_request(generation)?
+                {
+                    processed_activation = true;
+                    activation_count += 1;
+                    if activation_count > 1024 {
+                        native_runtime.refuse_dynamic_activation(
+                            &request,
+                            "dynamic module activation budget exhausted",
+                        )?;
+                        anyhow::bail!("dynamic module activation budget exhausted");
+                    }
+                    let activation = graph
+                        .activate_dynamic_target(&request)
+                        .and_then(|target| {
+                            let expanded_plan = graph.plan()?;
+                            let (configs, contexts) =
+                                graph.native_execution_inputs(generation)?;
+                            let expanded_deferred = graph.deferred_dynamic_links();
+                            let available_prepared =
+                                graph.available_prepared_entries()?;
+                            let authorizer =
+                                ModuleGraphAuthorizer::new(graph.snapshot());
+                            linked.publish_authorized_activation(
+                                &native_runtime,
+                                &expanded_plan,
+                                &request,
+                                &target,
+                                configs,
+                                &authorizer,
+                                &contexts,
+                                &expanded_deferred,
+                                Some(&available_prepared),
+                            )
+                        });
+                    if let Err(error) = activation {
+                        let diagnostic =
+                            format!("dynamic module activation refused: {error}");
+                        if let Err(refusal_error) = native_runtime
+                            .refuse_dynamic_activation(&request, &diagnostic)
+                        {
+                            return Err(error.context(format!(
+                                "activation refusal completion failed: {refusal_error}"
+                            )));
+                        }
+                    }
+                }
+                if processed_activation {
+                    let executed = unsafe { ex_hermes_poll(raw, current_time_ms()) };
+                    if executed < 0 {
+                        anyhow::bail!(
+                            "Hermes task execution failed while completing dynamic module activation"
+                        );
+                    }
+                    continue;
+                }
                 match graph_poll {
-                    AsyncGraphPoll::Evaluated => return Ok(()),
+                    AsyncGraphPoll::Evaluated => {
+                        retained_native_graph = Some(linked.published_activation_index()?);
+                        return Ok(());
+                    }
                     AsyncGraphPoll::Suspended => match unsafe { structured.suspend() }? {
                         ModuleGraphSuspension::Suspended => {}
                         ModuleGraphSuspension::CancellationPending => {
@@ -3382,6 +3677,11 @@ impl HermesEngine {
                 .unwrap_or(ModuleGraphExecutionOutcome::EngineFault),
         });
         let settled = unsafe { structured.finish(terminal) }.map_err(anyhow::Error::new);
+        if graph_result.is_ok() && settled.is_ok() && !graph.deferred_dynamic_links().is_empty() {
+            if let Some(native_graph) = retained_native_graph {
+                runtime.retain_module_activation_state(graph, native_graph)?;
+            }
+        }
         drop(lease);
 
         // Foreground graph settlement is immediate. The outer authenticated
@@ -3644,16 +3944,19 @@ impl HermesEngine {
         let trace_loop = self.loop_trace_enabled;
         let mut trace_iterations = 0usize;
         loop {
-            let (pending, next_due, executed) = {
+            let (pending, next_due, executed, activated) = {
                 let runtime = self.runtime.lock().await;
                 let handle = match runtime.as_ref() {
                     Some(handle) => handle,
                     None => return Ok(()),
                 };
                 let now = current_time_ms();
-                let (executed, pending, next) = handle
-                    .with_runtime(|raw| {
+                let (executed, pending, next, activated) = handle
+                    .with_runtime(|raw| -> Result<_> {
                         let executed = unsafe { ex_hermes_poll(raw, now) };
+                        let activated = handle
+                            .shared
+                            .drive_retained_module_activations_locked(raw)?;
                         let host_pending = unsafe {
                             ex_host_http_has_referenced() != 0
                                 || ex_host_http_has_pending_requests() != 0
@@ -3665,8 +3968,9 @@ impl HermesEngine {
                             unsafe { ex_hermes_has_pending_tasks(raw) }
                         };
                         let next = unsafe { ex_hermes_next_timer(raw) };
-                        (executed, pending, next)
+                        Ok((executed, pending, next, activated))
                     })
+                    .map_err(AuthenticatedProgramDrainFailure::EngineFault)?
                     .map_err(AuthenticatedProgramDrainFailure::EngineFault)?;
                 if executed == -2 {
                     return Ok(());
@@ -3683,10 +3987,10 @@ impl HermesEngine {
                     );
                     trace_iterations += 1;
                 }
-                (pending, (next, now), executed)
+                (pending, (next, now), executed, activated)
             };
 
-            if executed > 0 {
+            if executed > 0 || activated > 0 {
                 continue;
             }
             if pending == 0 {
@@ -3748,21 +4052,25 @@ impl HermesEngine {
         // polls per pump; the next tick pumps again, so the timer still runs but
         // no longer starves input. (ENG-23030 #3)
         for _ in 0..PUMP_MAX_POLLS_PER_TICK {
-            let executed = {
+            let (executed, activated) = {
                 let runtime = self.runtime.lock().await;
                 let handle = match runtime.as_ref() {
                     Some(handle) => handle,
                     None => return Ok(()),
                 };
                 let now = current_time_ms();
-                handle.with_runtime(|raw| unsafe {
-                    ex_hermes_poll_with_external_keep_alive(raw, now)
-                })?
+                handle.with_runtime(|raw| -> Result<_> {
+                    let executed = unsafe { ex_hermes_poll_with_external_keep_alive(raw, now) };
+                    let activated = handle
+                        .shared
+                        .drive_retained_module_activations_locked(raw)?;
+                    Ok((executed, activated))
+                })??
             };
             if executed < 0 {
                 return Err(anyhow::anyhow!("Hermes task execution failed"));
             }
-            if executed == 0 {
+            if executed == 0 && activated == 0 {
                 break;
             }
         }
@@ -4617,24 +4925,28 @@ impl Engine for HermesEngine {
         self.ensure_thread()?;
         let deadline = std::time::Instant::now() + EOF_DRAIN_BUDGET;
         loop {
-            let (executed, next_timer, now) = {
+            let (executed, activated, next_timer, now) = {
                 let runtime = self.runtime.lock().await;
                 let handle = match runtime.as_ref() {
                     Some(handle) => handle,
                     None => return Ok(()),
                 };
                 let now = current_time_ms();
-                let (executed, next_timer) = handle.with_runtime(|raw| {
-                    let executed = unsafe { ex_hermes_poll(raw, now) };
-                    let next_timer = unsafe { ex_hermes_next_timer(raw) };
-                    (executed, next_timer)
-                })?;
-                (executed, next_timer, now)
+                let (executed, activated, next_timer) =
+                    handle.with_runtime(|raw| -> Result<_> {
+                        let executed = unsafe { ex_hermes_poll(raw, now) };
+                        let activated = handle
+                            .shared
+                            .drive_retained_module_activations_locked(raw)?;
+                        let next_timer = unsafe { ex_hermes_next_timer(raw) };
+                        Ok((executed, activated, next_timer))
+                    })??;
+                (executed, activated, next_timer, now)
             };
             if executed < 0 {
                 return Err(anyhow::anyhow!("Hermes task execution failed"));
             }
-            if eof_drain_complete(executed, next_timer, now) {
+            if activated == 0 && eof_drain_complete(executed, next_timer, now) {
                 break;
             }
             if std::time::Instant::now() >= deadline {

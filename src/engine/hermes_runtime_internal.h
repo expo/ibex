@@ -262,6 +262,7 @@ struct NativeModuleImportBinding {
 struct NativeModuleRecordEntry {
   uint64_t graph_generation{0};
   uint8_t source_goal{0};
+  bool published{false};
   std::string source_id;
   uint64_t context_handle_id{0};
   std::shared_ptr<facebook::jsi::Function> factory;
@@ -309,6 +310,7 @@ struct NativeCommonJsRequireBinding {
 struct NativeCommonJsRecordEntry {
   uint64_t graph_generation{0};
   uint8_t source_goal{0};
+  bool published{false};
   std::string source_id;
   uint64_t context_handle_id{0};
   std::shared_ptr<facebook::jsi::Function> factory;

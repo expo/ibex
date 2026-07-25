@@ -546,6 +546,15 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
                                          char**,
                                          uint64_t*) =
       ex_hermes_module_load_carrier_factory;
+  int32_t (*module_publish_records)(ExactHermesRuntime*,
+                                    uint64_t,
+                                    const ExactModuleRunnerHandle*,
+                                    size_t) =
+      ex_hermes_module_publish_records;
+  int32_t (*module_discard_unpublished_record)(ExactHermesRuntime*,
+                                               uint64_t,
+                                               ExactModuleRunnerHandle) =
+      ex_hermes_module_discard_unpublished_record;
   int32_t (*commonjs_record_evaluate)(ExactHermesRuntime*,
                                       uint64_t,
                                       ExactModuleRunnerHandle,
@@ -790,6 +799,8 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
   (void)evaluate_lowered_session;
   (void)module_compile_factory;
   (void)module_load_carrier_factory;
+  (void)module_publish_records;
+  (void)module_discard_unpublished_record;
   (void)commonjs_record_evaluate;
   (void)commonjs_record_create_esm_adapter;
   (void)module_record_instantiate;

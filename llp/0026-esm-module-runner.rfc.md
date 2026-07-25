@@ -5,8 +5,9 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
+**Revised:** 2026-07-24 (authenticated ESM and CommonJS `import()` now defer target discovery until an exact reached-site mailbox request, authorize and acquire only that target's static closure, publish new native records atomically, and retain the live graph across ordinary quiescence and `--keep-alive`; synchronous authored CommonJS `require()` remains refused)
 **Revised:** 2026-07-24 (the production source graph authorizes exact dependency acquisition and receipt-gates dependency carriers; an opaque graph/request join now gates all prepared-cache discovery and entry-only carriers, while armed transpilation has no persistent cache)
-**Revised:** 2026-07-24 (production refuses authored dynamic import and CommonJS `require()` at authenticated source-graph ingress before resolving or acquiring their targets, and repeats the refusal at native linking; site-specific native tables remain private ABI machinery pending a real invocation-time activation bridge)
+**Revised:** 2026-07-24 (the interim no-probe guard moved authored dynamic-import and CommonJS `require()` refusal ahead of target discovery; the later revision above replaces that guard for asynchronous `import()` while retaining it for synchronous `require()`)
 **Revised:** 2026-07-18 (the Phase-0 compatibility baseline now records the
 post-native-switch namespace/CommonJS observations and successful dynamic-import
 source-map line recovery instead of retaining the superseded shim failure)
@@ -24,7 +25,8 @@ ordinary authenticated ESM: an authenticated module graph that parses and
 lowers source before Hermes sees it, creates real module records, links static
 edges, preserves live bindings and cycles, and evaluates asynchronous graphs
 including dependency-level top-level `await`. Explicitly unsupported call-time
-interop shapes, and unadvertised targets while the 0.1 window remains open,
+interop shapes such as synchronous authored CommonJS `require()`, and
+unadvertised targets while the 0.1 window remains open,
 retain the file-at-a-time ESM-to-CommonJS compatibility path. An unadvertised
 target refuses once that window closes.
 
@@ -810,6 +812,32 @@ same evaluation promise and is attributed to the owning/scheduling principal.
 4. evaluates it; and
 5. resolves to the stable namespace object.
 
+Production `import()` implements those steps as a post-drive capability, not
+as eager graph discovery or same-stack resolver re-entry. Initial source-graph
+construction retains only the requester's literal attributes and exact
+computed `(site, spelling)` declarations. Reaching one registered site mints a
+nonce-, generation-, and native-requester-record-bound mailbox request after
+the current JSI drive unwinds. Rust then authorizes the exact edge, performs
+receipt-bound source acquisition, recursively prepares only the target's
+static closure, and validates the expanded deferred plan before changing the
+source graph. The native runner fully links, instantiates, and declares every
+new record, atomically publishes the batch, and only then resolves the
+invocation onto the target record. Failure before publication discards the
+unpublished batch; failure or denial completes that invocation with a
+rejection rather than reusable authority.
+
+The runtime pins the graph generation and retains an opaque source/native graph
+pair after foreground settlement. Ordinary quiescence, bounded ready-only
+pumps, and `--keep-alive` ticks drain later mailbox requests under the
+owner-thread runtime lock. Multiple retained graphs are routed by the exact
+native requester handle as well as `SourceId`, so equal source spellings in
+different record incarnations cannot borrow one another's resolver state.
+This lifecycle supports delayed timers, nested imports, TLA graphs, and
+CommonJS `import()`. A prepared initial graph may expand with an inline
+receipt-gated target; invocation-time prepared-carrier discovery remains a
+separate optimization and may not probe an index or carrier before a site is
+reached.
+
 The initial native ABI realizes that contract with one retained, immediately
 handled internal evaluation promise per record and a fresh derived public
 promise for every invocation. Literal dynamic edges are semantic artifact
@@ -1428,15 +1456,13 @@ evaluation failures fail closed and never retry through the legacy loader.
 Only explicitly unsupported interop shapes may enter the compatibility path,
 which is bounded to Ibex 0.1 and can be closed early with
 `IBEX_LEGACY_MODULE_LOADER=0`. CommonJS, JSON, builtin, and literal dynamic
-imports have native record/table machinery, but authenticated production
-graphs deliberately refuse every authored call-time dynamic import before
-target resolution or acquisition and repeat that refusal at native linking.
-Pre-materializing candidate records and receipts is not the invocation-time
-policy, resolution, acquisition, and linking contract in §6. Computed CommonJS
-`require()` likewise retains private ABI diagnostics but is refused at source
-graph ingress until the same class of private in-drive activation capability
-exists. Generated manifest-builtin fan-out remains the only native synchronous
-`require()` exception. Hosted platform and
+imports have native record/table machinery. Authenticated production ESM and
+CommonJS `import()` now use §6's reached-site mailbox, receipt-gated target
+static-closure acquisition, and atomic incremental native publication; dead
+branches do not resolve or read their targets. Authored synchronous CommonJS
+`require()` remains refused at source-graph ingress until the narrower private
+in-drive activation capability exists. Generated manifest-builtin fan-out
+remains the only native synchronous `require()` exception. Hosted platform and
 performance evidence remains the final release gate; the CI workflow records
 both default and no-default build coverage plus the prepared-cache end-to-end
 test.

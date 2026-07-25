@@ -2373,6 +2373,131 @@ extern "C" int32_t ex_hermes_module_release_handle(
   return EXACT_RUNTIME_DRIVE_STALE;
 }
 
+extern "C" int32_t ex_hermes_module_publish_records(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    const ExactModuleRunnerHandle* handles,
+    size_t handles_len) {
+  observeModuleRunnerAbi(__func__);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  if (handles == nullptr || handles_len == 0) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  std::set<std::pair<bool, uint64_t>> selected;
+  for (size_t index = 0; index < handles_len; ++index) {
+    const auto handle = handles[index];
+    if (handle.opaque[0] != runtime_nonce ||
+        handle.opaque[1] == 0 || handle.opaque[2] == 0) {
+      return EXACT_RUNTIME_DRIVE_STALE;
+    }
+    auto module = runtime->module_records.find(handle.opaque[2]);
+    if (module != runtime->module_records.end() &&
+        module->second.graph_generation == handle.opaque[1]) {
+      if (module->second.published ||
+          module->second.state != NativeModuleRecordState::Declared) {
+        return EXACT_RUNTIME_DRIVE_INVALID;
+      }
+      for (const auto& [_, commonjs] : runtime->commonjs_records) {
+        if (commonjs.adapter_record_id == handle.opaque[2]) {
+          return EXACT_RUNTIME_DRIVE_INVALID;
+        }
+      }
+      if (!selected.emplace(false, handle.opaque[2]).second) {
+        return EXACT_RUNTIME_DRIVE_INVALID;
+      }
+      continue;
+    }
+    auto commonjs = runtime->commonjs_records.find(handle.opaque[2]);
+    if (commonjs == runtime->commonjs_records.end() ||
+        commonjs->second.graph_generation != handle.opaque[1]) {
+      return EXACT_RUNTIME_DRIVE_STALE;
+    }
+    auto adapter =
+        runtime->module_records.find(commonjs->second.adapter_record_id);
+    if (commonjs->second.published ||
+        commonjs->second.state != NativeCommonJsRecordState::New ||
+        adapter == runtime->module_records.end() ||
+        adapter->second.published ||
+        adapter->second.graph_generation != handle.opaque[1] ||
+        adapter->second.state != NativeModuleRecordState::Instantiated ||
+        adapter->second.source_id != commonjs->second.source_id ||
+        !selected.emplace(true, handle.opaque[2]).second) {
+      return EXACT_RUNTIME_DRIVE_INVALID;
+    }
+  }
+  for (const auto& [isCommonJs, recordId] : selected) {
+    if (isCommonJs) {
+      auto& commonjs = runtime->commonjs_records.at(recordId);
+      runtime->module_records.at(commonjs.adapter_record_id).published = true;
+      commonjs.published = true;
+    } else {
+      runtime->module_records.at(recordId).published = true;
+    }
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int32_t ex_hermes_module_discard_unpublished_record(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle handle) {
+  observeModuleRunnerAbi(__func__);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto module = runtime->module_records.find(handle.opaque[2]);
+  if (module != runtime->module_records.end() &&
+      handle.opaque[0] == runtime_nonce &&
+      module->second.graph_generation == handle.opaque[1]) {
+    if (module->second.published ||
+        module->second.state == NativeModuleRecordState::Evaluating ||
+        module->second.state == NativeModuleRecordState::Evaluated) {
+      return EXACT_RUNTIME_DRIVE_INVALID;
+    }
+    for (const auto& [_, commonjs] : runtime->commonjs_records) {
+      if (commonjs.adapter_record_id == handle.opaque[2]) {
+        return EXACT_RUNTIME_DRIVE_INVALID;
+      }
+    }
+    eraseDynamicActivationsForRequester(
+        runtime, handle.opaque[1], handle.opaque[2], false);
+    const uint64_t contextId = module->second.context_handle_id;
+    runtime->module_records.erase(module);
+    releaseContextReference(runtime, contextId);
+    return EXACT_RUNTIME_DRIVE_OK;
+  }
+  auto commonjs = runtime->commonjs_records.find(handle.opaque[2]);
+  if (commonjs == runtime->commonjs_records.end() ||
+      handle.opaque[0] != runtime_nonce ||
+      commonjs->second.graph_generation != handle.opaque[1]) {
+    return EXACT_RUNTIME_DRIVE_STALE;
+  }
+  if (commonjs->second.published ||
+      commonjs->second.state != NativeCommonJsRecordState::New) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  if (commonjs->second.adapter_record_id != 0) {
+    auto adapter =
+        runtime->module_records.find(commonjs->second.adapter_record_id);
+    if (adapter == runtime->module_records.end() ||
+        adapter->second.published ||
+        adapter->second.graph_generation != handle.opaque[1] ||
+        adapter->second.state == NativeModuleRecordState::Evaluating ||
+        adapter->second.state == NativeModuleRecordState::Evaluated) {
+      return EXACT_RUNTIME_DRIVE_INVALID;
+    }
+    const uint64_t adapterContextId = adapter->second.context_handle_id;
+    runtime->module_records.erase(adapter);
+    releaseContextReference(runtime, adapterContextId);
+  }
+  eraseDynamicActivationsForRequester(
+      runtime, handle.opaque[1], handle.opaque[2], true);
+  const uint64_t contextId = commonjs->second.context_handle_id;
+  runtime->commonjs_records.erase(commonjs);
+  releaseContextReference(runtime, contextId);
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
 extern "C" int32_t ex_hermes_graph_context_create(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,

@@ -1587,6 +1587,22 @@ int32_t ex_hermes_module_release_handle(
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle handle);
 
+/// Atomically commit a fully linked record set to the live generation.
+/// CommonJS handles include their ESM adapters in the same transaction.
+int32_t ex_hermes_module_publish_records(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    const ExactModuleRunnerHandle* handles,
+    size_t handles_len);
+
+/// Roll back one record that has not been published into a live graph. Unlike
+/// ordinary release, this erases the record even while its generation is
+/// pinned. Evaluating/evaluated records are never admissible rollback targets.
+int32_t ex_hermes_module_discard_unpublished_record(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle handle);
+
 /// Mint an immutable graph-context token. Principal vectors must be strictly
 /// increasing and duplicate-free; the token remains runtime/generation scoped.
 int32_t ex_hermes_graph_context_create(

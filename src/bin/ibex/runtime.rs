@@ -12972,7 +12972,7 @@ pub(crate) mod tests {
         )
     ))]
     #[tokio::test(flavor = "current_thread")]
-    async fn closed_compatibility_window_fails_loudly_for_authored_call_time_edges() {
+    async fn closed_compatibility_window_defers_import_but_refuses_commonjs_require() {
         use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
 
         let _lock = crate::engine::hermes::hermes_engine_test_lock()
@@ -12982,18 +12982,16 @@ pub(crate) mod tests {
         std::env::set_var("EXACT_COMPAT_TEST", "1");
         std::env::set_var("IBEX_LEGACY_MODULE_LOADER", "0");
 
-        for (entry_name, package_type, source, expected_reason) in [
+        for (entry_name, package_type, source) in [
             (
                 "entry.mjs",
                 "module",
                 "if (false) import('./missing.mjs');\nexport const reached = true;\n",
-                "dynamic-import activation",
             ),
             (
                 "entry.cjs",
                 "commonjs",
                 "if (false) require('./missing.cjs');\nmodule.exports = true;\n",
-                "CommonJS require activation",
             ),
         ] {
             let directory = tempdir().unwrap();
@@ -13015,16 +13013,30 @@ pub(crate) mod tests {
             .unwrap();
             let mut ingress = runtime.authenticated_file_ingress().unwrap();
             let request = ingress.file_request(&[]).unwrap();
-            let error = ingress
-                .prepare_authenticated_module_graph(&request)
-                .err()
-                .expect("a closed compatibility window accepted an authored call-time edge");
-            assert!(
-                error.to_string().contains(
-                    "native module runner does not support this graph and the bounded legacy loader window is closed"
-                ) && error.to_string().contains(expected_reason),
-                "unexpected closed-window refusal for {entry_name}: {error:#}"
-            );
+            if entry_name == "entry.mjs" {
+                let preparation = ingress
+                    .prepare_authenticated_module_graph(&request)
+                    .unwrap_or_else(|error| {
+                        panic!("deferred dynamic import preflight failed: {error:#}")
+                    });
+                let crate::engine::AuthenticatedModuleGraphPreparation::Native(graph) = preparation
+                else {
+                    panic!("a deferred dynamic import required the compatibility loader")
+                };
+                assert_eq!(graph.records().count(), 1);
+                assert_eq!(graph.deferred_dynamic_links().len(), 1);
+            } else {
+                let error = ingress
+                    .prepare_authenticated_module_graph(&request)
+                    .err()
+                    .expect("a closed compatibility window accepted authored CommonJS require");
+                assert!(
+                    error
+                        .to_string()
+                        .contains("native call-time CommonJS require activation is unavailable"),
+                    "unexpected closed-window refusal for {entry_name}: {error:#}"
+                );
+            }
         }
     }
 
@@ -13268,7 +13280,7 @@ pub(crate) mod tests {
         )
     ))]
     #[tokio::test]
-    async fn authenticated_compatibility_loader_stays_alive_through_delayed_dynamic_import() {
+    async fn authenticated_native_graph_stays_alive_through_delayed_dynamic_import() {
         use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
 
         let _lock = crate::engine::hermes::hermes_engine_test_lock()
@@ -13306,13 +13318,12 @@ pub(crate) mod tests {
             let preflight = ingress
                 .prepare_authenticated_module_graph(&request)
                 .unwrap_or_else(|error| panic!("delayed-import preflight failed: {error:#}"));
-            assert!(
-                matches!(
-                    preflight,
-                    crate::engine::AuthenticatedModuleGraphPreparation::LegacyRequired
-                ),
-                "an authored dynamic import entered the eager native graph"
-            );
+            let crate::engine::AuthenticatedModuleGraphPreparation::Native(graph) = preflight
+            else {
+                panic!("a delayed dynamic import required the compatibility loader")
+            };
+            assert_eq!(graph.records().count(), 1);
+            assert_eq!(graph.deferred_dynamic_links().len(), 1);
         }
         runtime.load_runtime().await.unwrap();
         assert_eq!(
@@ -13337,6 +13348,81 @@ pub(crate) mod tests {
             tokio::task::yield_now().await;
         }
         assert_eq!(runtime.lifecycle_exit_code(), 37);
+    }
+
+    #[cfg(all(
+        feature = "module-runner",
+        feature = "capsec-conformance-observer",
+        any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64")
+        )
+    ))]
+    #[tokio::test]
+    async fn authenticated_commonjs_import_uses_retained_native_activation_graph() {
+        use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
+
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::set_var("EXACT_COMPAT_TEST", "1");
+        let directory = tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("package.json"),
+            r#"{"name":"commonjs-native-activation","private":true,"type":"commonjs"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("entry.cjs"),
+            "const delayed = setTimeout(() => { import('./dep.mjs').then(({ status }) => { process.exitCode = status; }); }, 50);\nif (delayed && typeof delayed.unref === 'function') delayed.unref();\nelse if (typeof globalThis.__exactTimerUnref === 'function') globalThis.__exactTimerUnref(delayed);\nelse throw new Error('timer unref unavailable');\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("dep.mjs"),
+            "export const status = 38;\n",
+        )
+        .unwrap();
+        let mut runtime = session_conformance_direct_runtime(
+            directory.path(),
+            ArmedEntryKind::File,
+            "file:///project/entry.cjs",
+            ArmedExecutionMode::Program,
+        )
+        .unwrap();
+        runtime.exec_argv.push("--keep-alive".to_owned());
+        {
+            let mut ingress = runtime.authenticated_file_ingress().unwrap();
+            let request = ingress.file_request(&[]).unwrap();
+            let preflight = ingress
+                .prepare_authenticated_module_graph(&request)
+                .unwrap_or_else(|error| panic!("CommonJS import preflight failed: {error:#}"));
+            let crate::engine::AuthenticatedModuleGraphPreparation::Native(graph) = preflight
+            else {
+                panic!("CommonJS import required the compatibility loader")
+            };
+            assert_eq!(graph.records().count(), 1);
+            assert_eq!(graph.deferred_dynamic_links().len(), 1);
+        }
+        runtime.load_runtime().await.unwrap();
+        assert_eq!(
+            runtime.run_authenticated_file_program(&[]).await.unwrap(),
+            AuthenticatedFileProgramOutcome::Completed
+        );
+        assert_eq!(runtime.lifecycle_exit_code(), 0);
+        tokio::time::sleep(std::time::Duration::from_millis(75)).await;
+        for _ in 0..20 {
+            let outcome = runtime.settle_authenticated_file_keep_alive_tick().await;
+            assert!(
+                outcome.is_none(),
+                "CommonJS import should settle without terminating keep-alive: {outcome:?}"
+            );
+            if runtime.lifecycle_exit_code() == 38 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(runtime.lifecycle_exit_code(), 38);
     }
 
     #[cfg(all(

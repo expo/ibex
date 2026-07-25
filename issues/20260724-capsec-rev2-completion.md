@@ -354,6 +354,41 @@ ticket closes.
   set.** The new private mechanism is substantial, but the fail-closed
   production ingress cannot be relaxed until the end-to-end bridge exists.
 
+### 2026-07-24 — connected reached imports to receipt-authorized live graphs
+
+- Authenticated source-graph construction now retains literal import
+  attributes and exact computed-site declarations without resolving,
+  acquiring, or reading any dynamic target. Authored synchronous CommonJS
+  `require()` remains refused before target discovery.
+- A reached ESM or CommonJS `import()` request authorizes its exact edge, uses
+  that receipt to acquire only the target's static closure, and validates the
+  expanded source plan before committing it.
+- Native activation reuses existing record identities, stages and fully links
+  only new records, then atomically publishes the complete batch. Failed
+  partial batches can be discarded even while the graph generation is pinned.
+- Synchronous and TLA graphs both support incremental publication. A prepared
+  initial graph may add an inline reached target without probing a carrier or
+  cache index before invocation.
+- Foreground settlement retains the authenticated source graph and an opaque
+  native record index for later timers and keep-alive ticks. Mailbox routing
+  matches the exact requester handle, preventing equal source identities in
+  different native graph incarnations from sharing activation authority.
+- Focused verification passes for dead-target no-discovery, receipt-gated
+  source-closure growth, synchronous and TLA publication, exact requester
+  routing, closed-window CommonJS refusal, and delayed ESM/CommonJS imports
+  that settle after ordinary program quiescence.
+- The complete secure-mode gate passes against the reviewed Hermes framework:
+  636 library tests pass, 3 hosted/diagnostic tests remain intentionally
+  ignored, and the behavioral smoke enforces project read plus outside-read,
+  outside-write, spawn, and environment-sentinel boundaries. `ref-check`
+  reports 39 LLP documents, 2,048 checked references, zero errors, and one
+  intentionally unchecked external reference.
+- Current estimate: **59% complete for the full LLP 0021 completion contract;
+  roughly 87% complete for the security-critical runtime mechanism set.**
+  Invocation-time prepared carriers, synchronous authored CommonJS
+  `require()`, teardown races, and the larger exact-target evidence program
+  remain open.
+
 ## Current hard parts
 
 - Exact-target completion is deliberately all-or-nothing. Existing evidence
@@ -373,17 +408,11 @@ ticket closes.
   portable engine artifact; the reviewed local framework reports no portable
   identity, so it cannot honestly produce that evidence.
 - `malformed-branch-facts` has no owning-language proof and remains residual.
-- Native dynamic-import candidate tables and the private reached-site mailbox
-  are implemented, but production source graphs still deliberately refuse all
-  authored call-time edges. The missing bridge is receipt-gated target
-  acquisition plus atomic incremental publication into the already-live
-  generation; it remains specified in
+- Authored `import()` now has receipt-gated reached-site source activation and
+  atomic live-graph publication. The remaining call-time module gap is the
+  synchronous in-drive CommonJS `require()` capability, plus invocation-time
+  prepared carriers and teardown/race coverage, tracked in
   `issues/20260724-native-call-time-module-activation.md`.
-- Source-graph construction formerly resolved and acquired authored dynamic
-  targets before the linker refusal. It now applies the same fail-closed
-  boundary immediately after parsing the requester and before target
-  resolution or source acquisition; this closes the no-probe ordering defect
-  while the invocation-time bridge remains open.
 - The root/bootstrap mechanism seals correctly, but both builders still emit an
   empty `bootstrapAuthorityFloor`. Current bootstrap host inputs are
   authenticated projections consumed under the transparent runtime principal,
@@ -394,8 +423,8 @@ ticket closes.
 
 ## Next milestone
 
-Verify and checkpoint the generation-bound activation-mailbox foundation, then
-extend the live native graph with receipt-authorized target static closures.
-Prepared activation, synchronous CommonJS `require()`, bootstrap-floor
-authorship, and `malformed-branch-facts` remain named gaps rather than unsafe
-local substitutions.
+Run the full secure-mode gate and checkpoint the receipt-authorized live-graph
+activation slice. Then address invocation-time prepared activation and the
+synchronous CommonJS `require()` callback. Bootstrap-floor authorship and
+`malformed-branch-facts` remain named gaps rather than unsafe local
+substitutions.

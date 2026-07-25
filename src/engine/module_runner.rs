@@ -106,6 +106,17 @@ unsafe extern "C" {
         runtime_nonce: u64,
         handle: NativeModuleHandle,
     ) -> i32;
+    fn ex_hermes_module_publish_records(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        handles: *const NativeModuleHandle,
+        handles_len: usize,
+    ) -> i32;
+    fn ex_hermes_module_discard_unpublished_record(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        handle: NativeModuleHandle,
+    ) -> i32;
     #[cfg(test)]
     fn ex_hermes_module_pin_generation(
         runtime: *mut c_void,
@@ -750,6 +761,7 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
         Ok(Some(DynamicModuleActivationRequest {
             request_id,
             graph_generation,
+            requester_record: Some(requester_record),
             requester,
             kind,
             specifier,
@@ -764,12 +776,20 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
         if !std::ptr::eq(self, target.runtime) {
             bail!("dynamic activation target belongs to another runtime borrow");
         }
+        self.complete_dynamic_activation_handle(request, target.live_handle()?)
+    }
+
+    fn complete_dynamic_activation_handle(
+        &self,
+        request: &DynamicModuleActivationRequest,
+        target: NativeModuleHandle,
+    ) -> Result<()> {
         let status = unsafe {
             ex_hermes_module_complete_dynamic_activation(
                 self.raw.as_ptr(),
                 self.nonce,
                 request.request_id,
-                target.live_handle()?,
+                target,
                 std::ptr::null(),
                 0,
             )
@@ -1219,6 +1239,7 @@ impl<'runtime> CompiledModuleFactory<'runtime> {
         Ok(NativeModuleRecord {
             runtime: self.runtime,
             handle: Some(record),
+            published: false,
         })
     }
 
@@ -1264,6 +1285,7 @@ impl<'runtime> CompiledModuleFactory<'runtime> {
         Ok(NativeCommonJsRecord {
             runtime: self.runtime,
             handle: Some(record),
+            published: false,
         })
     }
 }
@@ -1290,11 +1312,13 @@ impl Clone for NativeGraphContext<'_> {
 pub struct NativeModuleRecord<'runtime> {
     runtime: &'runtime NativeModuleRuntime<'runtime>,
     handle: Option<NativeModuleHandle>,
+    published: bool,
 }
 
 pub struct NativeCommonJsRecord<'runtime> {
     runtime: &'runtime NativeModuleRuntime<'runtime>,
     handle: Option<NativeModuleHandle>,
+    published: bool,
 }
 
 // @ref LLP 0027#esmcommonjs-interop-matrix — native CommonJS records retain
@@ -1527,6 +1551,7 @@ impl<'runtime> NativeCommonJsRecord<'runtime> {
         Ok(NativeModuleRecord {
             runtime: self.runtime,
             handle: Some(adapter),
+            published: false,
         })
     }
 }
@@ -1553,6 +1578,7 @@ pub enum DynamicModuleActivationKind {
 pub struct DynamicModuleActivationRequest {
     request_id: u64,
     graph_generation: u64,
+    requester_record: Option<NativeModuleHandle>,
     pub requester: SourceId,
     pub kind: DynamicModuleActivationKind,
     pub specifier: String,
@@ -1561,6 +1587,23 @@ pub struct DynamicModuleActivationRequest {
 impl DynamicModuleActivationRequest {
     pub fn graph_generation(&self) -> u64 {
         self.graph_generation
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        graph_generation: u64,
+        requester: SourceId,
+        kind: DynamicModuleActivationKind,
+        specifier: impl Into<String>,
+    ) -> Self {
+        Self {
+            request_id: 1,
+            graph_generation,
+            requester_record: None,
+            requester,
+            kind,
+            specifier: specifier.into(),
+        }
     }
 }
 
@@ -1928,6 +1971,30 @@ enum NativeLinkedRecord<'runtime> {
 
 #[cfg(any(test, feature = "module-runner"))]
 impl<'runtime> NativeLinkedRecord<'runtime> {
+    fn runtime(&self) -> &'runtime NativeModuleRuntime<'runtime> {
+        match self {
+            Self::Esm(record) => record.runtime,
+            Self::CommonJs { record, .. } => record.runtime,
+        }
+    }
+
+    fn publication_handle(&self) -> Result<NativeModuleHandle> {
+        match self {
+            Self::Esm(record) => record.live_handle(),
+            Self::CommonJs { record, .. } => record.live_handle(),
+        }
+    }
+
+    fn mark_published(&mut self) {
+        match self {
+            Self::Esm(record) => record.published = true,
+            Self::CommonJs { record, adapter } => {
+                record.published = true;
+                adapter.published = true;
+            }
+        }
+    }
+
     fn esm_link_handle(&self) -> Result<NativeModuleHandle> {
         match self {
             Self::Esm(record)
@@ -1962,6 +2029,175 @@ impl<'runtime> NativeLinkedRecord<'runtime> {
 }
 
 #[cfg(any(test, feature = "module-runner"))]
+#[derive(Clone, Copy)]
+enum PublishedNativeRecord {
+    Esm {
+        record: NativeModuleHandle,
+    },
+    CommonJs {
+        record: NativeModuleHandle,
+        adapter: NativeModuleHandle,
+    },
+}
+
+/// Runtime-independent index over records retained by a pinned native graph
+/// generation. It carries no JSI owner-thread values: each late activation
+/// reconstructs short-lived Rust wrappers while holding the live runtime
+/// lease, then writes the expanded handle set back into this index.
+// @ref LLP 0026#6-top-level-await-and-dynamic-import
+#[cfg(any(test, feature = "module-runner"))]
+pub struct NativePublishedGraphIndex {
+    entry: SourceId,
+    graph_generation: u64,
+    records: BTreeMap<SourceId, PublishedNativeRecord>,
+    authorization_receipts: Vec<AuthorizedGraphOperation>,
+}
+
+#[cfg(any(test, feature = "module-runner"))]
+impl NativePublishedGraphIndex {
+    pub fn graph_generation(&self) -> u64 {
+        self.graph_generation
+    }
+
+    pub fn owns_activation(&self, request: &DynamicModuleActivationRequest) -> bool {
+        if self.graph_generation != request.graph_generation {
+            return false;
+        }
+        let Some(requester_handle) = request.requester_record else {
+            return self.records.contains_key(&request.requester);
+        };
+        self.records
+            .get(&request.requester)
+            .is_some_and(|record| match record {
+                PublishedNativeRecord::Esm { record }
+                | PublishedNativeRecord::CommonJs { record, .. } => *record == requester_handle,
+            })
+    }
+
+    pub fn publish_authorized_activation<'runtime, P: GraphImportPolicy>(
+        &mut self,
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        request: &DynamicModuleActivationRequest,
+        target: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+        deferred: &DeferredDynamicImportLinks,
+        prepared_entries: Option<&BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>>,
+    ) -> Result<()> {
+        if !self.owns_activation(request) {
+            bail!("dynamic activation does not belong to this published native graph");
+        }
+        let records = self
+            .records
+            .iter()
+            .map(|(source_id, record)| {
+                let linked = match record {
+                    PublishedNativeRecord::Esm { record } => {
+                        NativeLinkedRecord::Esm(NativeModuleRecord {
+                            runtime,
+                            handle: Some(*record),
+                            published: true,
+                        })
+                    }
+                    PublishedNativeRecord::CommonJs { record, adapter } => {
+                        NativeLinkedRecord::CommonJs {
+                            record: NativeCommonJsRecord {
+                                runtime,
+                                handle: Some(*record),
+                                published: true,
+                            },
+                            adapter: NativeModuleRecord {
+                                runtime,
+                                handle: Some(*adapter),
+                                published: true,
+                            },
+                        }
+                    }
+                };
+                (source_id.clone(), linked)
+            })
+            .collect();
+        let mut facade = NativeSynchronousGraph {
+            entry: self.entry.clone(),
+            graph_generation: self.graph_generation,
+            evaluation_order: Vec::new(),
+            records,
+            evaluation_outcome: None,
+            _authorization_receipts: std::mem::take(&mut self.authorization_receipts),
+        };
+        let result = facade.publish_authorized_activation(
+            runtime,
+            plan,
+            request,
+            target,
+            configs,
+            authorizer,
+            authority_contexts,
+            deferred,
+            prepared_entries,
+        );
+        self.records = published_record_index(&facade.records)
+            .expect("published native graph facade retains live record handles");
+        self.authorization_receipts = std::mem::take(&mut facade._authorization_receipts);
+        result
+    }
+}
+
+#[cfg(any(test, feature = "module-runner"))]
+fn published_record_index(
+    records: &BTreeMap<SourceId, NativeLinkedRecord<'_>>,
+) -> Result<BTreeMap<SourceId, PublishedNativeRecord>> {
+    records
+        .iter()
+        .map(|(source_id, record)| {
+            let published = match record {
+                NativeLinkedRecord::Esm(record) => PublishedNativeRecord::Esm {
+                    record: record.live_handle()?,
+                },
+                NativeLinkedRecord::CommonJs { record, adapter } => {
+                    PublishedNativeRecord::CommonJs {
+                        record: record.live_handle()?,
+                        adapter: adapter.live_handle()?,
+                    }
+                }
+            };
+            Ok((source_id.clone(), published))
+        })
+        .collect()
+}
+
+#[cfg(any(test, feature = "module-runner"))]
+fn publish_linked_records(
+    runtime: &NativeModuleRuntime<'_>,
+    records: &mut BTreeMap<SourceId, NativeLinkedRecord<'_>>,
+) -> Result<()> {
+    if records.is_empty() {
+        return Ok(());
+    }
+    let handles = records
+        .values()
+        .map(NativeLinkedRecord::publication_handle)
+        .collect::<Result<Vec<_>>>()?;
+    let status = unsafe {
+        ex_hermes_module_publish_records(
+            runtime.raw.as_ptr(),
+            runtime.nonce,
+            handles.as_ptr(),
+            handles.len(),
+        )
+    };
+    if status != 0 {
+        bail!("native ModuleRecord publication refused ({status})");
+    }
+    for record in records.values_mut() {
+        record.mark_published();
+    }
+    Ok(())
+}
+
+#[cfg(any(test, feature = "module-runner"))]
 pub type ComputedDynamicImportLinks = BTreeMap<SourceId, BTreeMap<(u32, String), SourceId>>;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -1973,8 +2209,64 @@ pub struct DeferredDynamicImportBindings {
 pub type DeferredDynamicImportLinks = BTreeMap<SourceId, DeferredDynamicImportBindings>;
 
 #[cfg(any(test, feature = "module-runner"))]
+fn validate_deferred_dynamic_records(
+    plan: &SynchronousGraphPlan<'_>,
+    source_ids: &[SourceId],
+    deferred: &DeferredDynamicImportLinks,
+) -> Result<()> {
+    for source_id in source_ids {
+        let artifact = plan.artifact(source_id)?.artifact();
+        if artifact.semantics.static_edges.iter().any(|edge| {
+            matches!(
+                edge,
+                crate::module_loader::artifact::StaticEdgeV1::CommonJsRequire { .. }
+            )
+        }) && artifact.semantics.source_goal
+            != crate::module_loader::artifact::SourceGoalV1::Builtin
+        {
+            bail!("native call-time CommonJS require activation is unavailable for {source_id:?}");
+        }
+        let declarations = deferred.get(source_id).cloned().unwrap_or_default();
+        let expected_literals = artifact
+            .semantics
+            .dynamic_edges
+            .iter()
+            .filter_map(|edge| match edge {
+                crate::module_loader::artifact::DynamicEdgeV1::Literal { specifier, .. } => {
+                    Some(specifier.as_str().to_owned())
+                }
+                crate::module_loader::artifact::DynamicEdgeV1::Computed { .. } => None,
+            })
+            .collect::<BTreeSet<_>>();
+        let admitted_sites = artifact
+            .semantics
+            .dynamic_edges
+            .iter()
+            .filter_map(|edge| match edge {
+                crate::module_loader::artifact::DynamicEdgeV1::Computed { site } => Some(*site),
+                crate::module_loader::artifact::DynamicEdgeV1::Literal { .. } => None,
+            })
+            .collect::<BTreeSet<_>>();
+        if expected_literals != declarations.literal_specifiers
+            || declarations
+                .computed_candidates
+                .iter()
+                .any(|(site, spelling)| !admitted_sites.contains(site) || spelling.is_empty())
+            || (!artifact.semantics.dynamic_edges.is_empty()
+                && !plan.defers_dynamic_edges(source_id))
+        {
+            bail!(
+                "deferred dynamic declarations disagree with authenticated artifact {source_id:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[cfg(any(test, feature = "module-runner"))]
 pub struct NativeSynchronousGraph<'runtime> {
     entry: SourceId,
+    graph_generation: u64,
     evaluation_order: Vec<SourceId>,
     records: BTreeMap<SourceId, NativeLinkedRecord<'runtime>>,
     evaluation_outcome: Option<std::result::Result<(), NativeModuleExecutionError>>,
@@ -2056,6 +2348,50 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
         deferred: &DeferredDynamicImportLinks,
     ) -> Result<Self> {
+        Self::link_authorized_deferred_inner(
+            runtime,
+            plan,
+            entry,
+            configs,
+            authorizer,
+            authority_contexts,
+            deferred,
+            None,
+        )
+    }
+
+    pub fn link_authorized_deferred_prepared<P: GraphImportPolicy>(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+        deferred: &DeferredDynamicImportLinks,
+        prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>,
+    ) -> Result<Self> {
+        Self::link_authorized_deferred_inner(
+            runtime,
+            plan,
+            entry,
+            configs,
+            authorizer,
+            authority_contexts,
+            deferred,
+            Some(prepared_entries),
+        )
+    }
+
+    fn link_authorized_deferred_inner<P: GraphImportPolicy>(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+        deferred: &DeferredDynamicImportLinks,
+        prepared_entries: Option<&BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>>,
+    ) -> Result<Self> {
         let empty = BTreeMap::new();
         let evaluation_order = plan.synchronous_evaluation_order(entry)?;
         let linkage_order = plan.linkage_order_for_authorized(entry, &empty)?;
@@ -2066,54 +2402,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         {
             bail!("deferred dynamic declarations include a requester outside the static closure");
         }
-        for source_id in &linkage_order {
-            let artifact = plan.artifact(source_id)?.artifact();
-            if artifact.semantics.static_edges.iter().any(|edge| {
-                matches!(
-                    edge,
-                    crate::module_loader::artifact::StaticEdgeV1::CommonJsRequire { .. }
-                )
-            }) && artifact.semantics.source_goal
-                != crate::module_loader::artifact::SourceGoalV1::Builtin
-            {
-                bail!(
-                    "native call-time CommonJS require activation is unavailable for {source_id:?}"
-                );
-            }
-            let declarations = deferred.get(source_id).cloned().unwrap_or_default();
-            let expected_literals = artifact
-                .semantics
-                .dynamic_edges
-                .iter()
-                .filter_map(|edge| match edge {
-                    crate::module_loader::artifact::DynamicEdgeV1::Literal {
-                        specifier, ..
-                    } => Some(specifier.as_str().to_owned()),
-                    crate::module_loader::artifact::DynamicEdgeV1::Computed { .. } => None,
-                })
-                .collect::<BTreeSet<_>>();
-            let admitted_sites = artifact
-                .semantics
-                .dynamic_edges
-                .iter()
-                .filter_map(|edge| match edge {
-                    crate::module_loader::artifact::DynamicEdgeV1::Computed { site } => Some(*site),
-                    crate::module_loader::artifact::DynamicEdgeV1::Literal { .. } => None,
-                })
-                .collect::<BTreeSet<_>>();
-            if expected_literals != declarations.literal_specifiers
-                || declarations
-                    .computed_candidates
-                    .iter()
-                    .any(|(site, spelling)| !admitted_sites.contains(site) || spelling.is_empty())
-                || (!artifact.semantics.dynamic_edges.is_empty()
-                    && !plan.defers_dynamic_edges(source_id))
-            {
-                bail!(
-                    "deferred dynamic declarations disagree with authenticated artifact {source_id:?}"
-                );
-            }
-        }
+        validate_deferred_dynamic_records(plan, &linkage_order, deferred)?;
         let receipts =
             plan.authorize_reachable_operations(entry, authorizer, authority_contexts)?;
         Self::link_inner(
@@ -2125,9 +2414,374 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             receipts,
             Some(empty),
             None,
-            None,
+            prepared_entries,
             Some(deferred),
         )
+    }
+
+    /// Materialize and publish only the authenticated static closure selected
+    /// by one reached deferred import, then resolve that invocation onto the
+    /// target's stable native record. Existing records are reused by identity;
+    /// every new record is fully linked and declared before one atomic native
+    /// publication batch.
+    // @ref LLP 0026#6-top-level-await-and-dynamic-import
+    pub fn publish_authorized_activation<P: GraphImportPolicy>(
+        &mut self,
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        request: &DynamicModuleActivationRequest,
+        target: &SourceId,
+        mut configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+        deferred: &DeferredDynamicImportLinks,
+        prepared_entries: Option<&BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>>,
+    ) -> Result<()> {
+        let requester_handle = self
+            .records
+            .get(&request.requester)
+            .map(NativeLinkedRecord::publication_handle)
+            .transpose()?;
+        if self.graph_generation != request.graph_generation
+            || requester_handle.is_none()
+            || request
+                .requester_record
+                .is_some_and(|native| Some(native) != requester_handle)
+            || self
+                .records
+                .values()
+                .next()
+                .is_some_and(|record| !std::ptr::eq(record.runtime(), runtime))
+        {
+            bail!("dynamic activation does not belong to this live native graph");
+        }
+        let requester_declarations = deferred
+            .get(&request.requester)
+            .ok_or_else(|| anyhow!("dynamic activation requester has no deferred declarations"))?;
+        let declared = match &request.kind {
+            DynamicModuleActivationKind::Literal => requester_declarations
+                .literal_specifiers
+                .contains(&request.specifier),
+            DynamicModuleActivationKind::Computed { site } => requester_declarations
+                .computed_candidates
+                .contains(&(*site, request.specifier.clone())),
+        };
+        if !declared || !plan.defers_dynamic_edges(&request.requester) {
+            bail!("dynamic activation disagrees with the authenticated requester site");
+        }
+
+        let empty = BTreeMap::new();
+        let linkage_order = plan.linkage_order_for_authorized(target, &empty)?;
+        validate_deferred_dynamic_records(plan, &linkage_order, deferred)?;
+        let receipts =
+            plan.authorize_reachable_operations(target, authorizer, authority_contexts)?;
+        if let Some(outside) = configs
+            .keys()
+            .find(|source_id| !plan.contains_record(source_id))
+        {
+            bail!(
+                "activation configuration contains record outside the authenticated plan: {outside:?}"
+            );
+        }
+        let new_order = linkage_order
+            .iter()
+            .filter(|source_id| !self.records.contains_key(*source_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        if new_order.is_empty() {
+            let target_handle = self
+                .records
+                .get(target)
+                .ok_or_else(|| anyhow!("activation target is absent from the live graph"))?
+                .esm_link_handle()?;
+            self._authorization_receipts.extend(receipts);
+            return runtime.complete_dynamic_activation_handle(request, target_handle);
+        }
+
+        let mut pending = BTreeMap::new();
+        let mut module_metadata = BTreeMap::new();
+        for source_id in &new_order {
+            let config = configs.remove(source_id).ok_or_else(|| {
+                anyhow!("new activation record {source_id:?} has no native configuration")
+            })?;
+            if config.evaluation_context.requesting_record != *source_id
+                || config.evaluation_context.graph_generation != self.graph_generation
+            {
+                bail!("activation ModuleRecord context is stale or belongs to another record");
+            }
+            let context = runtime.create_graph_context(config.evaluation_context)?;
+            let verified = plan.artifact(source_id)?;
+            let factory = match prepared_entries.and_then(|entries| entries.get(source_id)) {
+                Some(prepared) => runtime.load_verified_prepared_factory(
+                    verified,
+                    *prepared,
+                    config.principal_id,
+                    config.compartment_identity.as_deref(),
+                    self.graph_generation,
+                    &config.source_label,
+                )?,
+                None => match plan.source_goal(source_id)? {
+                    SourceGoalV1::Module => runtime.compile_verified_factory(
+                        verified,
+                        config.principal_id,
+                        config.compartment_identity.as_deref(),
+                        self.graph_generation,
+                        &config.source_label,
+                    )?,
+                    SourceGoalV1::CommonJs => runtime.compile_verified_commonjs_factory(
+                        verified,
+                        config.principal_id,
+                        config.compartment_identity.as_deref(),
+                        self.graph_generation,
+                        &config.source_label,
+                    )?,
+                    SourceGoalV1::Json => runtime.compile_verified_json_factory(
+                        verified,
+                        config.principal_id,
+                        config.compartment_identity.as_deref(),
+                        self.graph_generation,
+                        &config.source_label,
+                    )?,
+                    SourceGoalV1::Builtin => runtime.compile_verified_builtin_factory(
+                        verified,
+                        config.principal_id,
+                        config.compartment_identity.as_deref(),
+                        self.graph_generation,
+                        &config.source_label,
+                    )?,
+                },
+            };
+            let record = match plan.source_goal(source_id)? {
+                SourceGoalV1::Module | SourceGoalV1::Json => {
+                    NativeLinkedRecord::Esm(factory.create_record(&context, source_id)?)
+                }
+                SourceGoalV1::CommonJs | SourceGoalV1::Builtin => {
+                    let filename = config
+                        .virtual_path
+                        .as_deref()
+                        .unwrap_or(&config.source_label);
+                    let dirname = Path::new(filename)
+                        .parent()
+                        .and_then(Path::to_str)
+                        .unwrap_or("");
+                    let mut record =
+                        factory.create_commonjs_record(&context, source_id, filename, dirname)?;
+                    for export_name in plan.namespace(source_id)?.keys() {
+                        if export_name != "default" && export_name != "module.exports" {
+                            record.declare_detected_export(export_name)?;
+                        }
+                    }
+                    let adapter = record.create_esm_adapter()?;
+                    NativeLinkedRecord::CommonJs { record, adapter }
+                }
+            };
+            pending.insert(source_id.clone(), record);
+            module_metadata.insert(source_id.clone(), (config.meta_url, config.virtual_path));
+        }
+
+        for source_id in &new_order {
+            let namespace = plan.namespace(source_id)?;
+            let Some(record) = pending
+                .get_mut(source_id)
+                .expect("every new activation record was created")
+                .esm_mut()
+            else {
+                continue;
+            };
+            for export_name in namespace.keys() {
+                record.declare_export(export_name)?;
+            }
+        }
+
+        for source_id in &new_order {
+            for (export_name, export_target) in plan.namespace(source_id)? {
+                if export_target.record == *source_id && export_target.binding == export_name {
+                    continue;
+                }
+                let target_handle = pending
+                    .get(&export_target.record)
+                    .or_else(|| self.records.get(&export_target.record))
+                    .ok_or_else(|| anyhow!("activation export target is outside static closure"))?
+                    .esm_link_handle()?;
+                let Some(record) = pending
+                    .get_mut(source_id)
+                    .expect("every new activation record was created")
+                    .esm_mut()
+                else {
+                    continue;
+                };
+                record.link_export_handle(&export_name, target_handle, &export_target.binding)?;
+            }
+            for binding in plan.import_bindings(source_id)? {
+                let target_handle = pending
+                    .get(&binding.target.record)
+                    .or_else(|| self.records.get(&binding.target.record))
+                    .ok_or_else(|| anyhow!("activation import target is outside static closure"))?
+                    .esm_link_handle()?;
+                let Some(record) = pending
+                    .get_mut(source_id)
+                    .expect("every new activation record was created")
+                    .esm_mut()
+                else {
+                    continue;
+                };
+                record.link_import_handle(
+                    &binding.specifier,
+                    &binding.imported,
+                    target_handle,
+                    &binding.target.binding,
+                )?;
+            }
+            for (specifier, require_target) in plan.commonjs_require_bindings(source_id)? {
+                let target_record = pending
+                    .get(&require_target)
+                    .or_else(|| self.records.get(&require_target))
+                    .ok_or_else(|| {
+                        anyhow!("activation require target is outside static closure")
+                    })?;
+                let (target_handle, target_is_esm) = match target_record {
+                    NativeLinkedRecord::CommonJs { record, .. } => (record.live_handle()?, false),
+                    NativeLinkedRecord::Esm(record) => (record.live_handle()?, true),
+                };
+                let record = pending
+                    .get_mut(source_id)
+                    .and_then(NativeLinkedRecord::commonjs_mut)
+                    .ok_or_else(|| {
+                        anyhow!("activation CommonJS require belongs to a non-CommonJS record")
+                })?;
+                if target_is_esm {
+                    let synchronous_eligible =
+                        match plan.synchronous_evaluation_order(&require_target) {
+                            Ok(_) => true,
+                            Err(error) if error.code == GraphErrorCode::RequireAsyncModule => false,
+                            Err(error) => return Err(error.into()),
+                        };
+                    record.link_require_esm_handle(
+                        &specifier,
+                        target_handle,
+                        synchronous_eligible,
+                    )?;
+                } else {
+                    record.link_require_handle(&specifier, target_handle)?;
+                }
+            }
+
+            let mut dependencies = BTreeSet::new();
+            for edge in &plan.artifact(source_id)?.artifact().semantics.static_edges {
+                let specifier = match edge {
+                    crate::module_loader::artifact::StaticEdgeV1::CommonJsRequire { .. } => {
+                        continue
+                    }
+                    crate::module_loader::artifact::StaticEdgeV1::SideEffect {
+                        specifier, ..
+                    }
+                    | crate::module_loader::artifact::StaticEdgeV1::Default { specifier, .. }
+                    | crate::module_loader::artifact::StaticEdgeV1::Namespace {
+                        specifier, ..
+                    }
+                    | crate::module_loader::artifact::StaticEdgeV1::Named { specifier, .. }
+                    | crate::module_loader::artifact::StaticEdgeV1::ReExportNamed {
+                        specifier,
+                        ..
+                    }
+                    | crate::module_loader::artifact::StaticEdgeV1::ReExportStar {
+                        specifier,
+                        ..
+                    }
+                    | crate::module_loader::artifact::StaticEdgeV1::ReExportNamespace {
+                        specifier,
+                        ..
+                    } => specifier.as_str(),
+                };
+                let dependency = plan.literal_static_target(source_id, specifier)?.clone();
+                if dependencies.insert(dependency.clone()) {
+                    let target_handle = pending
+                        .get(&dependency)
+                        .or_else(|| self.records.get(&dependency))
+                        .ok_or_else(|| anyhow!("activation dependency is outside static closure"))?
+                        .esm_link_handle()?;
+                    let Some(record) = pending
+                        .get_mut(source_id)
+                        .expect("every new activation record was created")
+                        .esm_mut()
+                    else {
+                        bail!("activation ESM dependency belongs to a non-ESM record");
+                    };
+                    record.link_dependency_handle(target_handle)?;
+                }
+            }
+            if let Some(bindings) = deferred.get(source_id) {
+                for specifier in &bindings.literal_specifiers {
+                    match pending
+                        .get_mut(source_id)
+                        .expect("every new activation record was created")
+                    {
+                        NativeLinkedRecord::Esm(record) => {
+                            record.defer_dynamic_import_handle(specifier)?
+                        }
+                        NativeLinkedRecord::CommonJs { record, .. } => {
+                            record.defer_dynamic_import_handle(specifier)?
+                        }
+                    }
+                }
+                for (site, specifier) in &bindings.computed_candidates {
+                    match pending
+                        .get_mut(source_id)
+                        .expect("every new activation record was created")
+                    {
+                        NativeLinkedRecord::Esm(record) => {
+                            record.defer_computed_dynamic_import_handle(*site, specifier)?
+                        }
+                        NativeLinkedRecord::CommonJs { record, .. } => {
+                            record.defer_computed_dynamic_import_handle(*site, specifier)?
+                        }
+                    }
+                }
+            }
+        }
+
+        for source_id in &new_order {
+            let (meta_url, virtual_path) = module_metadata
+                .get(source_id)
+                .expect("every new activation record has native metadata");
+            let Some(record) = pending
+                .get_mut(source_id)
+                .expect("every new activation record was created")
+                .esm_mut()
+            else {
+                continue;
+            };
+            record.instantiate_with_virtual_path(meta_url, virtual_path.as_deref(), false)?;
+        }
+        for source_id in &new_order {
+            let Some(record) = pending
+                .get_mut(source_id)
+                .expect("every new activation record was created")
+                .esm_mut()
+            else {
+                continue;
+            };
+            record.run_declare()?;
+        }
+        publish_linked_records(runtime, &mut pending)?;
+        let target_handle = pending
+            .get(target)
+            .or_else(|| self.records.get(target))
+            .ok_or_else(|| anyhow!("published activation omitted its target"))?
+            .esm_link_handle()?;
+        let completion = runtime.complete_dynamic_activation_handle(request, target_handle);
+        self.records.append(&mut pending);
+        self._authorization_receipts.extend(receipts);
+        completion
+    }
+
+    pub fn published_activation_index(&self) -> Result<NativePublishedGraphIndex> {
+        Ok(NativePublishedGraphIndex {
+            entry: self.entry.clone(),
+            graph_generation: self.graph_generation,
+            records: published_record_index(&self.records)?,
+            authorization_receipts: self._authorization_receipts.clone(),
+        })
     }
 
     /// Diagnostic-only bypass for native ABI unit fixtures. Advertised builds
@@ -2637,9 +3291,11 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             };
             record.run_declare()?;
         }
+        publish_linked_records(runtime, &mut records)?;
 
         Ok(Self {
             entry: entry.clone(),
+            graph_generation: generation,
             evaluation_order,
             records,
             evaluation_outcome: None,
@@ -2712,6 +3368,7 @@ pub enum AsyncGraphPoll {
 #[cfg(any(test, feature = "module-runner"))]
 pub struct NativeAsynchronousGraph<'runtime> {
     entry: SourceId,
+    graph_generation: u64,
     schedule: AsyncEvaluationPlan,
     records: BTreeMap<SourceId, NativeLinkedRecord<'runtime>>,
     next_scc: usize,
@@ -2773,6 +3430,87 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
         )
     }
 
+    pub fn link_authorized_deferred<P: GraphImportPolicy>(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+        deferred: &DeferredDynamicImportLinks,
+    ) -> Result<Self> {
+        Self::link_authorized_deferred_inner(
+            runtime,
+            plan,
+            entry,
+            configs,
+            authorizer,
+            authority_contexts,
+            deferred,
+            None,
+        )
+    }
+
+    pub fn link_authorized_deferred_prepared<P: GraphImportPolicy>(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+        deferred: &DeferredDynamicImportLinks,
+        prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>,
+    ) -> Result<Self> {
+        Self::link_authorized_deferred_inner(
+            runtime,
+            plan,
+            entry,
+            configs,
+            authorizer,
+            authority_contexts,
+            deferred,
+            Some(prepared_entries),
+        )
+    }
+
+    fn link_authorized_deferred_inner<P: GraphImportPolicy>(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+        deferred: &DeferredDynamicImportLinks,
+        prepared_entries: Option<&BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>>,
+    ) -> Result<Self> {
+        let empty = BTreeMap::new();
+        let linkage_order = plan.linkage_order_for_authorized(entry, &empty)?;
+        let linkage_set = linkage_order.iter().cloned().collect::<BTreeSet<_>>();
+        if deferred
+            .keys()
+            .any(|source_id| !linkage_set.contains(source_id))
+        {
+            bail!("deferred dynamic declarations include a requester outside the static closure");
+        }
+        validate_deferred_dynamic_records(plan, &linkage_order, deferred)?;
+        let schedule = plan.asynchronous_evaluation_plan(entry)?;
+        let receipts =
+            plan.authorize_reachable_operations(entry, authorizer, authority_contexts)?;
+        let linked = NativeSynchronousGraph::link_inner(
+            runtime,
+            plan,
+            entry,
+            schedule.evaluation_order.clone(),
+            configs,
+            receipts,
+            Some(empty),
+            None,
+            prepared_entries,
+            Some(deferred),
+        )?;
+        Self::from_synchronous(linked, schedule)
+    }
+
     #[cfg(test)]
     pub fn link(
         runtime: &'runtime NativeModuleRuntime<'runtime>,
@@ -2815,20 +3553,74 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
             prepared_entries,
             None,
         )?;
+        Self::from_synchronous(linked, schedule)
+    }
+
+    fn from_synchronous(
+        linked: NativeSynchronousGraph<'runtime>,
+        schedule: AsyncEvaluationPlan,
+    ) -> Result<Self> {
         let NativeSynchronousGraph {
             entry,
+            graph_generation,
             records,
             _authorization_receipts,
             ..
         } = linked;
         Ok(Self {
             entry,
+            graph_generation,
             schedule,
             records,
             next_scc: 0,
             suspended_records: Vec::new(),
             evaluation_outcome: None,
             _authorization_receipts,
+        })
+    }
+
+    pub fn publish_authorized_activation<P: GraphImportPolicy>(
+        &mut self,
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        request: &DynamicModuleActivationRequest,
+        target: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+        deferred: &DeferredDynamicImportLinks,
+        prepared_entries: Option<&BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>>,
+    ) -> Result<()> {
+        let mut facade = NativeSynchronousGraph {
+            entry: self.entry.clone(),
+            graph_generation: self.graph_generation,
+            evaluation_order: Vec::new(),
+            records: std::mem::take(&mut self.records),
+            evaluation_outcome: None,
+            _authorization_receipts: std::mem::take(&mut self._authorization_receipts),
+        };
+        let result = facade.publish_authorized_activation(
+            runtime,
+            plan,
+            request,
+            target,
+            configs,
+            authorizer,
+            authority_contexts,
+            deferred,
+            prepared_entries,
+        );
+        self.records = facade.records;
+        self._authorization_receipts = facade._authorization_receipts;
+        result
+    }
+
+    pub fn published_activation_index(&self) -> Result<NativePublishedGraphIndex> {
+        Ok(NativePublishedGraphIndex {
+            entry: self.entry.clone(),
+            graph_generation: self.graph_generation,
+            records: published_record_index(&self.records)?,
+            authorization_receipts: self._authorization_receipts.clone(),
         })
     }
 
@@ -2939,6 +3731,30 @@ fn release(runtime: &NativeModuleRuntime<'_>, handle: &mut Option<NativeModuleHa
     );
 }
 
+fn release_record(
+    runtime: &NativeModuleRuntime<'_>,
+    handle: &mut Option<NativeModuleHandle>,
+    published: bool,
+) {
+    let Some(value) = *handle else {
+        return;
+    };
+    if !published {
+        let status = unsafe {
+            ex_hermes_module_discard_unpublished_record(runtime.raw.as_ptr(), runtime.nonce, value)
+        };
+        if status == 0 || status == -2 {
+            *handle = None;
+            return;
+        }
+        debug_assert_eq!(
+            status, -1,
+            "native unpublished record discard refused ({status})"
+        );
+    }
+    release(runtime, handle);
+}
+
 impl Drop for CompiledModuleFactory<'_> {
     fn drop(&mut self) {
         release(self.runtime, &mut self.handle);
@@ -2953,13 +3769,13 @@ impl Drop for NativeGraphContext<'_> {
 
 impl Drop for NativeModuleRecord<'_> {
     fn drop(&mut self) {
-        release(self.runtime, &mut self.handle);
+        release_record(self.runtime, &mut self.handle, self.published);
     }
 }
 
 impl Drop for NativeCommonJsRecord<'_> {
     fn drop(&mut self) {
-        release(self.runtime, &mut self.handle);
+        release_record(self.runtime, &mut self.handle, self.published);
     }
 }
 
@@ -5480,21 +6296,27 @@ mod tests {
                 identity: NonEmptyString::new("deferred-link-root").unwrap(),
             };
             let entry_id = SourceId::file(
-                owner,
+                owner.clone(),
                 vec![PathComponent::utf8("deferred-entry.mjs").unwrap()],
+            )
+            .unwrap();
+            let target_id = SourceId::file(
+                owner,
+                vec![PathComponent::utf8("deferred-target.mjs").unwrap()],
             )
             .unwrap();
             let entry = with_dynamic_edges(
                 test_artifact_with_factory(
                     entry_id.clone(),
-                    "function ($export, context) { return { declare: function () {}, execute: function () { context.dynamicImport('./target.mjs').then(function () { throw new Error('deferred target resolved before completion'); }, function () { $export('denied', true); }); } }; }",
-                    &["denied"],
+                    "function ($export, context) { return { declare: function () {}, execute: function () { context.dynamicImport('./target.mjs').then(function (namespace) { $export('value', namespace.value); }); } }; }",
+                    &["value"],
                 ),
                 vec![DynamicEdgeV1::Literal {
                     specifier: NonEmptyString::new("./target.mjs").unwrap(),
                     attributes: ImportAttributes::default(),
                 }],
             );
+            let target = test_artifact(target_id.clone());
             let plan = SynchronousGraphPlan::new_typed_with_call_time_deferred(
                 [(verify_test_artifact(&entry), BTreeMap::new())],
                 BTreeMap::new(),
@@ -5543,7 +6365,7 @@ mod tests {
                 &entry_id,
                 BTreeMap::from([(entry_id.clone(), config)]),
                 &ModuleGraphAuthorizer::new(&policy),
-                &BTreeMap::from([(entry_id.clone(), context)]),
+                &BTreeMap::from([(entry_id.clone(), context.clone())]),
                 &deferred,
             )
             .unwrap();
@@ -5555,6 +6377,18 @@ mod tests {
             assert_eq!(request.requester, entry_id);
             assert_eq!(request.kind, DynamicModuleActivationKind::Literal);
             assert_eq!(request.specifier, "./target.mjs");
+            let published_index = graph.published_activation_index().unwrap();
+            assert!(published_index.owns_activation(&request));
+            let mut foreign_requester = request.clone();
+            foreign_requester
+                .requester_record
+                .as_mut()
+                .expect("native mailbox request carries an exact requester handle")
+                .opaque[2] += 1;
+            assert!(
+                !published_index.owns_activation(&foreign_requester),
+                "source identity alone routed a request from another native record"
+            );
             assert!(
                 runtime
                     .take_dynamic_activation_request(17)
@@ -5562,16 +6396,170 @@ mod tests {
                     .is_none(),
                 "authenticated deferred link materialized more than the reached request"
             );
-            runtime
-                .refuse_dynamic_activation(&request, "test target intentionally absent")
+            let expanded_plan = SynchronousGraphPlan::new_typed_with_call_time_deferred(
+                [
+                    (verify_test_artifact(&entry), BTreeMap::new()),
+                    (verify_test_artifact(&target), BTreeMap::new()),
+                ],
+                BTreeMap::new(),
+                BTreeSet::from([entry_id.clone()]),
+            )
+            .unwrap();
+            let target_context =
+                GraphAuthorityContext::initialization(target_id.clone(), 17).unwrap();
+            let target_config = NativeModuleRecordConfig::new(
+                0,
+                None,
+                GraphEvaluationContext::new(target_id.clone(), 0, 0, [0], 17).unwrap(),
+                "deferred-target.mjs",
+                "file:///project/deferred-target.mjs",
+            )
+            .unwrap();
+            graph
+                .publish_authorized_activation(
+                    &runtime,
+                    &expanded_plan,
+                    &request,
+                    &target_id,
+                    BTreeMap::from([(target_id.clone(), target_config)]),
+                    &ModuleGraphAuthorizer::new(&policy),
+                    &BTreeMap::from([
+                        (entry_id.clone(), context),
+                        (target_id.clone(), target_context),
+                    ]),
+                    &deferred,
+                    None,
+                )
                 .unwrap();
             for tick in 0..4 {
                 assert_ne!(ex_hermes_poll(raw, tick), -1);
             }
-            assert_eq!(
-                graph.namespace_json(&entry_id).unwrap(),
-                r#"{"denied":true}"#
+            assert_eq!(graph.namespace_json(&entry_id).unwrap(), r#"{"value":42}"#);
+
+            drop(graph);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn asynchronous_deferred_graph_resumes_after_incremental_target_publication() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let owner = Principal::Root {
+                identity: NonEmptyString::new("async-deferred-link-root").unwrap(),
+            };
+            let entry_id = SourceId::file(
+                owner.clone(),
+                vec![PathComponent::utf8("async-entry.mjs").unwrap()],
+            )
+            .unwrap();
+            let target_id = SourceId::file(
+                owner,
+                vec![PathComponent::utf8("async-target.mjs").unwrap()],
+            )
+            .unwrap();
+            let entry = asynchronous_artifact(
+                test_artifact_with_factory(
+                    entry_id.clone(),
+                    "function ($export, context) { return { declare: function () {}, execute: function () { return context.dynamicImport('./target.mjs').then(function (namespace) { $export('value', namespace.value); }); } }; }",
+                    &["value"],
+                ),
+                vec![DynamicEdgeV1::Literal {
+                    specifier: NonEmptyString::new("./target.mjs").unwrap(),
+                    attributes: ImportAttributes::default(),
+                }],
             );
+            let target = test_artifact(target_id.clone());
+            let initial_plan = SynchronousGraphPlan::new_typed_with_call_time_deferred(
+                [(verify_test_artifact(&entry), BTreeMap::new())],
+                BTreeMap::new(),
+                BTreeSet::from([entry_id.clone()]),
+            )
+            .unwrap();
+            let policy = AllowGraphPolicy::new();
+            let entry_context =
+                GraphAuthorityContext::initialization(entry_id.clone(), 29).unwrap();
+            let entry_config = NativeModuleRecordConfig::new(
+                0,
+                None,
+                GraphEvaluationContext::new(entry_id.clone(), 0, 0, [0], 29).unwrap(),
+                "async-entry.mjs",
+                "file:///project/async-entry.mjs",
+            )
+            .unwrap();
+            let deferred = BTreeMap::from([(
+                entry_id.clone(),
+                DeferredDynamicImportBindings {
+                    literal_specifiers: BTreeSet::from(["./target.mjs".to_owned()]),
+                    computed_candidates: BTreeSet::new(),
+                },
+            )]);
+            let mut graph = NativeAsynchronousGraph::link_authorized_deferred(
+                &runtime,
+                &initial_plan,
+                &entry_id,
+                BTreeMap::from([(entry_id.clone(), entry_config)]),
+                &ModuleGraphAuthorizer::new(&policy),
+                &BTreeMap::from([(entry_id.clone(), entry_context.clone())]),
+                &deferred,
+            )
+            .unwrap();
+            assert_eq!(graph.poll().unwrap(), AsyncGraphPoll::Suspended);
+            let request = runtime
+                .take_dynamic_activation_request(29)
+                .unwrap()
+                .expect("awaited dynamic import did not mint an activation");
+            let expanded_plan = SynchronousGraphPlan::new_typed_with_call_time_deferred(
+                [
+                    (verify_test_artifact(&entry), BTreeMap::new()),
+                    (verify_test_artifact(&target), BTreeMap::new()),
+                ],
+                BTreeMap::new(),
+                BTreeSet::from([entry_id.clone()]),
+            )
+            .unwrap();
+            let target_context =
+                GraphAuthorityContext::initialization(target_id.clone(), 29).unwrap();
+            let target_config = NativeModuleRecordConfig::new(
+                0,
+                None,
+                GraphEvaluationContext::new(target_id.clone(), 0, 0, [0], 29).unwrap(),
+                "async-target.mjs",
+                "file:///project/async-target.mjs",
+            )
+            .unwrap();
+            graph
+                .publish_authorized_activation(
+                    &runtime,
+                    &expanded_plan,
+                    &request,
+                    &target_id,
+                    BTreeMap::from([(target_id.clone(), target_config)]),
+                    &ModuleGraphAuthorizer::new(&policy),
+                    &BTreeMap::from([
+                        (entry_id.clone(), entry_context),
+                        (target_id.clone(), target_context),
+                    ]),
+                    &deferred,
+                    None,
+                )
+                .unwrap();
+            let mut evaluated = false;
+            for tick in 0..8 {
+                assert_ne!(ex_hermes_poll(raw, tick), -1);
+                if graph.poll().unwrap() == AsyncGraphPoll::Evaluated {
+                    evaluated = true;
+                    break;
+                }
+            }
+            assert!(evaluated, "async deferred graph did not resume");
+            assert_eq!(graph.namespace_json(&entry_id).unwrap(), r#"{"value":42}"#);
 
             drop(graph);
             drop(runtime);

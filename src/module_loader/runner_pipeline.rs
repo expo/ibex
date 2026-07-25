@@ -17,7 +17,10 @@ use capsec_semantics::model::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::engine::module_runner::{GraphEvaluationContext, NativeModuleRecordConfig};
+use crate::engine::module_runner::{
+    DeferredDynamicImportBindings, DeferredDynamicImportLinks, DynamicModuleActivationKind,
+    DynamicModuleActivationRequest, GraphEvaluationContext, NativeModuleRecordConfig,
+};
 
 use super::artifact::{
     source_integrity, ArtifactAdmissionV1, DynamicEdgeV1, ModuleArtifactV1, StaticEdgeV1,
@@ -252,7 +255,15 @@ struct SourceGraphRecordV1 {
     artifact: ModuleArtifactV1,
     bindings: BTreeMap<GraphEdgeKey, SourceId>,
     candidate_tables: Vec<ComputedCandidateTableV1>,
+    deferred_dynamic: DeferredSourceDynamicBindingsV1,
     prepared: Option<PreparedRecordV1>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct DeferredSourceDynamicBindingsV1 {
+    enabled: bool,
+    literal_attributes: BTreeMap<String, super::identity::ImportAttributes>,
+    computed_attributes: BTreeMap<(u32, String), super::identity::ImportAttributes>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -300,8 +311,13 @@ pub struct SourceModuleGraphV1 {
     principal_ids: BTreeMap<Principal, u32>,
     producer_binary_digest: Digest,
     records: BTreeMap<SourceId, SourceGraphRecordV1>,
+    activation_host: Option<crate::host::Host>,
+    project_root: PathBuf,
+    candidate_declarations: BTreeMap<(String, String), Vec<NonEmptyString>>,
+    matched_candidate_declarations: BTreeSet<(String, String)>,
     _source_access_receipts: Vec<AuthorizedGraphOperation>,
     _prepared_access_receipts: Vec<AuthorizedGraphOperation>,
+    _activation_receipts: Vec<AuthorizedGraphOperation>,
 }
 
 /// Opaque proof that one structured file request was joined to one exact
@@ -333,6 +349,11 @@ impl SourceModuleGraphV1 {
     #[cfg(test)]
     pub(crate) fn prepared_access_receipt_count(&self) -> usize {
         self._prepared_access_receipts.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn activation_receipt_count(&self) -> usize {
+        self._activation_receipts.len()
     }
 
     /// Join a post-admission graph back to the exact structured file request
@@ -428,7 +449,7 @@ impl SourceModuleGraphV1 {
     }
 
     pub fn plan(&self) -> Result<SynchronousGraphPlan<'_>> {
-        SynchronousGraphPlan::new_typed_with_computed_candidates(
+        SynchronousGraphPlan::new_typed_with_call_time_deferred(
             self.records
                 .iter()
                 .map(|(_, record)| {
@@ -439,8 +460,384 @@ impl SourceModuleGraphV1 {
                 })
                 .collect::<Result<Vec<_>>>()?,
             computed_candidate_site_map(&self.records)?,
+            self.records
+                .iter()
+                .filter(|(_, record)| record.deferred_dynamic.enabled)
+                .map(|(source_id, _)| source_id.clone())
+                .collect(),
         )
         .map_err(anyhow::Error::from)
+    }
+
+    pub fn deferred_dynamic_links(&self) -> DeferredDynamicImportLinks {
+        self.records
+            .iter()
+            .filter_map(|(source_id, record)| {
+                if !record.deferred_dynamic.enabled {
+                    return None;
+                }
+                Some((
+                    source_id.clone(),
+                    DeferredDynamicImportBindings {
+                        literal_specifiers: record
+                            .deferred_dynamic
+                            .literal_attributes
+                            .keys()
+                            .cloned()
+                            .collect(),
+                        computed_candidates: record
+                            .deferred_dynamic
+                            .computed_attributes
+                            .keys()
+                            .cloned()
+                            .collect(),
+                    },
+                ))
+            })
+            .collect()
+    }
+
+    /// Resolve and acquire one reached deferred import through the exact Host
+    /// retained by authenticated ingress, then atomically extend this source
+    /// graph with only the target's static closure.
+    // @ref LLP 0024#3-source-goal
+    // @ref LLP 0026#6-top-level-await-and-dynamic-import
+    pub fn activate_dynamic_target(
+        &mut self,
+        request: &DynamicModuleActivationRequest,
+    ) -> Result<SourceId> {
+        let graph_generation = request.graph_generation();
+        let host = self
+            .activation_host
+            .clone()
+            .ok_or_else(|| anyhow!("source graph has no retained activation Host"))?;
+        let requester = self
+            .records
+            .get(&request.requester)
+            .ok_or_else(|| anyhow!("dynamic activation requester is absent from source graph"))?;
+        let attributes = match &request.kind {
+            DynamicModuleActivationKind::Literal => requester
+                .deferred_dynamic
+                .literal_attributes
+                .get(&request.specifier),
+            DynamicModuleActivationKind::Computed { site } => requester
+                .deferred_dynamic
+                .computed_attributes
+                .get(&(*site, request.specifier.clone())),
+        }
+        .cloned()
+        .ok_or_else(|| {
+            anyhow!("dynamic activation site and spelling are not authenticated declarations")
+        })?;
+        let key = GraphEdgeKey::new(&request.specifier, ResolutionKind::DynamicImport);
+        let authorizer = ModuleGraphAuthorizer::new(self.snapshot.as_ref());
+        let target_meta = host.resolve_meta(
+            &request.specifier,
+            Some(&requester.path),
+            ResolutionKind::DynamicImport,
+            &attributes,
+        )?;
+        let target_id = target_meta
+            .artifact_source_id
+            .clone()
+            .ok_or_else(|| anyhow!("dynamic activation resolution produced no SourceId"))?;
+        if self.records.contains_key(&target_id) {
+            let decision = graph_edge_decision(
+                &request.requester,
+                &key,
+                GraphOperationKind::DynamicImport,
+                &attributes,
+                graph_generation,
+                target_id.clone(),
+            )?;
+            self._activation_receipts
+                .push(authorizer.authorize(decision)?);
+            return Ok(target_id);
+        }
+
+        let (target, target_receipt) = authorize_source_acquisition(
+            &host,
+            &authorizer,
+            &request.requester,
+            &key,
+            GraphOperationKind::DynamicImport,
+            &attributes,
+            graph_generation,
+            target_meta,
+        )?;
+        let mut pending_receipts = vec![target_receipt];
+        let mut pending_records = BTreeMap::new();
+        let mut pending_principal_ids = self.principal_ids.clone();
+        let mut pending_matched = self.matched_candidate_declarations.clone();
+        let mut queue = VecDeque::from([target]);
+
+        while let Some(module) = queue.pop_front() {
+            let source_id = module
+                .artifact_source_id
+                .clone()
+                .ok_or_else(|| anyhow!("activated source produced no SourceId"))?;
+            if self.records.contains_key(&source_id) || pending_records.contains_key(&source_id) {
+                continue;
+            }
+            let path = match module.path.clone() {
+                Some(path) => path,
+                None if module.kind == ModuleKind::Builtin => match &source_id {
+                    SourceId::Builtin { source_key, .. } => {
+                        PathBuf::from(format!("builtin:{}.js", source_key.as_str()))
+                    }
+                    _ => bail!("activated builtin has a non-builtin SourceId"),
+                },
+                None => bail!("activated source has no authenticated path"),
+            };
+            let source_label = match module.source_label.as_ref() {
+                Some(label) => label.as_str().to_owned(),
+                None => match &source_id {
+                    SourceId::Builtin { source_key, .. } => {
+                        format!("builtin:{}", source_key.as_str())
+                    }
+                    _ => bail!("activated file source has no VFS source label"),
+                },
+            };
+            let virtual_path = module.virtual_path.clone();
+            if matches!(&source_id, SourceId::Builtin { .. }) {
+                if virtual_path.is_some() {
+                    bail!("activated builtin unexpectedly has a virtual path");
+                }
+            } else {
+                let virtual_path = virtual_path
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("activated file source has no virtual path"))?;
+                if !virtual_path.starts_with("/project/")
+                    || source_label != format!("file://{virtual_path}")
+                {
+                    bail!("activated file source has invalid authenticated metadata");
+                }
+            }
+            let source = module
+                .source
+                .as_deref()
+                .ok_or_else(|| anyhow!("activated source has no authenticated bytes"))?;
+            let source_name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("module");
+            let produced = match module.kind {
+                ModuleKind::Esm => produce_module_artifact_with_sites_v1(
+                    source_id.clone(),
+                    source_name,
+                    &path,
+                    source,
+                    self.producer_binary_digest.clone(),
+                ),
+                ModuleKind::CommonJs => produce_commonjs_artifact_with_sites_v1(
+                    source_id.clone(),
+                    source_name,
+                    &path,
+                    source,
+                    self.producer_binary_digest.clone(),
+                ),
+                ModuleKind::Json => produce_json_artifact_v1(
+                    source_id.clone(),
+                    source,
+                    self.producer_binary_digest.clone(),
+                )
+                .map(|artifact| super::producer_spike::ProducedModuleArtifactV1 {
+                    artifact,
+                    dynamic_import_sites: Vec::new(),
+                }),
+                ModuleKind::Builtin => produce_builtin_artifact_v1(
+                    source_id.clone(),
+                    source_name,
+                    source,
+                    self.producer_binary_digest.clone(),
+                )
+                .map(|artifact| super::producer_spike::ProducedModuleArtifactV1 {
+                    artifact,
+                    dynamic_import_sites: Vec::new(),
+                }),
+            }
+            .map_err(|error| anyhow!("cannot prepare activated module {source_name:?}: {error}"))?;
+            let artifact = produced.artifact;
+            ensure_source_graph_call_time_edges_supported(&artifact, true)?;
+            let mut bindings = BTreeMap::new();
+            let mut deferred_dynamic = DeferredSourceDynamicBindingsV1::default();
+            deferred_dynamic.enabled = !artifact.semantics.dynamic_edges.is_empty();
+            for edge in &artifact.semantics.dynamic_edges {
+                if let DynamicEdgeV1::Literal {
+                    specifier,
+                    attributes,
+                } = edge
+                {
+                    if deferred_dynamic
+                        .literal_attributes
+                        .insert(specifier.as_str().to_owned(), attributes.clone())
+                        .is_some()
+                    {
+                        bail!("activated artifact repeats a literal dynamic import");
+                    }
+                }
+            }
+
+            for dependency_key in artifact_edge_requests(&artifact)
+                .into_iter()
+                .filter(|edge| edge.resolution_kind != ResolutionKind::DynamicImport)
+            {
+                let dependency_attributes = artifact_edge_attributes(&artifact, &dependency_key)?;
+                let dependency_meta = if module.kind == ModuleKind::Builtin {
+                    if dependency_key.resolution_kind != ResolutionKind::CommonJsRequire
+                        || !dependency_attributes.is_empty()
+                    {
+                        bail!("activated builtin has an invalid private edge");
+                    }
+                    host.resolve_manifest_builtin_internal(&dependency_key.specifier)?
+                } else {
+                    host.resolve_meta(
+                        &dependency_key.specifier,
+                        Some(&path),
+                        dependency_key.resolution_kind,
+                        &dependency_attributes,
+                    )?
+                };
+                let dependency_id = dependency_meta
+                    .artifact_source_id
+                    .clone()
+                    .ok_or_else(|| anyhow!("activated dependency produced no SourceId"))?;
+                if module.kind != ModuleKind::Builtin {
+                    let operation_kind = artifact_edge_operation_kind(
+                        &artifact,
+                        &dependency_key,
+                        &dependency_attributes,
+                    )?;
+                    if self.records.contains_key(&dependency_id)
+                        || pending_records.contains_key(&dependency_id)
+                    {
+                        let decision = graph_edge_decision(
+                            &source_id,
+                            &dependency_key,
+                            operation_kind,
+                            &dependency_attributes,
+                            graph_generation,
+                            dependency_id.clone(),
+                        )?;
+                        pending_receipts.push(authorizer.authorize(decision)?);
+                    } else {
+                        let (loaded, receipt) = authorize_source_acquisition(
+                            &host,
+                            &authorizer,
+                            &source_id,
+                            &dependency_key,
+                            operation_kind,
+                            &dependency_attributes,
+                            graph_generation,
+                            dependency_meta,
+                        )?;
+                        pending_receipts.push(receipt);
+                        queue.push_back(loaded);
+                    }
+                } else {
+                    queue.push_back(dependency_meta);
+                }
+                if let Some(previous) =
+                    bindings.insert(dependency_key.clone(), dependency_id.clone())
+                {
+                    if previous != dependency_id {
+                        bail!("one activated dependency resolved to two SourceIds");
+                    }
+                }
+            }
+
+            if let Some(requester_path) =
+                authenticated_root_requester_path(&source_id, &path, &self.project_root)
+            {
+                for site in produced.dynamic_import_sites {
+                    if !site.runtime_options_supported {
+                        continue;
+                    }
+                    let Some(label) = site.label else {
+                        continue;
+                    };
+                    let declaration_key = (requester_path.clone(), label.as_str().to_owned());
+                    let Some(specifiers) = self.candidate_declarations.get(&declaration_key) else {
+                        continue;
+                    };
+                    pending_matched.insert(declaration_key);
+                    for specifier in specifiers {
+                        if let Some(previous) = deferred_dynamic.computed_attributes.insert(
+                            (site.site, specifier.as_str().to_owned()),
+                            site.attributes.clone(),
+                        ) {
+                            if previous != site.attributes {
+                                bail!("activated computed candidate carries two attribute bags");
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(principal) = source_id.defining_principal().cloned() {
+                if !pending_principal_ids.contains_key(&principal) {
+                    pending_principal_ids.insert(principal.clone(), host.principal_id(&principal)?);
+                }
+            }
+            pending_records.insert(
+                source_id,
+                SourceGraphRecordV1 {
+                    path,
+                    source_label,
+                    virtual_path,
+                    artifact,
+                    bindings,
+                    candidate_tables: Vec::new(),
+                    deferred_dynamic,
+                    prepared: None,
+                },
+            );
+        }
+
+        let known_requesters = self
+            .records
+            .iter()
+            .chain(pending_records.iter())
+            .filter_map(|(source_id, record)| {
+                authenticated_root_requester_path(source_id, &record.path, &self.project_root)
+            })
+            .collect::<BTreeSet<_>>();
+        if self
+            .candidate_declarations
+            .keys()
+            .any(|(requester, label)| {
+                known_requesters.contains(requester)
+                    && !pending_matched.contains(&(requester.clone(), label.clone()))
+            })
+        {
+            bail!("activated computed-candidate declarations do not match producer sites");
+        }
+        let deferred_sources = self
+            .records
+            .iter()
+            .chain(pending_records.iter())
+            .filter(|(_, record)| record.deferred_dynamic.enabled)
+            .map(|(source_id, _)| source_id.clone())
+            .collect();
+        SynchronousGraphPlan::new_typed_with_call_time_deferred(
+            self.records
+                .iter()
+                .chain(pending_records.iter())
+                .map(|(_, record)| {
+                    Ok((
+                        verify_record(record, &self.producer_binary_digest)?,
+                        record.bindings.clone(),
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?,
+            BTreeMap::new(),
+            deferred_sources,
+        )?;
+
+        self.records.append(&mut pending_records);
+        self.principal_ids = pending_principal_ids;
+        self.matched_candidate_declarations = pending_matched;
+        self._activation_receipts.extend(pending_receipts);
+        Ok(target_id)
     }
 
     pub fn records(
@@ -484,6 +881,22 @@ impl SourceModuleGraphV1 {
             })
             .collect::<Result<BTreeMap<_, _>>>()
             .map(Some)
+    }
+
+    pub fn available_prepared_entries(
+        &self,
+    ) -> Result<BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>> {
+        self.records
+            .iter()
+            .filter_map(|(source_id, record)| {
+                record.prepared.as_ref().map(|prepared| {
+                    Ok((
+                        source_id.clone(),
+                        prepared.carrier.entry(prepared.entry_id.as_str())?,
+                    ))
+                })
+            })
+            .collect()
     }
 
     pub fn native_execution_inputs(
@@ -865,6 +1278,7 @@ pub fn capture_embedded_source_graph_v1(
                 artifact,
                 bindings,
                 candidate_tables,
+                deferred_dynamic: DeferredSourceDynamicBindingsV1::default(),
                 prepared: None,
             },
         );
@@ -1178,9 +1592,12 @@ fn artifact_edge_operation_kind(
 /// again before native linking.
 // @ref LLP 0024#3-source-goal
 // @ref LLP 0026#6-top-level-await-and-dynamic-import
-fn ensure_source_graph_call_time_edges_supported(artifact: &ModuleArtifactV1) -> Result<()> {
+fn ensure_source_graph_call_time_edges_supported(
+    artifact: &ModuleArtifactV1,
+    dynamic_activation_available: bool,
+) -> Result<()> {
     let source_id = &artifact.semantics.source_id.0;
-    if !artifact.semantics.dynamic_edges.is_empty() {
+    if !artifact.semantics.dynamic_edges.is_empty() && !dynamic_activation_available {
         bail!("native call-time dynamic-import activation is unavailable for {source_id:?}");
     }
     if artifact.semantics.source_goal != super::artifact::SourceGoalV1::Builtin
@@ -1205,33 +1622,17 @@ fn authorize_source_acquisition(
     graph_generation: u64,
     meta: ResolvedModule,
 ) -> Result<(ResolvedModule, AuthorizedGraphOperation)> {
-    let owner = requester
-        .defining_principal()
-        .cloned()
-        .ok_or_else(|| anyhow!("authored dependency requester has no defining principal"))?;
     let target = meta
         .artifact_source_id
         .clone()
         .ok_or_else(|| anyhow!("authenticated dependency metadata produced no SourceId"))?;
-    let context = GraphAuthorityContext::new(
-        requester.clone(),
-        owner.clone(),
-        owner.clone(),
-        owner.clone(),
-        vec![owner],
-        Stage::Requested,
-        graph_generation,
-    )?;
-    let decision = GraphDecisionSet::new(
+    let decision = graph_edge_decision(
+        requester,
+        key,
         operation_kind,
-        context,
+        attributes,
+        graph_generation,
         target,
-        key.specifier.as_str(),
-        key.resolution_kind,
-        super::identity::ConditionSet::for_kind(key.resolution_kind),
-        attributes.clone(),
-        None,
-        None,
     )?;
     authorizer.authorize_then_acquire_source(
         decision,
@@ -1246,12 +1647,47 @@ fn authorize_source_acquisition(
     )
 }
 
+fn graph_edge_decision(
+    requester: &SourceId,
+    key: &GraphEdgeKey,
+    operation_kind: GraphOperationKind,
+    attributes: &super::identity::ImportAttributes,
+    graph_generation: u64,
+    target: SourceId,
+) -> Result<GraphDecisionSet> {
+    let owner = requester
+        .defining_principal()
+        .cloned()
+        .ok_or_else(|| anyhow!("authored dependency requester has no defining principal"))?;
+    let context = GraphAuthorityContext::new(
+        requester.clone(),
+        owner.clone(),
+        owner.clone(),
+        owner.clone(),
+        vec![owner],
+        Stage::Requested,
+        graph_generation,
+    )?;
+    GraphDecisionSet::new(
+        operation_kind,
+        context,
+        target,
+        key.specifier.as_str(),
+        key.resolution_kind,
+        super::identity::ConditionSet::for_kind(key.resolution_kind),
+        attributes.clone(),
+        None,
+        None,
+    )
+}
+
 pub fn build_authenticated_source_graph_v1(
     entry: &Path,
     producer_binary_digest: Digest,
 ) -> Result<SourceModuleGraphBuildV1> {
     build_authenticated_source_graph_v1_with_host(
         &InstalledSourceGraphHost,
+        None,
         entry,
         producer_binary_digest,
     )
@@ -1267,11 +1703,17 @@ pub fn build_authenticated_source_graph_v1_for_host(
     producer_binary_digest: Digest,
     _hermes_target: &str,
 ) -> Result<SourceModuleGraphBuildV1> {
-    build_authenticated_source_graph_v1_with_host(host, entry, producer_binary_digest)
+    build_authenticated_source_graph_v1_with_host(
+        host,
+        Some(host.clone()),
+        entry,
+        producer_binary_digest,
+    )
 }
 
 fn build_authenticated_source_graph_v1_with_host(
     host: &impl SourceGraphHost,
+    activation_host: Option<crate::host::Host>,
     entry: &Path,
     producer_binary_digest: Digest,
 ) -> Result<SourceModuleGraphBuildV1> {
@@ -1421,9 +1863,29 @@ fn build_authenticated_source_graph_v1_with_host(
             }
         };
         let artifact = produced.artifact;
-        ensure_source_graph_call_time_edges_supported(&artifact)?;
+        ensure_source_graph_call_time_edges_supported(&artifact, activation_host.is_some())?;
         let mut bindings = BTreeMap::new();
-        for key in artifact_edge_requests(&artifact) {
+        let mut deferred_dynamic = DeferredSourceDynamicBindingsV1::default();
+        deferred_dynamic.enabled = !artifact.semantics.dynamic_edges.is_empty();
+        for edge in &artifact.semantics.dynamic_edges {
+            if let DynamicEdgeV1::Literal {
+                specifier,
+                attributes,
+            } = edge
+            {
+                if deferred_dynamic
+                    .literal_attributes
+                    .insert(specifier.as_str().to_owned(), attributes.clone())
+                    .is_some()
+                {
+                    bail!("authenticated artifact repeats one literal dynamic-import spelling");
+                }
+            }
+        }
+        for key in artifact_edge_requests(&artifact)
+            .into_iter()
+            .filter(|key| key.resolution_kind != ResolutionKind::DynamicImport)
+        {
             let attributes = artifact_edge_attributes(&artifact, &key)?;
             let target = if module.kind == ModuleKind::Builtin {
                 if key.resolution_kind != ResolutionKind::CommonJsRequire || !attributes.is_empty()
@@ -1463,7 +1925,7 @@ fn build_authenticated_source_graph_v1_with_host(
             }
             queue.push_back(target);
         }
-        let mut candidate_tables = Vec::new();
+        let candidate_tables = Vec::new();
         if let Some(requester) = authenticated_root_requester_path(&source_id, &path, &project_root)
         {
             for site in produced.dynamic_import_sites {
@@ -1478,67 +1940,18 @@ fn build_authenticated_source_graph_v1_with_host(
                     continue;
                 };
                 matched_candidate_declarations.insert(declaration_key);
-                let mut candidates = Vec::new();
                 for specifier in specifiers {
-                    let key = GraphEdgeKey::new(specifier.as_str(), ResolutionKind::DynamicImport);
-                    let meta = host.resolve_meta(
-                        specifier.as_str(),
-                        Some(&path),
-                        ResolutionKind::DynamicImport,
-                        &site.attributes,
-                    )?;
-                    let (target, receipt) = authorize_source_acquisition(
-                        host,
-                        &authorizer,
-                        &source_id,
-                        &key,
-                        GraphOperationKind::DynamicImport,
-                        &site.attributes,
-                        graph_generation,
-                        meta,
-                    )?;
-                    source_access_receipts.push(receipt);
-                    let target_id = target
-                        .artifact_source_id
-                        .clone()
-                        .ok_or_else(|| anyhow!("authenticated candidate produced no SourceId"))?;
-                    let target_integrity = source_integrity(
-                        target
-                            .source
-                            .as_deref()
-                            .ok_or_else(|| {
-                                anyhow!("authenticated candidate produced no source bytes")
-                            })?
-                            .as_bytes(),
-                    )?;
-                    candidates.push(ComputedCandidateTargetV1 {
-                        specifier: specifier.clone(),
-                        attributes: site.attributes.clone(),
-                        target: super::artifact::CanonicalSourceId(target_id),
-                        target_source_integrity: target_integrity,
-                    });
-                    queue.push_back(target);
+                    if let Some(previous) = deferred_dynamic.computed_attributes.insert(
+                        (site.site, specifier.as_str().to_owned()),
+                        site.attributes.clone(),
+                    ) {
+                        if previous != site.attributes {
+                            bail!(
+                                "one authenticated candidate spelling carries two attribute bags"
+                            );
+                        }
+                    }
                 }
-                candidates.sort_by_key(|candidate| {
-                    capsec_semantics::canonical::to_jcs_bytes(
-                        &serde_json::to_value(candidate).expect("candidate serializes"),
-                    )
-                    .expect("candidate canonicalizes")
-                });
-                candidate_tables.push(ComputedCandidateTableV1 {
-                    schema: COMPUTED_CANDIDATES_SCHEMA_V1.into(),
-                    requester: super::artifact::CanonicalSourceId(source_id.clone()),
-                    requester_source_integrity: artifact.semantics.source_integrity.clone(),
-                    transform_fingerprint_digest: artifact
-                        .semantics
-                        .transform_fingerprint
-                        .digest()?,
-                    site: site.site,
-                    generation: snapshot.generations().dynamic.get().max(1),
-                    label,
-                    original_source_span: site.original_source_span,
-                    candidates,
-                });
             }
         }
         records.insert(
@@ -1550,13 +1963,23 @@ fn build_authenticated_source_graph_v1_with_host(
                 artifact,
                 bindings,
                 candidate_tables,
+                deferred_dynamic,
                 prepared: None,
             },
         );
     }
 
-    if matched_candidate_declarations.len() != candidate_declarations.len() {
-        bail!("computed-candidate declarations do not match authenticated producer sites");
+    let known_requesters = records
+        .iter()
+        .filter_map(|(source_id, record)| {
+            authenticated_root_requester_path(source_id, &record.path, &project_root)
+        })
+        .collect::<BTreeSet<_>>();
+    if candidate_declarations.keys().any(|(requester, label)| {
+        known_requesters.contains(requester)
+            && !matched_candidate_declarations.contains(&(requester.clone(), label.clone()))
+    }) {
+        bail!("computed-candidate declarations for a linked requester do not match authenticated producer sites");
     }
 
     let principal_ids = records
@@ -1579,8 +2002,13 @@ fn build_authenticated_source_graph_v1_with_host(
         principal_ids,
         producer_binary_digest,
         records,
+        activation_host,
+        project_root,
+        candidate_declarations,
+        matched_candidate_declarations,
         _source_access_receipts: source_access_receipts,
         _prepared_access_receipts: Vec::new(),
+        _activation_receipts: Vec::new(),
     };
     graph.plan()?;
     Ok(SourceModuleGraphBuildV1::Native(graph))
@@ -1603,7 +2031,7 @@ fn prepare_embedded_records_v1(
     records: &BTreeMap<SourceId, SourceGraphRecordV1>,
     producer_binary_digest: &Digest,
 ) -> Result<PreparedEmbeddedSourceGraphV1> {
-    SynchronousGraphPlan::new_typed_with_computed_candidates(
+    SynchronousGraphPlan::new_typed_with_call_time_deferred(
         records
             .values()
             .map(|record| {
@@ -1613,7 +2041,12 @@ fn prepare_embedded_records_v1(
                 ))
             })
             .collect::<Result<Vec<_>>>()?,
-        computed_candidate_site_map(records)?,
+            computed_candidate_site_map(records)?,
+            records
+                .iter()
+                .filter(|(_, record)| record.deferred_dynamic.enabled)
+                .map(|(source_id, _)| source_id.clone())
+                .collect(),
     )?;
     if !records.contains_key(entry) {
         bail!("embedded source graph entry is absent");
@@ -2376,6 +2809,7 @@ pub fn load_prepared_source_graph_v1(
                 artifact: indexed.artifact,
                 bindings,
                 candidate_tables: record_candidate_tables,
+                deferred_dynamic: trusted_record.deferred_dynamic.clone(),
                 prepared: Some(PreparedRecordV1 {
                     carrier,
                     entry_id: indexed.entry_id,
@@ -2391,8 +2825,15 @@ pub fn load_prepared_source_graph_v1(
         principal_ids: authenticated_source_graph.principal_ids.clone(),
         producer_binary_digest: authenticated_source_graph.producer_binary_digest.clone(),
         records,
+        activation_host: authenticated_source_graph.activation_host.clone(),
+        project_root: authenticated_source_graph.project_root.clone(),
+        candidate_declarations: authenticated_source_graph.candidate_declarations.clone(),
+        matched_candidate_declarations: authenticated_source_graph
+            .matched_candidate_declarations
+            .clone(),
         _source_access_receipts: authenticated_source_graph._source_access_receipts.clone(),
         _prepared_access_receipts: prepared_access_receipts,
+        _activation_receipts: authenticated_source_graph._activation_receipts.clone(),
     };
     graph.plan()?;
     if !graph.records.contains_key(graph.entry()) {
@@ -2892,43 +3333,119 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn authored_call_time_edges_refuse_before_target_resolution() {
+    fn authored_call_time_edges_never_resolve_before_invocation() {
         let project = tempfile::tempdir().unwrap();
         let producer_digest =
             Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
         let host = armed_file_host(project.path());
 
-        for (name, source, expected) in [
-            (
-                "entry.mjs",
-                "if (false) import('./target-that-must-not-be-probed.mjs'); export const value = 1;\n",
-                "dynamic-import activation",
-            ),
-            (
-                "entry.cjs",
-                "if (false) require('./target-that-must-not-be-probed.cjs'); exports.value = 1;\n",
-                "CommonJS require activation",
-            ),
-        ] {
-            let entry = project.path().join(name);
-            std::fs::write(&entry, source).unwrap();
-            let entry = std::fs::canonicalize(entry).unwrap();
-            let error = match build_authenticated_source_graph_v1_for_host(
-                &host,
-                &entry,
-                producer_digest.clone(),
-                "hermes-test",
-            ) {
-                Ok(_) => panic!("{name} reached graph construction despite an authored call-time edge"),
-                Err(error) => error,
-            };
-            let message = format!("{error:#}");
-            assert!(message.contains(expected), "{name}: {message}");
-            assert!(
-                !message.contains("target-that-must-not-be-probed"),
-                "{name} exposed target-resolution output before the call-time refusal: {message}"
-            );
-        }
+        let entry = project.path().join("entry.mjs");
+        std::fs::write(
+            &entry,
+            "if (false) import('./target-that-must-not-be-probed.mjs'); export const value = 1;\n",
+        )
+        .unwrap();
+        let entry = std::fs::canonicalize(entry).unwrap();
+        let graph = match build_authenticated_source_graph_v1_for_host(
+            &host,
+            &entry,
+            producer_digest.clone(),
+            "hermes-test",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!("dead dynamic import required legacy execution: {requirement:?}")
+            }
+        };
+        assert_eq!(graph.records().count(), 1);
+        assert!(graph.plan().unwrap().defers_dynamic_edges(graph.entry()));
+        assert!(graph
+            .deferred_dynamic_links()
+            .get(graph.entry())
+            .unwrap()
+            .literal_specifiers
+            .contains("./target-that-must-not-be-probed.mjs"));
+
+        let cjs_entry = project.path().join("entry.cjs");
+        std::fs::write(
+            &cjs_entry,
+            "if (false) require('./target-that-must-not-be-probed.cjs'); exports.value = 1;\n",
+        )
+        .unwrap();
+        let cjs_entry = std::fs::canonicalize(cjs_entry).unwrap();
+        let error = match build_authenticated_source_graph_v1_for_host(
+            &host,
+            &cjs_entry,
+            producer_digest,
+            "hermes-test",
+        ) {
+            Ok(_) => panic!("authored CommonJS require reached graph construction"),
+            Err(error) => error,
+        };
+        let message = format!("{error:#}");
+        assert!(message.contains("CommonJS require activation"), "{message}");
+        assert!(
+            !message.contains("target-that-must-not-be-probed"),
+            "CommonJS refusal exposed target-resolution output: {message}"
+        );
+    }
+
+    #[test]
+    fn reached_dynamic_import_receipt_gates_only_its_target_static_closure() {
+        let project = tempfile::tempdir().unwrap();
+        let producer_digest =
+            Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let host = armed_file_host(project.path());
+        let entry = project.path().join("entry.mjs");
+        let target = project.path().join("target.mjs");
+        std::fs::write(&entry, "export const promise = import('./target.mjs');\n").unwrap();
+        std::fs::write(&target, "export const value = 42;\n").unwrap();
+        let entry = std::fs::canonicalize(entry).unwrap();
+        let mut graph = match build_authenticated_source_graph_v1_for_host(
+            &host,
+            &entry,
+            producer_digest,
+            "hermes-test",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "literal dynamic import required legacy execution: {}",
+                    requirement.reason
+                )
+            }
+        };
+        assert_eq!(graph.records().count(), 1);
+        assert_eq!(graph.activation_receipt_count(), 0);
+        let request = DynamicModuleActivationRequest::for_test(
+            1,
+            graph.entry().clone(),
+            DynamicModuleActivationKind::Literal,
+            "./target.mjs",
+        );
+        let target_id = graph.activate_dynamic_target(&request).unwrap();
+        assert_ne!(&target_id, graph.entry());
+        assert_eq!(graph.records().count(), 2);
+        assert!(graph.plan().unwrap().contains_record(&target_id));
+        assert_eq!(graph.activation_receipt_count(), 1);
+
+        let absent = DynamicModuleActivationRequest::for_test(
+            1,
+            graph.entry().clone(),
+            DynamicModuleActivationKind::Literal,
+            "./not-declared.mjs",
+        );
+        let error = graph.activate_dynamic_target(&absent).unwrap_err();
+        assert!(
+            error.to_string().contains("not authenticated declarations"),
+            "{error:#}"
+        );
+        assert_eq!(graph.records().count(), 2);
+        assert_eq!(graph.activation_receipt_count(), 1);
     }
 
     #[test]
@@ -3102,6 +3619,7 @@ mod tests {
                 artifact,
                 bindings,
                 candidate_tables: Vec::new(),
+                deferred_dynamic: DeferredSourceDynamicBindingsV1::default(),
                 prepared: None,
             }
         };
