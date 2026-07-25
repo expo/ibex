@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-25 (the Phase-0 current-loader baseline was regenerated from the exact compatibility binary after its raw dynamic-import syntax was lowered structurally; its namespace/CommonJS rows remain observational, and the unarmed compatibility resolver intentionally exposes no filename-bearing source label, so that path records `line=none` while authenticated/native source-label evidence remains the normative diagnostic gate)
+**Revised:** 2026-07-25 (the Phase-0 current-loader baseline was regenerated from the exact compatibility binary after its raw dynamic-import syntax was lowered structurally; its namespace/CommonJS rows remain observational, and the merged forced-Module compatibility path reports the original source-map line without turning its private resolver spelling into authenticated source identity; authenticated/native source-label evidence remains the normative diagnostic gate)
 **Revised:** 2026-07-24 (authenticated literal CommonJS `require()` now activates its exact reached target synchronously inside the existing runtime drive, authorizes and receipt-acquires only that target's static closure, rejects async-tainted ESM before publication, and rolls failed source/native expansion back without reusable graph authority)
 **Revised:** 2026-07-24 (authenticated ESM and CommonJS `import()` now defer target discovery until an exact reached-site mailbox request, authorize and acquire only that target's static closure, publish new native records atomically, and retain the live graph across ordinary quiescence and `--keep-alive`; synchronous authored CommonJS `require()` remains refused)
 **Revised:** 2026-07-25 (invocation-time prepared activation uses direct one-record carrier paths with no activation index, discovers them only after a reached edge has receipt-acquired its source closure, and atomically falls back inline on miss or invalidity; synchronous execution publishes `evaluating` before authored code, CJS adapters participate in the require-cycle state machine, retained require providers clear before native runtime destruction, and a prepared initial carrier can activate a reached target); 2026-07-24 (the production source graph authorizes exact dependency acquisition and receipt-gates dependency carriers; an opaque graph/request join now gates all prepared-cache discovery and entry-only carriers, while armed transpilation has no persistent cache)
@@ -1322,14 +1322,15 @@ records the current namespace and CommonJS-adapter shapes as compatibility
 observations, not normative target behavior. The compatibility transpiler
 structurally lowers raw `import()` syntax before Hermes script evaluation,
 without reviving the former source-text rewrite that corrupted strings,
-regular expressions, and lookalike identifiers. The unarmed compatibility
-resolver intentionally retains only its opaque private resolver label: it
-publishes neither an authenticated `SourceLabel` nor a virtual path. The
-filename-specific source-map fixture therefore records `line=none` for this
-legacy path even though the private stack retains the correct generated line.
-Authenticated/native runner source-label and composed-map fixtures remain the
-normative diagnostic evidence under §10; this observational compatibility
-baseline does not weaken those requirements.
+regular expressions, and lookalike identifiers. On the merged forced-Module
+path, the filename-specific source-map fixture reports original line 5,
+matching the Node oracle. The unarmed compatibility resolver still retains
+only its private resolver spelling and does not publish that spelling as an
+authenticated `SourceLabel` or virtual path. Its useful diagnostic therefore
+remains observational rather than authorization evidence. Authenticated/native
+runner source-label and composed-map fixtures remain the normative diagnostic
+evidence under §10; this compatibility baseline does not weaken those
+requirements.
 
 - Promote existing loader regressions and representative ecosystem packages
   into an implementation-neutral module-semantics corpus.

@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-25 (retires the generated `malformed-branch-facts` execution scenario because logical-branch predicates are authenticated registry metadata rather than runtime input, preserving registry-shape validation plus real branch-selection/no-effect evidence; confirms the empty production bootstrap floor as the exact least-authority declaration while retaining the generic one-shot seal and nonempty-floor mechanism)
 **Revised:** 2026-07-25 (reconciles module-runner conformance with invocation-time activation: the 19 production-reachable ABI lifecycle surfaces execute while authenticated `require` resolution and source reads remain attributed to two reviewed auxiliary effect edges; six eager dynamic/require-link ABIs and teardown-only generation unpin remain residual; separates the public callback Cargo filter from its containing module so it cannot also select the bound internal-evidence producer; refreshes the source-derived Apple and Windows fixture totals)
 **Revised:** 2026-07-25 (deletes the legacy `PolicyFile` parser, public module, `HostConfig` policy/path/allow/deny seams, policy-string mode parser, and runtime readiness dependency; foreground audit remains an explicitly policyless diagnostic host and historical compatibility-manager algebra is covered only through private test setup)
 **Revised:** 2026-07-25 (removes `insecure` from Cargo defaults: plain builds enforce the supported profile and refuse before project code while no exact target is advertised; unadvertised secure development and no-sandbox execution require explicit compile-time features; invocation-time ESM import and CommonJS require now cover source and prepared targets)
@@ -1172,9 +1173,15 @@ floor. Its positive stratum requires an evaluator-owned one-way token and
 bootstrap matches cannot fall through to `AmbientRoot`; retained context clones
 therefore deny the same effect after sealing. Hermes requires the active Host
 to consume the token exactly once after armed-posture verification and before
-application attribution. Compiled boot construction still needs to populate
-the concrete bootstrap floor and add application-level retained-callback
-fixtures; current runtime builders intentionally emit an empty floor.
+application attribution. Production boot construction intentionally publishes
+an empty bootstrap floor: the current bootstrap performs no root-attributed
+capability effect, and its authenticated runtime inputs execute under the
+transparent runtime principal. Inventing a positive selector would widen
+authority rather than complete the mechanism. The one-shot token,
+seal-before-application transition, nonempty-floor semantics, and
+retained-context denial remain covered by mechanism tests; any future
+root-attributed bootstrap effect must add its exact selector and a real
+application-level retained-callback fixture in the same change.
 
 ### WP5 — Convert filesystem effects and checked-object execution
 
@@ -1801,18 +1808,22 @@ without an advertisement requires the compile-time
 separately named `insecure` feature. Neither weakening is a runtime flag or a
 silent default.
 
-Implementation status (2026-07-24): the internal accounting is now
+Implementation status (2026-07-25): the internal accounting is now
 evidence-backed. The proof audit retained exactly six closed-vocabulary
-runtime-owned scenarios and removed `malformed-branch-facts`, which has no Rust
-invariant mechanism, from `internally-verified`. Every retained recipe carries
+runtime-owned scenarios. A later input-ownership audit removed
+`malformed-branch-facts` from fixture obligations entirely: branch predicates
+are authenticated registry metadata rather than caller-supplied runtime facts,
+so per-surface execution could never prove a malformed input path. This is no
+credit or reclassification; registry contract validation owns malformed
+predicate refusal. Every retained internal recipe carries
 a source-bound proof plan naming its mechanism, source location, secure Cargo
 command, and proof-plan digest. The secure internal batch executes each of the
 six mechanisms once and expands that scenario-class observation into exact
 fixture records carrying the fixture plan, common execution binding, engine
 digest, result marker, and artifact digest. Report generation validates those
 records independently; catalog status alone leaves the fixtures missing.
-Apple now has 3,092 internally verified rows and 18,966 unresolved rows;
-Windows has 3,080 internally verified rows and 19,229 unresolved rows. The
+Apple now has 3,114 internally verified rows and 18,330 unresolved rows;
+Windows has 3,102 internally verified rows and 18,593 unresolved rows. The
 public callback batch is correspondingly pinned to its eight exact authored
 mechanisms. Portable recipe projection preserves internal rows under their
 dedicated executor and excludes them from public-surface execution; portable

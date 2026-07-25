@@ -10981,9 +10981,31 @@ mod tests {
         std::fs::create_dir(&artifact_dir).unwrap();
         let cache =
             publish_prepared_source_graph_v1(&graph, &artifact_dir, deployment.clone()).unwrap();
+        std::fs::create_dir(cache.join("activation")).unwrap();
         let entry_join = graph.authenticated_entry_join_for_test().unwrap();
         let loaded =
             load_prepared_source_graph_v1(&cache, &graph, &entry_join, &deployment).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+
+            let real_activation = cache.join("activation-real");
+            std::fs::rename(cache.join("activation"), &real_activation).unwrap();
+            symlink(&real_activation, cache.join("activation")).unwrap();
+            let error =
+                match load_prepared_source_graph_v1(&cache, &graph, &entry_join, &deployment) {
+                    Ok(_) => panic!("prepared publication accepted a symlinked activation root"),
+                    Err(error) => error,
+                };
+            assert!(
+                error
+                    .to_string()
+                    .contains("activation cache root is not a real directory"),
+                "{error:#}"
+            );
+            std::fs::remove_file(cache.join("activation")).unwrap();
+            std::fs::rename(real_activation, cache.join("activation")).unwrap();
+        }
         assert_eq!(loaded.prepared_access_receipt_count(), 1);
         // The prepared cache round-trips every record —
         // `publish_prepared_source_graph_v1` iterates all of `graph.records`

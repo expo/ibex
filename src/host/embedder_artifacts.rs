@@ -857,6 +857,10 @@ fn build_exact_embedder_artifacts_with_gpu(
         "kind": "bounded",
         "authorities": root_authorities.clone(),
     });
+    // @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine — the
+    // current bootstrap has no root-attributed capability effect, so its exact
+    // least-authority floor is empty; future effects must add source-derived
+    // selectors and retained-callback denial evidence together.
     document["bootstrapAuthorityFloor"] = serde_json::json!([]);
     document["engine"] = serde_json::json!({
         "target": runtime_target_triple(),

@@ -41,7 +41,6 @@ describe("capsec branch fixture obligations", () => {
       ),
     ).toEqual([
       "edge.main.logical.none.branch-selection",
-      "edge.main.logical.none.malformed-branch-facts",
       "edge.main.logical.none.no-effect",
       "edge.main.logical.read.allow",
       "edge.main.logical.read.branch-selection",
@@ -67,10 +66,8 @@ describe("capsec branch fixture obligations", () => {
     ).toEqual([
       "edge.main.closed",
       "edge.main.logical.before-exit.branch-selection",
-      "edge.main.logical.before-exit.malformed-branch-facts",
       "edge.main.logical.before-exit.no-effect",
       "edge.main.logical.exit.branch-selection",
-      "edge.main.logical.exit.malformed-branch-facts",
       "edge.main.logical.exit.no-effect",
     ]);
   });

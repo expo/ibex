@@ -868,7 +868,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "prepared-entry-join-consumption",
       "pub fn load_prepared_source_graph_v1(",
       "    let text = std::str::from_utf8(&index_bytes)?;",
-      "sha256-xB-FR_mbH9Asdz3KqLOlxtQ-h1N3hmQghh5AYxm1ueQ",
+      "sha256-NoA1544vUsV4hf3njehxoR0sMbhChadmJr54dUz2MDw",
     ),
   ]),
   "src/vfs/mod.rs": Object.freeze([

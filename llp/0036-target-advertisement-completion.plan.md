@@ -5,6 +5,7 @@
 **Systems:** Security, CI, Build, Runtime, Engine, Tooling
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-23
+**Revised:** 2026-07-25 (retires the per-surface `malformed-branch-facts` fixture: logical-branch predicates are authenticated registry metadata, not a runtime/public input; registry contract validation owns malformed predicate refusal while real branch-selection and no-effect fixtures retain execution coverage)
 **Related:** LLP 0021 (capsec registry / WP10 target proof); LLP 0032 (conformance execution and evidence sharding); LLP 0035 (portable engine artifact provenance); ENG-24933; ENG-24578; ENG-24580; ENG-24579
 
 ## Summary
@@ -78,10 +79,12 @@ Grouping every unresolved row by its **scenario** (the last dotted segment of
 the fixture id — what aspect it proves) and checking which scenarios are *ever*
 fully-executable anywhere in the 24,585-row catalog yields a clean partition:
 
-- **Public residual scenarios — 18,945 current Apple rows.** The original
-  2026-07-23 measurement was 18,266 reachable rows. The proof audit returned
-  `malformed-branch-facts` to this side of the boundary, and later catalog
-  growth changed the total. Scenario types with
+- **Public residual scenarios — 18,330 current Apple rows.** The original
+  2026-07-23 measurement was 18,266 reachable rows. The proof audit first
+  returned `malformed-branch-facts` to this side of the boundary; the later
+  input-ownership audit retired those 661 generated rows because logical-branch
+  predicates are checked registry metadata and no runtime API accepts a branch
+  fact. Later catalog growth changed the remaining total. Scenario types with
   hundreds of working examples already (`non-capability` 1,480 executable,
   `closed` 610, `allow`/`deny`/`malformed` ~70 each, `branch-selection`,
   `no-effect`, …). These are ordinary probe-authoring: real, laborious,
@@ -96,10 +99,13 @@ fully-executable anywhere in the 24,585-row catalog yields a clean partition:
   `snapshot-mismatch-deny`, `cannot-widen-authority`, and
   `post-lockdown-invariant`. These are internal callback-security invariants —
   the runtime checking its own attribution / principal / snapshot state.
-  `malformed-branch-facts` was originally included as a seventh member, but the
-  proof audit found no owning-language invariant mechanism for it. It remains a
-  public residual: public JS cannot inject malformed internal branch facts, and
-  absence of a public route is not execution evidence.
+  `malformed-branch-facts` was originally included as a seventh member. The
+  proof audit correctly found no owning-language runtime mechanism; the
+  subsequent input-ownership audit established why: branch predicates are
+  authenticated registry metadata, never facts supplied by a runtime caller.
+  It is therefore not reclassified or credited—it is removed from the
+  per-surface execution obligation vocabulary. Registry validation and digest
+  admission own malformed predicate refusal.
 
 ## The design question, and its resolved direction
 
@@ -116,8 +122,8 @@ invariants, not public-surface fixtures.** The rationale is grounded in the
 measured facts, not a guess:
 
 - The six (`attribution-missing-deny`, `generation-recheck`, `principal-restore`,
-  `snapshot-mismatch-deny`, `cannot-widen-authority`, `post-lockdown-invariant`,
-  excluding `malformed-branch-facts`) are the runtime checking *its own*
+  `snapshot-mismatch-deny`, `cannot-widen-authority`, and
+  `post-lockdown-invariant`) are the runtime checking *its own*
   attribution / principal / snapshot / lockdown state. By construction these
   fire on internal transitions, not on a public JS call — there is nothing for
   a public-surface probe to invoke.
@@ -140,8 +146,10 @@ evidence command executes every mechanism. The report no longer credits a
 catalog disposition by itself: every retained fixture must carry its exact
 plan, execution binding, proof-plan digest, runtime observation, result marker,
 and artifact digest. The closed scenario vocabulary prevents the predicate from
-absorbing another scenario. `malformed-branch-facts` failed the audit and remains
-unresolved.
+absorbing another scenario. `malformed-branch-facts` failed that mechanism
+audit and was later retired as an ill-typed execution obligation: the only
+branch predicates are admitted registry data, already validated before any
+target report is constructed.
 
 ## Plan
 
@@ -168,13 +176,14 @@ unresolved.
    observation, and emits exact detached portable evidence for all internal
    rows. Internal evidence is therefore neither catalog-only nor routed through
    a public callback command.
-   `malformed-branch-facts` remains unresolved. Current measured catalogs:
-   Apple 3,068 internally verified / 18,945 unresolved; Windows 3,056 internally
-   verified / 19,208 unresolved. The two-row increase on each target is the
+   The retired `malformed-branch-facts` scenario receives no internal or public
+   credit. Current measured catalogs after the input-ownership correction:
+   Apple 3,114 internally verified / 18,330 unresolved; Windows 3,102 internally
+   verified / 18,593 unresolved. The historical two-row increase on each target is the
    honest non-capability coverage for the internal batch's binding and output
    environment controls.
 
-2. **Public-residual authoring program (currently 18,945 Apple rows) — it is a
+2. **Public-residual authoring program (currently 18,330 Apple rows) — it is a
    generator-and-execution problem, not per-row authoring.** Historical
    measured structure (2026-07-23): the then-current 18,266 rows collapsed to
    5,325 surfaces across just 53
@@ -338,10 +347,12 @@ Per the author's direction, this plan optimizes for a coherent, working path
 now, with correctness verified over the following days/weeks. The specific
 verification debts, tracked so none is silently forgotten:
 
-- **Closed 2026-07-24:** six reclassified scenario types have exact secure Rust
+- **Closed 2026-07-25:** six reclassified scenario types have exact secure Rust
   proofs and executed, digest-bound evidence. The seventh proposed type,
-  `malformed-branch-facts`, had no such proof and was removed from the
-  classification.
+  `malformed-branch-facts`, had no runtime mechanism because branch predicates
+  are authenticated registry metadata rather than runtime input. It was
+  removed from the fixture-obligation vocabulary, not granted internal credit;
+  registry validation remains fail-closed for malformed predicates.
 - **Closed 2026-07-24:** the `internally-verified` predicate is a closed
   six-member scenario vocabulary, every recipe carries the independently
   derived proof plan, and report credit requires executed evidence rather than

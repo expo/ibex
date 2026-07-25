@@ -5085,6 +5085,10 @@ fn build_default_armed_host(
                 .collect::<Vec<_>>(),
         });
     }
+    // @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine — the
+    // current bootstrap has no root-attributed capability effect, so its exact
+    // least-authority floor is empty; future effects must add source-derived
+    // selectors and retained-callback denial evidence together.
     value["bootstrapAuthorityFloor"] = serde_json::json!([]);
     value["engine"] = serde_json::json!({
         "target": exact_runtime_target(),

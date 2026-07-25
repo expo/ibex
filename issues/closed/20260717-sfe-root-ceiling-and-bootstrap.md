@@ -1,6 +1,6 @@
 # Root-specific ceiling stratum + sealed bootstrap stage
 
-**Status:** In Progress
+**Status:** Resolved
 **Severity:** P2
 **Systems:** Security
 **Author:** Claude (Fable 5), directed by Charlie Cheever
@@ -48,7 +48,19 @@ missing, poisoned, or already-sealed transition refuses startup. The arming ABI
 is `ibex-capsec-arming-2-root-ceiling-embedded-ranges-bootstrap-seal`, and the
 host seal is inventoried as a non-capability authority-control-plane edge.
 
-Remaining work is to derive and populate the concrete bootstrap floor for the
-compiled runtime (current builders intentionally emit an empty floor), then add
-the real application-root and bootstrap-created JavaScript callback fixture
-against that populated floor.
+## Resolution — 2026-07-25
+
+The concrete production bootstrap floor is intentionally empty. Current
+bootstrap activity has no root-attributed capability effect: authenticated
+runtime projections are consumed under the transparent runtime principal, and
+application attribution begins only after the one-shot seal. A nonempty
+selector without a corresponding observed root effect would create authority
+rather than constrain it.
+
+The generic positive-floor mechanism remains proven: an exact root selector
+requires the live one-way phase token, retained decision-context clones lose
+that authority after sealing, a second seal fails, and startup refuses if the
+seal is missing or poisoned. That is the complete contract for the current
+zero-effect bootstrap. If bootstrap later gains a root-attributed operation,
+that change must populate its exact selector and land the retained
+bootstrap-created callback denial fixture at the same time.

@@ -588,20 +588,23 @@ ticket closes.
   bundle validator. Physical execution remains pending an exact-revision
   portable engine artifact; the reviewed local framework reports no portable
   identity, so it cannot honestly produce that evidence.
-- `malformed-branch-facts` has no owning-language proof and remains residual.
+- The input-ownership audit retired `malformed-branch-facts` from fixture
+  obligations. Branch predicates are authenticated registry metadata, not a
+  runtime/public input; registry validation plus real branch-selection and
+  no-effect executions own the security claim.
 - Authored `import()` and literal CommonJS `require()` now have receipt-gated
   reached-site source/prepared activation and atomic live-graph publication.
   The completed activation matrix is tracked in
   `issues/closed/20260724-native-call-time-module-activation.md`; the next risk is
   integration drift across the full secure/generated gate rather than a known
   activation state-machine gap.
-- The root/bootstrap mechanism seals correctly, but both builders still emit an
-  empty `bootstrapAuthorityFloor`. Current bootstrap host inputs are
+- The root/bootstrap mechanism seals correctly, and both builders intentionally
+  emit an empty `bootstrapAuthorityFloor`. Current bootstrap host inputs are
   authenticated projections consumed under the transparent runtime principal,
-  so there is no evidenced root effect from which to derive a nonempty floor.
-  Populating one by guess would add authority rather than close a gap. This
-  needs either a named root-attributed bootstrap operation or a revised
-  requirement before the requested real retained-callback fixture is honest.
+  so zero selectors are the exact least-authority declaration. The generic
+  nonempty-floor/token/retained-context mechanism remains tested; a future
+  root-attributed bootstrap effect must add its selector and callback denial
+  fixture together.
 
 ### 2026-07-25 — retired the string-policy ingestion plane
 
@@ -804,11 +807,11 @@ ticket closes.
 - Regenerated the exact Node 24.13.1/current-Ibex compatibility baseline from
   the real binary. Three observational rows changed: the namespace and
   ESM-importing-CommonJS shapes returned to their exact current values, and the
-  filename-specific source-map marker is `line=none`. The underlying private
-  resolver stack retains line 5, but the unarmed compatibility resolver
-  intentionally publishes no `SourceLabel` or virtual path. LLP 0026 now says
-  this explicitly and keeps authenticated/native source-label evidence as the
-  normative diagnostic gate.
+  pre-WebGPU branch initially recorded the filename-specific source-map marker
+  as `line=none`. After rebasing onto the forced-Module compatibility path, the
+  exact binary reports original line 5, matching Node. The private resolver
+  spelling is still not authenticated source identity; LLP 0026 keeps
+  authenticated/native source-label evidence as the normative diagnostic gate.
 - Baseline drift now prints the expected and actual observation for each
   changed fixture instead of only a generic mismatch.
 - The exact integration gate passes all 12/12 module-semantics fixtures with
@@ -819,8 +822,77 @@ ticket closes.
   The registry/contract/example-policy digest rotations were regenerated from
   the reviewed AST-call-count change.
 
+### 2026-07-25 — reconciled CapSec rev2 with the landed WebGPU stack
+
+- `origin/main` advanced from `f85443a3` to `1407af0e` while this work was in
+  flight, landing ten WebGPU integration commits with broad overlap in the
+  runtime, host ABI, generated registries, and evidence gates. Rebased all 31
+  CapSec commits onto that revision rather than freezing against the old base.
+- The semantic merge preserves WebGPU's deferred owner-thread activation,
+  compartment identity, site-aware dynamic-import keys, current
+  CommonJS/ESM-cycle behavior, and generated production bundles. It also
+  preserves CapSec's authenticated entry join, split resolve/source-acquisition
+  authorization, receipt-gated prepared carriers, reached-edge dynamic and
+  CommonJS activation, provider reentrancy refusal, and fail-closed secure
+  default.
+- Restored the complete production provider test that had been structurally
+  interleaved with two new WebGPU module-runner tests during conflict replay.
+  It proves one exact reached `require`, single target execution, refusal of
+  general runtime reentrancy, provider teardown, and safe replacement
+  registration. The merged Rust test corpus also exposed and fixed one moved
+  `SourceId` in the combined lazy-require graph test.
+- Invocation-time prepared activation now uses the same no-follow,
+  regular-file, exact-size descriptor reads as initial prepared publication.
+  Writable cache bytes remain acceleration only and cannot authorize
+  themselves through raw filesystem reads.
+- Regenerated the combined registry and contract from source: 7,627 coverage
+  edges, 7,847 enforcement branches, 15,254 exact target cells, 13,371
+  observed source references, 22 authenticated-ingress obligations, and 225
+  host-task ingress sites. After retiring the ill-typed per-surface
+  `malformed-branch-facts` obligation, exact recipe accounting is Apple 24,040
+  required / 2,596 fully executable / 3,114 internally verified / 18,330
+  unresolved; Windows 23,925 / 2,230 / 3,102 / 18,593. The 81-test recipe
+  suite passes with 111,860 assertions and the 44-test public-evidence suite
+  passes with 252 assertions.
+- Before the moving-main rebase, a complete exact CapSec ceremony passed all
+  preflights, loaded-engine attestation, typed adapters, all nine public
+  batches, and both native shards. Its all-scope Rust gate passed the 642-test
+  library and progressed through binary TLS test 16/24 before the outer
+  resource deadline reached TLS 17/24 under unrelated host contention, with no
+  assertion failure. The retained evidence is
+  `target/capsec-suite-evidence-hXeoQl`, and failure supervision now preserves
+  separately labelled stdout and stderr tails.
+- Hard part: this was a high-overlap integration, so every generated count and
+  identity had to be derived from the combined source rather than taking
+  either conflict side. A post-rebase full ceremony is still required before
+  promotion. `origin/main` remained `1407af0e` at the clean checkpoint after
+  the rebase; it will be checked again before every later integration
+  checkpoint.
+- Post-rebase focused execution found and closed one integration defect:
+  initial prepared-graph admission rejected its legitimate sibling
+  `activation/` directory. Admission now permits only that fixed real-directory
+  root, rejects a symlinked root, and still exact-byte-authenticates every
+  reached carrier. The production prepared-initial-to-reached-CommonJS test,
+  three activation-cache unit tests, provider lifecycle test, prepared-cache
+  round-trip/symlink test, and exact 12/12 Node/Hermes module baseline pass.
+- The combined source also required the WebGPU runtime carrier to be rebuilt
+  after the moving-main merge. Regenerating with the repository-pinned Bun
+  1.3.14 (rather than the host's older Bun 1.3.12) produced the deterministic
+  committed artifact; the complete generated-drift gate now passes.
+- Final focused proof for this checkpoint: registry logical-branch validation
+  rejects subset/cross-fact predicates; the bootstrap floor is consumed exactly
+  once across retained contexts; secure `cargo check --lib` passes; the exact
+  recipe/obligation suite passes 84 tests with 111,870 assertions; and the
+  public-evidence suite passes 44 tests with 252 assertions. `./ref-check`,
+  `cargo fmt --check`, and `git diff --check` are clean.
+- Completion estimate: important security mechanisms 96%; exact-target
+  promotion evidence and ceremony 90%; the complete CapSec rev2/LLP closure
+  70%; overall requested task about 86%. The two named model gaps are closed;
+  remaining work is the real public-residual authoring/closure program,
+  final combined drift/reference gates after these source changes, and a
+  contention-free exact ceremony.
+
 ## Next milestone
 
-Attack criterion 7's exact-target evidence gap. Bootstrap-floor authorship and
-`malformed-branch-facts` remain named gaps rather than unsafe local
-substitutions.
+Attack criterion 7's exact-target evidence gap through real public-surface
+authoring or honest closure, then run the combined ceremony to completion.

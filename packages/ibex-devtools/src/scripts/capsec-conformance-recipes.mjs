@@ -101,7 +101,6 @@ function nativePublicOperationIsExcludedOnWindows({ live, target }) {
 
 const FIXTURE_SCENARIOS = [
   "attribution-missing-deny",
-  "malformed-branch-facts",
   "snapshot-mismatch-deny",
   "cannot-widen-authority",
   "post-lockdown-invariant",
@@ -3876,9 +3875,10 @@ function residualReasons({
     // A conditional branch is selected by the real public invocation, not by
     // the diagnostic typed evaluator. When that invocation is source-bound
     // and observes the branch's exact decisions (or deliberately observes no
-    // decisions for a zero-effect branch), it is the stronger witness. The
-    // malformed-branch-facts obligation remains adapter-specific because a
-    // valid public API cannot inject malformed internal facts.
+    // decisions for a zero-effect branch), it is the stronger witness.
+    // Branch predicates are authenticated registry metadata rather than a
+    // runtime input, so registry validation—not an invented public malformed
+    // invocation—owns their shape.
     if (
       (scenario === "branch-selection" || scenario === "no-effect") &&
       publicSurfaceProbe
@@ -3886,10 +3886,7 @@ function residualReasons({
       // Resolved by loaded-engine public evidence.
     } else if (plan.actionIds.length === 0) {
       reasons.push(`conditional-${scenario}-probe-not-authored`);
-    } else if (
-      scenario === "branch-selection" ||
-      scenario === "malformed-branch-facts"
-    ) {
+    } else if (scenario === "branch-selection") {
       reasons.push(`conditional-${scenario}-probe-not-authored`);
     } else if (scenario === "conditional-refinement") {
       reasons.push("conditional-refinement-probe-not-authored");

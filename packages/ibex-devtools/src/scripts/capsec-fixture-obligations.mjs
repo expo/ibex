@@ -25,9 +25,13 @@ export function fixtureObligationsForBranch(edge, branchId) {
         edge.logicalBranches.flatMap((logicalBranch) => {
           const prefix = `${branchId}.logical.${logicalBranch.id}`;
           if (logicalBranch.effects.length === 0) {
+            // @ref LLP 0036#the-unresolved-catalog-split-into-two-provable-categories
+            // — branch predicates are admitted registry metadata, not
+            // per-surface runtime facts; execute selection and no-effect,
+            // while malformed predicate shape remains a registry-contract
+            // refusal rather than an invented public invocation.
             return [
               `${prefix}.branch-selection`,
-              `${prefix}.malformed-branch-facts`,
               `${prefix}.no-effect`,
             ];
           }
@@ -61,7 +65,6 @@ export function fixtureObligationsForBranch(edge, branchId) {
         const prefix = `${branchId}.logical.${logicalBranch.id}`;
         return [
           `${prefix}.branch-selection`,
-          `${prefix}.malformed-branch-facts`,
           `${prefix}.no-effect`,
         ];
       }),

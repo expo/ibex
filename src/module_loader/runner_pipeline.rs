@@ -3105,15 +3105,30 @@ pub fn load_prepared_source_graph_v1(
             bail!("prepared candidate-table publication repeats a filename");
         }
     }
-    let actual_files = std::fs::read_dir(cache_dir)?
-        .map(|entry| {
-            let entry = entry?;
-            entry
-                .file_name()
-                .into_string()
-                .map_err(|_| anyhow!("prepared cache contains a non-UTF-8 filename"))
-        })
-        .collect::<Result<BTreeSet<_>>>()?;
+    let mut actual_files = BTreeSet::new();
+    for entry in std::fs::read_dir(cache_dir)? {
+        let entry = entry?;
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| anyhow!("prepared cache contains a non-UTF-8 filename"))?;
+        if name == "activation" {
+            // Invocation-time carriers share the graph-digest cache directory
+            // but are not members of the initial publication. Permit only
+            // their fixed real-directory root; the reached-edge loader later
+            // authenticates every selected member against source-derived
+            // manifest and payload bytes.
+            // @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
+            let kind = entry.file_type()?;
+            if !kind.is_dir() || kind.is_symlink() {
+                bail!("prepared activation cache root is not a real directory");
+            }
+            continue;
+        }
+        if !actual_files.insert(name) {
+            bail!("prepared cache file inventory repeats a filename");
+        }
+    }
     if actual_files != expected_files {
         bail!("prepared cache file inventory differs from its authenticated publication");
     }
