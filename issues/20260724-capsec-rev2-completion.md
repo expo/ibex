@@ -630,6 +630,29 @@ ticket closes.
   security-critical mechanism estimate is **95%**; exact-target physical
   evidence and promotion are the dominant remaining completion gap.
 
+### 2026-07-25 — exact Windows launch caught stale source evidence
+
+- Built a clean Windows x64 fleet checkout from an immutable bundle at
+  `2f8ba797`, installed the pinned Node, Bun, Java, Rust, PowerShell, Python,
+  and patched no-debugger Hermes inputs, and verified the source revision and
+  tool identities before launching conformance.
+- The first credited command correctly failed before the physical matrix:
+  `all-generated-drift` found that deleting the legacy policy ingestion seam
+  shifted 35 source offsets in the reviewed runtime-environment inventory.
+- Byte hashes and Git EOL metadata proved the macOS and Windows source files
+  were identical. Regeneration on both hosts produced the same candidate, so
+  this was a missed derived-artifact rotation rather than platform-dependent
+  discovery.
+- Regenerated the inventory and ran the complete non-writing generated-drift
+  chain. It now validates 168 source-derived environment rows, 7,602 CapSec
+  coverage edges, 15,204 target cells, 222 host-task ingress sites, all
+  contracts and policy projections, both generated bundles, and the remaining
+  checked-in generators.
+- Hard part: exact-target work must treat every pre-matrix gate as evidence,
+  even when it only uncovers a source-review bookkeeping defect. No physical
+  command from the failed attempt is credited; the Windows run will restart
+  from a new clean immutable revision.
+
 ## Next milestone
 
 Attack criterion 7's exact-target evidence gap. Bootstrap-floor authorship and
