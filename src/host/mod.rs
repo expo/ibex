@@ -11010,28 +11010,14 @@ mod tests {
         let entry = fixture.path().join("entry.mjs");
         let dependency = fixture.path().join("dependency.cjs");
         let data = fixture.path().join("data.json");
-        std::fs::write(
-            fixture.path().join("package.json"),
-            r#"{"ibex":{"computedCandidates":{"sites":[{"requester":"entry.mjs","label":"prepared-routes","specifiers":["./candidate-a.mjs","./candidate-b.mjs"]}]}}}"#,
-        )
-        .unwrap();
+        std::fs::write(fixture.path().join("package.json"), "{}\n").unwrap();
         std::fs::write(
             &entry,
-            "import { value } from './dependency.cjs'; import data from './data.json' with { type: 'json' }; import path from 'node:path'; export const result = value + data.bump + (path.basename('/tmp/check.txt') === 'check.txt' ? 0 : 100); export function loadCandidate(name) { return import(name, { with: { 'ibex:site': 'prepared-routes' } }); }\n",
+            "import { value } from './dependency.cjs'; import data from './data.json' with { type: 'json' }; import path from 'node:path'; export const result = value + data.bump + (path.basename('/tmp/check.txt') === 'check.txt' ? 0 : 100);\n",
         )
         .unwrap();
         std::fs::write(&dependency, "exports.value = 41;\n").unwrap();
         std::fs::write(&data, "{\"bump\":2}\n").unwrap();
-        std::fs::write(
-            fixture.path().join("candidate-a.mjs"),
-            "export const candidate = 'a';\n",
-        )
-        .unwrap();
-        std::fs::write(
-            fixture.path().join("candidate-b.mjs"),
-            "export const candidate = 'b';\n",
-        )
-        .unwrap();
         crate::host::abi::install_host(example_armed_host_with(|value| {
             value["principals"][0]["imports"]["builtins"] = serde_json::json!(["node:path"]);
         }));
@@ -11045,8 +11031,8 @@ mod tests {
                 )
             }
         };
-        assert_eq!(graph.records().count(), 6);
-        assert_eq!(graph.source_access_receipt_count(), 5);
+        assert_eq!(graph.records().count(), 4);
+        assert_eq!(graph.source_access_receipt_count(), 3);
         let deployment = digest_bytes("prepared-source-graph-test", b"deployment").unwrap();
         let artifact_dir = fixture.path().join("bundle-artifact");
         std::fs::create_dir(&artifact_dir).unwrap();
@@ -11056,13 +11042,12 @@ mod tests {
         let loaded =
             load_prepared_source_graph_v1(&cache, &graph, &entry_join, &deployment).unwrap();
         assert_eq!(loaded.prepared_access_receipt_count(), 1);
-        // The prepared cache round-trips every record — `publish_prepared_source_graph_v1`
-        // iterates all of `graph.records` without filtering — so these track the
-        // count asserted above rather than being an independent subset. They were
-        // left at 4 when the fixture grew to 6 records, which masked the
-        // execution-input defects this test then hits (ENG-25424).
-        assert_eq!(loaded.records().count(), 6);
-        assert_eq!(loaded.prepared_entries().unwrap().unwrap().len(), 6);
+        // The prepared cache round-trips every record —
+        // `publish_prepared_source_graph_v1` iterates all of `graph.records`
+        // without filtering — so these track the complete authenticated
+        // static closure rather than an independent subset.
+        assert_eq!(loaded.records().count(), 4);
+        assert_eq!(loaded.prepared_entries().unwrap().unwrap().len(), 4);
         let plan = loaded.plan().unwrap();
         let (configs, contexts) = loaded.native_execution_inputs(1).unwrap();
         let private_root = fixture.path().to_string_lossy();
@@ -11117,7 +11102,7 @@ mod tests {
             assert!(!raw.is_null());
             let nonce = ex_hermes_runtime_nonce(raw);
             let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
-            let refusal = match NativeSynchronousGraph::link_authorized_prepared(
+            let linked = NativeSynchronousGraph::link_authorized_prepared(
                 &runtime,
                 &plan,
                 loaded.entry(),
@@ -11126,16 +11111,8 @@ mod tests {
                 &contexts,
                 &entries,
             )
-            {
-                Ok(_) => panic!(
-                    "prepared graph eagerly admitted an authored call-time dynamic import"
-                ),
-                Err(error) => error.to_string(),
-            };
-            assert!(
-                refusal.contains("dynamic-import activation is unavailable"),
-                "prepared graph did not retain the fail-closed call-time edge boundary: {refusal}"
-            );
+            .expect("authenticated static prepared graph did not link");
+            drop(linked);
             drop(runtime);
             ex_hermes_destroy(raw);
         }

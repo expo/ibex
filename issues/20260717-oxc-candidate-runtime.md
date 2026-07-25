@@ -1,6 +1,6 @@
 # Native computed dynamic import execution (graph + ABI plumbing)
 
-**Status:** Complete
+**Status:** Partially Complete
 **Severity:** P2
 **Systems:** Module Loader, Engine, Runtime
 **Author:** Claude (Fable 5), directed by Charlie Cheever
@@ -33,3 +33,18 @@ generation before linking. The real-Hermes test proves disjoint candidates,
 guarded option rejection, and requester/original-span diagnostics; the CapSec
 public conformance graph observes both new ABI entry points in source and
 prepared execution.
+
+## Security reconciliation — 2026-07-24
+
+The evidence above completes site identity, exact table lookup, generation
+binding, and private native ABI behavior. It does **not** complete LLP 0026
+§6's production call-time contract. The source graph formerly resolved,
+authorized, acquired, transformed, and linked candidate records eagerly; a
+retained lookup-table receipt cannot stand in for authorization and trusted
+source acquisition when execution reaches the site.
+
+Production therefore keeps the native table ABI private and refuses authored
+dynamic imports and CommonJS `require()` both at authenticated source-graph
+ingress and at native linking. The ingress refusal occurs before target
+resolution or source acquisition. The remaining activation work is tracked in
+`issues/20260724-native-call-time-module-activation.md`.

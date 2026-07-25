@@ -1167,6 +1167,34 @@ fn artifact_edge_operation_kind(
     Ok(kind)
 }
 
+/// Refuse an authored call-time edge before resolving or acquiring any of its
+/// targets. The native linker repeats this check at its own trust boundary,
+/// but graph construction is the first place a source artifact can cause
+/// dependency discovery and therefore owns the no-probe ordering.
+///
+/// Manifest builtin `require()` fan-out is the sole exception: it is a
+/// generated, exact builtin-to-builtin initialization closure rather than an
+/// authored deferred edge, and the completed graph validates that distinction
+/// again before native linking.
+// @ref LLP 0024#3-source-goal
+// @ref LLP 0026#6-top-level-await-and-dynamic-import
+fn ensure_source_graph_call_time_edges_supported(artifact: &ModuleArtifactV1) -> Result<()> {
+    let source_id = &artifact.semantics.source_id.0;
+    if !artifact.semantics.dynamic_edges.is_empty() {
+        bail!("native call-time dynamic-import activation is unavailable for {source_id:?}");
+    }
+    if artifact.semantics.source_goal != super::artifact::SourceGoalV1::Builtin
+        && artifact
+            .semantics
+            .static_edges
+            .iter()
+            .any(|edge| matches!(edge, StaticEdgeV1::CommonJsRequire { .. }))
+    {
+        bail!("native call-time CommonJS require activation is unavailable for {source_id:?}");
+    }
+    Ok(())
+}
+
 fn authorize_source_acquisition(
     host: &impl SourceGraphHost,
     authorizer: &ModuleGraphAuthorizer<'_, ArmedSnapshot>,
@@ -1393,6 +1421,7 @@ fn build_authenticated_source_graph_v1_with_host(
             }
         };
         let artifact = produced.artifact;
+        ensure_source_graph_call_time_edges_supported(&artifact)?;
         let mut bindings = BTreeMap::new();
         for key in artifact_edge_requests(&artifact) {
             let attributes = artifact_edge_attributes(&artifact, &key)?;
@@ -2859,6 +2888,47 @@ mod tests {
                 .contains("grammar differs from the structured request"),
             "unexpected grammar-join refusal: {error:#}"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authored_call_time_edges_refuse_before_target_resolution() {
+        let project = tempfile::tempdir().unwrap();
+        let producer_digest =
+            Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let host = armed_file_host(project.path());
+
+        for (name, source, expected) in [
+            (
+                "entry.mjs",
+                "if (false) import('./target-that-must-not-be-probed.mjs'); export const value = 1;\n",
+                "dynamic-import activation",
+            ),
+            (
+                "entry.cjs",
+                "if (false) require('./target-that-must-not-be-probed.cjs'); exports.value = 1;\n",
+                "CommonJS require activation",
+            ),
+        ] {
+            let entry = project.path().join(name);
+            std::fs::write(&entry, source).unwrap();
+            let entry = std::fs::canonicalize(entry).unwrap();
+            let error = match build_authenticated_source_graph_v1_for_host(
+                &host,
+                &entry,
+                producer_digest.clone(),
+                "hermes-test",
+            ) {
+                Ok(_) => panic!("{name} reached graph construction despite an authored call-time edge"),
+                Err(error) => error,
+            };
+            let message = format!("{error:#}");
+            assert!(message.contains(expected), "{name}: {message}");
+            assert!(
+                !message.contains("target-that-must-not-be-probed"),
+                "{name} exposed target-resolution output before the call-time refusal: {message}"
+            );
+        }
     }
 
     #[test]

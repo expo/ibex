@@ -274,6 +274,47 @@ ticket closes.
 - Current estimate: **57% complete for the full LLP 0021 completion contract;
   roughly 84% complete for the security-critical runtime mechanism set.**
 
+### 2026-07-24 — moved authored call-time refusal ahead of target discovery
+
+- LLP orientation reconciled the production graph with LLP 0024's dead-branch
+  rule and LLP 0026's invocation-time dynamic-edge contract. The existing
+  site-specific native tables prove exact selection only after a target record
+  exists; they do not supply call-time policy, resolution, source acquisition,
+  transformation, or linking.
+- Found that the native linker guard ran only after source-graph construction
+  had resolved and receipt-acquired every literal dynamic target and computed
+  candidate. This could probe or read a dead target even though production
+  would later refuse the graph.
+- Added the same fail-closed boundary immediately after authoritative parsing
+  of each requester and before any authored target resolution or source
+  acquisition. Authored CommonJS `require()` receives the same ordering;
+  generated exact builtin-to-builtin initialization fan-out remains the sole
+  exception and is revalidated by the linker.
+- Added a regression whose dead literal `import()` and `require()` point to
+  absent sentinel targets. Both produce the activation refusal without target
+  resolution output. The independent linker test continues to prove every
+  authenticated native entry refuses before policy authorization.
+- Reconciled the stale completed candidate-runtime ticket and LLP 0026's
+  implementation-state prose. The full private, nonce/generation-bound,
+  reentrant-safe in-drive activation design is now an explicit P1 filesystem
+  issue rather than an implied property of eager lookup tables.
+- Converted the prepared-cache security regression back to a four-record
+  static closure. It continues to prove private-path suppression, complete
+  prepared round-trip, native linking, receipt-gated carrier access, and
+  self-consistent forged-cache refusal without depending on a deliberately
+  unsupported dynamic edge.
+- Verification: both call-time boundary tests and the prepared-cache
+  round-trip pass. The complete secure-mode gate passes against the reviewed
+  current Hermes framework, including its behavioral enforcement smoke
+  (`project_read`, outside-read denial, outside-write denial, spawn denial,
+  and environment-sentinel hiding). `ref-check` reports 39 LLP documents,
+  2,039 checked references, zero errors, and one intentionally unchecked
+  external reference.
+- Current estimate: **57% complete for the full LLP 0021 completion contract;
+  roughly 85% complete for the security-critical runtime mechanism set.**
+  This closes a real no-probe defect but does not claim the larger activation
+  feature complete.
+
 ## Current hard parts
 
 - Exact-target completion is deliberately all-or-nothing. Existing evidence
@@ -287,15 +328,22 @@ ticket closes.
   feature is separately guarded; LLP 0021's original plain-execution wording
   needs a completion interpretation consistent with that later decision.
 - Rich conformance now consumes executed internal-invariant proof, but portable
-  promotion still needs a mapped-process producer for the dedicated internal
-  executor. Its public-surface projection is corrected; the detached
-  per-process evidence/attempt/report join is not yet wired.
+  promotion now has a distinct mapped-process producer for the dedicated
+  internal executor and joins detached per-row artifacts through the Phase-2
+  bundle validator. Physical execution remains pending an exact-revision
+  portable engine artifact; the reviewed local framework reports no portable
+  identity, so it cannot honestly produce that evidence.
 - `malformed-branch-facts` has no owning-language proof and remains residual.
 - Native dynamic-import candidate tables are implemented, but production
   linkers deliberately refuse all authored call-time edges because the runtime
   lacks a private invocation-time CapSec activation capability. The filesystem
-  issue claiming this runtime work complete is stale relative to the later
-  security guard and LLP 0026's call-time contract.
+  issue is now reconciled as partially complete, and the remaining bridge is
+  specified in `issues/20260724-native-call-time-module-activation.md`.
+- Source-graph construction formerly resolved and acquired authored dynamic
+  targets before the linker refusal. It now applies the same fail-closed
+  boundary immediately after parsing the requester and before target
+  resolution or source acquisition; this closes the no-probe ordering defect
+  while the invocation-time bridge remains open.
 - The root/bootstrap mechanism seals correctly, but both builders still emit an
   empty `bootstrapAuthorityFloor`. Current bootstrap host inputs are
   authenticated projections consumed under the transparent runtime principal,
@@ -306,9 +354,7 @@ ticket closes.
 
 ## Next milestone
 
-Finish the portable mapped-process path for the internal-invariant executor,
-then run a clean committed Apple evidence cycle and verify all 3,068 internal
-rows enter the rich and portable reports only through their executed proof.
-`malformed-branch-facts` stays residual. Dynamic call-time activation and
-bootstrap-floor authorship remain blocked on the named design/runtime
-capabilities above rather than safe local substitutions.
+Verify and checkpoint the source-ingress no-probe guard, then continue with
+the next independently closable security gap. The full invocation-time bridge
+and bootstrap-floor authorship remain named design/runtime work rather than
+unsafe local substitutions; `malformed-branch-facts` stays residual.

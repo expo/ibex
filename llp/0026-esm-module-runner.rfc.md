@@ -6,6 +6,7 @@
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
 **Revised:** 2026-07-24 (the production source graph authorizes exact dependency acquisition and receipt-gates dependency carriers; an opaque graph/request join now gates all prepared-cache discovery and entry-only carriers, while armed transpilation has no persistent cache)
+**Revised:** 2026-07-24 (production refuses authored dynamic import and CommonJS `require()` at authenticated source-graph ingress before resolving or acquiring their targets, and repeats the refusal at native linking; site-specific native tables remain private ABI machinery pending a real invocation-time activation bridge)
 **Revised:** 2026-07-18 (the Phase-0 compatibility baseline now records the
 post-native-switch namespace/CommonJS observations and successful dynamic-import
 source-map line recovery instead of retaining the superseded shim failure)
@@ -1420,20 +1421,22 @@ advertise this cache path as prepared production startup.
 
 ### Phase 5: Default switch and retirement
 
-**Implementation state (2026-07-18).** The `module-runner` Cargo feature is
+**Implementation state (reconciled 2026-07-24).** The `module-runner` Cargo feature is
 enabled by default. Ordinary authenticated ESM graphs use AST-derived edges,
 TLA metadata, and the native graph linker; authorization, parsing, linking, or
 evaluation failures fail closed and never retry through the legacy loader.
 Only explicitly unsupported interop shapes may enter the compatibility path,
 which is bounded to Ibex 0.1 and can be closed early with
 `IBEX_LEGACY_MODULE_LOADER=0`. CommonJS, JSON, builtin, and literal dynamic
-imports now use native records. Computed dynamic imports with reviewed
-candidate rows and valid runtime options now remain native; unlabeled/missing
-rows and unsupported non-reserved options are guarded invocation failures
-rather than legacy fallback. Computed CommonJS `require()` now also remains
-native until reached, then throws the stable fail-closed diagnostic after
-argument evaluation with authenticated requester and original-source span; it
-does not enter the compatibility evaluator. Hosted platform and
+imports have native record/table machinery, but authenticated production
+graphs deliberately refuse every authored call-time dynamic import before
+target resolution or acquisition and repeat that refusal at native linking.
+Pre-materializing candidate records and receipts is not the invocation-time
+policy, resolution, acquisition, and linking contract in §6. Computed CommonJS
+`require()` likewise retains private ABI diagnostics but is refused at source
+graph ingress until the same class of private in-drive activation capability
+exists. Generated manifest-builtin fan-out remains the only native synchronous
+`require()` exception. Hosted platform and
 performance evidence remains the final release gate; the CI workflow records
 both default and no-default build coverage plus the prepared-cache end-to-end
 test.
