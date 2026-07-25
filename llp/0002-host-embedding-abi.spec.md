@@ -5,12 +5,13 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-24 (reconciles the production WebGPU contract with the implemented exact-size three-callback authority-session API and nine-method construction-private bridge: paired acquire/present capture, same-epoch transient recheck, registry-pinned candidate-commit and handoff-repeat continuations, and atomic pair retirement remain construction-private and fail closed; the checked experimental projection now derives 65 private target cells and 23 typed-positive selectors without adding a public issuer, advertisement, or support claim)
 **Revised:** 2026-07-23 (the Exact dev-served builder grants its root only a loopback, TCP, ephemeral listener selector so the authenticated Acto server can bind without ambient or fixed-port listen authority; release compositions remain unchanged); 2026-07-21 (implements the `dev-served` bootstrap compatibility mode and its construction-private one-shot module-table seam: dev-served compositions install a frozen URL-space table of in-band transformed sources ahead of the private native resolver fallback, gated by armed material carrying the mode together with an explicit dev project-root binding; the resolver seal, host-path authorization for non-table specifiers, import gating, and ordinary target cells are unchanged, and misuse quarantines the generation — Exact ENG-25076)
 **Revised:** 2026-07-20 (gives the production WebGPU runtime section a stable heading so the reviewed Hermes patch stack can reference its governing contract without changing patch bytes)
 **Revised:** 2026-07-20 (separates immutable compute-pipeline promotion provenance from its reviewed active content-addressed operation identity, so an outer Exact repin can rebind the active route without rewriting its source history)
 **Revised:** 2026-07-20 (adds an owner-thread outer host-task checkpoint to the construction-private V2 result: eval/result coercion, explicit promise advance, Exact poll callback batches, each timer, prepared runApp, native module/view/dispatch, structured evaluation, and debugger evaluation retain one Canvas epoch through nextTick and complete microtask drain; bounded Windows drains retain the same task across slices; the fifth exact frozen callback emits a distinct authenticated `texture-expire-v1` control under `GPUTexture.destroy`, while manual destroy remains orthogonal; ambiguous checkpoint failure quarantines the realm)
 **Revised:** 2026-07-20 (adds the named owner-thread `ex_hermes_seal_armed_shared_runtime_globals_v1` trusted-bootstrap transition: Ibex owns the single reviewed ambient/global closure program, diagnostic/off-owner/reentrant/provisional calls execute none of it, a thrown or native failure quarantines the generation, and `ex_hermes_finish_bootstrap` now requires the successful seal witness before its pristine descriptor sweep)
-**Revised:** 2026-07-20 (adds the explicit Exact-owned `EXACT_EXPERIMENTAL_WEBGPU_PRE1A` construction mode through separate Ibex artifact-builder and armed-host installer symbols: it raw-pins and derives exactly 58 private WebGPU target cells and 20 typed-positive `gpu:operation` selectors from the checked private registry, admits no app selector/cell/wildcard input, closes every ordinary target cell, leaves canonical arming and target advertisements unchanged, and still publishes the runtime wrapper only after authenticated V2 construction capture)
+**Revised:** 2026-07-20 (adds the explicit Exact-owned `EXACT_EXPERIMENTAL_WEBGPU_PRE1A` construction mode through separate Ibex artifact-builder and armed-host installer symbols: it raw-pins and derives the complete private WebGPU target-cell and typed-positive `gpu:operation` selector sets from the checked private registry, admits no app selector/cell/wildcard input, closes every ordinary target cell, leaves canonical arming and target advertisements unchanged, and still publishes the runtime wrapper only after authenticated V2 construction capture)
 **Revised:** 2026-07-20 (adds the owner-thread outer app-bundle evaluation and irreversible quarantine ABI around the nested GPU Canvas handoff: debugger admission closes and pre-admitted queued commands are cancelled/settled before construction fencing and generated preparation; immediate source or prelude+HBC evaluation has no pump/coercion/mutable-handler hooks, with HBC sanity before prelude and status 2 as the sole source-fallback signal; native pristine-reflection classification caches an exact frozen carrier before Canvas root publication, staging deletes it and invokes only consume, runApp is admitted only after Canvas finish, final absence is re-proved before the outer gate opens, and every execution/cleanup/sequence ambiguity quarantines the generation for destruction; feature-off UNUSED startup retains the same outer/immediate/native-staging path)
 **Revised:** 2026-07-19 (publishes the source-derived WebGPU provider root set only from an authenticated V2 construction capture, publishes `createImageBitmap` only when decoded-image authority was attached, and requires an exact descriptor-only root-global sweep after publication and sealing but before user execution in either Apple bootstrap order; any mismatch revokes the wrapper and fails the runtime closed, while target advertisements, public grant issuance, and platform-support claims remain absent)
 **Revised:** 2026-07-19 (adds the source-derived construction-private WebGPU CapSec authority session: native-random bounded session identities, exact V2 Requested/Commit/Repeat and retire callbacks, full realm/account/device/object/handle and actor/effect-owner/scheduler/generation binding, typed `gpu:operation` positive decisions over generated private edge/cell mappings, structural authority-reducing decisions without positive grants, fail-closed service-admission enforcement, and teardown purge; `navigator.gpu`, embedded executable codecs, public grant issuance, target advertisement, and platform support claims remain absent)
@@ -806,15 +807,17 @@ accepted. The armed snapshot carries the routing digest only for ABI V2, and
 the Host authorization comparison includes it before the service is retained.
 
 ABI V2 `open_realm` also borrows one process-lifetime immutable
-`ExactGpuAuthoritySessionApiV2` table. The table is native-only and contains
-exact-size `evaluate` and `retire` callbacks; it is not installed in JavaScript
-and is invalid to retain beyond realm close. After Ibex assigns the operation
-instance and Promise identities, but before it enters provider code, the Host
-mints a nonzero, non-maximum random `uint64_t` authority-session identity from
-OS randomness. The global store admits at most 1,024 live sessions and never
-evicts one to make room. Context release purges all of that context's sessions;
-explicit retirement requires the complete original facts and removes exactly
-one session.
+`ExactGpuAuthoritySessionApiV2` table. The table is native-only, exactly 40
+bytes on the supported 64-bit ABI, and contains the `evaluate`, `retire`, and
+`evaluate_batch_and_then` callbacks; it is not installed in JavaScript and is
+invalid to retain beyond realm close.
+After Ibex assigns the operation instance and Promise identities, but before it
+enters provider code, the Host mints a nonzero, non-maximum random `uint64_t`
+authority-session identity from OS randomness. The global store admits at most
+1,024 live sessions and never evicts one to make room. Context release purges
+all of that context's sessions; ordinary explicit retirement requires the
+complete original facts and removes exactly one session, while presentation
+retirement removes its exact pair as described below.
 
 The session treats the caller-attribution digest as provenance only. Its
 positive authority is derived independently from the generated
@@ -840,6 +843,32 @@ illegal transitions, handle mutation, and stale generations fail closed. A
 service that returns admission without reaching `REQUESTED` causes realm
 quarantine, while rejection and pre-service failures force-retire the session.
 
+`evaluate_batch_and_then` is not a generic callback or an open-ended batch
+surface. It accepts only the two registry-pinned presentation phases. The
+batch carrier is exactly 32 bytes on the supported 64-bit ABI.
+`CANDIDATE_COMMIT` carries exactly two ordered decisions — acquire at
+`REPEAT`, then present at `COMMIT`. The `HANDOFF_REPEAT` phase carries exactly
+one present decision at `REPEAT`. Every batch and decision has the exact V2
+size, version, zero flags, complete retained facts, and the same two canonical
+presented handles captured for the pair. Before evaluating, Host reserves both
+pair members in the non-retirable `EvaluatingAndThen` stage and snapshots the
+policy and authority generations. It then evaluates the ordered decisions and,
+only if every decision allows, invokes the non-null synchronous continuation
+exactly once while the decision-context read guard excludes revocation writers.
+The borrowed continuation context is valid only for that call and cannot be
+retained.
+
+The batch returns `ALLOWED` only when every decision allows, the continuation
+returns `ALLOWED`, and the complete pair still matches its reserved snapshots
+when Host reconciles it. A stale policy or authority generation, or an ordinary
+decision denial, returns `DENIED` without invoking the continuation. A malformed
+batch, illegal phase/order/count, unexpected continuation result, evaluation
+fault, missing or mutated reservation, or failed post-continuation
+reconciliation returns `INVALID`. Successful reconciliation advances only the
+stages named by that phase; every reconciled non-allow result denies both pair
+members. No caller may use this callback to authorize an unlisted decision
+sequence or run a continuation before all decisions allow.
+
 Positive routes evaluate a typed `gpu:operation` selector containing the exact
 profile, vocabulary, operation-set, semantic-program, routing, and operation
 identities against the generated complete private target cell. Operations
@@ -855,6 +884,39 @@ source-classified `GPUDevice.pushErrorScope` semantic-service control route
 uses that same structural, non-capability session discipline without being
 misclassified as either positive authority or authority reduction.
 
+Presentation authority is a generated pair of typed-positive
+`gpu:operation` branches, `navigator.gpu.canvas.acquire` and
+`navigator.gpu.canvas.present`, bound to the exact
+`GPUCanvasContext.getCurrentTexture` capture route and to two distinct private
+target cells. First capture validates one complete current-texture carrier and
+its canonical texture/context handle pair, evaluates acquire at `REQUESTED`
+before any wrapper identity or counter is committed, then retains two distinct
+random session identities with the same immutable facts, attribution, handles,
+and pair token; present remains `Captured`. The service advances that retained
+pair through acquire `COMMIT` and present `REQUESTED` before using the
+`CANDIDATE_COMMIT` batch above.
+
+A later same-epoch `getCurrentTexture` call does not reuse the first caller's
+provenance as current authority. Recheck validates the retained pair and its
+original digest, reserves both members against retirement, and evaluates a
+transient acquire `REQUESTED` session carrying the later call's fresh operation
+identity, ingress ordinal, captured scope, attribution, and context digest. It
+restores the retained stages only if the pair is still exact and never rewrites
+the retained facts. Denial returns no authority; a missing, substituted,
+purged, or structurally changed pair is `INVALID`.
+
+`retirePresentationAuthority` requires the exact context, distinct
+acquire/present session identities, original authority-context digest,
+reciprocal pair membership, and branch roles. If both members are already
+absent it returns `STALE`; one missing member or any identity/digest/pair
+mismatch is `INVALID`; either member reserved in `EvaluatingAndThen` returns
+`DENIED`; otherwise Host removes both members atomically and returns `ALLOWED`.
+The table's ordinary `retire` callback may name either valid presentation
+member, but after validating its complete original facts it likewise resolves
+and removes the reciprocal pair atomically. Context teardown purges both. No
+path may remove only one member, and a stale carrier or partial pair can neither
+retire nor authorize the surviving branch.
+
 Exact may explicitly opt a construction into this still-private surface with
 its `EXACT_EXPERIMENTAL_WEBGPU_PRE1A` product switch. Ibex does not read that
 environment variable: Exact maps it to the paired
@@ -862,9 +924,10 @@ environment variable: Exact maps it to the paired
 `ex_host_install_armed_experimental_webgpu_pre1a` C ABI calls. The builder
 accepts the same authenticated manifest/provider/profile inputs as the ordinary
 GPU builder but no selector, operation-name, cell, application, or wildcard
-input. It raw-pins the checked private registry and derives exactly 58 private
-operation cells plus the exact 20 typed-positive `gpu:operation` selectors for
-the root floor. The installer re-authenticates the provider binding, exact
+input. It raw-pins the checked private registry and derives exactly 65 private
+target cells — 63 operation cells plus the paired acquire/present presentation
+cells — and the exact 23 typed-positive `gpu:operation` selectors for the root
+floor. The installer re-authenticates the provider binding, exact
 duplicate-free root floor, and private projection; installs all ordinary target
 cells as `Closed`; and supplies the private cells only to the GPU authority
 session gate. A registry byte change, count/set change, malformed row, provider
@@ -896,7 +959,7 @@ unambiguous protocol violation. This explicit handshake closes the race between
 `open_realm` returning and asynchronous event admission without imposing a
 provider-thread-affinity requirement.
 
-### WebGPU production runtime
+#### Construction-private wrapper, codecs, and lifecycle
 
 The Ibex binding does own owner-thread-only JSI roots for the low-level bridge
 and pending Promise resolvers. During successful construction, runtime-js
@@ -1180,7 +1243,7 @@ implementation rejects before entering its legacy transfer fallback; that
 mirror is not detachment or ownership authority. The optional native interface
 is required in both the compiled
 headers and the live runtime UUID cast. Either absent leg withholds the entire
-six-method V2 bridge and fails capability finalization closed; rollback closes
+nine-method V2 bridge and fails capability finalization closed; rollback closes
 the allocated realm and releases the retained service. These methods remain
 reachable only from the explicitly injected private factory. True alias and
 detach mechanics remove the earlier copy fallback, but add no embedded codec,
@@ -1480,16 +1543,28 @@ instead construct the separately reviewed wrapper projection described above;
 presence of either the C ABI or the private bridge alone is therefore neither
 WebGPU support nor conformance evidence.
 
-The V2 construction-private object is separately classified and contains six
-methods: `submit`, `cancel`, `retire`, the one-shot `setEventSink`,
-`createMappedRangeAlias`, and `detachMappedRange`. All six are closed CapSec
-`ipc:channel` boundary surfaces and exist only inside the authenticated
-capture. V2 `submit` carries one full typed receiver and an optional typed
-target. A realm-level public wrapper may have no public handle, but its
-authenticated runtime-routing record must project that fact to the service's
-typed GPU singleton; callers may not fabricate a singleton or select a
-service-receiver kind ad hoc. Ibex validates the resulting full object record
+The V2 construction-private object is separately classified and contains nine
+methods: `submit`, `cancel`, `retire`, `capturePresentationAuthority`,
+`recheckPresentationAuthority`, `retirePresentationAuthority`, the one-shot
+`setEventSink`, `createMappedRangeAlias`, and `detachMappedRange`. All nine are
+closed CapSec `ipc:channel` boundary surfaces and exist only inside the
+authenticated capture. V2 `submit` carries one full typed receiver and an
+optional typed target. A realm-level public wrapper may have no public handle,
+but its authenticated runtime-routing record must project that fact to the
+service's typed GPU singleton; callers may not fabricate a singleton or select
+a service-receiver kind ad hoc. Ibex validates the resulting full object record
 generically and does not special-case an operation ID.
+
+The three presentation methods implement only the paired protocol above.
+`capturePresentationAuthority` accepts the generated current-texture route and
+one exact presentation carrier, returning the distinct acquire/present session
+identities plus their original context digest only after acquire `REQUESTED`
+allows; ordinary denial returns `null`. `recheckPresentationAuthority` accepts
+that exact retained carrier plus the later call's complete carrier, returns
+`false` on ordinary denial, and throws on structural contradiction.
+`retirePresentationAuthority` accepts only the retained pair and exposes the
+closed `ALLOWED`, `DENIED`, `INVALID`, or `STALE` result. None exposes a generic
+decision function, provider handle, session lookup, or public authority issuer.
 
 Mapped-buffer completion owns one bounded native payload `ArrayBuffer`; the
 decoder retains an affine `Uint8Array` view into that external block rather
@@ -1507,11 +1582,11 @@ protocol contradiction, not a substitute detach path.
 
 The complete private bridge is withheld unless the compiled Hermes headers and
 live runtime both expose this exact optional engine interface. Ibex does not
-fall back to copied ranges, shadow detachment, a public intrinsic, or a partial
-four-method bridge. The carried Hermes patch and its full preimage/postimage
-blob identities are therefore part of the reviewed embedding input, while the
-interface itself remains neither a public WebGPU issuer nor platform-support
-evidence.
+fall back to copied ranges, shadow detachment, a public intrinsic, or any
+partial bridge that omits either mapped-range method. The carried Hermes patch
+and its full preimage/postimage blob identities are therefore part of the
+reviewed embedding input, while the interface itself remains neither a public
+WebGPU issuer nor platform-support evidence.
 
 Each `ExactGpuSemanticCallV1.completion_id` that reaches the provider is
 nonzero and strictly increasing within its realm. Completion, cancellation,
