@@ -137,7 +137,11 @@ fn compiled_target_triple() -> String {
     }
 }
 
-fn load_plan(expected_executor: &str) -> Option<PortablePublicBatchPlan> {
+fn load_plan(
+    expected_executor: &str,
+    schema_field: &str,
+    schema_value: &str,
+) -> Option<PortablePublicBatchPlan> {
     let plan_path = std::env::var(PLAN_ENV).ok()?;
     let plan_path = std::fs::canonicalize(&plan_path)
         .unwrap_or_else(|error| panic!("canonicalize portable public-batch plan: {error}"));
@@ -149,7 +153,7 @@ fn load_plan(expected_executor: &str) -> Option<PortablePublicBatchPlan> {
     assert_exact_keys(
         &value,
         &[
-            "portablePublicBatchEvidencePlanSchema",
+            schema_field,
             "profile",
             "bindings",
             "bindingDigest",
@@ -160,10 +164,7 @@ fn load_plan(expected_executor: &str) -> Option<PortablePublicBatchPlan> {
         ],
         "portable public-batch plan",
     );
-    assert_eq!(
-        value["portablePublicBatchEvidencePlanSchema"],
-        "ibex/capsec-portable-public-batch-evidence-plan/1"
-    );
+    assert_eq!(value[schema_field], schema_value);
     assert_eq!(value["profile"], "ibex/capsec/1");
     assert_eq!(value["executor"], expected_executor);
     let phase_id = value["phaseId"]
@@ -185,6 +186,7 @@ fn load_plan(expected_executor: &str) -> Option<PortablePublicBatchPlan> {
         &[
             "sourceRevision",
             "sourceTreeDigest",
+            "conformanceRunner",
             "target",
             "engine",
             "vocabularyDigest",
@@ -313,7 +315,11 @@ fn load_plan(expected_executor: &str) -> Option<PortablePublicBatchPlan> {
 
 impl PortablePublicBatchContext {
     pub(super) fn begin(expected_executor: &'static str) -> Option<Self> {
-        let plan = load_plan(expected_executor)?;
+        let plan = load_plan(
+            expected_executor,
+            "portablePublicBatchEvidencePlanSchema",
+            "ibex/capsec-portable-public-batch-evidence-plan/1",
+        )?;
         let engine = HermesEngine::loaded_engine_portable_identity()
             .expect("reconstruct portable identity before public fixtures");
         let observation = HermesEngine::begin_loaded_engine_mapped_observation()
@@ -325,12 +331,37 @@ impl PortablePublicBatchContext {
         })
     }
 
+    pub(super) fn begin_internal(expected_executor: &'static str) -> Option<Self> {
+        let plan = load_plan(
+            expected_executor,
+            "portableInternalBatchEvidencePlanSchema",
+            "ibex/capsec-portable-internal-batch-evidence-plan/1",
+        )?;
+        let engine = HermesEngine::loaded_engine_portable_identity()
+            .expect("reconstruct portable identity before internal fixtures");
+        let observation = HermesEngine::begin_loaded_engine_mapped_observation()
+            .expect("begin mapped-engine observation before internal fixtures");
+        Some(Self {
+            engine,
+            plan,
+            observation,
+        })
+    }
+
     pub(super) fn finish(self, executions: &[serde_json::Value]) {
+        self.finish_with_evidence_kind(executions, false);
+    }
+
+    pub(super) fn finish_internal(self, executions: &[serde_json::Value]) {
+        self.finish_with_evidence_kind(executions, true);
+    }
+
+    fn finish_with_evidence_kind(self, executions: &[serde_json::Value], internal: bool) {
         assert_eq!(
             HermesEngine::loaded_engine_portable_identity()
-                .expect("reconstruct portable identity after public fixtures"),
+                .expect("reconstruct portable identity after fixtures"),
             self.engine,
-            "portable engine identity changed across public fixtures"
+            "portable engine identity changed across fixtures"
         );
         assert_eq!(
             executions.len(),
@@ -346,27 +377,49 @@ impl PortablePublicBatchContext {
             assert_eq!(execution["executor"], self.plan.executor);
             let evidence = execution["evidence"]
                 .as_object()
-                .expect("public execution has no evidence");
-            assert_eq!(evidence.get("fixtureId").and_then(|value| value.as_str()), Some(fixture_id));
-            assert_eq!(evidence.get("exitCode").and_then(|value| value.as_i64()), Some(0));
+                .expect("portable execution has no evidence");
             assert_eq!(
-                evidence.get("resultMarker").and_then(|value| value.as_str()),
-                Some(format!("ibex-capsec-public-fixture:{fixture_id}:passed").as_str())
+                evidence.get("fixtureId").and_then(|value| value.as_str()),
+                Some(fixture_id)
             );
-            let mut evidence_without_digest = serde_json::Value::Object(evidence.clone());
-            let evidence_digest = evidence_without_digest["evidenceDigest"]
-                .as_str()
-                .expect("public execution evidence has no digest")
-                .to_owned();
-            evidence_without_digest
-                .as_object_mut()
-                .unwrap()
-                .remove("evidenceDigest");
             assert_eq!(
-                evidence_digest,
-                tagged_jcs_digest(&evidence_without_digest),
-                "public execution evidence digest is stale"
+                evidence.get("exitCode").and_then(|value| value.as_i64()),
+                Some(0)
             );
+            if internal {
+                assert_eq!(
+                    evidence
+                        .get("resultMarker")
+                        .and_then(|value| value.as_str()),
+                    Some(format!("ibex-capsec-internal-invariant:{fixture_id}:passed").as_str())
+                );
+                assert_eq!(
+                    execution["artifactDigest"],
+                    tagged_jcs_digest(&serde_json::Value::Object(evidence.clone())),
+                    "internal execution evidence digest is stale"
+                );
+            } else {
+                assert_eq!(
+                    evidence
+                        .get("resultMarker")
+                        .and_then(|value| value.as_str()),
+                    Some(format!("ibex-capsec-public-fixture:{fixture_id}:passed").as_str())
+                );
+                let mut evidence_without_digest = serde_json::Value::Object(evidence.clone());
+                let evidence_digest = evidence_without_digest["evidenceDigest"]
+                    .as_str()
+                    .expect("public execution evidence has no digest")
+                    .to_owned();
+                evidence_without_digest
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("evidenceDigest");
+                assert_eq!(
+                    evidence_digest,
+                    tagged_jcs_digest(&evidence_without_digest),
+                    "public execution evidence digest is stale"
+                );
+            }
 
             let mut artifact = serde_json::json!({
                 "fixtureEvidenceSchema": "ibex/capsec-portable-fixture-evidence/1",

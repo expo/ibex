@@ -238,14 +238,39 @@ ticket closes.
   bookkeeping.
 - Corrected portable recipe/public projection: internal rows retain their
   dedicated executor and are excluded from public-surface execution instead of
-  being forced through a nonexistent public probe. Portable mapped-process
-  production for that executor remains the next integration boundary.
+  being forced through a nonexistent public probe.
+- Ran the committed secure internal batch against the reviewed Apple
+  `hermesvm`: all six mechanisms executed, the Rust producer emitted all 3,068
+  exact fixture records in 36.73 seconds, and the independent JavaScript
+  validator accepted their bindings, plans, scenario membership, markers, and
+  digests. The 37 MB evidence artifact and 146 MB recipe catalog remained
+  temporary evidence outside the repository.
+- Added the portable mapped-process producer for the internal executor. It uses
+  a distinct internal plan schema, re-executes the six mechanisms inside the
+  mapped observation, emits one detached portable artifact per internal row,
+  and joins that process into the sole Phase-2 bundle validator. While testing
+  this path, corrected both Rust portable-plan parsers to bind the
+  conformance-runner identity already included by the JavaScript execution
+  digest.
+- The physical-promotion workflow test exposed a pre-existing profile split:
+  the checked all-target Cargo set expanded `default` into `insecure`, while
+  the workflow spelled a different default-enabled vector. The generator,
+  checked catalog, and workflow now use one exact
+  `--no-default-features` vector whose active feature closure excludes both
+  `default` and `insecure`; focused post-link and ceremony tests pass.
 - Current catalog measurements: Apple 2,602 fully executable, 3,068 internally
-  verified, and 18,943 unresolved of 24,613; Windows 2,236 / 3,056 / 19,206 of
-  24,498.
+  verified, and 18,945 unresolved of 24,615; Windows 2,236 / 3,056 / 19,208 of
+  24,500. The new binding/output environment controls add two honestly
+  classified non-capability rows per target.
 - Verification so far: 165 focused devtools tests pass; the CapSec contract
-  validates all 26 schemas and 7,585 coverage edges; the secure Rust evidence
-  target compiles and links against the reviewed `hermesvm` profile.
+  validates all 26 schemas and 7,587 coverage edges; the secure Rust evidence
+  target compiles and links against the reviewed `hermesvm` profile; the
+  focused portable promotion/contract slice passes 118 tests and 111,009
+  expectations. After refreshing the source-derived registry and embedded
+  fingerprints, the complete secure-mode gate passes: secure compile, 630
+  library tests (3 ignored), and the behavioral enforcement smoke. The exact
+  physical-promotion all-target vector also compiles successfully with Cargo
+  defaults disabled and no `insecure` feature.
 - Current estimate: **57% complete for the full LLP 0021 completion contract;
   roughly 84% complete for the security-critical runtime mechanism set.**
 

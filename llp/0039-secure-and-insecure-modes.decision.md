@@ -162,6 +162,11 @@ closed-surface, target-absence, and inherited-intrinsic Cargo command must use
 recipe or evidence plan is itself security-relevant evidence. It must never
 inherit Cargo's default feature set, because the default currently includes
 `insecure` and deliberately bypasses the production decision plane.
+The physical portable-promotion build follows the same rule: its checked
+all-target executable-set vector includes `--no-default-features`, and the
+source-derived active feature closure rejects both `default` and `insecure`.
+The workflow must byte-for-byte spell that checked vector before any selected
+test executable can produce promotion evidence.
 
 ## Preventing an accidental ship
 

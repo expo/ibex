@@ -273452,6 +273452,26 @@
             "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
           },
           {
+            "id": "surface.startup.env.ibex.capsec.internal.invariant.binding.1unzch8",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "env:IBEX_CAPSEC_INTERNAL_INVARIANT_BINDING"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
+            "id": "surface.startup.env.ibex.capsec.internal.invariant.evidence.output.0z5mcce",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "env:IBEX_CAPSEC_INTERNAL_INVARIANT_EVIDENCE_OUTPUT"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
             "id": "surface.startup.env.ibex.capsec.mapped.engine.evidence.output.1i8m8ra",
             "classification": "non-capability",
             "surface": {

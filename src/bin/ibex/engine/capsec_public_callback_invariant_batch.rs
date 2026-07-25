@@ -2966,8 +2966,7 @@ async fn capsec_internal_invariant_evidence_batch() {
     };
     let binding_path = std::env::var("IBEX_CAPSEC_INTERNAL_INVARIANT_BINDING")
         .expect("internal invariant evidence requires an owned binding input");
-    let output_path = std::env::var("IBEX_CAPSEC_INTERNAL_INVARIANT_EVIDENCE_OUTPUT")
-        .expect("internal invariant evidence requires an output path");
+    let output_path = std::env::var("IBEX_CAPSEC_INTERNAL_INVARIANT_EVIDENCE_OUTPUT").ok();
     let catalog_path =
         std::fs::canonicalize(recipe_path).expect("canonicalize internal invariant recipe catalog");
     let binding_path = std::fs::canonicalize(binding_path)
@@ -2981,6 +2980,14 @@ async fn capsec_internal_invariant_evidence_batch() {
         .expect("attest loaded Hermes before internal invariant evidence");
     let (execution_binding, binding_digest, plans) =
         validate_internal_binding(&binding, &catalog, &recipes, &identity_before);
+    let portable = super::capsec_portable_public_batch::PortablePublicBatchContext::begin_internal(
+        INTERNAL_INVARIANT_EXECUTOR,
+    );
+    assert_ne!(
+        output_path.is_some(),
+        portable.is_some(),
+        "internal invariant batch requires exactly one legacy output or portable plan"
+    );
     let package = prepare_package_fixture();
     let mut observations = BTreeMap::new();
     for scenario in [
@@ -3057,6 +3064,10 @@ async fn capsec_internal_invariant_evidence_batch() {
     assert_eq!(identity_after, identity_before);
     ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity_before)
         .expect("re-verify mapped Hermes after internal invariant evidence");
+    if let Some(portable) = portable {
+        portable.finish_internal(&executions);
+        return;
+    }
     let artifact = serde_json::json!({
         "internalInvariantExecutionArtifactSchema":
             "ibex/capsec-internal-invariant-executions/1",
@@ -3064,7 +3075,8 @@ async fn capsec_internal_invariant_evidence_batch() {
         "bindingDigest": binding_digest,
         "executions": executions,
     });
-    let output_path = std::path::PathBuf::from(output_path);
+    let output_path =
+        std::path::PathBuf::from(output_path.expect("legacy internal evidence has no output path"));
     assert!(
         output_path.is_absolute(),
         "internal invariant output must be absolute"

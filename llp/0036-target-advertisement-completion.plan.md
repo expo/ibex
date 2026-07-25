@@ -78,7 +78,7 @@ Grouping every unresolved row by its **scenario** (the last dotted segment of
 the fixture id — what aspect it proves) and checking which scenarios are *ever*
 fully-executable anywhere in the 24,585-row catalog yields a clean partition:
 
-- **Public residual scenarios — 18,943 current Apple rows.** The original
+- **Public residual scenarios — 18,945 current Apple rows.** The original
   2026-07-23 measurement was 18,266 reachable rows. The proof audit returned
   `malformed-branch-facts` to this side of the boundary, and later catalog
   growth changed the total. Scenario types with
@@ -163,11 +163,18 @@ unresolved.
    `capsec_internal_invariant_evidence_batch` executes the six exact Rust
    mechanisms under the explicit secure profile, and the report validates
    per-fixture evidence expanded from those scenario-class observations.
+   Portable promotion re-executes that same dedicated batch under a distinct
+   internal plan schema, brackets it with a same-process mapped-engine
+   observation, and emits exact detached portable evidence for all internal
+   rows. Internal evidence is therefore neither catalog-only nor routed through
+   a public callback command.
    `malformed-branch-facts` remains unresolved. Current measured catalogs:
-   Apple 3,068 internally verified / 18,943 unresolved; Windows 3,056 internally
-   verified / 19,206 unresolved.
+   Apple 3,068 internally verified / 18,945 unresolved; Windows 3,056 internally
+   verified / 19,208 unresolved. The two-row increase on each target is the
+   honest non-capability coverage for the internal batch's binding and output
+   environment controls.
 
-2. **Public-residual authoring program (currently 18,943 Apple rows) — it is a
+2. **Public-residual authoring program (currently 18,945 Apple rows) — it is a
    generator-and-execution problem, not per-row authoring.** Historical
    measured structure (2026-07-23): the then-current 18,266 rows collapsed to
    5,325 surfaces across just 53

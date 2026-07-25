@@ -30,9 +30,9 @@ const outputPath = path.join(
 const requestedFeatures = Object.freeze([
   "capsec-conformance-observer",
   "cli-notify",
-  "default",
   "host-http-server",
   "openssl-crypto",
+  "standard",
 ]);
 
 function fail(message) {
@@ -47,6 +47,7 @@ function runMetadata() {
       "--locked",
       "--no-deps",
       "--format-version=1",
+      "--no-default-features",
       "--features",
       requestedFeatures.join(","),
     ],
@@ -149,6 +150,7 @@ export function generatePortableEngineCargoExecutableSet() {
     "--locked",
     "--no-run",
     "--all-targets",
+    "--no-default-features",
     "--features",
     features.join(","),
     "--message-format=json",

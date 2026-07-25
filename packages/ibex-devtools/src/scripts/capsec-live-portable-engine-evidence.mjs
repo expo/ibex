@@ -215,29 +215,32 @@ export function buildPortableEvidencePlan({
  * pilot plan, this carries the supervisor command/phase and the independently
  * selected executor so any recipe-declared batch can emit portable evidence.
  */
-export function buildPortablePublicBatchEvidencePlan({
+function buildPortableBatchEvidencePlan({
   bindings,
   evidenceDirectory,
   fixtureIds,
   executor,
   commandId,
-  phaseId = "fixture-evidence",
+  phaseId,
+  schemaField,
+  schemaValue,
+  label,
 }) {
-  assertCanonicalSet(fixtureIds, "portable public-batch fixtureIds");
-  for (const [label, value] of [
+  assertCanonicalSet(fixtureIds, `${label} fixtureIds`);
+  for (const [field, value] of [
     ["executor", executor],
     ["commandId", commandId],
     ["phaseId", phaseId],
   ]) {
     invariant(
       typeof value === "string" && stableId.test(value),
-      `invalid portable public-batch ${label}`,
+      `invalid ${label} ${field}`,
     );
   }
   const fixtureOutputs = fixtureIds.map((fixtureId, index) => {
     invariant(
       stableId.test(fixtureId),
-      `invalid portable public-batch fixture ID ${fixtureId}`,
+      `invalid ${label} fixture ID ${fixtureId}`,
     );
     const suffix = crypto
       .createHash("sha256")
@@ -255,8 +258,7 @@ export function buildPortablePublicBatchEvidencePlan({
   const bindingDigest = portableExecutionBindingDigest(bindings);
   return {
     plan: {
-      portablePublicBatchEvidencePlanSchema:
-        "ibex/capsec-portable-public-batch-evidence-plan/1",
+      [schemaField]: schemaValue,
       profile: "ibex/capsec/1",
       bindings,
       bindingDigest,
@@ -271,6 +273,31 @@ export function buildPortablePublicBatchEvidencePlan({
       "mapped-engine-execution-evidence.json",
     ),
   };
+}
+
+export function buildPortablePublicBatchEvidencePlan(options) {
+  return buildPortableBatchEvidencePlan({
+    ...options,
+    phaseId: options.phaseId ?? "fixture-evidence",
+    schemaField: "portablePublicBatchEvidencePlanSchema",
+    schemaValue: "ibex/capsec-portable-public-batch-evidence-plan/1",
+    label: "portable public-batch",
+  });
+}
+
+/**
+ * Build the dedicated plan for runtime-owned invariant evidence. Keeping a
+ * distinct schema prevents an internal proof producer from being mistaken for
+ * one of the source-routed public commands.
+ */
+export function buildPortableInternalBatchEvidencePlan(options) {
+  return buildPortableBatchEvidencePlan({
+    ...options,
+    phaseId: options.phaseId ?? "fixture-evidence",
+    schemaField: "portableInternalBatchEvidencePlanSchema",
+    schemaValue: "ibex/capsec-portable-internal-batch-evidence-plan/1",
+    label: "portable internal-batch",
+  });
 }
 
 function validateMappedIdentity(mapped, engine, target) {

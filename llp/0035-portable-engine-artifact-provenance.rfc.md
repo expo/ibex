@@ -5,6 +5,9 @@
 **Systems:** Security, Engine, Build, Distribution, CI, Runtime, Host ABI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
+**Revised:** 2026-07-24 (adds the dedicated portable mapped-process producer
+for runtime-owned internal-invariant evidence and binds the conformance-runner
+identity in the Rust portable plan parsers.)
 **Revised:** 2026-07-23 (public flip: the repository transferred to
 `expo/ibex` and became public. Every repository-identity pin moved to
 `expo/ibex`/owner `12504344`/visibility `public`, and artifact attestation
@@ -1982,15 +1985,24 @@ The live runner exposes authoritative aggregation only when
 above. Each complete rich recipe's exact source-authored command selects one
 closed executor identity; physical evidence cannot relabel itself. The runner
 re-executes every represented public batch in portable mode during the
-fixture-evidence phase. Each batch begins one mapped-engine observation before
-its actual public fixtures, writes and re-reads one detached output per passed
-fixture, finalizes the observation in that same process, and writes the mapped
-record last. The supervisor then finalizes that process's attempt. All process
-records enter one aggregation, and `validatePortablePromotionV2` remains the
-sole authority-bearing final gate. This second execution is intentional: the
-portable binding includes the already-fixed raw rich-public artifact, so
-borrowing the earlier batch's observations would create either a digest cycle
-or unbound evidence. The output directory includes
+fixture-evidence phase. Runtime-owned internal invariants use a separate
+`ibex/capsec-portable-internal-batch-evidence-plan/1` input and the closed
+`ibex-internal-invariant-proof-harness-v1` executor; they cannot enter through
+the public-batch plan schema or borrow a public executor label. That process
+re-executes the six reviewed invariant mechanisms and emits one exact detached
+portable row for every recipe-plan-bound internal fixture.
+
+Each public or internal batch begins one mapped-engine observation before its
+actual fixtures, writes and re-reads one detached output per passed fixture,
+finalizes the observation in that same process, and writes the mapped record
+last. Both portable plan parsers require the locality-free conformance-runner
+binding that participates in the execution-binding digest. The supervisor then
+finalizes that process's attempt. All process records enter one aggregation,
+and `validatePortablePromotionV2` remains the sole authority-bearing final
+gate. This second execution is intentional: the portable binding includes the
+already-fixed raw rich-public artifact, so borrowing an earlier batch's
+observations would create either a digest cycle or unbound evidence. The output
+directory includes
 `target-advertisements.json` as the exact candidate bytes that a later
 one-commit promotion ceremony may track directly, so Host-at-C need not depend
 on generated Rust source changing in that promotion-only commit.
@@ -2040,6 +2052,10 @@ The same job invokes the checked all-target Cargo argument vector only through
 `run-portable-hermes-cargo.mjs`, retains the complete JSON message stream,
 selects the build-consumption record through that stream, and requires the
 production post-link complete set before any conformance preparation. A new
+source check derives that argument vector with `--no-default-features`; its
+closed active feature set excludes both `default` and `insecure`. The workflow
+spells the same checked vector exactly, so a promotion executable cannot
+silently inherit the decision-plane bypass described by LLP 0039. A new
 source-derived target-cell command refuses to emit its untracked candidate
 until the independently regenerated rich recipe catalog has exact executable
 fixture coverage. The next gate requires complete output-disposition evidence,

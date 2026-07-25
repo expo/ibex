@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, expect, test } from "bun:test";
 import {
   buildPortableEvidencePlan,
+  buildPortableInternalBatchEvidencePlan,
   buildPortablePublicBatchEvidencePlan,
   parsePortableEngineIdentityMarker,
   validateLivePortableProcess,
@@ -109,6 +110,52 @@ test("public-batch plans bind source-selected executor and supervisor route", ()
       commandId: "portable-public-fixtures-001-deadbeef",
     }),
   ).toThrow(/invalid portable public-batch executor/u);
+});
+
+test("internal-batch plans use a distinct runtime-owned evidence schema", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-portable-internal-plan-"));
+  roots.push(root);
+  const bindings = {
+    sourceRevision: "a".repeat(40),
+    sourceTreeDigest: digest("A"),
+    target: {
+      triple: "aarch64-apple-darwin",
+      features: ["hermes-frame-attribution"],
+    },
+    engine: portableVectors.documents.portableIdentity,
+    vocabularyDigest: digest("B"),
+    registryDigest: digest("C"),
+    implementationManifestDigest: digest("D"),
+    fixtureCatalogDigest: digest("E"),
+    targetCellsRawContentDigest: digest("F"),
+    recipeCatalogDigest: digest("G"),
+    recipeCatalogRawContentDigest: digest("H"),
+    publicSurfaceExecutionDigest: digest("I"),
+    publicSurfaceExecutionRawContentDigest: digest("J"),
+    outputDispositionEvidenceRawContentDigest: digest("K"),
+  };
+  bindings.conformanceRunner = conformanceRunner(
+    bindings.sourceRevision,
+    bindings.sourceTreeDigest,
+    bindings.engine,
+  );
+  const state = buildPortableInternalBatchEvidencePlan({
+    bindings,
+    evidenceDirectory: root,
+    fixtureIds: ["fixture.internal-alpha", "fixture.internal-beta"],
+    executor: "ibex-internal-invariant-proof-harness-v1",
+    commandId: "portable-internal-invariants",
+  });
+  expect(state.plan).toMatchObject({
+    portableInternalBatchEvidencePlanSchema:
+      "ibex/capsec-portable-internal-batch-evidence-plan/1",
+    executor: "ibex-internal-invariant-proof-harness-v1",
+    phaseId: "fixture-evidence",
+    commandId: "portable-internal-invariants",
+  });
+  expect(state.plan).not.toHaveProperty(
+    "portablePublicBatchEvidencePlanSchema",
+  );
 });
 
 function liveFixture() {

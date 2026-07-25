@@ -296,8 +296,8 @@ jobs:
             --archive-digest "$ARCHIVE_DIGEST" \
             --expected-source-revision "$GITHUB_SHA" \
             -- \
-            test --locked --no-run --all-targets \
-            --features capsec-conformance-observer,cli-notify,default,host-http-server,module-runner,openssl-crypto \
+            test --locked --no-run --all-targets --no-default-features \
+            --features capsec-conformance-observer,cli-notify,host-http-server,module-runner,openssl-crypto,standard,tls-client-identity-openssl \
             --message-format=json \
             | tee "$cargo_messages"
           test -s "$cargo_messages"

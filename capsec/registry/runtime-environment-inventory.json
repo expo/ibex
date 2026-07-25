@@ -5035,7 +5035,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_exact_fixture_evidence_batch",
-          "sourceOffset": 21598,
+          "sourceOffset": 21631,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING:read",
           "stage": "armed-bootstrap-host-read"
@@ -5063,9 +5063,65 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_exact_fixture_evidence_batch",
-          "sourceOffset": 21756,
+          "sourceOffset": 21789,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT:read",
+          "stage": "armed-bootstrap-host-read"
+        }
+      ]
+    },
+    {
+      "surfaceName": "env:IBEX_CAPSEC_INTERNAL_INVARIANT_BINDING",
+      "dynamic": false,
+      "dynamicKey": null,
+      "authoredNames": [
+        "IBEX_CAPSEC_INTERNAL_INVARIANT_BINDING"
+      ],
+      "allowedStages": [
+        "armed-bootstrap-host-read"
+      ],
+      "occurrences": [
+        {
+          "accessor": "env::var",
+          "context": "startup-input",
+          "direction": "read",
+          "hostEnvironment": true,
+          "language": "rust",
+          "occurrenceIndex": 0,
+          "postArmDisposition": null,
+          "postArmEvidence": null,
+          "scope": "capsec_internal_invariant_evidence_batch",
+          "sourceOffset": 115637,
+          "sourcePath": "src/bin/ibex/engine/capsec_public_callback_invariant_batch.rs",
+          "sourceRef": "src/bin/ibex/engine/capsec_public_callback_invariant_batch.rs#env::var:IBEX_CAPSEC_INTERNAL_INVARIANT_BINDING:read",
+          "stage": "armed-bootstrap-host-read"
+        }
+      ]
+    },
+    {
+      "surfaceName": "env:IBEX_CAPSEC_INTERNAL_INVARIANT_EVIDENCE_OUTPUT",
+      "dynamic": false,
+      "dynamicKey": null,
+      "authoredNames": [
+        "IBEX_CAPSEC_INTERNAL_INVARIANT_EVIDENCE_OUTPUT"
+      ],
+      "allowedStages": [
+        "armed-bootstrap-host-read"
+      ],
+      "occurrences": [
+        {
+          "accessor": "env::var",
+          "context": "startup-input",
+          "direction": "read",
+          "hostEnvironment": true,
+          "language": "rust",
+          "occurrenceIndex": 0,
+          "postArmDisposition": null,
+          "postArmEvidence": null,
+          "scope": "capsec_internal_invariant_evidence_batch",
+          "sourceOffset": 115795,
+          "sourcePath": "src/bin/ibex/engine/capsec_public_callback_invariant_batch.rs",
+          "sourceRef": "src/bin/ibex/engine/capsec_public_callback_invariant_batch.rs#env::var:IBEX_CAPSEC_INTERNAL_INVARIANT_EVIDENCE_OUTPUT:read",
           "stage": "armed-bootstrap-host-read"
         }
       ]
@@ -5091,7 +5147,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_exact_fixture_evidence_batch",
-          "sourceOffset": 26349,
+          "sourceOffset": 26382,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read",
           "stage": "armed-bootstrap-host-read"
@@ -5106,7 +5162,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "load_plan",
-          "sourceOffset": 10154,
+          "sourceOffset": 10127,
           "sourcePath": "src/bin/ibex/engine/capsec_portable_public_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:read",
           "stage": "armed-bootstrap-host-read"
@@ -5134,7 +5190,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_exact_fixture_evidence_batch",
-          "sourceOffset": 21844,
+          "sourceOffset": 21877,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read",
           "stage": "armed-bootstrap-host-read"
@@ -5149,7 +5205,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "load_plan",
-          "sourceOffset": 4949,
+          "sourceOffset": 5004,
           "sourcePath": "src/bin/ibex/engine/capsec_portable_public_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN:read",
           "stage": "armed-bootstrap-host-read"
@@ -5235,9 +5291,24 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_exact_fixture_evidence_batch",
-          "sourceOffset": 21404,
+          "sourceOffset": 21437,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
+          "stage": "armed-bootstrap-host-read"
+        },
+        {
+          "accessor": "env::var",
+          "context": "startup-input",
+          "direction": "read",
+          "hostEnvironment": true,
+          "language": "rust",
+          "occurrenceIndex": 0,
+          "postArmDisposition": null,
+          "postArmEvidence": null,
+          "scope": "capsec_internal_invariant_evidence_batch",
+          "sourceOffset": 115416,
+          "sourcePath": "src/bin/ibex/engine/capsec_public_callback_invariant_batch.rs",
+          "sourceRef": "src/bin/ibex/engine/capsec_public_callback_invariant_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
           "stage": "armed-bootstrap-host-read"
         },
         {
@@ -5293,7 +5364,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_exact_fixture_evidence_batch",
-          "sourceOffset": 28738,
+          "sourceOffset": 28771,
           "sourcePath": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read",
           "stage": "armed-bootstrap-host-read"
@@ -5307,8 +5378,8 @@
           "occurrenceIndex": 0,
           "postArmDisposition": null,
           "postArmEvidence": null,
-          "scope": "finish",
-          "sourceOffset": 16002,
+          "scope": "finish_with_evidence_kind",
+          "sourceOffset": 17891,
           "sourcePath": "src/bin/ibex/engine/capsec_portable_public_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_portable_public_batch.rs#env::var:IBEX_CAPSEC_SUPERVISOR_COMMAND_IDENTITY_DIGEST:read",
           "stage": "armed-bootstrap-host-read"

@@ -63,8 +63,10 @@ import {
   buildInternalInvariantEvidenceBindingArtifact,
   validateInternalInvariantEvidenceArtifact,
 } from "./capsec-internal-invariant-execution.mjs";
+import { INTERNAL_INVARIANT_EXECUTOR } from "./capsec-internal-invariant-evidence.mjs";
 import {
   buildPortableEvidencePlan,
+  buildPortableInternalBatchEvidencePlan,
   buildPortablePublicBatchEvidencePlan,
   parsePortableEngineIdentityMarker,
   portableReportSliceBytes,
@@ -1395,6 +1397,154 @@ if (portableEngineIdentity !== null) {
           ),
         });
       }
+      const internalFixtureIds = internalInvariantArtifact.executions.map(
+        (execution) => execution.fixtureId,
+      );
+      if (
+        internalFixtureIds.length === 0 ||
+        internalFixtureIds.some(
+          (fixtureId) =>
+            portableRecipeByFixture.get(fixtureId)?.executor !==
+            INTERNAL_INVARIANT_EXECUTOR,
+        )
+      ) {
+        throw new Error(
+          "portable internal invariant fixtures differ from the dedicated recipe executor",
+        );
+      }
+      const internalBatchId = "portable-internal-invariants";
+      const internalProcessDirectory = path.join(
+        evidenceDirectory,
+        "portable-internal-process-0001",
+      );
+      fs.mkdirSync(internalProcessDirectory, { mode: 0o700 });
+      const internalPortablePlanState =
+        buildPortableInternalBatchEvidencePlan({
+          bindings: portableBindings,
+          evidenceDirectory: internalProcessDirectory,
+          fixtureIds: internalFixtureIds,
+          executor: INTERNAL_INVARIANT_EXECUTOR,
+          commandId: internalBatchId,
+        });
+      const internalPortablePlanPath = path.join(
+        internalProcessDirectory,
+        "portable-internal-batch-plan.json",
+      );
+      const internalPortablePlanBytes = Buffer.from(
+        `${JSON.stringify(internalPortablePlanState.plan, null, 2)}\n`,
+        "utf8",
+      );
+      writeNewOwnedBytes(
+        internalPortablePlanPath,
+        internalPortablePlanBytes,
+        "portable internal invariant evidence plan",
+      );
+      const internalPortableAttempt = await runObservedEngineTest({
+        supervisor,
+        id: internalBatchId,
+        testName: "capsec_internal_invariant_evidence_batch",
+        features: CAPSEC_SECURE_TEST_FEATURES,
+        nocapture: true,
+        cwd: repoRoot,
+        env: {
+          ...exactEngineEnvironment,
+          IBEX_CAPSEC_RECIPE_CATALOG: recipeCatalogPath,
+          IBEX_CAPSEC_INTERNAL_INVARIANT_BINDING:
+            internalInvariantBindingPath,
+          IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN: internalPortablePlanPath,
+          IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT:
+            internalPortablePlanState.mappedEvidencePath,
+        },
+        environmentKeys: [
+          ...exactEngineEnvironmentKeys,
+          "IBEX_CAPSEC_RECIPE_CATALOG",
+          "IBEX_CAPSEC_INTERNAL_INVARIANT_BINDING",
+          "IBEX_CAPSEC_PORTABLE_EVIDENCE_PLAN",
+          "IBEX_CAPSEC_MAPPED_ENGINE_EVIDENCE_OUTPUT",
+        ],
+        declaredInputs: [
+          {
+            name: "richRecipeCatalog",
+            digest: recipeCatalog.recipeCatalogDigest,
+          },
+          {
+            name: "portableRecipeCatalog",
+            digest:
+              portablePromotionPreparation.recipeCatalog.recipeCatalogDigest,
+          },
+          {
+            name: "portablePublicSurfaceExecution",
+            digest:
+              portablePromotionPreparation.publicSurfaceExecution
+                .publicSurfaceExecutionDigest,
+          },
+          {
+            name: "internalInvariantBinding",
+            digest: internalInvariantBinding.bindingDigest,
+          },
+          {
+            name: "portableExecutionBinding",
+            digest: internalPortablePlanState.plan.bindingDigest,
+          },
+          {
+            name: "portableInternalBatchPlan",
+            digest: taggedDigest(internalPortablePlanBytes),
+          },
+          { name: "engineArtifact", digest: engineBinaryDigest },
+        ],
+        expectedOutputs: [
+          ...internalPortablePlanState.fixtureOutputs.map(
+            (output) => output.path,
+          ),
+          internalPortablePlanState.mappedEvidencePath,
+        ],
+        injectCommandIdentity: true,
+      });
+      commandEvidence.push(legacyCommandEvidence(internalPortableAttempt));
+      const validatedInternalPortableProcess = validateLivePortableProcess({
+        attempt: internalPortableAttempt,
+        bindings: portableBindings,
+        fixtureOutputs: internalPortablePlanState.fixtureOutputs,
+        mappedEvidencePath: internalPortablePlanState.mappedEvidencePath,
+      });
+      const internalPortableAttemptPath = path.join(
+        internalProcessDirectory,
+        "portable-command-attempt.json",
+      );
+      writeNewOwnedBytes(
+        internalPortableAttemptPath,
+        validatedInternalPortableProcess.process.commandAttemptBytes,
+        "portable internal invariant command attempt",
+      );
+      const internalPortableReportSlicePath = path.join(
+        internalProcessDirectory,
+        "portable-report-slice.json",
+      );
+      writeNewOwnedBytes(
+        internalPortableReportSlicePath,
+        portableReportSliceBytes(
+          validatedInternalPortableProcess.reportSlice,
+        ),
+        "portable internal invariant report slice",
+      );
+      portableProcesses.push(validatedInternalPortableProcess.process);
+      detachedEvidence.push({
+        reportSlicePath: path.relative(
+          repoRoot,
+          internalPortableReportSlicePath,
+        ),
+        commandAttemptPath: path.relative(
+          repoRoot,
+          internalPortableAttemptPath,
+        ),
+        mappedEvidencePath: path.relative(
+          repoRoot,
+          internalPortablePlanState.mappedEvidencePath,
+        ),
+        fixturePaths: internalPortablePlanState.fixtureOutputs.map((output) =>
+          path.relative(repoRoot, output.path),
+        ),
+      });
       const promotionBundle = buildPortablePromotionBundleV2({
         preparation: portablePromotionPreparation,
         processes: portableProcesses,
@@ -1408,7 +1558,7 @@ if (portableEngineIdentity !== null) {
           "ibex/capsec-portable-process-preparation/1",
         status: "validated-complete",
         reason:
-          "every source-routed public batch emitted exact detached fixture and mapped-process evidence and the sole Phase-2 promotion validator accepted the complete graph",
+          "every source-routed public batch and the dedicated internal invariant batch emitted exact detached fixture and mapped-process evidence and the sole Phase-2 promotion validator accepted the complete graph",
         engine: portableEngineIdentity,
         mappedEngineExecutionEvidence:
           promotionBundle.report.bindings.mappedEngineExecutionEvidence,

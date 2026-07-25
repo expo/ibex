@@ -356,6 +356,7 @@ fn portable_fixture_domain_matches_the_frozen_cross_language_vector() {
             "profile",
             "sourceRevision",
             "sourceTreeDigest",
+            "conformanceRunner",
             "target",
             "engine",
             "fixtureId",

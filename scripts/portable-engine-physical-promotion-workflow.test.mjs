@@ -193,6 +193,12 @@ test("the only Cargo build is the exact checked set and its JSON stream gates po
     checked.ibexFeatures.includes("openssl-crypto"),
     "checked executable profile must cover every promotion-facing engine test",
   );
+  assert.ok(
+    checked.cargoArguments.includes("--no-default-features") &&
+      !checked.ibexFeatures.includes("default") &&
+      !checked.ibexFeatures.includes("insecure"),
+    "checked promotion executables must compile the production decision plane",
+  );
   const exactInvocation = checked.cargoArguments
     .map((argument) =>
       argument === "--features"
@@ -256,6 +262,9 @@ test("transitive promotion executors use only the selected post-link test binary
     "portablePublicSurfaceInvocation(",
     "runObservedEngineTest({",
     "runObservedPublicTest(command, {",
+    "buildPortableInternalBatchEvidencePlan({",
+    'testName: "capsec_internal_invariant_evidence_batch"',
+    "validatedInternalPortableProcess.process",
   ]) {
     assert.ok(runner.includes(required), `portable runner gate omits ${required}`);
   }
