@@ -43240,7 +43240,7 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
+        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-2"
       ],
       "outputKinds": []
     },
@@ -43684,7 +43684,7 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
+        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-2"
       ],
       "outputKinds": []
     },
@@ -44586,7 +44586,7 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
+        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-2"
       ],
       "outputKinds": []
     },
@@ -45018,7 +45018,7 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
+        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-2"
       ],
       "outputKinds": []
     },

@@ -1778,7 +1778,7 @@ mod tests {
         );
         assert_eq!(
             commonjs_plan.linkage_order(&commonjs_entry_id).unwrap(),
-            [commonjs_target_id, commonjs_entry_id]
+            [commonjs_target_id, commonjs_entry_id.clone()]
         );
         assert!(commonjs_plan
             .ensure_native_call_time_edges_supported()

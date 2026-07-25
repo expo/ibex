@@ -186,6 +186,14 @@ function main() {
   } else {
     const baseline = readBaseline();
     if (JSON.stringify(generated) !== JSON.stringify(baseline)) {
+      for (const [fixtureId, actual] of Object.entries(generated.observations)) {
+        const expected = baseline.observations?.[fixtureId];
+        if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+          console.error(
+            `module-semantics baseline delta ${fixtureId}: expected ${JSON.stringify(expected)}; actual ${JSON.stringify(actual)}`,
+          );
+        }
+      }
       console.error(
         'module-semantics baseline drifted; inspect the semantic delta and rerun with --write-baseline only when intentional',
       );

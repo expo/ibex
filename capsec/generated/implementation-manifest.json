@@ -134575,7 +134575,7 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-2"
         ],
         "sourceRefs": [
           "src/module_loader/mod.rs#capture_transpile_tool_directory:external:call:Ok:count-1",
@@ -134941,7 +134941,7 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-2"
         ],
         "terminalObservedKey": "loader:external-calls:cache"
       },
@@ -135314,7 +135314,7 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
+        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-2"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
@@ -135767,7 +135767,7 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-2"
         ],
         "sourceRefs": [
           "src/module_loader/mod.rs#capture_transpile_tool_directory:external:call:Ok:count-1",
@@ -136205,7 +136205,7 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-2"
         ],
         "terminalObservedKey": "loader:external-calls:load"
       },
@@ -136650,7 +136650,7 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
+        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-2"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
@@ -137561,7 +137561,7 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-2"
         ],
         "sourceRefs": [
           "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:Err:count-8",
@@ -138457,7 +138457,7 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-2"
         ],
         "terminalObservedKey": "loader:external-calls:resolution"
       },
@@ -139360,7 +139360,7 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
+        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-2"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
@@ -139917,7 +139917,7 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-2"
         ],
         "sourceRefs": [
           "src/module_loader/mod.rs#capture_transpile_tool_directory:external:call:Ok:count-1",
@@ -140287,7 +140287,7 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
-          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
+          "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-2"
         ],
         "terminalObservedKey": "loader:external-calls:transform"
       },
@@ -140664,7 +140664,7 @@
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::Options::default:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:react::react:count-1",
         "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_common::FileName::Real:count-1",
-        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-1"
+        "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-2"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
@@ -283395,12 +283395,12 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-n7IEYttc4ZMWIIlJxVmG5BeVa969Ge7A1eBVvjGtrzw"
+      "rawContentDigest": "sha256-JChZhJZGP0yV8OpG5ZIUenJbvGCJOrFcjBD_MowMu_Q"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-fchdIvSwKwfmOV-QznMMc5U8Elux2x-xgvlWCPW69nM"
+      "rawContentDigest": "sha256-xTFQ3Oafa0cNwvEkumk4cQVuN69t3gKZoGjihSqQJMg"
     },
     {
       "kind": "registry",

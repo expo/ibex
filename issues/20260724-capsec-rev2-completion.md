@@ -775,15 +775,49 @@ ticket closes.
 - The clean `aafab6f1` restart passed all nine public commands; both native
   shards completed in roughly 90 seconds. The full default Rust gate then
   traversed 1,223 tests in 1,251 seconds and reported 1,222 passed, one failed,
-  and three ignored. The command supervisor cleaned its tee log, but the
-  zero-execution target inventory mapped test 1,226 (the run count plus the
-  three ignored library cases) exactly to the sole `native_dns_pool` test.
-- `native_dns_pool` immediately passed alone in 14.62 seconds, then passed ten
-  consecutive full 16-lookup fanout repetitions in 9.02–19.62 seconds. No
-  worker-pool rejection, crash, or assertion reproduced. This is recorded as a
-  load-sensitive, non-reproduced resolver failure rather than credited as a
-  green full gate; the exact end-to-end runner must still be restarted and
-  complete.
+  and three ignored. The command supervisor retained only the stderr summary
+  and cleaned its tee log, so an attempted aggregate-index mapping incorrectly
+  pointed at `native_dns_pool`; Rust's per-target ordering makes that inference
+  invalid. The resolver test nevertheless passed alone in 14.62 seconds and
+  passed ten consecutive 16-lookup fanout repetitions in 9.02–19.62 seconds.
+- A clean `fc902514` restart reproduced the same one-failure aggregate after
+  every preflight, typed adapter, and public command passed. A direct exact
+  `scripts/run-tests.sh -- --test-threads=1` replay that preserved both output
+  streams identified the real failure:
+  `module_semantics_baseline::current_loader_baseline_matches_exact_node_and_real_hermes`.
+  The CapSec command supervisor now retains separately labelled stdout and
+  stderr tails on failure, with a 15-test regression suite, so a later boundary
+  cannot lose its owning test again.
+
+### 2026-07-25 — structurally lowered compatibility dynamic imports
+
+- The failing Phase-0 source-map entry took the standalone top-level-await
+  path. SWC's CommonJS transform retained raw `import()` syntax, while the
+  wrapper correctly skipped its retired source-text replacement because that
+  replacement corrupted strings, regular expressions, and lookalike
+  identifiers. Hermes therefore rejected the raw dynamic import before the
+  fixture could execute.
+- Added a SWC AST visitor that changes only a real dynamic-import callee to the
+  existing compatibility `globalThis.require` route before CommonJS lowering.
+  Its focused regression preserves the `thrower.mjs` regular expression and
+  ternary while proving Hermes-incompatible `import()` syntax is absent.
+- Regenerated the exact Node 24.13.1/current-Ibex compatibility baseline from
+  the real binary. Three observational rows changed: the namespace and
+  ESM-importing-CommonJS shapes returned to their exact current values, and the
+  filename-specific source-map marker is `line=none`. The underlying private
+  resolver stack retains line 5, but the unarmed compatibility resolver
+  intentionally publishes no `SourceLabel` or virtual path. LLP 0026 now says
+  this explicitly and keeps authenticated/native source-label evidence as the
+  normative diagnostic gate.
+- Baseline drift now prints the expected and actual observation for each
+  changed fixture instead of only a generic mismatch.
+- The exact integration gate passes all 12/12 module-semantics fixtures with
+  pinned Node and real Hermes. Scanner/graph-shadow coverage passes, `ref-check`
+  reports 2,061 checked references with zero errors, Rust formatting and diff
+  hygiene pass, and full generated drift validates 7,602 coverage edges,
+  15,204 target cells, 168 environment rows, and 222 host-task ingress sites.
+  The registry/contract/example-policy digest rotations were regenerated from
+  the reviewed AST-call-count change.
 
 ## Next milestone
 

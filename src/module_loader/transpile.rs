@@ -24,7 +24,7 @@ use super::transform_config_generated as transform_config;
 use swc_common::comments::SingleThreadedComments;
 use swc_common::sync::Lrc;
 use swc_common::{Globals, Mark, SourceMap, GLOBALS};
-use swc_ecma_ast::{EsVersion, Expr, MemberProp, MetaPropKind, Program};
+use swc_ecma_ast::{CallExpr, Callee, EsVersion, Expr, MemberProp, MetaPropKind, Program};
 use swc_ecma_codegen::text_writer::JsWriter;
 use swc_ecma_codegen::Emitter;
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
@@ -176,8 +176,28 @@ impl swc_ecma_visit::VisitMut for LowerImportMeta {
     }
 }
 
+/// Lower compatibility-path dynamic import through the installed loader
+/// function without rewriting source text. SWC's CommonJS pass preserves
+/// `import()` as syntax, which Hermes cannot parse in script evaluation. The
+/// former wrapper-level `replace("import(", ...)` also corrupted strings and
+/// identifiers such as `reimport(`. Mutating only an actual Import callee
+/// retains the legacy loader route without reopening that text-rewrite bug.
+/// @ref LLP 0028#4-reachability-inventory-and-retirement-matrix
+struct LowerDynamicImport {
+    require_expr: Expr,
+}
+
+impl swc_ecma_visit::VisitMut for LowerDynamicImport {
+    fn visit_mut_call_expr(&mut self, call: &mut CallExpr) {
+        swc_ecma_visit::VisitMutWith::visit_mut_children_with(call, self);
+        if matches!(call.callee, Callee::Import(_)) {
+            call.callee = Callee::Expr(Box::new(self.require_expr.clone()));
+        }
+    }
+}
+
 /// Parse a trusted expression snippet into an AST for injection. Only called
-/// with the two constant replacement expressions below.
+/// with the constant replacement expressions below.
 fn parse_replacement_expr(cm: &Lrc<SourceMap>, snippet: &'static str) -> Result<Expr> {
     let fm = cm.new_source_file(
         Lrc::new(swc_common::FileName::Internal(
@@ -203,6 +223,7 @@ fn parse_replacement_expr(cm: &Lrc<SourceMap>, snippet: &'static str) -> Result<
 
 const IMPORT_META_URL_EXPR: &str = r#"("file://" + (__filename.charAt(0) === "/" ? __filename : "/" + __filename).replace(/\\/g, "/"))"#;
 const IMPORT_META_EXPR: &str = "globalThis.__exactImportMeta";
+const DYNAMIC_IMPORT_EXPR: &str = "globalThis.require";
 
 fn transpile_with_swc(source: &str, path: &Path, force_module_goal: bool) -> Result<String> {
     let cm: Lrc<SourceMap> = Lrc::default();
@@ -258,6 +279,12 @@ fn transpile_with_swc(source: &str, path: &Path, force_module_goal: bool) -> Res
             meta_expr: parse_replacement_expr(&cm, IMPORT_META_EXPR)?,
         };
         swc_ecma_visit::VisitMutWith::visit_mut_with(&mut program, &mut lower_import_meta);
+    }
+    {
+        let mut lower_dynamic_import = LowerDynamicImport {
+            require_expr: parse_replacement_expr(&cm, DYNAMIC_IMPORT_EXPR)?,
+        };
+        swc_ecma_visit::VisitMutWith::visit_mut_with(&mut program, &mut lower_dynamic_import);
     }
     program.mutate(resolver(unresolved_mark, top_level_mark, true));
     program.mutate(typescript(
@@ -476,6 +503,34 @@ mod tests {
                 .expect("transpile module entry");
         assert!(out.contains("require("), "dynamic import lowered: {out}");
         assert!(!out.contains("import("), "no dynamic import remains: {out}");
+    }
+
+    #[test]
+    fn lowers_tla_catch_regex_and_ternary_without_malformed_output() {
+        let source = r#"
+try { await import('./thrower.mjs'); }
+catch (error) {
+  const match = /thrower\.mjs:(\d+)/.exec(String(error && error.stack));
+  console.log('MODULE_SEMANTICS|' + 'line=' + (match ? match[1] : 'none'));
+}
+"#;
+        let out = transpile_module_to_cjs(source, &PathBuf::from("/tmp/source-map-entry.mjs"))
+            .expect("transpile module entry");
+        println!("source-map fixture lowering:\n{out}");
+        assert!(out.contains("await"), "TLA passes through: {out}");
+        assert!(
+            out.contains("globalThis.require('./thrower.mjs')"),
+            "dynamic import uses the compatibility loader: {out}"
+        );
+        assert!(
+            !out.contains("import("),
+            "Hermes-incompatible dynamic import syntax is absent: {out}"
+        );
+        assert!(
+            out.contains("thrower\\.mjs"),
+            "regex survives lowering: {out}"
+        );
+        assert!(out.contains("?"), "ternary survives lowering: {out}");
     }
 
     #[test]
