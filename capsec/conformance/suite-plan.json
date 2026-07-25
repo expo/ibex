@@ -1,7 +1,7 @@
 {
   "schema": "ibex/capsec-suite-plan/1",
   "planId": "capsec-full-matrix-stage1",
-  "timeoutPolicyVersion": 1,
+  "timeoutPolicyVersion": 2,
   "heartbeatIntervalMs": 30000,
   "commands": {
     "capsec-registry-drift": { "phase": "preflight", "deadlineMs": 120000, "gracePeriodMs": 10000 },
@@ -30,7 +30,7 @@
   "dynamicCommands": {
     "public-fixtures-": {
       "phase": "public-fixture-evidence",
-      "deadlineMs": 300000,
+      "deadlineMs": 390000,
       "gracePeriodMs": 30000
     },
     "portable-public-fixtures-": {

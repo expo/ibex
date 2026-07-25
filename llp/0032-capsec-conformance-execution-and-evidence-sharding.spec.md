@@ -5,7 +5,7 @@
 **Systems:** Security, CI, Build, Runtime, Engine, Tooling
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20
+**Revised:** 2026-07-25
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021
 
 ## Summary
@@ -46,6 +46,13 @@ calculation charges this class separately from the original public-fixture
 batches and still fits the declared six-hour macOS outer bound. These commands
 exist only for explicit LLP 0035 portable promotion and remain on the same
 authoritative runner.
+
+Implementation checkpoint (2026-07-25): retained arm64 evidence showed the
+554-row native public batch crossing the original 300-second deadline and
+being terminated after its 30-second cleanup grace, without an assertion
+failure. Timeout policy version 2 raises the public-fixture class deadline to
+390 seconds. The revised maximum critical paths, including declared setup and
+cleanup/upload reserves, remain below the 375-minute outer target bounds.
 
 ## Motivation
 

@@ -42,6 +42,17 @@ complete authored critical path plus setup and cleanup/upload reserves fits the
 360-minute workflow boundary, including the largest single command-cleanup
 grace period. They are not performance targets.
 
+On 2026-07-25, an arm64 authoritative-shaped local run measured the 554-row
+native public-fixture batch beyond its original 300-second deadline. The
+supervisor retained a timeout at 330.242 seconds after applying the declared
+30-second cleanup grace and proved descendant cleanup; the child had emitted
+no assertion failure. A preceding complete execution of the same batch took
+295.83 seconds. Timeout policy version 2 therefore raises the public-fixture
+deadline to 390 seconds. This is an authored containment change based on
+retained timing evidence, not a learned or success-reclassified timeout, and
+the worst-case target critical paths remain within their declared 375-minute
+outer bounds.
+
 ## Stage 2 decision
 
 Stage 2 remains deferred. First collect successful Stage 1 outcome artifacts

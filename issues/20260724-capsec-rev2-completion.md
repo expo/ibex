@@ -717,6 +717,16 @@ ticket closes.
   suite passes 82 tests with 111,102 assertions; generated drift, Rust format,
   and LLP reference validation also pass (39 documents, 2,058 refs, zero
   errors, one intentionally unchecked URL).
+- The next full runner restart reached the real 554-row native public batch
+  and the supervisor terminated it at 330.242 seconds: the authored
+  300-second deadline plus its 30-second cleanup grace. The retained logs show
+  no assertion failure, and a preceding complete run measured 295.83 seconds,
+  leaving no useful scheduling margin. Suite timeout policy version 2 raises
+  the public-fixture deadline to 390 seconds while keeping both target
+  critical paths within their declared 375-minute outer bounds (373 minutes
+  on arm64 and 369.5 minutes on Windows). The plan/supervisor regression suite
+  passes 19 tests, and full generated drift plus LLP reference validation
+  remain clean.
 
 ## Next milestone
 
