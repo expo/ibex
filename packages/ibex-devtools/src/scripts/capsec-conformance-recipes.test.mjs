@@ -341,12 +341,12 @@ describe("exact-target CapSec executable recipes", () => {
     // production graph deliberately uses deferred call-time links. The net-new
     // WebGPU obligations remain unresolved until their public-surface probes
     // are authored.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_626);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_631);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_114);
-    expect(recipes.summary.unresolvedFixtures).toBe(18_300);
+    expect(recipes.summary.unresolvedFixtures).toBe(18_295);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -511,11 +511,12 @@ describe("exact-target CapSec executable recipes", () => {
           "public-surface-filesystem-not-typed-on-target",
         ),
     );
-    // 153 = 123 + the 30 fs:list accessSync/existsSync/realpathSync/statfsSync, fs:read
-    // readFileSync, and fs:write writeFileSync rows now Apple-authored
+    // 158 = 123 + the 35 fs:list accessSync/existsSync/realpathSync/statfsSync,
+    // fs:read readFileSync, and fs:write truncateSync/writeFileSync rows now
+    // Apple-authored
     // (LLP 0037), and therefore "not typed on target" for the ambiguous
     // Windows route.
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(153);
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(158);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
@@ -914,6 +915,76 @@ describe("exact-target CapSec executable recipes", () => {
                   : 4,
         );
       }
+    }
+  });
+
+  test("truncates the exact retained file and denies before mutation", () => {
+    const surface = "builtin:export:node_fs:truncateSync";
+    const truncateRecipes = recipes.recipes.filter(
+      (recipe) =>
+        recipe.route.surfaceObservedKeys.includes(surface) &&
+        [
+          "allow",
+          "deny",
+          "malformed",
+          "missing-attribution",
+          "wrong-principal",
+        ].includes(recipe.scenario),
+    );
+    expect(truncateRecipes).toHaveLength(5);
+    for (const recipe of truncateRecipes) {
+      const denial = recipe.scenario === "deny";
+      expect(recipe).toMatchObject({
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          surfaceObservedKey: surface,
+          invocation: {
+            moduleSpecifier: "node:fs",
+            exportName: "truncateSync",
+            arguments: [
+              {
+                kind: "filesystem-fixture-path",
+                logicalPath: {
+                  root: "project",
+                  components: [
+                    { encoding: "utf8", value: "capsec-stat-fixture.txt" },
+                  ],
+                },
+              },
+              { kind: "literal-json", value: 2 },
+            ],
+            setup: {
+              kind: "filesystem-file",
+              contents: "ibex-capsec-stat-fixture\n",
+            },
+            requiredAuthority: [
+              {
+                cap: "fs:write",
+                resource: { kind: "path-exact" },
+              },
+            ],
+            expectedResult: denial ? "permission-denied" : "return",
+            expectedTypedDecisionCount: denial ? 5 : 6,
+            expectedTypedStages: denial
+              ? ["requested", "discovery", "requested", "repeat", "commit"]
+              : [
+                  "requested",
+                  "discovery",
+                  "requested",
+                  "repeat",
+                  "commit",
+                  "repeat",
+                ],
+            allowedCoverageEdgeIds: [
+              "surface.native.op.exactensurefs.1dih7no",
+              "surface.native.op.exactfsftruncatesync.0un4ty5",
+              "surface.native.op.exacttruncate.13gh223",
+            ],
+            expectedActionIds: ["fs:write"],
+          },
+        },
+      });
     }
   });
 

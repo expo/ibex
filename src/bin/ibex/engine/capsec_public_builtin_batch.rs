@@ -418,11 +418,11 @@ fn expected_authored_builtin_recipe_count(target: &str) -> usize {
     match target {
         // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
         // +5 each on Apple for fs:list accessSync/existsSync/realpathSync/statfsSync,
-        // fs:read readFileSync, and fs:write writeFileSync (their allow/deny/
-        // malformed/missing-attribution/wrong-principal scenario matrices).
+        // fs:read readFileSync, and fs:write truncateSync/writeFileSync (their
+        // allow/deny/malformed/missing-attribution/wrong-principal matrices).
         // Windows keeps 120: its node_fs enforcement route is ambiguous, so
         // these public probes are not authored there.
-        "aarch64-apple-darwin" => 165,
+        "aarch64-apple-darwin" => 170,
         "x86_64-pc-windows-msvc" => 120,
         target => panic!("builtin public recipe batch has no reviewed target shape for {target}"),
     }
@@ -432,7 +432,7 @@ fn expected_authored_builtin_recipe_count(target: &str) -> usize {
 fn capsec_public_builtin_recipe_counts_are_target_specific() {
     assert_eq!(
         expected_authored_builtin_recipe_count("aarch64-apple-darwin"),
-        165
+        170
     );
     assert_eq!(
         expected_authored_builtin_recipe_count("x86_64-pc-windows-msvc"),
@@ -469,11 +469,41 @@ struct PreparedInvocation {
     _fixture_root: Option<tempfile::TempDir>,
     project_root: Option<std::path::PathBuf>,
     arguments: Vec<serde_json::Value>,
+    fixture_contents: Option<Vec<u8>>,
 }
 
 impl PreparedInvocation {
     fn project_root(&self) -> Option<&std::path::Path> {
         self.project_root.as_deref()
+    }
+
+    fn verify_postcondition(&self, invocation: &BuiltinInvocation, scenario: &str) {
+        let Some(original) = self.fixture_contents.as_deref() else {
+            return;
+        };
+        let export_name = invocation
+            .export_name
+            .as_deref()
+            .expect("filesystem fixture invocation has no export name");
+        let expected = match (export_name, scenario) {
+            ("writeFileSync", "deny") | ("truncateSync", "deny") => original,
+            ("writeFileSync", _) => invocation.arguments[1]["value"]
+                .as_str()
+                .expect("writeFileSync postcondition payload must be a string")
+                .as_bytes(),
+            ("truncateSync", _) => &original[..2],
+            _ => return,
+        };
+        let fixture_path = self
+            .project_root
+            .as_ref()
+            .expect("filesystem fixture has no project root")
+            .join("capsec-stat-fixture.txt");
+        assert_eq!(
+            std::fs::read(&fixture_path).expect("read builtin filesystem postcondition"),
+            expected,
+            "{export_name} {scenario} postcondition drifted"
+        );
     }
 }
 
@@ -487,6 +517,7 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
             _fixture_root: None,
             project_root: None,
             arguments: Vec::new(),
+            fixture_contents: None,
         };
     }
     assert_eq!(
@@ -508,6 +539,7 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
                 _fixture_root: None,
                 project_root: None,
                 arguments: invocation.arguments.clone(),
+                fixture_contents: None,
             }
         }
         Some("filesystem-file") => {
@@ -528,7 +560,7 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
                 | "statfsSync"
                 | "statSync" => "fs:list",
                 "readFileSync" => "fs:read",
-                "writeFileSync" => "fs:write",
+                "truncateSync" | "writeFileSync" => "fs:write",
                 other => panic!("unsupported filesystem-file fs export {other}"),
             };
             if export_name == "realpathSync" {
@@ -592,7 +624,7 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
             let mut runtime_arguments = vec![serde_json::Value::String(
                 "/project/capsec-stat-fixture.txt".to_owned(),
             )];
-            if expected_cap == "fs:write" {
+            if export_name == "writeFileSync" {
                 // The write export takes a literal payload as its second
                 // argument; the read/list exports take only the path.
                 assert_eq!(invocation.arguments.len(), 2);
@@ -601,6 +633,11 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
                     .expect("fs:write literal payload must be a string");
                 assert_eq!(invocation.arguments[1]["kind"], "literal-utf8");
                 runtime_arguments.push(serde_json::Value::String(payload.to_owned()));
+            } else if export_name == "truncateSync" {
+                assert_eq!(invocation.arguments.len(), 2);
+                assert_eq!(invocation.arguments[1]["kind"], "literal-json");
+                assert_eq!(invocation.arguments[1]["value"], 2);
+                runtime_arguments.push(invocation.arguments[1]["value"].clone());
             } else {
                 assert_eq!(invocation.arguments.len(), 1);
             }
@@ -613,6 +650,7 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
                 _fixture_root: Some(fixture_root),
                 project_root: Some(project_root),
                 arguments: runtime_arguments,
+                fixture_contents: Some(contents.as_bytes().to_vec()),
             }
         }
         Some("filesystem-directory") => {
@@ -664,6 +702,7 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
                 arguments: vec![serde_json::Value::String(
                     "/project/capsec-directory-fixture".to_owned(),
                 )],
+                fixture_contents: None,
             }
         }
         other => panic!("unsupported effect-builtin setup {other:?}"),
@@ -690,6 +729,24 @@ fn typed_decision_values(
             value
         })
         .collect()
+}
+
+fn reviewed_open_traversal_prefix(invocation: &BuiltinInvocation) -> Option<&'static str> {
+    if invocation.invocation_schema != "ibex/capsec-builtin-export-invocation/1"
+        || invocation.kind != "builtin-export-call"
+        || invocation.module_specifier != "node:fs"
+    {
+        return None;
+    }
+    match (
+        invocation.export_name.as_deref(),
+        invocation.expected_action_ids.as_slice(),
+    ) {
+        (Some("readFileSync"), [action]) if action == "fs:read" => Some("fs-open:"),
+        (Some("truncateSync"), [action]) if action == "fs:write" => Some("fs-truncate:"),
+        (Some("writeFileSync"), [action]) if action == "fs:write" => Some("fs-open:"),
+        _ => None,
+    }
 }
 
 fn validate_observation(
@@ -904,10 +961,18 @@ fn validate_observation(
         // refused — so per-decision expectations key on whether this decision is
         // the ambient traversal or the gated operation.
         // @ref LLP 0037#d4--the-deny-shape-of-an-open-then-act-operation
-        let opens_via_traversal =
-            recipe.action_ids == ["fs:read"] || recipe.action_ids == ["fs:write"];
-        let decision_is_traversal = opens_via_traversal
+        let traversal_operation_prefix = reviewed_open_traversal_prefix(invocation);
+        let decision_is_traversal = traversal_operation_prefix.is_some()
             && effects.iter().all(|effect| effect["cap"] == "fs:list");
+        if let Some(prefix) = traversal_operation_prefix.filter(|_| decision_is_traversal) {
+            assert!(
+                set["operationId"]
+                    .as_str()
+                    .is_some_and(|operation_id| operation_id.starts_with(prefix)),
+                "{}: incidental fs:list did not come from its reviewed traversal operation",
+                recipe.fixture_id
+            );
+        }
         let decision_denied = public_denial
             && !decision_is_traversal
             && (!decision_is_auxiliary || decision_is_designated_denial_terminal);
@@ -1011,10 +1076,7 @@ fn validate_observation(
         declared_actions,
         observed_actions
     );
-    let opens_via_traversal = invocation
-        .expected_action_ids
-        .iter()
-        .any(|cap| cap == "fs:read" || cap == "fs:write");
+    let opens_via_traversal = reviewed_open_traversal_prefix(invocation).is_some();
     for extra in observed_actions.difference(&declared_actions) {
         assert!(
             opens_via_traversal && extra == "fs:list",
@@ -1249,6 +1311,7 @@ async fn execute_isolated_recipe(
         engine_binary_digest,
     )
     .await;
+    prepared.verify_postcondition(invocation, &recipe.scenario);
     engine
         .finish()
         .expect("finish authenticated effect-builtin publications");

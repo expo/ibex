@@ -1037,6 +1037,34 @@ ticket closes.
   Important enforcement mechanisms remain about 96% complete and the overall
   requested task remains about 86%.
 
+### 2026-07-25 — `truncateSync` retained-object mutation evidence
+
+- Promoted the five Apple `node:fs.truncateSync` effect scenarios through the
+  armed direct truncate implementation. The source-bound allow sequence is
+  `requested, discovery, requested, repeat, commit, repeat`: the first four
+  decisions authenticate and retain the exact target, commit gates `fs:write`,
+  and the last repeat sits immediately before `ftruncate`.
+- Denial reaches the same retained target but stops at the denied `fs:write`
+  commit. The native batch now verifies the side effect as well as the decision
+  sequence: allowed scenarios leave exactly the first two original bytes, while
+  denial preserves the complete original file.
+- The complete 170-recipe builtin Hermes batch passes. The independent
+  promotion validator accepts all five real observations and derives
+  `native-op:__exactTruncate`; its incidental-traversal allowance is restricted
+  to the `fs-truncate:` operation identity rather than generalized to arbitrary
+  `fs:write` calls.
+- Apple is now 24,040 required / 2,631 fully executable / 3,114 internally
+  verified / 18,295 unresolved. Windows remains 23,925 / 2,240 / 3,102 /
+  18,583. Criterion 7's literal Apple denominator is 5,745/24,040 (23.9%)
+  proven.
+- Hard part: `chmodSync` initially looked like another direct mutation, but LLP
+  0023 and the native mutation guard deliberately close synchronous chmod before
+  path conversion or capability probing in an armed runtime. Its zero-decision
+  refusal was retained as a residual rather than mislabeled as effect evidence.
+  `truncateSync` is different because its armed path is explicitly
+  retained-object-bound. Important enforcement mechanisms remain about 96%
+  complete and the overall requested task remains about 86%.
+
 ## Next milestone
 
 Attack criterion 7's exact-target evidence gap through real public-surface

@@ -5,6 +5,7 @@
 **Systems:** Security, Runtime, Devtools, Verification
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-23
+**Revised:** 2026-07-25 (`node:fs.truncateSync` binds a six-decision retained-object mutation chain, denies at `fs:write` commit, and proves the exact two-byte postcondition; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.existsSync` binds its swallowed permission denial to both the exact denied `fs:list` decision and an exact boolean `false` public result; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.statfsSync` extends the direct metadata family using an engine-observed six-decision allow sequence and first-request denial; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.realpathSync` binds its exact cwd/lstat auxiliary decisions, allow-path realpath terminal, and fail-closed lstat denial terminal; five Apple fixture rows move from residual to executable)
@@ -141,6 +142,26 @@ An exception, a true result after denial, a false result on the allowed fixture,
 or a decision on the route's initialization alternative fails validation. The
 complete 165-recipe builtin batch and the independent promotion validator
 accept all five scenario observations under that contract.
+
+### Retained-object mutation evidence: `truncateSync`
+
+`node:fs.truncateSync` exercises the armed runtime's direct retained-object
+truncate path. On the reviewed Apple engine its allow path emits:
+
+`requested, discovery, requested, repeat` for the ambient `fs:list` traversal
+and exact target retention; then `commit, repeat` for `fs:write` on the retained
+file.
+
+The commit binds the actual target descriptor, and the final repeat occurs
+immediately before `ftruncate`. Denial preserves the four ambient traversal
+decisions, refuses the `fs:write` commit, emits no final repeat, and leaves the
+fixture unchanged. The native batch independently verifies the filesystem
+postcondition: every allowed scenario produces exactly the first two original
+bytes, while denial preserves all original bytes. The promotion aggregate
+accepts the incidental `fs:list` decisions only under the source-bound
+`fs-truncate:` operation identity; they cannot borrow the broader `fs-open:`
+allowance used by whole-file read/write carriers. The complete 170-recipe
+builtin batch and independent validator accept all five scenario observations.
 
 ### Additional multi-edge metadata evidence: `realpathSync`
 

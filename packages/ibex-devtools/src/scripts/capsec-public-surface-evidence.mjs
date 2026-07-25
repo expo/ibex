@@ -3709,18 +3709,23 @@ export function validatePublicFixtureRuntimeObservation(
   // only these reviewed open-then-act exports may observe fs:list in addition
   // to their declared semantic operation.
   // @ref LLP 0037#d2--declared-vs-incidental-capabilities-in-the-coverage-edge
-  const builtinOpenThenActAction = new Map([
-    ["readFileSync", "fs:read"],
-    ["writeFileSync", "fs:write"],
+  const builtinOpenThenActDescriptor = new Map([
+    ["readFileSync", { action: "fs:read", operationPrefix: "fs-open:" }],
+    [
+      "truncateSync",
+      { action: "fs:write", operationPrefix: "fs-truncate:" },
+    ],
+    ["writeFileSync", { action: "fs:write", operationPrefix: "fs-open:" }],
   ]).get(authored.exportName);
   const builtinOpenThenAct =
     authored.invocationSchema ===
       "ibex/capsec-builtin-export-invocation/1" &&
     authored.kind === "builtin-export-call" &&
     authored.moduleSpecifier === "node:fs" &&
-    typeof builtinOpenThenActAction === "string" &&
+    typeof builtinOpenThenActDescriptor?.action === "string" &&
+    typeof builtinOpenThenActDescriptor.operationPrefix === "string" &&
     canonicalJson(authored.expectedActionIds) ===
-      canonicalJson([builtinOpenThenActAction]);
+      canonicalJson([builtinOpenThenActDescriptor.action]);
   const outcomeDeclaredCarrier = callbackInvariant || startupEnvironment;
   const auxiliaryCarrier =
     outcomeDeclaredCarrier ||
@@ -4109,7 +4114,9 @@ export function validatePublicFixtureRuntimeObservation(
           set.context.stage,
         ) ||
         typeof set.operationId !== "string" ||
-        !set.operationId.startsWith("fs-open:") ||
+        !set.operationId.startsWith(
+          builtinOpenThenActDescriptor.operationPrefix,
+        ) ||
         !set.effects.every(
           (effect) =>
             effect.resource?.kind === "path-occurrence" &&

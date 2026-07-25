@@ -139,6 +139,10 @@ const coverage = {
       surface: { kind: "native-op", name: "__exactFsOpen" },
     },
     {
+      id: "edge.truncate-worker",
+      surface: { kind: "native-op", name: "__exactTruncate" },
+    },
+    {
       id: "edge.exists-access",
       classification: "effects",
       surface: { kind: "native-op", name: "__exactAccess" },
@@ -367,20 +371,24 @@ function runtimeObservation(recipe) {
   };
 }
 
-function openThenActFixture(scenario = "allow") {
+function openThenActFixture(scenario = "allow", exportName = "readFileSync") {
   const catalog = completeCatalog();
   const recipe = catalog.recipes[0];
   const denial = scenario === "deny";
-  recipe.fixtureId = `fixture.public.read-file-sync.${scenario}`;
+  const truncate = exportName === "truncateSync";
+  const action = truncate ? "fs:write" : "fs:read";
+  const terminal = truncate ? "__exactTruncate" : "__exactFsOpen";
+  const edgeId = truncate ? "edge.truncate-worker" : "edge.fsopen-worker";
+  recipe.fixtureId = `fixture.public.${exportName}.${scenario}`;
   recipe.scenario = scenario;
-  recipe.actionIds = ["fs:read"];
-  recipe.terminalObservedKey = "builtin:export:node_fs:readFileSync";
+  recipe.actionIds = [action];
+  recipe.terminalObservedKey = `builtin:export:node_fs:${exportName}`;
   recipe.route = {
     surfaceObservedKeys: [recipe.terminalObservedKey],
     alternatives: [
       {
-        terminalObservedKey: "native-op:__exactFsOpen",
-        proofPaths: ["export:readFileSync -> __exactFsOpen"],
+        terminalObservedKey: `native-op:${terminal}`,
+        proofPaths: [`export:${exportName} -> ${terminal}`],
       },
     ],
     ambiguousCallees: [],
@@ -388,20 +396,20 @@ function openThenActFixture(scenario = "allow") {
   recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
   const invocation = recipe.publicSurfaceProbe.invocation;
   invocation.moduleSpecifier = "node:fs";
-  invocation.exportName = "readFileSync";
+  invocation.exportName = exportName;
   invocation.sourceDescriptor = {
     kind: "builtin-export",
     sourceKey: "node_fs",
-    exportName: "readFileSync",
+    exportName,
     moduleSpecifiers: ["node:fs"],
-    sourceRef: "src/builtins/fs.js#exports:readFileSync",
+    sourceRef: `src/builtins/fs.js#exports:${exportName}`,
   };
   invocation.sourceDescriptorDigest = taggedDigest(invocation.sourceDescriptor);
   invocation.expectedResult = denial ? "permission-denied" : "return";
   invocation.expectedTypedStages = ["requested", "commit"];
   invocation.expectedTypedDecisionCount = 2;
-  invocation.allowedCoverageEdgeIds = ["edge.fsopen-worker"];
-  invocation.expectedActionIds = ["fs:read"];
+  invocation.allowedCoverageEdgeIds = [edgeId];
+  invocation.expectedActionIds = [action];
   catalog.summary.byScenario = { [scenario]: 1 };
   catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
 
@@ -409,8 +417,8 @@ function openThenActFixture(scenario = "allow") {
   const decision = ({ stage, action, outcome, traversal }) => ({
     decisionSet: {
       decisionSetSchema: "ibex/capsec-decision-set/1",
-      operationId: "fs-open:0:fixture",
-      atomicityGroup: "edge.fsopen-worker.decision",
+      operationId: `${truncate ? "fs-truncate" : "fs-open"}:0:fixture`,
+      atomicityGroup: `${edgeId}.decision`,
       combination: "conjunction",
       context: {
         stage,
@@ -446,7 +454,7 @@ function openThenActFixture(scenario = "allow") {
     },
     gates: [
       {
-        coverageEdgeId: "edge.fsopen-worker",
+        coverageEdgeId: edgeId,
         targetCell: "complete",
         definitionAndEdgePredicatesSatisfied: true,
       },
@@ -483,7 +491,7 @@ function openThenActFixture(scenario = "allow") {
     }),
     decision({
       stage: "commit",
-      action: "fs:read",
+      action,
       outcome: denial ? "deny" : "allow",
       traversal: false,
     }),
@@ -3021,16 +3029,21 @@ describe("CapSec public-surface promotion evidence", () => {
   });
 
   test("accepts only ambient fs:list traversal surplus for open-then-act builtins", () => {
-    for (const scenario of ["allow", "deny"]) {
-      const { recipe, observation } = openThenActFixture(scenario);
-      expect(() =>
-        buildPublicFixtureEvidence({
-          recipe,
-          engineBinaryDigest: engine.binaryDigest,
-          runtimeObservation: observation,
-          coverage,
-        }),
-      ).not.toThrow();
+    for (const exportName of ["readFileSync", "truncateSync"]) {
+      for (const scenario of ["allow", "deny"]) {
+        const { recipe, observation } = openThenActFixture(
+          scenario,
+          exportName,
+        );
+        expect(() =>
+          buildPublicFixtureEvidence({
+            recipe,
+            engineBinaryDigest: engine.binaryDigest,
+            runtimeObservation: observation,
+            coverage,
+          }),
+        ).not.toThrow();
+      }
     }
 
     const wrongCapability = openThenActFixture();

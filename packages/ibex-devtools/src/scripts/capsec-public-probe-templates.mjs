@@ -76,6 +76,7 @@ const FS_READ_EXPORTS = new Set(["readFileSync"]);
 // typed sequence is observed from the bound engine, never guessed (LLP 0037 D3).
 // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
 const FS_WRITE_EXPORTS = new Set(["writeFileSync"]);
+const FS_TRUNCATE_EXPORTS = new Set(["truncateSync"]);
 const FS_WRITE_PAYLOAD = "ibex-capsec-write-fixture\n";
 const FS_FIXTURE_PATH = Object.freeze({
   root: "project",
@@ -518,6 +519,72 @@ export function authoredBuiltinPublicProbe({
           ? ["requested", "requested", "discovery", "requested", "repeat", "commit"]
           : [
               "requested",
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "commit",
+              "repeat",
+            ],
+        allowedCoverageEdgeIds,
+        expectedActionIds: ["fs:write"],
+      },
+    };
+  }
+
+  // Direct truncate shares the armed runtime's retained-object path with its
+  // worker-backed alias: authenticate/open the target, commit its descriptor,
+  // then repeat-authorize immediately before ftruncate. The harness separately
+  // verifies the exact resulting length.
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+  if (
+    plan.actionIds.length === 1 &&
+    plan.actionIds[0] === "fs:write" &&
+    FS_TRUNCATE_EXPORTS.has(fsExportName)
+  ) {
+    const descriptor = sourceDescriptor(
+      liveByObservedKey.get(surfaceObservedKey),
+      "node_fs",
+      fsExportName,
+      "node:fs",
+    );
+    if (!descriptor) return null;
+    const logicalPath = FS_FIXTURE_PATH;
+    return {
+      kind: "public-surface-invocation",
+      surfaceObservedKey,
+      command: [...BUILTIN_BATCH_COMMAND],
+      invocation: {
+        invocationSchema: "ibex/capsec-builtin-export-invocation/1",
+        kind: "builtin-export-call",
+        moduleSpecifier: "node:fs",
+        exportName: fsExportName,
+        sourceDescriptor: descriptor,
+        sourceDescriptorDigest: taggedDigest(descriptor),
+        arguments: [
+          { kind: "filesystem-fixture-path", logicalPath },
+          { kind: "literal-json", value: 2 },
+        ],
+        setup: {
+          kind: "filesystem-file",
+          logicalPath,
+          contents: "ibex-capsec-stat-fixture\n",
+        },
+        requiredAuthority: [
+          {
+            cap: "fs:write",
+            resource: { kind: "path-exact", path: logicalPath },
+          },
+        ],
+        expectedResult: publicDenial ? "permission-denied" : "return",
+        // Observed from the bound engine (LLP 0037 D3): authenticate the
+        // requested path and project root, retain the exact file, commit
+        // fs:write, then repeat immediately before ftruncate. Denial reaches
+        // that same commit boundary but performs no mutation.
+        expectedTypedDecisionCount: publicDenial ? 5 : 6,
+        expectedTypedStages: publicDenial
+          ? ["requested", "discovery", "requested", "repeat", "commit"]
+          : [
               "requested",
               "discovery",
               "requested",
