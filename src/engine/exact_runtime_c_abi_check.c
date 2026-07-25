@@ -460,6 +460,8 @@ IBEX_C_ABI_ASSERT(import_binding_kind_after_names,
 /* Function-pointer assignments type-check the callable C surface without
  * creating an executable ingress or requiring a link-time call. */
 void ibex_exact_runtime_c_abi_typecheck(void) {
+  int32_t (*activate_webgpu_runtime)(ExactHermesRuntime*) =
+      ex_hermes_activate_webgpu_runtime_v1;
   uint32_t (*bind_session)(ExactHermesRuntime*, const uint8_t*, size_t) =
       ex_hermes_structured_session_bind;
   uint32_t (*admit_submission)(ExactHermesRuntime*,
@@ -724,6 +726,7 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
       ex_host_terminal_session_stdio_query;
   void (*console_log_bytes)(int32_t, const uint8_t*, size_t) =
       ex_host_console_log_bytes;
+  (void)activate_webgpu_runtime;
   (void)bind_session;
   (void)admit_submission;
   (void)settle_submission;

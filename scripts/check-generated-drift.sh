@@ -77,9 +77,13 @@ if ! diff -r "vendored-generated/builtins" "$scratch/builtins" >/dev/null 2>&1; 
   stale+=("vendored-generated/builtins/*.js")
 fi
 
-bun run build:runtime --out "$scratch/embedded_runtime_bundle.js" >/dev/null 2>&1
+bun run build:runtime:core --out "$scratch/embedded_runtime_bundle.js" >/dev/null 2>&1
 if ! diff "vendored-generated/embedded_runtime_bundle.js" "$scratch/embedded_runtime_bundle.js" >/dev/null 2>&1; then
   stale+=("vendored-generated/embedded_runtime_bundle.js")
+fi
+bun run build:runtime:webgpu --out "$scratch/embedded_runtime_webgpu_bundle.js" >/dev/null 2>&1
+if ! diff "vendored-generated/embedded_runtime_webgpu_bundle.js" "$scratch/embedded_runtime_webgpu_bundle.js" >/dev/null 2>&1; then
+  stale+=("vendored-generated/embedded_runtime_webgpu_bundle.js")
 fi
 
 if [ "${#stale[@]}" -eq 0 ]; then

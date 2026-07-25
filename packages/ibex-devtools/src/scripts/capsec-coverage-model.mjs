@@ -5199,6 +5199,7 @@ function reviewedNameSet(names, label) {
 const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
   [
     "ex_android_initialize",
+    "ex_hermes_activate_webgpu_runtime_v1",
     "ex_hermes_begin_app_bundle_evaluation_v1",
     "ex_hermes_begin_embedder_capabilities_v1",
     "ex_hermes_begin_gpu_canvas_app_bundle_v1",
@@ -7060,6 +7061,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "script:compartment-registry",
     "script:compat-polyfills",
     "script:console",
+    "script:deferred-webgpu-runtime",
     "script:eager-install-seal",
     "script:eval",
     "script:exact-global",
@@ -11548,6 +11550,7 @@ function startupClassification(surface) {
       new Set([
         "script:capability-hardening",
         "script:compartment-registry",
+        "script:deferred-webgpu-runtime",
         "script:eager-install-seal",
         "script:exact-global",
         "script:freeze-seal",
@@ -13174,6 +13177,7 @@ function embedderAbiClassification(name) {
   if (/^exhermes/u.test(name)) {
     if (
       new Set([
+        "exhermesactivatewebgpuruntimev1",
         "exhermesbeginembeddercapabilitiesv1",
         "exhermesbeginappbundleevaluationv1",
         "exhermesbegingpucanvasappbundlev1",

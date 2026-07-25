@@ -1073,8 +1073,10 @@ ExactHermesRuntime* ex_hermes_create_armed(const char* armed_snapshot_digest);
 int32_t ex_hermes_begin_embedder_capabilities_v1(ExactHermesRuntime* runtime);
 
 /// Authenticate the exact installed capability set, refresh the package
-/// baseline once, and seal provisional properties. Failure is terminal for the
-/// runtime and rolls back/tears down provisional native capabilities.
+/// baseline once, and seal provisional properties. A registered GPU provider
+/// remains dormant: this call does not evaluate the WebGPU runtime bundle,
+/// open its realm, or publish WebGPU roots. Failure is terminal for the runtime
+/// and rolls back/tears down provisional native capabilities.
 int32_t ex_hermes_finalize_embedder_capabilities_v1(ExactHermesRuntime* runtime);
 
 /// Return the optional GPU service ABI version and descriptor size implemented
@@ -1108,16 +1110,17 @@ int32_t ex_hermes_complete_gpu_decoded_image_v1(
 /// Register one authenticated provider-independent Exact GPU service. The
 /// descriptor and function table are copied. The function returns
 /// EXACT_GPU_PROVIDER_UNSUPPORTED when Ibex was built without
-/// `webgpu-binding`. It never publishes navigator.gpu or an app-visible bridge
-/// global. On successful finalization, native code hands a low-level bridge to
-/// the already-loaded runtime-js module graph through a one-shot construction
-/// callback, verifies that callback was deleted, and seals the module-private
-/// slot. App package/deep/filesystem imports of that source directory are
-/// rejected; this checkpoint makes no public WebGPU-support claim.
+/// `webgpu-binding`. Registration and capability finalization never evaluate
+/// the separately embedded WebGPU graph, open a realm, publish navigator.gpu,
+/// or expose an app-visible bridge global. The later explicit activation call
+/// hands a low-level bridge to that graph through a one-shot callback, verifies
+/// that callback was deleted, and seals the module-private slot. App
+/// package/deep/filesystem imports of that source directory are rejected;
+/// dormant registration makes no public WebGPU-support claim.
 /// Must run inside the additive capability transaction on the runtime owner
 /// thread. Registration retains and copies provisional service state;
-/// open_realm runs once during transaction finalization, after all setters have
-/// supplied the app/agent context, so setter order cannot change realm
+/// open_realm runs once during explicit WebGPU activation, after all setters
+/// have supplied the app/agent context, so setter order cannot change realm
 /// identity. During open_realm the service may use retain_client and
 /// release_client for plain-native mailbox ownership; retaining is required
 /// before storing the sink/context beyond the call. It must not invoke
@@ -1142,6 +1145,18 @@ int32_t ex_hermes_set_gpu_provider_v1(
 int32_t ex_hermes_set_gpu_provider_v2(
     ExactHermesRuntime* runtime,
     const ExactHermesGpuProviderDescriptorV2* descriptor);
+
+/// Activate a registered, authenticated dormant WebGPU provider. This
+/// owner-thread-only transaction may run before or after ordinary user work.
+/// It excludes user/debugger ingress, evaluates the separately embedded
+/// WebGPU source/HBC once, opens and captures the provider, refreshes only the
+/// generated conditional WebGPU compartment paths, seals the private bridge,
+/// and repeats the exact root sweep when bootstrap is closed. It is idempotent
+/// after success. Provider absence returns EXACT_GPU_PROVIDER_UNSUPPORTED
+/// without evaluating the bundle; any failure after mutation terminally
+/// quarantines the runtime.
+int32_t ex_hermes_activate_webgpu_runtime_v1(
+    ExactHermesRuntime* runtime);
 
 /// Open the outer owner-thread app-bundle evaluation transaction before any
 /// generated preparation runs. `expected_prepared_disposition` is NONE for a

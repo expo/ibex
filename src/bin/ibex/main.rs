@@ -2377,13 +2377,31 @@ async fn eval_code(
             runtime_t0.elapsed().as_micros() as f64 / 1000.0
         );
     }
+    let suppress_t0 = std::time::Instant::now();
     suppress_runtime_banner(&runtime).await?;
     if trace_startup() {
-        eprintln!("[startup] eval_load_runtime_start");
+        eprintln!(
+            "[startup] {:<30} {:>6} us ({:>5.1} ms)",
+            "eval_engine_initialize",
+            suppress_t0.elapsed().as_micros(),
+            suppress_t0.elapsed().as_micros() as f64 / 1000.0
+        );
     }
+    let load_t0 = std::time::Instant::now();
     runtime.load_runtime().await?;
     if trace_startup() {
-        eprintln!("[startup] eval_load_runtime_end");
+        eprintln!(
+            "[startup] {:<30} {:>6} us ({:>5.1} ms)",
+            "eval_load_runtime",
+            load_t0.elapsed().as_micros(),
+            load_t0.elapsed().as_micros() as f64 / 1000.0
+        );
+        eprintln!(
+            "[startup] {:<30} {:>6} us ({:>5.1} ms)",
+            "eval_ready_from_cli",
+            runtime_t0.elapsed().as_micros(),
+            runtime_t0.elapsed().as_micros() as f64 / 1000.0
+        );
     }
     configure_session_inspector(cli, &runtime).await?;
 
@@ -2393,9 +2411,7 @@ async fn eval_code(
     // raw evaluator, mutable require alias, or caller-selected referrer crosses
     // this boundary.
     // @ref LLP 0024#1-the-in-memory-source-api
-    if trace_startup() {
-        eprintln!("[startup] eval_user_code_start");
-    }
+    let user_code_t0 = std::time::Instant::now();
     let presentation = if print_result {
         terminal_session::InlineResultPresentation::Print
     } else {
@@ -2408,7 +2424,12 @@ async fn eval_code(
     )
     .await?;
     if trace_startup() {
-        eprintln!("[startup] eval_user_code_end");
+        eprintln!(
+            "[startup] {:<30} {:>6} us ({:>5.1} ms)",
+            "eval_user_code",
+            user_code_t0.elapsed().as_micros(),
+            user_code_t0.elapsed().as_micros() as f64 / 1000.0
+        );
     }
     status_result(status)
 }

@@ -8097,6 +8097,9 @@ extern "C" int32_t ibex_test_gpu_v2_submit(
           observeSettlement);
     }
     return static_cast<int32_t>(admission.asNumber());
+  } catch (const std::exception& error) {
+    ex_host_console_log(1, error.what());
+    return -1000;
   } catch (...) {
     return -1000;
   }

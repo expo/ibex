@@ -37,18 +37,18 @@ const CANVAS_INTEGRATION_CAPTURE_NAME =
 // A bundle being evaluated inside a begin/finish transaction may replace the
 // ambient Object/Reflect methods, but it cannot redirect handoff validation or
 // cleanup through those replacements.
-const objectDefineProperty = Object.defineProperty.bind(Object);
-const objectFreeze = Object.freeze.bind(Object);
-const objectGetOwnPropertyDescriptor =
-  Object.getOwnPropertyDescriptor.bind(Object);
-const objectGetPrototypeOf = Object.getPrototypeOf.bind(Object);
-const objectIsFrozen = Object.isFrozen.bind(Object);
+const objectDefineProperty = Object.defineProperty;
+const objectFreeze = Object.freeze;
+const objectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+const objectGetPrototypeOf = Object.getPrototypeOf;
+const objectIsFrozen = Object.isFrozen;
 const objectPrototype = Object.prototype;
-const hasOwnProperty = Function.prototype.call.bind(
-  Object.prototype.hasOwnProperty,
-) as (object: object, key: PropertyKey) => boolean;
-const reflectDeleteProperty = Reflect.deleteProperty.bind(Reflect);
-const reflectOwnKeys = Reflect.ownKeys.bind(Reflect);
+const objectPrototypeHasOwnProperty = Object.prototype.hasOwnProperty;
+const reflectApply = Reflect.apply;
+const hasOwnProperty = (object: object, key: PropertyKey): boolean =>
+  reflectApply(objectPrototypeHasOwnProperty, object, [key]);
+const reflectDeleteProperty = Reflect.deleteProperty;
+const reflectOwnKeys = Reflect.ownKeys;
 
 type CanvasAppBundlePhase = 'closed' | 'open' | 'consumed';
 type CanvasAppBundleExpectation = 1 | 2;

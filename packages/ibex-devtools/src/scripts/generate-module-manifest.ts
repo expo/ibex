@@ -238,14 +238,14 @@ function rustStringLiteral(value: string): string {
 
 function renderRustSourceExpression(source: Source): string {
   if (source.kind === 'generated') {
-    return `include_str!(concat!(env!("OUT_DIR"), ${rustStringLiteral(`/${source.path}`)})).to_string()`;
+    return `include_str!(concat!(env!("OUT_DIR"), ${rustStringLiteral(`/${source.path}`)}))`;
   }
 
   if (source.kind === 'repo') {
-    return `include_str!(concat!(env!("CARGO_MANIFEST_DIR"), ${rustStringLiteral(`/${source.path}`)})).to_string()`;
+    return `include_str!(concat!(env!("CARGO_MANIFEST_DIR"), ${rustStringLiteral(`/${source.path}`)}))`;
   }
 
-  return `${rustStringLiteral(source.code ?? '')}.to_string()`;
+  return rustStringLiteral(source.code ?? '');
 }
 
 function renderRustOptionString(value: string | null): string {
@@ -291,7 +291,7 @@ pub(crate) const BUILTIN_MANIFEST_DEBUG_ENTRIES: &[BuiltinManifestDebugEntry] = 
 ${debugLines.join('\n')}
 ];
 
-fn generated_builtin_source(source_key: &str) -> Option<String> {
+fn generated_builtin_source(source_key: &str) -> Option<&'static str> {
     Some(match source_key {
 ${sourceLines.join('\n')}
         _ => return None,

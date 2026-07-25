@@ -171,6 +171,7 @@ export const HOST_TASK_INGRESS_CLASSIFICATIONS = Object.freeze([
       "installGlobals",
       "installStructuredLastValueAccessor",
       "installStructuredLifecycleAccessors",
+      "refreshCompartmentBaselineForDeferredWebGpu",
       "removeProvisionalExactCapability",
       "rootGlobalDescriptorField",
       "rootGlobalOwnDescriptor",

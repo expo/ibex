@@ -115,6 +115,11 @@ fn expected_loaded_engine_identity(
 }
 
 fn capture_loaded_engine_identity() -> Result<LoadedEngineBinaryIdentity, String> {
+    let path = loaded_engine_artifact_path()?;
+    capture_engine_artifact_identity(&path, verify_loaded_mapping_object)
+}
+
+fn loaded_engine_artifact_path() -> Result<std::path::PathBuf, String> {
     let mut buffer = vec![0u8; 32 * 1024];
     let length = unsafe { ex_hermes_engine_binary_path(buffer.as_mut_ptr().cast(), buffer.len()) };
     if length <= 0 {
@@ -123,7 +128,7 @@ fn capture_loaded_engine_identity() -> Result<LoadedEngineBinaryIdentity, String
     buffer.truncate(length as usize);
     let text =
         std::str::from_utf8(&buffer).map_err(|_| "loaded Hermes path is not UTF-8".to_owned())?;
-    capture_engine_artifact_identity(std::path::Path::new(text), verify_loaded_mapping_object)
+    Ok(std::path::PathBuf::from(text))
 }
 
 fn capture_engine_artifact_identity(
@@ -353,6 +358,67 @@ pub fn loaded_engine_binary_identity() -> Result<LoadedEngineBinaryIdentity, Str
         .as_ref()
         .cloned()
         .map_err(Clone::clone)
+}
+
+/// Capture the mapped engine's path/object identity while taking its content
+/// digest from the build-time Hermes receipt. This exists only in an
+/// `insecure` build, which makes no code-integrity or sandbox claim; secure
+/// profiles always hash the complete current artifact through
+/// [`loaded_engine_binary_identity`].
+/// @ref LLP 0038#fully-open-mode-insecure
+#[cfg(feature = "insecure")]
+pub fn loaded_engine_binary_identity_insecure() -> Result<LoadedEngineBinaryIdentity, String> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+
+    let receipt: serde_json::Value = serde_json::from_str(EMBEDDED_HERMES_PROFILE_PROVENANCE)
+        .map_err(|error| format!("embedded Hermes provenance is not JSON: {error}"))?;
+    let Some(hex_digest) = receipt
+        .get("artifact")
+        .and_then(|artifact| artifact.get("binaryDigest"))
+        .and_then(serde_json::Value::as_str)
+        .and_then(|digest| digest.strip_prefix("sha256-"))
+    else {
+        return loaded_engine_binary_identity();
+    };
+    if hex_digest.len() != 64 || !hex_digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("embedded Hermes provenance has a malformed binary digest".into());
+    }
+    let mut raw_digest = [0u8; 32];
+    for (index, byte) in raw_digest.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&hex_digest[index * 2..index * 2 + 2], 16)
+            .map_err(|_| "embedded Hermes provenance has a malformed binary digest")?;
+    }
+
+    let path = std::fs::canonicalize(loaded_engine_artifact_path()?)
+        .map_err(|error| format!("failed to identify loaded Hermes artifact: {error}"))?;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    let file = options
+        .open(&path)
+        .map_err(|error| format!("failed to open loaded Hermes artifact: {error}"))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| format!("failed to inspect loaded Hermes artifact: {error}"))?;
+    if !metadata.is_file() {
+        return Err("loaded Hermes artifact is not a regular file".into());
+    }
+    let object = engine_object_identity(&file, &metadata)?;
+    verify_loaded_mapping_object(&metadata, &object)?;
+
+    Ok(LoadedEngineBinaryIdentity {
+        engine_artifact_path: path,
+        kind: "hermes".into(),
+        binary_digest: format!("sha256-{}", URL_SAFE_NO_PAD.encode(raw_digest)),
+        object,
+        target_architecture: std::env::consts::ARCH.to_owned(),
+        structural_features: loaded_engine_structural_features(),
+    })
 }
 
 /// Installer-origin assertion embedded only after build.rs independently
@@ -609,6 +675,15 @@ mod tests {
         assert_eq!(
             super::verify_loaded_engine_binary_identity(&identity).unwrap(),
             identity
+        );
+    }
+
+    #[cfg(feature = "insecure")]
+    #[test]
+    fn insecure_engine_identity_matches_the_verified_build_artifact() {
+        assert_eq!(
+            super::loaded_engine_binary_identity_insecure().unwrap(),
+            super::loaded_engine_binary_identity().unwrap()
         );
     }
 

@@ -599,6 +599,14 @@ struct ExactHermesRuntime {
   // Only the runtime owner thread mutates this state.
   EmbedderCapabilityState embedder_capability_state{
       EmbedderCapabilityState::LegacyAutoFinalize};
+  // WebGPU registration authenticates and retains native service state, but
+  // activation may happen after ordinary project execution has begun. While
+  // this owner-thread transaction is open, every other runtime-driving ingress
+  // remains closed until the new roots have been swept and the debugger gate
+  // has been restored.
+  // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+  bool webgpu_runtime_activation_in_progress{false};
+  bool webgpu_runtime_bundle_evaluated{false};
   // Trusted bootstrap scripts run before the handle is published to an
   // embedder. They do not close the construction-only capability window.
   bool trusted_bootstrap_in_progress{false};
@@ -608,6 +616,11 @@ struct ExactHermesRuntime {
   // Owner-thread only, like embedder_capability_state.
   bool user_execution_started{false};
   bool shared_runtime_bundle_installed{false};
+  // The public one-shot baseline hook is deleted at the initial seal. Native
+  // retains the trusted closure so a later WebGPU activation can copy only the
+  // newly authenticated conditional roots into package baselines.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  std::shared_ptr<facebook::jsi::Function> compartment_baseline_refresher;
   // Strict JSON [{locator,endowments}] projection copied from the immutable
   // armed Host context. Locator punctuation is data, never bootstrap syntax.
   std::string snapshot_endowments_json;
@@ -921,6 +934,9 @@ inline bool exactRuntimeEnterUserExecution(ExactHermesRuntime* runtime) {
     return false;
   }
   if (runtime->app_bundle_evaluation_open.load(std::memory_order_acquire)) {
+    return false;
+  }
+  if (runtime->webgpu_runtime_activation_in_progress) {
     return false;
   }
   // A provisional or failed native capability transaction outranks every
@@ -2156,6 +2172,7 @@ bool exactGpuAuthenticatedV2ProviderGlobalsActive(
     const ExactHermesRuntime* runtime);
 bool exactGpuAuthenticatedDecodedImageGlobalActive(
     const ExactHermesRuntime* runtime);
+bool exactGpuRuntimeActivated(const ExactHermesRuntime* runtime);
 bool exactGpuCheckpointHostTask(ExactHermesRuntime* runtime);
 bool exactGpuOwnerDrainPending(const ExactHermesRuntime* runtime);
 int exactGpuDrainOwnerFallback(ExactHermesRuntime* runtime);

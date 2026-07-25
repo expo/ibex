@@ -3,7 +3,7 @@
 pub const COMPILED_ENVIRONMENT_PROFILE_SCHEMA: &str = "ibex/compiled-environment-profile/1";
 pub const COMPILED_ENVIRONMENT_PROFILE_DOMAIN: &str = "ibex:compiled-environment-profile:1";
 pub const COMPILED_ENVIRONMENT_PROFILE_DIGEST: &str =
-    "sha256-r_pAiQWvUn7VvKFy3m70_VPT5aXvTbQEvyy-tzsGdtA";
+    "sha256-M093NP1G4yKPnCym37wvmRc3ugkjNfZdwABYEQjoRwc";
 pub const COMPILED_ENVIRONMENT_PROFILE_RELEASE_ELIGIBLE: bool = false;
 
 #[cfg(test)]

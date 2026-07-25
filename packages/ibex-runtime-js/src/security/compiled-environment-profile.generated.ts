@@ -4,5 +4,5 @@
 
 export const COMPILED_ENVIRONMENT_PROFILE_SCHEMA = "ibex/compiled-environment-profile/1";
 export const COMPILED_ENVIRONMENT_PROFILE_DOMAIN = "ibex:compiled-environment-profile:1";
-export const COMPILED_ENVIRONMENT_PROFILE_DIGEST = "sha256-r_pAiQWvUn7VvKFy3m70_VPT5aXvTbQEvyy-tzsGdtA";
+export const COMPILED_ENVIRONMENT_PROFILE_DIGEST = "sha256-M093NP1G4yKPnCym37wvmRc3ugkjNfZdwABYEQjoRwc";
 export const COMPILED_ENVIRONMENT_PROFILE_RELEASE_ELIGIBLE = false;

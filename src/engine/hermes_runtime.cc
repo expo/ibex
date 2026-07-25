@@ -182,6 +182,18 @@ extern "C" char **environ;
 #include "bootstrap_source.h"
 #endif
 
+// The WebGPU runtime graph is deliberately absent from core startup. A
+// registered provider can evaluate this separate artifact on first activation.
+// @ref LLP 0005#3-the-runtime-bundles
+#if __has_include("webgpu_runtime_bundle_source.h")
+#include "webgpu_runtime_bundle_source.h"
+#define HAS_WEBGPU_RUNTIME_BUNDLE 1
+#endif
+#if __has_include("webgpu_runtime_bundle_bytecode.h")
+#include "webgpu_runtime_bundle_bytecode.h"
+#define HAS_WEBGPU_RUNTIME_BUNDLE_HBC 1
+#endif
+
 #include "../../include/exact_runtime.h"
 #include "hermes_runtime_internal.h"
 #include "hermes_runtime_zlib_streams.h"
@@ -3764,7 +3776,39 @@ bool installCompartmentRegistry(struct ExactHermesRuntime* handle) {
     }
     return false;
   }
-  function finalizeBaseline() {
+  function finalizeBaseline(conditionalPaths) {
+    if (conditionalPaths !== undefined) {
+      if (baseline === undefined ||
+          reflectApply(arrayIsArray, arrayObject, [conditionalPaths]) !== true) {
+        throw new Error('invalid deferred compartment baseline refresh');
+      }
+      for (var cpi = 0; cpi < conditionalPaths.length; cpi++) {
+        var conditionalPath = conditionalPaths[cpi];
+        if (typeof conditionalPath !== 'string' ||
+            conditionalPath.length === 0) {
+          throw new Error('invalid deferred compartment baseline path');
+        }
+        if (conditionalPath === 'navigator.gpu') {
+          var globalNavigatorDesc = getOwnPropDesc(g, 'navigator');
+          var baselineNavigatorDesc = getOwnPropDesc(baseline, 'navigator');
+          if (!globalNavigatorDesc || !baselineNavigatorDesc ||
+              !owns(globalNavigatorDesc, 'value') ||
+              !owns(baselineNavigatorDesc, 'value') ||
+              globalNavigatorDesc.value !== baselineNavigatorDesc.value ||
+              !globalNavigatorDesc.value ||
+              !getOwnPropDesc(globalNavigatorDesc.value, 'gpu')) {
+            throw new Error('deferred navigator.gpu baseline mismatch');
+          }
+          continue;
+        }
+        var conditionalDesc = getOwnPropDesc(g, conditionalPath);
+        if (!conditionalDesc) {
+          throw new Error('missing deferred compartment baseline path');
+        }
+        defineProp(baseline, conditionalPath, conditionalDesc);
+      }
+      return true;
+    }
     captureBaseline();
     defineProp(g, '__ibexCompartmentBaselineFinalized', {
       value: true, writable: false, enumerable: false, configurable: false
@@ -3773,6 +3817,7 @@ bool installCompartmentRegistry(struct ExactHermesRuntime* handle) {
     // both the CLI handshake and native embedders can finalize without a
     // second eval that leaves a capability-bearing hook reachable by app code.
     try { delete g.__ibexRefreshCompartmentBaseline; } catch (e) {}
+    return true;
   }
 
   var POWERFUL = ['process','fetch','Buffer','XMLHttpRequest','WebSocket',
@@ -4007,7 +4052,20 @@ bool installCompartmentRegistry(struct ExactHermesRuntime* handle) {
     handle->runtime->evaluateJavaScript(buffer, "<compartment-registry>");
     auto ready =
         rt.global().getProperty(rt, "__ibexCompartmentRegistryReady");
-    return ready.isBool() && ready.getBool();
+    auto refresh =
+        rt.global().getProperty(rt, "__ibexRefreshCompartmentBaseline");
+    if (!ready.isBool() || !ready.getBool() || !refresh.isObject() ||
+        !refresh.getObject(rt).isFunction(rt)) {
+      return false;
+    }
+    // Retain the trusted closure before the public one-shot hook is deleted.
+    // Late WebGPU activation can then refresh only its generated conditional
+    // paths even when the ordinary CLI finished bootstrap first.
+    // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+    handle->compartment_baseline_refresher =
+        std::make_shared<facebook::jsi::Function>(
+            refresh.getObject(rt).asFunction(rt));
+    return true;
   } catch (const facebook::jsi::JSError& err) {
     ex_host_console_log(
         1,
@@ -4098,7 +4156,12 @@ bool finalizeCompartmentBaselineForEmbedder(
     return false;
   }
 
-  refresh.getObject(rt).asFunction(rt).call(rt);
+  auto refreshFunction = refresh.getObject(rt).asFunction(rt);
+  if (!handle->compartment_baseline_refresher) {
+    handle->compartment_baseline_refresher =
+        std::make_shared<facebook::jsi::Function>(std::move(refreshFunction));
+  }
+  handle->compartment_baseline_refresher->call(rt);
   auto finalizedAfter =
       rt.global().getProperty(rt, "__ibexCompartmentBaselineFinalized");
   auto refreshAfter =
@@ -7221,6 +7284,55 @@ static bool rootGlobalActivationApplies(
   return false;
 }
 
+static bool refreshCompartmentBaselineForDeferredWebGpu(
+    ExactHermesRuntime* handle) {
+  if (!handle || !handle->runtime) return false;
+  auto& rt = *handle->runtime;
+  auto registry = rt.global().getProperty(rt, "__compartments");
+  auto ready =
+      rt.global().getProperty(rt, "__ibexCompartmentRegistryReady");
+  auto finalized =
+      rt.global().getProperty(rt, "__ibexCompartmentBaselineFinalized");
+  if (registry.isUndefined() && ready.isUndefined() &&
+      finalized.isUndefined()) {
+    return true;
+  }
+  if (!registry.isObject() || !ready.isBool() || !ready.getBool() ||
+      !finalized.isBool() || !finalized.getBool() ||
+      !handle->compartment_baseline_refresher) {
+    return false;
+  }
+
+  std::vector<std::string> activePaths;
+  for (const auto& expectation :
+       exact::root_global_disposition::kConditionalLiveSweepExpectations) {
+    if (!rootGlobalTargetApplies(handle, expectation.target_variant)) continue;
+    if (std::strcmp(
+            expectation.activation, "authenticated-webgpu-provider") != 0 &&
+        std::strcmp(
+            expectation.activation,
+            "authenticated-webgpu-decoded-image") != 0) {
+      continue;
+    }
+    if (rootGlobalActivationApplies(
+            handle, expectation.activation, expectation.logical_path)) {
+      activePaths.emplace_back(expectation.logical_path);
+    }
+  }
+
+  facebook::jsi::Array paths(rt, activePaths.size());
+  for (size_t index = 0; index < activePaths.size(); ++index) {
+    paths.setValueAtIndex(
+        rt,
+        index,
+        facebook::jsi::String::createFromUtf8(rt, activePaths[index]));
+  }
+  auto result = handle->compartment_baseline_refresher->call(rt, paths);
+  auto refreshGlobal =
+      rt.global().getProperty(rt, "__ibexRefreshCompartmentBaseline");
+  return result.isBool() && result.getBool() && refreshGlobal.isUndefined();
+}
+
 static bool rootGlobalConcreteKey(const std::string& key) {
   return key.rfind("[[dynamic-table:", 0) != 0 &&
       key.rfind("[[return]]", 0) != 0;
@@ -7291,13 +7403,13 @@ static facebook::jsi::Value findRootGlobalDescriptorWithoutGet(
   throw std::runtime_error("root-global prototype depth budget exceeded");
 }
 
-static bool rootGlobalLogicalPathAbsent(
+static bool logicalPathAbsentFromObject(
     ExactHermesRuntime* handle,
+    facebook::jsi::Object current,
     const std::string& path) {
   auto& rt = *handle->runtime;
   const auto segments = splitRootGlobalLogicalPath(path);
   if (segments.empty()) return false;
-  auto current = facebook::jsi::Value(rt, rt.global()).asObject(rt);
   for (size_t index = 0; index < segments.size(); ++index) {
     if (segments[index].empty() || segments[index].rfind("[[", 0) == 0) {
       return false;
@@ -7319,6 +7431,14 @@ static bool rootGlobalLogicalPathAbsent(
   return false;
 }
 
+static bool rootGlobalLogicalPathAbsent(
+    ExactHermesRuntime* handle,
+    const std::string& path) {
+  auto& rt = *handle->runtime;
+  return logicalPathAbsentFromObject(
+      handle, facebook::jsi::Value(rt, rt.global()).asObject(rt), path);
+}
+
 #ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
 extern "C" uint32_t ibex_test_root_global_logical_path_absent(
     ExactHermesRuntime* handle,
@@ -7330,6 +7450,36 @@ extern "C" uint32_t ibex_test_root_global_logical_path_absent(
   }
   try {
     return rootGlobalLogicalPathAbsent(handle, path) ? 1 : 0;
+  } catch (...) {
+    return 0;
+  }
+}
+
+extern "C" uint32_t ibex_test_compartment_logical_path_absent(
+    ExactHermesRuntime* handle,
+    const char* locator,
+    const char* path) {
+  if (handle == nullptr || !handle->runtime || locator == nullptr ||
+      path == nullptr || !handle->root_global_get_own_property_descriptor ||
+      !handle->root_global_get_prototype_of) {
+    return 0;
+  }
+  try {
+    auto& rt = *handle->runtime;
+    auto registry = rt.global().getProperty(rt, "__compartments");
+    if (!registry.isObject()) return 0;
+    auto compartment = registry.asObject(rt).getProperty(rt, locator);
+    if (!compartment.isObject()) return 0;
+    // Package compartments intentionally hide baseline properties from
+    // getOwnPropertyDescriptor/ownKeys Proxy traps. This observer therefore
+    // uses the trusted compartment getter to test effective visibility.
+    auto current = std::move(compartment);
+    for (const auto& segment : splitRootGlobalLogicalPath(path)) {
+      if (segment.empty() || !current.isObject()) return 0;
+      current = current.asObject(rt).getProperty(rt, segment.c_str());
+      if (current.isUndefined()) return 1;
+    }
+    return 0;
   } catch (...) {
     return 0;
   }
@@ -8588,6 +8738,13 @@ extern "C" ExactHermesRuntime* ex_hermes_create_diagnostic() {
   return runtime;
 }
 
+extern "C" int32_t ibex_private_hermes_shared_runtime_bundle_installed_v1(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || runtime->runtime == nullptr) return -1;
+  if (runtime->runtime_thread != std::this_thread::get_id()) return -1;
+  return runtime->shared_runtime_bundle_installed ? 1 : 0;
+}
+
 static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool armed) {
   TRACE_START(total);
   TRACE_START(hermes_config);
@@ -9192,10 +9349,17 @@ extern "C" uint32_t ex_hermes_finish_bootstrap(
     failRootGlobalDispositionFinalization(runtime);
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
+#if !defined(IBEX_INSECURE_BUILD)
   if (!verifyRootGlobalDisposition(runtime)) {
     failRootGlobalDispositionFinalization(runtime);
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
+#else
+  // Fully-open builds make no security claim. Keep every state transition and
+  // cleanup above, but do not spend startup time proving a disposition graph
+  // that this compile-time profile deliberately does not enforce.
+  // @ref LLP 0038#fully-open-mode-insecure
+#endif
   runtime->armed_bootstrap_eval_open = false;
   runtime->root_global_disposition_verified_for_user_execution =
       runtime->embedder_capability_state !=
@@ -14027,6 +14191,72 @@ int exactHermesEvalImmediateNoJobs(
   }
 }
 
+static bool evaluateDeferredWebGpuRuntimeBundle(
+    ExactHermesRuntime* runtime) {
+  if (!runtime || !runtime->runtime) return false;
+  if (runtime->webgpu_runtime_bundle_evaluated) return true;
+#if !defined(HAS_WEBGPU_RUNTIME_BUNDLE)
+  return false;
+#else
+  if (WEBGPU_RUNTIME_BUNDLE_SRC[0] == '\0') return false;
+  const auto started = std::chrono::steady_clock::now();
+  char* error = nullptr;
+  int status = 2;
+#if defined(HAS_WEBGPU_RUNTIME_BUNDLE_HBC)
+  if (WEBGPU_RUNTIME_BUNDLE_HBC_LEN > 0) {
+    status = exactHermesEvalImmediateNoJobs(
+        runtime,
+        reinterpret_cast<const uint8_t*>(WEBGPU_RUNTIME_BUNDLE_HBC),
+        WEBGPU_RUNTIME_BUNDLE_HBC_LEN,
+        "<deferred-webgpu-runtime>",
+        1,
+        &error,
+        nullptr,
+        0,
+        nullptr);
+  }
+#endif
+  // Status 2 is the only bytecode refusal that proves no instruction ran.
+  // A post-instruction error cannot safely retry the source in this realm.
+  if (status == 2) {
+    free(error);
+    error = nullptr;
+    status = exactHermesEvalImmediateNoJobs(
+        runtime,
+        reinterpret_cast<const uint8_t*>(WEBGPU_RUNTIME_BUNDLE_SRC),
+        std::strlen(WEBGPU_RUNTIME_BUNDLE_SRC),
+        "<deferred-webgpu-runtime>",
+        0,
+        &error,
+        nullptr,
+        0,
+        nullptr);
+  }
+  if (status != 0) {
+    if (startup_trace_enabled() && error) {
+      fprintf(
+          stderr,
+          "[startup]   deferred_webgpu_runtime failed: %s\n",
+          error);
+    }
+    if (error) ex_host_console_log(1, error);
+    free(error);
+    return false;
+  }
+  free(error);
+  runtime->webgpu_runtime_bundle_evaluated = true;
+  if (startup_trace_enabled()) {
+    const auto elapsed = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - started);
+    fprintf(
+        stderr,
+        "[startup]   deferred_webgpu_runtime %.3f ms\n",
+        elapsed.count());
+  }
+  return true;
+#endif
+}
+
 static int evalRuntimeUnchecked(
     ExactHermesRuntime* runtime,
     const uint8_t* data,
@@ -14878,32 +15108,10 @@ extern "C" int32_t ex_hermes_finalize_embedder_capabilities_v1(
     runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
     return EXACT_EMBEDDER_CAPABILITIES_AUTHENTICATION_FAILED;
   }
-  // Open the provisional GPU realm only after every capability setter has
-  // supplied its identity. This makes GPU-first and Exact-ingress-first
-  // transactions select the same app/agent realm context.
-  if (exactGpuActivateInstall(runtime) != EXACT_GPU_PROVIDER_OK) {
-    rollbackExactHostIngress(runtime);
-    exactGpuRollbackInstall(runtime);
-    runtime->root_global_disposition_verified_for_user_execution = false;
-    runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
-    return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
-  }
-  // Publish the low-level GPU bridge only after the authenticated realm is
-  // live. Its module-private capture remains revocable until the package
-  // baseline and every other provisional capability have finalized, so every
-  // failure leg below can remove it before the runtime becomes user-drivable.
-  if (!exactGpuPublishPrivateBridge(runtime)) {
-    rollbackExactHostIngress(runtime);
-    exactGpuRollbackInstall(runtime);
-    runtime->root_global_disposition_verified_for_user_execution = false;
-    runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
-    return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
-  }
-
   try {
     if (!finalizeCompartmentBaselineForEmbedder(runtime) ||
         !sealExactHostIngress(runtime) ||
-        !exactGpuSealPrivateBridge(runtime)) {
+        !exactGpuCloseConstructionCapture(runtime)) {
       throw std::runtime_error("embedder capability finalization failed");
     }
   } catch (...) {
@@ -14913,15 +15121,108 @@ extern "C" int32_t ex_hermes_finalize_embedder_capabilities_v1(
     runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
     return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
   }
-  // Apple hosts may finish the trusted runtime bootstrap before or after
-  // provider registration. If it is already closed, publication and sealing
-  // changed the live root graph and the descriptor-only exact join must run
-  // again here. Otherwise finish_bootstrap performs the same sweep after it
-  // removes the remaining construction-only session bridges.
+  // A registered GPU provider remains dormant here: no deferred JS is
+  // evaluated, no realm opens, and no WebGPU root participates in this sweep.
+  // Exact activates it later through ex_hermes_activate_webgpu_runtime_v1.
   if (!finalizeEmbedderCapabilityDisposition(runtime)) {
     return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
   }
   return EXACT_EMBEDDER_CAPABILITIES_OK;
+}
+
+extern "C" int32_t ex_hermes_activate_webgpu_runtime_v1(
+    ExactHermesRuntime* runtime) {
+  if (!runtime || !runtime->runtime) {
+    return EXACT_GPU_PROVIDER_INVALID_ARGUMENT;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    return drive.status() == EXACT_RUNTIME_DRIVE_OFF_OWNER
+        ? EXACT_GPU_PROVIDER_WRONG_THREAD
+        : EXACT_GPU_PROVIDER_INVALID_STATE;
+  }
+  if (runtime->restricted) return EXACT_GPU_PROVIDER_RESTRICTED_RUNTIME;
+  if (runtime->embedder_capability_state !=
+          EmbedderCapabilityState::Finalized ||
+      runtime->webgpu_runtime_activation_in_progress) {
+    return EXACT_GPU_PROVIDER_INVALID_STATE;
+  }
+  if (!exactGpuBindingInstalled(runtime)) {
+    return EXACT_GPU_PROVIDER_UNSUPPORTED;
+  }
+  if (exactGpuRuntimeActivated(runtime)) return EXACT_GPU_PROVIDER_OK;
+  const auto activationStarted = std::chrono::steady_clock::now();
+
+  // The activation artifact owns this exact temporary rendezvous. Refuse an
+  // app-created collision before evaluating any trusted byte.
+  try {
+    if (!rootGlobalLogicalPathAbsent(
+            runtime, "__ibexCaptureGpuNativeBridge")) {
+      return EXACT_GPU_PROVIDER_INVALID_STATE;
+    }
+  } catch (...) {
+    return EXACT_GPU_PROVIDER_INVALID_STATE;
+  }
+  if (!exactRuntimeBeginGpuCanvasDebuggerExclusion(runtime)) {
+    return EXACT_GPU_PROVIDER_INVALID_STATE;
+  }
+
+  runtime->webgpu_runtime_activation_in_progress = true;
+  runtime->root_global_disposition_verified_for_user_execution = false;
+  auto fail = [&](int32_t status, const char* stage) {
+    if (startup_trace_enabled()) {
+      fprintf(
+          stderr,
+          "[startup]   webgpu_runtime_activation failed at %s (%d)\n",
+          stage,
+          status);
+    }
+    exactGpuRollbackInstall(runtime);
+    runtime->root_global_disposition_verified_for_user_execution = false;
+    runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
+    (void)exactRuntimeQuarantine(runtime);
+    runtime->webgpu_runtime_activation_in_progress = false;
+    (void)exactRuntimeFinishGpuCanvasDebuggerExclusion(runtime);
+    return status;
+  };
+
+  try {
+    if (!evaluateDeferredWebGpuRuntimeBundle(runtime)) {
+      return fail(EXACT_GPU_PROVIDER_OPEN_FAILED, "bundle-evaluation");
+    }
+    const int32_t activationStatus = exactGpuActivateInstall(runtime);
+    if (activationStatus != EXACT_GPU_PROVIDER_OK) {
+      return fail(activationStatus, "provider-open");
+    }
+    if (!exactGpuPublishPrivateBridge(runtime)) {
+      return fail(EXACT_GPU_PROVIDER_OPEN_FAILED, "bridge-publication");
+    }
+    if (!exactGpuSealPrivateBridge(runtime)) {
+      return fail(EXACT_GPU_PROVIDER_OPEN_FAILED, "bridge-seal");
+    }
+    if (!refreshCompartmentBaselineForDeferredWebGpu(runtime)) {
+      return fail(EXACT_GPU_PROVIDER_OPEN_FAILED, "compartment-refresh");
+    }
+    if (!finalizeEmbedderCapabilityDisposition(runtime)) {
+      return fail(EXACT_GPU_PROVIDER_OPEN_FAILED, "root-disposition");
+    }
+  } catch (...) {
+    return fail(EXACT_GPU_PROVIDER_OPEN_FAILED, "native-exception");
+  }
+
+  runtime->webgpu_runtime_activation_in_progress = false;
+  if (!exactRuntimeFinishGpuCanvasDebuggerExclusion(runtime)) {
+    return fail(EXACT_GPU_PROVIDER_OPEN_FAILED, "debugger-restoration");
+  }
+  if (startup_trace_enabled()) {
+    const auto elapsed = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - activationStarted);
+    fprintf(
+        stderr,
+        "[startup]   webgpu_runtime_activation_total %.3f ms\n",
+        elapsed.count());
+  }
+  return EXACT_GPU_PROVIDER_OK;
 }
 
 extern "C" int ex_hermes_set_exact_host_call_async(

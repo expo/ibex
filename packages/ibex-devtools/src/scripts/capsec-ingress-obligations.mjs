@@ -704,7 +704,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-product-execution",
       "async fn eval_code(",
       "async fn build_bytecode(",
-      "sha256-vUhmFsR_WqXqa7eKojVEPNoXtMSAxxRawPRuqaVxciE",
+      "sha256-pdwTDexzLmWCbNh0d21SOe0aonpJA-6pxk1CKeZZNcg",
     ),
     freezeReviewedRange(
       "file-program-adapter",
@@ -806,7 +806,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "finish-bootstrap",
       'extern "C" uint32_t ex_hermes_seal_armed_shared_runtime_globals_v1(',
       'extern "C" void ex_hermes_destroy(',
-      "sha256-HszPpxQbubbYP1aaaFKNMYEeeMpkfHwHVf-hxLgpNcc",
+      "sha256-TJdtgb60Nbv3Wj16bmzL0AOlO1SAxqFTRPaVdztd8Q4",
     ),
     freezeReviewedRange(
       "structured-session-ingress",
@@ -818,7 +818,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "sealed-bare-evaluator",
       'extern "C" int ex_hermes_eval(',
       'extern "C" int ibex_test_install_capsec_context_observer(',
-      "sha256-knoLPE2pIjUFHLOCpq67o2EwSPDlGlhXJV_DpT3Dj40",
+      "sha256-Qzx52QWo05XavyfzYcBRzoBJjlN-B2vJW2UKfPcGHS0",
     ),
   ]),
   "src/engine/hermes_structured.rs": Object.freeze([

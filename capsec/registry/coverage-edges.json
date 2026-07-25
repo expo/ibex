@@ -148511,6 +148511,16 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.host.abi.ex.hermes.activate.webgpu.runtime.v1.17149hc",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_activate_webgpu_runtime_v1"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.begin.app.bundle.evaluation.v1.0heml9g",
       "classification": "non-capability",
       "surface": {
@@ -278502,6 +278512,16 @@
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.startup.script.deferred.webgpu.runtime.1kl3t9e",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "script:deferred-webgpu-runtime"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.startup.script.eager.install.seal.1xgqqwv",

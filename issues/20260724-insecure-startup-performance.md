@@ -3,6 +3,154 @@
 **Status:** Open — dominant costs fixed 2026-07-24; budgets, CI gate, and
 embedded benchmarks remain.
 
+## Progress (2026-07-25)
+
+### Deferred WebGPU activation follow-up
+
+The next implementation phase moves the remaining feature-on startup penalty
+off Exact's startup-critical path rather than making WebGPU unavailable. The
+approved design is governed by LLP 0002, with LLP 0003, LLP 0005, and LLP 0022
+synchronized:
+
+- every build starts with the 1.17 MB core runtime bundle, including
+  `webgpu-binding` builds;
+- the approximately 1.19 MiB production wrapper/codec graph is a second
+  hermetic vendored source/HBC artifact embedded only by `webgpu-binding`;
+- provider registration/finalization authenticates and retains a dormant
+  provider but does not evaluate that artifact, open a realm, or publish
+  `navigator.gpu`;
+- Exact calls the additive owner-thread
+  `ex_hermes_activate_webgpu_runtime_v1` after first paint or immediately before
+  loading a GPU-backed feature;
+- activation excludes user and debugger ingress, evaluates the trusted
+  secondary artifact, opens/captures/seals the provider, refreshes only the
+  generated conditional WebGPU compartment roots, and repeats the exact
+  descriptor sweep before resuming;
+- activation failure after any mutation is terminal. Before activation,
+  feature detection truthfully reports WebGPU absent, so Exact must activate
+  before importing TypeGPU or other code that caches that result.
+
+Acceptance for this phase:
+
+1. A `webgpu-binding` build with a registered but dormant provider has startup
+   within measurement noise of the core build and exposes no WebGPU roots.
+2. Activation works both before and after bootstrap closure, opens one realm,
+   evaluates the secondary bundle once, and is idempotent after success.
+3. Late activation makes WebGPU visible to the root realm and existing package
+   compartments without capturing unrelated application-created globals.
+4. Provider, bundle, capture, baseline-refresh, sweep, or debugger-restoration
+   failures leave no ambiguous usable runtime.
+5. Benchmarks report startup and activation distributions separately. The
+   expected result is to remove roughly 65–70 ms from Exact startup while
+   retaining that cost at the explicitly scheduled activation point.
+
+Implementation and focused verification completed on 2026-07-25. The
+feature-on and feature-off release executables were measured in an alternating
+40-pair warm-launch run on the Apple M5 Max host so unrelated machine load
+affected both configurations symmetrically:
+
+| phase | feature off median | feature on median | paired feature-on delta |
+|---|---:|---:|---:|
+| shared core runtime bundle | 7.17 ms | 7.24 ms | **+0.45 ms** |
+| Hermes runtime total | 17.81 ms | 17.60 ms | **+0.30 ms** |
+| CLI runtime initialized and ready | 30.07 ms | 31.36 ms | **+0.79 ms** |
+
+The paired delta is the median of the 40 individual feature-on minus
+feature-off pairs, not the difference between the two independently sorted
+medians. Heavy concurrent compiler activity made the tails unsuitable as a
+baseline, but the controlled median comparison establishes that retaining the
+dormant WebGPU artifact does not recreate the old 65–70 ms eager-evaluation
+penalty. In a separate less-contended 40-launch feature-on sample, the shared
+bundle, Hermes runtime total, and CLI-ready medians were 5.47 ms, 13.18 ms,
+and 22.91 ms respectively.
+
+Release-mode activation passed and emitted distinct
+`deferred_webgpu_runtime` and `webgpu_runtime_activation_total` phases. A clean
+activation distribution still needs to be captured: repeated runs during this
+pass were dominated by approximately 20 unrelated compiler processes and are
+deliberately not adopted as performance evidence. The earlier clean eager
+penalty remains the useful scheduling estimate until that remeasurement.
+
+Focused behavior verification covers feature-off stable unsupported status,
+dormant registration, activation after bootstrap closure, activation after
+user work with targeted compartment refresh, idempotency, synchronous and
+service-thread provider callbacks, and terminal rollback/quarantine when the
+post-publication root sweep discovers an undispositioned root. Vendored
+regeneration, generated-artifact drift, C ABI compilation, and `ref-check`
+also pass.
+
+The default/insecure release runtime now reaches the initialized-and-loaded
+ready point within the raw-Hermes comparison band. Measured on an Apple M5 Max,
+macOS 26.5.2 arm64, warm filesystem cache, this repository as the project root,
+with five warmups and 40 measured process launches:
+
+| phase | min | median | p95 | max |
+|---|---:|---:|---:|---:|
+| runtime/Host construction | 7.75 ms | **10.04 ms** | 11.54 ms | 12.12 ms |
+| Hermes creation + core shared bundle | 13.91 ms | **15.68 ms** | 17.56 ms | 18.24 ms |
+| final runtime loading/sealing | 1.22 ms | **1.95 ms** | 2.39 ms | 2.47 ms |
+| CLI runtime initialized and ready | 25.59 ms | **27.87 ms** | 30.63 ms | 31.16 ms |
+| complete trivial-eval process wall | 45.38 ms | **48.33 ms** | 51.70 ms | 53.22 ms |
+
+After the final generated-profile rotation and exact-tree rebuild, a separate
+three-warmup/20-launch confirmation measured runtime-ready at 28.63 ms median
+and 34.40 ms p95 (34.63 ms max).
+
+Before this pass, three release traces put runtime-ready at 89.3, 101.3, and
+120.0 ms. The principal cause was not raw Hermes allocation (roughly 1–4 ms):
+ordinary builds embedded and evaluated the optional production WebGPU wrapper
+and generated codec graph even though `webgpu-binding` was disabled. That graph
+was about 1.03 MiB and made shared-bundle evaluation take roughly 72–88 ms.
+
+The runtime build now has two startup/activation hermetic vendored bundles:
+
+- `embedded_runtime_bundle.js` is the 1,168,433-byte core/default bundle. It
+  retains the small one-shot GPU construction-capture fence but cannot publish
+  WebGPU without the compile-time provider seam.
+- `embedded_runtime_webgpu_bundle.js` is the 1,251,045-byte deferred
+  production wrapper/codec graph embedded only by `webgpu-binding`.
+  The canonical `build:runtime` command still builds a separate maximal tooling
+  entry so CapSec surface discovery covers the union profile;
+  `build:runtime:core` and `build:runtime:webgpu` produce the two runtime
+  artifacts.
+
+Representative core shared-bundle evaluation is now 6–9 ms. The feature-on
+build now starts from those identical core bytes and retains the deferred
+artifact without evaluating it. Provider activation pays the wrapper/codec
+evaluation cost at the explicit activation point instead.
+
+Additional default/insecure savings are compile-time only, under LLP 0038:
+
+- engine identity uses the build receipt plus mapped-object identity instead of
+  rescanning the Hermes image;
+- the precomputed registry record avoids rereading its 17 MiB authenticated
+  artifact after cheap file/object checks;
+- `Host` skips protected-artifact and duplicate engine proof passes that make
+  no security claim in a fully-open build;
+- builtin registry aliases borrow one embedded static source rather than
+  cloning about 2 MiB for every Host;
+- the final generated root-global disposition proof is compiled out only of
+  `insecure`; lifecycle setup, bridge capture, cleanup, sealing, and bootstrap
+  closure still run.
+
+The secure development profile compiled and executed successfully with the
+same core bundle. Its trace retained engine hashing, registry hashing,
+protected-artifact validation, and a 36.8 ms
+`runtime_finish_bootstrap` disposition proof, demonstrating that the
+insecure-only gates did not weaken the secure artifact.
+
+Tracing now distinguishes runtime construction, actual Hermes initialization,
+shared-bundle evaluation, preload, native global sealing, compartment
+finalization, bootstrap closure, runtime-ready, and user evaluation. Focused
+tests cover borrowed builtin aliases and equality between insecure receipt
+identity and the fully verified engine identity. The full generated-artifact
+drift workflow, CapSec reviewed-range digests, environment inventory, contract,
+policies, both runtime bundles, and `ref-check` were refreshed and verified.
+
+The ticket remains open for its broader original scope: precommitted budgets,
+REPL/embedded/package-script benchmark harnesses, baseline comparison, and a CI
+regression gate.
+
 ## Progress (2026-07-24)
 
 Phase tracing now covers the arming ceremony: `IBEX_STARTUP_TRACE=1` emits
@@ -137,4 +285,3 @@ those contributors based on measurement.
   that are necessary to its security claim.
 - CI has a stable regression gate or periodic benchmark that reports the
   relevant distributions without relying on flaky wall-clock test timeouts.
-

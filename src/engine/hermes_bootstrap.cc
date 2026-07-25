@@ -118,6 +118,12 @@ static bool installSharedRuntimeBundle(ExactHermesRuntime* handle) {
                                          1,
                                          &error) == 0;
     if (!evaluated && error != nullptr) {
+      if (startup_trace_enabled()) {
+        fprintf(
+            stderr,
+            "[startup]   shared_runtime_bundle HBC rejected: %s\n",
+            error);
+      }
       ex_hermes_free_string(error);
       error = nullptr;
     }

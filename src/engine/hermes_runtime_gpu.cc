@@ -47,7 +47,9 @@ bool closeGpuConstructionCaptureImpl(ExactHermesRuntime* runtime) noexcept {
   // This name is meaningful only during the trusted construction window.
   // Once app execution starts it may legitimately be rebound by untrusted JS;
   // teardown must neither invoke nor delete that unrelated lookalike.
-  if (!runtime || !runtime->runtime || runtime->user_execution_started) {
+  if (!runtime || !runtime->runtime ||
+      (runtime->user_execution_started &&
+       !runtime->webgpu_runtime_activation_in_progress)) {
     return true;
   }
   auto& rt = *runtime->runtime;
@@ -1897,6 +1899,22 @@ int exactGpuDrainOwnerFallback(ExactHermesRuntime* runtime) {
 #endif
   drainGpuMailbox(mailbox, *runtime->runtime);
   return drained + 1;
+#endif
+}
+
+bool exactGpuRuntimeActivated(const ExactHermesRuntime* runtime) {
+#if !defined(IBEX_ENABLE_WEBGPU_BINDING)
+  (void)runtime;
+  return false;
+#else
+  if (!runtime) return false;
+  if (runtime->gpu_binding_v2) {
+    return exactGpuAuthenticatedV2ProviderGlobalsActive(runtime);
+  }
+  return runtime->gpu_binding && runtime->gpu_binding->realm_open &&
+      runtime->gpu_binding->bridge_captured &&
+      runtime->gpu_binding->bridge_sealed &&
+      !runtime->gpu_binding->detached;
 #endif
 }
 

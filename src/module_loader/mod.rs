@@ -195,7 +195,7 @@ pub struct ResolvedModule {
 }
 
 pub struct ModuleLoader {
-    builtins: HashMap<String, BuiltinModule>,
+    builtins: HashMap<&'static str, BuiltinModule>,
     resolver_import: Resolver,
     resolver_require: Resolver,
     /// Memoized `version` per package root dir (the nearest `package.json`), so
@@ -1061,7 +1061,7 @@ impl CapturedModuleLoaderEnvironment {
 #[derive(Clone)]
 struct BuiltinModule {
     source_key: &'static str,
-    source: String,
+    source: &'static str,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -1568,7 +1568,7 @@ impl ModuleLoader {
             id: specifier.to_string(),
             kind: ModuleKind::Builtin,
             path: None,
-            source: Some(builtin.source.clone()),
+            source: Some(builtin.source.to_owned()),
             package_name: None,
             package_root: None,
             package_version: None,
@@ -5112,26 +5112,19 @@ pub fn builtin_module_debug_entries() -> &'static [BuiltinManifestDebugEntry] {
 
 fn build_builtin_registry(
     registrations: &[BuiltinManifestRegistration],
-) -> HashMap<String, BuiltinModule> {
+) -> HashMap<&'static str, BuiltinModule> {
     let mut builtins = HashMap::new();
-    let mut source_cache: HashMap<&'static str, String> = HashMap::new();
 
     for registration in registrations {
-        let source = if let Some(source) = source_cache.get(registration.source_key) {
-            source.clone()
-        } else {
-            let Some(source) = generated_builtin_source(registration.source_key) else {
-                eprintln!(
-                    "Skipping builtin manifest entry {} with unknown source key {}",
-                    registration.specifier, registration.source_key
-                );
-                continue;
-            };
-            source_cache.insert(registration.source_key, source.clone());
-            source
+        let Some(source) = generated_builtin_source(registration.source_key) else {
+            eprintln!(
+                "Skipping builtin manifest entry {} with unknown source key {}",
+                registration.specifier, registration.source_key
+            );
+            continue;
         };
         builtins.insert(
-            registration.specifier.to_string(),
+            registration.specifier,
             BuiltinModule {
                 source_key: registration.source_key,
                 source,
@@ -7814,6 +7807,18 @@ if (scenario === 'success') {
                 assert_eq!(resolved.source_id, first_source_id, "{}", specifier);
             }
         }
+    }
+
+    #[test]
+    fn builtin_registry_aliases_borrow_one_embedded_source() {
+        let loader = test_loader();
+        let fs = loader.builtins.get("fs").unwrap();
+        let node_fs = loader.builtins.get("node:fs").unwrap();
+        let bun_fs = loader.builtins.get("bun:fs").unwrap();
+
+        assert_eq!(fs.source_key, "node_fs");
+        assert!(std::ptr::eq(fs.source, node_fs.source));
+        assert!(std::ptr::eq(fs.source, bun_fs.source));
     }
 
     // @ref LLP 0014#the-grant-channel — package/root trust classification must

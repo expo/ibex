@@ -7,7 +7,9 @@
   ],
   "scripts": {
     "build:builtins": "bun packages/ibex-devtools/src/scripts/build-builtins.mjs --src-dir src/builtins --out-dir vendored-generated/builtins",
-    "build:runtime": "bun packages/ibex-devtools/src/scripts/rolldown-bundle.mjs --entry packages/ibex-runtime-js/src/runtime-entry.ts --out vendored-generated/embedded_runtime_bundle.js --format iife --lower-classes",
+    "build:runtime": "bun packages/ibex-devtools/src/scripts/rolldown-bundle.mjs --entry packages/ibex-runtime-js/src/runtime-entry.ts --out packages/ibex-runtime-js/dist/runtime-maximal.js --format iife --lower-classes",
+    "build:runtime:core": "bun packages/ibex-devtools/src/scripts/rolldown-bundle.mjs --entry packages/ibex-runtime-js/src/runtime-entry-no-webgpu.ts --out vendored-generated/embedded_runtime_bundle.js --format iife --lower-classes",
+    "build:runtime:webgpu": "bun packages/ibex-devtools/src/scripts/rolldown-bundle.mjs --entry packages/ibex-runtime-js/src/runtime-entry-webgpu.ts --out vendored-generated/embedded_runtime_webgpu_bundle.js --format iife --lower-classes",
     "generate:capability-bits": "bun packages/ibex-devtools/src/scripts/generate-capability-bits.mjs",
     "generate:capsec-contract": "bun packages/ibex-devtools/src/scripts/capsec-contract.mjs --write",
     "generate:capsec-registry": "bun packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs --write",

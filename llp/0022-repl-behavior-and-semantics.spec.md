@@ -5,6 +5,7 @@
 **Systems:** CLI Runtime, REPL, Runtime, Module Loader, Security
 **Author:** Charlie Cheever / Codex / Claude
 **Date:** 2026-07-11
+**Revised:** 2026-07-25 (distinguishes a dormant authenticated GPU provider from a live wrapper projection: ordinary bootstrap proves the no-WebGPU root set, and the owner-thread deferred activation transaction invalidates that witness, excludes user/debugger ingress, publishes the reviewed roots from a separately embedded trusted artifact, performs a generated-path-only compartment refresh, and must pass the descriptor-only conditional sweep before execution resumes)
 **Revised:** 2026-07-19 (extends the generated three-set root-global join with authenticated conditional WebGPU paths, requires a descriptor-only post-publication sweep before armed user execution in either bootstrap order, and revokes the wrapper plus fails closed on any missing or extra path)
 **Revised:** 2026-07-15 (ENG-25066 switched file-module execution to the
 authenticated runner while preserving this document's script/prompt goals and
@@ -811,17 +812,28 @@ that is neither sealed nor converted fails the check and the build.
 
 Conditional provider projections are part of the same exact join, not an
 exception to it. The manifest names every full logical path installed by the
-authenticated WebGPU wrapper. Its provider paths are required only while the
-authenticated V2 provider session is live; `createImageBitmap` is independently
-required only while decoded-image authority is attached. In all other states
-those paths are forbidden. The engine evaluates presence through pristine
-property descriptors along the complete path (including `navigator.gpu`) and
-never invokes an accessor. Because provider publication may occur before or
-after the ordinary bootstrap sweep, user execution is fenced on a verified
-final-projection flag: finalization re-sweeps an already-closed bootstrap, while
-`finish_bootstrap` sweeps after any earlier publication. Any missing or extra
-conditional path revokes the complete wrapper installation and terminally
-fails the capability transaction before package or project code can run.
+authenticated WebGPU wrapper. An authenticated but dormant provider has no open
+realm and therefore requires the no-WebGPU projection. Provider paths become
+required only after the explicit activation transaction opens the authenticated
+V2 provider session and captures/seals its wrapper; `createImageBitmap` is
+independently required only while decoded-image authority is attached. In all
+other states those paths are forbidden. The engine evaluates presence through
+pristine property descriptors along the complete path (including
+`navigator.gpu`) and never invokes an accessor.
+
+Activation may occur before or after the ordinary bootstrap sweep. It
+invalidates the previous final-projection witness before evaluating the
+separately embedded trusted WebGPU artifact, excludes ordinary and debugger
+ingress until completion, and refreshes package compartments only from the
+generated active conditional path set rather than recapturing arbitrary
+application globals. A bootstrap-open activation is covered by
+`finish_bootstrap`; a bootstrap-closed activation re-sweeps immediately. Any
+missing or extra conditional path, targeted-refresh mismatch, partial
+publication, or debugger-restoration ambiguity revokes the complete wrapper
+installation and terminally fails the runtime before package or project code
+can resume. Before successful activation, feature detection truthfully reports
+WebGPU absent; the embedder must activate before importing code that requires
+that surface.
 
 **Affordance parity.** No REPL feature — command, completion, hint, banner, or
 error report — may read or disclose runtime state or host information that the

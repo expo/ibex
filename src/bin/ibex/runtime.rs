@@ -3242,7 +3242,10 @@ impl Runtime {
         };
         // The worker is the same binary as the parent, so it observes the same
         // compile-time `unadvertised-dev-arming` value with no env channel.
-        #[cfg(feature = "unadvertised-dev-arming")]
+        #[cfg(feature = "insecure")]
+        let host = Host::new_armed_insecure(host_config, snapshot)
+            .context("failed to construct insecure session worker host")?;
+        #[cfg(all(not(feature = "insecure"), feature = "unadvertised-dev-arming"))]
         let host = if unadvertised_dev_arming_active() {
             Host::new_armed_unadvertised_dev(host_config, snapshot)
         } else {
@@ -3555,7 +3558,16 @@ impl Runtime {
             ",
             exec_path_json, exec_argv_json, raw_argv0_json, compat_modes_json
         );
+        let preload_started = std::time::Instant::now();
         self.engine.eval_immediate(&preload_bootstrap).await?;
+        if crate::trace_startup() {
+            eprintln!(
+                "[startup] {:<30} {:>6} us ({:>5.1} ms)",
+                "runtime_preload_bootstrap",
+                preload_started.elapsed().as_micros(),
+                preload_started.elapsed().as_micros() as f64 / 1000.0
+            );
+        }
         if cfg!(windows) {
             load_windows_minimal_runtime(self.engine.as_ref()).await?;
             self.engine.finish_bootstrap().await?;
@@ -4570,6 +4582,9 @@ fn build_default_armed_host(
     let root_object = runtime_object_identity_json(&project_root)?;
     let components = runtime_path_components_json(&project_root)?;
 
+    #[cfg(feature = "insecure")]
+    let engine_identity = crate::engine::hermes::HermesEngine::loaded_engine_identity_insecure()?;
+    #[cfg(not(feature = "insecure"))]
     let engine_identity = crate::engine::hermes::HermesEngine::loaded_engine_identity()?;
     phase.mark("arm_engine_identity");
     let engine_digest = engine_identity.binary_digest.clone();
@@ -5111,7 +5126,9 @@ fn build_default_armed_host(
         mode: crate::host::SecurityMode::Enforce,
         ..Default::default()
     };
-    #[cfg(feature = "unadvertised-dev-arming")]
+    #[cfg(feature = "insecure")]
+    let host = Host::new_armed_insecure(host_config, snapshot)?;
+    #[cfg(all(not(feature = "insecure"), feature = "unadvertised-dev-arming"))]
     let host = if unadvertised_dev_arming_active() {
         Host::new_armed_unadvertised_dev(host_config, snapshot)?
     } else {
@@ -5131,6 +5148,7 @@ fn build_default_armed_host(
 /// build has no unadvertised arming path at all — the production advertisement
 /// is its sole arming route.
 /// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+#[allow(dead_code)] // The default `insecure` profile selects its stricter compile-time branch first.
 pub(crate) fn unadvertised_dev_arming_active() -> bool {
     cfg!(feature = "unadvertised-dev-arming")
 }
@@ -6396,9 +6414,13 @@ fn pin_precomputed_registry_artifact(
     cache_root: &std::path::Path,
     digest_name: &str,
 ) -> Result<Option<MaterializedProtectedArtifact>> {
+    #[cfg(not(feature = "insecure"))]
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    #[cfg(not(feature = "insecure"))]
     use base64::Engine as _;
+    #[cfg(not(feature = "insecure"))]
     use sha2::{Digest as _, Sha256};
+    #[cfg(not(feature = "insecure"))]
     use std::io::Read as _;
 
     let expected_digest = CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST.trim();
@@ -6420,7 +6442,7 @@ fn pin_precomputed_registry_artifact(
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
     }
-    let Ok(mut file) = options.open(&path) else {
+    let Ok(file) = options.open(&path) else {
         return Ok(None);
     };
     let metadata = file.metadata()?;
@@ -6438,15 +6460,24 @@ fn pin_precomputed_registry_artifact(
     if !metadata.permissions().readonly() {
         return Ok(None);
     }
-    let mut observed = Vec::with_capacity(expected_len as usize);
-    file.read_to_end(&mut observed)?;
-    let observed_digest = format!(
-        "sha256-{}",
-        URL_SAFE_NO_PAD.encode(Sha256::digest(&observed))
-    );
-    if observed_digest != expected_digest {
-        return Ok(None);
+    #[cfg(not(feature = "insecure"))]
+    {
+        let mut file = &file;
+        let mut observed = Vec::with_capacity(expected_len as usize);
+        file.read_to_end(&mut observed)?;
+        let observed_digest = format!(
+            "sha256-{}",
+            URL_SAFE_NO_PAD.encode(Sha256::digest(&observed))
+        );
+        if observed_digest != expected_digest {
+            return Ok(None);
+        }
     }
+    // Insecure builds make no artifact-authentication claim. The compile-time
+    // profile may reuse the build-pinned artifact after cheap shape, length,
+    // permission, and object capture checks; secure builds above still hash
+    // every byte and fall back to reconstruction on any mismatch.
+    // @ref LLP 0038#fully-open-mode-insecure
     let identity = ibex_runtime::host::object_identity_for_open_file(&file)
         .map_err(|error| anyhow::anyhow!(error.to_string()))?;
     let object =

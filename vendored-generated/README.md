@@ -21,10 +21,16 @@ snapshot from the generated `OUT_DIR` artifacts.
   standalone Ibex runtime snapshot.
 
 - `embedded_runtime_bundle.js`
-  The bundled shared runtime (output of `rolldown-bundle.mjs` from
-  `packages/ibex-runtime-js/src/runtime-entry.ts`). build.rs wraps it into
+  The bundled core shared runtime (output of `rolldown-bundle.mjs` from
+  `packages/ibex-runtime-js/src/runtime-entry-no-webgpu.ts`). build.rs wraps it into
   `OUT_DIR/runtime_bundle_source.h` (C++ raw-string literal) and compiles it to
   `OUT_DIR/runtime_bundle_bytecode.h` via the configured `hermesc`.
+
+- `embedded_runtime_webgpu_bundle.js`
+  The deferred WebGPU activation runtime (output of `rolldown-bundle.mjs` from
+  `packages/ibex-runtime-js/src/runtime-entry-webgpu.ts`). `webgpu-binding`
+  builds wrap it into an independent source header and optional HBC; ordinary
+  startup does not evaluate it.
 
 - `source-fingerprint.generated.txt`
   A deterministic fingerprint of the authored/generated JS and TypeScript
@@ -37,6 +43,9 @@ snapshot from the generated `OUT_DIR` artifacts.
   Generated from `src/engine/bootstrap/*.js`.
 - `runtime_bundle_bytecode.h`
   Compiled from `embedded_runtime_bundle.js` via `hermesc`.
+- `webgpu_runtime_bundle_bytecode.h`
+  Compiled from `embedded_runtime_webgpu_bundle.js` when `webgpu-binding` is
+  enabled.
 - `*.deps.json`
   Build-local dependency manifests from the runtime bundler. They contain
   absolute checkout paths and are not part of the hermetic vendored snapshot.

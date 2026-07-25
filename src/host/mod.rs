@@ -655,6 +655,40 @@ fn validate_exact_experimental_webgpu_pre1a_authority(
     Ok(())
 }
 
+/// Fine-grained host-construction marks nested under the CLI's startup trace.
+/// Arming happens before project code runs, so capturing this diagnostic
+/// environment switch here does not reopen a post-arming configuration input.
+struct HostStartupPhaseTrace {
+    enabled: bool,
+    last: std::time::Instant,
+}
+
+impl HostStartupPhaseTrace {
+    fn begin() -> Self {
+        let enabled = std::env::var("IBEX_STARTUP_TRACE")
+            .ok()
+            .and_then(|value| value.chars().next())
+            .is_some_and(|value| matches!(value, '1' | 'y' | 'Y' | 't' | 'T'));
+        Self {
+            enabled,
+            last: std::time::Instant::now(),
+        }
+    }
+
+    fn mark(&mut self, label: &str) {
+        if self.enabled {
+            let elapsed = self.last.elapsed();
+            eprintln!(
+                "[startup]   {:<28} {:>6} us ({:>5.1} ms)",
+                label,
+                elapsed.as_micros(),
+                elapsed.as_micros() as f64 / 1000.0
+            );
+        }
+        self.last = std::time::Instant::now();
+    }
+}
+
 impl Host {
     /// Create a new host with the given configuration
     pub fn new(config: HostConfig) -> Self {
@@ -746,8 +780,11 @@ impl Host {
         config: HostConfig,
         armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
     ) -> capsec_semantics::Result<Self> {
+        let mut phase = HostStartupPhaseTrace::begin();
         validate_loaded_engine_identity(&armed_snapshot)?;
+        phase.mark("host_engine_identity");
         validate_snapshot_protected_artifacts(&armed_snapshot)?;
+        phase.mark("host_protected_artifacts");
         let target_cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
             .iter()
             .map(|edge| {
@@ -757,7 +794,46 @@ impl Host {
                 )
             })
             .collect();
+        phase.mark("host_target_cells");
         let authenticated_package_sources = validate_snapshot_root_bindings(&armed_snapshot)?;
+        phase.mark("host_root_bindings");
+        Self::new_armed_with_target_cells(
+            config,
+            armed_snapshot,
+            target_cells,
+            authenticated_package_sources,
+            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
+            BTreeMap::new(),
+        )
+    }
+
+    /// Construct the structurally armed host used by an `insecure` build.
+    ///
+    /// The compile-time profile makes no security claim and native gates are
+    /// permissive, so re-hashing protected artifacts here would duplicate the
+    /// launcher's work without authenticating anything the profile promises.
+    /// Root bindings are still captured because the VFS and module runner need
+    /// their exact routing data even when authorization is disabled.
+    /// @ref LLP 0038#fully-open-mode-insecure
+    #[cfg(feature = "insecure")]
+    #[doc(hidden)]
+    pub fn new_armed_insecure(
+        config: HostConfig,
+        armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
+    ) -> capsec_semantics::Result<Self> {
+        let mut phase = HostStartupPhaseTrace::begin();
+        let target_cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
+            .iter()
+            .map(|edge| {
+                (
+                    (*edge).to_owned(),
+                    capsec_semantics::decision::TargetCellDisposition::Complete,
+                )
+            })
+            .collect();
+        phase.mark("host_target_cells");
+        let authenticated_package_sources = validate_snapshot_root_bindings(&armed_snapshot)?;
+        phase.mark("host_root_bindings");
         Self::new_armed_with_target_cells(
             config,
             armed_snapshot,
@@ -842,7 +918,9 @@ impl Host {
             capsec_semantics::decision::TargetCellDisposition,
         >,
     ) -> capsec_semantics::Result<Self> {
+        let mut phase = HostStartupPhaseTrace::begin();
         validate_armed_alias_volume_topology(&armed_snapshot)?;
+        phase.mark("host_alias_topology");
         if config.mode != SecurityMode::Enforce {
             return Err(capsec_semantics::Error::ArmRefused(
                 "an armed host requires enforce mode".into(),
@@ -872,6 +950,7 @@ impl Host {
                 "/capsec/registry/policy-rules.json"
             )),
         )?;
+        phase.mark("host_validated_profile");
         // `ArmedSnapshot::load` authenticates the claimed target identity, but
         // only the checked advertisement/cell join proves that this exact
         // engine+feature target is complete. The test-only constructor supplies
@@ -908,8 +987,11 @@ impl Host {
                 authenticated_package_sources.guards()?,
             )?,
         ));
+        phase.mark("host_decision_context");
         let typed_imports = Arc::new(armed_snapshot.import_policies()?);
+        phase.mark("host_import_policies");
         let mut host = Self::new(config);
+        phase.mark("host_base");
         Arc::get_mut(&mut host.module_loader)
             .ok_or_else(|| {
                 capsec_semantics::Error::ArmRefused(
@@ -922,6 +1004,7 @@ impl Host {
                     "armed module transpilation is unavailable: {error:#}"
                 ))
             })?;
+        phase.mark("host_transpilation");
         host.armed_snapshot = Some(armed_snapshot);
         host.decision_context = Some(decision_context);
         host.authenticated_package_sources = Arc::new(authenticated_package_sources);
@@ -970,6 +1053,52 @@ impl Host {
             AuthenticatedPackageSourceState::default(),
             capsec_semantics::decision::TargetArmState::CompleteAdvertised,
             BTreeMap::new(),
+        )
+    }
+
+    /// Test-harness equivalent of the named experimental WebGPU constructor.
+    /// It preserves the production source-derived private cell set and floor
+    /// validation while bypassing only filesystem-backed artifact checks.
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
+    #[doc(hidden)]
+    pub unsafe fn new_exact_experimental_webgpu_pre1a_for_test(
+        config: HostConfig,
+        armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
+    ) -> capsec_semantics::Result<Self> {
+        let binding = armed_snapshot
+            .exact_gpu_provider_binding()?
+            .ok_or_else(|| {
+                capsec_semantics::Error::ArmRefused(
+                    "experimental WebGPU Pre-1A test arming requires an authenticated provider"
+                        .into(),
+                )
+            })?;
+        let private_arming =
+            gpu_authority::experimental_webgpu_pre1a_arming(&binding).ok_or_else(|| {
+                capsec_semantics::Error::ArmRefused(
+                    "experimental WebGPU Pre-1A test registry is unavailable".into(),
+                )
+            })?;
+        validate_exact_experimental_webgpu_pre1a_floor(
+            &armed_snapshot,
+            &private_arming.positive_selectors,
+        )?;
+        let target_cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
+            .iter()
+            .map(|edge| {
+                (
+                    (*edge).to_owned(),
+                    capsec_semantics::decision::TargetCellDisposition::Closed,
+                )
+            })
+            .collect();
+        Self::new_armed_with_target_cells(
+            config,
+            armed_snapshot,
+            target_cells,
+            AuthenticatedPackageSourceState::default(),
+            capsec_semantics::decision::TargetArmState::CompleteExperimentalPrivate,
+            private_arming.private_target_cells,
         )
     }
 

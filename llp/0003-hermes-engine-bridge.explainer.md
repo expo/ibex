@@ -5,6 +5,7 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-25 (makes the startup shared-runtime artifact WebGPU-free even in `webgpu-binding` builds and moves the production wrapper/codecs into a separately embedded source/HBC artifact evaluated only by the owner-thread WebGPU activation transaction; registered providers remain dormant through ordinary startup, late activation excludes debugger/user ingress, performs a targeted compartment refresh, and repeats the conditional root sweep before resuming)
 **Revised:** 2026-07-19 (makes authenticated V2 capture publish the exact source-derived WebGPU wrapper roots, gates `createImageBitmap` on attached decoded-image authority, and fences all armed user execution on a post-publication descriptor-only root sweep with revocation and terminal rollback on mismatch; no target advertisement or platform-support claim is added)
 **Revised:** 2026-07-19 (completes construction-private GPU V2 composition: pinned Hermes promotes internal ArrayBuffer storage to shared external ownership in place before aliasing, the two mapping HostFunctions preserve overlap/OOB/source/key/transfer invariants, operation-result bytes get one wrapper backing and an undefined success receipt, and forced compile-time/live-cast capability failures prove finalization rollback)
 **Revised:** 2026-07-17 (projects ASSIGNED_DETACHED requestDevice results while preserving both admission forms); 2026-07-17 (records native-or-absent FinalizationRegistry ownership and persistent-runtime `FsHandle` reclamation coverage); 2026-07-16 (projects self-contained detached-loss requestDevice terminals to the wrapper before outer receipt settlement); 2026-07-16 (adds the additive Exact GPU ABI V2 typed mailbox, lifecycle replay authority, construction-private four-method bridge, and close/service-entry race fences); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded Promise receipt drain, and cancellation/retirement lifecycle without publishing a WebGPU JS API); 2026-07-16 (adds the optional Exact GPU service mailbox and non-waiting detached teardown); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native ModuleRecords); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
@@ -170,12 +171,19 @@ lazy trims startup cost for runtimes that never touch those subsystems.]`
 `hermes_bootstrap.cc` runs bootstrap JS after the runtime is created
 `[observed]`. `eval_bootstrap_script` prefers precompiled Hermes bytecode when
 available and falls back to the generated source header `[observed]`
-(`src/engine/hermes_bootstrap.cc:19-69`). Two layers exist:
+(`src/engine/hermes_bootstrap.cc:19-69`). Three layers exist:
 
 - The **shared runtime bundle** (`embedded_runtime_bundle.js`, the rolldown
-  output of `packages/ibex-runtime-js`) is installed via
+  output of the core `packages/ibex-runtime-js` entry) is installed via
   `installSharedRuntimeBundle` `[observed]`
   (`src/engine/hermes_bootstrap.cc:71-154`).
+- A separately embedded **WebGPU activation bundle**
+  (`embedded_runtime_webgpu_bundle.js`) contains the production wrapper,
+  generated codecs, and activation-only private capture. A `webgpu-binding`
+  build carries its source and compatible HBC but does not evaluate either at
+  ordinary runtime creation. The owner-thread activation ABI evaluates it only
+  for an authenticated registered provider; HBC sanity failure alone may fall
+  back to source before any instruction executes.
 - The per-file **bootstrap scripts** under `src/engine/bootstrap/*.js` install
   the module loader, compatibility globals, process/exact globals, and legacy
   lazy getters `[observed]` (`src/engine/hermes_bootstrap.cc:156-302, 413-797`).
@@ -290,7 +298,17 @@ bounded event metadata `[observed]` (`src/engine/hermes_runtime_gpu.cc`;
 `src/engine/hermes_runtime_gpu_v2.cc`;
 [LLP 0002 §The optional Exact GPU service registration seam](./0002-host-embedding-abi.spec.md#the-optional-exact-gpu-service-registration-seam)).
 
-The mailbox moves `Installing -> Activating -> Live`, with
+Registration and embedder-capability finalization leave that mailbox dormant:
+the service table is retained, but `open_realm`, callback admission, private
+bridge construction, and wrapper evaluation have not happened. The additive
+activation call is serialized by the ordinary owner-thread drive gate. It
+excludes debugger ingress, evaluates the deferred trusted artifact without a
+job drain, opens/activates the realm, captures and seals the bridge, refreshes
+only the generated conditional WebGPU compartment roots, and repeats the live
+root projection when bootstrap is already closed. This moves wrapper/codec
+evaluation off startup without treating an unfinished runtime as ready.
+
+On activation the mailbox moves `Installing -> Activating -> Live`, with
 `ProtocolViolation` as a terminal authority-reduction branch, then
 `Closing -> Detached`. The provider may call the sink's plain-native
 `retain_client`/`release_client` ownership hooks during `open_realm`, and must
@@ -373,17 +391,16 @@ is therefore O(payload bytes + receipts). If the optional diagnostic allocation
 fails, every rejection still occurs exactly once with `payload: undefined`;
 Ibex does not retry a maximum-size allocation once per receipt.
 
-Successful finalization also creates a low-level JSI object with V1
+Successful activation also creates a low-level JSI object with V1
 `submit`/`cancel`/`retire` or V2
 `submit`/`cancel`/`retire`/`setEventSink`/`createMappedRangeAlias`/
-`detachMappedRange`, passes it directly through a one-shot construction
-callback installed by the shared runtime bundle, verifies deletion of that
-callback, and keeps the value in a module-private runtime-js slot. The capture
-is closed by the common eval/debugger/module user-entry fence if unused.
-Successful capture, feature-off/no-provider finalization, rollback, and that
-common fence all verify that the construction property is actually absent;
-throwing, non-callable, or non-configurable hostile replacements fail the
-capability transaction and cannot advance the user-execution marker. The
+`detachMappedRange`, passes it directly through a one-shot activation
+callback installed by the deferred WebGPU bundle, verifies deletion of that
+callback, and keeps the value in a module-private runtime-js slot. Successful
+capture, feature-off/no-provider finalization, rollback, and activation failure
+all verify that the temporary property is actually absent; throwing,
+non-callable, or non-configurable replacements fail activation and quarantine
+the runtime. The
 package exports omit this module and the app loader refuses both deep and
 filesystem paths into its directory. The bridge itself remains private. An
 authenticated V2 capture now feeds it to the generated wrapper, which publishes
@@ -392,11 +409,11 @@ authority, `createImageBitmap`; V1, provider absence, or failed authentication
 publishes none of them. Publication still makes no target advertisement or
 WebGPU platform-support claim.
 
-After wrapper publication, package-baseline refresh, and sealing, the engine
+After wrapper publication, targeted package-baseline refresh, and sealing, the engine
 must verify the final root projection with its pristine descriptor-only
 intrinsics before admitting armed user execution. If bootstrap has already
-finished, finalization repeats the sweep immediately; if bootstrap remains
-open, the embedder first calls the named owner-thread
+finished, activation repeats the sweep immediately; if bootstrap remains
+open, the embedder eventually calls the named owner-thread
 `ex_hermes_seal_armed_shared_runtime_globals_v1` transition and then
 `ex_hermes_finish_bootstrap` runs the sweep after closing the other session
 bridges. The native transition owns the only reviewed ambient-root closure

@@ -1066,6 +1066,8 @@ extern "C" {
     #[cfg(test)]
     fn ex_hermes_finalize_embedder_capabilities_v1(runtime: *mut HermesRuntimeOpaque) -> i32;
     #[cfg(test)]
+    fn ex_hermes_activate_webgpu_runtime_v1(runtime: *mut HermesRuntimeOpaque) -> i32;
+    #[cfg(test)]
     fn ex_hermes_gpu_provider_abi_version() -> u32;
     #[cfg(test)]
     fn ex_hermes_gpu_provider_descriptor_size_v1() -> usize;
@@ -1398,6 +1400,9 @@ extern "C" {
         handle_count: usize,
     ) -> i32;
     fn ex_hermes_seal_armed_shared_runtime_globals_v1(runtime: *mut HermesRuntimeOpaque) -> u32;
+    fn ibex_private_hermes_shared_runtime_bundle_installed_v1(
+        runtime: *mut HermesRuntimeOpaque,
+    ) -> i32;
     fn ex_hermes_finish_bootstrap(runtime: *mut HermesRuntimeOpaque) -> u32;
     fn ex_hermes_runtime_nonce(runtime: *mut HermesRuntimeOpaque) -> u64;
     #[cfg(feature = "module-runner")]
@@ -1677,6 +1682,12 @@ extern "C" {
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_root_global_logical_path_absent(
         runtime: *mut HermesRuntimeOpaque,
+        path: *const std::os::raw::c_char,
+    ) -> u32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_compartment_logical_path_absent(
+        runtime: *mut HermesRuntimeOpaque,
+        locator: *const std::os::raw::c_char,
         path: *const std::os::raw::c_char,
     ) -> u32;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
@@ -2866,9 +2877,16 @@ impl CdpBackend for HermesCdpBackend {
 }
 
 impl HermesEngine {
+    #[allow(dead_code)] // Used by secure profiles and direct identity tests.
     pub(crate) fn loaded_engine_identity(
     ) -> Result<ibex_runtime::engine::LoadedEngineBinaryIdentity> {
         ibex_runtime::engine::loaded_engine_binary_identity().map_err(anyhow::Error::msg)
+    }
+
+    #[cfg(feature = "insecure")]
+    pub(crate) fn loaded_engine_identity_insecure(
+    ) -> Result<ibex_runtime::engine::LoadedEngineBinaryIdentity> {
+        ibex_runtime::engine::loaded_engine_binary_identity_insecure().map_err(anyhow::Error::msg)
     }
 
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
@@ -3481,6 +3499,20 @@ impl HermesEngine {
     }
 
     async fn runtime_bundle_installed(&self) -> Result<bool> {
+        #[cfg(not(windows))]
+        if self.armed_snapshot_digest.is_some() {
+            let installed = self.ensure_runtime().await?.with_runtime(|raw| unsafe {
+                ibex_private_hermes_shared_runtime_bundle_installed_v1(raw)
+            })?;
+            return match installed {
+                1 => Ok(true),
+                0 => Ok(false),
+                status => {
+                    anyhow::bail!("native shared-runtime bundle state is unavailable ({status})")
+                }
+            };
+        }
+
         #[cfg(windows)]
         let probe = r#"(function(){
   return (
@@ -4084,9 +4116,36 @@ impl Engine for HermesEngine {
             already_installed
         };
         if already_installed {
+            let phase = std::time::Instant::now();
             self.seal_armed_shared_runtime_globals().await?;
+            if trace_startup {
+                eprintln!(
+                    "[startup] {:<30} {:>6} us ({:>5.1} ms)",
+                    "runtime_seal_globals",
+                    phase.elapsed().as_micros(),
+                    phase.elapsed().as_micros() as f64 / 1000.0
+                );
+            }
+            let phase = std::time::Instant::now();
             finalize_compartment_baseline(self).await?;
+            if trace_startup {
+                eprintln!(
+                    "[startup] {:<30} {:>6} us ({:>5.1} ms)",
+                    "runtime_finalize_compartments",
+                    phase.elapsed().as_micros(),
+                    phase.elapsed().as_micros() as f64 / 1000.0
+                );
+            }
+            let phase = std::time::Instant::now();
             self.finish_armed_bootstrap().await?;
+            if trace_startup {
+                eprintln!(
+                    "[startup] {:<30} {:>6} us ({:>5.1} ms)",
+                    "runtime_finish_bootstrap",
+                    phase.elapsed().as_micros(),
+                    phase.elapsed().as_micros() as f64 / 1000.0
+                );
+            }
             *loaded = true;
             return Ok(());
         }
@@ -7245,32 +7304,57 @@ cp \"$input\" \"$out\"\n";
         let operation_set_digest = GPU_V2_OPERATION_SET_DIGEST;
         let routing_digest = GPU_V2_ROUTING_DIGEST;
         let semantic_program_digest = GPU_V2_SEMANTIC_PROGRAM_DIGEST;
-        let gpu_floor = [
-            "GPU.requestAdapter",
-            "GPUAdapter.requestDevice",
-            "GPUBuffer.mapAsync",
-            "GPUDevice.createBuffer",
-        ]
-        .into_iter()
-        .map(|operation_id| {
-            serde_json::json!({
-                "cap": "gpu:operation",
-                "resource": {
-                    "kind": "gpu-operation",
-                    "profileId": "exact-webgpu-v1-draft",
-                    "profileDigest": profile_digest,
-                    "webgpuCVocabularyDigest": vocabulary_digest,
-                    "operationSetDigest": operation_set_digest,
-                    "semanticProgramDigest": semantic_program_digest,
-                    "runtimeRoutingDigest": routing_digest,
-                    "operationId": operation_id,
-                }
+        let registry: serde_json::Value = serde_json::from_str(
+            ibex_runtime::capsec_registry_generated::CAPSEC_WEBGPU_PRIVATE_OPERATION_REGISTRY_JSON,
+        )
+        .unwrap();
+        let gpu_floor: Vec<serde_json::Value> = registry["operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|operation| operation["authoritySession"]["decisionKind"] == "typed-positive")
+            .map(|operation| operation["operationId"].as_str().unwrap())
+            .chain(
+                registry["presentationAuthority"]["branches"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|branch| branch["operationId"].as_str().unwrap()),
+            )
+            .map(|operation_id| {
+                serde_json::json!({
+                    "cap": "gpu:operation",
+                    "resource": {
+                        "kind": "gpu-operation",
+                        "profileId": "exact-webgpu-v1-draft",
+                        "profileDigest": profile_digest,
+                        "webgpuCVocabularyDigest": vocabulary_digest,
+                        "operationSetDigest": operation_set_digest,
+                        "semanticProgramDigest": semantic_program_digest,
+                        "runtimeRoutingDigest": routing_digest,
+                        "operationId": operation_id,
+                    }
+                })
             })
-        })
-        .collect();
+            .collect();
+        let root_gpu_ceiling = gpu_floor.clone();
         let operation_ids = GPU_V2_OPERATION_IDS.to_vec();
         let (host, digest) =
             build_armed_test_host_custom(None, false, false, false, gpu_floor, None, |value| {
+                value["principals"].as_array_mut().unwrap().truncate(1);
+                value["principals"][0]["denials"] = serde_json::json!([]);
+                value["principals"][0]["escalationCeiling"] = serde_json::json!([]);
+                value["principals"][0]["imports"]["packages"] = serde_json::json!([]);
+                value["rootAuthorityCeiling"] = serde_json::json!({
+                    "kind": "bounded",
+                    "authorities": root_gpu_ceiling,
+                });
+                value["packageGraph"]["nodes"] = serde_json::json!([]);
+                value["packageGraph"]["importEdges"] = serde_json::json!([]);
+                value["rootBindings"]
+                    .as_array_mut()
+                    .unwrap()
+                    .retain(|binding| binding.get("owner").is_none());
                 value["exactGpuProvider"] = serde_json::json!({
                     "schema": "exact/webgpu-provider/1",
                     "abiVersion": 131072,
@@ -7726,14 +7810,23 @@ cp \"$input\" \"$out\"\n";
         };
         let snapshot =
             ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
+        let experimental_webgpu = snapshot
+            .exact_gpu_provider_binding()
+            .unwrap()
+            .is_some_and(|binding| binding.abi_version == 0x0002_0000);
         let host = unsafe {
-            crate::host::Host::new_armed_for_test(
-                crate::host::HostConfig {
-                    mode: crate::host::SecurityMode::Enforce,
-                    ..Default::default()
-                },
-                Arc::new(snapshot),
-            )
+            let config = crate::host::HostConfig {
+                mode: crate::host::SecurityMode::Enforce,
+                ..Default::default()
+            };
+            if experimental_webgpu {
+                crate::host::Host::new_exact_experimental_webgpu_pre1a_for_test(
+                    config,
+                    Arc::new(snapshot),
+                )
+            } else {
+                crate::host::Host::new_armed_for_test(config, Arc::new(snapshot))
+            }
         }
         .unwrap();
         (host, digest)
@@ -8673,6 +8766,7 @@ module.exports = JSON.stringify({
     const EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1: u32 = 1;
     const EXACT_PREPARED_NATIVE_STARTUP_UNUSED_VALID_V1: u32 = 2;
     const EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION: i32 = -8;
+    const EXACT_GPU_PROVIDER_OPEN_FAILED: i32 = -10;
     const EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE: i32 = -3;
     const EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED: i32 = -4;
     #[cfg(any(feature = "capsec-conformance-observer", feature = "webgpu-binding"))]
@@ -9911,6 +10005,7 @@ module.exports = JSON.stringify({
             assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
             assert_eq!(ex_hermes_set_gpu_provider_v2(raw, &descriptor), 0);
             assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+            assert_eq!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
             assert_eq!(ibex_test_gpu_v2_private_bridge_present(raw), 1);
             assert_eq!(ibex_test_gpu_v2_canvas_receipt_sink_present(raw), 1);
         }
@@ -12030,6 +12125,7 @@ module.exports = JSON.stringify({
             assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
             assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
             assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+            assert_eq!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
         }
     }
 
@@ -12395,9 +12491,12 @@ module.exports = JSON.stringify({
             .unwrap();
 
         let blocked = engine.eval_immediate("1 + 1").await.unwrap_err();
-        assert!(blocked
-            .to_string()
-            .contains("embedder capability transaction is not finalized"));
+        let blocked = blocked.to_string();
+        assert!(
+            blocked.contains("runtime drive gate")
+                || blocked.contains("embedder capability transaction is not finalized"),
+            "failed activation must leave the runtime unusable: {blocked}"
+        );
         runtime
             .with_runtime(|raw| unsafe {
                 assert_eq!(ibex_test_gpu_capture_present(raw), 1);
@@ -12421,9 +12520,12 @@ module.exports = JSON.stringify({
             .unwrap();
 
         let blocked = engine.eval_immediate("1 + 1").await.unwrap_err();
-        assert!(blocked
-            .to_string()
-            .contains("embedder capability transaction is not finalized"));
+        let blocked = blocked.to_string();
+        assert!(
+            blocked.contains("runtime drive gate")
+                || blocked.contains("embedder capability transaction is not finalized"),
+            "failed activation must leave the runtime unusable: {blocked}"
+        );
         runtime
             .with_runtime(|raw| unsafe {
                 assert_eq!(ibex_test_gpu_capture_present(raw), 1);
@@ -12545,6 +12647,7 @@ module.exports = JSON.stringify({
                     -3
                 );
                 assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_activate_webgpu_runtime_v1(raw), -3);
             })
             .unwrap();
         assert_eq!(
@@ -12631,6 +12734,15 @@ module.exports = JSON.stringify({
 
                 assert_eq!(ex_hermes_set_gpu_provider_v2(raw, &descriptor), 0);
                 assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ibex_test_gpu_v2_private_bridge_present(raw), 0);
+                assert_root_global_paths_absent(raw, AUTHENTICATED_WEBGPU_PROVIDER_ROOT_PATHS, 1);
+                {
+                    let state = fake_gpu_v2_state().lock().unwrap();
+                    assert_eq!(state.open_calls, 0);
+                    assert_eq!(state.activate_calls, 0);
+                }
+                assert_eq!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
+                assert_eq!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
                 assert_eq!(ibex_test_gpu_v2_private_bridge_present(raw), 1);
             })
             .unwrap();
@@ -12881,8 +12993,120 @@ navigator.gpu.requestAdapter()
                 assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
                 assert_eq!(ex_hermes_set_gpu_provider_v2(raw, &descriptor), 0);
                 assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_root_global_paths_absent(raw, AUTHENTICATED_WEBGPU_PROVIDER_ROOT_PATHS, 1);
+                assert_eq!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
                 assert_root_global_paths_absent(raw, AUTHENTICATED_WEBGPU_PROVIDER_ROOT_PATHS, 0);
                 assert_root_global_paths_absent(raw, &["createImageBitmap"], 1);
+            })
+            .unwrap();
+        drop(runtime);
+        drop(engine);
+        release_fake_gpu_v2_client();
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_v2_activation_after_user_work_refreshes_only_webgpu_compartment_paths() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _compartments = TestEnvVar::set("IBEX_COMPARTMENTS", "1");
+        let (_reset, digest) = install_armed_gpu_v2_test_host();
+        reset_fake_gpu_v2(0);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let api = fake_gpu_v2_api();
+        let descriptor = fake_gpu_v2_descriptor(&api, &GPU_V2_OPERATION_IDS);
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_set_gpu_provider_v2(raw, &descriptor), 0);
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+            })
+            .unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "__compartments['alpha@1.0.0'].__lateWebGpuUnrelated = 17; \
+                     'prepared'",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("prepared")
+        );
+        engine.load_runtime().await.unwrap();
+        let refused = engine.eval_immediate("1").await.unwrap_err();
+        assert!(refused
+            .to_string()
+            .contains("bare evaluation is sealed for armed project source"));
+        runtime
+            .with_runtime(|raw| unsafe {
+                let alpha = CString::new("alpha@1.0.0").unwrap();
+                let beta = CString::new("beta@1.0.0").unwrap();
+                let gpu = CString::new("GPU").unwrap();
+                let navigator_gpu = CString::new("navigator.gpu").unwrap();
+                let unrelated = CString::new("__lateWebGpuUnrelated").unwrap();
+                assert_eq!(
+                    ibex_test_compartment_logical_path_absent(raw, alpha.as_ptr(), gpu.as_ptr()),
+                    1
+                );
+                assert_eq!(
+                    ibex_test_compartment_logical_path_absent(
+                        raw,
+                        alpha.as_ptr(),
+                        navigator_gpu.as_ptr()
+                    ),
+                    1
+                );
+                assert_eq!(
+                    ibex_test_compartment_logical_path_absent(
+                        raw,
+                        alpha.as_ptr(),
+                        unrelated.as_ptr()
+                    ),
+                    0
+                );
+                assert_eq!(
+                    ibex_test_compartment_logical_path_absent(
+                        raw,
+                        beta.as_ptr(),
+                        unrelated.as_ptr()
+                    ),
+                    1
+                );
+                assert_eq!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
+                assert_root_global_paths_absent(raw, AUTHENTICATED_WEBGPU_PROVIDER_ROOT_PATHS, 0);
+                assert_eq!(
+                    ibex_test_compartment_logical_path_absent(raw, alpha.as_ptr(), gpu.as_ptr()),
+                    0
+                );
+                assert_eq!(
+                    ibex_test_compartment_logical_path_absent(
+                        raw,
+                        alpha.as_ptr(),
+                        navigator_gpu.as_ptr()
+                    ),
+                    0
+                );
+                assert_eq!(
+                    ibex_test_compartment_logical_path_absent(
+                        raw,
+                        alpha.as_ptr(),
+                        unrelated.as_ptr()
+                    ),
+                    0
+                );
+                assert_eq!(
+                    ibex_test_compartment_logical_path_absent(
+                        raw,
+                        beta.as_ptr(),
+                        unrelated.as_ptr()
+                    ),
+                    1
+                );
             })
             .unwrap();
         drop(runtime);
@@ -12922,6 +13146,7 @@ navigator.gpu.requestAdapter()
                     0
                 );
                 assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
             })
             .unwrap();
         engine.load_runtime().await.unwrap();
@@ -12990,16 +13215,17 @@ navigator.gpu.requestAdapter()
         engine.load_runtime().await.unwrap();
         let runtime = engine.ensure_runtime().await.unwrap();
         let key = CString::new("__ibexUndispositionedAfterWebGpu").unwrap();
-        unsafe { ibex_test_set_root_global_disposition_key(key.as_ptr()) };
         let api = fake_gpu_v2_api();
         let descriptor = fake_gpu_v2_descriptor(&api, &GPU_V2_OPERATION_IDS);
         runtime
             .with_runtime(|raw| unsafe {
                 assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
                 assert_eq!(ex_hermes_set_gpu_provider_v2(raw, &descriptor), 0);
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                ibex_test_set_root_global_disposition_key(key.as_ptr());
                 assert_eq!(
-                    ex_hermes_finalize_embedder_capabilities_v1(raw),
-                    EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED
+                    ex_hermes_activate_webgpu_runtime_v1(raw),
+                    EXACT_GPU_PROVIDER_OPEN_FAILED
                 );
                 assert_eq!(ibex_test_root_global_disposition_getter_calls(), 0);
                 assert_eq!(ibex_test_gpu_v2_private_bridge_present(raw), 0);
@@ -13008,9 +13234,12 @@ navigator.gpu.requestAdapter()
             })
             .unwrap();
         let blocked = engine.eval_immediate("1 + 1").await.unwrap_err();
-        assert!(blocked
-            .to_string()
-            .contains("embedder capability transaction is not finalized"));
+        let blocked = blocked.to_string();
+        assert!(
+            blocked.contains("runtime drive gate")
+                || blocked.contains("embedder capability transaction is not finalized"),
+            "{blocked}"
+        );
         let state = fake_gpu_v2_state().lock().unwrap();
         assert_eq!(state.close_calls.len(), 1);
         assert_eq!(state.release_service_calls, 1);
@@ -13038,10 +13267,8 @@ navigator.gpu.requestAdapter()
             .with_runtime(|raw| unsafe {
                 assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
                 assert_eq!(ex_hermes_set_gpu_provider_v2(raw, &descriptor), 0);
-                assert_eq!(
-                    ex_hermes_finalize_embedder_capabilities_v1(raw),
-                    EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED
-                );
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_ne!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
             })
             .unwrap();
         let state = fake_gpu_v2_state().lock().unwrap();
@@ -13074,10 +13301,8 @@ navigator.gpu.requestAdapter()
             .with_runtime(|raw| unsafe {
                 assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
                 assert_eq!(ex_hermes_set_gpu_provider_v2(raw, &descriptor), 0);
-                assert_eq!(
-                    ex_hermes_finalize_embedder_capabilities_v1(raw),
-                    EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED
-                );
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_ne!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
                 assert_eq!(ibex_test_gpu_v2_private_bridge_present(raw), 0);
             })
             .unwrap();
@@ -13170,12 +13395,13 @@ navigator.gpu.requestAdapter()
                         ibex_test_gpu_v2_force_mapped_array_buffer_gate_failure(failure),
                         0
                     );
-                    let status = ex_hermes_finalize_embedder_capabilities_v1(raw);
+                    assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                    let status = ex_hermes_activate_webgpu_runtime_v1(raw);
                     assert_eq!(
                         ibex_test_gpu_v2_force_mapped_array_buffer_gate_failure(0),
                         0
                     );
-                    assert_eq!(status, EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED);
+                    assert_ne!(status, 0);
                     assert_eq!(ibex_test_gpu_v2_private_bridge_present(raw), 0);
                 })
                 .unwrap();
@@ -14903,9 +15129,15 @@ navigator.gpu.requestAdapter()
                 assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
                 assert_eq!(fake_gpu_state().lock().unwrap().open_calls, 0);
                 assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_eq!(fake_gpu_state().lock().unwrap().open_calls, 0);
                 #[cfg(feature = "gpu-bridge-test-hooks")]
                 {
                     assert_eq!(ibex_test_gpu_capture_present(raw), 0);
+                    assert_eq!(ibex_test_gpu_private_bridge_present(raw), 0);
+                }
+                assert_eq!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
+                #[cfg(feature = "gpu-bridge-test-hooks")]
+                {
                     assert_eq!(ibex_test_gpu_private_bridge_present(raw), 1);
                 }
             })
@@ -14963,6 +15195,7 @@ navigator.gpu.requestAdapter()
                     0
                 );
                 assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
             })
             .unwrap();
 
@@ -14988,6 +15221,7 @@ navigator.gpu.requestAdapter()
                 assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
                 assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
                 assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
             })
             .unwrap();
 
@@ -15012,6 +15246,7 @@ navigator.gpu.requestAdapter()
                 assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
                 assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
                 assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
             })
             .unwrap();
 
@@ -15055,6 +15290,7 @@ navigator.gpu.requestAdapter()
                 assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
                 assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
                 assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
             })
             .unwrap();
         worker.join().unwrap();
@@ -15085,10 +15321,8 @@ navigator.gpu.requestAdapter()
             .with_runtime(|raw| unsafe {
                 assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
                 assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
-                assert_eq!(
-                    ex_hermes_finalize_embedder_capabilities_v1(raw),
-                    EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED
-                );
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_ne!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
             })
             .unwrap();
 
@@ -15114,6 +15348,7 @@ navigator.gpu.requestAdapter()
                 assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
                 assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
                 assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
             })
             .unwrap();
 
@@ -15927,7 +16162,8 @@ navigator.gpu.requestAdapter()
             .with_runtime(|raw| unsafe {
                 assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
                 assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
-                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), -4);
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_ne!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
                 #[cfg(feature = "gpu-bridge-test-hooks")]
                 {
                     assert_eq!(ibex_test_gpu_capture_present(raw), 0);
@@ -15963,6 +16199,7 @@ navigator.gpu.requestAdapter()
                 assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
                 assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
                 assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_activate_webgpu_runtime_v1(raw), 0);
             })
             .unwrap();
 

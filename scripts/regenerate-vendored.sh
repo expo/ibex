@@ -56,7 +56,8 @@ bun run check:compiled-environment-profile
 bun run check:oxc-retirement
 bun run check:module-transform-config
 bun run build:builtins
-bun run build:runtime
+bun run build:runtime:core
+bun run build:runtime:webgpu
 bun run generate:vendored-fingerprint
 
 echo "Regenerated vendored artifacts. Review with: git status capsec/ vendored-generated/ tests/fixtures/ src/builtins/helpers/runtime-module-manifest.cjs src/identity_generated.rs packages/ibex-runtime-js/src" >&2

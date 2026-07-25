@@ -5,6 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-25 (separates authenticated GPU-provider registration from WebGPU runtime activation: construction finalization retains a dormant provider without opening its realm or publishing roots; the additive owner-thread `ex_hermes_activate_webgpu_runtime_v1` transaction evaluates a separately embedded trusted WebGPU HBC, opens and captures the provider, refreshes only the generated conditional WebGPU compartment projection, seals the private bridge, and repeats the descriptor-only root sweep when bootstrap is already closed; ordinary and debugger ingress remain closed throughout, activation is idempotent, and any partial/failing activation is terminal)
 **Revised:** 2026-07-24 (reconciles the production WebGPU contract with the implemented exact-size three-callback authority-session API and nine-method construction-private bridge: paired acquire/present capture, same-epoch transient recheck, registry-pinned candidate-commit and handoff-repeat continuations, and atomic pair retirement remain construction-private and fail closed; the checked experimental projection now derives 65 private target cells and 23 typed-positive selectors without adding a public issuer, advertisement, or support claim)
 **Revised:** 2026-07-23 (the Exact dev-served builder grants its root only a loopback, TCP, ephemeral listener selector so the authenticated Acto server can bind without ambient or fixed-port listen authority; release compositions remain unchanged); 2026-07-21 (implements the `dev-served` bootstrap compatibility mode and its construction-private one-shot module-table seam: dev-served compositions install a frozen URL-space table of in-band transformed sources ahead of the private native resolver fallback, gated by armed material carrying the mode together with an explicit dev project-root binding; the resolver seal, host-path authorization for non-table specifiers, import gating, and ordinary target cells are unchanged, and misuse quarantines the generation — Exact ENG-25076)
 **Revised:** 2026-07-20 (gives the production WebGPU runtime section a stable heading so the reviewed Hermes patch stack can reference its governing contract without changing patch bytes)
@@ -948,8 +949,13 @@ The service owns no Hermes or JSI value. `open_realm` receives a ref-counted
 plain-native client sink. It may call `retain_client`/`release_client` while
 opening, and it must retain the sink before storing the sink/context beyond
 that call, but it may neither call `on_event` nor publish an event-producing
-path yet. After a successful open, Ibex validates the returned identities and
-enters `Activating` immediately before invoking the required one-way
+path yet. Provider registration and construction finalization do not call
+`open_realm`: they retain only the authenticated copied service table, mailbox,
+and provider identity in a **Dormant** state. The provider therefore has no live
+session, admits no callbacks, and requires no public WebGPU roots while ordinary
+runtime startup completes. After a successful activation-time open, Ibex
+validates the returned identities and enters `Activating` immediately before
+invoking the required one-way
 `activate_realm` hook. That invocation boundary, represented by the
 `Installing -> Activating` transition, is the callback-admission linearization
 point: once it has been crossed, `Activating` admits callbacks from any provider
@@ -959,22 +965,59 @@ unambiguous protocol violation. This explicit handshake closes the race between
 `open_realm` returning and asynchronous event admission without imposing a
 provider-thread-affinity requirement.
 
-#### Construction-private wrapper, codecs, and lifecycle
+`ex_hermes_activate_webgpu_runtime_v1` is the only Dormant-to-Live transition.
+It is additive, owner-thread-only, and idempotent after success. It accepts only
+an authenticated, finalized, nonrestricted runtime with a registered provider;
+it may run while trusted bootstrap remains open or later between complete user
+work units. It is never callable reentrantly from JavaScript. Late activation
+closes ordinary drive, callback, module, and debugger ingress before evaluating
+trusted bytes and reopens them only after the final projection is proved.
+Provider absence returns the stable unavailable result without evaluating the
+WebGPU bundle. A second call after successful activation returns success without
+opening another realm or evaluating another bundle.
+
+The transition evaluates one separately embedded source/HBC artifact whose
+entry graph contains the production WebGPU wrapper, generated executable
+codecs, route plan, Canvas integration, and a fresh one-shot private capture.
+The ordinary startup bundle contains only the small capture/closure fence and
+the core runtime. HBC sanity failure may select the embedded source before any
+WebGPU instruction executes; every post-instruction evaluation failure is
+terminal and cannot fall through to a second implementation. Native then opens
+and activates the provider realm, passes the low-level bridge through that
+fresh capture, proves the capture absent, and seals the bridge.
+
+When activation follows initial compartment finalization, native invokes the
+privately retained baseline refresher with the generated active conditional
+WebGPU paths. The refresher copies property descriptors only for those exact
+root paths and verifies the already-shared `navigator.gpu` projection; it does
+not recapture arbitrary application-created globals. Bootstrap-open activation
+is covered by the ordinary final sweep. Bootstrap-closed activation first marks
+the previous projection witness invalid, performs the targeted refresh and
+sealing, and repeats the descriptor-only exact join before any user or debugger
+entry resumes. Missing/extra roots, capture replacement, provider failure,
+baseline ambiguity, debugger restoration failure, or any partial publication
+revokes the wrapper, closes the realm, and terminally quarantines the runtime.
+Code that feature-detects or imports WebGPU-dependent packages before activation
+correctly observes no WebGPU surface; Exact must schedule activation before
+loading that code, typically after first paint or before entering a GPU-backed
+feature.
+
+### WebGPU production runtime
 
 The Ibex binding does own owner-thread-only JSI roots for the low-level bridge
-and pending Promise resolvers. During successful construction, runtime-js
-installs a one-shot non-enumerable capture callback. Native finalization passes
+and pending Promise resolvers. During successful activation, the deferred
+runtime-js artifact installs a one-shot non-enumerable capture callback. Native
+activation passes
 the bridge object directly to that callback, verifies the callback deleted
 itself, and retains the returned revoker. No app/module/eval/debugger entry can
-run while the callback is open: the common user-execution fence closes an
-unused callback first, and the native module-runner compile/carrier/instantiate/
-declare/execute and CommonJS-record evaluation entries use that same fence.
-Closing is verified, not best effort: successful capture, feature-off and
-no-provider finalization, provider rollback, and the common user-entry fence
-all prove that the construction property is absent. A throwing, non-callable,
-or non-configurable hostile replacement marks capability construction failed
-and leaves `user_execution_started` false. The captured value lives only in the
-bootstrap module graph. `@ibex/runtime-js` exports no accessor, and Ibex's app
+run while the callback is open: the activation transaction and debugger
+exclusion fence every ingress. Closing is verified, not best effort:
+successful capture, feature-off and no-provider finalization, provider
+rollback, and activation failure all prove that the temporary property is
+absent. A throwing, non-callable, or non-configurable replacement marks
+capability activation failed and quarantines the runtime. The captured value
+lives only in the deferred trusted module graph. `@ibex/runtime-js` exports no
+accessor, and Ibex's app
 module loader rejects package-deep and filesystem paths into `src/webgpu/`.
 The production-private WebGPU factory imports this same bundled slot and binds
 the wrapper revoker to the native bridge revoker rather than acquiring a
@@ -1695,16 +1738,20 @@ additive owner-thread transaction:
    GPU registration copies the function table and retains the service but does
    not open a realm.
 3. `ex_hermes_finalize_embedder_capabilities_v1` verifies that the installed
-   capability set exactly equals the armed snapshot, opens the GPU realm with
-   the now-final app/agent context, captures and deletes the construction-only
-   runtime-js bridge handoff, conditionally publishes the source-derived wrapper
-   globals, refreshes the compartment baseline once, and seals the Exact method
-   and private bridge. If trusted bootstrap has already closed, finalization
-   then repeats the exact descriptor-only root-global sweep; otherwise
-   `ex_hermes_finish_bootstrap` performs that sweep after closing the remaining
-   session bridges. Thus GPU-first and Exact-ingress-first installation cannot
-   select different realm identities, and either Apple bootstrap order verifies
-   the same final projection.
+   capability set exactly equals the armed snapshot, closes the unused core
+   construction handoff, finalizes the ordinary compartment baseline, and seals
+   the Exact method while leaving an authenticated GPU provider dormant. If
+   trusted bootstrap has already closed, finalization repeats the no-WebGPU
+   descriptor-only root-global sweep; otherwise `ex_hermes_finish_bootstrap`
+   performs that sweep after closing the remaining session bridges.
+4. `ex_hermes_activate_webgpu_runtime_v1` later evaluates the trusted deferred
+   WebGPU artifact, opens the GPU realm with the final app/agent context,
+   captures and deletes the activation-only handoff, conditionally publishes
+   the source-derived wrapper globals, performs the targeted compartment
+   refresh, seals the private bridge, and proves the live conditional root
+   projection. Thus GPU-first and Exact-ingress-first registration cannot select
+   different realm identities, while Exact can move WebGPU initialization off
+   its startup-critical path.
 
 The shared-runtime ambient/global closure is a separate named transition, not
 an implicit side effect of generic finalization. After the trusted runtime
@@ -1721,15 +1768,15 @@ compartment posture, closing remaining private session bridges, and comparing
 the live descriptor graph to the generated three-set join. Embedders must not
 copy the program or its sealed-root list.
 
-Every user-code-driving entry point refuses while the transaction is
-`Configuring` or failed and, once trusted bootstrap closes, until the final
-root-global projection has passed that sweep; poll preserves queued callbacks
-without executing them. A publication, sealing, or sweep failure revokes the
-wrapper globals, rolls back the provisional Exact method, closes any opened GPU
-realm, and is terminal for that runtime. Existing Exact-only consumers that
-do not call `begin` retain the legacy single-setter auto-finalization behavior;
-an armed snapshot that expects more than that Exact ingress cannot use the
-legacy path.
+Every user-code-driving entry point refuses while the construction transaction
+is `Configuring`, while WebGPU activation is in progress, or after either has
+failed and, once trusted bootstrap closes, until the current root-global
+projection has passed its sweep; poll preserves queued callbacks without
+executing them. A publication, sealing, refresh, or sweep failure revokes the
+wrapper globals, closes any opened GPU realm, and is terminal for that runtime.
+Existing Exact-only consumers that do not call `begin` retain the legacy
+single-setter auto-finalization behavior; an armed snapshot that expects more
+than that Exact ingress cannot use the legacy path.
 
 GPU teardown is a nonblocking release path. Runtime destruction revokes the
 runtime-js module slot and reserves `Closing` under the callback-admission

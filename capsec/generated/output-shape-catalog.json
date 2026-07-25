@@ -38390,6 +38390,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.activate.webgpu.runtime.v1.17149hc",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_activate_webgpu_runtime_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.begin.app.bundle.evaluation.v1.0heml9g",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -43920,8 +43931,8 @@
         "src/module_loader/mod.rs#resolve_bounded_unix_path:external:qualified:io::Error::new:count-3",
         "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Ok:count-2",
         "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Some:count-5",
-        "src/module_loader/mod.rs#resolve_builtin_meta:external:method:clone:count-1",
         "src/module_loader/mod.rs#resolve_builtin_meta:external:method:get:count-1",
+        "src/module_loader/mod.rs#resolve_builtin_meta:external:method:to_owned:count-1",
         "src/module_loader/mod.rs#resolve_builtin_meta:external:method:to_string:count-1",
         "src/module_loader/mod.rs#resolve_builtin_meta:external:qualified:crate::vfs::SourceId::builtin:count-1",
         "src/module_loader/mod.rs#resolve_builtin_meta:external:qualified:identity::SourceId::builtin:count-1",
@@ -82411,6 +82422,7 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "packages/ibex-runtime-js/src/webgpu/native-bridge.ts#installNativeGpuBridgeCapture:globals:__ibexCaptureGpuNativeBridge",
+        "src/engine/hermes_runtime.cc#__ibexCaptureGpuNativeBridge",
         "src/engine/hermes_runtime_gpu.cc#__ibexCaptureGpuNativeBridge",
         "src/engine/hermes_runtime_gpu_v2.cc#__ibexCaptureGpuNativeBridge"
       ],
@@ -84684,7 +84696,8 @@
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
         "src/bin/ibex/engine/hermes.rs#env::var:IBEX_STARTUP_TRACE:read",
-        "src/bin/ibex/main.rs#runtime_env:IBEX_STARTUP_TRACE:read"
+        "src/bin/ibex/main.rs#runtime_env:IBEX_STARTUP_TRACE:read",
+        "src/host/mod.rs#env::var:IBEX_STARTUP_TRACE:read"
       ],
       "outputKinds": []
     },
@@ -85981,6 +85994,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.script.deferred.webgpu.runtime.1kl3t9e",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#script:<deferred-webgpu-runtime>"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.script.eager.install.seal.1xgqqwv",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -86381,15 +86403,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-VW9BlhTmDt0PjLexF04LrXPWmoRK5O97XVHJ8TLN50E",
+  "catalogKeyDigest": "sha256-rWwfIsorazR219OL2R1VEBf16hyc1jGc8HoxkZ129RI",
   "counts": {
-    "coverageSurfaces": 7608,
-    "outputBearingSurfaces": 5849,
-    "structuralOnlySurfaces": 1670,
+    "coverageSurfaces": 7610,
+    "outputBearingSurfaces": 5850,
+    "structuralOnlySurfaces": 1671,
     "unresolvedSurfaces": 89,
-    "catalogRows": 6532,
+    "catalogRows": 6533,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6125,
+    "sourceInventoryRows": 6126,
     "structuredRows": 407
   },
   "rows": [
@@ -149196,6 +149218,27 @@
         ],
         "sourceRefs": [
           "src/engine/native_android_networking.cc#ex_android_initialize"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.activate.webgpu.runtime.v1.17149hc",
+        "output": "[[return]]",
+        "alias": "ex_hermes_activate_webgpu_runtime_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_activate_webgpu_runtime_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_activate_webgpu_runtime_v1"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -224333,6 +224376,7 @@
         ],
         "sourceRefs": [
           "packages/ibex-runtime-js/src/webgpu/native-bridge.ts#installNativeGpuBridgeCapture:globals:__ibexCaptureGpuNativeBridge",
+          "src/engine/hermes_runtime.cc#__ibexCaptureGpuNativeBridge",
           "src/engine/hermes_runtime_gpu.cc#__ibexCaptureGpuNativeBridge",
           "src/engine/hermes_runtime_gpu_v2.cc#__ibexCaptureGpuNativeBridge"
         ]
