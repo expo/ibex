@@ -5,6 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
+**Revised:** 2026-07-24 (the production source graph now authorizes each exact dependency edge before executable-source acquisition and retains the finalized digest-bound access receipt; launch-entry, cache, and prepared-carrier admission keep their separately named remaining joins)
 **Revised:** 2026-07-18 (the Phase-0 compatibility baseline now records the
 post-native-switch namespace/CommonJS observations and successful dynamic-import
 source-map line recovery instead of retaining the superseded shim failure)
@@ -668,11 +669,16 @@ dynamic import, literal/computed `require`, cache, prepared-carrier, and factory
 operations for their owning phases. Link-time receipt checks bind the exact
 target, coverage edge, snapshot digest, authority generations, and graph
 generation, so chunk co-residence does not authorize a linker edge. Production
-source and prepared-cache acquisition still precede these receipts and rely on
-the exact Host-authenticated edge and exact prepared-byte comparison; consuming
-the access-operation receipts at those reads remains open in ENG-25062. The
-unauthenticated linker remains test-only, and target cells stay unsupported
-until their executed fixture evidence exists.
+dependency source acquisition now consumes the graph-operation algebra before
+disclosure: metadata resolution yields the exact target identity, the typed
+edge authorizes, the retained-object read runs inside a pending access closure,
+and its observed digest finalizes a source-acquisition receipt before bytes
+reach the producer. That receipt remains graph-owned. Launch-entry acquisition
+remains joined to its authenticated file request; cache and prepared-carrier
+reads still rely on their exact Host/cache authentication and have not yet
+consumed their access receipts. The unauthenticated linker remains test-only,
+and target cells stay unsupported until their executed fixture evidence
+exists.
 
 **Binding cells live in the Hermes runner, behind opaque native handles.**
 JavaScript-side cells keep every binding read and setter dispatch inside the

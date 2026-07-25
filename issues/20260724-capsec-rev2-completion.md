@@ -79,6 +79,27 @@ ticket closes.
   completion contract; roughly 74% complete for the security-critical runtime
   mechanism set.**
 
+### 2026-07-24 — wired cold dependency reads through CapSec graph receipts
+
+- Split production native-graph metadata resolution from executable-source
+  acquisition. An authored dependency now yields an exact target identity
+  before its source bytes can be read.
+- The graph authorizer validates the exact request, target, resolution kind,
+  conditions, attributes, principals, snapshot generations, and graph
+  generation before entering the Host source-acquisition closure.
+- Cold reads finalize their digest-bound `SourceAcquisition` receipt from the
+  authenticated bytes and revalidate that receipt before releasing the loaded
+  module to the producer. Receipts remain retained for the graph lifetime.
+- The six-record source/prepared regression retains five dependency-access
+  receipts; the entry is governed by its separate authenticated launch request.
+  A denied-edge fixture proves the source closure is never entered.
+- Scope remains honest: cache-hit and prepared-carrier reads are not yet wired
+  through their corresponding access receipts, although the prepared cache now
+  has exact deterministic byte equality from the prior milestone.
+- Estimate after this milestone: **49% complete for the full LLP 0021
+  completion contract; roughly 76% complete for the security-critical runtime
+  mechanism set.**
+
 ## Current hard parts
 
 - Exact-target completion is deliberately all-or-nothing. Existing evidence
@@ -96,6 +117,13 @@ ticket closes.
   lacks a private invocation-time CapSec activation capability. The filesystem
   issue claiming this runtime work complete is stale relative to the later
   security guard and LLP 0026's call-time contract.
+- The root/bootstrap mechanism seals correctly, but both builders still emit an
+  empty `bootstrapAuthorityFloor`. Current bootstrap host inputs are
+  authenticated projections consumed under the transparent runtime principal,
+  so there is no evidenced root effect from which to derive a nonempty floor.
+  Populating one by guess would add authority rather than close a gap. This
+  needs either a named root-attributed bootstrap operation or a revised
+  requirement before the requested real retained-callback fixture is honest.
 
 ## Next milestone
 

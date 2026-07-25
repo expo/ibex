@@ -1777,7 +1777,7 @@ pub(crate) fn current_module_runner_snapshot(
 }
 
 #[cfg(any(test, feature = "module-runner"))]
-pub(crate) fn resolve_module_for_runner(
+pub(crate) fn resolve_module_meta_for_runner(
     specifier: &str,
     referrer: Option<&std::path::Path>,
     requester_module_id: Option<&str>,
@@ -1807,8 +1807,18 @@ pub(crate) fn resolve_module_for_runner(
             {
                 meta.kind = crate::module_loader::ModuleKind::Esm;
             }
-            host.load_authenticated_module_source_for_runner(meta)
+            Ok(meta)
         },
+        Err(anyhow::anyhow!("module runner host is not installed")),
+    )
+}
+
+#[cfg(any(test, feature = "module-runner"))]
+pub(crate) fn load_module_source_for_runner(
+    meta: crate::module_loader::ResolvedModule,
+) -> anyhow::Result<crate::module_loader::ResolvedModule> {
+    with_host(
+        |host| host.load_authenticated_module_source_for_runner(meta),
         Err(anyhow::anyhow!("module runner host is not installed")),
     )
 }

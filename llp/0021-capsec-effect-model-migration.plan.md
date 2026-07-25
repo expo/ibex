@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-24 (production native-graph dependency source reads now authorize the exact typed edge before acquisition, finalize and retain a digest-bound source-access receipt before releasing bytes, and keep entry/cache/prepared-carrier closure wiring explicitly open)
 **Revised:** 2026-07-20 (extends authenticated fresh-engine, zero-decision source receipts to 30 additional reviewed public builtin spellings, binds their exact root value types, and leaves both `stream/consumers` spellings residual because compatibility loading shadows their manifest source)
 **Revised:** 2026-07-19 (binds the exact `dns/promises` carrier/provider callable shape to independent inventory and classifier review pins while leaving all 45 derived routes residual; strengthens four DNS no-effect alias receipts with exact cache-miss, VFS source, body-completion, alias, and runtime-nonce evidence)
 **Revised:** 2026-07-18 (ENG-25076 adds the target-local Exact GPU binding/profile producer and independently executed preparation evidence while preserving empty advertisements)
@@ -401,14 +402,20 @@ attributes, actor, effect owner, schedule-time identity, canonical constrained
 set, stage, atomicity group, graph generation, and coverage edge. Successful
 authorization returns an opaque receipt bound to the armed snapshot digest and
 all four authority generations. The graph linker produces and retains those
-receipts. The receipt-revalidated closures for source, cache, and
-prepared-carrier access exist and are unit-tested, but production acquisition
-still occurs through the exact Host-authenticated edge path (or exact prepared
-byte comparison) before link authorization; wiring those reads through the
-closures remains open in ENG-25062. Module factories remain reachability-only
-at the graph boundary; host effects they perform still enter ordinary typed
-semantic-core `DecisionSet`s at their native effect gates. Generated target
-cells remain unsupported until executed conformance evidence promotes them.
+receipts. The production native-graph builder now separates metadata resolution
+from executable-source acquisition for every authored dependency. It
+authorizes the exact typed edge before the Host may enter the retained-object
+source read, keeps that read inside an opaque acquisition closure, computes the
+authenticated byte digest, finalizes the source-access receipt, and retains the
+receipt for the graph lifetime before releasing bytes to the producer. The
+entry read remains joined to its separate authenticated launch request.
+Cache-hit and prepared-carrier reads still rely on the existing Host
+authentication and exact prepared-byte comparison; wiring those two access
+kinds through their receipt-revalidated closures remains open in ENG-25062.
+Module factories remain reachability-only at the graph boundary; host effects
+they perform still enter ordinary typed semantic-core `DecisionSet`s at their
+native effect gates. Generated target cells remain unsupported until executed
+conformance evidence promotes them.
 
 ## WP0 semantic contract
 

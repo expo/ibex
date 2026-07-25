@@ -46,6 +46,10 @@ use super::producer_spike::{
 };
 #[cfg(test)]
 use super::producer_spike::{produce_commonjs_artifact_v1, produce_module_artifact_v1};
+use super::security::{
+    AuthorizedGraphOperation, GraphAuthorityContext, GraphDecisionSet, GraphOperationKind,
+    ModuleGraphAuthorizer,
+};
 use super::{package_tree_integrity, ModuleKind, ModuleLoader, ResolvedModule};
 
 pub enum SourceModuleGraphBuildV1 {
@@ -56,13 +60,26 @@ pub enum SourceModuleGraphBuildV1 {
 trait SourceGraphHost {
     fn snapshot(&self) -> Result<Arc<ArmedSnapshot>>;
 
-    fn resolve(
+    fn resolve_meta(
         &self,
         specifier: &str,
         referrer: Option<&Path>,
         kind: ResolutionKind,
         attributes: &super::identity::ImportAttributes,
     ) -> Result<ResolvedModule>;
+
+    fn load_source(&self, module: ResolvedModule) -> Result<ResolvedModule>;
+
+    fn resolve(
+        &self,
+        specifier: &str,
+        referrer: Option<&Path>,
+        kind: ResolutionKind,
+        attributes: &super::identity::ImportAttributes,
+    ) -> Result<ResolvedModule> {
+        let module = self.resolve_meta(specifier, referrer, kind, attributes)?;
+        self.load_source(module)
+    }
 
     fn resolve_manifest_builtin_internal(&self, specifier: &str) -> Result<ResolvedModule>;
 
@@ -76,14 +93,20 @@ impl SourceGraphHost for InstalledSourceGraphHost {
         crate::host::abi::current_module_runner_snapshot()
     }
 
-    fn resolve(
+    fn resolve_meta(
         &self,
         specifier: &str,
         referrer: Option<&Path>,
         kind: ResolutionKind,
         attributes: &super::identity::ImportAttributes,
     ) -> Result<ResolvedModule> {
-        crate::host::abi::resolve_module_for_runner(specifier, referrer, None, kind, attributes)
+        crate::host::abi::resolve_module_meta_for_runner(
+            specifier, referrer, None, kind, attributes,
+        )
+    }
+
+    fn load_source(&self, module: ResolvedModule) -> Result<ResolvedModule> {
+        crate::host::abi::load_module_source_for_runner(module)
     }
 
     fn resolve_manifest_builtin_internal(&self, specifier: &str) -> Result<ResolvedModule> {
@@ -102,7 +125,7 @@ impl SourceGraphHost for crate::host::Host {
             .ok_or_else(|| anyhow!("module runner requires an armed snapshot"))
     }
 
-    fn resolve(
+    fn resolve_meta(
         &self,
         specifier: &str,
         referrer: Option<&Path>,
@@ -126,7 +149,11 @@ impl SourceGraphHost for crate::host::Host {
         {
             resolved.kind = ModuleKind::Esm;
         }
-        self.load_authenticated_module_source_for_runner(resolved)
+        Ok(resolved)
+    }
+
+    fn load_source(&self, module: ResolvedModule) -> Result<ResolvedModule> {
+        self.load_authenticated_module_source_for_runner(module)
     }
 
     fn resolve_manifest_builtin_internal(&self, specifier: &str) -> Result<ResolvedModule> {
@@ -273,6 +300,7 @@ pub struct SourceModuleGraphV1 {
     principal_ids: BTreeMap<Principal, u32>,
     producer_binary_digest: Digest,
     records: BTreeMap<SourceId, SourceGraphRecordV1>,
+    _source_access_receipts: Vec<AuthorizedGraphOperation>,
 }
 
 impl SourceModuleGraphV1 {
@@ -282,6 +310,11 @@ impl SourceModuleGraphV1 {
 
     pub fn snapshot(&self) -> &ArmedSnapshot {
         &self.snapshot
+    }
+
+    #[cfg(test)]
+    pub(crate) fn source_access_receipt_count(&self) -> usize {
+        self._source_access_receipts.len()
     }
 
     /// Join a post-admission graph back to the exact structured file request
@@ -1055,6 +1088,90 @@ fn portable_record_display(source_id: &SourceId) -> Result<(String, Option<Strin
     }
 }
 
+fn artifact_edge_operation_kind(
+    artifact: &ModuleArtifactV1,
+    key: &GraphEdgeKey,
+    attributes: &super::identity::ImportAttributes,
+) -> Result<GraphOperationKind> {
+    let kind = match key.resolution_kind {
+        ResolutionKind::CommonJsRequire => GraphOperationKind::LiteralRequire,
+        ResolutionKind::DynamicImport => GraphOperationKind::DynamicImport,
+        ResolutionKind::EsmStatic if attributes.asserts_json() => GraphOperationKind::JsonLoad,
+        ResolutionKind::EsmStatic => {
+            let is_reexport = artifact
+                .semantics
+                .static_edges
+                .iter()
+                .any(|edge| match edge {
+                    StaticEdgeV1::ReExportNamed { specifier, .. }
+                    | StaticEdgeV1::ReExportStar { specifier, .. }
+                    | StaticEdgeV1::ReExportNamespace { specifier, .. } => {
+                        specifier.as_str() == key.specifier
+                    }
+                    _ => false,
+                });
+            if is_reexport {
+                GraphOperationKind::ReExport
+            } else {
+                GraphOperationKind::StaticImport
+            }
+        }
+        ResolutionKind::Entry => bail!("an authored dependency edge cannot have entry resolution"),
+    };
+    Ok(kind)
+}
+
+fn authorize_source_acquisition(
+    host: &impl SourceGraphHost,
+    authorizer: &ModuleGraphAuthorizer<'_, ArmedSnapshot>,
+    requester: &SourceId,
+    key: &GraphEdgeKey,
+    operation_kind: GraphOperationKind,
+    attributes: &super::identity::ImportAttributes,
+    graph_generation: u64,
+    meta: ResolvedModule,
+) -> Result<(ResolvedModule, AuthorizedGraphOperation)> {
+    let owner = requester
+        .defining_principal()
+        .cloned()
+        .ok_or_else(|| anyhow!("authored dependency requester has no defining principal"))?;
+    let target = meta
+        .artifact_source_id
+        .clone()
+        .ok_or_else(|| anyhow!("authenticated dependency metadata produced no SourceId"))?;
+    let context = GraphAuthorityContext::new(
+        requester.clone(),
+        owner.clone(),
+        owner.clone(),
+        owner.clone(),
+        vec![owner],
+        Stage::Requested,
+        graph_generation,
+    )?;
+    let decision = GraphDecisionSet::new(
+        operation_kind,
+        context,
+        target,
+        key.specifier.as_str(),
+        key.resolution_kind,
+        super::identity::ConditionSet::for_kind(key.resolution_kind),
+        attributes.clone(),
+        None,
+        None,
+    )?;
+    authorizer.authorize_then_acquire_source(
+        decision,
+        || host.load_source(meta),
+        |loaded| {
+            let source = loaded
+                .source
+                .as_deref()
+                .ok_or_else(|| anyhow!("authenticated source acquisition returned no bytes"))?;
+            source_integrity(source.as_bytes())
+        },
+    )
+}
+
 pub fn build_authenticated_source_graph_v1(
     entry: &Path,
     producer_binary_digest: Digest,
@@ -1085,6 +1202,9 @@ fn build_authenticated_source_graph_v1_with_host(
     producer_binary_digest: Digest,
 ) -> Result<SourceModuleGraphBuildV1> {
     let snapshot = host.snapshot()?;
+    let authorizer = ModuleGraphAuthorizer::new(snapshot.as_ref());
+    let graph_generation = snapshot.generations().dynamic.get().max(1);
+    let mut source_access_receipts = Vec::new();
     let canonical_entry = std::fs::canonicalize(entry)
         .with_context(|| format!("cannot canonicalize module entry {}", entry.display()))?;
     let project_root = discover_compiled_project_root(&canonical_entry)?;
@@ -1237,12 +1357,25 @@ fn build_authenticated_source_graph_v1_with_host(
                 }
                 host.resolve_manifest_builtin_internal(&key.specifier)?
             } else {
-                host.resolve(
+                let meta = host.resolve_meta(
                     &key.specifier,
                     Some(&path),
                     key.resolution_kind,
                     &attributes,
-                )?
+                )?;
+                let operation_kind = artifact_edge_operation_kind(&artifact, &key, &attributes)?;
+                let (target, receipt) = authorize_source_acquisition(
+                    host,
+                    &authorizer,
+                    &source_id,
+                    &key,
+                    operation_kind,
+                    &attributes,
+                    graph_generation,
+                    meta,
+                )?;
+                source_access_receipts.push(receipt);
+                target
             };
             let target_id = target
                 .artifact_source_id
@@ -1272,12 +1405,24 @@ fn build_authenticated_source_graph_v1_with_host(
                 matched_candidate_declarations.insert(declaration_key);
                 let mut candidates = Vec::new();
                 for specifier in specifiers {
-                    let target = host.resolve(
+                    let key = GraphEdgeKey::new(specifier.as_str(), ResolutionKind::DynamicImport);
+                    let meta = host.resolve_meta(
                         specifier.as_str(),
                         Some(&path),
                         ResolutionKind::DynamicImport,
                         &site.attributes,
                     )?;
+                    let (target, receipt) = authorize_source_acquisition(
+                        host,
+                        &authorizer,
+                        &source_id,
+                        &key,
+                        GraphOperationKind::DynamicImport,
+                        &site.attributes,
+                        graph_generation,
+                        meta,
+                    )?;
+                    source_access_receipts.push(receipt);
                     let target_id = target
                         .artifact_source_id
                         .clone()
@@ -1359,6 +1504,7 @@ fn build_authenticated_source_graph_v1_with_host(
         principal_ids,
         producer_binary_digest,
         records,
+        _source_access_receipts: source_access_receipts,
     };
     graph.plan()?;
     Ok(SourceModuleGraphBuildV1::Native(graph))
@@ -2111,6 +2257,7 @@ pub fn load_prepared_source_graph_v1(
         principal_ids: authenticated_source_graph.principal_ids.clone(),
         producer_binary_digest: authenticated_source_graph.producer_binary_digest.clone(),
         records,
+        _source_access_receipts: authenticated_source_graph._source_access_receipts.clone(),
     };
     graph.plan()?;
     if !graph.records.contains_key(graph.entry()) {

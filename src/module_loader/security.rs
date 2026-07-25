@@ -530,6 +530,42 @@ impl<'policy, P: GraphImportPolicy> ModuleGraphAuthorizer<'policy, P> {
         self.with_authorized_access(&receipt, access_kind, &target, graph_generation, access)
     }
 
+    /// Authorize an exact graph edge before a cold source read, then bind the
+    /// observed authenticated bytes into the access receipt before releasing
+    /// the acquired value to graph construction.
+    ///
+    /// Cold source integrity cannot be known before the retained-object read.
+    /// This two-stage form therefore makes the edge receipt the no-probe
+    /// credential, keeps the read inside this closure, and returns the value
+    /// only after the digest-bound source-acquisition receipt revalidates.
+    // @ref LLP 0021#module-initialization-and-trusted-source-acquisition
+    pub fn authorize_then_acquire_source<T>(
+        &self,
+        edge_decision: GraphDecisionSet,
+        acquire: impl FnOnce() -> Result<T>,
+        source_integrity: impl FnOnce(&T) -> Result<Digest>,
+    ) -> Result<(T, AuthorizedGraphOperation)> {
+        let target = edge_decision.resource.target.clone();
+        let graph_generation = edge_decision.context.graph_generation;
+        let edge = self.authorize(edge_decision)?;
+        let acquired = acquire()?;
+        let integrity = source_integrity(&acquired)?;
+        let receipt = self.authorize_access(
+            &edge,
+            GraphOperationKind::SourceAcquisition,
+            Some(integrity),
+            None,
+        )?;
+        let acquired = self.with_authorized_access(
+            &receipt,
+            GraphOperationKind::SourceAcquisition,
+            &target,
+            graph_generation,
+            || Ok(acquired),
+        )?;
+        Ok((acquired, receipt))
+    }
+
     /// Execute the source/cache/carrier action only after its exact receipt is
     /// revalidated. The closure boundary makes the no-probe ordering testable.
     pub fn with_authorized_access<T>(
@@ -712,6 +748,20 @@ mod tests {
             )
             .is_err());
         assert!(!probed.get(), "authorization must not touch the source");
+        assert!(ModuleGraphAuthorizer::new(&denied)
+            .authorize_then_acquire_source(
+                decision(importer.clone(), target.clone()),
+                || {
+                    probed.set(true);
+                    Ok(b"secret source".to_vec())
+                },
+                |bytes| Ok(digest(std::str::from_utf8(bytes).unwrap())),
+            )
+            .is_err());
+        assert!(
+            !probed.get(),
+            "denied edge must not enter the cold source-acquisition closure"
+        );
 
         let requester = source(importer.clone(), "entry.mjs");
         assert!(GraphAuthorityContext::new(

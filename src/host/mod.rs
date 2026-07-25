@@ -11045,6 +11045,7 @@ mod tests {
             }
         };
         assert_eq!(graph.records().count(), 6);
+        assert_eq!(graph.source_access_receipt_count(), 5);
         let deployment = digest_bytes("prepared-source-graph-test", b"deployment").unwrap();
         let artifact_dir = fixture.path().join("bundle-artifact");
         std::fs::create_dir(&artifact_dir).unwrap();
