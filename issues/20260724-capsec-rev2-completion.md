@@ -933,6 +933,36 @@ ticket closes.
   denominator is now 5,715/24,040 (23.8%) proven by executable or
   internally-verified evidence, with 18,325 public residuals still open.
 
+### 2026-07-25 — `realpathSync` target evidence
+
+- Extended the literal full-profile authoring program with
+  `node:fs.realpathSync`, promoting its five Apple effect scenarios without
+  changing Windows's ambiguous filesystem-route disposition.
+- Deliberately failing bound-engine runs exposed both real public paths. Allow
+  emits twelve authenticated decisions: cwd request/commit, a four-decision
+  lstat preflight, and a six-decision realpath operation. Denial emits the two
+  ambient cwd decisions and then stops at the requested-stage lstat denial,
+  never reaching realpath.
+- Added an authenticated auxiliary-decision descriptor so the public harness
+  validates the exact cwd/lstat edges and action sets without crediting them as
+  the allow-path operation terminal. The same descriptor binds lstat as the
+  sole fail-closed denial terminal. Any other helper edge, action, terminal,
+  stage, authority stratum, or result still fails the batch.
+- The complete 155-recipe builtin Hermes batch passes and emits bound evidence.
+  Apple is now 24,040 required / 2,606 fully executable / 3,114 internally
+  verified / 18,320 unresolved; Windows remains 23,925 / 2,230 / 3,102 /
+  18,593. Criterion 7's literal denominator is 5,720/24,040 (23.8%) proven.
+- The independent promotion aggregate now re-derives the auxiliary edges,
+  actions, denial terminal, and source-route edge set from checked coverage.
+  It accepts the five real executed observations and rejects an unbound helper
+  action or substituted denial terminal. The combined recipe/public-evidence
+  suite passes 126 tests with 112,235 assertions; complete generated drift,
+  `./ref-check`, `cargo fmt --check`, and `git diff --check` are clean.
+- Hard part: a public export's source-derived allow terminal need not be the
+  terminal that rejects a denied call. Preserving both claims required modeling
+  reviewed helper edges explicitly, rather than discarding their decisions or
+  pretending the realpath terminal ran on denial.
+
 ## Next milestone
 
 Attack criterion 7's exact-target evidence gap through real public-surface

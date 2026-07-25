@@ -3696,6 +3696,112 @@ export function validatePublicFixtureRuntimeObservation(
     outcomeDeclaredCarrier ||
     effectBuiltinModuleImport ||
     nonCapabilityBuiltinModuleImport;
+  const effectBuiltinAuxiliaryDescriptors =
+    authored.invocationSchema ===
+      "ibex/capsec-builtin-export-invocation/1" &&
+    authored.kind === "builtin-export-call" &&
+    Array.isArray(authored.sourceDescriptor?.auxiliaryDecisionEdges)
+      ? authored.sourceDescriptor.auxiliaryDecisionEdges
+      : [];
+  const effectBuiltinAuxiliaryCarrier =
+    effectBuiltinAuxiliaryDescriptors.length > 0;
+  const effectBuiltinAuxiliaryByEdge = new Map();
+  const effectBuiltinDenialTerminalEdgeId =
+    effectBuiltinAuxiliaryCarrier
+      ? authored.sourceDescriptor.denialTerminalEdgeId
+      : null;
+  if (effectBuiltinAuxiliaryCarrier) {
+    for (const descriptor of effectBuiltinAuxiliaryDescriptors) {
+      exactKeys(
+        descriptor,
+        ["edgeId", "observedKey", "actionIds"],
+        `${recipe.fixtureId}: effect-builtin auxiliary descriptor`,
+      );
+      const edge = coverage?.edges?.find(
+        (candidate) => candidate.id === descriptor.edgeId,
+      );
+      const observedKey = edge
+        ? `${edge.surface?.kind}:${edge.surface?.name}`
+        : null;
+      const actionIds = canonicalSet(
+        (edge?.effects ?? []).map((effect) => effect.cap),
+      );
+      if (
+        edge?.classification !== "effects" ||
+        observedKey !== descriptor.observedKey ||
+        canonicalJson(actionIds) !==
+          canonicalJson(canonicalSet(descriptor.actionIds)) ||
+        effectBuiltinAuxiliaryByEdge.has(descriptor.edgeId)
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: effect-builtin auxiliary decision is not coverage-bound`,
+        );
+      }
+      effectBuiltinAuxiliaryByEdge.set(
+        descriptor.edgeId,
+        new Set(actionIds),
+      );
+    }
+    const exactRealpathCarrier =
+      authored.moduleSpecifier === "node:fs" &&
+      authored.exportName === "realpathSync" &&
+      canonicalJson(
+        effectBuiltinAuxiliaryDescriptors.map(
+          ({ observedKey, actionIds }) => ({
+            observedKey,
+            actionIds,
+          }),
+        ),
+      ) ===
+        canonicalJson([
+          {
+            observedKey: "native-op:__exactGetCwd",
+            actionIds: ["path:cwd-observe"],
+          },
+          {
+            observedKey: "native-op:__exactLstat",
+            actionIds: ["fs:list"],
+          },
+        ]) &&
+      effectBuiltinAuxiliaryDescriptors.find(
+        ({ observedKey }) => observedKey === "native-op:__exactLstat",
+      )?.edgeId === effectBuiltinDenialTerminalEdgeId;
+    const routeEdgeIds = (recipe.route?.alternatives ?? []).map(
+      ({ terminalObservedKey }) =>
+        coverage?.edges?.find(
+          (edge) =>
+            `${edge.surface?.kind}:${edge.surface?.name}` ===
+            terminalObservedKey,
+        )?.id,
+    );
+    const expectedAllowedEdges = canonicalSet([
+      ...routeEdgeIds,
+      ...effectBuiltinAuxiliaryByEdge.keys(),
+    ]);
+    if (
+      !exactRealpathCarrier ||
+      routeEdgeIds.some((edgeId) => typeof edgeId !== "string") ||
+      !effectBuiltinAuxiliaryByEdge.has(
+        effectBuiltinDenialTerminalEdgeId,
+      ) ||
+      canonicalJson(authored.allowedCoverageEdgeIds) !==
+        canonicalJson(expectedAllowedEdges)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: unsupported effect-builtin auxiliary carrier`,
+      );
+    }
+  } else if (
+    authored.sourceDescriptor?.denialTerminalEdgeId !== undefined
+  ) {
+    throw new Error(
+      `${recipe.fixtureId}: denial terminal has no authenticated auxiliary edge`,
+    );
+  }
+  const effectBuiltinDenialCarrier =
+    effectBuiltinAuxiliaryCarrier && recipe.scenario === "deny";
+  const runtimeAuxiliaryCarrier =
+    auxiliaryCarrier || effectBuiltinDenialCarrier;
   const nativeWorkerTerminal = nativeAsyncWorkerTerminal(authored);
   let effectBuiltinModuleImportIdentity = null;
   if (callbackInvariant) {
@@ -3874,11 +3980,46 @@ export function validatePublicFixtureRuntimeObservation(
       throw new Error(`${recipe.fixtureId}: malformed observed typed decision`);
     }
     stages.push(set.context.stage);
-    for (const effect of set.effects) {
+    const decisionEdgeIds = decision.gates.map(
+      (gate) => gate?.coverageEdgeId,
+    );
+    const decisionIsAuxiliary =
+      effectBuiltinAuxiliaryCarrier &&
+      decisionEdgeIds.every((edgeId) =>
+        effectBuiltinAuxiliaryByEdge.has(edgeId),
+      );
+    const decisionHasAuxiliary =
+      effectBuiltinAuxiliaryCarrier &&
+      decisionEdgeIds.some((edgeId) =>
+        effectBuiltinAuxiliaryByEdge.has(edgeId),
+      );
+    const decisionIsDesignatedDenialTerminal =
+      effectBuiltinDenialCarrier &&
+      decisionEdgeIds.every(
+        (edgeId) => edgeId === effectBuiltinDenialTerminalEdgeId,
+      );
+    if (decisionHasAuxiliary && !decisionIsAuxiliary) {
+      throw new Error(
+        `${recipe.fixtureId}: auxiliary and operation effects share one decision`,
+      );
+    }
+    for (const [effectIndex, effect] of set.effects.entries()) {
       if (typeof effect?.cap !== "string") {
         throw new Error(`${recipe.fixtureId}: observed effect has no action`);
       }
-      actions.add(effect.cap);
+      const edgeId = decision.gates[effectIndex]?.coverageEdgeId;
+      const auxiliaryActions = effectBuiltinAuxiliaryByEdge.get(edgeId);
+      if (
+        auxiliaryActions !== undefined &&
+        !auxiliaryActions.has(effect.cap)
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: auxiliary decision observed an unbound action`,
+        );
+      }
+      if (!decisionIsAuxiliary || decisionIsDesignatedDenialTerminal) {
+        actions.add(effect.cap);
+      }
     }
     for (const gate of decision.gates) {
       const edgeId = gate?.coverageEdgeId;
@@ -3900,7 +4041,12 @@ export function validatePublicFixtureRuntimeObservation(
           `${recipe.fixtureId}: observed an unknown coverage edge`,
         );
       }
-      terminals.add(terminal);
+      if (
+        !effectBuiltinAuxiliaryByEdge.has(edgeId) ||
+        decisionIsDesignatedDenialTerminal
+      ) {
+        terminals.add(terminal);
+      }
     }
     const deniedReturningModuleImport =
       authored.invocationSchema ===
@@ -3954,7 +4100,8 @@ export function validatePublicFixtureRuntimeObservation(
     }
     const deniedByExpectedResult =
       authored.expectedResult === "permission-denied" &&
-      !openTraversalDecision;
+      !openTraversalDecision &&
+      (!decisionIsAuxiliary || decisionIsDesignatedDenialTerminal);
     const expectedOutcome = outcomeDeclaredCarrier
       ? authored.expectedTypedOutcomes[decisionIndex]
       : deniedByExpectedResult || deniedReturningModuleImport
@@ -4230,10 +4377,20 @@ export function validatePublicFixtureRuntimeObservation(
   }
 
   let terminalObservedKey;
-  if (auxiliaryCarrier) {
+  if (runtimeAuxiliaryCarrier) {
     if (observation.typedDecisions.length > 0 && terminals.size !== 1) {
       throw new Error(
         `${recipe.fixtureId}: carrier evidence selected multiple auxiliaries`,
+      );
+    }
+    if (
+      effectBuiltinDenialCarrier &&
+      !terminals.has(
+        terminalByEdge.get(effectBuiltinDenialTerminalEdgeId),
+      )
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: public denial reached the wrong auxiliary terminal`,
       );
     }
     terminalObservedKey = observation.invocation.surfaceObservedKey;
@@ -4311,7 +4468,7 @@ export function validatePublicFixtureRuntimeObservation(
     CLOSED_SQLITE_CARRIER_OPERATIONS.has(authored.operation?.kind) &&
     observation.typedDecisions.length === 0 &&
     terminalObservedKey === recipe.terminalObservedKey;
-  const allowed = auxiliaryCarrier
+  const allowed = runtimeAuxiliaryCarrier
     ? [recipe.publicSurfaceProbe.surfaceObservedKey]
     : directTerminalBuiltinClosure || closedSqliteCarrierClosure
       ? [terminalObservedKey]
@@ -4322,7 +4479,7 @@ export function validatePublicFixtureRuntimeObservation(
     authored.expectedResult === "absent" &&
     recipe.expectedObservation?.kind === "target-absence";
   if (
-    auxiliaryCarrier
+    runtimeAuxiliaryCarrier
       ? !allowed.includes(terminalObservedKey)
       : exactTargetAbsence
         ? allowed?.length !== 0 ||

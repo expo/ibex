@@ -139,6 +139,24 @@ const coverage = {
       surface: { kind: "native-op", name: "__exactFsOpen" },
     },
     {
+      id: "edge.realpath-cwd",
+      classification: "effects",
+      surface: { kind: "native-op", name: "__exactGetCwd" },
+      effects: [{ cap: "path:cwd-observe", stages: ["requested"] }],
+    },
+    {
+      id: "edge.realpath-lstat",
+      classification: "effects",
+      surface: { kind: "native-op", name: "__exactLstat" },
+      effects: [{ cap: "fs:list", stages: ["requested"] }],
+    },
+    {
+      id: "edge.realpath-terminal",
+      classification: "effects",
+      surface: { kind: "native-op", name: "__exactRealpath" },
+      effects: [{ cap: "fs:list", stages: ["requested"] }],
+    },
+    {
       id: "edge.callback-terminal",
       classification: "effects",
       surface: { kind: "native-op", name: "__exactGetEnv" },
@@ -457,6 +475,126 @@ function openThenActFixture(scenario = "allow") {
       outcome: denial ? "deny" : "allow",
       traversal: false,
     }),
+  ];
+  return { catalog, recipe, observation };
+}
+
+function realpathAuxiliaryFixture(scenario = "allow") {
+  const catalog = completeCatalog();
+  const recipe = catalog.recipes[0];
+  const denial = scenario === "deny";
+  recipe.fixtureId = `fixture.public.realpath-sync.${scenario}`;
+  recipe.scenario = scenario;
+  recipe.actionIds = ["fs:list"];
+  recipe.terminalObservedKey = "builtin:export:node_fs:realpathSync";
+  recipe.route = {
+    surfaceObservedKeys: [recipe.terminalObservedKey],
+    alternatives: [
+      {
+        terminalObservedKey: "native-op:__exactRealpath",
+        proofPaths: ["export:realpathSync -> __exactRealpath"],
+      },
+    ],
+    ambiguousCallees: [],
+  };
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  invocation.moduleSpecifier = "node:fs";
+  invocation.exportName = "realpathSync";
+  invocation.sourceDescriptor = {
+    kind: "builtin-export",
+    sourceKey: "node_fs",
+    exportName: "realpathSync",
+    moduleSpecifiers: ["node:fs"],
+    sourceRef: "src/builtins/fs.js#exports:realpathSync",
+    auxiliaryDecisionEdges: [
+      {
+        edgeId: "edge.realpath-cwd",
+        observedKey: "native-op:__exactGetCwd",
+        actionIds: ["path:cwd-observe"],
+      },
+      {
+        edgeId: "edge.realpath-lstat",
+        observedKey: "native-op:__exactLstat",
+        actionIds: ["fs:list"],
+      },
+    ],
+    denialTerminalEdgeId: "edge.realpath-lstat",
+  };
+  invocation.sourceDescriptorDigest = taggedDigest(invocation.sourceDescriptor);
+  invocation.expectedResult = denial ? "permission-denied" : "return";
+  invocation.expectedTypedStages = denial
+    ? ["requested", "requested"]
+    : ["requested", "requested", "requested"];
+  invocation.expectedTypedDecisionCount =
+    invocation.expectedTypedStages.length;
+  invocation.allowedCoverageEdgeIds = [
+    "edge.realpath-cwd",
+    "edge.realpath-lstat",
+    "edge.realpath-terminal",
+  ];
+  invocation.expectedActionIds = ["fs:list"];
+  catalog.summary.byScenario = { [scenario]: 1 };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+
+  const actor = { kind: "root", identity: "project-root" };
+  const decision = ({ edgeId, action, outcome }) => ({
+    decisionSet: {
+      decisionSetSchema: "ibex/capsec-decision-set/1",
+      operationId: `${edgeId}:fixture`,
+      atomicityGroup: `${edgeId}.decision`,
+      combination: "conjunction",
+      context: {
+        stage: "requested",
+        actor,
+        constrainedPrincipals: [actor],
+        presentedHandleIds: [],
+      },
+      effects: [
+        {
+          cap: action,
+          effectOwner: actor,
+          resource: { kind: "fixture-occurrence" },
+        },
+      ],
+    },
+    gates: [
+      {
+        coverageEdgeId: edgeId,
+        targetCell: "complete",
+        definitionAndEdgePredicatesSatisfied: true,
+      },
+    ],
+    evidence: { outcome },
+  });
+  const observation = runtimeObservation(recipe);
+  observation.invocation.result = denial
+    ? {
+        kind: "throw",
+        errorName: "Error",
+        errorMessage: "Permission denied",
+      }
+    : { kind: "return", valueType: "string" };
+  observation.typedDecisions = [
+    decision({
+      edgeId: "edge.realpath-cwd",
+      action: "path:cwd-observe",
+      outcome: "allow",
+    }),
+    decision({
+      edgeId: "edge.realpath-lstat",
+      action: "fs:list",
+      outcome: denial ? "deny" : "allow",
+    }),
+    ...(!denial
+      ? [
+          decision({
+            edgeId: "edge.realpath-terminal",
+            action: "fs:list",
+            outcome: "allow",
+          }),
+        ]
+      : []),
   ];
   return { catalog, recipe, observation };
 }
@@ -2835,6 +2973,52 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/not an ambient open traversal/);
+  });
+
+  test("binds realpath helper decisions without replacing its allow terminal", () => {
+    for (const scenario of ["allow", "deny"]) {
+      const { recipe, observation } = realpathAuxiliaryFixture(scenario);
+      const execution = buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      });
+      expect(execution.evidence.terminalObservedKey).toBe(
+        scenario === "deny"
+          ? "builtin:export:node_fs:realpathSync"
+          : "native-op:__exactRealpath",
+      );
+    }
+
+    const wrongAuxiliaryAction = realpathAuxiliaryFixture();
+    wrongAuxiliaryAction.observation.typedDecisions[0].decisionSet.effects[0].cap =
+      "fs:list";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongAuxiliaryAction.recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongAuxiliaryAction.observation,
+        coverage,
+      }),
+    ).toThrow(/auxiliary decision observed an unbound action/);
+
+    const wrongDenialTerminal = realpathAuxiliaryFixture("deny");
+    const descriptor =
+      wrongDenialTerminal.recipe.publicSurfaceProbe.invocation.sourceDescriptor;
+    descriptor.denialTerminalEdgeId = "edge.realpath-cwd";
+    wrongDenialTerminal.recipe.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(descriptor);
+    wrongDenialTerminal.observation.invocation.sourceDescriptorDigest =
+      taggedDigest(descriptor);
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongDenialTerminal.recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongDenialTerminal.observation,
+        coverage,
+      }),
+    ).toThrow(/unsupported effect-builtin auxiliary carrier/);
   });
 
   test("accepts only source-bound fresh-engine effect builtin imports", () => {

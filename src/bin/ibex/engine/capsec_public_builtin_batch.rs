@@ -415,12 +415,12 @@ fn builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
 fn expected_authored_builtin_recipe_count(target: &str) -> usize {
     match target {
         // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
-        // +5 each on Apple for fs:list accessSync, fs:read readFileSync, and
-        // fs:write writeFileSync (their allow/deny/malformed/
+        // +5 each on Apple for fs:list accessSync/realpathSync, fs:read
+        // readFileSync, and fs:write writeFileSync (their allow/deny/malformed/
         // missing-attribution/wrong-principal scenario matrices). Windows
         // keeps 120: its node_fs enforcement route is ambiguous, so these
         // public probes are not authored there.
-        "aarch64-apple-darwin" => 150,
+        "aarch64-apple-darwin" => 155,
         "x86_64-pc-windows-msvc" => 120,
         target => panic!("builtin public recipe batch has no reviewed target shape for {target}"),
     }
@@ -430,7 +430,7 @@ fn expected_authored_builtin_recipe_count(target: &str) -> usize {
 fn capsec_public_builtin_recipe_counts_are_target_specific() {
     assert_eq!(
         expected_authored_builtin_recipe_count("aarch64-apple-darwin"),
-        150
+        155
     );
     assert_eq!(
         expected_authored_builtin_recipe_count("x86_64-pc-windows-msvc"),
@@ -518,11 +518,45 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
             // the write export additionally takes the literal payload.
             // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
             let expected_cap = match export_name {
-                "accessSync" | "lstatSync" | "statSync" => "fs:list",
+                "accessSync" | "lstatSync" | "realpathSync" | "statSync" => "fs:list",
                 "readFileSync" => "fs:read",
                 "writeFileSync" => "fs:write",
                 other => panic!("unsupported filesystem-file fs export {other}"),
             };
+            if export_name == "realpathSync" {
+                assert_eq!(
+                    invocation.source_descriptor["auxiliaryDecisionEdges"],
+                    serde_json::json!([
+                        {
+                            "edgeId": "surface.native.op.exactgetcwd.1bhagb7",
+                            "observedKey": "native-op:__exactGetCwd",
+                            "actionIds": ["path:cwd-observe"],
+                        },
+                        {
+                            "edgeId": "surface.native.op.exactlstat.1c98s6l",
+                            "observedKey": "native-op:__exactLstat",
+                            "actionIds": ["fs:list"],
+                        },
+                    ])
+                );
+                assert_eq!(
+                    invocation.source_descriptor["denialTerminalEdgeId"],
+                    "surface.native.op.exactlstat.1c98s6l"
+                );
+                assert_eq!(
+                    invocation.allowed_coverage_edge_ids,
+                    [
+                        "surface.native.op.exactaccess.1a12cmn",
+                        "surface.native.op.exactensurefs.1dih7no",
+                        "surface.native.op.exactgetcwd.1bhagb7",
+                        "surface.native.op.exactlstat.1c98s6l",
+                        "surface.native.op.exactrealpath.06qb6s2",
+                    ]
+                );
+            } else {
+                assert!(invocation.source_descriptor["auxiliaryDecisionEdges"].is_null());
+                assert!(invocation.source_descriptor["denialTerminalEdgeId"].is_null());
+            }
             let logical_path = serde_json::json!({
                 "root": "project",
                 "components": [
@@ -730,6 +764,48 @@ fn validate_observation(
         .cloned()
         .collect::<BTreeSet<_>>();
     assert!(!allowed_edges.is_empty());
+    // A public carrier may authenticate reviewed helper decisions before its
+    // source-derived terminal. realpathSync is the first such metadata carrier:
+    // cwd and lstat are exact auxiliaries, and lstat is the fail-closed denial
+    // terminal when authority is absent.
+    // @ref LLP 0037#additional-multi-edge-metadata-evidence-realpathsync
+    let auxiliary_edges = invocation.source_descriptor["auxiliaryDecisionEdges"]
+        .as_array()
+        .map(|descriptors| {
+            descriptors
+                .iter()
+                .map(|descriptor| {
+                    let edge_id = descriptor["edgeId"]
+                        .as_str()
+                        .expect("auxiliary decision descriptor has no edgeId")
+                        .to_owned();
+                    let action_ids = descriptor["actionIds"]
+                        .as_array()
+                        .expect("auxiliary decision descriptor has no actionIds")
+                        .iter()
+                        .map(|action| {
+                            action
+                                .as_str()
+                                .expect("auxiliary decision action must be a string")
+                                .to_owned()
+                        })
+                        .collect::<BTreeSet<_>>();
+                    assert!(!action_ids.is_empty());
+                    assert!(allowed_edges.contains(&edge_id));
+                    (edge_id, action_ids)
+                })
+                .collect::<BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
+    let denial_terminal_edge = invocation.source_descriptor["denialTerminalEdgeId"]
+        .as_str()
+        .map(str::to_owned);
+    if let Some(edge_id) = &denial_terminal_edge {
+        assert!(
+            auxiliary_edges.contains_key(edge_id),
+            "denial terminal must be an authenticated auxiliary edge"
+        );
+    }
     let mut observed_edges = BTreeSet::new();
     let mut observed_actions = BTreeSet::new();
     let mut observed_terminals = BTreeSet::new();
@@ -747,31 +823,58 @@ fn validate_observation(
             .as_array()
             .expect("observed decision has no gates");
         assert_eq!(effects.len(), gates.len());
-        for effect in effects {
-            observed_actions.insert(
-                effect["cap"]
+        let public_denial = recipe.scenario == "deny";
+        let decision_is_auxiliary = gates.iter().all(|gate| {
+            auxiliary_edges.contains_key(
+                gate["coverageEdgeId"]
                     .as_str()
-                    .expect("observed effect has no action")
-                    .to_owned(),
-            );
-        }
-        for gate in gates {
+                    .expect("observed gate has no coverage edge"),
+            )
+        });
+        let decision_is_designated_denial_terminal = public_denial
+            && denial_terminal_edge.as_ref().is_some_and(|denial_edge| {
+                gates.iter().all(|gate| {
+                    gate["coverageEdgeId"]
+                        .as_str()
+                        .is_some_and(|edge_id| edge_id == denial_edge)
+                })
+            });
+        for (effect, gate) in effects.iter().zip(gates) {
+            let action = effect["cap"]
+                .as_str()
+                .expect("observed effect has no action")
+                .to_owned();
             let edge_id = gate["coverageEdgeId"]
                 .as_str()
                 .expect("observed gate has no coverage edge");
             assert!(allowed_edges.contains(edge_id));
+            if let Some(auxiliary_actions) = auxiliary_edges.get(edge_id) {
+                assert!(
+                    auxiliary_actions.contains(&action),
+                    "{}: auxiliary edge {edge_id} observed undeclared action {action}",
+                    recipe.fixture_id
+                );
+            }
+            if !auxiliary_edges.contains_key(edge_id)
+                || decision_is_designated_denial_terminal
+            {
+                observed_actions.insert(action);
+            }
             assert_eq!(set["atomicityGroup"], format!("{edge_id}.decision"));
             assert_eq!(gate["targetCell"], "complete");
             assert_eq!(gate["definitionAndEdgePredicatesSatisfied"], true);
             observed_edges.insert(edge_id.to_owned());
-            observed_terminals.insert(
-                terminal_by_edge
-                    .get(edge_id)
-                    .unwrap_or_else(|| panic!("unknown observed edge {edge_id}"))
-                    .clone(),
-            );
+            if !auxiliary_edges.contains_key(edge_id)
+                || decision_is_designated_denial_terminal
+            {
+                observed_terminals.insert(
+                    terminal_by_edge
+                        .get(edge_id)
+                        .unwrap_or_else(|| panic!("unknown observed edge {edge_id}"))
+                        .clone(),
+                );
+            }
         }
-        let public_denial = recipe.scenario == "deny";
         // LLP 0037 D1/D4: an fs:read export (readFileSync) opens the file (an
         // fs:list path traversal credited to ambient mount authority) and then
         // reads it (the fs:read operation). The traversal is always allowed —
@@ -783,7 +886,9 @@ fn validate_observation(
             recipe.action_ids == ["fs:read"] || recipe.action_ids == ["fs:write"];
         let decision_is_traversal = opens_via_traversal
             && effects.iter().all(|effect| effect["cap"] == "fs:list");
-        let decision_denied = public_denial && !decision_is_traversal;
+        let decision_denied = public_denial
+            && !decision_is_traversal
+            && (!decision_is_auxiliary || decision_is_designated_denial_terminal);
         let expected_outcome = if decision_denied { "deny" } else { "allow" };
         assert_eq!(
             decision["evidence"]["outcome"], expected_outcome,
@@ -815,13 +920,22 @@ fn validate_observation(
         // Authenticating the retained project-mount object is likewise root
         // ambient authority over the empty logical root.
         // @ref LLP 0023#21-staged-authorization-identity
+        let ambient_auxiliary_decision = gates.iter().all(|gate| {
+            auxiliary_edges
+                .get(
+                    gate["coverageEdgeId"]
+                        .as_str()
+                        .expect("observed gate has no coverage edge"),
+                )
+                .is_some_and(|actions| actions.contains("path:cwd-observe"))
+        });
         let (expected_stratum, expected_reason, expected_source_prefix) = if decision_denied {
             (
                 "principal-denial",
                 "principal-denial",
                 Some("principal.000000.denial."),
             )
-        } else if mount_binding_discovery || decision_is_traversal {
+        } else if ambient_auxiliary_decision || mount_binding_discovery || decision_is_traversal {
             ("ambient-root", "ambient-root", None)
         } else {
             (
@@ -888,6 +1002,19 @@ fn validate_observation(
     }
     assert_eq!(observed_terminals.len(), 1);
     let terminal = observed_terminals.into_iter().next().unwrap();
+    if recipe.scenario == "deny" {
+        if let Some(denial_edge_id) = denial_terminal_edge {
+            assert_eq!(
+                terminal,
+                *terminal_by_edge
+                    .get(&denial_edge_id)
+                    .expect("unknown designated denial terminal"),
+                "{}: public denial reached the wrong auxiliary terminal",
+                recipe.fixture_id
+            );
+            return probe.surface_observed_key.clone();
+        }
+    }
     if invocation.invocation_schema == "ibex/capsec-builtin-module-import-invocation/1" {
         assert_eq!(
             terminal, "native-op:__exactGetEnv",

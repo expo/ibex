@@ -5,6 +5,7 @@
 **Systems:** Security, Runtime, Devtools, Verification
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-23
+**Revised:** 2026-07-25 (`node:fs.realpathSync` binds its exact cwd/lstat auxiliary decisions, allow-path realpath terminal, and fail-closed lstat denial terminal; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.accessSync` extends the direct metadata family using an engine-observed six-decision allow sequence and first-request denial; five Apple fixture rows move from residual to executable without relaxing route, action, stratum, or result validation)
 **Revised:** 2026-07-25 (aligns the promotion aggregate with the accepted D1/D2/D4 open-then-act rule: declared read/write actions must be observed, and the only permitted surplus is an ambient, path-occurrence-bound `fs:list` open traversal; the Rust producer and JavaScript aggregate now enforce the same invariant)
 **Revised:** 2026-07-23 (author accepted the recommended rulings on D1/D2/D3)
@@ -108,6 +109,27 @@ discovery resolves through ambient-root. Denial stops at the first `requested`
 decision. The sequence was captured from a deliberately failing bound-engine
 batch and then pinned; the completed 150-recipe builtin batch passes without
 permitting an auxiliary action or terminal.
+
+### Additional multi-edge metadata evidence: `realpathSync`
+
+`node:fs.realpathSync` demonstrates a distinct public-carrier shape. On the
+reviewed Apple engine its allow path produces twelve typed decisions:
+
+`requested, commit` for `path:cwd-observe`; then
+`requested, discovery, requested, repeat` for the `fs:list` lstat preflight;
+then `requested, discovery, requested, repeat, repeat, repeat` for the
+source-derived `fs:list` realpath terminal.
+
+The invocation descriptor authenticates the exact cwd and lstat coverage edges
+and their action sets as auxiliaries. The harness excludes those auxiliary
+actions and terminals from the operation claim, requires the realpath edge on
+allow, and still validates every decision's identity, target cell, stage,
+outcome, and decisive stratum. When `fs:list` is denied, execution stops after
+the two ambient-root cwd decisions and the requested-stage lstat denial; the
+realpath edge is correctly never reached. The descriptor therefore binds lstat
+as the one exact fail-closed denial terminal for this public carrier. No other
+auxiliary edge or action is accepted. The complete 155-recipe builtin batch
+passes with these constraints.
 
 ## Decisions requested
 

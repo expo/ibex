@@ -341,12 +341,12 @@ describe("exact-target CapSec executable recipes", () => {
     // production graph deliberately uses deferred call-time links. The net-new
     // WebGPU obligations remain unresolved until their public-surface probes
     // are authored.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_601);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_606);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_114);
-    expect(recipes.summary.unresolvedFixtures).toBe(18_325);
+    expect(recipes.summary.unresolvedFixtures).toBe(18_320);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -511,10 +511,11 @@ describe("exact-target CapSec executable recipes", () => {
           "public-surface-filesystem-not-typed-on-target",
         ),
     );
-    // 138 = 123 + the 15 fs:list accessSync, fs:read readFileSync, and
-    // fs:write writeFileSync rows now Apple-authored (LLP 0037), and therefore
-    // "not typed on target" for the ambiguous Windows route.
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(138);
+    // 143 = 123 + the 20 fs:list accessSync/realpathSync, fs:read
+    // readFileSync, and fs:write writeFileSync rows now Apple-authored
+    // (LLP 0037), and therefore "not typed on target" for the ambiguous
+    // Windows route.
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(143);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
@@ -767,7 +768,12 @@ describe("exact-target CapSec executable recipes", () => {
   });
 
   test("binds synchronous filesystem metadata probes to an owned logical path", () => {
-    for (const exportName of ["accessSync", "lstatSync", "statSync"]) {
+    for (const exportName of [
+      "accessSync",
+      "lstatSync",
+      "realpathSync",
+      "statSync",
+    ]) {
       const surface = `builtin:export:node_fs:${exportName}`;
       const effectRecipes = recipes.recipes.filter(
         (recipe) =>
@@ -811,12 +817,51 @@ describe("exact-target CapSec executable recipes", () => {
         expect(recipe.residualReasons).not.toContain(
           "ambiguous-static-enforcement-route",
         );
+        if (exportName === "realpathSync") {
+          expect(
+            recipe.publicSurfaceProbe.invocation.sourceDescriptor
+              .auxiliaryDecisionEdges,
+          ).toEqual([
+            {
+              edgeId: "surface.native.op.exactgetcwd.1bhagb7",
+              observedKey: "native-op:__exactGetCwd",
+              actionIds: ["path:cwd-observe"],
+            },
+            {
+              edgeId: "surface.native.op.exactlstat.1c98s6l",
+              observedKey: "native-op:__exactLstat",
+              actionIds: ["fs:list"],
+            },
+          ]);
+          expect(
+            recipe.publicSurfaceProbe.invocation.sourceDescriptor
+              .denialTerminalEdgeId,
+          ).toBe("surface.native.op.exactlstat.1c98s6l");
+          expect(
+            recipe.publicSurfaceProbe.invocation.allowedCoverageEdgeIds,
+          ).toEqual([
+            "surface.native.op.exactaccess.1a12cmn",
+            "surface.native.op.exactensurefs.1dih7no",
+            "surface.native.op.exactgetcwd.1bhagb7",
+            "surface.native.op.exactlstat.1c98s6l",
+            "surface.native.op.exactrealpath.06qb6s2",
+          ]);
+        } else {
+          expect(
+            recipe.publicSurfaceProbe.invocation.sourceDescriptor,
+          ).not.toHaveProperty("auxiliaryDecisionEdges");
+          expect(
+            recipe.publicSurfaceProbe.invocation.sourceDescriptor,
+          ).not.toHaveProperty("denialTerminalEdgeId");
+        }
         const denial = recipe.scenario === "deny";
         expect(
           recipe.publicSurfaceProbe.invocation.expectedTypedStages,
         ).toEqual(
           denial
-            ? ["requested"]
+            ? exportName === "realpathSync"
+              ? ["requested", "commit", "requested"]
+              : ["requested"]
             : exportName === "accessSync"
               ? [
                   "requested",
@@ -826,20 +871,39 @@ describe("exact-target CapSec executable recipes", () => {
                   "repeat",
                   "repeat",
                 ]
-            : exportName === "statSync"
-              ? ["requested", "discovery", "requested", "repeat", "repeat"]
-              : ["requested", "discovery", "requested", "repeat"],
+              : exportName === "realpathSync"
+                ? [
+                    "requested",
+                    "commit",
+                    "requested",
+                    "discovery",
+                    "requested",
+                    "repeat",
+                    "requested",
+                    "discovery",
+                    "requested",
+                    "repeat",
+                    "repeat",
+                    "repeat",
+                  ]
+                : exportName === "statSync"
+                  ? ["requested", "discovery", "requested", "repeat", "repeat"]
+                  : ["requested", "discovery", "requested", "repeat"],
         );
         expect(
           recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
         ).toBe(
           denial
-            ? 1
+            ? exportName === "realpathSync"
+              ? 3
+              : 1
             : exportName === "accessSync"
               ? 6
-              : exportName === "statSync"
-                ? 5
-                : 4,
+              : exportName === "realpathSync"
+                ? 12
+                : exportName === "statSync"
+                  ? 5
+                  : 4,
         );
       }
     }

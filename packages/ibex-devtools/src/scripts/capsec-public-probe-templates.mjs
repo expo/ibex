@@ -57,6 +57,7 @@ const FS_LIST_EXPORTS = new Set([
   "accessSync",
   "lstatSync",
   "readdirSync",
+  "realpathSync",
   "statSync",
 ]);
 // Synchronous, path-taking fs:read exports. Each opens the authenticated fixture
@@ -109,6 +110,14 @@ const BUILTIN_MODULE_ENVIRONMENT_READ_SOURCES = new Set([
   "util_types_alias",
 ]);
 const ENVIRONMENT_AUXILIARY_OBSERVED_KEY = "native-op:__exactGetEnv";
+// realpathSync authenticates its cwd and lstat preflight as separately gated
+// helpers. They are admitted as exact auxiliary edges, never as substitutes
+// for the allow-path realpath terminal.
+// @ref LLP 0037#additional-multi-edge-metadata-evidence-realpathsync
+const REALPATH_AUXILIARY_DECISIONS = new Map([
+  ["native-op:__exactGetCwd", ["path:cwd-observe"]],
+  ["native-op:__exactLstat", ["fs:list"]],
+]);
 
 const BUILTIN_BATCH_COMMAND = Object.freeze(
   capsecSecureCargoTestCommand("capsec_public_builtin_recipe_batch", true),
@@ -212,6 +221,27 @@ function allowedCoverageEdgeIdsForRoute(route, coverageByObservedKey) {
   }
   edgeIds.sort();
   return edgeIds;
+}
+
+function realpathAuxiliaryDecisionEdges(coverageByObservedKey) {
+  const descriptors = [];
+  for (const [observedKey, actionIds] of REALPATH_AUXILIARY_DECISIONS) {
+    const edge = coverageByObservedKey.get(observedKey);
+    if (
+      edge?.classification !== "effects" ||
+      canonicalJson(
+        [...new Set((edge.effects ?? []).map((effect) => effect.cap))].sort(),
+      ) !== canonicalJson([...actionIds].sort())
+    ) {
+      return null;
+    }
+    descriptors.push({
+      edgeId: edge.id,
+      observedKey,
+      actionIds: [...actionIds],
+    });
+  }
+  return descriptors;
 }
 
 export function authoredBuiltinPublicProbe({
@@ -513,8 +543,27 @@ export function authoredBuiltinPublicProbe({
   if (!descriptor) return null;
   const directoryProbe = exportName === "readdirSync";
   const accessMetadataProbe = exportName === "accessSync";
+  const realpathMetadataProbe = exportName === "realpathSync";
   const followedMetadataProbe = exportName === "statSync";
   const logicalPath = directoryProbe ? FS_DIRECTORY_PATH : FS_FIXTURE_PATH;
+  const auxiliaryDecisionEdges = realpathMetadataProbe
+    ? realpathAuxiliaryDecisionEdges(coverageByObservedKey)
+    : [];
+  if (!auxiliaryDecisionEdges) return null;
+  if (auxiliaryDecisionEdges.length > 0) {
+    descriptor.auxiliaryDecisionEdges = auxiliaryDecisionEdges;
+  }
+  if (realpathMetadataProbe) {
+    descriptor.denialTerminalEdgeId = auxiliaryDecisionEdges.find(
+      ({ observedKey }) => observedKey === "native-op:__exactLstat",
+    ).edgeId;
+  }
+  const invocationAllowedCoverageEdgeIds = [
+    ...new Set([
+      ...allowedCoverageEdgeIds,
+      ...auxiliaryDecisionEdges.map(({ edgeId }) => edgeId),
+    ]),
+  ].sort();
 
   return {
     kind: "public-surface-invocation",
@@ -561,17 +610,23 @@ export function authoredBuiltinPublicProbe({
       // @ref LLP 0023#21-staged-authorization-identity
       expectedTypedDecisionCount:
         publicDenial
-          ? 1
+          ? realpathMetadataProbe
+            ? 3
+            : 1
           : directoryProbe
             ? 7
             : accessMetadataProbe
               ? 6
+              : realpathMetadataProbe
+                ? 12
               : followedMetadataProbe
                 ? 5
                 : 4,
       expectedTypedStages:
         publicDenial
-          ? ["requested"]
+          ? realpathMetadataProbe
+            ? ["requested", "commit", "requested"]
+            : ["requested"]
           : directoryProbe
             ? [
                 "requested",
@@ -591,10 +646,25 @@ export function authoredBuiltinPublicProbe({
                   "repeat",
                   "repeat",
                 ]
+              : realpathMetadataProbe
+                ? [
+                    "requested",
+                    "commit",
+                    "requested",
+                    "discovery",
+                    "requested",
+                    "repeat",
+                    "requested",
+                    "discovery",
+                    "requested",
+                    "repeat",
+                    "repeat",
+                    "repeat",
+                  ]
             : followedMetadataProbe
               ? ["requested", "discovery", "requested", "repeat", "repeat"]
               : ["requested", "discovery", "requested", "repeat"],
-      allowedCoverageEdgeIds,
+      allowedCoverageEdgeIds: invocationAllowedCoverageEdgeIds,
       expectedActionIds: ["fs:list"],
     },
   };

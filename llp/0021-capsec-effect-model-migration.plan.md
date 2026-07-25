@@ -1822,8 +1822,8 @@ six mechanisms once and expands that scenario-class observation into exact
 fixture records carrying the fixture plan, common execution binding, engine
 digest, result marker, and artifact digest. Report generation validates those
 records independently; catalog status alone leaves the fixtures missing.
-Apple now has 2,601 fully executable rows, 3,114 internally verified rows, and
-18,325 unresolved rows;
+Apple now has 2,606 fully executable rows, 3,114 internally verified rows, and
+18,320 unresolved rows;
 Windows has 3,102 internally verified rows and 18,593 unresolved rows. The
 public callback batch is correspondingly pinned to its eight exact authored
 mechanisms. Portable recipe projection preserves internal rows under their
