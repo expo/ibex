@@ -3194,6 +3194,36 @@ function validateRuntimeInvocation(observation, recipe) {
         );
       }
     }
+  } else if (authored.expectedResult === "boolean-return") {
+    exactKeys(
+      invocation.result,
+      [
+        "kind",
+        "moduleSpecifier",
+        "exportName",
+        "valueType",
+        "booleanValue",
+      ],
+      `${recipe.fixtureId}: builtin boolean-return result`,
+    );
+    if (
+      authored.invocationSchema !==
+        "ibex/capsec-builtin-export-invocation/1" ||
+      authored.kind !== "builtin-export-call" ||
+      authored.moduleSpecifier !== "node:fs" ||
+      authored.exportName !== "existsSync" ||
+      typeof authored.expectedBooleanValue !== "boolean" ||
+      authored.expectedBooleanValue !== (recipe.scenario !== "deny") ||
+      invocation.result.kind !== "return" ||
+      invocation.result.moduleSpecifier !== authored.moduleSpecifier ||
+      invocation.result.exportName !== authored.exportName ||
+      invocation.result.valueType !== "boolean" ||
+      invocation.result.booleanValue !== authored.expectedBooleanValue
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: builtin boolean return did not match its authored value`,
+      );
+    }
   } else if (authored.expectedResult === "permission-denied") {
     const builtinModuleImport =
       authored.invocationSchema ===
@@ -4099,7 +4129,9 @@ export function validatePublicFixtureRuntimeObservation(
       }
     }
     const deniedByExpectedResult =
-      authored.expectedResult === "permission-denied" &&
+      (authored.expectedResult === "permission-denied" ||
+        (authored.expectedResult === "boolean-return" &&
+          recipe.scenario === "deny")) &&
       !openTraversalDecision &&
       (!decisionIsAuxiliary || decisionIsDesignatedDenialTerminal);
     const expectedOutcome = outcomeDeclaredCarrier

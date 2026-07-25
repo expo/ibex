@@ -82,6 +82,8 @@ struct BuiltinInvocation {
     setup: serde_json::Value,
     required_authority: Vec<serde_json::Value>,
     expected_result: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    expected_boolean_value: Option<bool>,
     expected_typed_decision_count: usize,
     expected_typed_stages: Vec<String>,
     allowed_coverage_edge_ids: Vec<String>,
@@ -415,12 +417,12 @@ fn builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
 fn expected_authored_builtin_recipe_count(target: &str) -> usize {
     match target {
         // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
-        // +5 each on Apple for fs:list accessSync/realpathSync/statfsSync,
+        // +5 each on Apple for fs:list accessSync/existsSync/realpathSync/statfsSync,
         // fs:read readFileSync, and fs:write writeFileSync (their allow/deny/
         // malformed/missing-attribution/wrong-principal scenario matrices).
         // Windows keeps 120: its node_fs enforcement route is ambiguous, so
         // these public probes are not authored there.
-        "aarch64-apple-darwin" => 160,
+        "aarch64-apple-darwin" => 165,
         "x86_64-pc-windows-msvc" => 120,
         target => panic!("builtin public recipe batch has no reviewed target shape for {target}"),
     }
@@ -430,7 +432,7 @@ fn expected_authored_builtin_recipe_count(target: &str) -> usize {
 fn capsec_public_builtin_recipe_counts_are_target_specific() {
     assert_eq!(
         expected_authored_builtin_recipe_count("aarch64-apple-darwin"),
-        160
+        165
     );
     assert_eq!(
         expected_authored_builtin_recipe_count("x86_64-pc-windows-msvc"),
@@ -446,7 +448,7 @@ fn invocation_script(invocation: &BuiltinInvocation, arguments: &[serde_json::Va
                 .expect("serialize imported builtin module")
         ),
         "ibex/capsec-builtin-export-invocation/1" => format!(
-            "JSON.stringify((function(){{var m={};var e={};try{{var api=require(m);var f=api[e];if(typeof f!==\"function\")return {{kind:\"missing\",moduleSpecifier:m,exportName:e}};var value=Reflect.apply(f,api,{});return {{kind:\"return\",moduleSpecifier:m,exportName:e,valueType:value===null?\"null\":typeof value}};}}catch(error){{return {{kind:\"throw\",moduleSpecifier:m,exportName:e,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}};}}}})())",
+            "JSON.stringify((function(){{var m={};var e={};var b={};try{{var api=require(m);var f=api[e];if(typeof f!==\"function\")return {{kind:\"missing\",moduleSpecifier:m,exportName:e}};var value=Reflect.apply(f,api,{});var result={{kind:\"return\",moduleSpecifier:m,exportName:e,valueType:value===null?\"null\":typeof value}};if(b)result.booleanValue=value;return result;}}catch(error){{return {{kind:\"throw\",moduleSpecifier:m,exportName:e,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}};}}}})())",
             serde_json::to_string(&invocation.module_specifier)
                 .expect("serialize builtin module"),
             serde_json::to_string(
@@ -456,6 +458,7 @@ fn invocation_script(invocation: &BuiltinInvocation, arguments: &[serde_json::Va
                     .expect("builtin export invocation has no export name"),
             )
             .expect("serialize builtin export"),
+            invocation.expected_result == "boolean-return",
             serde_json::to_string(arguments).expect("serialize builtin arguments")
         ),
         schema => panic!("unsupported effect-builtin invocation schema {schema}"),
@@ -518,9 +521,12 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
             // the write export additionally takes the literal payload.
             // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
             let expected_cap = match export_name {
-                "accessSync" | "lstatSync" | "realpathSync" | "statfsSync" | "statSync" => {
-                    "fs:list"
-                }
+                "accessSync"
+                | "existsSync"
+                | "lstatSync"
+                | "realpathSync"
+                | "statfsSync"
+                | "statSync" => "fs:list",
                 "readFileSync" => "fs:read",
                 "writeFileSync" => "fs:write",
                 other => panic!("unsupported filesystem-file fs export {other}"),
@@ -735,6 +741,20 @@ fn validate_observation(
     );
     match invocation.expected_result.as_str() {
         "return" => assert_eq!(invocation_result["kind"], "return"),
+        "boolean-return" => {
+            assert_eq!(
+                *invocation_result,
+                serde_json::json!({
+                    "kind": "return",
+                    "moduleSpecifier": invocation.module_specifier,
+                    "exportName": invocation.export_name,
+                    "valueType": "boolean",
+                    "booleanValue": invocation.expected_boolean_value,
+                }),
+                "{}: boolean-return builtin result drifted",
+                recipe.fixture_id
+            );
+        }
         "permission-denied" => {
             assert_eq!(invocation_result["kind"], "throw");
             assert!(

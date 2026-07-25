@@ -139,6 +139,18 @@ const coverage = {
       surface: { kind: "native-op", name: "__exactFsOpen" },
     },
     {
+      id: "edge.exists-access",
+      classification: "effects",
+      surface: { kind: "native-op", name: "__exactAccess" },
+      effects: [{ cap: "fs:list", stages: ["requested"] }],
+    },
+    {
+      id: "edge.exists-ensure",
+      classification: "effects",
+      surface: { kind: "native-op", name: "__exactEnsureFs" },
+      effects: [{ cap: "fs:list", stages: ["requested"] }],
+    },
+    {
       id: "edge.realpath-cwd",
       classification: "effects",
       surface: { kind: "native-op", name: "__exactGetCwd" },
@@ -595,6 +607,98 @@ function realpathAuxiliaryFixture(scenario = "allow") {
           }),
         ]
       : []),
+  ];
+  return { catalog, recipe, observation };
+}
+
+function existsSyncBooleanFixture(scenario = "allow") {
+  const catalog = completeCatalog();
+  const recipe = catalog.recipes[0];
+  const denial = scenario === "deny";
+  const surfaceObservedKey = "builtin:export:node_fs:existsSync";
+  recipe.fixtureId = `fixture.public.exists-sync.${scenario}`;
+  recipe.scenario = scenario;
+  recipe.actionIds = ["fs:list"];
+  recipe.terminalObservedKey = surfaceObservedKey;
+  recipe.route = {
+    surfaceObservedKeys: [surfaceObservedKey],
+    alternatives: [
+      {
+        terminalObservedKey: "native-op:__exactAccess",
+        proofPaths: ["export:existsSync -> existsSync -> __exactAccess"],
+      },
+      {
+        terminalObservedKey: "native-op:__exactEnsureFs",
+        proofPaths: [
+          "export:existsSync -> existsSync -> ensureExactFs -> __exactEnsureFs",
+        ],
+      },
+    ],
+    ambiguousCallees: [],
+  };
+  recipe.publicSurfaceProbe.surfaceObservedKey = surfaceObservedKey;
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  invocation.moduleSpecifier = "node:fs";
+  invocation.exportName = "existsSync";
+  invocation.sourceDescriptor = {
+    kind: "builtin-export",
+    sourceKey: "node_fs",
+    exportName: "existsSync",
+    moduleSpecifiers: ["node:fs"],
+    sourceRef: "src/builtins/fs.js#exports:existsSync",
+  };
+  invocation.sourceDescriptorDigest = taggedDigest(invocation.sourceDescriptor);
+  invocation.expectedResult = "boolean-return";
+  invocation.expectedBooleanValue = !denial;
+  invocation.expectedTypedStages = ["requested"];
+  invocation.expectedTypedDecisionCount = 1;
+  invocation.allowedCoverageEdgeIds = [
+    "edge.exists-access",
+    "edge.exists-ensure",
+  ];
+  invocation.expectedActionIds = ["fs:list"];
+  catalog.summary.byScenario = { [scenario]: 1 };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+
+  const actor = { kind: "root", identity: "project-root" };
+  const observation = runtimeObservation(recipe);
+  observation.invocation.result = {
+    kind: "return",
+    moduleSpecifier: "node:fs",
+    exportName: "existsSync",
+    valueType: "boolean",
+    booleanValue: !denial,
+  };
+  observation.typedDecisions = [
+    {
+      decisionSet: {
+        decisionSetSchema: "ibex/capsec-decision-set/1",
+        operationId: "exists-sync:fixture",
+        atomicityGroup: "edge.exists-access.decision",
+        combination: "conjunction",
+        context: {
+          stage: "requested",
+          actor,
+          constrainedPrincipals: [actor],
+          presentedHandleIds: [],
+        },
+        effects: [
+          {
+            cap: "fs:list",
+            effectOwner: actor,
+            resource: { kind: "fixture-occurrence" },
+          },
+        ],
+      },
+      gates: [
+        {
+          coverageEdgeId: "edge.exists-access",
+          targetCell: "complete",
+          definitionAndEdgePredicatesSatisfied: true,
+        },
+      ],
+      evidence: { outcome: denial ? "deny" : "allow" },
+    },
   ];
   return { catalog, recipe, observation };
 }
@@ -3019,6 +3123,32 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/unsupported effect-builtin auxiliary carrier/);
+  });
+
+  test("binds existsSync denial to an exact false return", () => {
+    for (const scenario of ["allow", "deny"]) {
+      const { recipe, observation } = existsSyncBooleanFixture(scenario);
+      const execution = buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      });
+      expect(execution.evidence.terminalObservedKey).toBe(
+        "native-op:__exactAccess",
+      );
+    }
+
+    const falsePositive = existsSyncBooleanFixture("deny");
+    falsePositive.observation.invocation.result.booleanValue = true;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: falsePositive.recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: falsePositive.observation,
+        coverage,
+      }),
+    ).toThrow(/boolean return did not match its authored value/);
   });
 
   test("accepts only source-bound fresh-engine effect builtin imports", () => {

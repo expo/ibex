@@ -1012,6 +1012,31 @@ ticket closes.
   remaining literal denominator. Important enforcement mechanisms remain
   about 96% complete and the overall requested task remains about 86%.
 
+### 2026-07-25 — `existsSync` denial-return evidence
+
+- Extended the direct `fs:list` family through `node:fs.existsSync`, promoting
+  five Apple effect scenarios while preserving Windows's ambiguous
+  filesystem-route disposition.
+- Bound the API's unusual public result: an allowed lookup follows the
+  six-decision `__exactAccess` sequence and returns boolean `true`; a denied
+  lookup emits the requested-stage typed denial, catches the filesystem error,
+  and returns boolean `false`. The producer and independent promotion validator
+  both reject a true result after denial or a substituted route edge.
+- The complete 165-recipe builtin Hermes batch passes. The combined
+  template/recipe/promotion-evidence suite passes 150 tests with 112,546
+  assertions; a dedicated aggregate test accepts allow/deny and rejects the
+  false-positive denial result.
+- Apple is now 24,040 required / 2,626 fully executable / 3,114 internally
+  verified / 18,300 unresolved. Windows remains 23,925 / 2,240 / 3,102 /
+  18,583. Criterion 7's literal Apple denominator is 5,740/24,040 (23.9%)
+  proven.
+- Hard part: APIs that intentionally swallow authorization errors need
+  value-bound evidence. Treating any normal return as success would erase the
+  distinction between “allowed and present” and “denied,” so this tranche adds
+  an exact boolean result contract rather than weakening denial validation.
+  Important enforcement mechanisms remain about 96% complete and the overall
+  requested task remains about 86%.
+
 ## Next milestone
 
 Attack criterion 7's exact-target evidence gap through real public-surface

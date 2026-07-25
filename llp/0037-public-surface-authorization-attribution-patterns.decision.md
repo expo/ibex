@@ -5,6 +5,7 @@
 **Systems:** Security, Runtime, Devtools, Verification
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-23
+**Revised:** 2026-07-25 (`node:fs.existsSync` binds its swallowed permission denial to both the exact denied `fs:list` decision and an exact boolean `false` public result; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.statfsSync` extends the direct metadata family using an engine-observed six-decision allow sequence and first-request denial; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.realpathSync` binds its exact cwd/lstat auxiliary decisions, allow-path realpath terminal, and fail-closed lstat denial terminal; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.accessSync` extends the direct metadata family using an engine-observed six-decision allow sequence and first-request denial; five Apple fixture rows move from residual to executable without relaxing route, action, stratum, or result validation)
@@ -123,6 +124,23 @@ deliberately failing bound-engine run exposed this sequence before it was
 pinned. The complete 160-recipe builtin batch and the independent promotion
 validator accept all five scenario observations without allowing another edge,
 action, stage, result, or authority stratum.
+
+### Denial-return evidence: `existsSync`
+
+`node:fs.existsSync` deliberately converts filesystem failures into a boolean
+result. On the reviewed Apple engine its successful lookup follows the same
+six-decision `__exactAccess` sequence as `accessSync` and returns `true`. With
+`fs:list` denied, the first requested-stage decision has a
+`principal-denial` outcome, `existsSync` catches the resulting filesystem
+error, and the public call returns `false`.
+
+The result contract therefore binds both halves of the behavior: denial must
+still appear as a typed denied decision on the source-derived
+`__exactAccess` edge, and the returned value must be exactly boolean `false`.
+An exception, a true result after denial, a false result on the allowed fixture,
+or a decision on the route's initialization alternative fails validation. The
+complete 165-recipe builtin batch and the independent promotion validator
+accept all five scenario observations under that contract.
 
 ### Additional multi-edge metadata evidence: `realpathSync`
 

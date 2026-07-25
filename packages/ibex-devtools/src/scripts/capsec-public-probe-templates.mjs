@@ -55,6 +55,7 @@ const EFFECT_SCENARIOS = new Set([
 
 const FS_LIST_EXPORTS = new Set([
   "accessSync",
+  "existsSync",
   "lstatSync",
   "readdirSync",
   "realpathSync",
@@ -543,7 +544,10 @@ export function authoredBuiltinPublicProbe({
   );
   if (!descriptor) return null;
   const directoryProbe = exportName === "readdirSync";
-  const accessMetadataProbe = exportName === "accessSync";
+  const accessMetadataProbe = new Set(["accessSync", "existsSync"]).has(
+    exportName,
+  );
+  const booleanReturnProbe = exportName === "existsSync";
   const realpathMetadataProbe = exportName === "realpathSync";
   const statfsMetadataProbe = exportName === "statfsSync";
   const followedMetadataProbe = exportName === "statSync";
@@ -604,7 +608,14 @@ export function authoredBuiltinPublicProbe({
           resource: { kind: "path-exact", path: logicalPath },
         },
       ],
-      expectedResult: publicDenial ? "permission-denied" : "return",
+      expectedResult: booleanReturnProbe
+        ? "boolean-return"
+        : publicDenial
+          ? "permission-denied"
+          : "return",
+      ...(booleanReturnProbe
+        ? { expectedBooleanValue: !publicDenial }
+        : {}),
       // The authenticated VFS first binds the selected project mount object,
       // then re-authorizes the exact target before its retained repeats. Stat
       // adds the followed target, while directory open and its first entry
