@@ -660,6 +660,12 @@ ticket closes.
 - The exact attestation feature closure now compiles locally through the full
   `ibex` bin-test link. The next Windows revision can reuse the warm native
   build cache while still restarting command evidence from attempt one.
+- That revision reached `link.exe` and exposed a 272-character reviewed import
+  library path. The staged bytes and full digest-bound verbatim filename were
+  correct, but the duplicated digest directory pushed the otherwise valid file
+  beyond the linker's legacy path ceiling. Staging now uses
+  `OUT_DIR/h/hermes-<sha256>.lib`: the full identity and byte revalidation stay
+  intact while the exact fleet path remains consumable.
 
 ## Next milestone
 

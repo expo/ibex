@@ -458,19 +458,28 @@ fn windows_import_library_for_link(
     let binding_digest = receipt["linkArtifact"]["binaryDigest"]
         .as_str()
         .unwrap_or_else(|| panic!("Windows Hermes linkArtifact digest is malformed"));
-    let pinned_name = hermes_profile_provenance::windows_pinned_import_library_name(binding_digest)
-        .unwrap_or_else(|error| panic!("Windows Hermes linkArtifact digest is malformed: {error}"));
-    let digest = binding_digest
-        .strip_prefix("sha256-")
-        .expect("validated pinned import-library digest must have a sha256 prefix");
-    let pinned_dir = out_dir.join("reviewed-windows-hermes-import").join(digest);
+    let pinned_relative =
+        hermes_profile_provenance::windows_pinned_import_library_relative_path(binding_digest)
+            .unwrap_or_else(|error| {
+                panic!("Windows Hermes linkArtifact digest is malformed: {error}")
+            });
+    let pinned_name = pinned_relative
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("validated pinned import-library name must be Unicode")
+        .to_owned();
+    // @ref LLP 0005#c-compilation — retain the full digest-bound verbatim
+    // filename without exceeding link.exe's legacy path ceiling.
+    let pinned = out_dir.join(pinned_relative);
+    let pinned_dir = pinned
+        .parent()
+        .expect("reviewed Windows Hermes import library must have a parent");
     std::fs::create_dir_all(&pinned_dir).unwrap_or_else(|error| {
         panic!(
             "Failed to create reviewed Windows Hermes import directory {}: {error}",
             pinned_dir.display()
         )
     });
-    let pinned = pinned_dir.join(&pinned_name);
     if !pinned.exists() {
         use std::io::Write as _;
         let mut output = std::fs::OpenOptions::new()

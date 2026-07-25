@@ -238,6 +238,15 @@ pub fn windows_pinned_import_library_name(binding_digest: &str) -> Result<String
     Ok(format!("hermes-{digest}.lib"))
 }
 
+pub fn windows_pinned_import_library_relative_path(
+    binding_digest: &str,
+) -> Result<PathBuf, String> {
+    // Keep the full digest in the verbatim filename, but use a deliberately
+    // short staging directory: link.exe still rejects otherwise valid paths
+    // beyond its legacy path ceiling.
+    Ok(PathBuf::from("h").join(windows_pinned_import_library_name(binding_digest)?))
+}
+
 pub fn windows_import_library_link_directives(
     import_library: &Path,
 ) -> Result<(String, String), String> {

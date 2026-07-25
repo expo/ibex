@@ -7,7 +7,7 @@
 **Date:** 2026-06-13
 **Revised:** 2026-07-26 (Linux source and prebuilt Hermes bundles now publish the matching Hermes VM CLI beside `hermesc`, allowing build.rs to prove the linked runtime's HBC version and precompile the core runtime bundle instead of reparsing its source during every embedded startup)
 **Revised:** 2026-07-25 (splits the generated runtime into an always-startup core bundle and, under `webgpu-binding`, a separately vendored WebGPU activation bundle; build.rs embeds compatible source/HBC for both while startup evaluates only core and the owner-thread activation ABI evaluates WebGPU on demand)
-**Revised:** 2026-07-17 (LLP 0029 adds static macOS Hermes bundle linkage and carrier v2's tagged loaded/static engine binding with inspected HBC metadata); 2026-07-17 (ENG-24933 adds patched Windows source/release bundles and a downloadable macOS no-debugger Release profile, each bound to exact build authority and binary identity)
+**Revised:** 2026-07-25 (the reviewed Windows Hermes import library keeps its full digest-bound verbatim filename in a short staging directory so `link.exe` can consume it without weakening artifact identity); 2026-07-17 (LLP 0029 adds static macOS Hermes bundle linkage and carrier v2's tagged loaded/static engine binding with inspected HBC metadata); 2026-07-17 (ENG-24933 adds patched Windows source/release bundles and a downloadable macOS no-debugger Release profile, each bound to exact build authority and binary identity)
 **Revised:** 2026-07-15 (ENG-25064 publishes directory-atomic prepared module graphs inside the existing deployment cache and admits them before execution); 2026-07-15 (ENG-25064 prepared module carriers bind HBC to loaded-engine identity and preserve the pre-execution-only fallback boundary); 2026-07-14 (ENG-24851: `hermesc -output-source-map` is a boolean and the compiler-derived `<-out>.map` is published to the caller's requested path); 2026-07-12 (ENG-24264: Windows Hermes DLL publication is content-digest checked, atomic per file, and bundle-serialized across build processes, with real Windows locked-file coverage); 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
 **Related:** LLP 0000; LLP 0001 (platforms); LLP 0003 (engine bridge); LLP 0004 (module loading)
 
@@ -300,6 +300,15 @@ manifest plus source-profile receipt)
 resolves either `hermesvm.framework` or `hermes.framework` from a macOS
 framework parent and links the detected framework name; it intentionally does
 not treat a Catalyst slice as a macOS runtime `[observed]` (`build.rs`).
+On Windows, `build.rs` independently revalidates the receipt-bound import
+library and copies those exact bytes beneath `OUT_DIR/h/` using the full
+`hermes-<sha256>.lib` verbatim filename. The short directory is intentional:
+the previous repeated-digest staging path exceeded `link.exe`'s legacy path
+ceiling in an ordinary fleet checkout even though Rust and the filesystem
+could open it. The full digest remains in the filename and is revalidated
+before link directives are emitted, so shortening the directory does not
+weaken artifact substitution resistance `[observed]`
+(`build.rs`; `build_support/hermes_profile_provenance.rs`).
 
 ### Prebuilt Hermes artifact bundles
 

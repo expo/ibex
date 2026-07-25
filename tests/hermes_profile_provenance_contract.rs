@@ -326,9 +326,13 @@ fn windows_link_selection_is_name_fixed_and_exactly_receipt_bound() {
         hermes_profile_provenance::windows_pinned_import_library_name(&digest).unwrap(),
         format!("hermes-{}.lib", "a".repeat(64))
     );
-    let pinned = PathBuf::from("reviewed-windows-hermes-import")
-        .join("a".repeat(64))
-        .join(format!("hermes-{}.lib", "a".repeat(64)));
+    let relative =
+        hermes_profile_provenance::windows_pinned_import_library_relative_path(&digest).unwrap();
+    assert_eq!(
+        relative,
+        PathBuf::from("h").join(format!("hermes-{}.lib", "a".repeat(64)))
+    );
+    let pinned = PathBuf::from("out").join(relative);
     assert_eq!(
         hermes_profile_provenance::windows_import_library_link_directives(&pinned).unwrap(),
         (
