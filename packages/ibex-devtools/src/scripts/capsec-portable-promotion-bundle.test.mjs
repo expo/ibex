@@ -55,7 +55,7 @@ const clone = (value) => structuredClone(value);
 const digest = (character) => `sha256-${character.repeat(43)}`;
 const nativeExecutor = PUBLIC_SURFACE_EXECUTOR_DESCRIPTORS.find(
   (descriptor) =>
-    descriptor.testName === "capsec_public_native_recipe_batch",
+    descriptor.testName === "capsec_public_native_primary_batch",
 );
 
 function exactBytes(value) {

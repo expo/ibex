@@ -48,9 +48,22 @@ const taggedDigest = (value) =>
     .createHash("sha256")
     .update(typeof value === "string" ? value : canonicalJson(value), "utf8")
     .digest("base64url")}`;
-const NATIVE_BATCH_COMMAND = Object.freeze(
-  capsecSecureCargoTestCommand("capsec_public_native_recipe_batch"),
+const NATIVE_BATCH_COMMANDS = Object.freeze(
+  [
+    "capsec_public_native_primary_batch",
+    "capsec_public_native_secondary_batch",
+  ].map((testName) =>
+    Object.freeze(capsecSecureCargoTestCommand(testName)),
+  ),
 );
+const nativeBatchCommand = (fixtureId) => {
+  const shard =
+    crypto
+      .createHash("sha256")
+      .update(fixtureId, "utf8")
+      .digest()[0] % NATIVE_BATCH_COMMANDS.length;
+  return clone(NATIVE_BATCH_COMMANDS[shard]);
+};
 
 // @ref LLP 0001#current-buildrs-support-honest-status — Windows replaces these default backend translation units with target-specialized implementations, so a default-only registration is not installed on that target.
 const WINDOWS_EXCLUDED_NATIVE_IMPLEMENTATION_SOURCES = new Set([
@@ -3303,7 +3316,7 @@ function nativePublicProbeForPlan({
       probe: {
         kind: "public-surface-invocation",
         surfaceObservedKey,
-        command: clone(NATIVE_BATCH_COMMAND),
+        command: nativeBatchCommand(plan.fixtureId),
         invocation: {
           invocationSchema: "ibex/capsec-native-global-invocation/1",
           kind: "global-property-read",
@@ -3496,7 +3509,7 @@ function nativePublicProbeForPlan({
         ? "target-absence-probe"
         : "public-surface-invocation",
       surfaceObservedKey,
-      command: clone(NATIVE_BATCH_COMMAND),
+      command: nativeBatchCommand(plan.fixtureId),
       invocation: {
         invocationSchema: "ibex/capsec-native-global-invocation/1",
         kind: publicAccess
@@ -3626,7 +3639,7 @@ function conditionalHostAbiProbeForPlan({
   return {
     kind: "public-surface-invocation",
     surfaceObservedKey,
-    command: clone(NATIVE_BATCH_COMMAND),
+    command: nativeBatchCommand(plan.fixtureId),
     invocation: {
       invocationSchema: "ibex/capsec-host-abi-invocation/1",
       kind: "host-abi-function",
@@ -3727,7 +3740,7 @@ function moduleRunnerLoaderProbeForPlan({
   return {
     kind: "public-surface-invocation",
     surfaceObservedKey,
-    command: clone(NATIVE_BATCH_COMMAND),
+    command: nativeBatchCommand(plan.fixtureId),
     invocation: {
       invocationSchema: "ibex/capsec-module-loader-invocation/1",
       kind: "module-loader-authority",
@@ -3789,7 +3802,7 @@ function moduleRunnerHostAbiProbeForPlan({
   return {
     kind: "public-surface-invocation",
     surfaceObservedKey,
-    command: clone(NATIVE_BATCH_COMMAND),
+    command: nativeBatchCommand(plan.fixtureId),
     invocation: {
       invocationSchema: "ibex/capsec-host-abi-invocation/1",
       kind: "host-abi-function",

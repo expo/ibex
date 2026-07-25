@@ -756,6 +756,22 @@ ticket closes.
   24-test suite took 599 seconds versus its earlier 181-second baseline). The
   exact timed fixture then passed alone in 18.6 seconds without a source
   change; no deadline or security behavior was weakened.
+- The clean `6c2c51b1` conformance restart passed drift, LLP references,
+  mapped-engine attestation, recipe generation, typed adapters, and the first
+  two public commands. Its 554-row native public command then reached the
+  390-second deadline and was terminated after the 30-second cleanup grace at
+  420.263 seconds without an assertion failure. An unrelated Deno suite was
+  consuming roughly eight cores, making a second deadline increase a poor
+  substitute for the resource-isolated sharding LLP 0032 already permits.
+- Timeout policy v3 splits that exact native/host-ABI/module-loader cohort by a
+  SHA-256 fixture-ID partition into two disjoint secure Cargo commands. The
+  current catalog balances 282/272 rows; both run against the same mapped
+  engine and the existing aggregate requires exact command membership with no
+  missing or duplicate fixture. Under the same contention the shards passed in
+  116.98 and 100.98 seconds and merged to exactly 554 unique executions.
+  The common public deadline returns to 300 seconds, maximum batch counts rise
+  to nine Apple/eight Windows, and the complete worst-case target paths are
+  reduced to 366/364 minutes inside the unchanged 375-minute outer bounds.
 
 ## Next milestone
 

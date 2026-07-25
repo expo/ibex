@@ -142,6 +142,34 @@ describe("exact-target CapSec executable recipes", () => {
     expect(cargoExecutorCount).toBeGreaterThan(0);
   });
 
+  test("deterministically balances native evidence across two disjoint commands", () => {
+    const counts = new Map([
+      ["capsec_public_native_primary_batch", 0],
+      ["capsec_public_native_secondary_batch", 0],
+    ]);
+    for (const recipe of recipes.recipes) {
+      const invocationSchema =
+        recipe.publicSurfaceProbe?.invocation?.invocationSchema;
+      if (
+        ![
+          "ibex/capsec-native-global-invocation/1",
+          "ibex/capsec-host-abi-invocation/1",
+          "ibex/capsec-module-loader-invocation/1",
+        ].includes(invocationSchema)
+      ) {
+        continue;
+      }
+      const command = recipe.publicSurfaceProbe.command;
+      const testName = command[7];
+      expect(counts.has(testName)).toBeTrue();
+      counts.set(testName, counts.get(testName) + 1);
+    }
+    const [primary, secondary] = counts.values();
+    expect(primary).toBeGreaterThan(200);
+    expect(secondary).toBeGreaterThan(200);
+    expect(Math.abs(primary - secondary)).toBeLessThan(60);
+  });
+
   test("binds only the six owned internal invariants to exact secure proofs", () => {
     for (const recipeCatalog of [recipes, windowsRecipes]) {
       const internal = recipeCatalog.recipes.filter(
@@ -647,8 +675,11 @@ describe("exact-target CapSec executable recipes", () => {
       windowsAbsenceRecipes.every(
         (recipe) =>
           recipe.publicSurfaceProbe.invocation.expectedResult === "absent" &&
-          recipe.publicSurfaceProbe.command.includes(
-            "capsec_public_native_recipe_batch",
+          recipe.publicSurfaceProbe.command.some((part) =>
+            [
+              "capsec_public_native_primary_batch",
+              "capsec_public_native_secondary_batch",
+            ].includes(part),
           ) &&
           !recipe.publicSurfaceProbe.command.includes(
             "capsec_public_target_absence_batch",
@@ -1006,7 +1037,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     expect(rows).toHaveLength(5);
     for (const recipe of rows) {
-      expect(recipe.publicSurfaceProbe.command).toEqual([
+      expect(recipe.publicSurfaceProbe.command.slice(0, 7)).toEqual([
         "cargo",
         "test",
         "--bin",
@@ -1014,7 +1045,12 @@ describe("exact-target CapSec executable recipes", () => {
         "--no-default-features",
         "--features",
         "standard,capsec-conformance-observer,openssl-crypto",
-        "capsec_public_native_recipe_batch",
+      ]);
+      expect([
+        "capsec_public_native_primary_batch",
+        "capsec_public_native_secondary_batch",
+      ]).toContain(recipe.publicSurfaceProbe.command[7]);
+      expect(recipe.publicSurfaceProbe.command.slice(8)).toEqual([
         "--",
         "--test-threads=1",
       ]);

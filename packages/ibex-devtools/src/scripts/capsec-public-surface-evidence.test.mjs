@@ -4904,7 +4904,7 @@ describe("CapSec public-surface promotion evidence", () => {
     recipe.publicSurfaceProbe = {
       kind: "public-surface-invocation",
       surfaceObservedKey: recipe.terminalObservedKey,
-      command: ["cargo", "test", "capsec_public_native_recipe_batch"],
+      command: ["cargo", "test", "capsec_public_native_primary_batch"],
       invocation: {
         invocationSchema: "ibex/capsec-host-abi-invocation/1",
         kind: "host-abi-function",
@@ -4985,7 +4985,7 @@ describe("CapSec public-surface promotion evidence", () => {
     recipe.publicSurfaceProbe = {
       kind: "public-surface-invocation",
       surfaceObservedKey: recipe.terminalObservedKey,
-      command: ["cargo", "test", "capsec_public_native_recipe_batch"],
+      command: ["cargo", "test", "capsec_public_native_primary_batch"],
       invocation: {
         invocationSchema: "ibex/capsec-module-loader-invocation/1",
         kind: "module-loader-authority",
@@ -5077,7 +5077,7 @@ describe("CapSec public-surface promotion evidence", () => {
     recipe.publicSurfaceProbe = {
       kind: "public-surface-invocation",
       surfaceObservedKey: recipe.terminalObservedKey,
-      command: ["cargo", "test", "capsec_public_native_recipe_batch"],
+      command: ["cargo", "test", "capsec_public_native_primary_batch"],
       invocation: {
         invocationSchema: "ibex/capsec-host-abi-invocation/1",
         kind: "host-abi-function",

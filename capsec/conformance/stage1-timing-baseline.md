@@ -53,10 +53,24 @@ retained timing evidence, not a learned or success-reclassified timeout, and
 the worst-case target critical paths remain within their declared 375-minute
 outer bounds.
 
+The next clean-head runner met the 390-second deadline but the same 554-row
+batch did not finish before the 30-second cleanup grace expired. The retained
+attempt was terminated at 420.263 seconds with no assertion failure while an
+unrelated Deno tranche consumed roughly eight host cores. This second sample
+justifies the narrow same-runner Stage-3 split described by LLP 0032: SHA-256
+fixture-ID partitioning produced exact 282/272-row commands. Under that same
+contention they completed in 116.98 and 100.98 seconds, and the ordinary merge
+validator accepted exactly 554 unique fixture IDs against the same catalog and
+mapped engine. Timeout policy version 3 uses a 300-second public-fixture
+deadline and maximum counts of nine Apple/eight Windows batches. The resulting
+worst-case critical paths, including reserves, are 366 and 364 minutes.
+
 ## Stage 2 decision
 
 Stage 2 remains deferred. First collect successful Stage 1 outcome artifacts
 from both current targets, including every command's monotonic `elapsedMs` and
 classification. Revisit resumable phases only after the retained results show
 which late commands dominate elapsed time and how often bounded retries would
-avoid meaningful repeated work. Stage 3 sharding is not part of this rollout.
+avoid meaningful repeated work. The two-command native public-fixture split is
+the only Stage-3 exception in this rollout; it stays sequential on the same
+authoritative runner and does not enable cross-machine evidence aggregation.

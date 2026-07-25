@@ -3801,20 +3801,39 @@ async fn execute_module_loader_public_recipe(
     })
 }
 
-const NATIVE_PUBLIC_BATCH_COMMAND: [&str; 10] = [
-    "cargo",
-    "test",
-    "--bin",
-    "ibex",
-    "--no-default-features",
-    "--features",
-    "standard,capsec-conformance-observer,openssl-crypto",
-    "capsec_public_native_recipe_batch",
-    "--",
-    "--test-threads=1",
+#[cfg(test)]
+const NATIVE_PUBLIC_BATCH_COMMANDS: [[&str; 10]; 2] = [
+    [
+        "cargo",
+        "test",
+        "--bin",
+        "ibex",
+        "--no-default-features",
+        "--features",
+        "standard,capsec-conformance-observer,openssl-crypto",
+        "capsec_public_native_primary_batch",
+        "--",
+        "--test-threads=1",
+    ],
+    [
+        "cargo",
+        "test",
+        "--bin",
+        "ibex",
+        "--no-default-features",
+        "--features",
+        "standard,capsec-conformance-observer,openssl-crypto",
+        "capsec_public_native_secondary_batch",
+        "--",
+        "--test-threads=1",
+    ],
 ];
 
-fn is_native_public_batch_probe(probe: &PublicSurfaceProbe) -> bool {
+#[cfg(test)]
+fn is_native_public_batch_probe(
+    probe: &PublicSurfaceProbe,
+    expected_command: &[&str; 10],
+) -> bool {
     (probe.invocation.native().is_some()
         || probe.invocation.host_abi().is_some()
         || probe.invocation.module_loader().is_some())
@@ -3822,17 +3841,15 @@ fn is_native_public_batch_probe(probe: &PublicSurfaceProbe) -> bool {
             .command
             .iter()
             .map(String::as_str)
-            .eq(NATIVE_PUBLIC_BATCH_COMMAND)
+            .eq(expected_command.iter().copied())
 }
 
 #[cfg(test)]
-#[tokio::test(flavor = "current_thread")]
-async fn capsec_public_native_recipe_batch() {
-    let Ok(recipe_path) = std::env::var("IBEX_CAPSEC_RECIPE_CATALOG") else {
-        eprintln!("IBEX_CAPSEC_RECIPE_CATALOG is unset; skipping native public recipe batch");
-        return;
-    };
-    let output_path = std::env::var("IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT").ok();
+async fn run_capsec_public_native_recipe_batch(
+    expected_command: &[&str; 10],
+    recipe_path: String,
+    output_path: Option<String>,
+) {
     let recipe_path = std::fs::canonicalize(recipe_path)
         .expect("canonicalize CapSec executable recipe catalog path");
     let catalog = load_recipe_catalog(&recipe_path);
@@ -3845,7 +3862,8 @@ async fn capsec_public_native_recipe_batch() {
                 .public_surface_probe
                 .as_ref()
                 .filter(|probe| {
-                    recipe.status == "fully-executable" && is_native_public_batch_probe(probe)
+                    recipe.status == "fully-executable"
+                        && is_native_public_batch_probe(probe, expected_command)
                 })
                 .map(|_| index)
         })
@@ -4007,6 +4025,38 @@ async fn capsec_public_native_recipe_batch() {
     output
         .sync_all()
         .expect("sync native public evidence artifact");
+}
+
+#[cfg(test)]
+#[tokio::test(flavor = "current_thread")]
+async fn capsec_public_native_primary_batch() {
+    let Ok(recipe_path) = std::env::var("IBEX_CAPSEC_RECIPE_CATALOG") else {
+        eprintln!("IBEX_CAPSEC_RECIPE_CATALOG is unset; skipping native public recipe batch");
+        return;
+    };
+    let output_path = std::env::var("IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT").ok();
+    run_capsec_public_native_recipe_batch(
+        &NATIVE_PUBLIC_BATCH_COMMANDS[0],
+        recipe_path,
+        output_path,
+    )
+    .await;
+}
+
+#[cfg(test)]
+#[tokio::test(flavor = "current_thread")]
+async fn capsec_public_native_secondary_batch() {
+    let Ok(recipe_path) = std::env::var("IBEX_CAPSEC_RECIPE_CATALOG") else {
+        eprintln!("IBEX_CAPSEC_RECIPE_CATALOG is unset; skipping native public recipe batch");
+        return;
+    };
+    let output_path = std::env::var("IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT").ok();
+    run_capsec_public_native_recipe_batch(
+        &NATIVE_PUBLIC_BATCH_COMMANDS[1],
+        recipe_path,
+        output_path,
+    )
+    .await;
 }
 
 mod inherited_intrinsic_alias {

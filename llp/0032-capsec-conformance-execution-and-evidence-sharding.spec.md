@@ -54,6 +54,21 @@ failure. Timeout policy version 2 raises the public-fixture class deadline to
 390 seconds. The revised maximum critical paths, including declared setup and
 cleanup/upload reserves, remain below the 375-minute outer target bounds.
 
+Implementation checkpoint (2026-07-25): a second assertion-free native-batch
+timeout occurred at 420.263 seconds (the 390-second deadline plus cleanup
+grace) while unrelated work saturated eight host cores. Rather than extending
+one monolithic evidence window again, Stage 3 now applies narrowly to this
+cohort on the same authoritative runner and mapped engine. A SHA-256 partition
+of the exact fixture ID assigns every native, host-ABI, and module-loader
+recipe to one of two disjoint Cargo test commands; the runner's existing
+cross-batch merge rejects missing, added, or duplicate membership. The current
+Apple catalog partitions 554 rows as 282 and 272. Under the same contention
+the shards completed in 116.98 and 100.98 seconds. Timeout policy version 3
+therefore returns the common public-fixture deadline to 300 seconds and raises
+the maximum public batch counts to nine on Apple and eight on Windows. Maximum
+critical paths are 366 and 364 minutes respectively, including reserves, below
+the unchanged 375-minute outer bounds.
+
 ## Motivation
 
 The current conformance workflow runs one job per target with a single

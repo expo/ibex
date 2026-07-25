@@ -34,7 +34,7 @@ test("the authored target budgets fit their outer job timeouts", () => {
       "aarch64-apple-darwin",
       "public-fixtures-002-deadbeef",
     ).deadlineMs,
-  ).toBe(390_000);
+  ).toBe(300_000);
   expect(
     commandPolicyFor(
       plan,

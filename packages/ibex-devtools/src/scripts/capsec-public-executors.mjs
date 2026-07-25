@@ -27,7 +27,12 @@ export const PUBLIC_SURFACE_EXECUTOR_DESCRIPTORS = Object.freeze(
       false,
     ],
     [
-      "capsec_public_native_recipe_batch",
+      "capsec_public_native_primary_batch",
+      "ibex-native-public-surface-harness",
+      false,
+    ],
+    [
+      "capsec_public_native_secondary_batch",
       "ibex-native-public-surface-harness",
       false,
     ],
