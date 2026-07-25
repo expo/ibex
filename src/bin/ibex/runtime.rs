@@ -16178,7 +16178,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn armed_startup_authenticates_engine_before_refusing_unadvertised_target() {
+    async fn armed_startup_authenticates_engine_before_refusing_legacy_advertisement() {
         let _lock = crate::engine::hermes::hermes_engine_test_lock()
             .lock()
             .await;
@@ -16197,10 +16197,11 @@ pub(crate) mod tests {
         ]);
         let default_error = build_host(&cli)
             .err()
-            .expect("unadvertised target must not arm");
+            .expect("legacy target advertisement must not arm");
         let default_error = format!("{default_error:#}");
         assert!(
-            default_error.contains("legacy v1 target advertisements"),
+            default_error
+                .contains("legacy v1 target advertisements are diagnostic-only and remain closed"),
             "{default_error}"
         );
         assert!(!default_error.contains("engine object"), "{default_error}");
@@ -16484,7 +16485,10 @@ pub(crate) mod tests {
             .err()
             .expect("valid policy and package root must reach the promotion gate");
         let error = format!("{error:#}");
-        assert!(error.contains("legacy v1 target advertisements"), "{error}");
+        assert!(
+            error.contains("legacy v1 target advertisements are diagnostic-only and remain closed"),
+            "{error}"
+        );
 
         let mut tampered = policy.clone();
         tampered["principals"][0]["floor"] = serde_json::json!([]);

@@ -736,6 +736,26 @@ ticket closes.
   mirrors that narrow rule, including D4's mixed allow-traversal/deny-operation
   outcome. All 2,596 retained fully executable arm64 observations revalidate,
   and the focused public-evidence suite passes 44 tests with 252 assertions.
+- The next full runner crossed public aggregation and executed 1,089 default
+  Rust tests. It found two stale promotion-gate expectations: both still
+  expected the pre-v2 “no unique verified advertisement” refusal even though
+  production correctly rejects the checked-in legacy v1 advertisement corpus
+  as diagnostic-only. The tests now require that exact closed-v1 refusal while
+  retaining their engine-authentication-before-promotion and
+  policy-validation-before-promotion assertions.
+- The exact all-scope Rust gate then exposed a pre-existing merge regression
+  after 1,170 passing tests: a raw standalone `.cjs` entry was compiled to HBC
+  and executed as a bare script, losing `module`, `exports`, `require`, and
+  CommonJS top-level `this`. Restored LLP 0028's documented raw-CJS guard so
+  only self-contained prepared bundle output is bytecode-eligible.
+- The restored guard passes its real-binary end-to-end test. A repeated
+  all-scope gate passed the 644-test library suite, 447-test binary suite, and
+  integration suites through 1,138 passing tests before one nested
+  child-process fixture hit its authored 30-second watchdog while unrelated
+  Xcode, Bun/Vite, and filesystem scans saturated the primary host (the
+  24-test suite took 599 seconds versus its earlier 181-second baseline). The
+  exact timed fixture then passed alone in 18.6 seconds without a source
+  change; no deadline or security behavior was weakened.
 
 ## Next milestone
 
