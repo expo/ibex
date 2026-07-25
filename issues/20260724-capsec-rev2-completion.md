@@ -375,10 +375,11 @@ ticket closes.
   different native graph incarnations from sharing activation authority.
 - Focused verification passes for dead-target no-discovery, receipt-gated
   source-closure growth, synchronous and TLA publication, exact requester
-  routing, closed-window CommonJS refusal, and delayed ESM/CommonJS imports
-  that settle after ordinary program quiescence.
+  routing, generation teardown in both completion orderings, closed-window
+  CommonJS refusal, and delayed ESM/CommonJS imports that settle after ordinary
+  program quiescence.
 - The complete secure-mode gate passes against the reviewed Hermes framework:
-  636 library tests pass, 3 hosted/diagnostic tests remain intentionally
+  637 library tests pass, 3 hosted/diagnostic tests remain intentionally
   ignored, and the behavioral smoke enforces project read plus outside-read,
   outside-write, spawn, and environment-sentinel boundaries. `ref-check`
   reports 39 LLP documents, 2,048 checked references, zero errors, and one
@@ -386,8 +387,8 @@ ticket closes.
 - Current estimate: **59% complete for the full LLP 0021 completion contract;
   roughly 87% complete for the security-critical runtime mechanism set.**
   Invocation-time prepared carriers, synchronous authored CommonJS
-  `require()`, teardown races, and the larger exact-target evidence program
-  remain open.
+  `require()`, deeper activation failure matrices, and the larger exact-target
+  evidence program remain open.
 
 ## Current hard parts
 
@@ -411,7 +412,7 @@ ticket closes.
 - Authored `import()` now has receipt-gated reached-site source activation and
   atomic live-graph publication. The remaining call-time module gap is the
   synchronous in-drive CommonJS `require()` capability, plus invocation-time
-  prepared carriers and teardown/race coverage, tracked in
+  prepared carriers and deeper failure-matrix coverage, tracked in
   `issues/20260724-native-call-time-module-activation.md`.
 - The root/bootstrap mechanism seals correctly, but both builders still emit an
   empty `bootstrapAuthorityFloor`. Current bootstrap host inputs are

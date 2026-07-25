@@ -21,7 +21,7 @@ callback cannot safely call the existing outer-drive APIs.
 Authenticated source graphs now implement the asynchronous `import()` half of
 this issue without eager target discovery. The issue remains open for the
 synchronous authored CommonJS `require()` callback, invocation-time prepared
-carrier lookup, and teardown/race completion evidence. Generated
+carrier lookup, and the deeper nested/cycle failure matrix. Generated
 manifest-builtin fan-out remains the only synchronous `require()` exception.
 
 ## Required design
@@ -92,10 +92,12 @@ production execution:
 - End-to-end regressions cover delayed ESM and CommonJS `import()` after
   ordinary program quiescence, plus dead-target no-discovery and exact
   receipt-gated target closure growth.
+- Generation teardown removes pending requests and every record in the
+  generation. Completion-before-unpin is one-shot; unpin-before-completion
+  makes both a late success and a late refusal stale.
 
-Still open are invocation-time prepared-carrier discovery, explicit
-generation-teardown/race coverage, deeper nested/cycle failure matrices, and
-the synchronous authored CommonJS `require()` callback.
+Still open are invocation-time prepared-carrier discovery, deeper nested/cycle
+failure matrices, and the synchronous authored CommonJS `require()` callback.
 
 ## Done when
 

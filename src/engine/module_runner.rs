@@ -6284,6 +6284,105 @@ mod tests {
     }
 
     #[test]
+    fn generation_teardown_discards_pending_activation_and_refuses_late_completion() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            assert_eq!(ex_hermes_module_pin_generation(raw, nonce, 41), 0);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let entry_id =
+                SourceId::synthetic("module-runner-test", "teardown-activation-entry").unwrap();
+            let target_id =
+                SourceId::synthetic("module-runner-test", "teardown-activation-target").unwrap();
+            let entry = with_dynamic_edges(
+                test_artifact_with_factory(
+                    entry_id.clone(),
+                    "function (_, context) { return { declare: function () {}, execute: function () { context.dynamicImport('./target'); } }; }",
+                    &[],
+                ),
+                vec![DynamicEdgeV1::Literal {
+                    specifier: NonEmptyString::new("./target").unwrap(),
+                    attributes: ImportAttributes::default(),
+                }],
+            );
+            let target = test_artifact(target_id.clone());
+            let create_record = |artifact: &ModuleArtifactV1,
+                                 source_id: &SourceId,
+                                 label: &str,
+                                 deferred: Option<&str>| {
+                let context = runtime
+                    .create_graph_context(
+                        GraphEvaluationContext::new(source_id.clone(), 0, 0, [0], 41).unwrap(),
+                    )
+                    .unwrap();
+                let factory = runtime
+                    .compile_verified_factory(verify_test_artifact(artifact), 0, None, 41, label)
+                    .unwrap();
+                let mut record = factory.create_record(&context, source_id).unwrap();
+                if let Some(specifier) = deferred {
+                    record.defer_dynamic_import_handle(specifier).unwrap();
+                }
+                record
+                    .instantiate(
+                        &format!("synthetic:module-runner-test/{label}"),
+                        source_id == &entry_id,
+                    )
+                    .unwrap();
+                record.run_declare().unwrap();
+                record
+            };
+            let mut entry_record =
+                create_record(&entry, &entry_id, "teardown-entry.mjs", Some("./target"));
+            assert_eq!(
+                entry_record.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            let target_record = create_record(&target, &target_id, "teardown-target.mjs", None);
+            let request = runtime
+                .take_dynamic_activation_request(41)
+                .unwrap()
+                .expect("reached import did not mint a teardown request");
+
+            assert_eq!(ex_hermes_module_unpin_generation(raw, nonce, 41), 0);
+            assert!(
+                runtime
+                    .take_dynamic_activation_request(41)
+                    .unwrap()
+                    .is_none(),
+                "generation teardown left a request in the activation mailbox"
+            );
+            let completion = runtime
+                .complete_dynamic_activation(&request, &target_record)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                completion.contains("(-2)"),
+                "late completion crossed generation teardown: {completion}"
+            );
+            let refusal = runtime
+                .refuse_dynamic_activation(&request, "late teardown refusal")
+                .unwrap_err()
+                .to_string();
+            assert!(
+                refusal.contains("(-2)"),
+                "late refusal crossed generation teardown: {refusal}"
+            );
+            assert!(
+                entry_record.namespace_json().is_err(),
+                "teardown left the requester record addressable"
+            );
+
+            drop(target_record);
+            drop(entry_record);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
     fn authenticated_deferred_link_never_materializes_an_unreached_target() {
         let _host_guard = crate::host::abi::host_test_lock();
         crate::host::abi::install_host(crate::host::Host::strict());
