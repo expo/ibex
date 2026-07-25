@@ -158,19 +158,19 @@ opt-level = 2
 # the OpenSSL PKCS#12/encrypted-PKCS#8 client-identity decoders; compile-only
 # cross gates opt out with default-features = false.
 #
-# `insecure` is in the DEFAULT set on purpose: secure mode cannot arm without a
-# target advertisement (LLP 0036) and is still flaky, so a default build would
-# not run. This is a deliberate, temporary inversion recorded in LLP 0039 — the
-# default flips back once secure mode is dependable.
+# The default build is secure and therefore refuses before project code while
+# no exact target advertisement exists. Developers may opt into
+# `unadvertised-dev-arming` to exercise the sandbox without an advertisement,
+# or explicitly select `insecure` when they intentionally need no sandbox.
 #
-# A secure build is therefore explicit:
+# A secure development build that bypasses only target advertisement is:
 #     cargo build --bin ibex --no-default-features \
 #         --features standard,unadvertised-dev-arming
 #
 # `standard` exists so that invocation does not have to re-list the ordinary
 # runtime features by hand.
-# @ref LLP 0039#the-default-is-insecure-for-now
-default = ["standard", "insecure"]
+# @ref LLP 0039#the-default-is-secure-and-fail-closed
+default = ["standard"]
 standard = ["module-runner", "tls-client-identity-openssl"]
 app-host = []
 # Debug/local convenience: arm and run WITHOUT a checked target advertisement so

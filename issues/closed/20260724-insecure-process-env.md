@@ -65,7 +65,7 @@ mode; that decision should change for `insecure` only.
 
 ## Required behavior
 
-- A default/insecure CLI build exposes the process environment inherited at
+- An explicitly built `insecure` CLI exposes the process environment inherited at
   Ibex startup through `process.env`.
 - Enumeration, direct reads, assignment, deletion, string coercion, and
   platform name semantics match Node closely enough for existing compatibility
@@ -101,4 +101,3 @@ the environment-name and process-global mutation invariants owned by LLP 0025.
   explicit authorized projection.
 - All environment-inventory, generated-drift, Node-compatibility, and secure
   mode checks pass.
-

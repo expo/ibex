@@ -16437,7 +16437,8 @@ pub(crate) mod tests {
         let explicit_error = format!("{explicit_error:#}");
         assert_eq!(auto_error, explicit_error);
         assert!(
-            auto_error.contains("legacy v1 target advertisements"),
+            auto_error
+                .contains("legacy v1 target advertisements are diagnostic-only and remain closed"),
             "{auto_error}"
         );
     }

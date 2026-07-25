@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-25 (removes `insecure` from Cargo defaults: plain builds enforce the supported profile and refuse before project code while no exact target is advertised; unadvertised secure development and no-sandbox execution require explicit compile-time features; invocation-time ESM import and CommonJS require now cover source and prepared targets)
 **Revised:** 2026-07-24 (production native-graph dependency source reads authorize the exact typed edge and retain a digest-bound receipt; dependency carriers derive a carrier receipt from that continuation, while entry-only carriers require an opaque graph/request join minted before any cache discovery; armed transpilation has no persistent cache-read path; every promotion-facing conformance Cargo executor now disables defaults and selects the production observer feature set explicitly)
 **Revised:** 2026-07-20 (extends authenticated fresh-engine, zero-decision source receipts to 30 additional reviewed public builtin spellings, binds their exact root value types, and leaves both `stream/consumers` spellings residual because compatibility loading shadows their manifest source)
 **Revised:** 2026-07-19 (binds the exact `dns/promises` carrier/provider callable shape to independent inventory and classifier review pins while leaving all 45 derived routes residual; strengthens four DNS no-effect alias receipts with exact cache-miss, VFS source, body-completion, alias, and runtime-nonce evidence)
@@ -1789,6 +1790,14 @@ The broader callback batch remains incomplete for a separate reason: only
 eight exact public mechanisms are executable while the report currently
 auto-credits 2,800 rationale-wide internal rows. That accounting must be
 replaced by executed internal proof rather than weakening the command profile.
+
+Implementation status (2026-07-25): Cargo defaults no longer include
+`insecure`. Plain `ibex` uses the secure production posture and, while the
+advertisement set is empty, refuses before project code. Secure development
+without an advertisement requires the compile-time
+`unadvertised-dev-arming` feature; the ambient no-sandbox posture requires the
+separately named `insecure` feature. Neither weakening is a runtime flag or a
+silent default.
 
 Implementation status (2026-07-24): the internal accounting is now
 evidence-backed. The proof audit retained exactly six closed-vocabulary

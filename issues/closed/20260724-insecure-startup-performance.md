@@ -246,7 +246,7 @@ Phase tracing now covers the arming ceremony: `IBEX_STARTUP_TRACE=1` emits
 `arm_host_new`, `engine_create`, and `eval_runtime_from_cli`
 (`StartupPhaseTrace` in `src/bin/ibex/runtime.rs`).
 
-Measured on the default/insecure **debug** build (macOS arm64, M-series, warm
+Measured on the explicit insecure **debug** build (macOS arm64, M-series, warm
 cache, this repo as project; single-run wall times via `time`, spread across
 3 runs ≤0.02s unless noted):
 
@@ -322,7 +322,7 @@ opened this ticket.
 ## Problem
 
 Ibex startup has become painfully slow during the CapSec work. The delay is
-especially visible when starting the default/insecure REPL, where time to first
+especially visible when starting the insecure REPL, where time to first
 prompt is part of the inner development loop. Trivial `eval`/`run` invocations
 may share the same fixed costs, and embedded Ibex may be paying authentication,
 registry, snapshot, graph, bundle, worker, or engine setup costs that are
@@ -351,7 +351,7 @@ those contributors based on measurement.
    - trivial `ibex eval` and `ibex run`;
    - package-script dispatch;
    - embedded runtime creation, bootstrap completion, and first evaluation.
-2. Measure both the default/insecure build and the secure development build
+2. Measure both the explicit insecure build and the secure development build
    (`standard,unadvertised-dev-arming`), with insecure as the immediate
    priority. Record hardware, build profile, cache state, and distributions
    rather than a single best run.
@@ -386,7 +386,7 @@ those contributors based on measurement.
 - Benchmarks and phase traces identify the dominant costs on current `main`.
 - Precommitted cold and warm budgets exist for REPL, trivial CLI execution, and
   embedded first evaluation.
-- Default/insecure startup meets those budgets on supported development
+- Explicit insecure startup meets those budgets on supported development
   platforms and is materially comparable to the recorded pre-CapSec baseline.
 - Secure mode is no slower as a result except for measured, documented checks
   that are necessary to its security claim.

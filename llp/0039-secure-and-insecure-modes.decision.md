@@ -5,6 +5,7 @@
 **Systems:** Runtime, CapSec, Build, Product
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-24
+**Revised:** 2026-07-25 (the default feature set is secure and fail-closed; unadvertised development arming and no-sandbox execution are explicit compile-time choices; invocation-time ESM import and CommonJS require now cover source and prepared targets)
 **Revised:** 2026-07-24 (the secure prepared/live-graph path now defers ESM and CommonJS `import()` discovery until an exact reached site; synchronous authored CommonJS `require()` retains the no-probe refusal)
 **Revised:** 2026-07-24 (ENG-25424 closes prepared-graph backing-path disclosure and removes the secure-gate test exclusion; promotion-facing CapSec executors now explicitly disable Cargo defaults so conformance cannot inherit the insecure mode)
 **Related:** LLP 0021 (target advertisement + conformance report); LLP 0036 (advertisement completion); LLP 0038 (unadvertised dev arming, insecure build)
@@ -34,13 +35,14 @@ durable product posture rather than a temporary hack.
 
 | position | today | after LLP 0036 |
 |---|---|---|
-| **secure** | `--no-default-features --features standard,unadvertised-dev-arming` | default build |
-| **insecure** | **the default build** | `--features insecure` |
+| **secure production posture** | **the default build; refuses without an advertisement** | default build |
+| **secure development posture** | `--features unadvertised-dev-arming` | removed |
+| **insecure** | `--features insecure` | `--features insecure` |
 
-`insecure` is **not** scheduled for deletion. `unadvertised-dev-arming` is
-scaffolding and disappears when the default build can arm from a real
-conformance report; at that point the split becomes exactly *default* versus
-*insecure*, which is one switch with two positions.
+`insecure` is **not** scheduled for deletion, but it is never implicit.
+`unadvertised-dev-arming` is scaffolding and disappears when the default build
+can arm from a real conformance report; at that point the split becomes exactly
+*default* versus *insecure*, which is one explicit switch with two positions.
 
 This supersedes the removal condition in LLP 0038, which assumed both features
 were transitional.
@@ -49,47 +51,44 @@ Mechanically the modes are described in
 [LLP 0038](./0038-unadvertised-dev-arming.decision.md); this document records
 *why the split exists* and *when it stops being acceptable*.
 
-## The default is insecure, for now
+## The default is secure and fail-closed
 
-`insecure` is in Cargo's **default** feature set. A default build therefore has
-no sandbox.
+`insecure` is absent from Cargo's **default** feature set. A default build has
+the complete sandbox and target-advertisement ceremony. While LLP 0036 has no
+promoted target, that build refuses before project code instead of silently
+executing with ambient authority.
 
-This inverts the usual and correct convention — secure by default — and it is
-done deliberately, because the alternative is worse in the current state of the
-project: secure mode cannot arm without a target advertisement (LLP 0036), so a
-"secure by default" build does not run at all. A default that refuses to execute
-JavaScript is not a safe default; it is an unusable one, and it pushes every
-developer onto an explicit flag they will then never turn off.
+The repository briefly inverted this convention on 2026-07-24 to unblock
+development while major secure-path mechanisms were unfinished. That trade is
+no longer justified: the secure gate has no exclusions, invocation-time ESM
+and CommonJS activation covers source and prepared targets, and agent-driven
+execution is already one of this document's explicit trip-wires. Developer
+convenience remains available through named compile-time choices rather than
+an ambient default.
 
-A secure build is correspondingly explicit:
+A secure development build that bypasses only target advertisement is:
 
     cargo build --bin ibex --no-default-features \
         --features standard,unadvertised-dev-arming
 
 The `standard` feature exists only so that invocation does not have to re-list
 the ordinary runtime features (`module-runner`, `tls-client-identity-openssl`)
-by hand.
+by hand. A no-sandbox build requires the separately named `insecure` feature
+and retains its red banner.
 
-**This is the most reversible part of this decision and the first thing to
-revisit.** The default should flip back to secure as soon as secure mode is
-dependable — before Ibex runs any third-party code, and well before anything
-ships. Until then the inverted default is a bet that the project is still
-entirely internal.
-
-## Why this is acceptable right now
+## Why explicit insecure mode remains
 
 The threat a capability sandbox principally defends against is **code you did
-not write**. Ibex today is developed internally, runs first-party code, and does
-not pull packages from npm. Under those conditions the sandbox is protecting
-first-party code from itself, which is worth much less than it will be later.
-
-Accepting that trade is a deliberate, informed choice, not an oversight. It is
-recorded here so that it stays deliberate.
+not write**. There are still legitimate local compatibility and performance
+investigations that need the historical ambient behavior. Keeping that posture
+as an explicit compile-time feature makes those investigations possible
+without making every ordinary build inherit the same authority.
 
 ## When this stops being acceptable
 
-The reasoning above rests on assumptions that will expire. Any of the following
-invalidates it and requires re-evaluating this decision — not merely noting it:
+Choosing the explicit insecure posture rests on assumptions that will expire.
+Any of the following invalidates that choice and requires re-evaluating it —
+not merely noting it:
 
 1. **Running third-party code.** Installing an npm dependency and executing it
    under `insecure` removes the only thing making the trade sound. This is the
@@ -110,8 +109,8 @@ watch, because both are one careless command away.
 
 ## Secure mode must stay exercised
 
-The security risk of this split is low today. The **engineering** risk is not,
-and it is the thing this decision must actively defend against.
+The no-sandbox mode is explicit, but the **engineering** risk of two paths
+remains and this decision must actively defend against it.
 
 If all day-to-day development happens in `insecure`, nothing exercises the
 secure path. Secure mode then rots silently: breakage accumulates, is discovered
@@ -119,13 +118,9 @@ late, and is attributed to whichever change is being made at the time rather
 than the one that caused it. "We will care about security later" degrades into
 "secure mode has not worked for months and nobody knows which commit did it."
 
-Flipping the default made this concrete immediately. Five lib tests assert
-*armed refusal* semantics that an `insecure` build deliberately does not have,
-so they are gated `#[cfg(not(feature = "insecure"))]` and no longer run in a
-default `cargo test`. That is correct scoping — the assertions are meaningless
-in a build with no sandbox — but it means the default test run is now blind to
-exactly the behaviour this project most needs to keep working. Running the suite
-in secure mode is what closes that gap, and it is no longer optional bookkeeping.
+Tests scoped away from `insecure` now run in an ordinary default suite. The
+separate secure-mode gate remains necessary because it also compiles the
+unadvertised development posture and executes behavioral denial probes.
 
 This is the failure mode of every two-track system where one track is optional.
 Mitigations, in rough priority:
@@ -153,17 +148,18 @@ Hermes source labels, `import.meta`, stack traces, and source maps. Its
 regression also retains the independent fail-closed boundary for authored
 call-time module work: ESM and CommonJS `import()` retain only exact deferred
 site declarations and cannot resolve, acquire, or read a target carrier before
-the site is reached; synchronous authored CommonJS `require()` remains refused
-until the narrower in-drive activation capability exists.
+the site is reached. Authored CommonJS `require()` uses the narrower in-drive
+capability, and both import forms can select deterministic invocation-time
+prepared carriers only after the exact source receipt exists.
 
 Promotion-facing CapSec execution is part of this guard, not an exception to
 it. Every generated fixture, adapter, public-surface, callback, startup,
 closed-surface, target-absence, and inherited-intrinsic Cargo command must use
 `--no-default-features` and explicitly select
 `standard,capsec-conformance-observer,openssl-crypto`. The command stored in a
-recipe or evidence plan is itself security-relevant evidence. It must never
-inherit Cargo's default feature set, because the default currently includes
-`insecure` and deliberately bypasses the production decision plane.
+recipe or evidence plan is itself security-relevant evidence. It keeps spelling
+the exact secure feature closure rather than inheriting Cargo defaults, so a
+future default-feature change cannot silently alter promotion authority.
 The physical portable-promotion build follows the same rule: its checked
 all-target executable-set vector includes `--no-default-features`, and the
 source-derived active feature closure rejects both `default` and `insecure`.
@@ -185,8 +181,8 @@ Until it exists, item 3 and item 5 above rest on discipline alone.
 
 ## Consequences
 
-- Ibex is usable locally today, and work on the runtime is not gated on the
-  security model being finished.
+- Ibex is usable locally through the explicitly selected secure-development or
+  insecure posture; an ordinary build keeps the production fail-closed claim.
 - Security work proceeds on its own schedule, against a mode that CI keeps
   honest, rather than under pressure to unblock everyone else.
 - The project accepts, explicitly, that `insecure` builds have the ambient

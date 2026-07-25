@@ -534,6 +534,42 @@ ticket closes.
   remaining work is the secure/generated gate, issue closure, and the broader
   LLP 0021 exact-target, bootstrap-floor, and residual-evidence audit.
 
+### 2026-07-25 — restored secure-by-default builds
+
+- Removed `insecure` from Cargo's default feature closure. Plain `ibex` now
+  compiles the complete secure posture and refuses before project code while
+  no exact target advertisement exists.
+- Kept both development alternatives explicit: `unadvertised-dev-arming`
+  bypasses only target promotion while preserving enforcement, and `insecure`
+  remains the separately named no-sandbox compatibility posture.
+- The default library suite now executes armed-only refusal coverage that the
+  former no-sandbox default compiled out: 642 tests pass, 3 intentional
+  hosted/diagnostic tests are ignored.
+- The binary regression proves implicit default enforcement and explicit
+  `--capsec enforce` reach the identical portable-admission refusal. It now
+  pins the current boundary that legacy v1 advertisements are diagnostic-only
+  and remain closed.
+- The explicit `insecure` binary still compiles. Generated CapSec artifacts,
+  the 7,602-edge/15,204-cell contract, compiled environment profile,
+  `ref-check`, and diff hygiene remain green.
+- Current estimate: **66% complete for the full LLP 0021 completion contract;
+  roughly 94% complete for the security-critical runtime mechanism set.**
+  Silent ambient authority is no longer the ordinary build posture; exact
+  target promotion and diagnostic legacy-plane retirement remain open.
+
+## LLP 0021 completion-criteria audit
+
+| Criterion | Status | Current evidence or contradiction |
+|---|---|---|
+| 1. Typed effect model is the only production plane | Implemented | Armed production hosts construct `VerifiedDecisionContext`; legacy `PolicyFile` input is rejected at armed startup and retained only by the separately named diagnostic Audit constructor and its historical tests. |
+| 2. Every production surface has classification and target cell | Implemented | The generated registry currently validates 7,602 coverage edges and 15,204 target cells with zero drift. |
+| 3. Canonical policy and snapshots are typed, deterministic, digest-bound, fail-closed | Implemented | Strict policy/snapshot schemas, canonical-JCS digests, protected-artifact joins, and mismatch/forgery suites pass in the secure gate. |
+| 4. Filesystem/network bind used object or peer with staged authorization | Implemented for the supported runtime surface | Retained VFS objects, symlink/race fixtures, verified-peer records, and repeat-stage leases pass. Residual operations remain closed rather than entering an advertised profile. |
+| 5. Handles, dynamic authority, deputy intersection, import gating, and audit share immutable semantics | Implemented | Generated operation algebra, generation-bound receipts, graph authority contexts, handle/revocation suites, and structured evidence all pass. |
+| 6. Plain `ibex` enforces and has no silent weakening path | Implemented | `insecure` is absent from Cargo defaults. Plain and explicit-enforce startup produce the same pre-code target-admission refusal; secure-development and no-sandbox postures require separately named compile-time features. |
+| 7. Every advertised target has a passing generated report | Blocked, honestly closed | The advertisement set is empty. Apple and Windows are candidates only; current physical reports remain incomplete and cannot authorize promotion. |
+| 8. Legacy code/docs/demos/stale claims removed or revised | Partial | Armed production no longer consumes legacy policy. LLP 0039 and default-build documentation are being reconciled now, but the diagnostic `PolicyFile` implementation and historical tests still exist and require an explicit retirement decision or deletion. |
+
 ## Current hard parts
 
 - Exact-target completion is deliberately all-or-nothing. Existing evidence
@@ -543,9 +579,9 @@ ticket closes.
   as passing.
 - `main` is moving as old worktrees are landed, so generated CapSec artifacts
   and source-review identities can rotate during this effort.
-- The default build is intentionally insecure per LLP 0039 while the secure
-  feature is separately guarded; LLP 0021's original plain-execution wording
-  needs a completion interpretation consistent with that later decision.
+- Plain builds are being restored to the secure fail-closed posture. Until a
+  target is advertised they intentionally refuse before project code; usable
+  development requires an explicit secure-development or insecure feature.
 - Rich conformance now consumes executed internal-invariant proof, but portable
   promotion now has a distinct mapped-process producer for the dedicated
   internal executor and joins detached per-row artifacts through the Phase-2
@@ -569,7 +605,7 @@ ticket closes.
 
 ## Next milestone
 
-Finish the generated-artifact and LLP gates, reconcile any concurrent `main`
-movement, and resume the LLP 0021 completion-criteria audit. Bootstrap-floor
-authorship and `malformed-branch-facts` remain named gaps rather than unsafe
-local substitutions.
+Attack criterion 8's diagnostic legacy-plane residue and criterion 7's
+exact-target evidence gap. Bootstrap-floor authorship and
+`malformed-branch-facts` remain named gaps rather than unsafe local
+substitutions.
