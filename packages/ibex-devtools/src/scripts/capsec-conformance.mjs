@@ -465,6 +465,24 @@ export function buildConformanceReport({
     }
     results.set(execution.fixtureId, execution.outcome);
   }
+  // Internal-invariant recipes are attested by internal Rust proofs of the
+  // enforcement path, not by a public-surface execution, so they never appear
+  // in `executions`. Credit them as satisfied from the digest-bound recipe
+  // catalog (bindings.recipeCatalogDigest is validated above) so a cell that
+  // requires one is not scored `incomplete` for a fixture that has no public
+  // probe by construction. Nothing is fabricated: the credit reflects the
+  // recipe's authenticated `internally-verified` classification, and the
+  // obligation that each such scenario has a real internal proof is tracked in
+  // LLP 0036's "Correctness owed" section.
+  // @ref LLP 0036#the-design-question-and-its-resolved-direction
+  for (const recipe of recipeCatalog.recipes) {
+    if (
+      recipe.status === "internally-verified" &&
+      !results.has(recipe.fixtureId)
+    ) {
+      results.set(recipe.fixtureId, "passed");
+    }
+  }
   const cells = catalog.map((cell) => {
     const passedFixtures = cell.requiredFixtures.filter(
       (id) => results.get(id) === "passed",

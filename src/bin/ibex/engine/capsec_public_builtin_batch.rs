@@ -414,7 +414,12 @@ fn builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
 
 fn expected_authored_builtin_recipe_count(target: &str) -> usize {
     match target {
-        "aarch64-apple-darwin" => 135,
+        // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
+        // +5 each on Apple for the fs:read readFileSync and fs:write
+        // writeFileSync exports (their allow/deny/malformed/missing-attribution/
+        // wrong-principal scenario matrices). Windows keeps 120: its node_fs
+        // enforcement route is ambiguous, so neither is authored there.
+        "aarch64-apple-darwin" => 145,
         "x86_64-pc-windows-msvc" => 120,
         target => panic!("builtin public recipe batch has no reviewed target shape for {target}"),
     }
@@ -424,7 +429,7 @@ fn expected_authored_builtin_recipe_count(target: &str) -> usize {
 fn capsec_public_builtin_recipe_counts_are_target_specific() {
     assert_eq!(
         expected_authored_builtin_recipe_count("aarch64-apple-darwin"),
-        135
+        145
     );
     assert_eq!(
         expected_authored_builtin_recipe_count("x86_64-pc-windows-msvc"),
@@ -504,10 +509,19 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
         Some("filesystem-file") => {
             assert_eq!(invocation.module_specifier, "node:fs");
             assert_eq!(invocation.source_descriptor["sourceKey"], "node_fs");
-            assert!(matches!(
-                export_name,
-                "lstatSync" | "statSync"
-            ));
+            // fs:list stat exports bind list authority over the fixture; the
+            // fs:read readFileSync export binds read authority; the fs:write
+            // writeFileSync export binds write authority over the same
+            // authenticated file. All are driven by the generic export
+            // invocation script — the read/list exports take one path argument,
+            // the write export additionally takes the literal payload.
+            // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
+            let expected_cap = match export_name {
+                "lstatSync" | "statSync" => "fs:list",
+                "readFileSync" => "fs:read",
+                "writeFileSync" => "fs:write",
+                other => panic!("unsupported filesystem-file fs export {other}"),
+            };
             let logical_path = serde_json::json!({
                 "root": "project",
                 "components": [
@@ -518,14 +532,13 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
             assert_eq!(
                 invocation.required_authority,
                 vec![serde_json::json!({
-                    "cap": "fs:list",
+                    "cap": expected_cap,
                     "resource": {"kind": "path-exact", "path": logical_path.clone()},
                 })]
             );
             let contents = invocation.setup["contents"]
                 .as_str()
                 .expect("filesystem fixture contents must be a string");
-            assert_eq!(invocation.arguments.len(), 1);
             assert_eq!(
                 invocation.arguments[0],
                 serde_json::json!({
@@ -533,6 +546,21 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
                     "logicalPath": logical_path,
                 })
             );
+            let mut runtime_arguments = vec![serde_json::Value::String(
+                "/project/capsec-stat-fixture.txt".to_owned(),
+            )];
+            if expected_cap == "fs:write" {
+                // The write export takes a literal payload as its second
+                // argument; the read/list exports take only the path.
+                assert_eq!(invocation.arguments.len(), 2);
+                let payload = invocation.arguments[1]["value"]
+                    .as_str()
+                    .expect("fs:write literal payload must be a string");
+                assert_eq!(invocation.arguments[1]["kind"], "literal-utf8");
+                runtime_arguments.push(serde_json::Value::String(payload.to_owned()));
+            } else {
+                assert_eq!(invocation.arguments.len(), 1);
+            }
             let fixture_root = tempfile::tempdir().expect("create builtin filesystem fixture");
             let project_root = std::fs::canonicalize(fixture_root.path())
                 .expect("canonicalize builtin filesystem fixture root");
@@ -541,9 +569,7 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
             PreparedInvocation {
                 _fixture_root: Some(fixture_root),
                 project_root: Some(project_root),
-                arguments: vec![serde_json::Value::String(
-                    "/project/capsec-stat-fixture.txt".to_owned(),
-                )],
+                arguments: runtime_arguments,
             }
         }
         Some("filesystem-directory") => {
@@ -745,8 +771,24 @@ fn validate_observation(
             );
         }
         let public_denial = recipe.scenario == "deny";
-        let expected_outcome = if public_denial { "deny" } else { "allow" };
-        assert_eq!(decision["evidence"]["outcome"], expected_outcome);
+        // LLP 0037 D1/D4: an fs:read export (readFileSync) opens the file (an
+        // fs:list path traversal credited to ambient mount authority) and then
+        // reads it (the fs:read operation). The traversal is always allowed —
+        // even in the deny scenario, where only the operation capability is
+        // refused — so per-decision expectations key on whether this decision is
+        // the ambient traversal or the gated operation.
+        // @ref LLP 0037#d4--the-deny-shape-of-an-open-then-act-operation
+        let opens_via_traversal =
+            recipe.action_ids == ["fs:read"] || recipe.action_ids == ["fs:write"];
+        let decision_is_traversal = opens_via_traversal
+            && effects.iter().all(|effect| effect["cap"] == "fs:list");
+        let decision_denied = public_denial && !decision_is_traversal;
+        let expected_outcome = if decision_denied { "deny" } else { "allow" };
+        assert_eq!(
+            decision["evidence"]["outcome"], expected_outcome,
+            "{}: decision outcome drifted",
+            recipe.fixture_id
+        );
         let decisive = decision["evidence"]["evidence"]
             .as_array()
             .expect("observed decision has no decisive evidence");
@@ -756,7 +798,7 @@ fn validate_observation(
             "{}: builtin decision must have one decisive authority row",
             recipe.fixture_id
         );
-        let mount_binding_discovery = !public_denial
+        let mount_binding_discovery = !decision_denied
             && set["context"]["stage"] == "discovery"
             && effects.iter().all(|effect| {
                 effect["resource"]["kind"] == "path-occurrence"
@@ -765,17 +807,20 @@ fn validate_observation(
                         .as_array()
                         .is_some_and(Vec::is_empty)
             });
-        // Authenticating the retained project-mount object is root ambient
-        // authority over the empty logical root. The exact target decisions
-        // on either side must still cite the authored static floor.
+        // The read capability itself (fs:read) is gated by the authored static
+        // floor at commit and its repeats; the open's fs:list traversal resolves
+        // through ambient mount authority (LLP 0037 D1). A stat export, whose
+        // fs:list IS the operation, is not a traversal and stays on the floor.
+        // Authenticating the retained project-mount object is likewise root
+        // ambient authority over the empty logical root.
         // @ref LLP 0023#21-staged-authorization-identity
-        let (expected_stratum, expected_reason, expected_source_prefix) = if public_denial {
+        let (expected_stratum, expected_reason, expected_source_prefix) = if decision_denied {
             (
                 "principal-denial",
                 "principal-denial",
                 Some("principal.000000.denial."),
             )
-        } else if mount_binding_discovery {
+        } else if mount_binding_discovery || decision_is_traversal {
             ("ambient-root", "ambient-root", None)
         } else {
             (
@@ -813,10 +858,33 @@ fn validate_observation(
     }
     assert!(!observed_edges.is_empty());
     assert!(observed_edges.is_subset(&allowed_edges));
-    assert_eq!(
-        observed_actions.into_iter().collect::<Vec<_>>(),
-        invocation.expected_action_ids
+    // LLP 0037 D2: every capability the operation declares must be observed, and
+    // any *extra* observed capability must be a sanctioned traversal effect
+    // (fs:list, when the operation opens a path for fs:read/fs:write) — never an
+    // undeclared operation capability. A stat export, whose declared fs:list IS
+    // the operation, observes exactly its declared set, so `opens_via_traversal`
+    // is false for it and no extra is tolerated.
+    // @ref LLP 0037#d2--declared-vs-incidental-capabilities-in-the-coverage-edge
+    let declared_actions: BTreeSet<String> =
+        invocation.expected_action_ids.iter().cloned().collect();
+    assert!(
+        declared_actions.is_subset(&observed_actions),
+        "{}: declared actions {:?} were not all observed in {:?}",
+        recipe.fixture_id,
+        declared_actions,
+        observed_actions
     );
+    let opens_via_traversal = invocation
+        .expected_action_ids
+        .iter()
+        .any(|cap| cap == "fs:read" || cap == "fs:write");
+    for extra in observed_actions.difference(&declared_actions) {
+        assert!(
+            opens_via_traversal && extra == "fs:list",
+            "{}: undeclared observed capability {extra} is not a sanctioned traversal effect",
+            recipe.fixture_id
+        );
+    }
     assert_eq!(observed_terminals.len(), 1);
     let terminal = observed_terminals.into_iter().next().unwrap();
     if invocation.invocation_schema == "ibex/capsec-builtin-module-import-invocation/1" {

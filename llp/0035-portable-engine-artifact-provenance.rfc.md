@@ -17,13 +17,12 @@ verifier output pinned. See "Public-flip record and the two trust
 profiles" below; folded from the executed
 `tools/portable-engine-attestation-verifier/PUBLIC-MIGRATION.md` runbook,
 which this revision retires.)
-**Revised:** 2026-07-23 (closes 31 of the 41 host-ABI output-shape residual
-rows through five physically proven slices and classifies the remaining ten:
-one borrowed-pointer return with no bounded output by contract, two success-path
-`out:error` channels that only a bounded failure scenario would populate, and
-seven GPU-provider-success rows gated by the source-registry provider-binding
-equality check and the conformance profile's deliberate exclusion of the runtime
-GPU bridge. The sweep plan stays non-bidirectional and advertisements remain
+**Revised:** 2026-07-23 (closes the host-ABI output-shape residual campaign by
+author decision at 6 remaining rows, down from 41 across successive physically
+proven tranches. The remainder is two classes: one borrowed-pointer return with
+no bounded output by contract — permanent — and five GPU authority/bridge
+success rows the conformance profile deliberately excludes. No further tranches
+are planned. The sweep plan stays non-bidirectional and advertisements remain
 empty.)
 **Revised:** 2026-07-20 (integrates the concurrently landed main line — GPU
 authority ABI v2, app-bundle staging routes, the WebGPU mapped-arraybuffer
@@ -2059,57 +2058,43 @@ or the following proof gate fails before a bundle can be uploaded.
 
 ### Host-ABI output-shape residuals: the classified remainder
 
-The 2026-07-21/23 tranche closed 31 of the 41 host-ABI output residual rows
-through five physically proven slices (GPU ABI-constant getters, quarantine
-control, the feature-off embedder sequence, the app-bundle transaction, and the
-GPU-authority fail-closed refusals). Every close executes the exact reviewed
-route on the loaded engine; none is a template-only promotion.
+The host-ABI output residual campaign is **closed by author decision as of
+2026-07-23**. Successive physically proven tranches took the partition from 41
+rows to 6 (41 → 33 → 28 → 16 → 10 → 8 → 6); the last two closes were
+`97059c51` (the stage/run `out:error` rows, via the reviewed out-of-order
+refusal) and `9b246486` (the `authorize_v2` success branch, arming a binding
+derived from the compiled source registry). Every close executes the exact
+reviewed route on the loaded engine; none is a template-only promotion.
 
-The remaining ten rows are **not** unauthored templates. Each has a specific,
-recorded reason it cannot be honestly executed under the conformance profile,
-and they fall into three classes:
+The remaining six rows are **not** unauthored templates, and no further
+tranches are planned. Each has a specific, recorded reason it cannot be
+honestly executed under the conformance profile, in two classes:
 
-1. **No bounded output exists by contract (1 row).**
+1. **No bounded output exists by contract (1 row) — permanent.**
    `ex_host_exact_gpu_authority_session_api_v2` `[[return]]` hands back a
    borrowed pointer to an immutable process-lifetime table. A pointer address
    is not a bounded, reproducible output value, so the output-shape model
    correctly declines to credit it. Reading a scalar out of the pointee would
-   misrepresent a pointer-returning route as a value-returning one.
+   misrepresent a pointer-returning route as a value-returning one. This row
+   will never close; it is the intended terminal state for the route.
 
-2. **The channel is populated only on a failure the reviewed corpus does not
-   drive (2 rows).** `ex_hermes_stage_prepared_native_startup_v1` and
-   `ex_hermes_run_prepared_app_v1` carry an `out:error` channel that stays null
-   across every reviewed prepared-startup path, all of which succeed. Crediting
-   it requires authoring a bounded failure scenario, not re-reading the success
-   path.
+2. **The success path requires GPU authority or bridge state that the
+   conformance profile deliberately excludes (5 rows).**
+   `ex_host_capture_exact_gpu_authority_context_v2` (return +
+   `out:authority_session_id` + `out:digest`) needs a complete
+   `ExactGpuAuthoritySessionFactsV2` carrier-facts struct plus typed
+   generations and a typed root principal in the decision context; a rooted
+   armed host alone is not sufficient. `ex_hermes_deliver_gpu_canvas_-`
+   `attachment_receipt_v1` and `ex_hermes_complete_gpu_decoded_image_v1` drive
+   the runtime GPU bridge, whose hooks are gated behind `webgpu-binding` +
+   `gpu-bridge-test-hooks` — features the conformance build excludes because
+   the report must attest the production feature set.
 
-3. **The success path requires GPU provider authority state that the
-   conformance profile deliberately excludes (7 rows).**
-   `ex_host_authorize_exact_gpu_provider_v2` (return + `out:authority_digest`)
-   and `ex_host_capture_exact_gpu_authority_context_v2` (return +
-   `out:authority_session_id` + `out:digest`) authorize against an armed GPU
-   provider binding, and `ex_hermes_deliver_gpu_canvas_attachment_receipt_v1`
-   and `ex_hermes_complete_gpu_decoded_image_v1` drive the runtime GPU bridge.
-   Two independent gates keep these residual. First, `authorize_v2` at ABI
-   `0x0002_0000` requires `provider_binding_matches_source_registry`: the armed
-   binding must equal the compiled
-   `CAPSEC_WEBGPU_PRIVATE_OPERATION_REGISTRY_JSON` provider exactly, and the
-   existing `install_armed_gpu_v2_test_host` helper carries placeholder digests
-   for the runtime-bridge flow rather than source-registry values, so it cannot
-   reach the success branch. Second, the runtime bridge hooks are gated behind
-   `webgpu-binding` + `gpu-bridge-test-hooks`, which the conformance build
-   excludes because the report must attest the production feature set.
-   Empirically the armed context claims and its snapshot's provider binding
-   parses; only the source-registry equality gate refuses.
-
-   Closing this class therefore requires a purpose-built, reviewed fixture that
-   arms a GPU provider whose binding is source-registry exact, plus a complete
-   `ExactGpuAuthoritySessionFactsV2` carrier-facts struct for the capture route.
-   No reviewed test drives either route to success today. That fixture is
-   deliberately deferred to a dedicated change rather than assembled
-   opportunistically: a subtly wrong armed-authority fixture would manufacture a
-   success credit for a security-sensitive control-plane route, which is a worse
-   outcome than an honest residual.
+   Closing this class would require a purpose-built, reviewed fixture rather
+   than opportunistic assembly: a subtly wrong armed-authority fixture would
+   manufacture a success credit for a security-sensitive control-plane route,
+   which is a worse outcome than an honest residual. That trade is why the
+   campaign stops here rather than pushing the count to zero.
 
 Consequently the output-shape sweep plan remains non-bidirectional and the
 ceremony stays blocked on this axis. That is the intended fail-closed state, not

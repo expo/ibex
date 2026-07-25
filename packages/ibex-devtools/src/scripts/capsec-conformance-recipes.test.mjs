@@ -255,11 +255,17 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(24_581);
+    expect(recipes.summary.requiredFixtures).toBe(24_585);
     // Thirty reviewed roots gain exact fresh-engine receipts while the
     // formerly source-misattributed stream/promises export probe is retracted.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_592);
-    expect(recipes.summary.unresolvedFixtures).toBe(21_989);
+    // +10 for the fs:read readFileSync and fs:write writeFileSync export
+    // families (LLP 0037), 5 scenario rows each.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_602);
+    // The seven internal callback-security invariant scenarios are attested by
+    // internal Rust proofs, not public-surface probes (LLP 0036), so they leave
+    // the unresolved count and form their own classification.
+    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_727);
+    expect(recipes.summary.unresolvedFixtures).toBe(18_256);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -322,7 +328,9 @@ describe("exact-target CapSec executable recipes", () => {
       authoredPublicFixtures,
     );
     expect(recipes.summary.unresolvedFixtures).toBe(
-      expectedFixtureIds.length - authoredPublicFixtures,
+      expectedFixtureIds.length -
+        authoredPublicFixtures -
+        recipes.summary.internallyVerifiedFixtures,
     );
     const publicFixtures = recipes.recipes.filter(
       (recipe) => recipe.expectedObservation.kind === "enforcement-branch",
@@ -355,9 +363,12 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(24_466);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(24_470);
+    // Windows keeps 2,236: its node_fs enforcement route is ambiguous, so the
+    // fs:read readFileSync probe (LLP 0037) is authored on Apple only.
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_236);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(22_230);
+    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_715);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_519);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -419,7 +430,10 @@ describe("exact-target CapSec executable recipes", () => {
           "public-surface-filesystem-not-typed-on-target",
         ),
     );
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(123);
+    // 133 = 123 + the 10 fs:read readFileSync and fs:write writeFileSync rows,
+    // now Apple-authored (LLP 0037) and therefore "not typed on target" for the
+    // ambiguous Windows route.
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(133);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
@@ -833,10 +847,14 @@ describe("exact-target CapSec executable recipes", () => {
       "cannot-widen-authority": 503,
       "post-lockdown-invariant": 503,
     });
+    // These are internal callback-security invariant scenarios: attested by
+    // internal Rust proofs, not public-surface probes, so they carry the
+    // internally-verified status while still recording the residual reason that
+    // documents the public-surface gap and having no public probe (LLP 0036).
     expect(
       rationaleOnly.every(
         (recipe) =>
-          recipe.status === "unresolved" &&
+          recipe.status === "internally-verified" &&
           recipe.publicSurfaceProbe === null &&
           recipe.residualReasons.includes(
             `callback-invariant-${recipe.scenario}-probe-not-authored`,
@@ -850,7 +868,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.scenario === "cannot-widen-authority",
     );
     expect(arbitraryCarrier).toMatchObject({
-      status: "unresolved",
+      status: "internally-verified",
       publicSurfaceProbe: null,
     });
 
@@ -2518,7 +2536,7 @@ describe("exact-target CapSec executable recipes", () => {
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.status === "unresolved",
       ),
-    ).toHaveLength(661);
+    ).toHaveLength(656);
     for (const environmentName of expectedSources.keys()) {
       const residual = startupEnvironmentRecipes.filter(
         (recipe) =>

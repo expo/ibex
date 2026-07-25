@@ -668,6 +668,7 @@ describe("rich-to-portable projections", () => {
       summary: {
         requiredFixtures: 1,
         fullyExecutableFixtures: 1,
+        internallyVerifiedFixtures: 0,
         adapterExecutableFixtures: 0,
         unresolvedFixtures: 0,
         byScenario: { allow: 1 },
@@ -747,6 +748,7 @@ describe("rich-to-portable projections", () => {
       summary: {
         requiredFixtures: 1,
         fullyExecutableFixtures: 1,
+        internallyVerifiedFixtures: 0,
         adapterExecutableFixtures: 0,
         unresolvedFixtures: 0,
         byScenario: { allow: 1 },
