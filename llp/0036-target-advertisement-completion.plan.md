@@ -5,6 +5,7 @@
 **Systems:** Security, CI, Build, Runtime, Engine, Tooling
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-23
+**Revised:** 2026-07-25 (`node:fs.statfsSync` adds five bound-engine Apple public recipes; current Apple accounting is 2,621 fully executable / 3,114 internally verified / 18,305 unresolved)
 **Revised:** 2026-07-25 (retires the per-surface `malformed-branch-facts` fixture: logical-branch predicates are authenticated registry metadata, not a runtime/public input; registry contract validation owns malformed predicate refusal while real branch-selection and no-effect fixtures retain execution coverage)
 **Related:** LLP 0021 (capsec registry / WP10 target proof); LLP 0032 (conformance execution and evidence sharding); LLP 0035 (portable engine artifact provenance); ENG-24933; ENG-24578; ENG-24580; ENG-24579
 
@@ -79,7 +80,7 @@ Grouping every unresolved row by its **scenario** (the last dotted segment of
 the fixture id — what aspect it proves) and checking which scenarios are *ever*
 fully-executable anywhere in the 24,585-row catalog yields a clean partition:
 
-- **Public residual scenarios — 18,310 current Apple rows.** The original
+- **Public residual scenarios — 18,305 current Apple rows.** The original
   2026-07-23 measurement was 18,266 reachable rows. The proof audit first
   returned `malformed-branch-facts` to this side of the boundary; the later
   input-ownership audit retired those 661 generated rows because logical-branch
@@ -178,13 +179,13 @@ target report is constructed.
    a public callback command.
    The retired `malformed-branch-facts` scenario receives no internal or public
    credit. Current measured catalogs after the input-ownership correction:
-   Apple 2,616 fully executable / 3,114 internally verified / 18,310 unresolved;
+   Apple 2,621 fully executable / 3,114 internally verified / 18,305 unresolved;
    Windows 2,240 fully executable / 3,102 internally verified / 18,583
    unresolved. The historical two-row increase on each target is the
    honest non-capability coverage for the internal batch's binding and output
    environment controls.
 
-2. **Public-residual authoring program (currently 18,310 Apple rows) — it is a
+2. **Public-residual authoring program (currently 18,305 Apple rows) — it is a
    generator-and-execution problem, not per-row authoring.** Historical
    measured structure (2026-07-23): the then-current 18,266 rows collapsed to
    5,325 surfaces across just 53

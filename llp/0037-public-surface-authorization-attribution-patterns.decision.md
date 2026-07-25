@@ -5,6 +5,7 @@
 **Systems:** Security, Runtime, Devtools, Verification
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-23
+**Revised:** 2026-07-25 (`node:fs.statfsSync` extends the direct metadata family using an engine-observed six-decision allow sequence and first-request denial; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.realpathSync` binds its exact cwd/lstat auxiliary decisions, allow-path realpath terminal, and fail-closed lstat denial terminal; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.accessSync` extends the direct metadata family using an engine-observed six-decision allow sequence and first-request denial; five Apple fixture rows move from residual to executable without relaxing route, action, stratum, or result validation)
 **Revised:** 2026-07-25 (aligns the promotion aggregate with the accepted D1/D2/D4 open-then-act rule: declared read/write actions must be observed, and the only permitted surplus is an ambient, path-occurrence-bound `fs:list` open traversal; the Rust producer and JavaScript aggregate now enforce the same invariant)
@@ -109,6 +110,19 @@ discovery resolves through ambient-root. Denial stops at the first `requested`
 decision. The sequence was captured from a deliberately failing bound-engine
 batch and then pinned; the completed 150-recipe builtin batch passes without
 permitting an auxiliary action or terminal.
+
+### Additional direct-metadata evidence: `statfsSync`
+
+`node:fs.statfsSync` follows the same single-terminal authorization pattern on
+the reviewed Apple engine, while retaining its own source-derived
+`__exactStatfs` coverage edge. Its allow path produces six `fs:list` decisions:
+`requested, discovery, requested, repeat, repeat, repeat`. Requested and repeat
+checks resolve through the authored static floor, mount discovery resolves
+through ambient-root, and denial stops at the first `requested` decision. A
+deliberately failing bound-engine run exposed this sequence before it was
+pinned. The complete 160-recipe builtin batch and the independent promotion
+validator accept all five scenario observations without allowing another edge,
+action, stage, result, or authority stratum.
 
 ### Additional multi-edge metadata evidence: `realpathSync`
 

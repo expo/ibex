@@ -989,6 +989,29 @@ ticket closes.
   current source graph and remains residual. This tranche promotes only the ten
   obligations whose generated classification and real execution agree.
 
+### 2026-07-25 — `statfsSync` target evidence
+
+- Extended the direct `fs:list` metadata family through
+  `node:fs.statfsSync`, promoting its five Apple effect scenarios while
+  preserving Windows's ambiguous filesystem-route disposition.
+- A deliberately failing bound-engine run exposed the exact allow sequence:
+  `requested, discovery, requested, repeat, repeat, repeat`, all on the
+  source-derived `__exactStatfs` edge. Denial stops at the first requested
+  decision. The complete 160-recipe builtin Hermes batch then passed across
+  allow, deny, malformed, missing-attribution, and wrong-principal scenarios.
+- The independent promotion validator accepted the five real engine
+  observations. The combined template/recipe/promotion-evidence suite passes
+  149 tests with 112,491 assertions.
+- Apple is now 24,040 required / 2,621 fully executable / 3,114 internally
+  verified / 18,305 unresolved. Windows remains 23,925 / 2,240 / 3,102 /
+  18,583. Criterion 7's literal Apple denominator is 5,735/24,040 (23.9%)
+  proven.
+- Hard part: even this simple single-terminal export requires catalog
+  regeneration, a complete engine-locked family batch, and independent
+  observation validation; the five-row gain does not materially change the
+  remaining literal denominator. Important enforcement mechanisms remain
+  about 96% complete and the overall requested task remains about 86%.
+
 ## Next milestone
 
 Attack criterion 7's exact-target evidence gap through real public-surface

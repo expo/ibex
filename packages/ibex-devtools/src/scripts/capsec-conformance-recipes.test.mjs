@@ -341,12 +341,12 @@ describe("exact-target CapSec executable recipes", () => {
     // production graph deliberately uses deferred call-time links. The net-new
     // WebGPU obligations remain unresolved until their public-surface probes
     // are authored.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_616);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_621);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_114);
-    expect(recipes.summary.unresolvedFixtures).toBe(18_310);
+    expect(recipes.summary.unresolvedFixtures).toBe(18_305);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -511,11 +511,11 @@ describe("exact-target CapSec executable recipes", () => {
           "public-surface-filesystem-not-typed-on-target",
         ),
     );
-    // 143 = 123 + the 20 fs:list accessSync/realpathSync, fs:read
+    // 148 = 123 + the 25 fs:list accessSync/realpathSync/statfsSync, fs:read
     // readFileSync, and fs:write writeFileSync rows now Apple-authored
     // (LLP 0037), and therefore "not typed on target" for the ambiguous
     // Windows route.
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(143);
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(148);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
@@ -772,6 +772,7 @@ describe("exact-target CapSec executable recipes", () => {
       "accessSync",
       "lstatSync",
       "realpathSync",
+      "statfsSync",
       "statSync",
     ]) {
       const surface = `builtin:export:node_fs:${exportName}`;
@@ -862,7 +863,7 @@ describe("exact-target CapSec executable recipes", () => {
             ? exportName === "realpathSync"
               ? ["requested", "commit", "requested"]
               : ["requested"]
-            : exportName === "accessSync"
+            : exportName === "accessSync" || exportName === "statfsSync"
               ? [
                   "requested",
                   "discovery",
@@ -897,7 +898,7 @@ describe("exact-target CapSec executable recipes", () => {
             ? exportName === "realpathSync"
               ? 3
               : 1
-            : exportName === "accessSync"
+            : exportName === "accessSync" || exportName === "statfsSync"
               ? 6
               : exportName === "realpathSync"
                 ? 12

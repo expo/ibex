@@ -58,6 +58,7 @@ const FS_LIST_EXPORTS = new Set([
   "lstatSync",
   "readdirSync",
   "realpathSync",
+  "statfsSync",
   "statSync",
 ]);
 // Synchronous, path-taking fs:read exports. Each opens the authenticated fixture
@@ -544,6 +545,7 @@ export function authoredBuiltinPublicProbe({
   const directoryProbe = exportName === "readdirSync";
   const accessMetadataProbe = exportName === "accessSync";
   const realpathMetadataProbe = exportName === "realpathSync";
+  const statfsMetadataProbe = exportName === "statfsSync";
   const followedMetadataProbe = exportName === "statSync";
   const logicalPath = directoryProbe ? FS_DIRECTORY_PATH : FS_FIXTURE_PATH;
   const auxiliaryDecisionEdges = realpathMetadataProbe
@@ -615,7 +617,7 @@ export function authoredBuiltinPublicProbe({
             : 1
           : directoryProbe
             ? 7
-            : accessMetadataProbe
+            : accessMetadataProbe || statfsMetadataProbe
               ? 6
               : realpathMetadataProbe
                 ? 12
@@ -637,7 +639,7 @@ export function authoredBuiltinPublicProbe({
                 "repeat",
                 "repeat",
               ]
-            : accessMetadataProbe
+            : accessMetadataProbe || statfsMetadataProbe
               ? [
                   "requested",
                   "discovery",

@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-25 (`node:fs.statfsSync` adds five bound-engine Apple public recipes through its exact six-decision `fs:list` sequence; Apple accounting is now 2,621 fully executable / 3,114 internally verified / 18,305 unresolved)
 **Revised:** 2026-07-25 (retires the generated `malformed-branch-facts` execution scenario because logical-branch predicates are authenticated registry metadata rather than runtime input, preserving registry-shape validation plus real branch-selection/no-effect evidence; confirms the empty production bootstrap floor as the exact least-authority declaration while retaining the generic one-shot seal and nonempty-floor mechanism)
 **Revised:** 2026-07-25 (reconciles module-runner conformance with invocation-time activation: the 19 production-reachable ABI lifecycle surfaces execute while authenticated `require` resolution and source reads remain attributed to two reviewed auxiliary effect edges; six eager dynamic/require-link ABIs and teardown-only generation unpin remain residual; separates the public callback Cargo filter from its containing module so it cannot also select the bound internal-evidence producer; refreshes the source-derived Apple and Windows fixture totals)
 **Revised:** 2026-07-25 (deletes the legacy `PolicyFile` parser, public module, `HostConfig` policy/path/allow/deny seams, policy-string mode parser, and runtime readiness dependency; foreground audit remains an explicitly policyless diagnostic host and historical compatibility-manager algebra is covered only through private test setup)
@@ -1822,8 +1823,8 @@ six mechanisms once and expands that scenario-class observation into exact
 fixture records carrying the fixture plan, common execution binding, engine
 digest, result marker, and artifact digest. Report generation validates those
 records independently; catalog status alone leaves the fixtures missing.
-Apple now has 2,616 fully executable rows, 3,114 internally verified rows, and
-18,310 unresolved rows;
+Apple now has 2,621 fully executable rows, 3,114 internally verified rows, and
+18,305 unresolved rows;
 Windows has 2,240 fully executable rows, 3,102 internally verified rows, and
 18,583 unresolved rows. The
 public callback batch is correspondingly pinned to its eight exact authored
