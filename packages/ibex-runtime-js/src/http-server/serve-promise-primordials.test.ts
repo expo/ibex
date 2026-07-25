@@ -1,4 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import {
+  existsSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { serve } from "./index.js";
 
 type AnyFn = (...args: unknown[]) => unknown;
@@ -9,6 +19,33 @@ const NativeError = Error;
 const NativePromise = Promise;
 const NativeTypeError = TypeError;
 const defineProperty = Object.defineProperty;
+const testDirectory = fileURLToPath(new URL(".", import.meta.url));
+const hermesBin =
+  [
+    process.env.IBEX_HERMES_BIN,
+    resolve(testDirectory, "../../../../tools/hermes/hermes"),
+    resolve(testDirectory, "../../../../../../tools/hermes/hermes"),
+  ].find((candidate) => candidate && existsSync(candidate)) ?? "";
+
+function canRunHermes(candidate: string): boolean {
+  if (!candidate || !existsSync(candidate)) {
+    return false;
+  }
+  const directory = mkdtempSync(
+    join(tmpdir(), "ibex-http-hermes-probe-"),
+  );
+  const fixture = join(directory, "fixture.js");
+  try {
+    writeFileSync(fixture, 'print("ok");\n');
+    const result = spawnSync(candidate, [fixture], {
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+    return result.status === 0 && result.stdout.trim() === "ok";
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+}
 
 const HOST_GLOBALS = [
   "__exactHttpServe",
@@ -263,6 +300,73 @@ test("serve binds and returns a closeable handle with poisoned Promise intrinsic
   expect(host.closes).toEqual([[91, 1]]);
   expect(host.active.size).toBe(0);
 });
+
+test.skipIf(!canRunHermes(hermesBin))(
+  "serve observes native wait promises under shipping Hermes semantics",
+  () => {
+    const temporaryDirectory = mkdtempSync(
+      join(tmpdir(), "ibex-http-hermes-promise-"),
+    );
+    const bundlePath = join(temporaryDirectory, "fixture.js");
+    try {
+      const fixturePath = fileURLToPath(
+        new URL("./serve-promise-hermes.fixture.ts", import.meta.url),
+      );
+      const build = spawnSync(
+        "bun",
+        [
+          "build",
+          fixturePath,
+          "--format=iife",
+          "--target=browser",
+          "--outfile",
+          bundlePath,
+        ],
+        {
+          cwd: resolve(testDirectory, "../../.."),
+          encoding: "utf8",
+          timeout: 30_000,
+        },
+      );
+      expect(
+        build.error,
+        `${build.stderr}\n${build.stdout}`,
+      ).toBeUndefined();
+      expect(
+        build.status,
+        `${build.stderr}\n${build.stdout}`,
+      ).toBe(0);
+
+      const execution = spawnSync(hermesBin, [bundlePath], {
+        cwd: resolve(testDirectory, "../../.."),
+        encoding: "utf8",
+        timeout: 30_000,
+      });
+      expect(
+        execution.error,
+        `${execution.stderr}\n${execution.stdout}`,
+      ).toBeUndefined();
+      expect(
+        execution.status,
+        `${execution.stderr}\n${execution.stdout}`,
+      ).toBe(0);
+      const reportLine =
+        execution.stdout.trim().split("\n").at(-1) ?? "";
+      expect(JSON.parse(reportLine)).toEqual({
+        handlePromise: true,
+        ok: true,
+        promiseConstructorReads: 0,
+        promiseResolveCalls: 0,
+        promiseSpeciesReads: 0,
+        promiseThenCalls: 0,
+        selectedCapturedPromise: true,
+        waitCount: 4,
+      });
+    } finally {
+      rmSync(temporaryDirectory, { force: true, recursive: true });
+    }
+  },
+);
 
 test("hostile response capability getters fail before the native bind", () => {
   const host = installHost(

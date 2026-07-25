@@ -41,7 +41,29 @@ function httpOwnDataProperty(object, key) {
   return descriptor.value;
 }
 
-var httpPromiseConstructorDescriptor = httpDataDescriptor(undefined, true);
+function selectHttpPromiseConstructor() {
+  var probe = new httpPromise(function() {});
+  httpReflectApply(httpObjectDefineProperty, null, [
+    probe,
+    "constructor",
+    httpDataDescriptor(undefined, false),
+  ]);
+  try {
+    httpReflectApply(httpPromiseThen, probe, [undefined, undefined]);
+    return undefined;
+  } catch (_) {
+    // Hermes 1.0's Promise polyfill executes `new self.constructor(...)`
+    // instead of applying SpeciesConstructor's undefined fallback. Selecting
+    // the captured Promise keeps its direct continuation path while still
+    // bypassing mutable prototype and @@species properties.
+    return httpPromise;
+  }
+}
+
+var httpPromiseConstructorDescriptor = httpDataDescriptor(
+  selectHttpPromiseConstructor(),
+  true
+);
 var httpNonThenableDescriptor = httpDataDescriptor(undefined, false);
 
 function resolvedPromise(value) {
@@ -56,9 +78,9 @@ function observeHostPromise(promise, onFulfilled, onRejected) {
     throw new httpTypeError("Exact HTTP wait did not return a Promise");
   }
   // Promise.prototype.then dynamically resolves `promise.constructor` and its
-  // @@species before it installs reactions. Give the private host Promise an
-  // own undefined constructor so poisoned shared Promise prototypes cannot
-  // run during listener startup.
+  // @@species before it installs reactions. Give the private host Promise the
+  // engine-selected own constructor sentinel so poisoned shared Promise
+  // prototypes cannot run during listener startup.
   httpReflectApply(httpObjectDefineProperty, null, [
     promise,
     "constructor",
