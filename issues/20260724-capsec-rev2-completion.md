@@ -162,6 +162,34 @@ ticket closes.
 - Current estimate: **53% complete for the full LLP 0021 completion contract;
   roughly 78% complete for the security-critical runtime mechanism set.**
 
+### 2026-07-24 — made the launch-entry join a required cache credential
+
+- Replaced the prepared loader's prose-only dependency on production call
+  ordering with an opaque `AuthenticatedEntryJoinV1`. The only production
+  constructor is the complete structured-request/source-graph validation
+  boundary.
+- The join binds the entry's module and VFS identities, source integrity,
+  snapshot digest, and producer digest after the request has also proved file
+  ingress, defining principal, source goal, dialect, entry role, and main-entry
+  status.
+- Every prepared-cache load now requires that join and revalidates it against
+  the current graph before reading `index.json`. A deliberately mismatched join
+  against a nonexistent cache returns the join refusal rather than an I/O
+  error, proving the no-probe ordering.
+- The ordinary runtime and the source-bound conformance runner now carry the
+  join explicitly into prepared selection. Test-only direct publisher fixtures
+  use a separately named `cfg(test)` constructor; production builds cannot
+  manufacture it.
+- The authenticated-ingress registry now requires both join minting and
+  pre-read consumption evidence. Registry, CapSec contract, runtime projection,
+  LLP reference, and diff-hygiene checks pass; the registry digest rotation's
+  canonical fixtures were regenerated and validated.
+- The full secure-mode gate passes: the secure build compiles, all 630 library
+  tests pass (3 ignored), and the behavioral smoke confirms project read plus
+  outside-read/write, spawn, and environment-sentinel enforcement.
+- Current estimate: **54% complete for the full LLP 0021 completion contract;
+  roughly 79% complete for the security-critical runtime mechanism set.**
+
 ## Current hard parts
 
 - Exact-target completion is deliberately all-or-nothing. Existing evidence

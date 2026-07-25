@@ -3147,7 +3147,7 @@ async fn execute_authenticated_module_runner_public_graph(
         .evaluate_authenticated_module_graph(
             &session,
             request,
-            Box::new(move |_admitted_request| {
+            Box::new(move |admitted_request| {
                 let (admission_legacy, admission_typed) =
                     ibex_runtime::host::abi::take_installed_conformance_observations();
                 assert!(
@@ -3174,13 +3174,20 @@ async fn execute_authenticated_module_runner_public_graph(
                         requirement.reason
                     ),
                 };
+                let entry_join =
+                    graph.validate_authenticated_entry_request(admitted_request)?;
                 let graph = if let Some(deployment_digest) = prepared_deployment_digest {
                     let prepared_cache = publish_prepared_source_graph_v1(
                         &graph,
                         &graph_project_root,
                         deployment_digest.clone(),
                     )?;
-                    load_prepared_source_graph_v1(&prepared_cache, &graph, &deployment_digest)?
+                    load_prepared_source_graph_v1(
+                        &prepared_cache,
+                        &graph,
+                        &entry_join,
+                        &deployment_digest,
+                    )?
                 } else {
                     graph
                 };

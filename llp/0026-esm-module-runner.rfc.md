@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-24 (the production source graph authorizes each exact dependency edge before source acquisition and retains its digest-bound receipt; prepared dependency carriers now derive a carrier-read receipt from that exact continuation and read only inside its closure, while entry-only carriers remain joined to the authenticated launch request and armed transpilation has no persistent cache)
+**Revised:** 2026-07-24 (the production source graph authorizes exact dependency acquisition and receipt-gates dependency carriers; an opaque graph/request join now gates all prepared-cache discovery and entry-only carriers, while armed transpilation has no persistent cache)
 **Revised:** 2026-07-18 (the Phase-0 compatibility baseline now records the
 post-native-switch namespace/CommonJS observations and successful dynamic-import
 source-map line recovery instead of retaining the superseded shim failure)
@@ -678,12 +678,15 @@ containing an authored dependency derives `PreparedCarrierRead` from the
 matching retained source-acquisition receipt, revalidates the exact source
 integrity, carrier digest, target, graph generation, snapshot digest, and
 authority generations, and keeps the manifest/payload read inside that
-closure; the prepared graph retains the new receipt. A carrier with no
-dependency receipt is accepted only when it contains the launch entry, whose
-acquisition and prepared selection remain joined to its authenticated file
-request. Armed transpilation is fresh/in-memory and therefore has no persistent
-`CacheRead` hit. The unauthenticated linker remains test-only, and target cells
-stay unsupported until their executed fixture evidence exists.
+closure; the prepared graph retains the new receipt. Before any prepared-cache
+index or sidecar is read, the loader must also consume an opaque,
+non-serializable entry join minted by matching the admitted structured file
+request to the graph's VFS identity, principal, snapshot, source integrity, and
+grammar. A carrier with no dependency receipt is accepted only when it contains
+that joined launch entry. Armed transpilation is fresh/in-memory and therefore
+has no persistent `CacheRead` hit. The unauthenticated linker remains
+test-only, and target cells stay unsupported until their executed fixture
+evidence exists.
 
 **Binding cells live in the Hermes runner, behind opaque native handles.**
 JavaScript-side cells keep every binding read and setter dispatch inside the

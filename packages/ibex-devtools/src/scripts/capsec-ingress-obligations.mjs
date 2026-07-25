@@ -65,7 +65,7 @@ export const REQUIRED_INGRESS_OBLIGATIONS = Object.freeze([
   Object.freeze({
     id: "checked-native-module-graph",
     assertion:
-      "Advertised direct-file module graphs consume the exact structured admission before Host graph discovery or lowering; the engine centrally rejoins every returned native graph to the admitted snapshot, principal, VFS SourceId, source integrity, and grammar; and execution either begins with that graph or continues the bounded session-lowering fallback with the same admission and argv.",
+      "Advertised direct-file module graphs consume the exact structured admission before Host graph discovery or lowering; the engine centrally rejoins every returned native graph to the admitted snapshot, principal, VFS SourceId, source integrity, and grammar; prepared-cache discovery requires the opaque result of that join; and execution either begins with that graph or continues the bounded session-lowering fallback with the same admission and argv.",
     sourceEvidence: Object.freeze([
       freezeEvidence("src/bin/ibex/runtime.rs", [
         ".evaluate_authenticated_module_graph(",
@@ -73,6 +73,8 @@ export const REQUIRED_INGRESS_OBLIGATIONS = Object.freeze([
         "self.prepare_authenticated_module_graph(admitted_request)",
         "build_authenticated_source_graph_v1_for_host(",
         "graph.validate_authenticated_entry_request(request)?",
+        "let entry_join = graph.validate_authenticated_entry_request(request)?;",
+        "load_authenticated_prepared_module_graph(&source_entry, &graph, &entry_join)",
       ]),
       freezeEvidence("src/module_loader/runner_pipeline.rs", [
         "pub fn validate_authenticated_entry_request(",
@@ -82,6 +84,10 @@ export const REQUIRED_INGRESS_OBLIGATIONS = Object.freeze([
         "entry_artifact.semantics.source_integrity != *request.source_digest()",
         "entry_artifact.semantics.source_goal != expected_goal",
         "entry_artifact.semantics.dialect != Some(expected_dialect)",
+        "pub fn load_prepared_source_graph_v1(",
+        "entry_join: &AuthenticatedEntryJoinV1,",
+        "prepared graph entry join does not authenticate this source graph",
+        "let index_bytes = read_authenticated_prepared_file(",
       ]),
       freezeEvidence("src/bin/ibex/engine/hermes.rs", [
         "admit_prepare_authenticated_module_graph(raw.cast(), session, request, |request|",
@@ -744,7 +750,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-file-ingress",
       "impl AuthenticatedFileIngress {",
       "fn expected_identity_from_snapshot(",
-      "sha256-34TG8qsLMKVHeS3eBWFdFRhFphFttu_yKi8PkxX1rKw",
+      "sha256-nflRsMveZ12tgSfMJgHwYjGwBLJy-BRGx9kR48icLnA",
     ),
     freezeReviewedRange(
       "runtime-file-execution",
@@ -856,7 +862,13 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-entry-request-join",
       "    pub fn validate_authenticated_entry_request(",
       "    pub fn plan(&self) -> Result<SynchronousGraphPlan<'_>> {",
-      "sha256-JcQZUSC5TS8jGzQZaxJMkSWH7BJApFmCGn2hxd-sXPQ",
+      "sha256-qDgqsKmfuVCl7WC9d3PZGx-Q6V7NM3JkOAo9uj47acI",
+    ),
+    freezeReviewedRange(
+      "prepared-entry-join-consumption",
+      "pub fn load_prepared_source_graph_v1(",
+      "    let text = std::str::from_utf8(&index_bytes)?;",
+      "sha256-xB-FR_mbH9Asdz3KqLOlxtQ-h1N3hmQghh5AYxm1ueQ",
     ),
   ]),
   "src/vfs/mod.rs": Object.freeze([

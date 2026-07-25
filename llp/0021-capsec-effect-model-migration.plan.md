@@ -5,7 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
-**Revised:** 2026-07-24 (production native-graph dependency source reads now authorize the exact typed edge before acquisition and retain a digest-bound source receipt; prepared dependency-carrier reads derive and retain a carrier receipt from that exact continuation before touching bytes, while launch-only entry carriers remain joined to the authenticated entry request and armed transpilation has no persistent cache-read path)
+**Revised:** 2026-07-24 (production native-graph dependency source reads authorize the exact typed edge and retain a digest-bound receipt; dependency carriers derive a carrier receipt from that continuation, while entry-only carriers require an opaque graph/request join minted before any cache discovery; armed transpilation has no persistent cache-read path)
 **Revised:** 2026-07-20 (extends authenticated fresh-engine, zero-decision source receipts to 30 additional reviewed public builtin spellings, binds their exact root value types, and leaves both `stream/consumers` spellings residual because compatibility loading shadows their manifest source)
 **Revised:** 2026-07-19 (binds the exact `dns/promises` carrier/provider callable shape to independent inventory and classifier review pins while leaving all 45 derived routes residual; strengthens four DNS no-effect alias receipts with exact cache-miss, VFS source, body-completion, alias, and runtime-nonce evidence)
 **Revised:** 2026-07-18 (ENG-25076 adds the target-local Exact GPU binding/profile producer and independently executed preparation evidence while preserving empty advertisements)
@@ -415,10 +415,13 @@ derives an exact `PreparedCarrierRead` receipt from that dependency's retained
 source-acquisition continuation, binds the expected source integrity and
 deterministic carrier digest, reads the manifest/payload only inside the
 receipt-revalidated closure, and retains the resulting receipt for the prepared
-graph lifetime. A carrier with no dependency receipt is admissible only when it
-contains the launch entry; that entry-only case remains joined to the
-separately authenticated structured launch request rather than inventing an
-import edge for the entry.
+graph lifetime. Prepared-cache loading additionally requires an opaque,
+non-serializable entry-join token minted only after the structured file
+request's VFS identity, principal, snapshot digest, source integrity, goal,
+dialect, role, and main-entry status match the graph. The token is rejoined to
+the current graph before `index.json` is read. A carrier with no dependency
+receipt is admissible only when it contains that joined launch entry, rather
+than inventing an import edge for the entry.
 Module factories remain reachability-only at the graph boundary; host effects
 they perform still enter ordinary typed semantic-core `DecisionSet`s at their
 native effect gates. Generated target cells remain unsupported until executed

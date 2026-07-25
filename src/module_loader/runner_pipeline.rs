@@ -304,6 +304,18 @@ pub struct SourceModuleGraphV1 {
     _prepared_access_receipts: Vec<AuthorizedGraphOperation>,
 }
 
+/// Opaque proof that one structured file request was joined to one exact
+/// authenticated source graph before prepared-cache discovery. It is
+/// process-local and deliberately has no public constructor or serialization.
+#[derive(Clone, Debug)]
+pub struct AuthenticatedEntryJoinV1 {
+    entry: SourceId,
+    entry_vfs_source_id: crate::vfs::SourceId,
+    source_integrity: Digest,
+    snapshot_digest: Digest,
+    producer_binary_digest: Digest,
+}
+
 impl SourceModuleGraphV1 {
     pub fn entry(&self) -> &SourceId {
         &self.entry
@@ -331,7 +343,7 @@ impl SourceModuleGraphV1 {
     pub fn validate_authenticated_entry_request(
         &self,
         request: &crate::engine::evaluation::SourceRequest,
-    ) -> Result<()> {
+    ) -> Result<AuthenticatedEntryJoinV1> {
         use crate::engine::evaluation::{
             EntryKind, ModuleKind as RequestModuleKind, ParserDialect, SourceGoal, SourceRequest,
             SourceRole,
@@ -384,7 +396,35 @@ impl SourceModuleGraphV1 {
         {
             bail!("authenticated native source graph grammar differs from the structured request");
         }
-        Ok(())
+        Ok(AuthenticatedEntryJoinV1 {
+            entry: self.entry.clone(),
+            entry_vfs_source_id: self
+                .entry_vfs_source_id
+                .clone()
+                .expect("validated entry request has a VFS SourceId"),
+            source_integrity: entry_artifact.semantics.source_integrity.clone(),
+            snapshot_digest: self.snapshot.digest().clone(),
+            producer_binary_digest: self.producer_binary_digest.clone(),
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn authenticated_entry_join_for_test(&self) -> Result<AuthenticatedEntryJoinV1> {
+        let record = self
+            .records
+            .get(&self.entry)
+            .ok_or_else(|| anyhow!("authenticated native source graph omitted its entry record"))?;
+        let entry_artifact = verify_record(record, &self.producer_binary_digest)?.artifact();
+        Ok(AuthenticatedEntryJoinV1 {
+            entry: self.entry.clone(),
+            entry_vfs_source_id: self
+                .entry_vfs_source_id
+                .clone()
+                .ok_or_else(|| anyhow!("test source graph has no VFS entry identity"))?,
+            source_integrity: entry_artifact.semantics.source_integrity.clone(),
+            snapshot_digest: self.snapshot.digest().clone(),
+            producer_binary_digest: self.producer_binary_digest.clone(),
+        })
     }
 
     pub fn plan(&self) -> Result<SynchronousGraphPlan<'_>> {
@@ -2026,11 +2066,33 @@ fn read_authenticated_prepared_file(path: &Path, expected: &[u8], role: &str) ->
     Ok(bytes)
 }
 
+/// Consume the authenticated entry join before discovering any prepared-cache
+/// bytes, then revalidate the exact graph identity the join authorized.
+/// @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
 pub fn load_prepared_source_graph_v1(
     cache_dir: &Path,
     authenticated_source_graph: &SourceModuleGraphV1,
+    entry_join: &AuthenticatedEntryJoinV1,
     expected_deployment_graph_digest: &Digest,
 ) -> Result<SourceModuleGraphV1> {
+    let entry_record = authenticated_source_graph
+        .records
+        .get(&authenticated_source_graph.entry)
+        .ok_or_else(|| anyhow!("authenticated native source graph omitted its entry record"))?;
+    let entry_artifact = verify_record(
+        entry_record,
+        &authenticated_source_graph.producer_binary_digest,
+    )?
+    .artifact();
+    if entry_join.entry != authenticated_source_graph.entry
+        || Some(&entry_join.entry_vfs_source_id)
+            != authenticated_source_graph.entry_vfs_source_id.as_ref()
+        || entry_join.source_integrity != entry_artifact.semantics.source_integrity
+        || entry_join.snapshot_digest != *authenticated_source_graph.snapshot.digest()
+        || entry_join.producer_binary_digest != authenticated_source_graph.producer_binary_digest
+    {
+        bail!("prepared graph entry join does not authenticate this source graph");
+    }
     let expected = render_prepared_source_graph_v2(
         authenticated_source_graph,
         expected_deployment_graph_digest,
@@ -2681,9 +2743,28 @@ mod tests {
                 )
             }
         };
-        graph
+        let mut entry_join = graph
             .validate_authenticated_entry_request(&request)
             .unwrap();
+        entry_join.source_integrity =
+            Digest::new("sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA").unwrap();
+        let absent_cache = tempfile::tempdir().unwrap();
+        let deployment = producer_digest.clone();
+        let error = match load_prepared_source_graph_v1(
+            absent_cache.path(),
+            &graph,
+            &entry_join,
+            &deployment,
+        ) {
+            Ok(_) => panic!("mismatched entry join read a prepared cache"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("entry join does not authenticate"),
+            "prepared cache was probed before entry-join refusal: {error:#}"
+        );
 
         let entry_id = graph.entry.clone();
         let (source_label, source_path) = {

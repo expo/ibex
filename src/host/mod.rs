@@ -10914,8 +10914,9 @@ mod tests {
         let cache =
             publish_prepared_source_graph_v1(&source_graph, &artifact_dir, deployment.clone())
                 .unwrap();
+        let entry_join = source_graph.authenticated_entry_join_for_test().unwrap();
         let prepared_graph =
-            load_prepared_source_graph_v1(&cache, &source_graph, &deployment).unwrap();
+            load_prepared_source_graph_v1(&cache, &source_graph, &entry_join, &deployment).unwrap();
 
         let execute = |graph: &SourceModuleGraphV1, expect_prepared: bool| {
             let plan = graph.plan().unwrap();
@@ -11051,7 +11052,9 @@ mod tests {
         std::fs::create_dir(&artifact_dir).unwrap();
         let cache =
             publish_prepared_source_graph_v1(&graph, &artifact_dir, deployment.clone()).unwrap();
-        let loaded = load_prepared_source_graph_v1(&cache, &graph, &deployment).unwrap();
+        let entry_join = graph.authenticated_entry_join_for_test().unwrap();
+        let loaded =
+            load_prepared_source_graph_v1(&cache, &graph, &entry_join, &deployment).unwrap();
         assert_eq!(loaded.prepared_access_receipt_count(), 1);
         // The prepared cache round-trips every record — `publish_prepared_source_graph_v1`
         // iterates all of `graph.records` without filtering — so these track the
@@ -11175,7 +11178,8 @@ mod tests {
             capsec_semantics::canonical::to_jcs_bytes(&index).unwrap(),
         )
         .unwrap();
-        let refusal = match load_prepared_source_graph_v1(&cache, &graph, &deployment) {
+        let refusal = match load_prepared_source_graph_v1(&cache, &graph, &entry_join, &deployment)
+        {
             Ok(_) => panic!("self-consistent forged cache was admitted"),
             Err(error) => error.to_string(),
         };
@@ -11270,6 +11274,7 @@ mod tests {
         std::fs::create_dir(&artifact_dir).unwrap();
         let prepared_cache =
             publish_prepared_source_graph_v1(&initial, &artifact_dir, deployment.clone()).unwrap();
+        let entry_join = initial.authenticated_entry_join_for_test().unwrap();
 
         let collect_source_samples = |generation_offset: usize| {
             let mut collected = Vec::with_capacity(samples);
@@ -11297,8 +11302,13 @@ mod tests {
             let mut collected = Vec::with_capacity(samples);
             for sample in 0..samples {
                 let started = Instant::now();
-                let graph =
-                    load_prepared_source_graph_v1(&prepared_cache, &initial, &deployment).unwrap();
+                let graph = load_prepared_source_graph_v1(
+                    &prepared_cache,
+                    &initial,
+                    &entry_join,
+                    &deployment,
+                )
+                .unwrap();
                 let generation = generation_offset + sample + 1;
                 let (configs, contexts) = graph.native_execution_inputs(generation as u64).unwrap();
                 collected.push((

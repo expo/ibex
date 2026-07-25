@@ -2857,7 +2857,7 @@ impl AuthenticatedFileIngress {
             }
         };
         phase.mark("graph_build");
-        graph.validate_authenticated_entry_request(request)?;
+        let entry_join = graph.validate_authenticated_entry_request(request)?;
         let (_, retained_entry_path, _) = graph
             .records()
             .find(|(source_id, _, _)| *source_id == graph.entry())
@@ -2869,7 +2869,7 @@ impl AuthenticatedFileIngress {
         phase.mark("graph_validate");
 
         if let Some(prepared) =
-            self.load_authenticated_prepared_module_graph(&source_entry, &graph)?
+            self.load_authenticated_prepared_module_graph(&source_entry, &graph, &entry_join)?
         {
             phase.mark("graph_cache_select");
             return Ok(AuthenticatedModuleGraphPreparation::Native(prepared));
@@ -2888,6 +2888,7 @@ impl AuthenticatedFileIngress {
         &self,
         source_entry: &Path,
         graph: &ibex_runtime::module_loader::runner_pipeline::SourceModuleGraphV1,
+        entry_join: &ibex_runtime::module_loader::runner_pipeline::AuthenticatedEntryJoinV1,
     ) -> Result<Option<ibex_runtime::module_loader::runner_pipeline::SourceModuleGraphV1>> {
         use ibex_runtime::module_loader::artifact::digest_bytes;
         use ibex_runtime::module_loader::runner_pipeline::{
@@ -2954,7 +2955,7 @@ impl AuthenticatedFileIngress {
                 )?;
                 let cache_dir = prepared_graph_cache_dir(&artifact_dir, &deployment_digest);
                 if let Ok(prepared) =
-                    load_prepared_source_graph_v1(&cache_dir, graph, &deployment_digest)
+                    load_prepared_source_graph_v1(&cache_dir, graph, entry_join, &deployment_digest)
                 {
                     return Ok(Some(prepared));
                 }
