@@ -213,6 +213,14 @@ one.
      yields a **9-decision** open-then-read chain
      (`requested,requested,discovery,requested,repeat,commit,repeat,repeat,repeat`),
      not the 4–5 of a stat. Only a batch run reveals it.
+   - **Traversal-allowance authoring gate (LLP 0037 D2, code-verified review
+     2026-07-24).** When a family's observed set is a superset of its declared
+     capability, the extra is tolerated only as a *traversal* effect. Before
+     pinning the family, confirm from its observed sequence that every surplus
+     `fs:list` occurs at an open/traversal stage — not as a real directory
+     listing the operation performs. A family that genuinely lists must declare
+     that `fs:list`, not inherit the traversal allowance. This is a required
+     step of the per-family loop, not an assumption carried by the pattern.
    - **Two genuine security-model questions surfaced — the real per-family
      cost.** (1) *Stratum:* the open's path-traversal `fs:list` decisions
      resolve through the root principal's **ambient-mount** authority while the

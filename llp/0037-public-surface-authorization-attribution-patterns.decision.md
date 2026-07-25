@@ -13,12 +13,20 @@
 The author accepted the recommended rulings on D1, D2, and D3 (2026-07-23) to
 unblock the per-family authoring loop, explicitly deferring to the
 recommendation rather than adjudicating the security details independently. The
-rulings were AI-proposed. Because D1 and D2 relax security-boundary assertions
-that gate the public advertisement of a security product, an **independent
-review by someone versed in the capsec authorization model is still owed before
-any advertisement produced on these rulings is published.** This mirrors LLP
-0036's "Correctness owed": the rulings are a coherent working position now, not a
-security-reviewed one. Specifically to re-examine:
+rulings were AI-proposed.
+
+**Code-verified security review, 2026-07-24.** The owed review was performed
+against the implementation and recorded at
+[`llp/reviews/0037-public-surface-authorization-attribution-patterns.opus.md`](reviews/0037-public-surface-authorization-attribution-patterns.opus.md).
+Verdict: **ACCEPT** — no ruling is fail-open for the two landed families
+(`fs:read`, `fs:write`); each claim was checked down to syscall ordering. Two
+documentation corrections were required and are now applied above: the D4 "inert"
+qualification (deferred truncation vs. the deliberate `O_CREAT` empty-file
+side effect, LLP 0023 §4.1) and the D2 per-family authoring gate (surplus
+`fs:list` must be confirmed a traversal from the observed sequence). The reviewer
+is an AI model; whether that discharges the "someone versed in the capsec model"
+bar, or a human sign-off is still wanted on top of the code-verified findings,
+is the author's call. The specific properties re-examined were:
 
 - **D1:** that `ambient-root` traversal crediting cannot mask an unauthorized
   traversal — i.e. that the root principal's ambient-mount authority genuinely
@@ -148,6 +156,19 @@ enumerate its traversal capabilities. This is a large, cascading registry change
 (coverage edges feed target cells, dispositions, and digests) and must be a
 reviewed corpus-wide pass, not a per-family edit.
 
+**Per-family authoring gate (from the code-verified review, 2026-07-24).** The
+implemented allowance keys on the capability *identity* of the surplus effect
+(`extra == "fs:list"`), not on its being *structurally* a traversal. For the
+landed families this is safe — the pinned observed sequence shows `fs:list` only
+at open stages, never as an operation — but the relaxation is a template for
+every open-then-act family. Before pinning a new family, confirm **from its
+observed sequence** that every surplus `fs:list` occurs at a traversal stage of
+an open, not as a genuine directory listing the operation performs. A family
+that legitimately lists a directory while declaring only `fs:read`/`fs:write`
+must declare that `fs:list`, not inherit the traversal allowance. This
+confirmation is an authoring-loop gate in LLP 0036, not an assumption carried
+by the pattern.
+
 ### D3 — Observed typed sequences are pinned from a run, never authored by hand
 
 **Observation.** `readFileSync`'s 9-decision sequence
@@ -187,14 +208,30 @@ so the deny scenario is a mixed allow-traversal / deny-operation sequence?
 **Proposed ruling — YES; it is the direct consequence of D1.** If traversal is
 ambient-mount authority (D1), it is available to the root principal regardless of
 whether the *operation* capability is granted; denying `fs:read` removes the
-read, not the mount access. The opened descriptor is inert without the operation
-capability, so permitting the open is not an escalation. The validator must
-therefore evaluate outcome and stratum **per decision** — a traversal decision is
-always `allow`/`ambient-root`, the operation decision reflects the scenario
+read, not the mount access. The opened descriptor confers no *operation* without
+the operation capability, so permitting the open is not a partial-execution
+escalation of the operation itself. The validator must therefore evaluate outcome
+and stratum **per decision** — a traversal decision is always
+`allow`/`ambient-root`, the operation decision reflects the scenario
 (`allow`/`static-floor` or `deny`/`principal-denial`). This is exactly the
 generalization landed in `capsec_public_builtin_batch.rs`. If ruled the other
 way (a denied operation must also refuse the open), the engine's open-before-act
 behavior would itself be the defect, a runtime change well outside this document.
+
+**Qualification on "inert" (from the code-verified review, 2026-07-24).** "Inert"
+is precise for the *destructive* effect that matters and slightly overstated for
+creation. For `writeFileSync` (`O_WRONLY | O_CREAT | O_TRUNC`), the engine
+deliberately **preauthorizes creation and delays truncation until the operation
+capability commits**: `openArmedWriteTarget` in `hermes_runtime_fs.cc` opens,
+then authorizes `fs:write`, then — only on success — `ftruncate`s. A denied
+`fs:write` therefore **never destroys existing file content**. It can, however,
+leave a **newly-created zero-byte file** when the target did not exist, because
+`O_CREAT` precedes the commit and the engine intentionally does *not* unlink on
+denial (a name-bound rollback could race and delete a different creator's
+object — the LLP 0023 §4.1 anti-TOCTOU contract). So the deny shape is
+non-destructive to existing objects but is not literally side-effect-free for
+`O_CREAT` opens; the bounded creation side effect is an accepted, pre-existing
+engine contract, not a defect introduced here.
 
 ## Consequences
 
