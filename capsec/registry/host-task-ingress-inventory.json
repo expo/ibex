@@ -2103,7 +2103,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 5305,
+          "line": 5307,
           "column": 21,
           "source": "revoke_capture->call(*runtime->runtime);"
         }
@@ -2161,7 +2161,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4276,
+          "line": 4278,
           "column": 9,
           "source": ".call(rt, result);"
         }
@@ -2176,7 +2176,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 5930,
+          "line": 5932,
           "column": 64,
           "source": "auto deleted = runtime->root_global_reflect_delete_property->call("
         }
@@ -2206,14 +2206,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 3577,
+          "line": 3579,
           "column": 31,
           "source": "binding.wrapper_event_sink->call(rt, event);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 3580,
+          "line": 3582,
           "column": 34,
           "source": "binding.test_event_observer->call(rt, event);"
         }
@@ -2228,7 +2228,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 3829,
+          "line": 3831,
           "column": 26,
           "source": "receipt.resolve->call(rt, facebook::jsi::Value::undefined());"
         }
@@ -2243,28 +2243,28 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 6028,
+          "line": 6030,
           "column": 35,
           "source": "if (!outerEvaluationOpen && (!exactRuntimeEnterUserExecution(runtime) ||"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6045,
+          "line": 6047,
           "column": 43,
           "source": "binding->canvas_app_bundle_begin->call(*runtime->runtime, 0.0);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6082,
+          "line": 6084,
           "column": 57,
           "source": "auto captureValue = binding->canvas_app_bundle_begin->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6115,
+          "line": 6117,
           "column": 42,
           "source": "binding->canvas_app_bundle_finish->call("
         }
@@ -2279,7 +2279,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6464,
+          "line": 6466,
           "column": 33,
           "source": "binding->canvas_receipt_sink->call(*runtime->runtime, value);"
         }
@@ -2294,7 +2294,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6363,
+          "line": 6365,
           "column": 52,
           "source": "auto result = binding->canvas_app_bundle_finish->call("
         }
@@ -2309,7 +2309,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 5673,
+          "line": 5675,
           "column": 9,
           "source": ".call(rt, authority);"
         }
@@ -2324,35 +2324,35 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6588,
+          "line": 6590,
           "column": 21,
           "source": ".call(rt, object);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6591,
+          "line": 6593,
           "column": 64,
           "source": "auto namesValue = runtime->root_global_get_own_property_names->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6593,
+          "line": 6595,
           "column": 68,
           "source": "auto symbolsValue = runtime->root_global_get_own_property_symbols->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6631,
+          "line": 6633,
           "column": 62,
           "source": "auto prototypeValue = runtime->root_global_get_prototype_of->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6646,
+          "line": 6648,
           "column": 57,
           "source": "runtime->root_global_get_own_property_descriptor->call("
         }
@@ -2367,7 +2367,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7029,
+          "line": 7031,
           "column": 15,
           "source": "checkpoint->call(*runtime->runtime);"
         }
@@ -2382,14 +2382,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6904,
+          "line": 6906,
           "column": 9,
           "source": ".call(rt, gpuNativeBridgeV2);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6920,
+          "line": 6922,
           "column": 31,
           "source": "auto revokeValue = capture.call(rt, *captured);"
         }
@@ -2404,7 +2404,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 5889,
+          "line": 5891,
           "column": 58,
           "source": "return runtime->root_global_get_own_property_descriptor->call("
         }
@@ -2419,7 +2419,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 5866,
+          "line": 5868,
           "column": 64,
           "source": "auto namesValue = runtime->root_global_get_own_property_names->call("
         }
@@ -2434,14 +2434,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7578,
+          "line": 7580,
           "column": 9,
           "source": ".call(rt, integration);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7579,
+          "line": 7581,
           "column": 55,
           "source": "runtime->gpu_binding_v2->canvas_app_bundle_capture->call("
         }
@@ -2456,7 +2456,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7490,
+          "line": 7492,
           "column": 73,
           "source": "auto descriptor = runtime->root_global_get_own_property_descriptor->call("
         }
@@ -2471,14 +2471,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7707,
+          "line": 7709,
           "column": 43,
           "source": "lossResolvers->resolve->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7733,
+          "line": 7735,
           "column": 45,
           "source": "lossResolvers->resolve->call("
         }
@@ -2493,7 +2493,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 7851,
+          "line": 7853,
           "column": 29,
           "source": ".callAsConstructor(rt, 16)"
         }

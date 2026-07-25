@@ -5001,8 +5001,7 @@ fn build_default_armed_host(
                         ibex_runtime::capsec_registry_generated::CAPSEC_POLICY_RULES_JSON,
                     )?,
                 });
-                let registry_bytes =
-                    capsec_semantics::canonical::to_jcs_bytes(&registry_record)?;
+                let registry_bytes = capsec_semantics::canonical::to_jcs_bytes(&registry_record)?;
                 materialize_protected_artifact(
                     &cache_root,
                     "registry",
@@ -6458,8 +6457,8 @@ fn pin_precomputed_registry_artifact(
         "components": runtime_path_components_json(&path)?,
         "hostBound": true,
     }))?;
-    let content_digest = capsec_semantics::model::Digest::new(expected_digest)
-        .map_err(anyhow::Error::msg)?;
+    let content_digest =
+        capsec_semantics::model::Digest::new(expected_digest).map_err(anyhow::Error::msg)?;
     Ok(Some(MaterializedProtectedArtifact {
         host_path,
         object,

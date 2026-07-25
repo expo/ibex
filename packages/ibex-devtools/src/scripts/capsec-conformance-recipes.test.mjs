@@ -255,11 +255,11 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(24_626);
+    expect(recipes.summary.requiredFixtures).toBe(24_654);
     // Thirty reviewed roots gain exact fresh-engine receipts while the
     // formerly source-misattributed stream/promises export probe is retracted.
     expect(recipes.summary.fullyExecutableFixtures).toBe(2_592);
-    expect(recipes.summary.unresolvedFixtures).toBe(22_034);
+    expect(recipes.summary.unresolvedFixtures).toBe(22_062);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -355,9 +355,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(24_511);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(24_539);
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_236);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(22_275);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(22_303);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -817,7 +817,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(3_084);
+    expect(rationaleOnly).toHaveLength(3_086);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -830,8 +830,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 517,
       "principal-restore": 517,
       "snapshot-mismatch-deny": 517,
-      "cannot-widen-authority": 508,
-      "post-lockdown-invariant": 508,
+      "cannot-widen-authority": 509,
+      "post-lockdown-invariant": 509,
     });
     expect(
       rationaleOnly.every(
@@ -2413,7 +2413,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.classification === "effects" &&
         recipe.terminalObservedKey.startsWith("startup:env:"),
     );
-    expect(startupEnvironmentRecipes).toHaveLength(670);
+    expect(startupEnvironmentRecipes).toHaveLength(675);
     expect(
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.terminalObservedKey === "startup:env:CLICOLOR_FORCE",
@@ -2518,7 +2518,7 @@ describe("exact-target CapSec executable recipes", () => {
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.status === "unresolved",
       ),
-    ).toHaveLength(661);
+    ).toHaveLength(666);
     for (const environmentName of expectedSources.keys()) {
       const residual = startupEnvironmentRecipes.filter(
         (recipe) =>

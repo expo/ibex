@@ -1212,7 +1212,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         "ibex/capsec-output-shape-execution-partition/1",
       completeCatalogKeyDigest: completeCatalog.catalogKeyDigest,
     });
-    expect(completeCatalog.rows).toHaveLength(6525);
+    expect(completeCatalog.rows).toHaveLength(6532);
     expect(executionPartition.genericCatalog.rows).toHaveLength(5945);
     expect(executionPartition.genericProbes).toHaveLength(5945);
     expect(
@@ -1222,13 +1222,13 @@ describe("output-shape-sweep-v3 evidence contract", () => {
     ).toBe(false);
     expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(59);
     expect(executionPartition.hostAbi.rows).toHaveLength(508);
-    // The 13 residual rows are the remaining GPU authority and presentation
+    // The 20 residual rows are the remaining GPU authority and presentation
     // routes without a bounded output fixture: decoded-image and receipt
     // delivery, authority/session/presentation capture, recheck, retirement,
     // and the borrowed-pointer session API. The sweep plan must keep failing
     // bidirectionality until a reviewed armed GPU-authority fixture closes them.
     // @ref LLP 0035#host-abi-output-shape-residuals-the-classified-remainder
-    expect(executionPartition.hostAbi.residuals).toHaveLength(13);
+    expect(executionPartition.hostAbi.residuals).toHaveLength(20);
 
     const baseBindings = fixture().bindings;
     const targetAbsenceProbes = buildTargetAbsenceOutputShapeProbes({
@@ -1348,12 +1348,12 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       shifted.hostAbi.targetAbsenceBindings.length,
       shifted.hostAbi.rows.length,
       shifted.hostAbi.residuals.length,
-    ]).not.toEqual([59, 508, 13]);
+    ]).not.toEqual([59, 508, 20]);
     expect([
       executionPartition.hostAbi.targetAbsenceBindings.length,
       executionPartition.hostAbi.rows.length,
       executionPartition.hostAbi.residuals.length,
-    ]).toEqual([59, 508, 13]);
+    ]).toEqual([59, 508, 20]);
   }, 180_000);
 
   test("routes and exactly validates the complete builtin-effects tranche", async () => {

@@ -3304,8 +3304,10 @@ facebook::jsi::Object makeGpuV2WrapperEvent(
     std::vector<uint8_t> payload) {
   facebook::jsi::Object value(rt);
   value.setProperty(rt, "kind", static_cast<double>(event.kind));
+#ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
   const auto* payloadData = payload.data();
   const size_t payloadSize = payload.size();
+#endif
   auto payloadValue = makeUint8Array(rt, std::move(payload));
 #ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
   if (event.kind == EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2) {

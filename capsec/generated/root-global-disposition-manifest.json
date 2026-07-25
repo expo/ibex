@@ -2,7 +2,7 @@
   "rootGlobalDispositionManifestSchema": "ibex/root-global-disposition-manifest/1",
   "profile": "ibex/capsec/1",
   "status": "enforced-by-armed-live-sweep",
-  "sourceDigest": "sha256-y6vYs6gP4pDpKAQv_UOtg6q6HG7tBi-_OKdzD7Jwakk",
+  "sourceDigest": "sha256-Oe0zAWnnwrpyFGpFw3fY6AjkeprRVsQa47vJkCD1fiE",
   "sweep": {
     "roots": [
       "globalThis"
@@ -77,6 +77,7 @@
       "surface.native.op.exactbrotlidecompresssync.1nqrylx",
       "surface.native.op.exactbytestoutf8string.17y16zr",
       "surface.native.op.exactcapabilitycheck.1k7vr6d",
+      "surface.native.op.exactcapturedevservedmoduletablelifecycle.06siznp",
       "surface.native.op.exactcapturesessionstaticimport.01e19jo",
       "surface.native.op.exactcheckimport.1bhraoq",
       "surface.native.op.exactchmod.0z6n1u6",
@@ -265,6 +266,7 @@
       "surface.native.op.exactprocessipcbootstrap.close.1ap2eh4",
       "surface.native.op.exactprocessipcbootstrap.fd.1yvjieu",
       "surface.native.op.exactprocessipcbootstrap.serialization.1vtmt9s",
+      "surface.native.op.exactquarantinedevservedmoduletable.1e6mwa3",
       "surface.native.op.exactrandombytes.05df739",
       "surface.native.op.exactreaddir.0tg30vk",
       "surface.native.op.exactreadfile.1cmzco7",
@@ -1247,6 +1249,7 @@
       "surface.native.op.global.gpumapmode.132t0bs",
       "surface.native.op.global.gpuoutofmemoryerror.1ahnb3r",
       "surface.native.op.global.gpupipelinelayout.0a068mr",
+      "surface.native.op.global.gpuqueryset.11xx237",
       "surface.native.op.global.gpuqueue.038r0jq",
       "surface.native.op.global.gpurenderpassencoder.0wzq9oi",
       "surface.native.op.global.gpurenderpipeline.1uzysnh",
@@ -31999,6 +32002,37 @@
       "nativeImplementation": true
     },
     {
+      "installId": "root-global.exactcapturedevservedmoduletablelifecycle.4b81e33e178fd9d1",
+      "observedKey": "native-op:__exactCaptureDevServedModuleTableLifecycle",
+      "registryEdgeId": "surface.native.op.exactcapturedevservedmoduletablelifecycle.06siznp",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#jsi-global:__exactCaptureDevServedModuleTableLifecycle"
+        ],
+        "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactCaptureDevServedModuleTableLifecycle"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": "trusted-module-loader",
+      "disposition": "private",
+      "traversal": "descend",
+      "liveExpectation": "absent",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
       "installId": "root-global.exactcapturesessionstaticimport.12096134fa166583",
       "observedKey": "native-op:__exactCaptureSessionStaticImport",
       "registryEdgeId": "surface.native.op.exactcapturesessionstaticimport.01e19jo",
@@ -39345,6 +39379,37 @@
       "installPhase": "native-install",
       "privateConsumer": null,
       "disposition": "sealed",
+      "traversal": "descend",
+      "liveExpectation": "absent",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.exactquarantinedevservedmoduletable.975a8dd5f291d550",
+      "observedKey": "native-op:__exactQuarantineDevServedModuleTable",
+      "registryEdgeId": "surface.native.op.exactquarantinedevservedmoduletable.1e6mwa3",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#jsi-global:__exactQuarantineDevServedModuleTable"
+        ],
+        "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactQuarantineDevServedModuleTable"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": "trusted-module-loader",
+      "disposition": "private",
       "traversal": "descend",
       "liveExpectation": "absent",
       "resolution": "static",
@@ -49941,6 +50006,37 @@
         "root": {
           "kind": "string",
           "value": "GPUPipelineLayout"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "shared-runtime",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.gpuqueryset.1b600d75ce39b71e",
+      "observedKey": "native-op:global:GPUQuerySet",
+      "registryEdgeId": "surface.native.op.global.gpuqueryset.11xx237",
+      "branch": {
+        "id": "all",
+        "routes": [
+          "shared-runtime"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUQuerySet"
+        ],
+        "targetVariant": "all",
+        "activation": "authenticated-webgpu-provider"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GPUQuerySet"
         },
         "path": []
       },
@@ -103466,10 +103562,10 @@
     }
   ],
   "counts": {
-    "installBranches": 2757,
-    "logicalGlobals": 2609,
-    "registryEdges": 2609,
-    "sealedOrPrivate": 348,
-    "permittedReachable": 2409
+    "installBranches": 2760,
+    "logicalGlobals": 2612,
+    "registryEdges": 2612,
+    "sealedOrPrivate": 350,
+    "permittedReachable": 2410
   }
 }

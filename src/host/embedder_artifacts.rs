@@ -894,9 +894,9 @@ fn build_exact_embedder_artifacts_with_gpu(
     let cache_root = crate::runtime_cache_dir()?;
     std::fs::create_dir_all(&cache_root)?;
     let cache_root = std::fs::canonicalize(cache_root)?;
-    let project_host_path = absolute_artifact_path(&project_root)?;
+    let project_host_path = absolute_artifact_path(project_root)?;
     let cache_host_path = absolute_artifact_path(&cache_root)?;
-    let project_object = super::object_identity_for_host_path(&project_root)?;
+    let project_object = super::object_identity_for_host_path(project_root)?;
     let cache_object = super::object_identity_for_host_path(&cache_root)?;
     document["rootBindings"] = serde_json::json!([
         {

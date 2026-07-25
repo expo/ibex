@@ -2754,21 +2754,8 @@ pub unsafe extern "C" fn ex_host_authorize_exact_gpu_provider_v2(
     1
 }
 
-/// Capture one operation's generation-fenced caller attribution into a
-/// domain-separated SHA-256 digest. Inputs come only from the native
-/// runtime/frame-attribution path; this function is not installed as a JS host
-/// operation. The digest binds the armed snapshot, explicitly labelled
-/// actor/caller-effect-owner/scheduler roles, the canonical innermost-first
-/// constrained-principal stack, and every authority generation.
-///
-/// This digest is provenance, not a positive WebGPU authority decision. The
-/// semantic service must still authorize the operation-selected effects,
-/// stages, targets, and handle lineage before provider admission.
-///
-/// # Safety
-///
-/// `principals` addresses `principal_count` readable `u64` values and
-/// `out_digest` addresses exactly 32 writable bytes.
+// Selects which generation-fenced authority tuple the shared capture helper
+// authenticates and reserves.
 enum ExactGpuAuthorityCaptureDestinationV2 {
     Operation,
     Presentation,
@@ -3037,6 +3024,18 @@ unsafe fn capture_exact_gpu_authority_context_v2_inner(
     1
 }
 
+/// Capture one operation's generation-fenced caller attribution.
+///
+/// The returned digest is provenance, not a positive WebGPU authority
+/// decision. The semantic service must still authorize the selected effects,
+/// stages, targets, and handle lineage before provider admission.
+///
+/// # Safety
+///
+/// `principals` must address `principal_count` readable `u64` values, `facts`
+/// must address one readable `ExactGpuAuthoritySessionFactsV2`, `out_digest`
+/// must address 32 writable bytes, and `out_authority_session_id` must address
+/// one writable `u64`.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn ex_host_capture_exact_gpu_authority_context_v2(
@@ -3075,6 +3074,14 @@ pub unsafe extern "C" fn ex_host_capture_exact_gpu_authority_context_v2(
     }
 }
 
+/// Capture the paired acquire/present authority reserved for one presentation.
+///
+/// # Safety
+///
+/// `principals` must address `principal_count` readable `u64` values, `facts`
+/// must address one readable `ExactGpuAuthoritySessionFactsV2`, `out_digest`
+/// must address 32 writable bytes, and both authority-session outputs must
+/// each address one writable `u64`.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn ex_host_capture_exact_gpu_presentation_authority_v2(
@@ -3114,6 +3121,14 @@ pub unsafe extern "C" fn ex_host_capture_exact_gpu_presentation_authority_v2(
     }
 }
 
+/// Recheck a retained presentation pair against current attribution.
+///
+/// # Safety
+///
+/// `principals` must address `principal_count` readable `u64` values, `facts`
+/// must address one readable `ExactGpuAuthoritySessionFactsV2`,
+/// `retained_authority_context_digest` must address 32 readable bytes, and
+/// `out_recheck_digest` must address 32 writable bytes.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn ex_host_recheck_exact_gpu_presentation_authority_v2(
@@ -3210,6 +3225,11 @@ pub extern "C" fn ex_host_force_retire_exact_gpu_authority_session_v2(
     ))
 }
 
+/// Retire an exact retained presentation authority pair.
+///
+/// # Safety
+///
+/// `authority_context_digest` must address exactly 32 readable bytes.
 #[no_mangle]
 pub unsafe extern "C" fn ex_host_retire_exact_gpu_presentation_authority_v2(
     context_id: u64,
@@ -8554,7 +8574,11 @@ pub extern "C" fn ex_host_env_ambient_active() -> i32 {
 /// full-length protocol as `ex_host_env_get`. `-1` when the projection is
 /// inactive or the name is unset.
 #[no_mangle]
-pub extern "C" fn ex_host_env_ambient_get(key: *const c_char, out_buf: *mut c_char, len: u32) -> i64 {
+pub extern "C" fn ex_host_env_ambient_get(
+    key: *const c_char,
+    out_buf: *mut c_char,
+    len: u32,
+) -> i64 {
     if key.is_null() {
         return -1;
     }
@@ -8577,7 +8601,9 @@ pub extern "C" fn ex_host_env_ambient_set(key: *const c_char, value: *const c_ch
     if value.is_null() {
         super::process::insecure_ambient_env_set(&key, None);
     } else {
-        let value = unsafe { CStr::from_ptr(value) }.to_string_lossy().to_string();
+        let value = unsafe { CStr::from_ptr(value) }
+            .to_string_lossy()
+            .to_string();
         super::process::insecure_ambient_env_set(&key, Some(&value));
     }
     0

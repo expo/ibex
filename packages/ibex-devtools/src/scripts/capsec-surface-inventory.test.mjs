@@ -8013,7 +8013,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           row.name === "ex_host_install_armed_experimental_webgpu_pre1a",
       ),
     ).toBe(true);
-    expect(first.hostAbi).toHaveLength(356);
+    expect(first.hostAbi).toHaveLength(361);
     for (const [name, sourceRef] of [
       [
         "evaluation:installGlobals:native-freeze-conformance-observation",
@@ -8088,7 +8088,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .sort(),
       ),
     ).toEqual({
-      "output-bearing": 306,
+      "output-bearing": 311,
       "structural-only": 50,
     });
     expect(
@@ -8121,7 +8121,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .map(([role, channels]) => [role, channels.length])
           .sort(),
       ),
-    ).toEqual({ callback: 59, out: 217, return: 288 });
+    ).toEqual({ callback: 59, out: 219, return: 293 });
     expect(
       Object.fromEntries(
         [
@@ -8137,7 +8137,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       "none:void": 68,
       "value:aggregate": 17,
       "value:pointer": 51,
-      "value:scalar": 220,
+      "value:scalar": 225,
     });
     expect(
       Object.fromEntries(
@@ -8153,8 +8153,8 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual({
       "callback-payload": 38,
       inout: 9,
-      input: 909,
-      output: 88,
+      input: 915,
+      output: 90,
     });
 
     const accountFor = (name) =>
@@ -8395,7 +8395,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       ).toEqual(["src/engine/hermes_runtime.cc#ex_hermes_create_armed"]);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")),
-    ).toHaveLength(163);
+    ).toHaveLength(168);
     expect(
       first.hostAbi.some((row) => row.name === "ex_host_seal_bootstrap_phase"),
     ).toBe(true);

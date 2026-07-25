@@ -42,6 +42,9 @@ async fn secure_process_env_never_leaks_an_inherited_host_sentinel() {
         .expect("JSON line in stdout");
     let json: serde_json::Value = serde_json::from_str(line).expect("stdout JSON parses");
     assert_eq!(json["direct"], true, "sentinel readable in secure mode");
-    assert_eq!(json["enumerated"], false, "sentinel enumerable in secure mode");
+    assert_eq!(
+        json["enumerated"], false,
+        "sentinel enumerable in secure mode"
+    );
     assert_eq!(json["keyCount"], 0, "secure armed base must stay empty");
 }

@@ -464,19 +464,19 @@ describe("LLP 0023 output-disposition dataset", () => {
     );
   });
 
-  test("accounts for all 7,602 covered surfaces and emits 6,525 context-bound output rows", async () => {
+  test("accounts for all 7,608 covered surfaces and emits 6,532 context-bound output rows", async () => {
     const { catalog, coverage } = await repositoryCatalogFixture();
     expect(catalog.outputShapeCatalogSchema).toBe(
       "ibex/capsec-output-shape-catalog/2",
     );
     expect(catalog.counts).toEqual({
-      coverageSurfaces: 7_602,
-      outputBearingSurfaces: 5_844,
-      structuralOnlySurfaces: 1_669,
+      coverageSurfaces: 7_608,
+      outputBearingSurfaces: 5_849,
+      structuralOnlySurfaces: 1_670,
       unresolvedSurfaces: 89,
-      catalogRows: 6_525,
+      catalogRows: 6_532,
       parameterizedBindings: 1,
-      sourceInventoryRows: 6_118,
+      sourceInventoryRows: 6_125,
       structuredRows: 407,
     });
     expect(catalog.surfaceAccounts).toHaveLength(coverage.edges.length);
@@ -491,8 +491,8 @@ describe("LLP 0023 output-disposition dataset", () => {
         parameterizedOutputBindings: catalog.parameterizedOutputBindings,
       }),
     ).toEqual({
-      "output-bearing": 5_844,
-      "structural-only": 1_669,
+      "output-bearing": 5_849,
+      "structural-only": 1_670,
       unresolved: 89,
     });
     expect(
@@ -1296,16 +1296,16 @@ describe("LLP 0023 output-disposition dataset", () => {
       return derived;
     });
 
-    expect(hostEdges).toHaveLength(356);
+    expect(hostEdges).toHaveLength(361);
     expect(countsBy(derivedAccounts, (account) => account.status)).toEqual({
-      "output-bearing": 306,
+      "output-bearing": 311,
       "structural-only": 50,
     });
     expect(
       derivedAccounts
         .filter((account) => account.status === "output-bearing")
         .flatMap((account) => account.outputChannels),
-    ).toHaveLength(564);
+    ).toHaveLength(571);
     expect(
       derivedAccounts.some(
         (account) =>
@@ -1466,7 +1466,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-disposition-policy/2",
     );
     expect(policy.catalogKeyDigest).toBe(
-      "sha256-ITeeGkqKkw14fATH3kiSbjK4ytk8DlcPPihf1sySuxo",
+      "sha256-VW9BlhTmDt0PjLexF04LrXPWmoRK5O97XVHJ8TLN50E",
     );
     expect(policy.catalogKeyDigest).toBe(catalog.catalogKeyDigest);
     expect(policy.overrides).toHaveLength(369);
@@ -1500,12 +1500,12 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-dispositions/2",
     );
     expect(dataset.counts).toEqual({
-      catalogRows: 6_525,
-      dispositionRows: 6_525,
+      catalogRows: 6_532,
+      dispositionRows: 6_532,
       byDisposition: {
         absent: 152,
         closed: 28,
-        "non-path": 6_197,
+        "non-path": 6_204,
         "private-native-path": 5,
         refused: 12,
         "reserved-constant": 1,

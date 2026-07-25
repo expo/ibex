@@ -161,9 +161,7 @@ async fn insecure_stdin_worker_route_observes_the_same_projection() {
         .stdin
         .take()
         .expect("stdin handle")
-        .write_all(
-            b"console.log(JSON.stringify({worker: process.env.IBEX_TEST_ENV_SENTINEL}));",
-        )
+        .write_all(b"console.log(JSON.stringify({worker: process.env.IBEX_TEST_ENV_SENTINEL}));")
         .await
         .expect("write stdin program");
     let output = timeout(EVAL_TIMEOUT, child.wait_with_output())
