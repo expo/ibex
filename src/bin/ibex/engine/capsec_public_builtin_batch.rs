@@ -418,12 +418,12 @@ fn expected_authored_builtin_recipe_count(target: &str) -> usize {
     match target {
         // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
         // +5 each on Apple for fs:list accessSync/existsSync/realpathSync/statfsSync,
-        // fs:read readFileSync, and fs:write appendFileSync/truncateSync/
-        // writeFileSync (their allow/deny/malformed/missing-attribution/
-        // wrong-principal matrices).
+        // fs:read readFileSync, and fs:write appendFileSync/mkdirSync/
+        // truncateSync/writeFileSync (their allow/deny/malformed/
+        // missing-attribution/wrong-principal matrices).
         // Windows keeps 120: its node_fs enforcement route is ambiguous, so
         // these public probes are not authored there.
-        "aarch64-apple-darwin" => 175,
+        "aarch64-apple-darwin" => 180,
         "x86_64-pc-windows-msvc" => 120,
         target => panic!("builtin public recipe batch has no reviewed target shape for {target}"),
     }
@@ -433,7 +433,7 @@ fn expected_authored_builtin_recipe_count(target: &str) -> usize {
 fn capsec_public_builtin_recipe_counts_are_target_specific() {
     assert_eq!(
         expected_authored_builtin_recipe_count("aarch64-apple-darwin"),
-        175
+        180
     );
     assert_eq!(
         expected_authored_builtin_recipe_count("x86_64-pc-windows-msvc"),
@@ -479,13 +479,25 @@ impl PreparedInvocation {
     }
 
     fn verify_postcondition(&self, invocation: &BuiltinInvocation, scenario: &str) {
+        let Some(export_name) = invocation.export_name.as_deref() else {
+            return;
+        };
+        if export_name == "mkdirSync" {
+            let created = self
+                .project_root
+                .as_ref()
+                .expect("filesystem fixture has no project root")
+                .join("capsec-created-directory");
+            assert_eq!(
+                created.is_dir(),
+                scenario != "deny",
+                "mkdirSync {scenario} postcondition drifted"
+            );
+            return;
+        }
         let Some(original) = self.fixture_contents.as_deref() else {
             return;
         };
-        let export_name = invocation
-            .export_name
-            .as_deref()
-            .expect("filesystem fixture invocation has no export name");
         let expected = match (export_name, scenario) {
             ("appendFileSync" | "truncateSync" | "writeFileSync", "deny") => {
                 original.to_vec()
@@ -717,6 +729,55 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
                 fixture_contents: None,
             }
         }
+        Some("filesystem-absent-directory") => {
+            assert_eq!(invocation.module_specifier, "node:fs");
+            assert_eq!(invocation.source_descriptor["sourceKey"], "node_fs");
+            assert_eq!(export_name, "mkdirSync");
+            let logical_path = serde_json::json!({
+                "root": "project",
+                "components": [
+                    {"encoding": "utf8", "value": "capsec-created-directory"}
+                ]
+            });
+            assert_eq!(invocation.setup["logicalPath"], logical_path);
+            assert_eq!(
+                invocation.required_authority,
+                vec![serde_json::json!({
+                    "cap": "fs:write",
+                    "resource": {"kind": "path-exact", "path": logical_path.clone()},
+                })]
+            );
+            assert_eq!(
+                invocation.arguments,
+                vec![
+                    serde_json::json!({
+                        "kind": "filesystem-fixture-path",
+                        "logicalPath": logical_path,
+                    }),
+                    serde_json::json!({
+                        "kind": "literal-json",
+                        "value": {"recursive": false},
+                    }),
+                ]
+            );
+            let fixture_root =
+                tempfile::tempdir().expect("create builtin absent-directory fixture");
+            let project_root = std::fs::canonicalize(fixture_root.path())
+                .expect("canonicalize builtin absent-directory fixture root");
+            let fixture_path = project_root.join("capsec-created-directory");
+            assert!(!fixture_path.exists());
+            PreparedInvocation {
+                _fixture_root: Some(fixture_root),
+                project_root: Some(project_root),
+                arguments: vec![
+                    serde_json::Value::String(
+                        "/project/capsec-created-directory".to_owned(),
+                    ),
+                    serde_json::json!({"recursive": false}),
+                ],
+                fixture_contents: None,
+            }
+        }
         other => panic!("unsupported effect-builtin setup {other:?}"),
     }
 }
@@ -756,6 +817,7 @@ fn reviewed_open_traversal_prefix(invocation: &BuiltinInvocation) -> Option<&'st
     ) {
         (Some("readFileSync"), [action]) if action == "fs:read" => Some("fs-open:"),
         (Some("appendFileSync"), [action]) if action == "fs:write" => Some("fs-open:"),
+        (Some("mkdirSync"), [action]) if action == "fs:write" => Some("fs-mkdir:"),
         (Some("truncateSync"), [action]) if action == "fs:write" => Some("fs-truncate:"),
         (Some("writeFileSync"), [action]) if action == "fs:write" => Some("fs-open:"),
         _ => None,
@@ -792,7 +854,12 @@ fn validate_observation(
     assert_eq!(invocation.expected_action_ids, recipe.action_ids);
     assert!(matches!(
         invocation.setup["kind"].as_str(),
-        Some("none" | "filesystem-file" | "filesystem-directory")
+        Some(
+            "none"
+                | "filesystem-file"
+                | "filesystem-directory"
+                | "filesystem-absent-directory"
+        )
     ));
     assert_eq!(
         tagged_jcs_digest(&invocation.source_descriptor),

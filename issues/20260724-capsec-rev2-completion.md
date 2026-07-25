@@ -1088,6 +1088,33 @@ ticket closes.
   and refuses any terminal outside it. Important enforcement mechanisms remain
   about 96% complete and the overall requested task remains about 86%.
 
+### 2026-07-25 — `mkdirSync` retained-parent creation evidence
+
+- Added all five Apple `node:fs.mkdirSync` scenarios using an absolute
+  `/project` path and literal `{recursive: false}` options. Those source-owned
+  arguments physically select the only directory-creation contract LLP 0023
+  opens and exclude the relative-cwd metadata preflight and closed recursive
+  mutation branch.
+- The bound engine emits `requested, discovery, requested, requested,
+  discovery` for every scenario. The first four decisions authenticate
+  traversal under ambient `fs:list`; the final absent-create decision gates
+  `fs:write` on `native-op:__exactMkdir`. Denial stops at that same boundary.
+- The complete 180-recipe builtin Hermes batch passes. Its filesystem
+  postconditions prove that allowed variants create exactly the expected
+  directory and denial leaves it absent. The independent validator accepts all
+  180 observations, including the five new `fs-mkdir:` operation traces.
+- Apple is now 24,040 required / 2,641 fully executable / 3,114 internally
+  verified / 18,285 unresolved. Windows remains 23,925 / 2,240 / 3,102 /
+  18,583. Criterion 7's literal Apple denominator is 5,755/24,040 (23.9%)
+  proven.
+- Hard part: the source graph conservatively includes `ensureFs`, `stat`, and
+  `mkdir` terminals plus unresolved dynamic helpers. Promotion cannot erase
+  those alternatives globally; it must bind a fixed invocation that makes the
+  selected branch physically true, then authenticate the real terminal,
+  operation identity, stages, and postcondition. Important enforcement
+  mechanisms remain about 96% complete and the overall requested task remains
+  about 86%.
+
 ## Next milestone
 
 Attack criterion 7's exact-target evidence gap through real public-surface

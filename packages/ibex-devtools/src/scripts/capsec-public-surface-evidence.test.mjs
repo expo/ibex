@@ -375,14 +375,23 @@ function openThenActFixture(scenario = "allow", exportName = "readFileSync") {
   const catalog = completeCatalog();
   const recipe = catalog.recipes[0];
   const denial = scenario === "deny";
-  const truncate = exportName === "truncateSync";
-  const action = new Set(["appendFileSync", "truncateSync", "writeFileSync"]).has(
-    exportName,
-  )
+  const [terminal, edgeId, operationKey] =
+    new Map([
+      ["mkdirSync", ["__exactMkdir", "edge.mkdir-worker", "fs-mkdir"]],
+      [
+        "truncateSync",
+        ["__exactTruncate", "edge.truncate-worker", "fs-truncate"],
+      ],
+    ]).get(exportName) ??
+    ["__exactFsOpen", "edge.fsopen-worker", "fs-open"];
+  const action = new Set([
+    "appendFileSync",
+    "mkdirSync",
+    "truncateSync",
+    "writeFileSync",
+  ]).has(exportName)
     ? "fs:write"
     : "fs:read";
-  const terminal = truncate ? "__exactTruncate" : "__exactFsOpen";
-  const edgeId = truncate ? "edge.truncate-worker" : "edge.fsopen-worker";
   recipe.fixtureId = `fixture.public.${exportName}.${scenario}`;
   recipe.scenario = scenario;
   recipe.actionIds = [action];
@@ -421,7 +430,7 @@ function openThenActFixture(scenario = "allow", exportName = "readFileSync") {
   const decision = ({ stage, action, outcome, traversal }) => ({
     decisionSet: {
       decisionSetSchema: "ibex/capsec-decision-set/1",
-      operationId: `${truncate ? "fs-truncate" : "fs-open"}:0:fixture`,
+      operationId: `${operationKey}:0:fixture`,
       atomicityGroup: `${edgeId}.decision`,
       combination: "conjunction",
       context: {
@@ -451,7 +460,8 @@ function openThenActFixture(scenario = "allow", exportName = "readFileSync") {
                   components: [{ encoding: "utf8", value: "fixture.txt" }],
                 },
                 followMode: "follow-final",
-                objectState: "existing",
+                objectState:
+                  exportName === "mkdirSync" ? "absent-create" : "existing",
               },
         },
       ],
@@ -3035,6 +3045,7 @@ describe("CapSec public-surface promotion evidence", () => {
   test("accepts only ambient fs:list traversal surplus for open-then-act builtins", () => {
     for (const exportName of [
       "appendFileSync",
+      "mkdirSync",
       "readFileSync",
       "truncateSync",
     ]) {

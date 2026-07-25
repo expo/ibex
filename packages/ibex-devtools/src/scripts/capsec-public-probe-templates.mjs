@@ -76,6 +76,7 @@ const FS_READ_EXPORTS = new Set(["readFileSync"]);
 // typed sequence is observed from the bound engine, never guessed (LLP 0037 D3).
 // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
 const FS_WRITE_EXPORTS = new Set(["appendFileSync", "writeFileSync"]);
+const FS_MKDIR_EXPORTS = new Set(["mkdirSync"]);
 const FS_TRUNCATE_EXPORTS = new Set(["truncateSync"]);
 const FS_WRITE_PAYLOAD = "ibex-capsec-write-fixture\n";
 const FS_FIXTURE_PATH = Object.freeze({
@@ -85,6 +86,10 @@ const FS_FIXTURE_PATH = Object.freeze({
 const FS_DIRECTORY_PATH = Object.freeze({
   root: "project",
   components: [{ encoding: "utf8", value: "capsec-directory-fixture" }],
+});
+const FS_CREATED_DIRECTORY_PATH = Object.freeze({
+  root: "project",
+  components: [{ encoding: "utf8", value: "capsec-created-directory" }],
 });
 // Module-root effects are intentionally limited to the reviewed util source
 // families whose top-level body performs a typed NODE_DEBUG read. Each public
@@ -525,6 +530,68 @@ export function authoredBuiltinPublicProbe({
               "commit",
               "repeat",
             ],
+        allowedCoverageEdgeIds,
+        expectedActionIds: ["fs:write"],
+      },
+    };
+  }
+
+  // Non-recursive mkdir is the one directory-creation operation LLP 0023
+  // opens in v1: one mkdirat under a retained parent. The absolute fixture
+  // path avoids mkdirSync's relative-cwd stat branch and the literal option
+  // physically selects recursive:false.
+  // @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified
+  if (
+    plan.actionIds.length === 1 &&
+    plan.actionIds[0] === "fs:write" &&
+    FS_MKDIR_EXPORTS.has(fsExportName)
+  ) {
+    const descriptor = sourceDescriptor(
+      liveByObservedKey.get(surfaceObservedKey),
+      "node_fs",
+      fsExportName,
+      "node:fs",
+    );
+    if (!descriptor) return null;
+    const logicalPath = FS_CREATED_DIRECTORY_PATH;
+    return {
+      kind: "public-surface-invocation",
+      surfaceObservedKey,
+      command: [...BUILTIN_BATCH_COMMAND],
+      invocation: {
+        invocationSchema: "ibex/capsec-builtin-export-invocation/1",
+        kind: "builtin-export-call",
+        moduleSpecifier: "node:fs",
+        exportName: fsExportName,
+        sourceDescriptor: descriptor,
+        sourceDescriptorDigest: taggedDigest(descriptor),
+        arguments: [
+          { kind: "filesystem-fixture-path", logicalPath },
+          { kind: "literal-json", value: { recursive: false } },
+        ],
+        setup: {
+          kind: "filesystem-absent-directory",
+          logicalPath,
+        },
+        requiredAuthority: [
+          {
+            cap: "fs:write",
+            resource: { kind: "path-exact", path: logicalPath },
+          },
+        ],
+        expectedResult: publicDenial ? "permission-denied" : "return",
+        // Observed from the bound engine (LLP 0037 D3): authenticate the
+        // requested path and retained parent, then authorize the absent-create
+        // identity immediately before the single mkdirat. Denial reaches the
+        // same absent-create boundary without creating a directory.
+        expectedTypedDecisionCount: 5,
+        expectedTypedStages: [
+          "requested",
+          "discovery",
+          "requested",
+          "requested",
+          "discovery",
+        ],
         allowedCoverageEdgeIds,
         expectedActionIds: ["fs:write"],
       },

@@ -5,6 +5,7 @@
 **Systems:** Security, Runtime, Devtools, Verification
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-23
+**Revised:** 2026-07-25 (`node:fs.mkdirSync` binds absolute non-recursive creation to the reviewed `fs-mkdir:` absent-create chain and exact creation/no-creation postconditions; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.appendFileSync` joins the reviewed open/write family with exact prefix-plus-suffix and deny-no-mutation postconditions; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.truncateSync` binds a six-decision retained-object mutation chain, denies at `fs:write` commit, and proves the exact two-byte postcondition; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.existsSync` binds its swallowed permission denial to both the exact denied `fs:list` decision and an exact boolean `false` public result; five Apple fixture rows move from residual to executable)
@@ -179,6 +180,27 @@ producer and promotion aggregate both restrict incidental `fs:list` to this
 exact reviewed export, declared `fs:write` action, and `fs-open:` operation
 identity. The complete 175-recipe builtin batch and independent validator
 accept all five real scenario observations.
+
+### Retained-parent creation evidence: `mkdirSync`
+
+`node:fs.mkdirSync` is open only for the non-recursive contract specified by
+LLP 0023. The authored invocation passes an absolute `/project` fixture path and
+a literal `{recursive: false}` option. Those values physically exclude the
+relative-cwd `statSync` preflight and the closed recursive mutation branch even
+though both remain conservative alternatives in the source-derived route.
+
+The bound Apple engine emits five decisions for every scenario:
+`requested, discovery, requested, requested, discovery`. The first four are
+ambient `fs:list` authentication of the requested path and retained parent; the
+last discovery-stage decision carries `fs:write` over the exact
+`absent-create` occurrence immediately before the single `mkdirat`. Denial
+refuses that last decision. The native batch verifies the corresponding
+filesystem state: all allowed variants create exactly the expected directory,
+while denial leaves it absent. Both the producer and promotion aggregate admit
+incidental traversal only for the exact `mkdirSync` / `fs:write` /
+`fs-mkdir:` tuple, and the independent validator derives
+`native-op:__exactMkdir` from all five real observations. The complete
+180-recipe builtin batch passes.
 
 ### Additional multi-edge metadata evidence: `realpathSync`
 
