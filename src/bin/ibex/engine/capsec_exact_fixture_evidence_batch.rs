@@ -3,13 +3,14 @@ use base64::Engine as _;
 #[cfg(not(feature = "host-http-server"))]
 use std::io::Write as _;
 
-const FIXTURE_COMMAND: [&str; 10] = [
+const FIXTURE_COMMAND: [&str; 11] = [
     "cargo",
     "test",
     "--bin",
     "ibex",
+    "--no-default-features",
     "--features",
-    "capsec-conformance-observer,openssl-crypto",
+    "standard,capsec-conformance-observer,openssl-crypto",
     "capsec_exact_fixture_evidence_batch",
     "--",
     "--test-threads=1",

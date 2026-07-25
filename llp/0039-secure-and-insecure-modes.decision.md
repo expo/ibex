@@ -5,7 +5,7 @@
 **Systems:** Runtime, CapSec, Build, Product
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-24
-**Revised:** 2026-07-24 (ENG-25424 closes prepared-graph backing-path disclosure and removes the secure-gate test exclusion)
+**Revised:** 2026-07-24 (ENG-25424 closes prepared-graph backing-path disclosure and removes the secure-gate test exclusion; promotion-facing CapSec executors now explicitly disable Cargo defaults so conformance cannot inherit the insecure mode)
 **Related:** LLP 0021 (target advertisement + conformance report); LLP 0036 (advertisement completion); LLP 0038 (unadvertised dev arming, insecure build)
 
 ## Context
@@ -153,6 +153,15 @@ regression also retains the independent fail-closed boundary for authored
 call-time dynamic imports: until the runtime owns an in-drive activation
 capability, the prepared linker refuses that graph rather than eagerly
 authorizing a dead branch.
+
+Promotion-facing CapSec execution is part of this guard, not an exception to
+it. Every generated fixture, adapter, public-surface, callback, startup,
+closed-surface, target-absence, and inherited-intrinsic Cargo command must use
+`--no-default-features` and explicitly select
+`standard,capsec-conformance-observer,openssl-crypto`. The command stored in a
+recipe or evidence plan is itself security-relevant evidence. It must never
+inherit Cargo's default feature set, because the default currently includes
+`insecure` and deliberately bypasses the production decision plane.
 
 ## Preventing an accidental ship
 

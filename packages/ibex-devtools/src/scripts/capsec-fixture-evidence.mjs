@@ -10,6 +10,7 @@ import { canonicalJson } from "./capsec-contract.mjs";
 import {
   validatePublicFixtureRuntimeObservation,
 } from "./capsec-public-surface-evidence.mjs";
+import { capsecSecureCargoTestCommand } from "./capsec-secure-test-command.mjs";
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 const digest = (value) =>
@@ -18,18 +19,9 @@ const digest = (value) =>
     .update(canonicalJson(value))
     .digest("base64url")}`;
 
-export const EXACT_FIXTURE_EVIDENCE_COMMAND = Object.freeze([
-  "cargo",
-  "test",
-  "--bin",
-  "ibex",
-  "--features",
-  "capsec-conformance-observer,openssl-crypto",
-  "capsec_exact_fixture_evidence_batch",
-  "--",
-  "--test-threads=1",
-  "--nocapture",
-]);
+export const EXACT_FIXTURE_EVIDENCE_COMMAND = Object.freeze(
+  capsecSecureCargoTestCommand("capsec_exact_fixture_evidence_batch", true),
+);
 
 const EXACT_PILOT_SURFACES = new Map([
   [

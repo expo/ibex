@@ -190,6 +190,34 @@ ticket closes.
 - Current estimate: **54% complete for the full LLP 0021 completion contract;
   roughly 79% complete for the security-critical runtime mechanism set.**
 
+### 2026-07-24 — removed insecure mode from conformance evidence execution
+
+- Found that every CapSec recipe/adapter/public-surface Cargo executor still
+  inherited Cargo's default feature set after LLP 0039 added `insecure` to that
+  set. The commands were therefore bypassing the production decision plane
+  while naming their output as promotion evidence.
+- Centralized the promotion-facing Rust command as
+  `cargo test --bin ibex --no-default-features --features
+  standard,capsec-conformance-observer,openssl-crypto ...` and migrated the
+  recipe templates, direct batch commands, runner-local engine invocation, and
+  inherited-intrinsic execution plan.
+- Added both descriptor-wide and generated-catalog regressions requiring
+  `--no-default-features`, the exact production observer feature set, and no
+  `insecure` feature. Focused devtools verification passes 110 tests.
+- Generated a fresh 24,613-row Apple recipe catalog and ran the callback
+  mechanism smoke under the explicit secure observer profile. That exposed a
+  real ordering defect hidden by the insecure bypass: a diagnostic submission
+  installed the runtime-owned `$_` root before the one-shot Exact endowment,
+  so secure root-disposition authorization rejected the endowment. The harness
+  now installs the authenticated endowment before its first session
+  submission, and the complete mechanism smoke passes.
+- The full callback batch now fails at the honest next boundary: the generator
+  supplies eight exact public mechanisms while stale internal bookkeeping
+  expects 2,800 callback rows. This is not treated as a failure of the secure
+  command slice or converted into synthetic evidence.
+- Current estimate: **55% complete for the full LLP 0021 completion contract;
+  roughly 81% complete for the security-critical runtime mechanism set.**
+
 ## Current hard parts
 
 - Exact-target completion is deliberately all-or-nothing. Existing evidence
@@ -202,6 +230,12 @@ ticket closes.
 - The default build is intentionally insecure per LLP 0039 while the secure
   feature is separately guarded; LLP 0021's original plain-execution wording
   needs a completion interpretation consistent with that later decision.
+- The conformance report currently auto-credits thousands of
+  `internally-verified` rows without consuming executed proof. Portable
+  promotion also still asks those rows for a public executor even though their
+  classification deliberately has none. Callback control mechanisms have real
+  secure Rust proofs, but `malformed-branch-facts` rows do not yet have an
+  owning-language proof and must remain residual until one exists.
 - Native dynamic-import candidate tables are implemented, but production
   linkers deliberately refuse all authored call-time edges because the runtime
   lacks a private invocation-time CapSec activation capability. The filesystem
@@ -217,8 +251,11 @@ ticket closes.
 
 ## Next milestone
 
-Run the focused prepared-carrier regression and full secure gate for the new
-receipt continuation, reconcile moving `main`, then select the next proved
-enforcement gap. Dynamic call-time activation and bootstrap-floor authorship
-remain blocked on the named design/runtime capabilities above rather than safe
-local substitutions.
+Replace rationale-wide `internally-verified` auto-credit with executed,
+source-bound internal evidence. First make portable promotion skip the public
+executor projection for genuinely internal rows, then bind the six callback
+control scenarios to their secure Rust proof and leave
+`malformed-branch-facts` residual until it has a real owning-language proof.
+Dynamic call-time activation and bootstrap-floor authorship remain blocked on
+the named design/runtime capabilities above rather than safe local
+substitutions.

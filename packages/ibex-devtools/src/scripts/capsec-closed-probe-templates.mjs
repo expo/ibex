@@ -13,18 +13,11 @@ import {
   reviewedArmedNativeAbsentSurface,
   reviewedArmedSharedRuntimeSealedSurface,
 } from "./capsec-armed-root-closures.mjs";
+import { capsecSecureCargoTestCommand } from "./capsec-secure-test-command.mjs";
 
-const CLOSED_BATCH_COMMAND = Object.freeze([
-  "cargo",
-  "test",
-  "--bin",
-  "ibex",
-  "--features",
-  "capsec-conformance-observer,openssl-crypto",
-  "capsec_public_closed_recipe_batch",
-  "--",
-  "--test-threads=1",
-]);
+const CLOSED_BATCH_COMMAND = Object.freeze(
+  capsecSecureCargoTestCommand("capsec_public_closed_recipe_batch"),
+);
 
 const taggedDigest = (value) =>
   `sha256-${crypto

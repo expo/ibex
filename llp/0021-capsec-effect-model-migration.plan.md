@@ -5,7 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
-**Revised:** 2026-07-24 (production native-graph dependency source reads authorize the exact typed edge and retain a digest-bound receipt; dependency carriers derive a carrier receipt from that continuation, while entry-only carriers require an opaque graph/request join minted before any cache discovery; armed transpilation has no persistent cache-read path)
+**Revised:** 2026-07-24 (production native-graph dependency source reads authorize the exact typed edge and retain a digest-bound receipt; dependency carriers derive a carrier receipt from that continuation, while entry-only carriers require an opaque graph/request join minted before any cache discovery; armed transpilation has no persistent cache-read path; every promotion-facing conformance Cargo executor now disables defaults and selects the production observer feature set explicitly)
 **Revised:** 2026-07-20 (extends authenticated fresh-engine, zero-decision source receipts to 30 additional reviewed public builtin spellings, binds their exact root value types, and leaves both `stream/consumers` spellings residual because compatibility loading shadows their manifest source)
 **Revised:** 2026-07-19 (binds the exact `dns/promises` carrier/provider callable shape to independent inventory and classifier review pins while leaving all 45 derived routes residual; strengthens four DNS no-effect alias receipts with exact cache-miss, VFS source, body-completion, alias, and runtime-nonce evidence)
 **Revised:** 2026-07-18 (ENG-25076 adds the target-local Exact GPU binding/profile producer and independently executed preparation evidence while preserving empty advertisements)
@@ -1773,6 +1773,22 @@ and exact execution binding. Missing, generic, duplicated, stale, or synthetic
 records keep the report incomplete. Promotion remains closed until real
 executable evidence exists for every required fixture and the full matrix is
 green.
+
+Implementation status (2026-07-24): after `insecure` entered Cargo's default
+feature set, the recipe and runner commands still used default features and
+therefore exercised the deliberate no-sandbox bypass while naming their output
+as CapSec evidence. All promotion-facing Rust executors now share an explicit
+`--no-default-features` command with
+`standard,capsec-conformance-observer,openssl-crypto`, and catalog tests reject
+any generated Cargo executor that regresses. Re-executing the callback
+mechanism smoke under that profile exposed and repaired an Exact endowment
+ordering defect in the harness: the one-shot authenticated endowment is
+published before the first session submission can add the runtime-owned `$_`
+root and close the bootstrap disposition. The smoke passes in secure mode.
+The broader callback batch remains incomplete for a separate reason: only
+eight exact public mechanisms are executable while the report currently
+auto-credits 2,800 rationale-wide internal rows. That accounting must be
+replaced by executed internal proof rather than weakening the command profile.
 
 Implementation status (2026-07-16): the report-crediting fixture pilot reruns
 exactly nine source-bound Exact embedder mechanisms independently of the public

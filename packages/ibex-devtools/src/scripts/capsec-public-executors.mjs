@@ -7,19 +7,7 @@
 // fixture must execute its authored public route rather than borrow a generic
 // adapter or another batch's result.
 
-const FEATURES = "capsec-conformance-observer,openssl-crypto";
-const command = (testName, nocapture = false) => [
-  "cargo",
-  "test",
-  "--bin",
-  "ibex",
-  "--features",
-  FEATURES,
-  testName,
-  "--",
-  "--test-threads=1",
-  ...(nocapture ? ["--nocapture"] : []),
-];
+import { capsecSecureCargoTestCommand } from "./capsec-secure-test-command.mjs";
 
 export const PUBLIC_SURFACE_EXECUTOR_DESCRIPTORS = Object.freeze(
   [
@@ -72,7 +60,9 @@ export const PUBLIC_SURFACE_EXECUTOR_DESCRIPTORS = Object.freeze(
         "--test-threads=1",
         ...(nocapture ? ["--nocapture"] : []),
       ]),
-      command: Object.freeze(command(testName, nocapture)),
+      command: Object.freeze(
+        capsecSecureCargoTestCommand(testName, nocapture),
+      ),
     }),
   ),
 );

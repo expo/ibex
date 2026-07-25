@@ -14,6 +14,7 @@
 
 import crypto from "node:crypto";
 import { canonicalJson } from "./capsec-contract.mjs";
+import { capsecSecureCargoTestCommand } from "./capsec-secure-test-command.mjs";
 
 const taggedDigest = (value) =>
   `sha256-${crypto
@@ -104,18 +105,9 @@ const BUILTIN_MODULE_ENVIRONMENT_READ_SOURCES = new Set([
 ]);
 const ENVIRONMENT_AUXILIARY_OBSERVED_KEY = "native-op:__exactGetEnv";
 
-const BUILTIN_BATCH_COMMAND = Object.freeze([
-  "cargo",
-  "test",
-  "--bin",
-  "ibex",
-  "--features",
-  "capsec-conformance-observer,openssl-crypto",
-  "capsec_public_builtin_recipe_batch",
-  "--",
-  "--test-threads=1",
-  "--nocapture",
-]);
+const BUILTIN_BATCH_COMMAND = Object.freeze(
+  capsecSecureCargoTestCommand("capsec_public_builtin_recipe_batch", true),
+);
 
 function observedKeyForEdge(edge) {
   return `${edge.surface.kind}:${edge.surface.name}`;

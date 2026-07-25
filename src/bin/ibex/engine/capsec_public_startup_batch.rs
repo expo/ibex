@@ -95,13 +95,14 @@ struct ExpectedStartupStage {
     environment: Option<(&'static str, &'static str)>,
 }
 
-const STARTUP_BATCH_COMMAND: [&str; 9] = [
+const STARTUP_BATCH_COMMAND: [&str; 10] = [
     "cargo",
     "test",
     "--bin",
     "ibex",
+    "--no-default-features",
     "--features",
-    "capsec-conformance-observer,openssl-crypto",
+    "standard,capsec-conformance-observer,openssl-crypto",
     "capsec_public_startup_batch",
     "--",
     "--test-threads=1",

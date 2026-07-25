@@ -36,6 +36,7 @@ import {
   readConformanceSuitePlan,
 } from "./capsec-conformance-plan.mjs";
 import { canonicalJson, parseJsonStrict } from "./capsec-contract.mjs";
+import { capsecSecureCargoTestCommand } from "./capsec-secure-test-command.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -211,23 +212,13 @@ async function runCargoBatch({
   outputDirectory,
   expectedOutputs,
 }) {
-  const args = [
-    "test",
-    "--bin",
-    "ibex",
-    "--features",
-    "capsec-conformance-observer",
-    testName,
-    "--",
-    "--test-threads=1",
-    "--nocapture",
-  ];
+  const [command, ...args] = capsecSecureCargoTestCommand(testName, true);
   let commandEvidence;
   try {
     const attempt = await runObservedCommand({
       supervisor,
       id,
-      command: "cargo",
+      command,
       args,
       cwd: repoRoot,
       env: { ...process.env, ...environment },

@@ -10,13 +10,14 @@ const CALLBACK_INVOCATION_SCHEMA: &str = "ibex/capsec-callback-invariant-invocat
 const ENV_AUXILIARY_EDGE_ID: &str = "surface.native.op.exactgetenv.0k6bv7a";
 const EXACT_OPERATION_MANIFEST_DIGEST: &str = "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
 const EXACT_APP_OPERATION_IDS: [u32; 2] = [7, 11];
-const CALLBACK_BATCH_COMMAND: [&str; 9] = [
+const CALLBACK_BATCH_COMMAND: [&str; 10] = [
     "cargo",
     "test",
     "--bin",
     "ibex",
+    "--no-default-features",
     "--features",
-    "capsec-conformance-observer,openssl-crypto",
+    "standard,capsec-conformance-observer,openssl-crypto",
     "capsec_public_callback_invariant_batch",
     "--",
     "--test-threads=1",
@@ -1486,7 +1487,10 @@ fn install_armed_host(host: &crate::host::Host) -> HostResetGuard {
     HostResetGuard
 }
 
-async fn armed_engine(host: &crate::host::Host, digest: &str) -> AuthenticatedCallbackEngine {
+async fn armed_engine_before_submission(
+    host: &crate::host::Host,
+    digest: &str,
+) -> AuthenticatedCallbackEngine {
     let digest_c = std::ffi::CString::new(digest).unwrap();
     assert_eq!(
         unsafe { crate::host::abi::ex_host_matches_armed_snapshot_digest(digest_c.as_ptr()) },
@@ -1504,6 +1508,11 @@ async fn armed_engine(host: &crate::host::Host, digest: &str) -> AuthenticatedCa
         engine,
         publications: std::sync::Mutex::new(AuthenticatedPublicationTracker::default()),
     };
+    engine
+}
+
+async fn armed_engine(host: &crate::host::Host, digest: &str) -> AuthenticatedCallbackEngine {
+    let engine = armed_engine_before_submission(host, digest).await;
     assert_eq!(
         engine
             .eval_immediate("typeof __hostCall + '/' + typeof __hostCallAsync")
@@ -2042,7 +2051,13 @@ async fn execute_exact_host_call_round_trip(recipe: &Recipe) -> ScenarioExecutio
     let _reset = install_armed_host(&host);
     reset_exact_abi_probe();
     unsafe { ibex_test_reset_exact_host_completion_observer() };
-    let engine = armed_engine(&host, &digest).await;
+    // Exact endowments are a one-shot bootstrap publication. The first
+    // authenticated session submission installs the runtime-owned `$_`
+    // binding and closes the root-global disposition, so the endowment must
+    // be installed before even a diagnostic submission.
+    // @ref LLP 0002#the-exact-embedder-ingress — publish the authenticated
+    // operation endowment before finalizing the package baseline.
+    let engine = armed_engine_before_submission(&host, &digest).await;
     let session = format!("exact-host-call-round-trip:{}", recipe.plan_digest);
     begin_observation(&session);
     let descriptor = install_exact_endowment(&engine).await;
@@ -2132,7 +2147,9 @@ async fn execute_exact_endowment_install(recipe: &Recipe) -> ScenarioExecution {
     let (host, digest) = build_armed_exact_test_host();
     let _reset = install_armed_host(&host);
     reset_exact_abi_probe();
-    let engine = armed_engine(&host, &digest).await;
+    // @ref LLP 0002#the-exact-embedder-ingress — the one-shot endowment
+    // publication precedes any authenticated session submission.
+    let engine = armed_engine_before_submission(&host, &digest).await;
     let session = format!("exact-endowment-install:{}", recipe.plan_digest);
     begin_observation(&session);
     let descriptor = install_exact_endowment(&engine).await;

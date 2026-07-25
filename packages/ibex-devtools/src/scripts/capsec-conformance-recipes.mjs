@@ -31,6 +31,7 @@ import { authoredStartupPublicProbe } from "./capsec-startup-probe-templates.mjs
 import { authoredStartupEnvironmentProbe } from "./capsec-startup-environment-probe-templates.mjs";
 import { authoredTargetAbsenceProbe } from "./capsec-target-absence-probe-templates.mjs";
 import { buildRootGlobalDispositionManifest } from "./capsec-root-global-dispositions.mjs";
+import { capsecSecureCargoTestCommand } from "./capsec-secure-test-command.mjs";
 import {
   applicableImplementationBranchIds,
   targetApplicabilityForVariant,
@@ -43,6 +44,9 @@ const taggedDigest = (value) =>
     .createHash("sha256")
     .update(typeof value === "string" ? value : canonicalJson(value), "utf8")
     .digest("base64url")}`;
+const NATIVE_BATCH_COMMAND = Object.freeze(
+  capsecSecureCargoTestCommand("capsec_public_native_recipe_batch"),
+);
 
 // @ref LLP 0001#current-buildrs-support-honest-status — Windows replaces these default backend translation units with target-specialized implementations, so a default-only registration is not installed on that target.
 const WINDOWS_EXCLUDED_NATIVE_IMPLEMENTATION_SOURCES = new Set([
@@ -3315,17 +3319,7 @@ function nativePublicProbeForPlan({
       probe: {
         kind: "public-surface-invocation",
         surfaceObservedKey,
-        command: [
-          "cargo",
-          "test",
-          "--bin",
-          "ibex",
-          "--features",
-          "capsec-conformance-observer,openssl-crypto",
-          "capsec_public_native_recipe_batch",
-          "--",
-          "--test-threads=1",
-        ],
+        command: clone(NATIVE_BATCH_COMMAND),
         invocation: {
           invocationSchema: "ibex/capsec-native-global-invocation/1",
           kind: "global-property-read",
@@ -3518,17 +3512,7 @@ function nativePublicProbeForPlan({
         ? "target-absence-probe"
         : "public-surface-invocation",
       surfaceObservedKey,
-      command: [
-        "cargo",
-        "test",
-        "--bin",
-        "ibex",
-        "--features",
-        "capsec-conformance-observer,openssl-crypto",
-        "capsec_public_native_recipe_batch",
-        "--",
-        "--test-threads=1",
-      ],
+      command: clone(NATIVE_BATCH_COMMAND),
       invocation: {
         invocationSchema: "ibex/capsec-native-global-invocation/1",
         kind: publicAccess
@@ -3658,17 +3642,7 @@ function conditionalHostAbiProbeForPlan({
   return {
     kind: "public-surface-invocation",
     surfaceObservedKey,
-    command: [
-      "cargo",
-      "test",
-      "--bin",
-      "ibex",
-      "--features",
-      "capsec-conformance-observer,openssl-crypto",
-      "capsec_public_native_recipe_batch",
-      "--",
-      "--test-threads=1",
-    ],
+    command: clone(NATIVE_BATCH_COMMAND),
     invocation: {
       invocationSchema: "ibex/capsec-host-abi-invocation/1",
       kind: "host-abi-function",
@@ -3774,17 +3748,7 @@ function moduleRunnerLoaderProbeForPlan({
   return {
     kind: "public-surface-invocation",
     surfaceObservedKey,
-    command: [
-      "cargo",
-      "test",
-      "--bin",
-      "ibex",
-      "--features",
-      "capsec-conformance-observer,openssl-crypto",
-      "capsec_public_native_recipe_batch",
-      "--",
-      "--test-threads=1",
-    ],
+    command: clone(NATIVE_BATCH_COMMAND),
     invocation: {
       invocationSchema: "ibex/capsec-module-loader-invocation/1",
       kind: "module-loader-authority",
@@ -3846,17 +3810,7 @@ function moduleRunnerHostAbiProbeForPlan({
   return {
     kind: "public-surface-invocation",
     surfaceObservedKey,
-    command: [
-      "cargo",
-      "test",
-      "--bin",
-      "ibex",
-      "--features",
-      "capsec-conformance-observer,openssl-crypto",
-      "capsec_public_native_recipe_batch",
-      "--",
-      "--test-threads=1",
-    ],
+    command: clone(NATIVE_BATCH_COMMAND),
     invocation: {
       invocationSchema: "ibex/capsec-host-abi-invocation/1",
       kind: "host-abi-function",

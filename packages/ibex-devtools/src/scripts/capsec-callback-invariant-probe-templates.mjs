@@ -14,18 +14,11 @@
 
 import crypto from "node:crypto";
 import { canonicalJson } from "./capsec-contract.mjs";
+import { capsecSecureCargoTestCommand } from "./capsec-secure-test-command.mjs";
 
-const CALLBACK_BATCH_COMMAND = Object.freeze([
-  "cargo",
-  "test",
-  "--bin",
-  "ibex",
-  "--features",
-  "capsec-conformance-observer,openssl-crypto",
-  "capsec_public_callback_invariant_batch",
-  "--",
-  "--test-threads=1",
-]);
+const CALLBACK_BATCH_COMMAND = Object.freeze(
+  capsecSecureCargoTestCommand("capsec_public_callback_invariant_batch"),
+);
 
 const EXACT_EMBEDDER_NON_CAPABILITY_MECHANISMS = new Map([
   [

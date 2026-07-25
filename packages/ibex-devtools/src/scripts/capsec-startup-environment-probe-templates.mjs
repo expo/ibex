@@ -16,18 +16,11 @@
 
 import crypto from "node:crypto";
 import { canonicalJson } from "./capsec-contract.mjs";
+import { capsecSecureCargoTestCommand } from "./capsec-secure-test-command.mjs";
 
-const STARTUP_ENVIRONMENT_BATCH_COMMAND = Object.freeze([
-  "cargo",
-  "test",
-  "--bin",
-  "ibex",
-  "--features",
-  "capsec-conformance-observer,openssl-crypto",
-  "capsec_public_startup_environment_batch",
-  "--",
-  "--test-threads=1",
-]);
+const STARTUP_ENVIRONMENT_BATCH_COMMAND = Object.freeze(
+  capsecSecureCargoTestCommand("capsec_public_startup_environment_batch"),
+);
 
 const ENVIRONMENT_AUXILIARY_OBSERVED_KEY = "native-op:__exactGetEnv";
 

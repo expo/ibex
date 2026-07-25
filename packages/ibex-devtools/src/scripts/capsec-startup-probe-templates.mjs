@@ -11,18 +11,11 @@
 
 import crypto from "node:crypto";
 import { canonicalJson } from "./capsec-contract.mjs";
+import { capsecSecureCargoTestCommand } from "./capsec-secure-test-command.mjs";
 
-const STARTUP_BATCH_COMMAND = Object.freeze([
-  "cargo",
-  "test",
-  "--bin",
-  "ibex",
-  "--features",
-  "capsec-conformance-observer,openssl-crypto",
-  "capsec_public_startup_batch",
-  "--",
-  "--test-threads=1",
-]);
+const STARTUP_BATCH_COMMAND = Object.freeze(
+  capsecSecureCargoTestCommand("capsec_public_startup_batch"),
+);
 
 const taggedDigest = (value) =>
   `sha256-${crypto

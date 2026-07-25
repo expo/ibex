@@ -19,6 +19,7 @@ import {
 import { validateOccurrenceSemantics } from "./capsec-contract.mjs";
 import { canonicalOutputDispositionKey } from "./capsec-output-dispositions.mjs";
 import { validateStartupEnvironmentRecipeDescriptor } from "./capsec-public-surface-evidence.mjs";
+import { CAPSEC_SECURE_TEST_FEATURES } from "./capsec-secure-test-command.mjs";
 import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
 import {
   authoredTargetAbsenceOutputBindings,
@@ -116,6 +117,24 @@ describe("exact-target CapSec executable recipes", () => {
     expect(() => fixtureScenario("branch.looks-like-allowing")).toThrow(
       /unknown fixture scenario/,
     );
+  });
+
+  test("keeps every generated Cargo executor out of insecure mode", () => {
+    const catalogs = [recipes, windowsRecipes];
+    let cargoExecutorCount = 0;
+    for (const recipeCatalog of catalogs) {
+      for (const recipe of recipeCatalog.recipes) {
+        const command = recipe.publicSurfaceProbe?.command;
+        if (command?.[0] !== "cargo" || command[1] !== "test") {
+          continue;
+        }
+        cargoExecutorCount += 1;
+        expect(command).toContain("--no-default-features");
+        expect(command).toContain(CAPSEC_SECURE_TEST_FEATURES);
+        expect(command).not.toContain("insecure");
+      }
+    }
+    expect(cargoExecutorCount).toBeGreaterThan(0);
   });
 
   test("keeps all 45 review-bound DNS derived operations residual", () => {
@@ -255,7 +274,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(24_654);
+    expect(recipes.summary.requiredFixtures).toBe(24_660);
     // Thirty reviewed roots gain exact fresh-engine receipts while the
     // formerly source-misattributed stream/promises export probe is retracted.
     // +10 for the fs:read readFileSync and fs:write writeFileSync export
@@ -267,8 +286,8 @@ describe("exact-target CapSec executable recipes", () => {
     // internal Rust proofs, not public-surface probes (LLP 0036), so they leave
     // the unresolved count and form their own classification. WebGPU adds 20
     // fixtures across those already-reviewed scenario kinds.
-    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_747);
-    expect(recipes.summary.unresolvedFixtures).toBe(18_305);
+    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_751);
+    expect(recipes.summary.unresolvedFixtures).toBe(18_307);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -366,12 +385,12 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(24_539);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(24_545);
     // Windows keeps 2,236: its node_fs enforcement route is ambiguous, so the
     // fs:read readFileSync probe (LLP 0037) is authored on Apple only.
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_236);
-    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_735);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_568);
+    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_739);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_570);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -834,7 +853,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(3_086);
+    expect(rationaleOnly).toHaveLength(3_090);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -847,8 +866,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 517,
       "principal-restore": 517,
       "snapshot-mismatch-deny": 517,
-      "cannot-widen-authority": 509,
-      "post-lockdown-invariant": 509,
+      "cannot-widen-authority": 511,
+      "post-lockdown-invariant": 511,
     });
     // These are internal callback-security invariant scenarios: attested by
     // internal Rust proofs, not public-surface probes, so they carry the
@@ -954,8 +973,9 @@ describe("exact-target CapSec executable recipes", () => {
         "test",
         "--bin",
         "ibex",
+        "--no-default-features",
         "--features",
-        "capsec-conformance-observer,openssl-crypto",
+        "standard,capsec-conformance-observer,openssl-crypto",
         "capsec_public_native_recipe_batch",
         "--",
         "--test-threads=1",
@@ -2289,8 +2309,9 @@ describe("exact-target CapSec executable recipes", () => {
         "test",
         "--bin",
         "ibex",
+        "--no-default-features",
         "--features",
-        "capsec-conformance-observer,openssl-crypto",
+        "standard,capsec-conformance-observer,openssl-crypto",
         "capsec_public_closed_recipe_batch",
         "--",
         "--test-threads=1",

@@ -29,6 +29,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { canonicalJson } from "./capsec-contract.mjs";
+import { capsecSecureCargoTestCommand } from "./capsec-secure-test-command.mjs";
 import {
   auditLoadedInheritedIntrinsicAliasExecution,
   inheritedIntrinsicAliasProbe,
@@ -67,18 +68,12 @@ const repoRoot = path.resolve(
 );
 const EXECUTOR_CONTRACT_PATH =
   "src/bin/ibex/engine/capsec_inherited_intrinsic_alias_batch.test.rs";
-const EXECUTION_COMMAND = Object.freeze([
-  "cargo",
-  "test",
-  "--bin",
-  "ibex",
-  "--features",
-  "capsec-conformance-observer",
-  "capsec_inherited_intrinsic_alias_loaded_execution",
-  "--",
-  "--test-threads=1",
-  "--nocapture",
-]);
+const EXECUTION_COMMAND = Object.freeze(
+  capsecSecureCargoTestCommand(
+    "capsec_inherited_intrinsic_alias_loaded_execution",
+    true,
+  ),
+);
 const EXECUTION_ENVIRONMENT_KEYS = Object.freeze([
   "IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE",
   "IBEX_CAPSEC_INTRINSIC_ALIAS_EVIDENCE_OUTPUT",

@@ -10,13 +10,14 @@ use std::io::Write as _;
 const STARTUP_ENVIRONMENT_INVOCATION_SCHEMA: &str =
     "ibex/capsec-startup-environment-invocation/1";
 const ENV_AUXILIARY_EDGE_ID: &str = "surface.native.op.exactgetenv.0k6bv7a";
-const STARTUP_ENVIRONMENT_BATCH_COMMAND: [&str; 9] = [
+const STARTUP_ENVIRONMENT_BATCH_COMMAND: [&str; 10] = [
     "cargo",
     "test",
     "--bin",
     "ibex",
+    "--no-default-features",
     "--features",
-    "capsec-conformance-observer,openssl-crypto",
+    "standard,capsec-conformance-observer,openssl-crypto",
     "capsec_public_startup_environment_batch",
     "--",
     "--test-threads=1",

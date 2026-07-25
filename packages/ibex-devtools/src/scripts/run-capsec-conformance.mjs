@@ -19,6 +19,7 @@ import {
   portablePublicSurfaceInvocation,
   publicSurfaceExecutorDescriptor,
 } from "./capsec-public-executors.mjs";
+import { CAPSEC_SECURE_TEST_FEATURES } from "./capsec-secure-test-command.mjs";
 import {
   assertPublicSurfaceExecutionComplete,
   buildPublicSurfaceExecutionArtifact,
@@ -516,7 +517,7 @@ const exactEngineEnvironmentKeys = Object.keys(exactEngineEnvironment).filter(
 const engineTestInvocation = ({
   testName,
   nocapture,
-  features = "capsec-conformance-observer",
+  features = CAPSEC_SECURE_TEST_FEATURES,
 }) =>
   portableEngineTestExecutable === null
     ? {
@@ -525,6 +526,7 @@ const engineTestInvocation = ({
           "test",
           "--bin",
           "ibex",
+          "--no-default-features",
           "--features",
           features,
           testName,
@@ -735,7 +737,7 @@ commandEvidence.push(
       id: "exact-hermes-typed-adapter-recipes",
       testName: "capsec_executable_recipe_adapter_batch",
       nocapture: true,
-      features: "capsec-conformance-observer,openssl-crypto",
+      features: CAPSEC_SECURE_TEST_FEATURES,
       cwd: repoRoot,
       env: {
         ...exactEngineEnvironment,
@@ -1000,7 +1002,7 @@ if (suppliedFixtureEvidencePath) {
         supervisor,
         id: "exact-fixture-evidence-pilot",
         testName: "capsec_exact_fixture_evidence_batch",
-        features: "capsec-conformance-observer,openssl-crypto",
+        features: CAPSEC_SECURE_TEST_FEATURES,
         nocapture: true,
         cwd: repoRoot,
         env: {
@@ -1393,7 +1395,7 @@ if (portableEngineIdentity !== null) {
         supervisor,
         id: "exact-fixture-evidence-portable-pilot",
         testName: "capsec_exact_fixture_evidence_batch",
-        features: "capsec-conformance-observer,openssl-crypto",
+        features: CAPSEC_SECURE_TEST_FEATURES,
         nocapture: true,
         cwd: repoRoot,
         env: {

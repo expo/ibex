@@ -258,13 +258,14 @@ impl ClosedOperation {
     }
 }
 
-const CLOSED_BATCH_COMMAND: [&str; 9] = [
+const CLOSED_BATCH_COMMAND: [&str; 10] = [
     "cargo",
     "test",
     "--bin",
     "ibex",
+    "--no-default-features",
     "--features",
-    "capsec-conformance-observer,openssl-crypto",
+    "standard,capsec-conformance-observer,openssl-crypto",
     "capsec_public_closed_recipe_batch",
     "--",
     "--test-threads=1",

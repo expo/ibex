@@ -3755,13 +3755,14 @@ async fn execute_module_loader_public_recipe(
     })
 }
 
-const NATIVE_PUBLIC_BATCH_COMMAND: [&str; 9] = [
+const NATIVE_PUBLIC_BATCH_COMMAND: [&str; 10] = [
     "cargo",
     "test",
     "--bin",
     "ibex",
+    "--no-default-features",
     "--features",
-    "capsec-conformance-observer,openssl-crypto",
+    "standard,capsec-conformance-observer,openssl-crypto",
     "capsec_public_native_recipe_batch",
     "--",
     "--test-threads=1",

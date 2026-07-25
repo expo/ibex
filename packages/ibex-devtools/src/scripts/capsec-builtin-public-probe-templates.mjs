@@ -17,6 +17,7 @@
 
 import crypto from "node:crypto";
 import { canonicalJson } from "./capsec-contract.mjs";
+import { capsecSecureCargoTestCommand } from "./capsec-secure-test-command.mjs";
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 const canonicalSet = (values) => [...new Set(values)].sort(compareText);
@@ -26,18 +27,12 @@ const taggedDigest = (value) =>
     .update(canonicalJson(value), "utf8")
     .digest("base64url")}`;
 
-const BUILTIN_BATCH_COMMAND = Object.freeze([
-  "cargo",
-  "test",
-  "--bin",
-  "ibex",
-  "--features",
-  "capsec-conformance-observer,openssl-crypto",
-  "capsec_public_noncap_builtin_recipe_batch",
-  "--",
-  "--test-threads=1",
-  "--nocapture",
-]);
+const BUILTIN_BATCH_COMMAND = Object.freeze(
+  capsecSecureCargoTestCommand(
+    "capsec_public_noncap_builtin_recipe_batch",
+    true,
+  ),
+);
 
 const READ_INVOCATION_SCHEMA = "ibex/capsec-builtin-export-invocation/1";
 const CALL_INVOCATION_SCHEMA = "ibex/capsec-builtin-call-invocation/1";
