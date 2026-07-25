@@ -772,6 +772,18 @@ ticket closes.
   The common public deadline returns to 300 seconds, maximum batch counts rise
   to nine Apple/eight Windows, and the complete worst-case target paths are
   reduced to 366/364 minutes inside the unchanged 375-minute outer bounds.
+- The clean `aafab6f1` restart passed all nine public commands; both native
+  shards completed in roughly 90 seconds. The full default Rust gate then
+  traversed 1,223 tests in 1,251 seconds and reported 1,222 passed, one failed,
+  and three ignored. The command supervisor cleaned its tee log, but the
+  zero-execution target inventory mapped test 1,226 (the run count plus the
+  three ignored library cases) exactly to the sole `native_dns_pool` test.
+- `native_dns_pool` immediately passed alone in 14.62 seconds, then passed ten
+  consecutive full 16-lookup fanout repetitions in 9.02–19.62 seconds. No
+  worker-pool rejection, crash, or assertion reproduced. This is recorded as a
+  load-sensitive, non-reproduced resolver failure rather than credited as a
+  green full gate; the exact end-to-end runner must still be restarted and
+  complete.
 
 ## Next milestone
 
