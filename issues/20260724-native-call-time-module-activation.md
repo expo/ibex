@@ -31,8 +31,11 @@ fan-out is the only synchronous `require()` exception.
 2. Give Hermes an opaque, nonce- and generation-bound activation handle owned
    by the live Rust graph drive. JavaScript receives only `import()`/`require()`
    behavior, never the resolver or loader capability.
-3. Add a dedicated in-drive callback path. It must authenticate requester,
-   exact site/spelling/attributes, current graph and snapshot generations, and
+3. For `import()`, use a typed reached-site mailbox drained only after the
+   current JSI drive unwinds. For synchronous CommonJS `require()`, add the
+   narrower dedicated in-drive callback that its return-value semantics
+   require. Both paths must authenticate requester, exact
+   site/spelling/attributes, current graph and snapshot generations, and
    owner-thread state before Rust resolution.
 4. Authorize the exact edge first, then perform receipt-bound trusted source
    acquisition, recursively build only the target's static closure, compile or
@@ -48,6 +51,34 @@ fan-out is the only synchronous `require()` exception.
 8. Cover literal/computed ESM import, authored CJS require, source/prepared
    execution, denial/no-probe, dead branches, generation teardown, cycles,
    TLA, repeated/concurrent calls, wrong requester/site, and reentrancy.
+
+## Progress
+
+The safe `import()` activation foundation now exists, but it is not yet wired
+to production source-graph acquisition:
+
+- Hermes can register exact deferred literal and computed-site spellings on
+  both ESM and CommonJS records. Only an invocation of an exact registered
+  spelling mints a fresh Promise and a nonce-, requester-, and
+  generation-bound native request; dead branches and absent computed
+  candidates never enter the mailbox.
+- Rust takes typed, length-bearing requests only after the active JSI drive
+  unwinds, then completes or refuses each request exactly once. Successful
+  concurrent requests for one spelling adopt the target's stable internal
+  evaluation Promise and cache the same target binding.
+- The synchronous graph algebra has an explicit deferred mode that validates
+  the artifact's complete static closure without requiring any dynamic target
+  record. Its authenticated native linker authorizes only reachable static
+  operations and installs the exact deferred declarations before evaluation.
+- Real-Hermes regressions cover ESM literal/computed exactness, dead branches,
+  wrong-generation reads, fresh concurrent public Promises, one-shot
+  completion/refusal, an authenticated graph with no target record, and the
+  CommonJS `import()` mailbox.
+
+Still open are production source-graph declaration ingestion, receipt-gated
+call-time resolution/acquisition, atomic incremental publication/linking,
+asynchronous and prepared-graph integration, generation-teardown coverage,
+and the synchronous authored CommonJS `require()` callback.
 
 ## Done when
 

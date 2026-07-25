@@ -138,6 +138,7 @@ impl GraphEdgeKey {
 pub struct SynchronousGraphPlan<'artifact> {
     records: BTreeMap<SourceId, PlannedRecord<'artifact>>,
     computed_candidate_sites: ComputedCandidateSiteMap,
+    deferred_dynamic_sources: BTreeSet<SourceId>,
 }
 
 /// One strongly connected component in dependency-first order. Records inside
@@ -227,13 +228,47 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         >,
         computed_candidate_sites: ComputedCandidateSiteMap,
     ) -> Result<Self, GraphError> {
+        Self::new_typed_with_call_time_deferred(records, computed_candidate_sites, BTreeSet::new())
+    }
+
+    /// Build the static closure while retaining authenticated dynamic-site
+    /// semantics without requiring a target record. The caller supplies the
+    /// exact requester identities whose dynamic edges are deferred; every
+    /// static edge remains mandatory and complete.
+    // @ref LLP 0026#6-top-level-await-and-dynamic-import
+    pub fn new_typed_with_call_time_deferred(
+        records: impl IntoIterator<
+            Item = (
+                VerifiedModuleArtifactV1<'artifact>,
+                BTreeMap<GraphEdgeKey, SourceId>,
+            ),
+        >,
+        computed_candidate_sites: ComputedCandidateSiteMap,
+        deferred_dynamic_sources: BTreeSet<SourceId>,
+    ) -> Result<Self, GraphError> {
         let mut planned = BTreeMap::new();
         for (artifact, edges) in records {
             let semantics = &artifact.artifact().semantics;
             let source_id = semantics.source_id.0.clone();
-            let expected: BTreeSet<_> = artifact_edge_keys(artifact).collect();
+            let mut expected: BTreeSet<_> = artifact_edge_keys(artifact).collect();
+            if deferred_dynamic_sources.contains(&source_id) {
+                expected.retain(|key| key.resolution_kind != ResolutionKind::DynamicImport);
+            }
             let observed: BTreeSet<_> = edges.keys().cloned().collect();
-            if expected != observed {
+            let has_computed_dynamic_import = semantics
+                .dynamic_edges
+                .iter()
+                .any(|edge| matches!(edge, super::artifact::DynamicEdgeV1::Computed { .. }))
+                && !deferred_dynamic_sources.contains(&source_id);
+            let agrees = if has_computed_dynamic_import {
+                expected.is_subset(&observed)
+                    && observed
+                        .difference(&expected)
+                        .all(|key| key.resolution_kind == ResolutionKind::DynamicImport)
+            } else {
+                expected == observed
+            };
+            if !agrees {
                 return Err(GraphError::link(format!(
                     "artifact/resolver graph disagreement for {source_id:?}: expected {expected:?}, observed {observed:?}"
                 )));
@@ -257,6 +292,11 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             }
         }
         for (requester, rows) in &computed_candidate_sites {
+            if deferred_dynamic_sources.contains(requester) {
+                return Err(GraphError::link(format!(
+                    "deferred dynamic requester has an eagerly resolved candidate table: {requester:?}"
+                )));
+            }
             let record = planned.get(requester).ok_or_else(|| {
                 GraphError::link(format!(
                     "computed-candidate requester is absent from graph: {requester:?}"
@@ -284,11 +324,16 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         Ok(Self {
             records: planned,
             computed_candidate_sites,
+            deferred_dynamic_sources,
         })
     }
 
     pub fn computed_candidate_sites(&self) -> &ComputedCandidateSiteMap {
         &self.computed_candidate_sites
+    }
+
+    pub fn defers_dynamic_edges(&self, source_id: &SourceId) -> bool {
+        self.deferred_dynamic_sources.contains(source_id)
     }
 
     pub fn artifact(

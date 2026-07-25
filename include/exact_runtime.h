@@ -34,6 +34,24 @@ typedef struct ExactModuleRunnerHandle {
     uint64_t opaque[3];
 } ExactModuleRunnerHandle;
 
+/// One reached, previously authenticated dynamic-import site waiting for the
+/// Rust graph owner to authorize and materialize its exact target. Byte
+/// strings are length-bearing and caller-owned after `take`; dispose them with
+/// `ex_hermes_module_dynamic_activation_request_dispose`.
+typedef struct ExactModuleDynamicActivationRequest {
+    uint64_t runtime_nonce;
+    uint64_t request_id;
+    uint64_t graph_generation;
+    ExactModuleRunnerHandle requester_record;
+    /// 0 = literal import, 1 = computed import.
+    uint32_t kind;
+    uint32_t site;
+    uint8_t* requester_source_id;
+    size_t requester_source_id_len;
+    uint8_t* specifier;
+    size_t specifier_len;
+} ExactModuleDynamicActivationRequest;
+
 typedef enum ExactRuntimeDriveStatus {
     EXACT_RUNTIME_DRIVE_OK = 0,
     EXACT_RUNTIME_DRIVE_INVALID = -1,
@@ -1513,6 +1531,21 @@ int32_t ex_hermes_commonjs_record_link_computed_dynamic_import(
     size_t specifier_len,
     ExactModuleRunnerHandle target_record);
 
+int32_t ex_hermes_commonjs_record_defer_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len);
+
+int32_t ex_hermes_commonjs_record_defer_computed_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    uint32_t site,
+    const uint8_t* specifier,
+    size_t specifier_len);
+
 /// Evaluate a CommonJS record synchronously. Re-entry returns the early
 /// published partial exports; a throw evicts the record and invalidates handle.
 int32_t ex_hermes_commonjs_record_evaluate(
@@ -1650,6 +1683,50 @@ int32_t ex_hermes_module_record_link_computed_dynamic_import(
     const uint8_t* specifier,
     size_t specifier_len,
     ExactModuleRunnerHandle target_record);
+
+/// Register an authenticated literal dynamic-import spelling without
+/// materializing its target. Invocation mints a generation-bound activation
+/// request; dead branches mint nothing.
+int32_t ex_hermes_module_record_defer_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len);
+
+/// Register one exact computed-site candidate spelling without materializing
+/// its target. A spelling absent from this table rejects in Hermes and never
+/// reaches the resolver mailbox.
+int32_t ex_hermes_module_record_defer_computed_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    uint32_t site,
+    const uint8_t* specifier,
+    size_t specifier_len);
+
+/// Take the oldest reached activation request for one exact graph generation.
+/// An empty mailbox returns OK with `request_id == 0`.
+int32_t ex_hermes_module_take_dynamic_activation_request(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t graph_generation,
+    ExactModuleDynamicActivationRequest* out_request);
+
+void ex_hermes_module_dynamic_activation_request_dispose(
+    ExactModuleDynamicActivationRequest* request);
+
+/// Complete one taken request. Success supplies the fully linked target
+/// record. Failure supplies a length-bearing diagnostic and a zero handle.
+/// The retained public import Promise adopts the target's internal evaluation
+/// Promise or rejects with the supplied diagnostic.
+int32_t ex_hermes_module_complete_dynamic_activation(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t request_id,
+    ExactModuleRunnerHandle target_record,
+    const uint8_t* error,
+    size_t error_len);
 
 /// Materialize the stable namespace, export callback, import context, and
 /// factory result. This does not run declare or execute.

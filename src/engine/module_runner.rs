@@ -15,7 +15,7 @@ use std::path::Path;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 
 use crate::module_loader::artifact::{ModulePayloadV1, SourceGoalV1, VerifiedModuleArtifactV1};
 use crate::module_loader::carrier::{PreparedCarrierEncodingV2, VerifiedPreparedCarrierEntryV2};
@@ -33,6 +33,21 @@ use crate::module_loader::security::{
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct NativeModuleHandle {
     opaque: [u64; 3],
+}
+
+#[repr(C)]
+#[derive(Debug, Default)]
+struct NativeDynamicActivationRequest {
+    runtime_nonce: u64,
+    request_id: u64,
+    graph_generation: u64,
+    requester_record: NativeModuleHandle,
+    kind: u32,
+    site: u32,
+    requester_source_id: *mut u8,
+    requester_source_id_len: usize,
+    specifier: *mut u8,
+    specifier_len: usize,
 }
 
 unsafe extern "C" {
@@ -175,6 +190,21 @@ unsafe extern "C" {
         specifier_len: usize,
         target_record: NativeModuleHandle,
     ) -> i32;
+    fn ex_hermes_commonjs_record_defer_dynamic_import(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        specifier: *const u8,
+        specifier_len: usize,
+    ) -> i32;
+    fn ex_hermes_commonjs_record_defer_computed_dynamic_import(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        site: u32,
+        specifier: *const u8,
+        specifier_len: usize,
+    ) -> i32;
     fn ex_hermes_commonjs_record_evaluate(
         runtime: *mut c_void,
         runtime_nonce: u64,
@@ -254,6 +284,38 @@ unsafe extern "C" {
         specifier: *const u8,
         specifier_len: usize,
         target_record: NativeModuleHandle,
+    ) -> i32;
+    fn ex_hermes_module_record_defer_dynamic_import(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        specifier: *const u8,
+        specifier_len: usize,
+    ) -> i32;
+    fn ex_hermes_module_record_defer_computed_dynamic_import(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        site: u32,
+        specifier: *const u8,
+        specifier_len: usize,
+    ) -> i32;
+    fn ex_hermes_module_take_dynamic_activation_request(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        graph_generation: u64,
+        out_request: *mut NativeDynamicActivationRequest,
+    ) -> i32;
+    fn ex_hermes_module_dynamic_activation_request_dispose(
+        request: *mut NativeDynamicActivationRequest,
+    );
+    fn ex_hermes_module_complete_dynamic_activation(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        request_id: u64,
+        target_record: NativeModuleHandle,
+        error: *const u8,
+        error_len: usize,
     ) -> i32;
     fn ex_hermes_module_record_instantiate(
         runtime: *mut c_void,
@@ -610,6 +672,136 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
             _runtime: PhantomData,
             _owner_thread: PhantomData,
         })
+    }
+
+    /// Take one reached deferred import for this exact native graph
+    /// generation. An absent request performs no resolver or carrier work.
+    // @ref LLP 0026#6-top-level-await-and-dynamic-import
+    pub fn take_dynamic_activation_request(
+        &self,
+        graph_generation: u64,
+    ) -> Result<Option<DynamicModuleActivationRequest>> {
+        if graph_generation == 0 {
+            bail!("dynamic activation generation must be nonzero");
+        }
+        let mut native = NativeDynamicActivationRequest::default();
+        let status = unsafe {
+            ex_hermes_module_take_dynamic_activation_request(
+                self.raw.as_ptr(),
+                self.nonce,
+                graph_generation,
+                &mut native,
+            )
+        };
+        if status != 0 {
+            bail!("native dynamic activation mailbox refused ({status})");
+        }
+        if native.request_id == 0 {
+            unsafe { ex_hermes_module_dynamic_activation_request_dispose(&mut native) };
+            return Ok(None);
+        }
+        let runtime_nonce = native.runtime_nonce;
+        let request_id = native.request_id;
+        let request_generation = native.graph_generation;
+        let requester_record = native.requester_record;
+        let kind = native.kind;
+        let site = native.site;
+        let copied = (|| {
+            if (native.requester_source_id_len != 0 && native.requester_source_id.is_null())
+                || (native.specifier_len != 0 && native.specifier.is_null())
+            {
+                bail!("native dynamic activation request has a null byte carrier");
+            }
+            let requester = unsafe {
+                std::slice::from_raw_parts(
+                    native.requester_source_id,
+                    native.requester_source_id_len,
+                )
+            }
+            .to_vec();
+            let specifier =
+                unsafe { std::slice::from_raw_parts(native.specifier, native.specifier_len) }
+                    .to_vec();
+            Ok::<_, anyhow::Error>((requester, specifier))
+        })();
+        unsafe { ex_hermes_module_dynamic_activation_request_dispose(&mut native) };
+        let (requester, specifier) = copied?;
+        if runtime_nonce != self.nonce
+            || request_generation != graph_generation
+            || requester_record.opaque[0] != self.nonce
+            || requester_record.opaque[1] != graph_generation
+            || requester_record.opaque[2] == 0
+        {
+            bail!("native dynamic activation request identity is stale");
+        }
+        let requester = std::str::from_utf8(&requester)
+            .context("dynamic activation requester identity is not UTF-8")
+            .and_then(SourceId::decode)?;
+        let specifier =
+            String::from_utf8(specifier).context("dynamic activation specifier is not UTF-8")?;
+        if specifier.is_empty() {
+            bail!("dynamic activation specifier must not be empty");
+        }
+        let kind = match kind {
+            0 if site == 0 => DynamicModuleActivationKind::Literal,
+            1 => DynamicModuleActivationKind::Computed { site },
+            _ => bail!("native dynamic activation kind is invalid"),
+        };
+        Ok(Some(DynamicModuleActivationRequest {
+            request_id,
+            graph_generation,
+            requester,
+            kind,
+            specifier,
+        }))
+    }
+
+    pub fn complete_dynamic_activation(
+        &self,
+        request: &DynamicModuleActivationRequest,
+        target: &NativeModuleRecord<'_>,
+    ) -> Result<()> {
+        if !std::ptr::eq(self, target.runtime) {
+            bail!("dynamic activation target belongs to another runtime borrow");
+        }
+        let status = unsafe {
+            ex_hermes_module_complete_dynamic_activation(
+                self.raw.as_ptr(),
+                self.nonce,
+                request.request_id,
+                target.live_handle()?,
+                std::ptr::null(),
+                0,
+            )
+        };
+        if status != 0 {
+            bail!("native dynamic activation completion refused ({status})");
+        }
+        Ok(())
+    }
+
+    pub fn refuse_dynamic_activation(
+        &self,
+        request: &DynamicModuleActivationRequest,
+        error: &str,
+    ) -> Result<()> {
+        if error.is_empty() {
+            bail!("dynamic activation refusal must not be empty");
+        }
+        let status = unsafe {
+            ex_hermes_module_complete_dynamic_activation(
+                self.raw.as_ptr(),
+                self.nonce,
+                request.request_id,
+                NativeModuleHandle::default(),
+                error.as_ptr(),
+                error.len(),
+            )
+        };
+        if status != 0 {
+            bail!("native dynamic activation refusal completion failed ({status})");
+        }
+        Ok(())
     }
 
     /// Compile one inline factory after ModuleArtifact admission. Principal and
@@ -1257,6 +1449,45 @@ impl<'runtime> NativeCommonJsRecord<'runtime> {
         Ok(())
     }
 
+    fn defer_dynamic_import_handle(&mut self, specifier: &str) -> Result<()> {
+        if specifier.is_empty() {
+            bail!("deferred CommonJS dynamic import specifier must not be empty");
+        }
+        let status = unsafe {
+            ex_hermes_commonjs_record_defer_dynamic_import(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                specifier.as_ptr(),
+                specifier.len(),
+            )
+        };
+        if status != 0 {
+            bail!("native deferred CommonJS dynamic import refused ({status})");
+        }
+        Ok(())
+    }
+
+    fn defer_computed_dynamic_import_handle(&mut self, site: u32, specifier: &str) -> Result<()> {
+        if specifier.is_empty() {
+            bail!("deferred CommonJS computed import specifier must not be empty");
+        }
+        let status = unsafe {
+            ex_hermes_commonjs_record_defer_computed_dynamic_import(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                site,
+                specifier.as_ptr(),
+                specifier.len(),
+            )
+        };
+        if status != 0 {
+            bail!("native deferred CommonJS computed import refused ({status})");
+        }
+        Ok(())
+    }
+
     pub fn evaluate(&mut self) -> Result<()> {
         let handle = self.live_handle()?;
         let mut evicted = 0;
@@ -1310,6 +1541,27 @@ pub enum ModuleExecutionKind {
 pub enum ModuleEvaluationState {
     Pending,
     Evaluated,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DynamicModuleActivationKind {
+    Literal,
+    Computed { site: u32 },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DynamicModuleActivationRequest {
+    request_id: u64,
+    graph_generation: u64,
+    pub requester: SourceId,
+    pub kind: DynamicModuleActivationKind,
+    pub specifier: String,
+}
+
+impl DynamicModuleActivationRequest {
+    pub fn graph_generation(&self) -> u64 {
+        self.graph_generation
+    }
 }
 
 impl NativeModuleRecord<'_> {
@@ -1449,6 +1701,47 @@ impl NativeModuleRecord<'_> {
         };
         if status != 0 {
             bail!("native computed dynamic-import binding refused ({status})");
+        }
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "module-runner"))]
+    fn defer_dynamic_import_handle(&mut self, specifier: &str) -> Result<()> {
+        if specifier.is_empty() {
+            bail!("deferred dynamic import specifier must not be empty");
+        }
+        let status = unsafe {
+            ex_hermes_module_record_defer_dynamic_import(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                specifier.as_ptr(),
+                specifier.len(),
+            )
+        };
+        if status != 0 {
+            bail!("native deferred dynamic import binding refused ({status})");
+        }
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "module-runner"))]
+    fn defer_computed_dynamic_import_handle(&mut self, site: u32, specifier: &str) -> Result<()> {
+        if specifier.is_empty() {
+            bail!("deferred computed dynamic import specifier must not be empty");
+        }
+        let status = unsafe {
+            ex_hermes_module_record_defer_computed_dynamic_import(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                site,
+                specifier.as_ptr(),
+                specifier.len(),
+            )
+        };
+        if status != 0 {
+            bail!("native deferred computed dynamic import binding refused ({status})");
         }
         Ok(())
     }
@@ -1671,6 +1964,14 @@ impl<'runtime> NativeLinkedRecord<'runtime> {
 #[cfg(any(test, feature = "module-runner"))]
 pub type ComputedDynamicImportLinks = BTreeMap<SourceId, BTreeMap<(u32, String), SourceId>>;
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DeferredDynamicImportBindings {
+    pub literal_specifiers: BTreeSet<String>,
+    pub computed_candidates: BTreeSet<(u32, String)>,
+}
+
+pub type DeferredDynamicImportLinks = BTreeMap<SourceId, DeferredDynamicImportBindings>;
+
 #[cfg(any(test, feature = "module-runner"))]
 pub struct NativeSynchronousGraph<'runtime> {
     entry: SourceId,
@@ -1707,6 +2008,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             Some(dynamic.allowed_bindings),
             None,
             None,
+            None,
         )
     }
 
@@ -1736,6 +2038,95 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             Some(dynamic.allowed_bindings),
             None,
             Some(prepared_entries),
+            None,
+        )
+    }
+
+    /// Link only the authenticated static closure and install exact dynamic
+    /// site declarations that mint reached-site activation requests. No
+    /// dynamic target is authorized, acquired, compiled, or linked here.
+    // @ref LLP 0024#3-source-goal
+    // @ref LLP 0026#6-top-level-await-and-dynamic-import
+    pub fn link_authorized_deferred<P: GraphImportPolicy>(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+        deferred: &DeferredDynamicImportLinks,
+    ) -> Result<Self> {
+        let empty = BTreeMap::new();
+        let evaluation_order = plan.synchronous_evaluation_order(entry)?;
+        let linkage_order = plan.linkage_order_for_authorized(entry, &empty)?;
+        let linkage_set = linkage_order.iter().cloned().collect::<BTreeSet<_>>();
+        if deferred
+            .keys()
+            .any(|source_id| !linkage_set.contains(source_id))
+        {
+            bail!("deferred dynamic declarations include a requester outside the static closure");
+        }
+        for source_id in &linkage_order {
+            let artifact = plan.artifact(source_id)?.artifact();
+            if artifact.semantics.static_edges.iter().any(|edge| {
+                matches!(
+                    edge,
+                    crate::module_loader::artifact::StaticEdgeV1::CommonJsRequire { .. }
+                )
+            }) && artifact.semantics.source_goal
+                != crate::module_loader::artifact::SourceGoalV1::Builtin
+            {
+                bail!(
+                    "native call-time CommonJS require activation is unavailable for {source_id:?}"
+                );
+            }
+            let declarations = deferred.get(source_id).cloned().unwrap_or_default();
+            let expected_literals = artifact
+                .semantics
+                .dynamic_edges
+                .iter()
+                .filter_map(|edge| match edge {
+                    crate::module_loader::artifact::DynamicEdgeV1::Literal {
+                        specifier, ..
+                    } => Some(specifier.as_str().to_owned()),
+                    crate::module_loader::artifact::DynamicEdgeV1::Computed { .. } => None,
+                })
+                .collect::<BTreeSet<_>>();
+            let admitted_sites = artifact
+                .semantics
+                .dynamic_edges
+                .iter()
+                .filter_map(|edge| match edge {
+                    crate::module_loader::artifact::DynamicEdgeV1::Computed { site } => Some(*site),
+                    crate::module_loader::artifact::DynamicEdgeV1::Literal { .. } => None,
+                })
+                .collect::<BTreeSet<_>>();
+            if expected_literals != declarations.literal_specifiers
+                || declarations
+                    .computed_candidates
+                    .iter()
+                    .any(|(site, spelling)| !admitted_sites.contains(site) || spelling.is_empty())
+                || (!artifact.semantics.dynamic_edges.is_empty()
+                    && !plan.defers_dynamic_edges(source_id))
+            {
+                bail!(
+                    "deferred dynamic declarations disagree with authenticated artifact {source_id:?}"
+                );
+            }
+        }
+        let receipts =
+            plan.authorize_reachable_operations(entry, authorizer, authority_contexts)?;
+        Self::link_inner(
+            runtime,
+            plan,
+            entry,
+            evaluation_order,
+            configs,
+            receipts,
+            Some(empty),
+            None,
+            None,
+            Some(deferred),
         )
     }
 
@@ -1756,6 +2147,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             evaluation_order,
             configs,
             Vec::new(),
+            None,
             None,
             None,
             None,
@@ -1781,6 +2173,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             None,
             Some(computed_candidates),
             None,
+            None,
         )
     }
 
@@ -1803,6 +2196,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             None,
             None,
             Some(prepared_entries),
+            None,
         )
     }
 
@@ -1826,6 +2220,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             None,
             Some(computed_candidates),
             Some(prepared_entries),
+            None,
         )
     }
 
@@ -1839,6 +2234,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         allowed_dynamic_bindings: Option<BTreeMap<SourceId, BTreeSet<DynamicImportBindingKey>>>,
         computed_candidates: Option<&ComputedDynamicImportLinks>,
         prepared_entries: Option<&BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>>,
+        deferred_dynamic: Option<&DeferredDynamicImportLinks>,
     ) -> Result<Self> {
         let linkage_order = match &allowed_dynamic_bindings {
             Some(allowed) => plan.linkage_order_for_authorized(entry, allowed)?,
@@ -2072,6 +2468,37 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                     };
                     record.link_dependency_handle(target_handle)?;
                 }
+            }
+            if let Some(deferred) = deferred_dynamic {
+                if let Some(bindings) = deferred.get(source_id) {
+                    for specifier in &bindings.literal_specifiers {
+                        match records
+                            .get_mut(source_id)
+                            .expect("linkage order was used to create every record")
+                        {
+                            NativeLinkedRecord::Esm(record) => {
+                                record.defer_dynamic_import_handle(specifier)?
+                            }
+                            NativeLinkedRecord::CommonJs { record, .. } => {
+                                record.defer_dynamic_import_handle(specifier)?
+                            }
+                        }
+                    }
+                    for (site, specifier) in &bindings.computed_candidates {
+                        match records
+                            .get_mut(source_id)
+                            .expect("linkage order was used to create every record")
+                        {
+                            NativeLinkedRecord::Esm(record) => {
+                                record.defer_computed_dynamic_import_handle(*site, specifier)?
+                            }
+                            NativeLinkedRecord::CommonJs { record, .. } => {
+                                record.defer_computed_dynamic_import_handle(*site, specifier)?
+                            }
+                        }
+                    }
+                }
+                continue;
             }
             for binding in plan.dynamic_import_bindings(source_id)? {
                 if binding.site.is_some() {
@@ -2386,6 +2813,7 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
             allowed_dynamic_bindings,
             None,
             prepared_entries,
+            None,
         )?;
         let NativeSynchronousGraph {
             entry,
@@ -2934,6 +3362,162 @@ mod tests {
                     .unwrap(),
             })
             .unwrap()
+    }
+
+    struct PanicGraphPolicy;
+
+    impl GraphImportPolicy for PanicGraphPolicy {
+        fn snapshot_digest(&self) -> &Digest {
+            panic!("call-time edge guard ran after policy authorization")
+        }
+
+        fn snapshot_generations(&self) -> capsec_semantics::arming::SnapshotGenerations {
+            panic!("call-time edge guard ran after policy authorization")
+        }
+
+        fn authenticates_module_edge(
+            &self,
+            _importer: &Principal,
+            _request_specifier: &str,
+            _imported: &Principal,
+            _resolution_kind: &str,
+            _conditions: &[String],
+            _attributes: &BTreeMap<String, String>,
+        ) -> bool {
+            panic!("call-time edge guard ran after policy authorization")
+        }
+    }
+
+    struct AllowGraphPolicy {
+        digest: Digest,
+        generations: capsec_semantics::arming::SnapshotGenerations,
+    }
+
+    impl AllowGraphPolicy {
+        fn new() -> Self {
+            let generation = capsec_semantics::model::SafeUint::new(1).unwrap();
+            Self {
+                digest: digest("allow-graph-policy"),
+                generations: capsec_semantics::arming::SnapshotGenerations {
+                    policy: generation,
+                    negative: generation,
+                    dynamic: generation,
+                    handle: generation,
+                },
+            }
+        }
+    }
+
+    impl GraphImportPolicy for AllowGraphPolicy {
+        fn snapshot_digest(&self) -> &Digest {
+            &self.digest
+        }
+
+        fn snapshot_generations(&self) -> capsec_semantics::arming::SnapshotGenerations {
+            self.generations
+        }
+
+        fn authenticates_module_edge(
+            &self,
+            _importer: &Principal,
+            _request_specifier: &str,
+            _imported: &Principal,
+            _resolution_kind: &str,
+            _conditions: &[String],
+            _attributes: &BTreeMap<String, String>,
+        ) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn every_authenticated_linker_refuses_call_time_edges_before_authorization() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let entry_id = SourceId::synthetic("module-runner-test", "guarded-entry").unwrap();
+            let target_id = SourceId::synthetic("module-runner-test", "guarded-target").unwrap();
+            let entry_artifact = asynchronous_artifact(
+                test_artifact(entry_id.clone()),
+                vec![DynamicEdgeV1::Literal {
+                    specifier: NonEmptyString::new("./target.mjs").unwrap(),
+                    attributes: ImportAttributes::default(),
+                }],
+            );
+            let target_artifact = test_artifact(target_id.clone());
+            let plan = SynchronousGraphPlan::new_typed([
+                (
+                    verify_test_artifact(&entry_artifact),
+                    BTreeMap::from([(
+                        GraphEdgeKey::new("./target.mjs", ResolutionKind::DynamicImport),
+                        target_id.clone(),
+                    )]),
+                ),
+                (verify_test_artifact(&target_artifact), BTreeMap::new()),
+            ])
+            .unwrap();
+            let policy = PanicGraphPolicy;
+            let authorizer = ModuleGraphAuthorizer::new(&policy);
+            let prepared_entries = BTreeMap::new();
+
+            let errors = [
+                NativeSynchronousGraph::link_authorized(
+                    &runtime,
+                    &plan,
+                    &entry_id,
+                    BTreeMap::new(),
+                    &authorizer,
+                    &BTreeMap::new(),
+                )
+                .err()
+                .expect("synchronous linker accepted an authored dynamic edge"),
+                NativeSynchronousGraph::link_authorized_prepared(
+                    &runtime,
+                    &plan,
+                    &entry_id,
+                    BTreeMap::new(),
+                    &authorizer,
+                    &BTreeMap::new(),
+                    &prepared_entries,
+                )
+                .err()
+                .expect("prepared synchronous linker accepted an authored dynamic edge"),
+                NativeAsynchronousGraph::link_authorized(
+                    &runtime,
+                    &plan,
+                    &entry_id,
+                    BTreeMap::new(),
+                    &authorizer,
+                    &BTreeMap::new(),
+                )
+                .err()
+                .expect("asynchronous linker accepted an authored dynamic edge"),
+                NativeAsynchronousGraph::link_authorized_prepared(
+                    &runtime,
+                    &plan,
+                    &entry_id,
+                    BTreeMap::new(),
+                    &authorizer,
+                    &BTreeMap::new(),
+                    &prepared_entries,
+                )
+                .err()
+                .expect("prepared asynchronous linker accepted an authored dynamic edge"),
+            ];
+            for error in errors {
+                assert!(
+                    error.to_string().contains("dynamic-import activation"),
+                    "unexpected authenticated-linker refusal: {error:#}"
+                );
+            }
+
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
     }
 
     fn prepared_admission(
@@ -4714,6 +5298,288 @@ mod tests {
     }
 
     #[test]
+    fn deferred_dynamic_activation_mailbox_is_reached_exact_and_generation_bound() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let entry_id =
+                SourceId::synthetic("module-runner-test", "deferred-activation-entry").unwrap();
+            let target_id =
+                SourceId::synthetic("module-runner-test", "deferred-activation-target").unwrap();
+            let entry = with_dynamic_edges(
+                test_artifact_with_factory(
+                    entry_id.clone(),
+                    "function ($export, context) { return { declare: function () {}, execute: function () { if (false) context.dynamicImport('./dead'); context.dynamicImport(7, './missing').then(function () { throw new Error('computed miss resolved'); }, function () { $export('missDenied', true); }); var first = context.dynamicImport('./target'); var second = context.dynamicImport('./target'); $export('fresh', first !== second); Promise.all([first, second]).then(function (namespaces) { $export('settled', namespaces[0].value + namespaces[1].value); }); context.dynamicImport('./denied').then(function () { throw new Error('denied activation resolved'); }, function () { $export('activationDenied', true); }); } }; }",
+                    &["activationDenied", "fresh", "missDenied", "settled"],
+                ),
+                vec![
+                    DynamicEdgeV1::Literal {
+                        specifier: NonEmptyString::new("./dead").unwrap(),
+                        attributes: ImportAttributes::default(),
+                    },
+                    DynamicEdgeV1::Literal {
+                        specifier: NonEmptyString::new("./target").unwrap(),
+                        attributes: ImportAttributes::default(),
+                    },
+                    DynamicEdgeV1::Literal {
+                        specifier: NonEmptyString::new("./denied").unwrap(),
+                        attributes: ImportAttributes::default(),
+                    },
+                    DynamicEdgeV1::Computed { site: 7 },
+                ],
+            );
+            let target = test_artifact(target_id.clone());
+
+            let entry_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(entry_id.clone(), 0, 0, [0], 11).unwrap(),
+                )
+                .unwrap();
+            let entry_factory = runtime
+                .compile_verified_factory(
+                    verify_test_artifact(&entry),
+                    0,
+                    None,
+                    11,
+                    "deferred-entry.mjs",
+                )
+                .unwrap();
+            let mut entry_record = entry_factory
+                .create_record(&entry_context, &entry_id)
+                .unwrap();
+            entry_record.declare_export("activationDenied").unwrap();
+            entry_record.declare_export("fresh").unwrap();
+            entry_record.declare_export("missDenied").unwrap();
+            entry_record.declare_export("settled").unwrap();
+            entry_record.defer_dynamic_import_handle("./dead").unwrap();
+            entry_record
+                .defer_dynamic_import_handle("./target")
+                .unwrap();
+            entry_record
+                .defer_dynamic_import_handle("./denied")
+                .unwrap();
+            entry_record
+                .defer_computed_dynamic_import_handle(7, "./allowed")
+                .unwrap();
+            entry_record
+                .instantiate("synthetic:module-runner-test/deferred-entry", true)
+                .unwrap();
+            entry_record.run_declare().unwrap();
+            assert_eq!(
+                entry_record.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+
+            assert!(
+                runtime
+                    .take_dynamic_activation_request(12)
+                    .unwrap()
+                    .is_none(),
+                "another generation consumed a reached activation"
+            );
+            let first_request = runtime
+                .take_dynamic_activation_request(11)
+                .unwrap()
+                .expect("reached literal import did not mint an activation");
+            let second_request = runtime
+                .take_dynamic_activation_request(11)
+                .unwrap()
+                .expect("second invocation did not mint its own activation");
+            let denied_request = runtime
+                .take_dynamic_activation_request(11)
+                .unwrap()
+                .expect("reached denied import did not mint an activation");
+            for request in [&first_request, &second_request] {
+                assert_eq!(request.graph_generation(), 11);
+                assert_eq!(request.requester, entry_id);
+                assert_eq!(request.kind, DynamicModuleActivationKind::Literal);
+                assert_eq!(request.specifier, "./target");
+            }
+            assert_eq!(denied_request.specifier, "./denied");
+            assert!(
+                runtime
+                    .take_dynamic_activation_request(11)
+                    .unwrap()
+                    .is_none(),
+                "dead or absent candidate spelling reached the activation mailbox"
+            );
+
+            let target_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(target_id.clone(), 0, 0, [0], 11).unwrap(),
+                )
+                .unwrap();
+            let target_factory = runtime
+                .compile_verified_factory(
+                    verify_test_artifact(&target),
+                    0,
+                    None,
+                    11,
+                    "deferred-target.mjs",
+                )
+                .unwrap();
+            let mut target_record = target_factory
+                .create_record(&target_context, &target_id)
+                .unwrap();
+            target_record.declare_export("value").unwrap();
+            target_record
+                .instantiate("synthetic:module-runner-test/deferred-target", false)
+                .unwrap();
+            target_record.run_declare().unwrap();
+
+            runtime
+                .complete_dynamic_activation(&first_request, &target_record)
+                .unwrap();
+            runtime
+                .complete_dynamic_activation(&second_request, &target_record)
+                .unwrap();
+            runtime
+                .refuse_dynamic_activation(&denied_request, "test policy denied reached activation")
+                .unwrap();
+            let repeated = runtime
+                .complete_dynamic_activation(&first_request, &target_record)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                repeated.contains("(-2)"),
+                "one activation request completed more than once: {repeated}"
+            );
+            for tick in 0..8 {
+                assert_ne!(ex_hermes_poll(raw, tick), -1);
+            }
+            assert_eq!(
+                entry_record.namespace_json().unwrap(),
+                r#"{"activationDenied":true,"fresh":true,"missDenied":true,"settled":84}"#
+            );
+
+            drop(target_record);
+            drop(target_factory);
+            drop(target_context);
+            drop(entry_record);
+            drop(entry_factory);
+            drop(entry_context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn authenticated_deferred_link_never_materializes_an_unreached_target() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let owner = Principal::Root {
+                identity: NonEmptyString::new("deferred-link-root").unwrap(),
+            };
+            let entry_id = SourceId::file(
+                owner,
+                vec![PathComponent::utf8("deferred-entry.mjs").unwrap()],
+            )
+            .unwrap();
+            let entry = with_dynamic_edges(
+                test_artifact_with_factory(
+                    entry_id.clone(),
+                    "function ($export, context) { return { declare: function () {}, execute: function () { context.dynamicImport('./target.mjs').then(function () { throw new Error('deferred target resolved before completion'); }, function () { $export('denied', true); }); } }; }",
+                    &["denied"],
+                ),
+                vec![DynamicEdgeV1::Literal {
+                    specifier: NonEmptyString::new("./target.mjs").unwrap(),
+                    attributes: ImportAttributes::default(),
+                }],
+            );
+            let plan = SynchronousGraphPlan::new_typed_with_call_time_deferred(
+                [(verify_test_artifact(&entry), BTreeMap::new())],
+                BTreeMap::new(),
+                BTreeSet::from([entry_id.clone()]),
+            )
+            .unwrap();
+            let panic_policy = PanicGraphPolicy;
+            let mismatch = NativeSynchronousGraph::link_authorized_deferred(
+                &runtime,
+                &plan,
+                &entry_id,
+                BTreeMap::new(),
+                &ModuleGraphAuthorizer::new(&panic_policy),
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+            )
+            .err()
+            .expect("missing deferred declaration reached policy authorization");
+            assert!(
+                mismatch
+                    .to_string()
+                    .contains("deferred dynamic declarations disagree"),
+                "unexpected declaration mismatch: {mismatch:#}"
+            );
+
+            let policy = AllowGraphPolicy::new();
+            let context = GraphAuthorityContext::initialization(entry_id.clone(), 17).unwrap();
+            let config = NativeModuleRecordConfig::new(
+                0,
+                None,
+                GraphEvaluationContext::new(entry_id.clone(), 0, 0, [0], 17).unwrap(),
+                "deferred-entry.mjs",
+                "file:///project/deferred-entry.mjs",
+            )
+            .unwrap();
+            let deferred = BTreeMap::from([(
+                entry_id.clone(),
+                DeferredDynamicImportBindings {
+                    literal_specifiers: BTreeSet::from(["./target.mjs".to_owned()]),
+                    computed_candidates: BTreeSet::new(),
+                },
+            )]);
+            let mut graph = NativeSynchronousGraph::link_authorized_deferred(
+                &runtime,
+                &plan,
+                &entry_id,
+                BTreeMap::from([(entry_id.clone(), config)]),
+                &ModuleGraphAuthorizer::new(&policy),
+                &BTreeMap::from([(entry_id.clone(), context)]),
+                &deferred,
+            )
+            .unwrap();
+            graph.evaluate().unwrap();
+            let request = runtime
+                .take_dynamic_activation_request(17)
+                .unwrap()
+                .expect("reached deferred import did not mint an activation");
+            assert_eq!(request.requester, entry_id);
+            assert_eq!(request.kind, DynamicModuleActivationKind::Literal);
+            assert_eq!(request.specifier, "./target.mjs");
+            assert!(
+                runtime
+                    .take_dynamic_activation_request(17)
+                    .unwrap()
+                    .is_none(),
+                "authenticated deferred link materialized more than the reached request"
+            );
+            runtime
+                .refuse_dynamic_activation(&request, "test target intentionally absent")
+                .unwrap();
+            for tick in 0..4 {
+                assert_ne!(ex_hermes_poll(raw, tick), -1);
+            }
+            assert_eq!(
+                graph.namespace_json(&entry_id).unwrap(),
+                r#"{"denied":true}"#
+            );
+
+            drop(graph);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
     fn dynamic_import_returns_fresh_promises_over_one_async_record() {
         let _host_guard = crate::host::abi::host_test_lock();
         crate::host::abi::install_host(crate::host::Host::strict());
@@ -5339,6 +6205,100 @@ mod tests {
             drop(cjs_context);
             drop(esm_factory);
             drop(esm_context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn commonjs_deferred_dynamic_import_uses_the_same_reached_site_mailbox() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let cjs_id = SourceId::synthetic("module-runner-test", "cjs-deferred-owner").unwrap();
+            let artifact = with_dynamic_edges(
+                test_commonjs_artifact(
+                    cjs_id.clone(),
+                    "function (require, module, exports, __filename, __dirname, dynamicImport) { if (false) dynamicImport('./dead'); dynamicImport('./later').then(function () { throw new Error('deferred CommonJS target resolved early'); }, function () { globalThis.cjsDeferredDenied = true; }); }",
+                    &[],
+                ),
+                vec![
+                    DynamicEdgeV1::Literal {
+                        specifier: NonEmptyString::new("./dead").unwrap(),
+                        attributes: ImportAttributes::default(),
+                    },
+                    DynamicEdgeV1::Literal {
+                        specifier: NonEmptyString::new("./later").unwrap(),
+                        attributes: ImportAttributes::default(),
+                    },
+                ],
+            );
+            let context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(cjs_id.clone(), 0, 0, [0], 23).unwrap(),
+                )
+                .unwrap();
+            let factory = runtime
+                .compile_verified_commonjs_factory(
+                    verify_test_artifact(&artifact),
+                    0,
+                    None,
+                    23,
+                    "cjs-deferred-owner.cjs",
+                )
+                .unwrap();
+            let mut record = factory
+                .create_commonjs_record(&context, &cjs_id, "/pkg/owner.cjs", "/pkg")
+                .unwrap();
+            record.defer_dynamic_import_handle("./dead").unwrap();
+            record.defer_dynamic_import_handle("./later").unwrap();
+            record.evaluate().unwrap();
+
+            let request = runtime
+                .take_dynamic_activation_request(23)
+                .unwrap()
+                .expect("reached CommonJS import did not mint an activation");
+            assert_eq!(request.requester, cjs_id);
+            assert_eq!(request.kind, DynamicModuleActivationKind::Literal);
+            assert_eq!(request.specifier, "./later");
+            assert!(
+                runtime
+                    .take_dynamic_activation_request(23)
+                    .unwrap()
+                    .is_none(),
+                "dead CommonJS import minted an activation"
+            );
+            runtime
+                .refuse_dynamic_activation(&request, "test CommonJS target intentionally absent")
+                .unwrap();
+            for tick in 0..4 {
+                assert_ne!(ex_hermes_poll(raw, tick), -1);
+            }
+            let source = "String(globalThis.cjsDeferredDenied)";
+            let source_url = CString::new("cjs-deferred-observation.js").unwrap();
+            let mut output = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_eval(
+                    raw,
+                    source.as_ptr(),
+                    source.len(),
+                    source_url.as_ptr(),
+                    0,
+                    &mut output,
+                ),
+                0
+            );
+            assert!(!output.is_null());
+            assert_eq!(CStr::from_ptr(output).to_string_lossy(), "true");
+            ex_hermes_free_string(output);
+
+            drop(record);
+            drop(factory);
+            drop(context);
             drop(runtime);
             ex_hermes_destroy(raw);
         }

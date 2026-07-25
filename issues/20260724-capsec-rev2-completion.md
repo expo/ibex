@@ -315,6 +315,45 @@ ticket closes.
   This closes a real no-probe defect but does not claim the larger activation
   feature complete.
 
+### 2026-07-24 — established a post-drive dynamic-import activation mailbox
+
+- Rejected same-stack Rust re-entry for `import()`: the native callback now
+  mints only a fresh Promise and a private reached-site request, which Rust
+  takes after the current JSI drive unwinds. This preserves the runtime's
+  reentrancy guard while keeping dead branches completely outside resolution
+  and acquisition.
+- Added typed, length-bearing request transfer and one-shot completion across
+  the public C ABI and safe Rust wrapper. Requests bind the runtime nonce,
+  graph generation, exact requester record/source identity, literal versus
+  computed site, and exact spelling.
+- Added exact deferred tables for ESM and CommonJS `import()`. Absent literal
+  spellings and absent `(site, spelling)` computed candidates reject inside
+  Hermes without a mailbox or resolver probe. Concurrent reached imports mint
+  distinct public Promises but can complete onto one target record and its
+  stable internal evaluation Promise.
+- Added an explicit deferred mode to the static graph plan and authenticated
+  synchronous linker. It validates and authorizes the complete static closure,
+  installs exact deferred declarations, and neither represents nor
+  materializes a dynamic target.
+- Focused real-Hermes tests prove dead-branch and candidate-miss no-probe,
+  wrong-generation isolation, repeated/concurrent calls, one-shot
+  completion/refusal, an authenticated target-absent initial graph, and the
+  equivalent reached-site mailbox for CommonJS `import()`.
+- Verification: `ref-check` passes with 39 LLP documents and 2,043 checked
+  references. The complete secure-mode gate passes against the reviewed
+  current Hermes framework: 634 library tests pass, 3 hosted/diagnostic tests
+  remain intentionally ignored, and the behavioral smoke confirms project
+  read plus outside-read/write, spawn, and environment-sentinel enforcement.
+- This is intentionally a foundation checkpoint, not production activation:
+  source-graph declaration ingestion, reached-edge authorization and
+  receipt-bound acquisition, atomic incremental graph publication, async and
+  prepared integration, teardown coverage, and synchronous authored
+  CommonJS `require()` remain open.
+- Current estimate remains **57% complete for the full LLP 0021 completion
+  contract; roughly 85% complete for the security-critical runtime mechanism
+  set.** The new private mechanism is substantial, but the fail-closed
+  production ingress cannot be relaxed until the end-to-end bridge exists.
+
 ## Current hard parts
 
 - Exact-target completion is deliberately all-or-nothing. Existing evidence
@@ -334,11 +373,12 @@ ticket closes.
   portable engine artifact; the reviewed local framework reports no portable
   identity, so it cannot honestly produce that evidence.
 - `malformed-branch-facts` has no owning-language proof and remains residual.
-- Native dynamic-import candidate tables are implemented, but production
-  linkers deliberately refuse all authored call-time edges because the runtime
-  lacks a private invocation-time CapSec activation capability. The filesystem
-  issue is now reconciled as partially complete, and the remaining bridge is
-  specified in `issues/20260724-native-call-time-module-activation.md`.
+- Native dynamic-import candidate tables and the private reached-site mailbox
+  are implemented, but production source graphs still deliberately refuse all
+  authored call-time edges. The missing bridge is receipt-gated target
+  acquisition plus atomic incremental publication into the already-live
+  generation; it remains specified in
+  `issues/20260724-native-call-time-module-activation.md`.
 - Source-graph construction formerly resolved and acquired authored dynamic
   targets before the linker refusal. It now applies the same fail-closed
   boundary immediately after parsing the requester and before target
@@ -354,7 +394,8 @@ ticket closes.
 
 ## Next milestone
 
-Verify and checkpoint the source-ingress no-probe guard, then continue with
-the next independently closable security gap. The full invocation-time bridge
-and bootstrap-floor authorship remain named design/runtime work rather than
-unsafe local substitutions; `malformed-branch-facts` stays residual.
+Verify and checkpoint the generation-bound activation-mailbox foundation, then
+extend the live native graph with receipt-authorized target static closures.
+Prepared activation, synchronous CommonJS `require()`, bootstrap-floor
+authorship, and `malformed-branch-facts` remain named gaps rather than unsafe
+local substitutions.

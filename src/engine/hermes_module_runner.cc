@@ -5,6 +5,7 @@
 
 #include "hermes_runtime_internal.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -186,6 +187,34 @@ void releaseContextReference(ExactHermesRuntime* runtime, uint64_t contextId) {
   }
 }
 
+void eraseDynamicActivationsForRequester(
+    ExactHermesRuntime* runtime,
+    uint64_t graphGeneration,
+    uint64_t requesterRecordId,
+    bool requesterIsCommonJs) {
+  for (auto it =
+           runtime->module_dynamic_activation_requests.begin();
+       it != runtime->module_dynamic_activation_requests.end();) {
+    const auto& request = it->second;
+    if (request.graph_generation == graphGeneration &&
+        request.requester_record_id == requesterRecordId &&
+        request.requester_is_commonjs == requesterIsCommonJs) {
+      it = runtime->module_dynamic_activation_requests.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  runtime->module_dynamic_activation_queue.erase(
+      std::remove_if(
+          runtime->module_dynamic_activation_queue.begin(),
+          runtime->module_dynamic_activation_queue.end(),
+          [&](uint64_t requestId) {
+            return runtime->module_dynamic_activation_requests.count(
+                       requestId) == 0;
+          }),
+      runtime->module_dynamic_activation_queue.end());
+}
+
 NativeModuleRecordEntry* recordFor(
     ExactHermesRuntime* runtime, ExactModuleRunnerHandle handle) {
   if (runtime == nullptr || handle.opaque[0] != runtime->runtime_nonce ||
@@ -223,6 +252,17 @@ facebook::jsi::Object dynamicEvaluationPromise(
     uint64_t graphGeneration,
     uint64_t requesterRecordId,
     uint64_t targetRecordId);
+
+facebook::jsi::Object pendingDynamicActivationPromise(
+    facebook::jsi::Runtime& rt,
+    ExactHermesRuntime* runtime,
+    uint64_t graphGeneration,
+    uint64_t requesterRecordId,
+    bool requesterIsCommonJs,
+    const std::string& requesterSourceId,
+    bool computed,
+    uint32_t site,
+    const std::string& specifier);
 
 facebook::jsi::Value readBinding(
     facebook::jsi::Runtime& rt,
@@ -475,6 +515,20 @@ facebook::jsi::Value evaluateCommonJsRecord(
               auto binding = current->second.computed_dynamic_import_bindings.find(
                   std::make_pair(site, specifier));
               if (binding == current->second.computed_dynamic_import_bindings.end()) {
+                if (current->second.deferred_computed_dynamic_imports.count(
+                        std::make_pair(site, specifier)) != 0) {
+                  auto promise = pendingDynamicActivationPromise(
+                      rt,
+                      target.runtime,
+                      graphGeneration,
+                      recordId,
+                      true,
+                      current->second.source_id,
+                      true,
+                      site,
+                      specifier);
+                  return facebook::jsi::Value(rt, promise);
+                }
                 return rejectedPromise(
                     rt,
                     "computed dynamic import candidate is not authorized for this site" +
@@ -485,6 +539,19 @@ facebook::jsi::Value evaluateCommonJsRecord(
             } else {
               auto binding = current->second.dynamic_import_bindings.find(specifier);
               if (binding == current->second.dynamic_import_bindings.end()) {
+                if (current->second.deferred_dynamic_imports.count(specifier) != 0) {
+                  auto promise = pendingDynamicActivationPromise(
+                      rt,
+                      target.runtime,
+                      graphGeneration,
+                      recordId,
+                      true,
+                      current->second.source_id,
+                      false,
+                      0,
+                      specifier);
+                  return facebook::jsi::Value(rt, promise);
+                }
                 return rejectedPromise(
                     rt, "CommonJS dynamic import target is not authorized and linked");
               }
@@ -581,12 +648,16 @@ facebook::jsi::Value evaluateCommonJsRecord(
     const uint64_t contextId = record.context_handle_id;
     rememberCommonJsAdapterError(
         runtime, record, "CommonJS record evaluation threw");
+    eraseDynamicActivationsForRequester(
+        runtime, graphGeneration, recordId, true);
     runtime->commonjs_records.erase(recordId);
     releaseContextReference(runtime, contextId);
     throw;
   } catch (const std::exception& error) {
     const uint64_t contextId = record.context_handle_id;
     rememberCommonJsAdapterError(runtime, record, error.what());
+    eraseDynamicActivationsForRequester(
+        runtime, graphGeneration, recordId, true);
     runtime->commonjs_records.erase(recordId);
     releaseContextReference(runtime, contextId);
     throw;
@@ -594,6 +665,8 @@ facebook::jsi::Value evaluateCommonJsRecord(
     const uint64_t contextId = record.context_handle_id;
     rememberCommonJsAdapterError(
         runtime, record, "unknown CommonJS evaluation failure");
+    eraseDynamicActivationsForRequester(
+        runtime, graphGeneration, recordId, true);
     runtime->commonjs_records.erase(recordId);
     releaseContextReference(runtime, contextId);
     throw;
@@ -1045,6 +1118,94 @@ facebook::jsi::Value rejectedPromise(
   auto reject = promiseConstructor.getPropertyAsFunction(rt, "reject");
   return reject.callWithThis(
       rt, promiseConstructor, facebook::jsi::JSError(rt, message).value());
+}
+
+facebook::jsi::Object pendingDynamicActivationPromise(
+    facebook::jsi::Runtime& rt,
+    ExactHermesRuntime* runtime,
+    uint64_t graphGeneration,
+    uint64_t requesterRecordId,
+    bool requesterIsCommonJs,
+    const std::string& requesterSourceId,
+    bool computed,
+    uint32_t site,
+    const std::string& specifier) {
+  constexpr size_t kMaximumPendingDynamicActivations = 1024;
+  if (runtime->module_dynamic_activation_requests.size() >=
+      kMaximumPendingDynamicActivations) {
+    throw facebook::jsi::JSError(
+        rt, "dynamic module activation request budget exhausted");
+  }
+  const uint64_t requestId =
+      runtime->next_module_dynamic_activation_request_id++;
+  if (requestId == 0 ||
+      runtime->next_module_dynamic_activation_request_id == 0) {
+    throw facebook::jsi::JSError(
+        rt, "dynamic module activation request id space exhausted");
+  }
+
+  const auto target = exactRuntimeCallbackTarget(runtime);
+  auto executor = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(
+          rt, "dynamicModuleActivationExecutor"),
+      2,
+      [target,
+       requestId,
+       graphGeneration,
+       requesterRecordId,
+       requesterIsCommonJs,
+       requesterSourceId,
+       computed,
+       site,
+       specifier](
+          facebook::jsi::Runtime& rt,
+          const facebook::jsi::Value&,
+          const facebook::jsi::Value* args,
+          size_t count) -> facebook::jsi::Value {
+        if (!runtimeIsAlive(target) ||
+            target.runtime->runtime_thread != std::this_thread::get_id()) {
+          throw facebook::jsi::JSError(
+              rt, "stale dynamic module activation executor");
+        }
+        if (count < 2 || !args[0].isObject() ||
+            !args[0].asObject(rt).isFunction(rt) || !args[1].isObject() ||
+            !args[1].asObject(rt).isFunction(rt)) {
+          throw facebook::jsi::JSError(
+              rt, "malformed dynamic module activation executor");
+        }
+        NativeModuleDynamicActivationEntry entry;
+        entry.graph_generation = graphGeneration;
+        entry.requester_record_id = requesterRecordId;
+        entry.requester_is_commonjs = requesterIsCommonJs;
+        entry.computed = computed;
+        entry.site = site;
+        entry.requester_source_id = requesterSourceId;
+        entry.specifier = specifier;
+        entry.resolve = std::make_shared<facebook::jsi::Function>(
+            args[0].asObject(rt).asFunction(rt));
+        entry.reject = std::make_shared<facebook::jsi::Function>(
+            args[1].asObject(rt).asFunction(rt));
+        if (!target.runtime->module_dynamic_activation_requests
+                 .emplace(requestId, std::move(entry))
+                 .second) {
+          throw facebook::jsi::JSError(
+              rt, "duplicate dynamic module activation request");
+        }
+        target.runtime->module_dynamic_activation_queue.push_back(requestId);
+        return facebook::jsi::Value::undefined();
+      });
+  auto promiseConstructor =
+      rt.global().getPropertyAsFunction(rt, "Promise");
+  auto promise =
+      promiseConstructor.callAsConstructor(rt, executor);
+  if (!promise.isObject() ||
+      runtime->module_dynamic_activation_requests.count(requestId) != 1) {
+    runtime->module_dynamic_activation_requests.erase(requestId);
+    throw facebook::jsi::JSError(
+        rt, "dynamic module activation Promise did not initialize");
+  }
+  return promise.asObject(rt);
 }
 
 facebook::jsi::Object dynamicEvaluationPromise(
@@ -1888,6 +2049,60 @@ extern "C" int32_t ex_hermes_commonjs_record_link_computed_dynamic_import(
   return EXACT_RUNTIME_DRIVE_OK;
 }
 
+extern "C" int32_t ex_hermes_commonjs_record_defer_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len) {
+  observeModuleRunnerAbi(__func__);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = commonJsRecordFor(runtime, record);
+  if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state != NativeCommonJsRecordState::New ||
+      entry->source_goal == 3 || specifier == nullptr ||
+      specifier_len == 0) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const std::string spelling(
+      reinterpret_cast<const char*>(specifier), specifier_len);
+  if (entry->dynamic_import_bindings.count(spelling) != 0 ||
+      !entry->deferred_dynamic_imports.insert(spelling).second) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int32_t
+ex_hermes_commonjs_record_defer_computed_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    uint32_t site,
+    const uint8_t* specifier,
+    size_t specifier_len) {
+  observeModuleRunnerAbi(__func__);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = commonJsRecordFor(runtime, record);
+  if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state != NativeCommonJsRecordState::New ||
+      entry->source_goal == 3 || specifier == nullptr ||
+      specifier_len == 0) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const auto key = std::make_pair(
+      site,
+      std::string(
+          reinterpret_cast<const char*>(specifier), specifier_len));
+  if (entry->computed_dynamic_import_bindings.count(key) != 0 ||
+      !entry->deferred_computed_dynamic_imports.insert(key).second) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
 // @abi-output ex_hermes_commonjs_record_evaluate out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
 // @abi-output ex_hermes_commonjs_record_evaluate out_error_token role=output kind=scalar ownership=caller-storage
 extern "C" int32_t ex_hermes_commonjs_record_evaluate(
@@ -2059,6 +2274,24 @@ extern "C" int32_t ex_hermes_module_unpin_generation(
   if (runtime->pinned_module_generations.erase(graph_generation) != 1) {
     return EXACT_RUNTIME_DRIVE_STALE;
   }
+  for (auto it =
+           runtime->module_dynamic_activation_requests.begin();
+       it != runtime->module_dynamic_activation_requests.end();) {
+    if (it->second.graph_generation == graph_generation) {
+      it = runtime->module_dynamic_activation_requests.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  runtime->module_dynamic_activation_queue.erase(
+      std::remove_if(
+          runtime->module_dynamic_activation_queue.begin(),
+          runtime->module_dynamic_activation_queue.end(),
+          [&](uint64_t requestId) {
+            return runtime->module_dynamic_activation_requests.count(
+                       requestId) == 0;
+          }),
+      runtime->module_dynamic_activation_queue.end());
   for (auto it = runtime->commonjs_records.begin();
        it != runtime->commonjs_records.end();) {
     if (it->second.graph_generation != graph_generation) {
@@ -2111,6 +2344,8 @@ extern "C" int32_t ex_hermes_module_release_handle(
         break;
       }
     }
+    eraseDynamicActivationsForRequester(
+        runtime, handle.opaque[1], handle.opaque[2], false);
     releaseContextReference(runtime, record->second.context_handle_id);
     runtime->module_records.erase(record);
     return EXACT_RUNTIME_DRIVE_OK;
@@ -2121,6 +2356,8 @@ extern "C" int32_t ex_hermes_module_release_handle(
     if (runtime->pinned_module_generations.count(handle.opaque[1]) != 0) {
       return EXACT_RUNTIME_DRIVE_OK;
     }
+    eraseDynamicActivationsForRequester(
+        runtime, handle.opaque[1], handle.opaque[2], true);
     releaseContextReference(runtime, commonjs->second.context_handle_id);
     runtime->commonjs_records.erase(commonjs);
     return EXACT_RUNTIME_DRIVE_OK;
@@ -2428,6 +2665,294 @@ extern "C" int32_t ex_hermes_module_record_link_computed_dynamic_import(
   return EXACT_RUNTIME_DRIVE_OK;
 }
 
+extern "C" int32_t ex_hermes_module_record_defer_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len) {
+  observeModuleRunnerAbi(__func__);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = recordFor(runtime, record);
+  if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state != NativeModuleRecordState::New ||
+      specifier == nullptr || specifier_len == 0) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const std::string spelling(
+      reinterpret_cast<const char*>(specifier), specifier_len);
+  if (entry->dynamic_import_bindings.count(spelling) != 0 ||
+      !entry->deferred_dynamic_imports.insert(spelling).second) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int32_t ex_hermes_module_record_defer_computed_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    uint32_t site,
+    const uint8_t* specifier,
+    size_t specifier_len) {
+  observeModuleRunnerAbi(__func__);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = recordFor(runtime, record);
+  if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state != NativeModuleRecordState::New ||
+      specifier == nullptr || specifier_len == 0) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const auto key = std::make_pair(
+      site,
+      std::string(
+          reinterpret_cast<const char*>(specifier), specifier_len));
+  if (entry->computed_dynamic_import_bindings.count(key) != 0 ||
+      !entry->deferred_computed_dynamic_imports.insert(key).second) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
+// @abi-output ex_hermes_module_take_dynamic_activation_request out_request role=output kind=aggregate schema=ExactModuleDynamicActivationRequest members=* ownership=caller-storage member-ownership=caller-frees:ex_hermes_module_dynamic_activation_request_dispose
+extern "C" int32_t ex_hermes_module_take_dynamic_activation_request(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t graph_generation,
+    ExactModuleDynamicActivationRequest* out_request) {
+  observeModuleRunnerAbi(__func__);
+  if (out_request == nullptr) return EXACT_RUNTIME_DRIVE_INVALID;
+  *out_request = ExactModuleDynamicActivationRequest{};
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  if (graph_generation == 0) return EXACT_RUNTIME_DRIVE_INVALID;
+
+  auto selected = runtime->module_dynamic_activation_queue.end();
+  NativeModuleDynamicActivationEntry* entry = nullptr;
+  for (auto it = runtime->module_dynamic_activation_queue.begin();
+       it != runtime->module_dynamic_activation_queue.end();) {
+    auto found =
+        runtime->module_dynamic_activation_requests.find(*it);
+    if (found == runtime->module_dynamic_activation_requests.end() ||
+        found->second.taken) {
+      it = runtime->module_dynamic_activation_queue.erase(it);
+      continue;
+    }
+    if (found->second.graph_generation == graph_generation) {
+      selected = it;
+      entry = &found->second;
+      break;
+    }
+    ++it;
+  }
+  if (entry == nullptr) return EXACT_RUNTIME_DRIVE_OK;
+
+  auto copyBytes = [](const std::string& source) -> uint8_t* {
+    if (source.empty()) return nullptr;
+    auto* copy = static_cast<uint8_t*>(std::malloc(source.size()));
+    if (copy != nullptr) {
+      std::memcpy(copy, source.data(), source.size());
+    }
+    return copy;
+  };
+  auto* requester = copyBytes(entry->requester_source_id);
+  auto* specifierCopy = copyBytes(entry->specifier);
+  if ((requester == nullptr && !entry->requester_source_id.empty()) ||
+      (specifierCopy == nullptr && !entry->specifier.empty())) {
+    std::free(requester);
+    std::free(specifierCopy);
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  const uint64_t requestId = *selected;
+  entry->taken = true;
+  runtime->module_dynamic_activation_queue.erase(selected);
+  out_request->runtime_nonce = runtime_nonce;
+  out_request->request_id = requestId;
+  out_request->graph_generation = entry->graph_generation;
+  out_request->requester_record = ExactModuleRunnerHandle{{
+      runtime_nonce,
+      entry->graph_generation,
+      entry->requester_record_id}};
+  out_request->kind = entry->computed ? 1u : 0u;
+  out_request->site = entry->site;
+  out_request->requester_source_id = requester;
+  out_request->requester_source_id_len =
+      entry->requester_source_id.size();
+  out_request->specifier = specifierCopy;
+  out_request->specifier_len = entry->specifier.size();
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" void ex_hermes_module_dynamic_activation_request_dispose(
+    ExactModuleDynamicActivationRequest* request) {
+  if (request == nullptr) return;
+  std::free(request->requester_source_id);
+  std::free(request->specifier);
+  *request = ExactModuleDynamicActivationRequest{};
+}
+
+extern "C" int32_t ex_hermes_module_complete_dynamic_activation(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t request_id,
+    ExactModuleRunnerHandle target_record,
+    const uint8_t* error,
+    size_t error_len) {
+  observeModuleRunnerAbi(__func__);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  if (!exactRuntimeEnterUserExecution(runtime) || request_id == 0 ||
+      (error_len != 0 && error == nullptr)) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  auto pending =
+      runtime->module_dynamic_activation_requests.find(request_id);
+  if (pending == runtime->module_dynamic_activation_requests.end()) {
+    return EXACT_RUNTIME_DRIVE_STALE;
+  }
+  auto& request = pending->second;
+  if (!request.taken || !request.resolve || !request.reject) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const bool success = error_len == 0;
+  if (success) {
+    if (target_record.opaque[0] != runtime_nonce ||
+        target_record.opaque[1] != request.graph_generation ||
+        target_record.opaque[2] == 0 ||
+        recordFor(runtime, target_record) == nullptr) {
+      return EXACT_RUNTIME_DRIVE_STALE;
+    }
+  } else if (target_record.opaque[0] != 0 ||
+             target_record.opaque[1] != 0 ||
+             target_record.opaque[2] != 0) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+
+  NativeModuleRecordEntry* moduleRequester = nullptr;
+  NativeCommonJsRecordEntry* commonJsRequester = nullptr;
+  if (request.requester_is_commonjs) {
+    auto requester =
+        runtime->commonjs_records.find(request.requester_record_id);
+    if (requester == runtime->commonjs_records.end() ||
+        requester->second.graph_generation != request.graph_generation ||
+        requester->second.source_id != request.requester_source_id) {
+      return EXACT_RUNTIME_DRIVE_STALE;
+    }
+    commonJsRequester = &requester->second;
+  } else {
+    auto requester =
+        runtime->module_records.find(request.requester_record_id);
+    if (requester == runtime->module_records.end() ||
+        requester->second.graph_generation != request.graph_generation ||
+        requester->second.source_id != request.requester_source_id) {
+      return EXACT_RUNTIME_DRIVE_STALE;
+    }
+    moduleRequester = &requester->second;
+  }
+  if (success) {
+    const uint64_t targetId = target_record.opaque[2];
+    const auto bindingConflict = [&](const auto& requester) {
+      if (request.computed) {
+        auto existing =
+            requester.computed_dynamic_import_bindings.find(
+                std::make_pair(request.site, request.specifier));
+        return existing !=
+                requester.computed_dynamic_import_bindings.end() &&
+            existing->second != targetId;
+      }
+      auto existing =
+          requester.dynamic_import_bindings.find(request.specifier);
+      return existing != requester.dynamic_import_bindings.end() &&
+          existing->second != targetId;
+    };
+    if ((moduleRequester != nullptr &&
+         bindingConflict(*moduleRequester)) ||
+        (commonJsRequester != nullptr &&
+         bindingConflict(*commonJsRequester))) {
+      return EXACT_RUNTIME_DRIVE_INVALID;
+    }
+  }
+
+  auto resolve = request.resolve;
+  auto reject = request.reject;
+  const uint64_t graphGeneration = request.graph_generation;
+  const uint64_t requesterRecordId = request.requester_record_id;
+  const bool computed = request.computed;
+  const uint32_t site = request.site;
+  const std::string specifier = request.specifier;
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  bool completed = false;
+  try {
+    auto& rt = *runtime->runtime;
+    if (!success) {
+      const std::string message(
+          reinterpret_cast<const char*>(error), error_len);
+      reject->call(
+          rt,
+          facebook::jsi::JSError(
+              rt,
+              message.empty() ? "dynamic module activation refused"
+                              : message)
+              .value());
+    } else {
+      auto chain = dynamicEvaluationPromise(
+          rt,
+          runtime,
+          graphGeneration,
+          requesterRecordId,
+          target_record.opaque[2]);
+      resolve->call(rt, facebook::jsi::Value(rt, chain));
+      auto bindTarget = [&](auto& requester) {
+        if (computed) {
+          requester.computed_dynamic_import_bindings
+              [std::make_pair(site, specifier)] =
+              target_record.opaque[2];
+        } else {
+          requester.dynamic_import_bindings[specifier] =
+              target_record.opaque[2];
+        }
+      };
+      if (moduleRequester != nullptr) {
+        bindTarget(*moduleRequester);
+      } else {
+        bindTarget(*commonJsRequester);
+      }
+    }
+    completed = true;
+  } catch (const facebook::jsi::JSError& completionError) {
+    try {
+      reject->call(*runtime->runtime, completionError.value());
+    } catch (...) {
+    }
+  } catch (const std::exception& completionError) {
+    try {
+      reject->call(
+          *runtime->runtime,
+          facebook::jsi::JSError(
+              *runtime->runtime, completionError.what())
+              .value());
+    } catch (...) {
+    }
+  } catch (...) {
+    try {
+      reject->call(
+          *runtime->runtime,
+          facebook::jsi::JSError(
+              *runtime->runtime,
+              "unknown dynamic module activation completion failure")
+              .value());
+    } catch (...) {
+    }
+  }
+  runtime->module_dynamic_activation_requests.erase(request_id);
+  if (!hostTask.finish()) return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  return completed ? EXACT_RUNTIME_DRIVE_OK
+                   : EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+}
+
 // @abi-output ex_hermes_module_record_instantiate out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
 // @abi-output ex_hermes_module_record_instantiate out_error_token role=output kind=scalar ownership=caller-storage
 extern "C" int32_t ex_hermes_module_record_instantiate(
@@ -2664,6 +3189,20 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
               auto binding = current->computed_dynamic_import_bindings.find(
                   std::make_pair(site, specifier));
               if (binding == current->computed_dynamic_import_bindings.end()) {
+                if (current->deferred_computed_dynamic_imports.count(
+                        std::make_pair(site, specifier)) != 0) {
+                  auto promise = pendingDynamicActivationPromise(
+                      rt,
+                      target.runtime,
+                      graphGeneration,
+                      recordId,
+                      false,
+                      current->source_id,
+                      true,
+                      site,
+                      specifier);
+                  return facebook::jsi::Value(rt, promise);
+                }
                 return rejectedPromise(
                     rt,
                     "computed dynamic import candidate is not authorized for this site" +
@@ -2674,6 +3213,19 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
             } else {
               auto binding = current->dynamic_import_bindings.find(specifier);
               if (binding == current->dynamic_import_bindings.end()) {
+                if (current->deferred_dynamic_imports.count(specifier) != 0) {
+                  auto promise = pendingDynamicActivationPromise(
+                      rt,
+                      target.runtime,
+                      graphGeneration,
+                      recordId,
+                      false,
+                      current->source_id,
+                      false,
+                      0,
+                      specifier);
+                  return facebook::jsi::Value(rt, promise);
+                }
                 return rejectedPromise(
                     rt, "dynamic import target is not authorized and linked");
               }

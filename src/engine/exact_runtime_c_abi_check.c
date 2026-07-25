@@ -456,6 +456,15 @@ IBEX_C_ABI_ASSERT(import_binding_kind_after_names,
                   offsetof(ExHermesSessionImportBinding, kind) >
                       offsetof(ExHermesSessionImportBinding,
                                imported_name_length));
+IBEX_C_ABI_ASSERT(dynamic_activation_request_id_after_nonce,
+                  offsetof(ExactModuleDynamicActivationRequest, request_id) >
+                      offsetof(ExactModuleDynamicActivationRequest,
+                               runtime_nonce));
+IBEX_C_ABI_ASSERT(dynamic_activation_specifier_length_after_pointer,
+                  offsetof(ExactModuleDynamicActivationRequest,
+                           specifier_len) >
+                      offsetof(ExactModuleDynamicActivationRequest,
+                               specifier));
 
 /* Function-pointer assignments type-check the callable C surface without
  * creating an executable ingress or requiring a link-time call. */
@@ -589,6 +598,53 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
                                           char**,
                                           uint64_t*) =
       ex_hermes_module_record_namespace_json;
+  int32_t (*module_record_defer_dynamic_import)(
+      ExactHermesRuntime*,
+      uint64_t,
+      ExactModuleRunnerHandle,
+      const uint8_t*,
+      size_t) =
+      ex_hermes_module_record_defer_dynamic_import;
+  int32_t (*module_record_defer_computed_dynamic_import)(
+      ExactHermesRuntime*,
+      uint64_t,
+      ExactModuleRunnerHandle,
+      uint32_t,
+      const uint8_t*,
+      size_t) =
+      ex_hermes_module_record_defer_computed_dynamic_import;
+  int32_t (*commonjs_record_defer_dynamic_import)(
+      ExactHermesRuntime*,
+      uint64_t,
+      ExactModuleRunnerHandle,
+      const uint8_t*,
+      size_t) =
+      ex_hermes_commonjs_record_defer_dynamic_import;
+  int32_t (*commonjs_record_defer_computed_dynamic_import)(
+      ExactHermesRuntime*,
+      uint64_t,
+      ExactModuleRunnerHandle,
+      uint32_t,
+      const uint8_t*,
+      size_t) =
+      ex_hermes_commonjs_record_defer_computed_dynamic_import;
+  int32_t (*take_dynamic_activation_request)(
+      ExactHermesRuntime*,
+      uint64_t,
+      uint64_t,
+      ExactModuleDynamicActivationRequest*) =
+      ex_hermes_module_take_dynamic_activation_request;
+  void (*dispose_dynamic_activation_request)(
+      ExactModuleDynamicActivationRequest*) =
+      ex_hermes_module_dynamic_activation_request_dispose;
+  int32_t (*complete_dynamic_activation)(
+      ExactHermesRuntime*,
+      uint64_t,
+      uint64_t,
+      ExactModuleRunnerHandle,
+      const uint8_t*,
+      size_t) =
+      ex_hermes_module_complete_dynamic_activation;
   uint32_t (*begin_module_graph)(ExactHermesRuntime*,
                                  const ExHermesSessionCredential*,
                                  const ExHermesUtf8Slice*,
@@ -741,6 +797,13 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
   (void)module_record_run_execute;
   (void)module_record_poll_evaluation;
   (void)module_record_namespace_json;
+  (void)module_record_defer_dynamic_import;
+  (void)module_record_defer_computed_dynamic_import;
+  (void)commonjs_record_defer_dynamic_import;
+  (void)commonjs_record_defer_computed_dynamic_import;
+  (void)take_dynamic_activation_request;
+  (void)dispose_dynamic_activation_request;
+  (void)complete_dynamic_activation;
   (void)begin_module_graph;
   (void)suspend_module_graph;
   (void)resume_module_graph;

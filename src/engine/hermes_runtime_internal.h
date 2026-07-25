@@ -273,6 +273,9 @@ struct NativeModuleRecordEntry {
   std::map<std::string, uint64_t> dynamic_import_bindings;
   std::map<std::pair<uint32_t, std::string>, uint64_t>
       computed_dynamic_import_bindings;
+  std::set<std::string> deferred_dynamic_imports;
+  std::set<std::pair<uint32_t, std::string>>
+      deferred_computed_dynamic_imports;
   std::shared_ptr<facebook::jsi::Object> namespace_object;
   std::shared_ptr<facebook::jsi::Function> declare_function;
   std::shared_ptr<facebook::jsi::Function> execute_function;
@@ -314,12 +317,28 @@ struct NativeCommonJsRecordEntry {
   std::map<std::string, uint64_t> dynamic_import_bindings;
   std::map<std::pair<uint32_t, std::string>, uint64_t>
       computed_dynamic_import_bindings;
+  std::set<std::string> deferred_dynamic_imports;
+  std::set<std::pair<uint32_t, std::string>>
+      deferred_computed_dynamic_imports;
   std::set<std::string> detected_exports;
   std::string filename;
   std::string dirname;
   std::shared_ptr<facebook::jsi::Object> module_object;
   std::shared_ptr<facebook::jsi::Value> exports_value;
   uint64_t adapter_record_id{0};
+};
+
+struct NativeModuleDynamicActivationEntry {
+  uint64_t graph_generation{0};
+  uint64_t requester_record_id{0};
+  bool requester_is_commonjs{false};
+  bool computed{false};
+  uint32_t site{0};
+  std::string requester_source_id;
+  std::string specifier;
+  bool taken{false};
+  std::shared_ptr<facebook::jsi::Function> resolve;
+  std::shared_ptr<facebook::jsi::Function> reject;
 };
 
 // A runtime address is not an identity: allocators routinely reuse the same
@@ -697,6 +716,10 @@ struct ExactHermesRuntime {
   std::unordered_map<uint64_t, NativeModuleRecordEntry> module_records;
   std::unordered_map<uint64_t, NativeCommonJsRecordEntry> commonjs_records;
   std::set<uint64_t> pinned_module_generations;
+  uint64_t next_module_dynamic_activation_request_id{1};
+  std::unordered_map<uint64_t, NativeModuleDynamicActivationEntry>
+      module_dynamic_activation_requests;
+  std::deque<uint64_t> module_dynamic_activation_queue;
   // One evaluated prepared carrier table per authenticated principal/content
   // pair. Individual module handles select factories from this retained table.
   std::map<std::tuple<uint32_t, std::string, std::string>,
