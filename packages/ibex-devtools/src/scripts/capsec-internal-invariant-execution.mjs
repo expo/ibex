@@ -7,7 +7,7 @@
 import crypto from "node:crypto";
 import {
   executionBindingDigest,
-  fixtureExecutionPlan,
+  fixtureExecutionPlans,
 } from "./capsec-conformance.mjs";
 import { canonicalJson } from "./capsec-contract.mjs";
 import {
@@ -88,8 +88,14 @@ export function buildInternalInvariantEvidenceBindingArtifact({
     target,
     fixtureCatalogDigest,
   });
+  const plansByFixtureId = new Map(
+    fixtureExecutionPlans(fixtureCatalog).map((plan) => [
+      plan.fixtureId,
+      plan,
+    ]),
+  );
   const fixturePlans = recipes.map((recipe) => {
-    const plan = fixtureExecutionPlan(fixtureCatalog, recipe.fixtureId);
+    const plan = plansByFixtureId.get(recipe.fixtureId);
     if (!plan || digest(plan) !== recipe.planDigest) {
       throw new Error(
         `${recipe.fixtureId}: internal recipe disagrees with the exact fixture plan`,
