@@ -5,6 +5,7 @@
 **Systems:** Security, Runtime, Devtools, Verification
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-23
+**Revised:** 2026-07-25 (`node:fs.accessSync` extends the direct metadata family using an engine-observed six-decision allow sequence and first-request denial; five Apple fixture rows move from residual to executable without relaxing route, action, stratum, or result validation)
 **Revised:** 2026-07-25 (aligns the promotion aggregate with the accepted D1/D2/D4 open-then-act rule: declared read/write actions must be observed, and the only permitted surplus is an ambient, path-occurrence-bound `fs:list` open traversal; the Rust producer and JavaScript aggregate now enforce the same invariant)
 **Revised:** 2026-07-23 (author accepted the recommended rulings on D1/D2/D3)
 **Related:** LLP 0021 (capsec registry / WP10 target proof); LLP 0023 (virtual filesystem namespace / staged authorization identity); LLP 0036 (target advertisement completion plan); ENG-24933; ENG-24578
@@ -95,6 +96,18 @@ its retained repeats). This open-then-act shape is expected to recur for every
 capability family whose operation acquires a handle before acting: `fs:write`,
 `fs:list`-via-open stream constructors, and the `network` connect/listen
 families.
+
+### Additional direct-metadata evidence: `accessSync`
+
+The same authoring loop was applied to `node:fs.accessSync` on the reviewed
+Apple engine. Its allow path produces six `fs:list` decisions:
+`requested, discovery, requested, repeat, repeat, repeat`. The exact operation
+is source-bound to the generated `__exactAccess` coverage edge; requested and
+retained-object checks resolve through the authored static floor, while mount
+discovery resolves through ambient-root. Denial stops at the first `requested`
+decision. The sequence was captured from a deliberately failing bound-engine
+batch and then pinned; the completed 150-recipe builtin batch passes without
+permitting an auxiliary action or terminal.
 
 ## Decisions requested
 

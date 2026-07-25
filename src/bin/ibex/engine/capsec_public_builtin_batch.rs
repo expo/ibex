@@ -415,11 +415,12 @@ fn builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
 fn expected_authored_builtin_recipe_count(target: &str) -> usize {
     match target {
         // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
-        // +5 each on Apple for the fs:read readFileSync and fs:write
-        // writeFileSync exports (their allow/deny/malformed/missing-attribution/
-        // wrong-principal scenario matrices). Windows keeps 120: its node_fs
-        // enforcement route is ambiguous, so neither is authored there.
-        "aarch64-apple-darwin" => 145,
+        // +5 each on Apple for fs:list accessSync, fs:read readFileSync, and
+        // fs:write writeFileSync (their allow/deny/malformed/
+        // missing-attribution/wrong-principal scenario matrices). Windows
+        // keeps 120: its node_fs enforcement route is ambiguous, so these
+        // public probes are not authored there.
+        "aarch64-apple-darwin" => 150,
         "x86_64-pc-windows-msvc" => 120,
         target => panic!("builtin public recipe batch has no reviewed target shape for {target}"),
     }
@@ -429,7 +430,7 @@ fn expected_authored_builtin_recipe_count(target: &str) -> usize {
 fn capsec_public_builtin_recipe_counts_are_target_specific() {
     assert_eq!(
         expected_authored_builtin_recipe_count("aarch64-apple-darwin"),
-        145
+        150
     );
     assert_eq!(
         expected_authored_builtin_recipe_count("x86_64-pc-windows-msvc"),
@@ -517,7 +518,7 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
             // the write export additionally takes the literal payload.
             // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
             let expected_cap = match export_name {
-                "lstatSync" | "statSync" => "fs:list",
+                "accessSync" | "lstatSync" | "statSync" => "fs:list",
                 "readFileSync" => "fs:read",
                 "writeFileSync" => "fs:write",
                 other => panic!("unsupported filesystem-file fs export {other}"),

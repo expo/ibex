@@ -53,7 +53,12 @@ const EFFECT_SCENARIOS = new Set([
   "wrong-principal",
 ]);
 
-const FS_LIST_EXPORTS = new Set(["lstatSync", "readdirSync", "statSync"]);
+const FS_LIST_EXPORTS = new Set([
+  "accessSync",
+  "lstatSync",
+  "readdirSync",
+  "statSync",
+]);
 // Synchronous, path-taking fs:read exports. Each opens the authenticated fixture
 // file (an fs:list traversal credited to ambient-mount authority under LLP 0037
 // D1) and then reads it (the fs:read commit gated by the static floor). The
@@ -507,6 +512,7 @@ export function authoredBuiltinPublicProbe({
   );
   if (!descriptor) return null;
   const directoryProbe = exportName === "readdirSync";
+  const accessMetadataProbe = exportName === "accessSync";
   const followedMetadataProbe = exportName === "statSync";
   const logicalPath = directoryProbe ? FS_DIRECTORY_PATH : FS_FIXTURE_PATH;
 
@@ -554,7 +560,15 @@ export function authoredBuiltinPublicProbe({
       // each add another generation check.
       // @ref LLP 0023#21-staged-authorization-identity
       expectedTypedDecisionCount:
-        publicDenial ? 1 : directoryProbe ? 7 : followedMetadataProbe ? 5 : 4,
+        publicDenial
+          ? 1
+          : directoryProbe
+            ? 7
+            : accessMetadataProbe
+              ? 6
+              : followedMetadataProbe
+                ? 5
+                : 4,
       expectedTypedStages:
         publicDenial
           ? ["requested"]
@@ -568,6 +582,15 @@ export function authoredBuiltinPublicProbe({
                 "repeat",
                 "repeat",
               ]
+            : accessMetadataProbe
+              ? [
+                  "requested",
+                  "discovery",
+                  "requested",
+                  "repeat",
+                  "repeat",
+                  "repeat",
+                ]
             : followedMetadataProbe
               ? ["requested", "discovery", "requested", "repeat", "repeat"]
               : ["requested", "discovery", "requested", "repeat"],

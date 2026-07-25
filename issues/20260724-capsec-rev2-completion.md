@@ -850,7 +850,7 @@ ticket closes.
   observed source references, 22 authenticated-ingress obligations, and 225
   host-task ingress sites. After retiring the ill-typed per-surface
   `malformed-branch-facts` obligation, exact recipe accounting is Apple 24,040
-  required / 2,596 fully executable / 3,114 internally verified / 18,330
+  required / 2,601 fully executable / 3,114 internally verified / 18,325
   unresolved; Windows 23,925 / 2,230 / 3,102 / 18,593. The 81-test recipe
   suite passes with 111,860 assertions and the 44-test public-evidence suite
   passes with 252 assertions.
@@ -909,10 +909,29 @@ ticket closes.
   surface and prove that closure. It cannot merely weaken the report predicate
   or relabel unsupported cells.
 - Criterion 7 now has a product-level fork: retain the full public profile and
-  complete the measured 18,330-row Apple authoring/closure program, or define a
+  complete the measured 18,325-row Apple authoring/closure program, or define a
   deliberately restricted advertised profile whose unproved surface is
   structurally absent/closed. The empty-advertisement state remains secure and
   fail-closed but is not treated as substantive completion.
+- Continued against the original full-profile objective with the first new
+  authoring tranche: `node:fs.accessSync`. One source-bound template fans out
+  over all five effect scenarios. A deliberately failing reviewed-engine run
+  exposed the real six-decision allow sequence
+  (`requested, discovery, requested, repeat, repeat, repeat`); after pinning
+  that observation, the complete 150-recipe builtin batch passed and emitted
+  bound evidence. Apple moves from 2,596 to 2,601 fully executable rows and
+  from 18,330 to 18,325 unresolved rows; Windows remains unchanged because its
+  filesystem route is not independently typed.
+- Hard part: even a clean family currently buys five rows because each public
+  function has a distinct invocation and decision sequence. The engine-locked
+  execution is about 45 seconds once compiled; source-derived catalog
+  regeneration is about 20 seconds and produces a 142 MB temporary artifact.
+  This confirms LLP 0036's cost model rather than revealing a missing bulk
+  shortcut.
+- Estimate: important enforcement mechanisms remain about 96% complete and the
+  overall requested task remains about 86%; criterion 7's literal recipe
+  denominator is now 5,715/24,040 (23.8%) proven by executable or
+  internally-verified evidence, with 18,325 public residuals still open.
 
 ## Next milestone
 

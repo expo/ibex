@@ -341,12 +341,12 @@ describe("exact-target CapSec executable recipes", () => {
     // production graph deliberately uses deferred call-time links. The net-new
     // WebGPU obligations remain unresolved until their public-surface probes
     // are authored.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_596);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_601);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_114);
-    expect(recipes.summary.unresolvedFixtures).toBe(18_330);
+    expect(recipes.summary.unresolvedFixtures).toBe(18_325);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -511,10 +511,10 @@ describe("exact-target CapSec executable recipes", () => {
           "public-surface-filesystem-not-typed-on-target",
         ),
     );
-    // 133 = 123 + the 10 fs:read readFileSync and fs:write writeFileSync rows,
-    // now Apple-authored (LLP 0037) and therefore "not typed on target" for the
-    // ambiguous Windows route.
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(133);
+    // 138 = 123 + the 15 fs:list accessSync, fs:read readFileSync, and
+    // fs:write writeFileSync rows now Apple-authored (LLP 0037), and therefore
+    // "not typed on target" for the ambiguous Windows route.
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(138);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
@@ -767,7 +767,7 @@ describe("exact-target CapSec executable recipes", () => {
   });
 
   test("binds synchronous filesystem metadata probes to an owned logical path", () => {
-    for (const exportName of ["lstatSync", "statSync"]) {
+    for (const exportName of ["accessSync", "lstatSync", "statSync"]) {
       const surface = `builtin:export:node_fs:${exportName}`;
       const effectRecipes = recipes.recipes.filter(
         (recipe) =>
@@ -817,13 +817,30 @@ describe("exact-target CapSec executable recipes", () => {
         ).toEqual(
           denial
             ? ["requested"]
+            : exportName === "accessSync"
+              ? [
+                  "requested",
+                  "discovery",
+                  "requested",
+                  "repeat",
+                  "repeat",
+                  "repeat",
+                ]
             : exportName === "statSync"
               ? ["requested", "discovery", "requested", "repeat", "repeat"]
               : ["requested", "discovery", "requested", "repeat"],
         );
         expect(
           recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
-        ).toBe(denial ? 1 : exportName === "statSync" ? 5 : 4);
+        ).toBe(
+          denial
+            ? 1
+            : exportName === "accessSync"
+              ? 6
+              : exportName === "statSync"
+                ? 5
+                : 4,
+        );
       }
     }
   });
