@@ -169,8 +169,12 @@ mod tests {
 
     #[test]
     fn fixed_recipe_emits_inspectable_real_hbc() {
-        let compiler = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tools/hermes/hermesc-macos-arm64");
+        let compiler = std::env::var_os("HERMESC")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("tools/hermes/hermesc-macos-arm64")
+            });
         let compiler = std::fs::read(compiler).expect("checked-in macOS hermesc");
         let hbc = run_fixed_hermesc(
             &compiler,

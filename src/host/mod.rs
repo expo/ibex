@@ -11112,7 +11112,7 @@ mod tests {
             assert!(!raw.is_null());
             let nonce = ex_hermes_runtime_nonce(raw);
             let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
-            let mut native = NativeSynchronousGraph::link_authorized_prepared(
+            let refusal = match NativeSynchronousGraph::link_authorized_prepared(
                 &runtime,
                 &plan,
                 loaded.entry(),
@@ -11121,17 +11121,23 @@ mod tests {
                 &contexts,
                 &entries,
             )
-            .unwrap();
-            native.evaluate().unwrap();
-            assert_eq!(
-                native.namespace_json(loaded.entry()).unwrap(),
-                r#"{"result":43}"#
+            {
+                Ok(_) => panic!(
+                    "prepared graph eagerly admitted an authored call-time dynamic import"
+                ),
+                Err(error) => error.to_string(),
+            };
+            assert!(
+                refusal.contains("dynamic-import activation is unavailable"),
+                "prepared graph did not retain the fail-closed call-time edge boundary: {refusal}"
             );
-            drop(native);
             drop(runtime);
             ex_hermes_destroy(raw);
         }
 
+        crate::host::abi::install_host(example_armed_host_with(|value| {
+            value["principals"][0]["imports"]["builtins"] = serde_json::json!(["node:path"]);
+        }));
         // Recompute every public digest touched by a forged carrier. The
         // writable cache remains inadmissible because its exact publication
         // must equal the independently authenticated source graph.

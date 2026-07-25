@@ -213,9 +213,11 @@ struct PreparedGraphCandidateTableIndexV2 {
 struct SourceGraphRecordV1 {
     /// Native-only resolver path. This is never serialized into a prepared
     /// artifact or crossed into JavaScript.
+    // @ref LLP 0023#6-path-bearing-observables — private native paths cannot become realm-visible labels
     path: PathBuf,
     /// Authenticated VFS display identity. It is diagnostic metadata, never a
     /// cache key or a substitute for `SourceId`.
+    // @ref LLP 0023#2-identity-versus-spelling — SourceLabel is display identity, not a cache or authorization key
     source_label: String,
     /// Authenticated virtual filename used by CommonJS and `import.meta` path
     /// observables. Builtins have no file-backed virtual path.
@@ -453,6 +455,20 @@ impl SourceModuleGraphV1 {
                 .get(&principal)
                 .ok_or_else(|| anyhow!("source graph principal has no runtime projection"))?;
             let compartment_identity = module_runner_compartment_identity(&principal)?;
+            let source_label = record.source_label.clone();
+            let virtual_path = record.virtual_path.clone();
+            if matches!(source_id, SourceId::Builtin { .. }) {
+                if virtual_path.is_some() {
+                    bail!("builtin record unexpectedly has a virtual filesystem path");
+                }
+            } else {
+                let path = virtual_path
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("file record has no authenticated virtual path"))?;
+                if source_label != format!("file://{path}") {
+                    bail!("file record source label disagrees with its virtual path");
+                }
+            }
             let mut config = NativeModuleRecordConfig::new(
                 principal_id,
                 compartment_identity,
@@ -463,11 +479,11 @@ impl SourceModuleGraphV1 {
                     [principal_id],
                     graph_generation,
                 )?,
-                record.source_label.clone(),
-                record.source_label.clone(),
+                source_label.clone(),
+                source_label,
             )?;
-            if let Some(virtual_path) = record.virtual_path.as_ref() {
-                config = config.with_authenticated_virtual_path(virtual_path.clone())?;
+            if let Some(virtual_path) = virtual_path {
+                config = config.with_authenticated_virtual_path(virtual_path)?;
             }
             configs.insert(source_id.clone(), config);
             authority_contexts.insert(

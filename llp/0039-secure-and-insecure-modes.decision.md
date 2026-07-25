@@ -5,6 +5,7 @@
 **Systems:** Runtime, CapSec, Build, Product
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-24
+**Revised:** 2026-07-24 (ENG-25424 closes prepared-graph backing-path disclosure and removes the secure-gate test exclusion)
 **Related:** LLP 0021 (target advertisement + conformance report); LLP 0036 (advertisement completion); LLP 0038 (unadvertised dev arming, insecure build)
 
 ## Context
@@ -145,11 +146,13 @@ Mitigations, in rough priority:
    refusal is a bug in an unfinished mechanism; it is a mistake when the
    refusal is legitimate and the real fix is a policy or ceiling change.
 
-The script skips one test,
-`authenticated_source_graph_round_trips_through_prepared_cache`, which fails on
-clean main with every security feature inert and is therefore unrelated to this
-guard. It is deliberately *not* `#[cfg]`-gated in the source, so a default
-`cargo test` still reports it rather than losing it behind a feature.
+The secure-mode script has no test exclusions. The former ENG-25424 exclusion
+was removed after prepared graphs stopped projecting private backing paths into
+Hermes source labels, `import.meta`, stack traces, and source maps. Its
+regression also retains the independent fail-closed boundary for authored
+call-time dynamic imports: until the runtime owns an in-drive activation
+capability, the prepared linker refuses that graph rather than eagerly
+authorizing a dead branch.
 
 ## Preventing an accidental ship
 
