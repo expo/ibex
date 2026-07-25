@@ -13,9 +13,8 @@ Ibex's security model is real and largely built — a typed capability decision
 engine, per-package frame attribution, a virtual filesystem mount, and a
 fail-closed arming ceremony. What is *not* finished is the target advertisement
 pipeline that lets an ordinary build arm at all (LLP 0036 measures the remainder:
-~22k unresolved rows, no cheap bulk win; that document is drafted on
-`fix/stale-generated-authority-artifacts` and has not landed in this corpus
-yet). Finishing it is months of work, not days.
+~22k unresolved rows, no cheap bulk win). Finishing it is months of work, not
+days.
 
 Until then a default build cannot run a single line of JavaScript. That is a
 correct fail-closed posture and a useless developer experience, and the second
