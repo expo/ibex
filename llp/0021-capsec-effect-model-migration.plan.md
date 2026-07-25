@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-25 (reconciles module-runner conformance with invocation-time activation: the 19 production-reachable ABI lifecycle surfaces execute while authenticated `require` resolution and source reads remain attributed to two reviewed auxiliary effect edges; six eager dynamic/require-link ABIs and teardown-only generation unpin remain residual; refreshes the source-derived Apple and Windows fixture totals)
 **Revised:** 2026-07-25 (deletes the legacy `PolicyFile` parser, public module, `HostConfig` policy/path/allow/deny seams, policy-string mode parser, and runtime readiness dependency; foreground audit remains an explicitly policyless diagnostic host and historical compatibility-manager algebra is covered only through private test setup)
 **Revised:** 2026-07-25 (removes `insecure` from Cargo defaults: plain builds enforce the supported profile and refuse before project code while no exact target is advertised; unadvertised secure development and no-sandbox execution require explicit compile-time features; invocation-time ESM import and CommonJS require now cover source and prepared targets)
 **Revised:** 2026-07-24 (production native-graph dependency source reads authorize the exact typed edge and retain a digest-bound receipt; dependency carriers derive a carrier receipt from that continuation, while entry-only carriers require an opaque graph/request join minted before any cache discovery; armed transpilation has no persistent cache-read path; every promotion-facing conformance Cargo executor now disables defaults and selects the production observer feature set explicitly)
@@ -85,7 +86,7 @@ and its own evidence digests; no new durable audit snapshot may arm)
 **Revised:** 2026-07-17 (ENG-24933 credits two incomplete authority-call refusals and the exact invalid spawned-process handle refusal)
 **Revised:** 2026-07-17 (ENG-24933 proves immutable module-level intrinsic receivers in builtin routes, removing 404 false ambiguous-route residuals without promoting unexecuted fixtures)
 **Revised:** 2026-07-17 (ENG-24933 authenticates timer cancellation and ref-state mutation to the retained timer owner, replacing four closed native/global rows with eight executable non-capability and invariant recipes)
-**Revised:** 2026-07-17 (ENG-24578 reconciles module-runner evidence with the production security boundary and credits 24 exact executions: four loader/source-acquisition surfaces, 19 native ABI lifecycle surfaces, and one armed namespace-inspection closure; four deferred-edge ABIs and the teardown-only generation-unpin ABI remain residual)
+**Revised:** 2026-07-17 (ENG-24578 reconciles module-runner evidence with the production security boundary and credits 24 exact executions: four loader/source-acquisition surfaces, 19 native ABI lifecycle surfaces, and one armed namespace-inspection closure; six eager dynamic/require-link ABIs and the teardown-only generation-unpin ABI remain residual)
 **Revised:** 2026-07-16 (ENG-24933 removes thirteen closed memory-debug implementation surfaces by capturing diagnostic state behind its deliberate API)
 **Revised:** 2026-07-16 (ENG-24933 removes ten closed internal locale/accessibility state surfaces by retaining mutable state in module singletons)
 **Revised:** 2026-07-16 (ENG-24933 completes malformed, missing-attribution, and wrong-principal scenarios for bounded loopback TCP connect)
@@ -792,7 +793,7 @@ absence recipes, nine armed direct-native global absence recipes, 18 physical
 no-debugger ABI closure recipes, 106
 terminal-builtin closure recipes, four public SQLite extension-load and
 cr-sqlite enablement closure recipes, four
-loader/source-acquisition recipes, 24 native module-runner ABI
+loader/source-acquisition recipes, 19 native module-runner ABI
 lifecycle recipes, one armed namespace-inspection closure, two armed
 whole-environment zero-decision branch recipes, 14 asymmetric/EVP
 crypto recipes, eight
@@ -1810,13 +1811,28 @@ six mechanisms once and expands that scenario-class observation into exact
 fixture records carrying the fixture plan, common execution binding, engine
 digest, result marker, and artifact digest. Report generation validates those
 records independently; catalog status alone leaves the fixtures missing.
-Apple now has 3,068 internally verified rows and 18,943 unresolved rows;
-Windows has 3,056 internally verified rows and 19,206 unresolved rows. The
+Apple now has 3,092 internally verified rows and 18,966 unresolved rows;
+Windows has 3,080 internally verified rows and 19,229 unresolved rows. The
 public callback batch is correspondingly pinned to its eight exact authored
 mechanisms. Portable recipe projection preserves internal rows under their
 dedicated executor and excludes them from public-surface execution; portable
 mapped-process production for the internal executor remains a separate
 promotion integration step.
+
+Implementation status (2026-07-25): invocation-time activation changed the
+module-runner graph's public evidence window. A CommonJS lifecycle fixture can
+execute zero decisions for its selected non-capability ABI while the surrounding
+graph legitimately authorizes exact `require` resolution and authenticated
+source reads. The native harness now permits only those two reviewed auxiliary
+coverage edges, requires allowed outcomes and the exact observer session, and
+still reports zero decisions for the selected ABI surface. The authenticated
+graph exercises all 19 production-reachable lifecycle ABIs. Six eager
+dynamic/require-link functions are not invoked by the deferred call-time
+production route and therefore remain residual instead of borrowing the
+generic graph command. The refreshed Apple catalog has 24,654 required, 2,596
+fully executable, 3,092 internally verified, and 18,966 unresolved fixtures;
+Windows has 24,539 required, 2,230 fully executable, 3,080 internally verified,
+and 19,229 unresolved fixtures.
 
 Implementation status (2026-07-16): the report-crediting fixture pilot reruns
 exactly nine source-bound Exact embedder mechanisms independently of the public

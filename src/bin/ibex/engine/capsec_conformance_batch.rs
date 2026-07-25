@@ -3137,6 +3137,7 @@ async fn execute_authenticated_module_runner_public_graph(
     let graph_producer_digest = producer_digest.clone();
     let graph_hermes_target = hermes_target.to_owned();
     let execution_session_id = format!("{session_id}:execution");
+    let execution_observer_id = execution_session_id.clone();
     assert!(
         ibex_runtime::host::abi::begin_installed_conformance_observation(&format!(
             "{session_id}:admission"
@@ -3199,7 +3200,7 @@ async fn execute_authenticated_module_runner_public_graph(
                 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
                 assert!(
                     ibex_runtime::host::abi::begin_installed_conformance_observation(
-                        &execution_session_id,
+                        &execution_observer_id,
                     ),
                     "module-runner execution observer has no installed host",
                 );
@@ -3235,9 +3236,42 @@ async fn execute_authenticated_module_runner_public_graph(
         legacy.is_empty(),
         "module-runner execution performed legacy authorization"
     );
+    let typed_summary = typed
+        .iter()
+        .flat_map(|decision| {
+            decision.gates.iter().map(move |gate| {
+                (
+                    gate.coverage_edge_id.as_str().to_owned(),
+                    format!("{:?}", decision.decision_set.context.stage),
+                    format!("{:?}", decision.evidence.outcome),
+                )
+            })
+        })
+        .collect::<BTreeSet<_>>();
+    const REVIEWED_MODULE_RUNNER_AUXILIARY_EDGES: [&str; 2] = [
+        "surface.loader.require.resolve.12c9l9i",
+        "surface.native.op.exactreadfile.1cmzco7",
+    ];
+    // The selected module-runner ABI is a non-capability lifecycle surface,
+    // but reaching its CommonJS link/evaluation path now performs the exact
+    // invocation-time require authorization and authenticated source reads.
+    // Those separately reviewed auxiliary effects must remain allowed, must
+    // stay attributed to their own edges, and are not credited to the ABI
+    // fixture's expected zero-decision observation.
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    // @ref LLP 0026#7-commonjs-interop
     assert!(
-        typed.is_empty(),
-        "module-runner execution performed a typed capability decision"
+        typed.iter().all(|decision| {
+            decision.terminal_branch_id == execution_session_id
+                && decision.evidence.outcome
+                    == capsec_semantics::decision::DecisionOutcome::Allow
+                && !decision.gates.is_empty()
+                && decision.gates.iter().all(|gate| {
+                    REVIEWED_MODULE_RUNNER_AUXILIARY_EDGES
+                        .contains(&gate.coverage_edge_id.as_str())
+                })
+        }),
+        "module-runner execution escaped its reviewed auxiliary effects: {typed_summary:#?}"
     );
     vfs.close();
     drop(engine);
@@ -3335,9 +3369,21 @@ async fn execute_module_runner_host_abi_public_recipe(
     .expect("write module-runner public CommonJS entry");
     std::fs::write(
         project_root.join("commonjs-peer.cjs"),
-        "exports.value = 2;\n",
+        "const peer = require('./commonjs-leaf.cjs');\n\
+         const esm = require('./commonjs-leaf-esm.mjs');\n\
+         exports.value = peer.value + esm.value;\n",
     )
     .expect("write module-runner public CommonJS dependency");
+    std::fs::write(
+        project_root.join("commonjs-leaf.cjs"),
+        "exports.value = 1;\n",
+    )
+    .expect("write module-runner public CommonJS leaf");
+    std::fs::write(
+        project_root.join("commonjs-leaf-esm.mjs"),
+        "export const value = 1;\n",
+    )
+    .expect("write module-runner public CommonJS-to-ESM leaf");
     std::fs::write(
         project_root.join("commonjs-esm.mjs"),
         "export const value = 3;\n",

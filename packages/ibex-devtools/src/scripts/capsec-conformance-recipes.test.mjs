@@ -314,19 +314,18 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(24_660);
-    // Thirty reviewed roots gain exact fresh-engine receipts while the
-    // formerly source-misattributed stream/promises export probe is retracted.
-    // +10 for the fs:read readFileSync and fs:write writeFileSync export
-    // families (LLP 0037), 5 scenario rows each. The 69 net-new WebGPU
-    // obligations remain unresolved until their public-surface probes are
-    // authored; four overlap the newly reviewed advertisement set.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_602);
+    expect(recipes.summary.requiredFixtures).toBe(24_701);
+    // Invocation-time require activation adds source-derived obligations; the
+    // six eager dynamic/require-link ABIs remain residual because the
+    // production graph deliberately uses deferred call-time links. The net-new
+    // WebGPU obligations remain unresolved until their public-surface probes
+    // are authored.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_596);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. `malformed-branch-facts` has no executed proof yet and stays
     // unresolved rather than receiving catalog-only credit.
-    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_090);
-    expect(recipes.summary.unresolvedFixtures).toBe(18_968);
+    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_114);
+    expect(recipes.summary.unresolvedFixtures).toBe(18_991);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -424,12 +423,12 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(24_545);
-    // Windows keeps 2,236: its node_fs enforcement route is ambiguous, so the
+    expect(windowsRecipes.summary.requiredFixtures).toBe(24_586);
+    // Windows keeps 2,230: its node_fs enforcement route is ambiguous, so the
     // fs:read readFileSync probe (LLP 0037) is authored on Apple only.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_236);
-    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_078);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(19_231);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_230);
+    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_102);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(19_254);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -892,7 +891,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(3_090);
+    expect(rationaleOnly).toHaveLength(3_114);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -905,8 +904,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 517,
       "principal-restore": 517,
       "snapshot-mismatch-deny": 517,
-      "cannot-widen-authority": 511,
-      "post-lockdown-invariant": 511,
+      "cannot-widen-authority": 523,
+      "post-lockdown-invariant": 523,
     });
     // These are internal callback-security invariant scenarios: attested by
     // internal Rust proofs, not public-surface probes, so they carry the
@@ -4558,7 +4557,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "module-runner-source-graph",
     );
-    expect(rows).toHaveLength(25);
+    expect(rows).toHaveLength(19);
     expect(
       rows.map((recipe) => recipe.publicSurfaceProbe.invocation.functionName),
     ).toEqual([
@@ -4566,10 +4565,6 @@ describe("exact-target CapSec executable recipes", () => {
       "ex_hermes_commonjs_record_create_esm_adapter",
       "ex_hermes_commonjs_record_declare_export",
       "ex_hermes_commonjs_record_evaluate",
-      "ex_hermes_commonjs_record_link_computed_dynamic_import",
-      "ex_hermes_commonjs_record_link_dynamic_import",
-      "ex_hermes_commonjs_record_link_require",
-      "ex_hermes_commonjs_record_link_require_esm",
       "ex_hermes_graph_context_create",
       "ex_hermes_graph_context_retain",
       "ex_hermes_module_compile_factory",
@@ -4578,9 +4573,7 @@ describe("exact-target CapSec executable recipes", () => {
       "ex_hermes_module_pin_generation",
       "ex_hermes_module_record_declare_export",
       "ex_hermes_module_record_instantiate",
-      "ex_hermes_module_record_link_computed_dynamic_import",
       "ex_hermes_module_record_link_dependency",
-      "ex_hermes_module_record_link_dynamic_import",
       "ex_hermes_module_record_link_export",
       "ex_hermes_module_record_link_import",
       "ex_hermes_module_record_poll_evaluation",

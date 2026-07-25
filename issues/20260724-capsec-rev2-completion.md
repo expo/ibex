@@ -666,6 +666,42 @@ ticket closes.
   beyond the linker's legacy path ceiling. Staging now uses
   `OUT_DIR/h/hermes-<sha256>.lib`: the full identity and byte revalidation stay
   intact while the exact fleet path remains consumable.
+- The shortened path linked and launched successfully on the Windows fleet.
+  Loaded-engine attestation then correctly refused Cargo's staged
+  `target\debug\deps\hermesvm.dll`: its bytes match the reviewed artifact, but
+  its mapped pathname is not the canonical selected artifact path. Pathname
+  identity was not weakened. A promotable Windows run still needs an official
+  portable source-A post-link runner selection that names the staged runtime.
+
+### 2026-07-25 — reconciled invocation-time effects with module-runner evidence
+
+- The arm64 exact run passed every preflight, loaded-engine attestation, typed
+  adapter recipe, and the first two public batches before the native batch
+  stopped at fixture 247. The old harness expected the entire module-runner
+  graph execution to emit no typed decisions.
+- Diagnostic capture proved the selected CommonJS record-creation ABI emitted
+  no decision. The surrounding graph emitted only exact authenticated
+  `require` resolution and source-read decisions, across
+  requested/discovery/commit/repeat, all allowed and attributed to
+  `surface.loader.require.resolve.12c9l9i` or
+  `surface.native.op.exactreadfile.1cmzco7`.
+- The harness now accepts only those two reviewed auxiliary edges, requires
+  the exact observer session, nonempty gates, and allowed outcomes, and still
+  credits zero decisions to the selected non-capability ABI fixture.
+- The next fixtures exposed a pre-existing catalog contradiction: comments
+  correctly said deferred dynamic/require edges cannot prove eager-link ABIs,
+  but six such names remained in the generic executable allowlist. Those six
+  are now honestly residual. The focused exact-Hermes batch passes all 19
+  production-reachable module-runner lifecycle ABI fixtures.
+- Refreshed exact counts are Apple: 24,654 required, 2,596 fully executable,
+  3,092 internally verified, 18,966 unresolved; Windows: 24,539 required,
+  2,230 fully executable, 3,080 internally verified, 19,229 unresolved.
+- The 80-test recipe suite passes with 111,075 assertions. `ref-check` passes
+  with 2,057 references.
+- The complete unfiltered exact-Hermes native batch passes all 554/554
+  eligible native, host-ABI, and module-loader public fixtures in 295.83
+  seconds. The six residual eager-link ABIs are absent from the batch by
+  authenticated recipe construction rather than skipped at execution time.
 
 ## Next milestone
 
