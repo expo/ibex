@@ -2639,6 +2639,48 @@ mod tests {
         }
     }
 
+    fn request_adapter_facts() -> GpuAuthorityCarrierFacts {
+        let operation = runtime_registry()
+            .unwrap()
+            .operations
+            .values()
+            .find(|operation| operation.operation_name == "GPU.requestAdapter")
+            .unwrap();
+        GpuAuthorityCarrierFacts {
+            operation_id: operation.wire_id,
+            topology_id: GPU_TOPOLOGY_ISOLATED_PER_LOGICAL_V2,
+            realm: GpuRealmIdentityV2 {
+                runtime: GpuRuntimeIdentityV2 {
+                    runtime_address: 11,
+                    runtime_nonce: 13,
+                },
+                realm_id: 17,
+                realm_generation: 19,
+            },
+            account: GpuAccountIdentityV2 {
+                account_id: 23,
+                account_generation: 29,
+                authority_digest: [0xa7; 32],
+            },
+            ingress_device: GpuDeviceIdentityV2::default(),
+            provider_generation: 0,
+            operation_instance_id: 43,
+            promise_id: 47,
+            captured_scope_id: 0,
+            adapter_ordinal: 0,
+            device_ingress_ordinal: 0,
+            queue_ingress_ordinal: 0,
+            authority_context_digest: [0xc7; 32],
+            receiver: GpuObjectRefV2 {
+                kind: 1,
+                flags: 0,
+                object_id: 53,
+                object_generation: 59,
+            },
+            target: GpuObjectRefV2::default(),
+        }
+    }
+
     fn presentation_attribution() -> GpuAuthorityAttribution {
         let root = Principal::Root {
             identity: NonEmptyString::new("project-root").unwrap(),
@@ -2790,6 +2832,10 @@ mod tests {
         let arming = experimental_webgpu_pre1a_arming(&binding).unwrap();
         let snapshot = super::super::tests::example_armed_snapshot_with(|value| {
             value["exactGpuProvider"] = serde_json::to_value(&binding).unwrap();
+            value["rootAuthorityCeiling"] = serde_json::json!({
+                "kind": "bounded",
+                "authorities": arming.positive_selectors.clone(),
+            });
             value["protectedObjects"]
                 .as_array_mut()
                 .unwrap()
@@ -2886,6 +2932,53 @@ mod tests {
         }));
         assert_eq!(handles[0].object, facts.target);
         assert_eq!(handles[1].object, facts.receiver);
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    #[test]
+    fn experimental_root_ceiling_admits_request_adapter_requested_stage() {
+        let _guard = crate::host::abi::host_test_lock();
+        let host = experimental_presentation_host();
+        let facts = request_adapter_facts();
+        session_store().lock().unwrap().sessions.clear();
+        let session_id = capture_session(
+            71,
+            Arc::clone(&host),
+            presentation_attribution_for_host(&host),
+            facts.clone(),
+        )
+        .expect("the exact private requestAdapter session must capture");
+        let handles = [ExactGpuAuthorityPresentedHandleV2 {
+            struct_size: std::mem::size_of::<ExactGpuAuthorityPresentedHandleV2>() as u32,
+            abi_version: GPU_SERVICE_ABI_V2,
+            account: facts.account,
+            device: GpuDeviceIdentityV2::default(),
+            object: facts.receiver,
+        }];
+        let decision = ExactGpuAuthorityDecisionRequestV2 {
+            struct_size: std::mem::size_of::<ExactGpuAuthorityDecisionRequestV2>() as u32,
+            abi_version: GPU_SERVICE_ABI_V2,
+            stage: 1,
+            flags: 0,
+            facts: presentation_facts_ffi(&facts, session_id),
+            presented_handles: handles.as_ptr(),
+            presented_handle_count: handles.len(),
+        };
+        assert_eq!(
+            unsafe { evaluate_gpu_authority_session_v2(std::ptr::null_mut(), &decision) },
+            GPU_AUTHORITY_ALLOWED
+        );
+        let retire = ExactGpuAuthorityRetireV2 {
+            struct_size: std::mem::size_of::<ExactGpuAuthorityRetireV2>() as u32,
+            abi_version: GPU_SERVICE_ABI_V2,
+            flags: 0,
+            reserved: 0,
+            facts: decision.facts,
+        };
+        assert_eq!(
+            unsafe { retire_gpu_authority_session_v2(std::ptr::null_mut(), &retire) },
+            GPU_AUTHORITY_ALLOWED
+        );
     }
 
     #[test]

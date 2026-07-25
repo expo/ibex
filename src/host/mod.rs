@@ -620,18 +620,35 @@ fn validate_exact_experimental_webgpu_pre1a_authority(
             "experimental WebGPU Pre-1A authority is not the exact closed root profile".into(),
         ));
     }
-    let actual = policy
+    let actual_floor = policy
         .static_floor
         .iter()
         .map(|authority| authority.selector.clone())
         .collect::<BTreeSet<_>>();
     let expected = expected_selectors.iter().cloned().collect::<BTreeSet<_>>();
-    if actual.len() != policy.static_floor.len()
+    if actual_floor.len() != policy.static_floor.len()
         || expected.len() != expected_selectors.len()
-        || actual != expected
+        || actual_floor != expected
     {
         return Err(capsec_semantics::Error::ArmRefused(
             "experimental WebGPU Pre-1A selector floor differs from the checked private registry"
+                .into(),
+        ));
+    }
+    let capsec_semantics::decision::AuthorityCeiling::Bounded(root_ceiling) =
+        &*authority.root_ceiling
+    else {
+        return Err(capsec_semantics::Error::ArmRefused(
+            "experimental WebGPU Pre-1A root authority ceiling is not bounded".into(),
+        ));
+    };
+    let actual_ceiling = root_ceiling
+        .iter()
+        .map(|authority| authority.selector.clone())
+        .collect::<BTreeSet<_>>();
+    if actual_ceiling.len() != root_ceiling.len() || actual_ceiling != expected {
+        return Err(capsec_semantics::Error::ArmRefused(
+            "experimental WebGPU Pre-1A root authority ceiling differs from the checked private registry"
                 .into(),
         ));
     }
@@ -9221,7 +9238,7 @@ mod tests {
     }
 
     #[test]
-    fn experimental_webgpu_floor_validation_requires_one_exact_duplicate_free_root_policy() {
+    fn experimental_webgpu_authority_requires_exact_duplicate_free_root_ceiling_and_floor() {
         use capsec_semantics::decision::AuthorityCeiling;
 
         let snapshot = example_armed_snapshot_with(|_| {});
@@ -9248,12 +9265,20 @@ mod tests {
         policy.implicit_package_self.clear();
         policy.escalation_ceiling = AuthorityCeiling::Bounded(Vec::new());
         authority.principal_policies = BTreeMap::from([(root.clone(), policy)]).into();
+        authority.root_ceiling = AuthorityCeiling::Bounded(vec![retained.clone()]).into();
 
         validate_exact_experimental_webgpu_pre1a_authority(
             &authority,
             std::slice::from_ref(&selector),
         )
         .unwrap();
+        authority.root_ceiling = AuthorityCeiling::Bounded(Vec::new()).into();
+        assert!(validate_exact_experimental_webgpu_pre1a_authority(
+            &authority,
+            std::slice::from_ref(&selector),
+        )
+        .is_err());
+        authority.root_ceiling = AuthorityCeiling::Bounded(vec![retained.clone()]).into();
         assert!(validate_exact_experimental_webgpu_pre1a_authority(
             &authority,
             &[selector.clone(), widened_selector],
@@ -9268,7 +9293,11 @@ mod tests {
             .get_mut(&root)
             .unwrap()
             .static_floor
-            .push(dev_listener);
+            .push(dev_listener.clone());
+        let AuthorityCeiling::Bounded(root_ceiling) = &mut *authority.root_ceiling else {
+            unreachable!("test installed a bounded root ceiling");
+        };
+        root_ceiling.push(dev_listener);
         validate_exact_experimental_webgpu_pre1a_authority(
             &authority,
             &[selector.clone(), dev_listener_selector],
@@ -9285,6 +9314,10 @@ mod tests {
             .unwrap()
             .static_floor
             .pop();
+        let AuthorityCeiling::Bounded(root_ceiling) = &mut *authority.root_ceiling else {
+            unreachable!("test installed a bounded root ceiling");
+        };
+        root_ceiling.pop();
 
         authority
             .principal_policies

@@ -648,9 +648,9 @@ pub fn build_exact_gpu_embedder_artifacts(
 
 /// Build the named Exact WebGPU Pre-1A artifact pair. Unlike the ordinary GPU
 /// builder, this path writes the checked private registry's exact positive
-/// selectors into the authenticated root floor. The companion experimental
-/// installer re-proves that exact set and installs the 58 private cells while
-/// keeping every ordinary target cell closed.
+/// selectors into both the authenticated root ceiling and floor. The
+/// companion experimental installer re-proves that exact set and installs the
+/// private cells while keeping every ordinary target cell closed.
 /// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
 pub fn build_exact_experimental_webgpu_pre1a_embedder_artifacts(
     project_root: &Path,
@@ -840,13 +840,22 @@ fn build_exact_embedder_artifacts_with_gpu(
     document["workflow"] = serde_json::json!("production");
     document["effectiveMode"] = serde_json::json!("enforce");
     document["policyDigest"] = serde_json::to_value(&canonical_policy.policy_digest)?;
+    let mut root_authorities = canonical_policy
+        .root_ceiling
+        .iter()
+        .map(|row| row.authority.clone())
+        .collect::<Vec<_>>();
+    if let Some(arming) = experimental_private_arming.as_ref() {
+        root_authorities.extend(arming.positive_selectors.iter().cloned());
+    }
+    root_authorities.sort();
+    anyhow::ensure!(
+        root_authorities.windows(2).all(|pair| pair[0] != pair[1]),
+        "target-local Exact root authority set contains a duplicate selector"
+    );
     document["rootAuthorityCeiling"] = serde_json::json!({
         "kind": "bounded",
-        "authorities": canonical_policy
-            .root_ceiling
-            .iter()
-            .map(|row| row.authority.clone())
-            .collect::<Vec<_>>(),
+        "authorities": root_authorities.clone(),
     });
     document["bootstrapAuthorityFloor"] = serde_json::json!([]);
     document["engine"] = serde_json::json!({
@@ -854,20 +863,7 @@ fn build_exact_embedder_artifacts_with_gpu(
         "binaryDigest": engine.binary_digest,
         "features": engine.structural_features,
     });
-    let mut root_floor = experimental_private_arming
-        .as_ref()
-        .map(|arming| serde_json::to_value(&arming.positive_selectors))
-        .transpose()?
-        .unwrap_or_else(|| serde_json::json!([]));
-    if dev_project_root.is_some() {
-        root_floor
-            .as_array_mut()
-            .expect("serialized authority selector list is an array")
-            .push(serde_json::to_value(
-                super::exact_dev_served_agent_listener_selector()
-                    .map_err(|error| anyhow::anyhow!(error))?,
-            )?);
-    }
+    let root_floor = serde_json::to_value(&root_authorities)?;
     document["principals"] = serde_json::json!([{
         "principal": {"kind": "root", "identity": "project-root"},
         "floor": root_floor,
