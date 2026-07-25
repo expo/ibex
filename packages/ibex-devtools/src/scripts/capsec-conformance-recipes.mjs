@@ -31,6 +31,10 @@ import { authoredStartupPublicProbe } from "./capsec-startup-probe-templates.mjs
 import { authoredStartupEnvironmentProbe } from "./capsec-startup-environment-probe-templates.mjs";
 import { authoredTargetAbsenceProbe } from "./capsec-target-absence-probe-templates.mjs";
 import { buildRootGlobalDispositionManifest } from "./capsec-root-global-dispositions.mjs";
+import {
+  internalInvariantProofPlan,
+  internallyVerifiedScenario,
+} from "./capsec-internal-invariant-evidence.mjs";
 import { capsecSecureCargoTestCommand } from "./capsec-secure-test-command.mjs";
 import {
   applicableImplementationBranchIds,
@@ -102,26 +106,6 @@ const FIXTURE_SCENARIOS = [
   "allow",
   "deny",
 ].sort((left, right) => right.length - left.length || compareText(left, right));
-
-// Scenarios that assert an internal callback-security invariant — the runtime
-// checking its own attribution / principal / snapshot / lockdown state on an
-// internal transition, not on a public JavaScript call. By construction there
-// is no public surface for a probe to invoke, so these are attested by internal
-// Rust proofs of the enforcement path rather than by a public-surface
-// execution. They are excluded from the public-surface completeness count and
-// credited as satisfied in the ceremony; the correctness obligation (each has a
-// real internal proof, and the predicate cannot absorb a genuinely-public
-// scenario) is tracked in LLP 0036's "Correctness owed" section.
-// @ref LLP 0036#the-design-question-and-its-resolved-direction
-const INTERNALLY_VERIFIED_SCENARIOS = new Set([
-  "attribution-missing-deny",
-  "cannot-widen-authority",
-  "generation-recheck",
-  "malformed-branch-facts",
-  "post-lockdown-invariant",
-  "principal-restore",
-  "snapshot-mismatch-deny",
-]);
 
 const ADAPTER_SCENARIOS = new Set([
   "allow",
@@ -4202,7 +4186,8 @@ export function buildConformanceRecipeCatalog({
       route,
       adapterProbe,
       publicSurfaceProbe,
-      status: INTERNALLY_VERIFIED_SCENARIOS.has(scenario)
+      internalInvariantProof: internalInvariantProofPlan(scenario),
+      status: internallyVerifiedScenario(scenario)
         ? "internally-verified"
         : residual.length === 0
           ? "fully-executable"
@@ -4368,9 +4353,14 @@ export function assertRecipeCatalogComplete(recipeCatalog, options = {}) {
     // documenting the public-surface gap and have no public probe to validate.
     // @ref LLP 0036#the-design-question-and-its-resolved-direction
     if (recipe.status === "internally-verified") {
-      if (!INTERNALLY_VERIFIED_SCENARIOS.has(recipe.scenario)) {
+      const expectedProof = internalInvariantProofPlan(recipe.scenario);
+      if (
+        !internallyVerifiedScenario(recipe.scenario) ||
+        canonicalJson(recipe.internalInvariantProof) !==
+          canonicalJson(expectedProof)
+      ) {
         throw new Error(
-          `${recipe.fixtureId}: internally-verified status on a public-surface scenario`,
+          `${recipe.fixtureId}: internally-verified recipe lacks its exact internal proof plan`,
         );
       }
       continue;

@@ -22,6 +22,7 @@ import {
   readJsonStrict,
 } from "./capsec-contract.mjs";
 import { validateLoadedEngineIdentity } from "./capsec-engine-identity.mjs";
+import { validateInternalInvariantFixtureExecution } from "./capsec-internal-invariant-execution.mjs";
 import { validatePromotableOutputDispositionEvidence } from "./capsec-output-shape-sweep.mjs";
 
 const repoRoot = path.resolve(
@@ -224,6 +225,8 @@ const report = buildConformanceReport({
   digestContract: rules.digestContract,
   recipeCatalog,
   validateRuntimeObservation: validatePublicFixtureRuntimeObservation,
+  validateInternalInvariantExecution:
+    validateInternalInvariantFixtureExecution,
 });
 const validate = ajv.getSchema(
   "https://ibex.dev/capsec/schema/conformance-report.schema.json",
@@ -239,6 +242,8 @@ validateConformanceReportSemantics(report, {
   digestContract: rules.digestContract,
   recipeCatalog,
   validateRuntimeObservation: validatePublicFixtureRuntimeObservation,
+  validateInternalInvariantExecution:
+    validateInternalInvariantFixtureExecution,
 });
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`);

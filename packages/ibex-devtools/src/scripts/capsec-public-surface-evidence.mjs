@@ -800,6 +800,8 @@ function executionSummary(recipeCatalog, executions) {
   return {
     requiredFixtures: recipeCatalog.summary.requiredFixtures,
     executableFixtures: recipeCatalog.summary.fullyExecutableFixtures,
+    internallyVerifiedFixtures:
+      recipeCatalog.summary.internallyVerifiedFixtures,
     residualFixtures: recipeCatalog.summary.unresolvedFixtures,
     executedFixtures: executions.length,
     passedFixtures: executions.filter(
@@ -4463,13 +4465,15 @@ export function assertPublicSurfaceExecutionComplete(
   });
   if (
     artifact.summary.residualFixtures !== 0 ||
-    artifact.summary.missingFixtures !== 0 ||
     artifact.summary.failedFixtures !== 0 ||
-    artifact.summary.executedFixtures !== artifact.summary.requiredFixtures ||
-    artifact.summary.passedFixtures !== artifact.summary.requiredFixtures
+    artifact.summary.missingFixtures !==
+      artifact.summary.internallyVerifiedFixtures ||
+    artifact.summary.executedFixtures !==
+      artifact.summary.executableFixtures ||
+    artifact.summary.passedFixtures !== artifact.summary.executableFixtures
   ) {
     throw new Error(
-      "public-surface execution artifact cannot advertise with residual, missing, or failed obligations",
+      "public-surface execution artifact cannot advertise with residual, failed, or missing public obligations",
     );
   }
 }

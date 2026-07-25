@@ -139,6 +139,7 @@ function buildFixture({
       summary: {
         requiredFixtures: requiredFixtureIds.length,
         fullyExecutableFixtures: requiredFixtureIds.length,
+        internallyVerifiedFixtures: 0,
         unresolvedFixtures: 0,
       },
       recipeCatalogDigest: digest("A"),
@@ -174,6 +175,7 @@ function buildFixture({
       summary: {
         requiredFixtures: requiredFixtureIds.length,
         executableFixtures: requiredFixtureIds.length,
+        internallyVerifiedFixtures: 0,
         residualFixtures: 0,
         executedFixtures: requiredFixtureIds.length,
         passedFixtures: requiredFixtureIds.length,
@@ -754,34 +756,34 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
   test("freezes the related fixture, mapped-evidence, command, and report digests", () => {
     const fixture = buildFixture();
     expect(fixture.recipeCatalog.recipes[0].planDigest).toBe(
-      "sha256-AMAXq34h0aUY0aaIrQVdhWXNWXK4z66W7mrdwz3nq3c",
+      "sha256-hed_PLbn_ROILuuFP2oDyQ4CVtH_5mte75q3ut56IGU",
     );
     expect(fixture.recipeCatalog.recipeCatalogDigest).toBe(
-      "sha256-tbcBW_HOoa9BBGh0otxvItVlhwbVan6HxQdyKJ2vVvQ",
+      "sha256-6Zyl6DiweF8Xm7M7BgmfYij_6Le0ON5mpwlRBq-jOgo",
     );
     expect(fixture.publicSurfaceExecution.executions[0].evidenceDigest).toBe(
       "sha256-MxU1J_ukMETJyQtjbNH9Ke4t4V29VNSZ81SYHkvwB88",
     );
     expect(
       fixture.publicSurfaceExecution.publicSurfaceExecutionDigest,
-    ).toBe("sha256-HXpYSty0JAMPj0e4EauKsB5eQIZiiK79aqiGO-57N58");
+    ).toBe("sha256-Z0CDjpEj-ytxf2h6-gH4lf_4wWr6A10sUf2GGGxaQ8Y");
     expect(
       fixture.outputDispositionEvidence.observations[0].observationDigest,
     ).toBe("sha256-BnNTBOX_xO0eTu79WUDCocXEKeZOHJYpsGkxcGaIhH4");
     expect(fixture.bindingDigest).toBe(
-      "sha256-GNvbKoZjSbaB8qPuh0tx79FkXsZUua97fbYPS23g9cw",
+      "sha256-hqv4wOByyUCcWJXJ_P1vBwaDHR16VHfJSsCFX5FF0pg",
     );
     expect(fixture.fixtureArtifact.artifactDigest).toBe(
-      "sha256-kZX9fuN1HDK790HNLEvzNMdzvS6I2CF_NmxyO_ZAbVs",
+      "sha256-bea2Xrn1q25jZBNA6Aq73PFaT2vdWaxMw92p_WejNe0",
     );
     expect(fixture.evidence.evidenceDigest).toBe(
-      "sha256-ahlJQu1Wlsde61z7JDo97IpOiqrPUe3aDmEKWSm0w3I",
+      "sha256-e7FgHFg29J1VWQmahgpBdSGPkaFizL0ibgX-bdox8AE",
     );
     expect(fixture.attempt.attemptDigest).toBe(
-      "sha256-474uj9bswwgXYhseYG5R2uVb6G31szWuMhrnaS7zxCo",
+      "sha256-u37V87f-cVgvbA5nfYDwSFyVoj7DiJ8qBus__fIZJ3w",
     );
     expect(fixture.report.conformanceDigest).toBe(
-      "sha256-HeuO1egSjuTjnjHz7s_kjoVNE3H3LlV9jSo-lUY3XWo",
+      "sha256-oXzhgFVWkK4m3s-9KNAXDWvO3YhwJ7XrQeFisKG-RrQ",
     );
     expect(fixture.evidence.outputDigests).toEqual([
       fixture.report.executions[0].rawContentDigest,
@@ -1077,7 +1079,7 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
         catalog.recipeCatalogDigest = portableRecipeCatalogDigest(catalog);
       },
     );
-    expectRefused(invalidPlanDigest, /fully executable/u);
+    expectRefused(invalidPlanDigest, /reviewed executor/u);
 
     const invalidExecutionDigest = clone(buildFixture().input);
     invalidExecutionDigest.publicSurfaceExecutionBytes = mutateJsonBytes(
@@ -1088,7 +1090,7 @@ describe("additive Phase-2 portable-engine promotion contract", () => {
           portablePublicSurfaceExecutionDigest(artifact);
       },
     );
-    expectRefused(invalidExecutionDigest, /every required fixture passed/u);
+    expectRefused(invalidExecutionDigest, /every public fixture passed/u);
 
     const invalidObservationDigest = clone(buildFixture().input);
     invalidObservationDigest.outputDispositionEvidenceBytes = mutateJsonBytes(

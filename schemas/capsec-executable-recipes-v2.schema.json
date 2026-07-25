@@ -39,13 +39,15 @@
         "fixtureId": {
           "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/stableId"
         },
-        "status": { "const": "fully-executable" },
+        "status": {
+          "enum": ["fully-executable", "internally-verified"]
+        },
         "executor": {
           "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/stableId"
         },
         "planDigest": {
           "$ref": "capsec-portable-engine-evidence-common-v1.schema.json#/$defs/digest",
-          "$comment": "SHA-256 over the exact fixtureId/executor plan projection, domain ibex:capsec:executable-recipe-plan:1 followed by one NUL byte."
+          "$comment": "SHA-256 over the exact fixtureId/status/executor plan projection, domain ibex:capsec:executable-recipe-plan:1 followed by one NUL byte."
         }
       }
     },
@@ -55,11 +57,13 @@
       "required": [
         "requiredFixtures",
         "fullyExecutableFixtures",
+        "internallyVerifiedFixtures",
         "unresolvedFixtures"
       ],
       "properties": {
         "requiredFixtures": { "type": "integer", "minimum": 1 },
-        "fullyExecutableFixtures": { "type": "integer", "minimum": 1 },
+        "fullyExecutableFixtures": { "type": "integer", "minimum": 0 },
+        "internallyVerifiedFixtures": { "type": "integer", "minimum": 0 },
         "unresolvedFixtures": { "const": 0 }
       }
     }

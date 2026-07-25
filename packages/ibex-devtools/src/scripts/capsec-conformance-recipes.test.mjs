@@ -17,6 +17,11 @@ import {
   fixtureExecutionPlans,
 } from "./capsec-conformance.mjs";
 import { validateOccurrenceSemantics } from "./capsec-contract.mjs";
+import {
+  INTERNAL_INVARIANT_COMMAND,
+  INTERNALLY_VERIFIED_SCENARIOS,
+  internalInvariantProofPlan,
+} from "./capsec-internal-invariant-evidence.mjs";
 import { canonicalOutputDispositionKey } from "./capsec-output-dispositions.mjs";
 import { validateStartupEnvironmentRecipeDescriptor } from "./capsec-public-surface-evidence.mjs";
 import { CAPSEC_SECURE_TEST_FEATURES } from "./capsec-secure-test-command.mjs";
@@ -135,6 +140,41 @@ describe("exact-target CapSec executable recipes", () => {
       }
     }
     expect(cargoExecutorCount).toBeGreaterThan(0);
+  });
+
+  test("binds only the six owned internal invariants to exact secure proofs", () => {
+    for (const recipeCatalog of [recipes, windowsRecipes]) {
+      const internal = recipeCatalog.recipes.filter(
+        (recipe) => recipe.status === "internally-verified",
+      );
+      expect(
+        [...new Set(internal.map((recipe) => recipe.scenario))].sort(),
+      ).toEqual([...INTERNALLY_VERIFIED_SCENARIOS]);
+      for (const recipe of internal) {
+        expect(recipe.publicSurfaceProbe).toBeNull();
+        expect(recipe.internalInvariantProof).toEqual(
+          internalInvariantProofPlan(recipe.scenario),
+        );
+        expect(recipe.internalInvariantProof.command).toEqual(
+          INTERNAL_INVARIANT_COMMAND,
+        );
+        expect(recipe.internalInvariantProof.command).toContain(
+          "--no-default-features",
+        );
+        expect(recipe.internalInvariantProof.command).not.toContain("insecure");
+      }
+      const malformed = recipeCatalog.recipes.filter(
+        (recipe) => recipe.scenario === "malformed-branch-facts",
+      );
+      expect(malformed.length).toBeGreaterThan(0);
+      expect(
+        malformed.every(
+          (recipe) =>
+            recipe.status === "unresolved" &&
+            recipe.internalInvariantProof === null,
+        ),
+      ).toBeTrue();
+    }
   });
 
   test("keeps all 45 review-bound DNS derived operations residual", () => {
@@ -282,12 +322,11 @@ describe("exact-target CapSec executable recipes", () => {
     // obligations remain unresolved until their public-surface probes are
     // authored; four overlap the newly reviewed advertisement set.
     expect(recipes.summary.fullyExecutableFixtures).toBe(2_602);
-    // The seven internal callback-security invariant scenarios are attested by
-    // internal Rust proofs, not public-surface probes (LLP 0036), so they leave
-    // the unresolved count and form their own classification. WebGPU adds 20
-    // fixtures across those already-reviewed scenario kinds.
-    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_751);
-    expect(recipes.summary.unresolvedFixtures).toBe(18_307);
+    // Six internal callback-security invariant scenarios have owning Rust
+    // mechanisms. `malformed-branch-facts` has no executed proof yet and stays
+    // unresolved rather than receiving catalog-only credit.
+    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_090);
+    expect(recipes.summary.unresolvedFixtures).toBe(18_968);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -389,8 +428,8 @@ describe("exact-target CapSec executable recipes", () => {
     // Windows keeps 2,236: its node_fs enforcement route is ambiguous, so the
     // fs:read readFileSync probe (LLP 0037) is authored on Apple only.
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_236);
-    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_739);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_570);
+    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_078);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(19_231);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -2560,7 +2599,7 @@ describe("exact-target CapSec executable recipes", () => {
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.status === "unresolved",
       ),
-    ).toHaveLength(661);
+    ).toHaveLength(666);
     for (const environmentName of expectedSources.keys()) {
       const residual = startupEnvironmentRecipes.filter(
         (recipe) =>

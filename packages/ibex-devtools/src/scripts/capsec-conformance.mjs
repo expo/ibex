@@ -365,6 +365,7 @@ export function buildConformanceReport({
   // conformance ESM cycle while still making mechanism-aware validation
   // mandatory for every report-producing caller.
   validateRuntimeObservation,
+  validateInternalInvariantExecution,
 }) {
   validateLoadedEngineBinding(bindings.engine, target);
   const recipeCatalogPayload = recipeCatalog
@@ -431,12 +432,13 @@ export function buildConformanceReport({
       throw new Error(`duplicate execution for fixture ${execution.fixtureId}`);
     }
     const recipe = recipes.get(execution.fixtureId);
+    const plan = plans.get(execution.fixtureId);
     if (
-      recipe?.status !== "fully-executable" ||
-      recipe.planDigest !== digest(plans.get(execution.fixtureId))
+      !["fully-executable", "internally-verified"].includes(recipe?.status) ||
+      recipe.planDigest !== digest(plan)
     ) {
       throw new Error(
-        `${execution.fixtureId}: execution has no exact fully executable recipe`,
+        `${execution.fixtureId}: execution has no exact executable recipe`,
       );
     }
     if (
@@ -447,14 +449,29 @@ export function buildConformanceReport({
         `${execution.fixtureId}: execution lacks executor or artifact digest`,
       );
     }
-    validateExecutionEvidence(execution, {
-      plan: plans.get(execution.fixtureId),
-      recipe,
-      coverage,
-      engineBinaryDigest: bindings.engine.binaryDigest,
-      executionBinding: requiredExecutionBinding,
-      validateRuntimeObservation,
-    });
+    if (recipe.status === "internally-verified") {
+      if (typeof validateInternalInvariantExecution !== "function") {
+        throw new Error(
+          `${execution.fixtureId}: internal execution has no invariant-evidence validator`,
+        );
+      }
+      validateInternalInvariantExecution(execution, {
+        plan,
+        recipe,
+        engineBinaryDigest: bindings.engine.binaryDigest,
+        executionBinding: requiredExecutionBinding,
+        bindingDigest: requiredBindingDigest,
+      });
+    } else {
+      validateExecutionEvidence(execution, {
+        plan,
+        recipe,
+        coverage,
+        engineBinaryDigest: bindings.engine.binaryDigest,
+        executionBinding: requiredExecutionBinding,
+        validateRuntimeObservation,
+      });
+    }
     if (execution.bindingDigest !== requiredBindingDigest) {
       throw new Error(
         `${execution.fixtureId}: execution binding does not match report inputs`,
@@ -465,24 +482,11 @@ export function buildConformanceReport({
     }
     results.set(execution.fixtureId, execution.outcome);
   }
-  // Internal-invariant recipes are attested by internal Rust proofs of the
-  // enforcement path, not by a public-surface execution, so they never appear
-  // in `executions`. Credit them as satisfied from the digest-bound recipe
-  // catalog (bindings.recipeCatalogDigest is validated above) so a cell that
-  // requires one is not scored `incomplete` for a fixture that has no public
-  // probe by construction. Nothing is fabricated: the credit reflects the
-  // recipe's authenticated `internally-verified` classification, and the
-  // obligation that each such scenario has a real internal proof is tracked in
-  // LLP 0036's "Correctness owed" section.
-  // @ref LLP 0036#the-design-question-and-its-resolved-direction
-  for (const recipe of recipeCatalog.recipes) {
-    if (
-      recipe.status === "internally-verified" &&
-      !results.has(recipe.fixtureId)
-    ) {
-      results.set(recipe.fixtureId, "passed");
-    }
-  }
+  // `internally-verified` is a recipe classification, not execution evidence.
+  // The report leaves those fixtures missing until a separately executed,
+  // source-bound internal proof is supplied and validated. A digest-bound
+  // catalog can name the proof obligation, but cannot satisfy it by itself.
+  // @ref LLP 0036#correctness-owed-the-deliberately-deferred-verification
   const cells = catalog.map((cell) => {
     const passedFixtures = cell.requiredFixtures.filter(
       (id) => results.get(id) === "passed",
@@ -609,6 +613,7 @@ export function validateConformanceReportSemantics(
     digestContract,
     recipeCatalog,
     validateRuntimeObservation,
+    validateInternalInvariantExecution,
   },
 ) {
   if (canonicalJson(report.bindings?.target) !== canonicalJson(target)) {
@@ -641,6 +646,7 @@ export function validateConformanceReportSemantics(
     digestContract,
     recipeCatalog,
     validateRuntimeObservation,
+    validateInternalInvariantExecution,
   });
   if (canonicalJson(report) !== canonicalJson(expected)) {
     throw new Error("conformance report disagrees with derived evidence");

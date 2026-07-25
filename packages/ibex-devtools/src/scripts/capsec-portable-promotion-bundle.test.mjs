@@ -10,6 +10,10 @@ import { fixtureCatalogForTarget } from "./capsec-conformance.mjs";
 import { computeRecipeCatalogDigest } from "./capsec-conformance-recipes.mjs";
 import { computeDomainDigest, parseJsonStrict } from "./capsec-contract.mjs";
 import { conformanceRunnerBindingDigest } from "./capsec-conformance-runner-binding.mjs";
+import {
+  INTERNAL_INVARIANT_EXECUTOR,
+  internalInvariantProofPlan,
+} from "./capsec-internal-invariant-evidence.mjs";
 import { PUBLIC_SURFACE_EXECUTOR_DESCRIPTORS } from "./capsec-public-executors.mjs";
 import {
   commandAttemptDigest,
@@ -176,6 +180,7 @@ function derivedPreparation() {
     summary: {
       requiredFixtures: 1,
       fullyExecutableFixtures: 1,
+      internallyVerifiedFixtures: 0,
       unresolvedFixtures: 0,
     },
     recipeCatalogDigest: digest("A"),
@@ -203,6 +208,7 @@ function derivedPreparation() {
     summary: {
       requiredFixtures: 1,
       executableFixtures: 1,
+      internallyVerifiedFixtures: 0,
       residualFixtures: 0,
       executedFixtures: 1,
       passedFixtures: 1,
@@ -714,6 +720,123 @@ describe("rich-to-portable projections", () => {
     expect(publicSurface.recipeCatalogRawContentDigest).toBe(
       rawContentDigest(recipeBytes),
     );
+  });
+
+  test("preserves internal recipes without projecting them as public executions", () => {
+    const reviewedSource = source();
+    const publicFixtureId = "fixture.portable.bundle";
+    const internalFixtureId = "fixture.portable.bundle.internal";
+    const publicRecipe = {
+      fixtureId: publicFixtureId,
+      planDigest: digest("P"),
+      classification: "effects",
+      scenario: "allow",
+      edgeIds: ["edge.portable.bundle"],
+      implementationBranchIds: ["branch.portable.bundle"],
+      enforcementBranchIds: ["enforcement.portable.bundle"],
+      actionIds: ["cap.portable.bundle"],
+      terminalObservedKey: "native-op:portableBundle",
+      expectedObservation: {
+        kind: "enforcement-branch",
+        branchId: "enforcement.portable.bundle",
+      },
+      route: { surfaceObservedKeys: ["native-op:portableBundle"] },
+      adapterProbe: null,
+      publicSurfaceProbe: {
+        kind: "public-surface-invocation",
+        surfaceObservedKey: "native-op:portableBundle",
+        command: [...nativeExecutor.command],
+      },
+      status: "fully-executable",
+      residualReasons: [],
+    };
+    const internalRecipe = {
+      ...structuredClone(publicRecipe),
+      fixtureId: internalFixtureId,
+      scenario: "attribution-missing-deny",
+      publicSurfaceProbe: null,
+      internalInvariantProof: internalInvariantProofPlan(
+        "attribution-missing-deny",
+      ),
+      status: "internally-verified",
+      residualReasons: [
+        "callback-invariant-attribution-missing-deny-probe-not-authored",
+      ],
+    };
+    const richRecipes = {
+      recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
+      profile: "ibex/capsec/1",
+      target: target(),
+      recipes: [publicRecipe, internalRecipe],
+      summary: {
+        requiredFixtures: 2,
+        fullyExecutableFixtures: 1,
+        internallyVerifiedFixtures: 1,
+        adapterExecutableFixtures: 0,
+        unresolvedFixtures: 0,
+        byScenario: {
+          allow: 1,
+          "attribution-missing-deny": 1,
+        },
+        residualReasons: {
+          "callback-invariant-attribution-missing-deny-probe-not-authored": 1,
+        },
+      },
+      recipeCatalogDigest: digest("A"),
+    };
+    richRecipes.recipeCatalogDigest = computeRecipeCatalogDigest(richRecipes);
+    const recipes = derivePortableRecipeCatalogV2({
+      richRecipeCatalog: richRecipes,
+      target: target(),
+      expectedFixtureIds: [publicFixtureId, internalFixtureId],
+    });
+    const publicSurface = derivePortablePublicSurfaceExecutionV2({
+      richPublicSurfaceExecution: {
+        publicSurfaceExecutionSchema:
+          "ibex/capsec-public-surface-executions/1",
+        profile: "ibex/capsec/1",
+        sourceRevision: reviewedSource.sourceRevision,
+        sourceTreeDigest: reviewedSource.sourceTreeDigest,
+        target: target(),
+        engine: {
+          binaryDigest: reviewedSource.engine.runtimeComponentDigest,
+        },
+        executions: [
+          {
+            fixtureId: publicFixtureId,
+            outcome: "passed",
+            executor: nativeExecutor.executor,
+          },
+        ],
+      },
+      source: reviewedSource,
+      richRecipeCatalog: richRecipes,
+      recipeCatalog: recipes,
+      recipeCatalogBytes: exactBytes(recipes),
+      expectedFixtureIds: [publicFixtureId, internalFixtureId],
+    });
+    expect(recipes.recipes).toEqual([
+      expect.objectContaining({
+        fixtureId: publicFixtureId,
+        status: "fully-executable",
+        executor: nativeExecutor.executor,
+      }),
+      expect.objectContaining({
+        fixtureId: internalFixtureId,
+        status: "internally-verified",
+        executor: INTERNAL_INVARIANT_EXECUTOR,
+      }),
+    ]);
+    expect(publicSurface.executions.map((row) => row.fixtureId)).toEqual([
+      publicFixtureId,
+    ]);
+    expect(publicSurface.summary).toMatchObject({
+      requiredFixtures: 2,
+      executableFixtures: 1,
+      internallyVerifiedFixtures: 1,
+      executedFixtures: 1,
+      missingFixtures: 1,
+    });
   });
 
   test("refuses unknown commands and executor relabeling", () => {

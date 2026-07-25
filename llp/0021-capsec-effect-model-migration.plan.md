@@ -1790,6 +1790,24 @@ eight exact public mechanisms are executable while the report currently
 auto-credits 2,800 rationale-wide internal rows. That accounting must be
 replaced by executed internal proof rather than weakening the command profile.
 
+Implementation status (2026-07-24): the internal accounting is now
+evidence-backed. The proof audit retained exactly six closed-vocabulary
+runtime-owned scenarios and removed `malformed-branch-facts`, which has no Rust
+invariant mechanism, from `internally-verified`. Every retained recipe carries
+a source-bound proof plan naming its mechanism, source location, secure Cargo
+command, and proof-plan digest. The secure internal batch executes each of the
+six mechanisms once and expands that scenario-class observation into exact
+fixture records carrying the fixture plan, common execution binding, engine
+digest, result marker, and artifact digest. Report generation validates those
+records independently; catalog status alone leaves the fixtures missing.
+Apple now has 3,068 internally verified rows and 18,943 unresolved rows;
+Windows has 3,056 internally verified rows and 19,206 unresolved rows. The
+public callback batch is correspondingly pinned to its eight exact authored
+mechanisms. Portable recipe projection preserves internal rows under their
+dedicated executor and excludes them from public-surface execution; portable
+mapped-process production for the internal executor remains a separate
+promotion integration step.
+
 Implementation status (2026-07-16): the report-crediting fixture pilot reruns
 exactly nine source-bound Exact embedder mechanisms independently of the public
 catalog/adapter batches. The set covers the single-use host-call route,

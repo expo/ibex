@@ -15,6 +15,7 @@ import {
 import { fixtureCatalogForTarget } from "./capsec-conformance.mjs";
 import { assertPublicSurfaceExecutionComplete } from "./capsec-public-surface-evidence.mjs";
 import { publicSurfaceExecutorForRecipe } from "./capsec-public-executors.mjs";
+import { INTERNAL_INVARIANT_EXECUTOR } from "./capsec-internal-invariant-evidence.mjs";
 import { canonicalOutputDispositionKey } from "./capsec-output-dispositions.mjs";
 import { validatePromotableOutputDispositionEvidence } from "./capsec-output-shape-sweep.mjs";
 import { validateConformanceRunnerBinding } from "./capsec-conformance-runner-binding.mjs";
@@ -343,10 +344,13 @@ export function derivePortableRecipeCatalogV2({
     expectedFixtureIds,
   });
   const recipes = richRecipeCatalog.recipes.map((richRecipe) => {
+    const internallyVerified = richRecipe.status === "internally-verified";
     const recipe = {
       fixtureId: richRecipe.fixtureId,
-      status: "fully-executable",
-      executor: publicSurfaceExecutorForRecipe(richRecipe),
+      status: internallyVerified ? "internally-verified" : "fully-executable",
+      executor: internallyVerified
+        ? INTERNAL_INVARIANT_EXECUTOR
+        : publicSurfaceExecutorForRecipe(richRecipe),
       planDigest: "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
     };
     recipe.planDigest = portableRecipePlanDigest(recipe);
@@ -359,7 +363,12 @@ export function derivePortableRecipeCatalogV2({
     recipes,
     summary: {
       requiredFixtures: recipes.length,
-      fullyExecutableFixtures: recipes.length,
+      fullyExecutableFixtures: recipes.filter(
+        (recipe) => recipe.status === "fully-executable",
+      ).length,
+      internallyVerifiedFixtures: recipes.filter(
+        (recipe) => recipe.status === "internally-verified",
+      ).length,
       unresolvedFixtures: 0,
     },
     recipeCatalogDigest: "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -388,11 +397,14 @@ export function derivePortablePublicSurfaceExecutionV2({
       Array.isArray(richPublicSurfaceExecution.executions),
     "rich public-surface evidence differs from the reviewed portable source",
   );
+  const publicFixtureIds = richRecipeCatalog.recipes
+    .filter((recipe) => recipe.status === "fully-executable")
+    .map((recipe) => recipe.fixtureId);
   const rows = richPublicSurfaceExecution.executions;
   invariant(
     same(
       rows.map((row) => row.fixtureId),
-      expectedFixtureIds,
+      publicFixtureIds,
     ) && rows.every((row) => row.outcome === "passed"),
     "rich public-surface evidence is missing, duplicate, failed, or noncanonical",
   );
@@ -432,13 +444,15 @@ export function derivePortablePublicSurfaceExecutionV2({
     recipeCatalogDigest: recipeCatalog.recipeCatalogDigest,
     recipeCatalogRawContentDigest: rawContentDigest(recipeCatalogBytes),
     summary: {
-      requiredFixtures: executions.length,
+      requiredFixtures: expectedFixtureIds.length,
       executableFixtures: executions.length,
+      internallyVerifiedFixtures:
+        expectedFixtureIds.length - executions.length,
       residualFixtures: 0,
       executedFixtures: executions.length,
       passedFixtures: executions.length,
       failedFixtures: 0,
-      missingFixtures: 0,
+      missingFixtures: expectedFixtureIds.length - executions.length,
     },
     executions,
     publicSurfaceExecutionDigest:
@@ -571,17 +585,29 @@ export function preparePortablePromotionFromDerivedArtifactsV2({
         fixtures,
       ) &&
       recipeCatalog.recipes.every(
-        (row) =>
-          row.status === "fully-executable" &&
-          typeof row.executor === "string" &&
-          row.executor.length > 0 &&
-          row.planDigest === portableRecipePlanDigest(row),
+        (row) => {
+          const reviewedStatus =
+            row.status === "fully-executable" ||
+            (row.status === "internally-verified" &&
+              row.executor === INTERNAL_INVARIANT_EXECUTOR);
+          return (
+            reviewedStatus &&
+            typeof row.executor === "string" &&
+            row.executor.length > 0 &&
+            row.planDigest === portableRecipePlanDigest(row)
+          );
+        },
       ),
     "portable recipe bytes differ from reviewed complete fixture membership",
   );
   const portableRecipeByFixture = new Map(
     recipeCatalog.recipes.map((row) => [row.fixtureId, row]),
   );
+  const publicFixtures = recipeCatalog.recipes
+    .filter((row) => row.status === "fully-executable")
+    .map((row) => row.fixtureId);
+  const internalFixtureCount =
+    recipeCatalog.recipes.length - publicFixtures.length;
   invariant(
     publicSurfaceExecution.publicSurfaceExecutionSchema ===
       "ibex/capsec-public-surface-executions/2" &&
@@ -597,20 +623,32 @@ export function preparePortablePromotionFromDerivedArtifactsV2({
         portablePublicSurfaceExecutionDigest(publicSurfaceExecution) &&
       same(
         publicSurfaceExecution.executions.map((row) => row.fixtureId),
-        fixtures,
+        publicFixtures,
       ) &&
       publicSurfaceExecution.executions.every(
         (row) => {
           const recipe = portableRecipeByFixture.get(row.fixtureId);
           return (
             recipe &&
+            recipe.status === "fully-executable" &&
             row.outcome === "passed" &&
             row.executor === recipe.executor &&
             row.evidenceDigest ===
               portablePublicSurfaceExecutionEvidenceDigest(row)
           );
         },
-      ),
+      ) &&
+      publicSurfaceExecution.summary.requiredFixtures === fixtures.length &&
+      publicSurfaceExecution.summary.executableFixtures ===
+        publicFixtures.length &&
+      publicSurfaceExecution.summary.internallyVerifiedFixtures ===
+        internalFixtureCount &&
+      publicSurfaceExecution.summary.residualFixtures === 0 &&
+      publicSurfaceExecution.summary.executedFixtures ===
+        publicFixtures.length &&
+      publicSurfaceExecution.summary.passedFixtures === publicFixtures.length &&
+      publicSurfaceExecution.summary.failedFixtures === 0 &&
+      publicSurfaceExecution.summary.missingFixtures === internalFixtureCount,
     "portable public-surface bytes differ from reviewed source or recipes",
   );
   invariant(

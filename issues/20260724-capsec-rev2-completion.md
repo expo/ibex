@@ -218,6 +218,37 @@ ticket closes.
 - Current estimate: **55% complete for the full LLP 0021 completion contract;
   roughly 81% complete for the security-critical runtime mechanism set.**
 
+### 2026-07-24 — replaced internal-invariant labels with executed proof
+
+- Audited the seven scenarios LLP 0036 had provisionally reclassified. Six have
+  exact Rust enforcement mechanisms. `malformed-branch-facts` has none and is
+  now unresolved rather than receiving catalog-only credit.
+- Replaced the broad recipe-status predicate with a closed six-scenario
+  vocabulary. Every internal recipe carries a digest-bound proof plan naming
+  the exact mechanism, Rust source location, dedicated executor, and explicit
+  secure Cargo command.
+- Removed the report's `internally-verified` auto-credit. The new
+  `capsec_internal_invariant_evidence_batch` executes all six mechanisms under
+  the secure observer profile, records one runtime observation per
+  scenario-class, and expands it into exact fixture-plan/binding/result
+  evidence for every credited row. The report validates that evidence through a
+  dedicated fail-closed path; a label without execution stays missing.
+- Corrected the public callback batch to its actual eight authored public
+  mechanisms. Internal scenarios no longer leak into public callback
+  bookkeeping.
+- Corrected portable recipe/public projection: internal rows retain their
+  dedicated executor and are excluded from public-surface execution instead of
+  being forced through a nonexistent public probe. Portable mapped-process
+  production for that executor remains the next integration boundary.
+- Current catalog measurements: Apple 2,602 fully executable, 3,068 internally
+  verified, and 18,943 unresolved of 24,613; Windows 2,236 / 3,056 / 19,206 of
+  24,498.
+- Verification so far: 165 focused devtools tests pass; the CapSec contract
+  validates all 26 schemas and 7,585 coverage edges; the secure Rust evidence
+  target compiles and links against the reviewed `hermesvm` profile.
+- Current estimate: **57% complete for the full LLP 0021 completion contract;
+  roughly 84% complete for the security-critical runtime mechanism set.**
+
 ## Current hard parts
 
 - Exact-target completion is deliberately all-or-nothing. Existing evidence
@@ -230,12 +261,11 @@ ticket closes.
 - The default build is intentionally insecure per LLP 0039 while the secure
   feature is separately guarded; LLP 0021's original plain-execution wording
   needs a completion interpretation consistent with that later decision.
-- The conformance report currently auto-credits thousands of
-  `internally-verified` rows without consuming executed proof. Portable
-  promotion also still asks those rows for a public executor even though their
-  classification deliberately has none. Callback control mechanisms have real
-  secure Rust proofs, but `malformed-branch-facts` rows do not yet have an
-  owning-language proof and must remain residual until one exists.
+- Rich conformance now consumes executed internal-invariant proof, but portable
+  promotion still needs a mapped-process producer for the dedicated internal
+  executor. Its public-surface projection is corrected; the detached
+  per-process evidence/attempt/report join is not yet wired.
+- `malformed-branch-facts` has no owning-language proof and remains residual.
 - Native dynamic-import candidate tables are implemented, but production
   linkers deliberately refuse all authored call-time edges because the runtime
   lacks a private invocation-time CapSec activation capability. The filesystem
@@ -251,11 +281,9 @@ ticket closes.
 
 ## Next milestone
 
-Replace rationale-wide `internally-verified` auto-credit with executed,
-source-bound internal evidence. First make portable promotion skip the public
-executor projection for genuinely internal rows, then bind the six callback
-control scenarios to their secure Rust proof and leave
-`malformed-branch-facts` residual until it has a real owning-language proof.
-Dynamic call-time activation and bootstrap-floor authorship remain blocked on
-the named design/runtime capabilities above rather than safe local
-substitutions.
+Finish the portable mapped-process path for the internal-invariant executor,
+then run a clean committed Apple evidence cycle and verify all 3,068 internal
+rows enter the rich and portable reports only through their executed proof.
+`malformed-branch-facts` stays residual. Dynamic call-time activation and
+bootstrap-floor authorship remain blocked on the named design/runtime
+capabilities above rather than safe local substitutions.

@@ -72,13 +72,16 @@ Execution is not the bottleneck — it faithfully runs the 2,592 authored recipe
 and then the completeness assert rejects the report because 21,993 remain
 unresolved.
 
-## The unresolved 21,993 split into two provable categories
+## The unresolved catalog split into two provable categories
 
 Grouping every unresolved row by its **scenario** (the last dotted segment of
 the fixture id — what aspect it proves) and checking which scenarios are *ever*
 fully-executable anywhere in the 24,585-row catalog yields a clean partition:
 
-- **Reachable scenarios — 18,266 unresolved rows.** Scenario types with
+- **Public residual scenarios — 18,943 current Apple rows.** The original
+  2026-07-23 measurement was 18,266 reachable rows. The proof audit returned
+  `malformed-branch-facts` to this side of the boundary, and later catalog
+  growth changed the total. Scenario types with
   hundreds of working examples already (`non-capability` 1,480 executable,
   `closed` 610, `allow`/`deny`/`malformed` ~70 each, `branch-selection`,
   `no-effect`, …). These are ordinary probe-authoring: real, laborious,
@@ -87,35 +90,37 @@ fully-executable anywhere in the 24,585-row catalog yields a clean partition:
   5–36 rows per commit this is hundreds of commits, a staffed program measured
   in months.
 
-- **Never-executable scenarios — 3,727 unresolved rows under exactly 7
-  scenario types**, each with **zero** fully-executable instances anywhere in
-  the catalog:
+- **Runtime-owned invariant scenarios — six scenario types**, each with **zero**
+  fully-executable instances anywhere in the catalog:
   `attribution-missing-deny`, `generation-recheck`, `principal-restore`,
-  `snapshot-mismatch-deny`, `cannot-widen-authority`, `post-lockdown-invariant`,
-  `malformed-branch-facts`.
-  All 7 are internal callback-security invariants — the runtime checking its own
-  attribution / principal / snapshot state. None has ever been driven from
-  public JS in 24,585 rows.
+  `snapshot-mismatch-deny`, `cannot-widen-authority`, and
+  `post-lockdown-invariant`. These are internal callback-security invariants —
+  the runtime checking its own attribution / principal / snapshot state.
+  `malformed-branch-facts` was originally included as a seventh member, but the
+  proof audit found no owning-language invariant mechanism for it. It remains a
+  public residual: public JS cannot inject malformed internal branch facts, and
+  absence of a public route is not execution evidence.
 
 ## The design question, and its resolved direction
 
-The 7 never-executable scenarios attach to surfaces the current public-surface
+The originally proposed 7 never-executable scenarios attach to surfaces the current public-surface
 harness has no recorded way to invoke (e.g. `native-op:global:AbortController`,
 whose *every* scenario including plain `non-capability` is unresolved). The
 question is whether they can be driven from public JS or whether that is a hard
 limit of the public-surface model.
 
 **Resolved direction (2026-07-23, author: "make it coherent now, verify
-correctness over the coming weeks"):** treat the 7 as **internally-verified
+correctness over the coming weeks"), corrected by the proof audit on
+2026-07-24:** treat the six runtime-owned scenarios as **internally-verified
 invariants, not public-surface fixtures.** The rationale is grounded in the
 measured facts, not a guess:
 
-- All 7 (`attribution-missing-deny`, `generation-recheck`, `principal-restore`,
+- The six (`attribution-missing-deny`, `generation-recheck`, `principal-restore`,
   `snapshot-mismatch-deny`, `cannot-widen-authority`, `post-lockdown-invariant`,
-  `malformed-branch-facts`) are the runtime checking *its own* attribution /
-  principal / snapshot / lockdown state. By construction these fire on internal
-  transitions, not on a public JS call — there is nothing for a public-surface
-  probe to invoke.
+  excluding `malformed-branch-facts`) are the runtime checking *its own*
+  attribution / principal / snapshot / lockdown state. By construction these
+  fire on internal transitions, not on a public JS call — there is nothing for
+  a public-surface probe to invoke.
 - They have zero fully-executable instances anywhere in 24,585 catalog rows,
   which is what a genuinely non-public-invokable class looks like, versus an
   un-authored-but-reachable one.
@@ -125,42 +130,47 @@ reachable; these internal invariants are attested by internal Rust proofs**
 (most already exist as unit tests of the enforcement paths) and are marked in
 the catalog as `internally-verified` rather than counted as unresolved
 public-surface fixtures. This makes the completeness gate satisfiable from the
-18,266 reachable rows, keeps the security claim honest (nothing is faked — an
+remaining public residual rows, keeps the security claim honest (nothing is faked — an
 internal invariant is proven by an internal test, not a fabricated public
 probe), and defers only the *bookkeeping reclassification* to review.
 
-**Correctness still owed (the "over the coming weeks" part):** confirm that each
-of the 7 scenario types has (or gets) a real internal Rust proof of the
-invariant it names, and that the reclassification predicate is tight enough that
-it cannot silently absorb a scenario that *is* publicly reachable. Until that
-audit lands, the reclassification is a coherent working position, not a verified
-one.
+**Proof audit completed (2026-07-24):** each of the six retained scenario types
+now names an exact Rust mechanism and source location, and one secure-mode
+evidence command executes every mechanism. The report no longer credits a
+catalog disposition by itself: every retained fixture must carry its exact
+plan, execution binding, proof-plan digest, runtime observation, result marker,
+and artifact digest. The closed scenario vocabulary prevents the predicate from
+absorbing another scenario. `malformed-branch-facts` failed the audit and remains
+unresolved.
 
 ## Plan
 
-1. **Implement the internally-verified reclassification** for the 7 invariant
-   scenarios (the resolved direction above): add an `internally-verified`
-   disposition, mark the 3,727 rows under those 7 scenarios with it, exclude
+1. **Implement the internally-verified reclassification** for the six proven
+   invariant scenarios (the corrected direction above): add an
+   `internally-verified` disposition, exclude
    that disposition from the `assertRecipeCatalogComplete` unresolved count, and
    point each scenario type at the internal Rust proof that already covers its
-   invariant (or file a stub where one is missing). This removes 3,727 rows from
+   invariant (or file a stub where one is missing). This currently removes
+   3,068 Apple rows and 3,056 Windows rows from
    the completeness denominator without faking any public evidence, and makes
    the gate satisfiable from the reachable rows alone.
-   **DONE (2026-07-23):** `INTERNALLY_VERIFIED_SCENARIOS` added in
-   `capsec-conformance-recipes.mjs`; recipes in those 7 scenarios now carry
+   **DONE and audited (2026-07-24):** `INTERNALLY_VERIFIED_SCENARIOS` is a
+   closed six-member vocabulary; recipes in those scenarios carry
    `status: "internally-verified"`; `summarize` emits `internallyVerifiedFixtures`
    and drops them from `unresolvedFixtures`; `assertRecipeCatalogComplete` counts
-   `fullyExecutable + internallyVerified` toward completeness and skips the
-   public-probe checks for them; the ceremony (`capsec-conformance.mjs`) credits
-   them as satisfied from the digest-bound catalog. Measured effect: Apple
-   unresolved 21,993 → 18,266 (3,727 reclassified); Windows → 18,519 (3,715).
-   The gate is now satisfiable in principle and blocked only on the reachable
-   authoring in step 2. Still owed (per "Correctness owed"): the per-scenario
-   internal-proof audit.
+   `fullyExecutable + internallyVerified` toward recipe completeness and skips
+   public-probe checks for them. The ceremony does not credit that status:
+   `capsec_internal_invariant_evidence_batch` executes the six exact Rust
+   mechanisms under the explicit secure profile, and the report validates
+   per-fixture evidence expanded from those scenario-class observations.
+   `malformed-branch-facts` remains unresolved. Current measured catalogs:
+   Apple 3,068 internally verified / 18,943 unresolved; Windows 3,056 internally
+   verified / 19,206 unresolved.
 
-2. **Reachable-scenario authoring program (18,266 rows) — it is a
-   generator-and-execution problem, not per-row authoring.** Measured structure
-   (2026-07-23): the 18,266 rows collapse to 5,325 surfaces across just 53
+2. **Public-residual authoring program (currently 18,943 Apple rows) — it is a
+   generator-and-execution problem, not per-row authoring.** Historical
+   measured structure (2026-07-23): the then-current 18,266 rows collapsed to
+   5,325 surfaces across just 53
    (surface-kind × scenario) template-classes. The scenario columns
    (`allow`/`deny`/`malformed`/`missing-attribution`/`wrong-principal`, ~2,330
    each) are matrix expansions of one probe per surface — they are generated,
@@ -321,11 +331,14 @@ Per the author's direction, this plan optimizes for a coherent, working path
 now, with correctness verified over the following days/weeks. The specific
 verification debts, tracked so none is silently forgotten:
 
-- Each of the 7 reclassified scenario types must be shown to have a real
-  internal Rust proof of its invariant; any without one gets a proof authored
-  before advertisement is trusted.
-- The `internally-verified` predicate must be proven unable to absorb a
-  scenario that is in fact publicly reachable (a fail-open risk).
+- **Closed 2026-07-24:** six reclassified scenario types have exact secure Rust
+  proofs and executed, digest-bound evidence. The seventh proposed type,
+  `malformed-branch-facts`, had no such proof and was removed from the
+  classification.
+- **Closed 2026-07-24:** the `internally-verified` predicate is a closed
+  six-member scenario vocabulary, every recipe carries the independently
+  derived proof plan, and report credit requires executed evidence rather than
+  the status label.
 - The `capture_v2` fixture, once built, must drive the real route to status 1
   with registry-derived inputs only — never stubbed state (the route is
   fail-closed, so a wrong fixture returns 0 rather than a false credit, but the

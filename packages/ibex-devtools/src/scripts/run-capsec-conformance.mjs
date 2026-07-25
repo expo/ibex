@@ -60,6 +60,10 @@ import {
   validateExactFixtureEvidenceArtifact,
 } from "./capsec-fixture-evidence.mjs";
 import {
+  buildInternalInvariantEvidenceBindingArtifact,
+  validateInternalInvariantEvidenceArtifact,
+} from "./capsec-internal-invariant-execution.mjs";
+import {
   buildPortableEvidencePlan,
   buildPortablePublicBatchEvidencePlan,
   parsePortableEngineIdentityMarker,
@@ -705,6 +709,14 @@ const producedFixtureEvidencePath = path.join(
   evidenceDirectory,
   "exact-fixture-evidence.json",
 );
+const internalInvariantBindingPath = path.join(
+  evidenceDirectory,
+  "internal-invariant-evidence-binding.json",
+);
+const internalInvariantEvidencePath = path.join(
+  evidenceDirectory,
+  "internal-invariant-evidence.json",
+);
 await runObservedCommand({
   supervisor,
   id: "generate-executable-recipes",
@@ -992,6 +1004,19 @@ fs.writeFileSync(
   `${JSON.stringify(fixtureEvidenceBinding, null, 2)}\n`,
   { flag: "wx", mode: 0o600 },
 );
+const internalInvariantBinding =
+  buildInternalInvariantEvidenceBindingArtifact({
+    recipeCatalog,
+    fixtureCatalog: catalog,
+    bindings,
+    target,
+    fixtureCatalogDigest,
+  });
+fs.writeFileSync(
+  internalInvariantBindingPath,
+  `${JSON.stringify(internalInvariantBinding, null, 2)}\n`,
+  { flag: "wx", mode: 0o600 },
+);
 let fixtureEvidencePath;
 if (suppliedFixtureEvidencePath) {
   fixtureEvidencePath = path.resolve(repoRoot, suppliedFixtureEvidencePath);
@@ -1043,7 +1068,68 @@ validateExactFixtureEvidenceArtifact(fixtureArtifact, {
   target,
   fixtureCatalogDigest,
 });
-const executions = fixtureArtifact.executions;
+commandEvidence.push(
+  legacyCommandEvidence(
+    await runObservedEngineTest({
+      supervisor,
+      id: "internal-invariant-evidence",
+      testName: "capsec_internal_invariant_evidence_batch",
+      features: CAPSEC_SECURE_TEST_FEATURES,
+      nocapture: true,
+      cwd: repoRoot,
+      env: {
+        ...exactEngineEnvironment,
+        IBEX_CAPSEC_RECIPE_CATALOG: recipeCatalogPath,
+        IBEX_CAPSEC_INTERNAL_INVARIANT_BINDING:
+          internalInvariantBindingPath,
+        IBEX_CAPSEC_INTERNAL_INVARIANT_EVIDENCE_OUTPUT:
+          internalInvariantEvidencePath,
+      },
+      environmentKeys: [
+        ...exactEngineEnvironmentKeys,
+        "IBEX_CAPSEC_RECIPE_CATALOG",
+        "IBEX_CAPSEC_INTERNAL_INVARIANT_BINDING",
+        "IBEX_CAPSEC_INTERNAL_INVARIANT_EVIDENCE_OUTPUT",
+      ],
+      declaredInputs: [
+        {
+          name: "recipeCatalog",
+          digest: recipeCatalog.recipeCatalogDigest,
+        },
+        { name: "internalInvariantBinding", digest: bindingDigest },
+        { name: "engineArtifact", digest: engineBinaryDigest },
+      ],
+      expectedOutputs: [internalInvariantEvidencePath],
+    }),
+  ),
+);
+const internalInvariantArtifact = readOwnedJson(
+  internalInvariantEvidencePath,
+  "internal invariant evidence",
+);
+validateInternalInvariantEvidenceArtifact(internalInvariantArtifact, {
+  recipeCatalog,
+  fixtureCatalog: catalog,
+  bindings,
+  target,
+  fixtureCatalogDigest,
+});
+const executions = [
+  ...fixtureArtifact.executions,
+  ...internalInvariantArtifact.executions,
+].sort((left, right) =>
+  left.fixtureId < right.fixtureId
+    ? -1
+    : left.fixtureId > right.fixtureId
+      ? 1
+      : 0,
+);
+if (
+  new Set(executions.map((execution) => execution.fixtureId)).size !==
+  executions.length
+) {
+  throw new Error("fixture and internal invariant evidence overlap");
+}
 let portableProcessEvidence = {
   portableProcessEvidenceSchema: "ibex/capsec-portable-process-preparation/1",
   status: "legacy-null-marker",

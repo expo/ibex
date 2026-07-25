@@ -22,6 +22,20 @@ const CALLBACK_BATCH_COMMAND: [&str; 10] = [
     "--",
     "--test-threads=1",
 ];
+const INTERNAL_INVARIANT_COMMAND: [&str; 11] = [
+    "cargo",
+    "test",
+    "--bin",
+    "ibex",
+    "--no-default-features",
+    "--features",
+    "standard,capsec-conformance-observer,openssl-crypto",
+    "capsec_internal_invariant_evidence_batch",
+    "--",
+    "--test-threads=1",
+    "--nocapture",
+];
+const INTERNAL_INVARIANT_EXECUTOR: &str = "ibex-internal-invariant-proof-harness-v1";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,6 +67,7 @@ struct Recipe {
     route: PublicRoute,
     status: String,
     public_surface_probe: Option<PublicSurfaceProbe>,
+    internal_invariant_proof: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -261,6 +276,29 @@ fn tagged_jcs_digest(value: &serde_json::Value) -> String {
         "sha256-{}",
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest)
     )
+}
+
+fn load_strict_json(path: &std::path::Path, label: &str) -> serde_json::Value {
+    let bytes = std::fs::read(path).unwrap_or_else(|error| panic!("read {label}: {error}"));
+    let text = std::str::from_utf8(&bytes)
+        .unwrap_or_else(|error| panic!("{label} must be UTF-8: {error}"));
+    capsec_semantics::strict_json::parse_strict(text)
+        .unwrap_or_else(|error| panic!("{label} must be strict JSON: {error}"))
+}
+
+fn assert_exact_keys(value: &serde_json::Value, keys: &[&str], label: &str) {
+    let object = value
+        .as_object()
+        .unwrap_or_else(|| panic!("{label} must be an object"));
+    let actual = object
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    let expected = keys
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(actual, expected, "{label} has unexpected or missing fields");
 }
 
 fn load_catalog(path: &std::path::Path) -> RecipeCatalog {
@@ -2694,6 +2732,7 @@ fn smoke_recipe(scenario: &str) -> Recipe {
         },
         status: "diagnostic".into(),
         public_surface_probe: None,
+        internal_invariant_proof: None,
     }
 }
 
@@ -2757,6 +2796,297 @@ async fn capsec_callback_invariant_mechanisms_smoke() {
     }
 }
 
+fn expected_internal_proof(scenario: &str) -> (&'static str, &'static str) {
+    match scenario {
+        "attribution-missing-deny" => (
+            "scheduled-public-attribution-guard",
+            "src/bin/ibex/engine/capsec_public_callback_invariant_batch.rs#execute_attribution_missing",
+        ),
+        "cannot-widen-authority" => (
+            "typed-grant-ceiling-refusal",
+            "src/bin/ibex/engine/capsec_public_callback_invariant_batch.rs#execute_cannot_widen",
+        ),
+        "generation-recheck" => (
+            "scheduled-public-environment-revocation-recheck",
+            "src/bin/ibex/engine/capsec_public_callback_invariant_batch.rs#execute_generation_recheck",
+        ),
+        "post-lockdown-invariant" => (
+            "lockdown-tamper-and-grant-refusal",
+            "src/bin/ibex/engine/capsec_public_callback_invariant_batch.rs#execute_post_lockdown",
+        ),
+        "principal-restore" => (
+            "scheduled-package-principal-scope",
+            "src/bin/ibex/engine/capsec_public_callback_invariant_batch.rs#execute_principal_restore",
+        ),
+        "snapshot-mismatch-deny" => (
+            "cross-snapshot-public-handle-reattenuation",
+            "src/bin/ibex/engine/capsec_public_callback_invariant_batch.rs#execute_snapshot_mismatch",
+        ),
+        other => panic!("unsupported internally verified scenario {other}"),
+    }
+}
+
+fn internal_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
+    let recipes = catalog
+        .recipes
+        .iter()
+        .filter(|recipe| recipe.status == "internally-verified")
+        .collect::<Vec<_>>();
+    assert!(!recipes.is_empty(), "internal invariant catalog is empty");
+    for recipe in &recipes {
+        assert!(
+            recipe.public_surface_probe.is_none(),
+            "{}: internal invariant must not carry a public probe",
+            recipe.fixture_id
+        );
+        let proof = recipe.internal_invariant_proof.as_ref().unwrap_or_else(|| {
+            panic!(
+                "{}: internal invariant has no proof plan",
+                recipe.fixture_id
+            )
+        });
+        assert_exact_keys(
+            proof,
+            &[
+                "proofPlanSchema",
+                "scenario",
+                "mechanism",
+                "sourceRef",
+                "executor",
+                "command",
+                "proofPlanDigest",
+            ],
+            "internal invariant proof plan",
+        );
+        let (mechanism, source_ref) = expected_internal_proof(&recipe.scenario);
+        assert_eq!(
+            proof["proofPlanSchema"],
+            "ibex/capsec-internal-invariant-proof-plan/1"
+        );
+        assert_eq!(proof["scenario"], recipe.scenario);
+        assert_eq!(proof["mechanism"], mechanism);
+        assert_eq!(proof["sourceRef"], source_ref);
+        assert_eq!(proof["executor"], INTERNAL_INVARIANT_EXECUTOR);
+        assert_eq!(
+            proof["command"],
+            serde_json::json!(INTERNAL_INVARIANT_COMMAND)
+        );
+        let mut proof_payload = proof.clone();
+        proof_payload
+            .as_object_mut()
+            .unwrap()
+            .remove("proofPlanDigest");
+        assert_eq!(
+            proof["proofPlanDigest"],
+            tagged_jcs_digest(&proof_payload),
+            "{}: internal proof-plan digest is stale",
+            recipe.fixture_id
+        );
+    }
+    recipes
+}
+
+fn validate_internal_binding(
+    binding: &serde_json::Value,
+    catalog: &RecipeCatalog,
+    recipes: &[&Recipe],
+    loaded_engine: &ibex_runtime::engine::LoadedEngineBinaryIdentity,
+) -> (serde_json::Value, String, Vec<serde_json::Value>) {
+    assert_exact_keys(
+        binding,
+        &[
+            "internalInvariantEvidenceBindingSchema",
+            "executionBinding",
+            "bindingDigest",
+            "fixturePlans",
+        ],
+        "internal invariant binding artifact",
+    );
+    assert_eq!(
+        binding["internalInvariantEvidenceBindingSchema"],
+        "ibex/capsec-internal-invariant-evidence-binding/1"
+    );
+    let execution_binding = binding["executionBinding"].clone();
+    assert_exact_keys(
+        &execution_binding,
+        &[
+            "sourceRevision",
+            "sourceTreeDigest",
+            "target",
+            "engine",
+            "vocabularyDigest",
+            "registryDigest",
+            "implementationManifestDigest",
+            "fixtureCatalogDigest",
+            "recipeCatalogDigest",
+            "publicSurfaceExecutionDigest",
+        ],
+        "internal invariant execution binding",
+    );
+    assert_eq!(
+        execution_binding["target"]["triple"],
+        embedder_runtime_target_triple()
+    );
+    assert_eq!(
+        execution_binding["engine"],
+        serde_json::to_value(loaded_engine).expect("serialize loaded engine identity")
+    );
+    assert_eq!(
+        execution_binding["recipeCatalogDigest"],
+        catalog.recipe_catalog_digest
+    );
+    let binding_digest = binding["bindingDigest"]
+        .as_str()
+        .expect("internal invariant binding has no digest")
+        .to_owned();
+    assert_eq!(tagged_jcs_digest(&execution_binding), binding_digest);
+    let plans = binding["fixturePlans"]
+        .as_array()
+        .expect("internal invariant binding has no fixture plans")
+        .clone();
+    assert_eq!(plans.len(), recipes.len());
+    assert!(recipes.iter().zip(&plans).all(|(recipe, plan)| {
+        recipe.fixture_id == plan["fixtureId"] && recipe.plan_digest == tagged_jcs_digest(plan)
+    }));
+    (execution_binding, binding_digest, plans)
+}
+
+// One executed runtime transition proves each tightly enumerated internal
+// scenario class. Every fixture row still receives an exact plan-bound evidence
+// record; only the runtime observation is shared by rows naming that same
+// invariant.
+// @ref LLP 0036#correctness-owed-the-deliberately-deferred-verification
+#[tokio::test(flavor = "current_thread")]
+async fn capsec_internal_invariant_evidence_batch() {
+    let Ok(recipe_path) = std::env::var("IBEX_CAPSEC_RECIPE_CATALOG") else {
+        eprintln!(
+            "IBEX_CAPSEC_RECIPE_CATALOG is unset; skipping internal invariant evidence batch"
+        );
+        return;
+    };
+    let binding_path = std::env::var("IBEX_CAPSEC_INTERNAL_INVARIANT_BINDING")
+        .expect("internal invariant evidence requires an owned binding input");
+    let output_path = std::env::var("IBEX_CAPSEC_INTERNAL_INVARIANT_EVIDENCE_OUTPUT")
+        .expect("internal invariant evidence requires an output path");
+    let catalog_path =
+        std::fs::canonicalize(recipe_path).expect("canonicalize internal invariant recipe catalog");
+    let binding_path = std::fs::canonicalize(binding_path)
+        .expect("canonicalize internal invariant evidence binding");
+    let catalog = load_catalog(&catalog_path);
+    let recipes = internal_recipes(&catalog);
+    let binding = load_strict_json(&binding_path, "internal invariant evidence binding");
+
+    let _lock = hermes_engine_test_lock().lock().await;
+    let identity_before = HermesEngine::loaded_engine_identity()
+        .expect("attest loaded Hermes before internal invariant evidence");
+    let (execution_binding, binding_digest, plans) =
+        validate_internal_binding(&binding, &catalog, &recipes, &identity_before);
+    let package = prepare_package_fixture();
+    let mut observations = BTreeMap::new();
+    for scenario in [
+        "attribution-missing-deny",
+        "cannot-widen-authority",
+        "generation-recheck",
+        "post-lockdown-invariant",
+        "principal-restore",
+        "snapshot-mismatch-deny",
+    ] {
+        let recipe = smoke_recipe(scenario);
+        let (mechanism, _) = expected_internal_proof(scenario);
+        let execution = execute_mechanism(&recipe, &package, mechanism).await;
+        assert_eq!(execution.result["outcome"], "passed");
+        assert_eq!(execution.legacy_observation_count, 0);
+        observations.insert(
+            scenario,
+            serde_json::json!({
+                "observationSchema": "ibex/capsec-runtime-internal-invariant-observation/1",
+                "scenario": scenario,
+                "mechanism": mechanism,
+                "proofPlanDigest": recipes
+                    .iter()
+                    .find(|candidate| candidate.scenario == scenario)
+                    .unwrap()
+                    .internal_invariant_proof
+                    .as_ref()
+                    .unwrap()["proofPlanDigest"],
+                "result": execution.result,
+                "legacyObservationCount": execution.legacy_observation_count,
+                "typedDecisions": execution.typed_decisions,
+            }),
+        );
+    }
+    assert_eq!(observations.len(), 6);
+
+    let mut executions = Vec::with_capacity(recipes.len());
+    for (recipe, plan) in recipes.iter().zip(&plans) {
+        let mut observation = plan["expectedObservation"].clone();
+        observation
+            .as_object_mut()
+            .expect("internal fixture expected observation must be an object")
+            .insert("result".into(), "passed".into());
+        let proof_plan = recipe.internal_invariant_proof.as_ref().unwrap();
+        let evidence = serde_json::json!({
+            "evidenceSchema": "ibex/capsec-internal-invariant-fixture-evidence/1",
+            "fixtureId": recipe.fixture_id,
+            "command": INTERNAL_INVARIANT_COMMAND,
+            "exitCode": 0,
+            "resultMarker": format!(
+                "ibex-capsec-internal-invariant:{}:passed",
+                recipe.fixture_id
+            ),
+            "planDigest": recipe.plan_digest,
+            "engineBinaryDigest": identity_before.binary_digest,
+            "fixturePlan": plan,
+            "executionBinding": execution_binding,
+            "observation": observation,
+            "proofPlan": proof_plan,
+            "runtimeObservation": observations[recipe.scenario.as_str()],
+        });
+        executions.push(serde_json::json!({
+            "fixtureId": recipe.fixture_id,
+            "outcome": "passed",
+            "executor": INTERNAL_INVARIANT_EXECUTOR,
+            "artifactDigest": tagged_jcs_digest(&evidence),
+            "bindingDigest": binding_digest,
+            "evidence": evidence,
+        }));
+    }
+
+    let identity_after = HermesEngine::loaded_engine_identity()
+        .expect("attest loaded Hermes after internal invariant evidence");
+    assert_eq!(identity_after, identity_before);
+    ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity_before)
+        .expect("re-verify mapped Hermes after internal invariant evidence");
+    let artifact = serde_json::json!({
+        "internalInvariantExecutionArtifactSchema":
+            "ibex/capsec-internal-invariant-executions/1",
+        "executionBinding": execution_binding,
+        "bindingDigest": binding_digest,
+        "executions": executions,
+    });
+    let output_path = std::path::PathBuf::from(output_path);
+    assert!(
+        output_path.is_absolute(),
+        "internal invariant output must be absolute"
+    );
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&output_path)
+        .unwrap_or_else(|error| {
+            panic!(
+                "create internal invariant evidence {}: {error}",
+                output_path.display()
+            )
+        });
+    serde_json::to_writer_pretty(&mut output, &artifact)
+        .expect("serialize internal invariant evidence");
+    output
+        .write_all(b"\n")
+        .expect("finish internal invariant evidence");
+    output.sync_all().expect("sync internal invariant evidence");
+}
+
 #[cfg(test)]
 #[tokio::test(flavor = "current_thread")]
 async fn capsec_public_callback_invariant_batch() {
@@ -2775,44 +3105,13 @@ async fn capsec_public_callback_invariant_batch() {
             .entry(recipe.scenario.as_str())
             .or_insert(0usize) += 1;
     }
-    let target_wide_scenario_count = match catalog.target.triple.as_str() {
-        "aarch64-apple-darwin" => 507,
-        "x86_64-pc-windows-msvc" => 507,
-        target => panic!("callback invariant batch has no reviewed target shape for {target}"),
-    };
-    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — keep the runtime evidence batch pinned to the same exact source-derived scenario shape as the recipe generator.
-    let authority_scenario_count = 382;
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // this public batch executes only exact authored public mechanisms.
+    // Runtime-owned scenario classes have a distinct source-bound evidence
+    // producer and cannot be credited through public callback bookkeeping.
     let non_capability_scenario_count = 8;
-    assert_eq!(
-        recipes.len(),
-        target_wide_scenario_count * 4
-            + authority_scenario_count * 2
-            + non_capability_scenario_count
-    );
-    assert_eq!(
-        by_scenario.get("attribution-missing-deny"),
-        Some(&target_wide_scenario_count)
-    );
-    assert_eq!(
-        by_scenario.get("generation-recheck"),
-        Some(&target_wide_scenario_count)
-    );
-    assert_eq!(
-        by_scenario.get("principal-restore"),
-        Some(&target_wide_scenario_count)
-    );
-    assert_eq!(
-        by_scenario.get("snapshot-mismatch-deny"),
-        Some(&target_wide_scenario_count)
-    );
-    assert_eq!(
-        by_scenario.get("cannot-widen-authority"),
-        Some(&authority_scenario_count)
-    );
-    assert_eq!(
-        by_scenario.get("post-lockdown-invariant"),
-        Some(&authority_scenario_count)
-    );
+    assert_eq!(recipes.len(), non_capability_scenario_count);
+    assert_eq!(by_scenario.len(), 1);
     assert_eq!(
         by_scenario.get("non-capability"),
         Some(&non_capability_scenario_count)

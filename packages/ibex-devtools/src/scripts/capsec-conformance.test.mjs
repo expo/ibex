@@ -12,6 +12,12 @@ import Ajv2020 from "ajv/dist/2020.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { canonicalJson } from "./capsec-contract.mjs";
+import {
+  INTERNAL_INVARIANT_COMMAND,
+  INTERNAL_INVARIANT_EXECUTOR,
+  internalInvariantProofPlan,
+} from "./capsec-internal-invariant-evidence.mjs";
+import { validateInternalInvariantFixtureExecution } from "./capsec-internal-invariant-execution.mjs";
 
 const readSchema = (name) =>
   JSON.parse(
@@ -381,6 +387,137 @@ describe("capsec target conformance", () => {
     expect(() => assertReportMayAdvertise(report)).toThrow(
       /cannot advertise without .*output-disposition evidence bindings/,
     );
+  });
+
+  test("does not turn an internal recipe classification into execution credit", () => {
+    const internalCatalog = structuredClone(recipeCatalog);
+    internalCatalog.recipes[0].status = "internally-verified";
+    delete internalCatalog.recipeCatalogDigest;
+    internalCatalog.recipeCatalogDigest = sha(internalCatalog);
+    const internalBindings = {
+      ...bindings,
+      recipeCatalogDigest: internalCatalog.recipeCatalogDigest,
+    };
+    const report = buildConformanceReport({
+      coverage,
+      implementation,
+      target,
+      executions: [],
+      bindings: internalBindings,
+      digestContract,
+      recipeCatalog: internalCatalog,
+      validateRuntimeObservation,
+    });
+    expect(report.status).toBe("incomplete");
+    expect(report.summary).toMatchObject({
+      requiredFixtures: 1,
+      passedFixtures: 0,
+      missingFixtures: 1,
+    });
+    expect(report.executions).toEqual([]);
+    expect(report.cells[0].missingFixtures).toEqual([
+      "edge.one.main.closed",
+    ]);
+  });
+
+  test("credits an internal invariant only from executed source-bound evidence", () => {
+    const internalCatalog = structuredClone(recipeCatalog);
+    const internalRecipe = internalCatalog.recipes[0];
+    internalRecipe.status = "internally-verified";
+    internalRecipe.scenario = "attribution-missing-deny";
+    internalRecipe.internalInvariantProof = internalInvariantProofPlan(
+      internalRecipe.scenario,
+    );
+    delete internalCatalog.recipeCatalogDigest;
+    internalCatalog.recipeCatalogDigest = sha(internalCatalog);
+    const internalBindings = {
+      ...bindings,
+      recipeCatalogDigest: internalCatalog.recipeCatalogDigest,
+    };
+    const internalExecutionBinding = {
+      ...passExecutionBinding,
+      recipeCatalogDigest: internalCatalog.recipeCatalogDigest,
+    };
+    const internalBindingDigest = executionBindingDigest({
+      bindings: {
+        ...internalBindings,
+        implementationManifestDigest: sha(implementation),
+      },
+      target,
+      fixtureCatalogDigest,
+    });
+    const proof = internalRecipe.internalInvariantProof;
+    const internalEvidence = {
+      evidenceSchema: "ibex/capsec-internal-invariant-fixture-evidence/1",
+      fixtureId: internalRecipe.fixtureId,
+      command: [...INTERNAL_INVARIANT_COMMAND],
+      exitCode: 0,
+      resultMarker: `ibex-capsec-internal-invariant:${internalRecipe.fixtureId}:passed`,
+      planDigest: internalRecipe.planDigest,
+      engineBinaryDigest: bindings.engine.binaryDigest,
+      fixturePlan,
+      executionBinding: internalExecutionBinding,
+      observation: {
+        ...fixturePlan.expectedObservation,
+        result: "passed",
+      },
+      proofPlan: proof,
+      runtimeObservation: {
+        observationSchema:
+          "ibex/capsec-runtime-internal-invariant-observation/1",
+        scenario: internalRecipe.scenario,
+        mechanism: proof.mechanism,
+        proofPlanDigest: proof.proofPlanDigest,
+        result: {
+          kind: "callback-security-invariant",
+          scenario: internalRecipe.scenario,
+          outcome: "passed",
+        },
+        legacyObservationCount: 0,
+        typedDecisions: [],
+      },
+    };
+    const internalExecution = {
+      fixtureId: internalRecipe.fixtureId,
+      outcome: "passed",
+      executor: INTERNAL_INVARIANT_EXECUTOR,
+      artifactDigest: sha(internalEvidence),
+      bindingDigest: internalBindingDigest,
+      evidence: internalEvidence,
+    };
+    const report = buildConformanceReport({
+      coverage,
+      implementation,
+      target,
+      executions: [internalExecution],
+      bindings: internalBindings,
+      digestContract,
+      recipeCatalog: internalCatalog,
+      validateRuntimeObservation,
+      validateInternalInvariantExecution:
+        validateInternalInvariantFixtureExecution,
+    });
+    expect(report.status).toBe("conformant");
+    expect(report.summary.passedFixtures).toBe(1);
+
+    const tampered = structuredClone(internalExecution);
+    tampered.evidence.runtimeObservation.mechanism =
+      "catalog-label-without-execution";
+    tampered.artifactDigest = sha(tampered.evidence);
+    expect(() =>
+      buildConformanceReport({
+        coverage,
+        implementation,
+        target,
+        executions: [tampered],
+        bindings: internalBindings,
+        digestContract,
+        recipeCatalog: internalCatalog,
+        validateRuntimeObservation,
+        validateInternalInvariantExecution:
+          validateInternalInvariantFixtureExecution,
+      }),
+    ).toThrow(/did not execute its proof/);
   });
 
   test("report construction requires recipe-aware runtime validation", () => {

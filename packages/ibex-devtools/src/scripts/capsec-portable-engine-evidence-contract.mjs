@@ -22,6 +22,7 @@ import {
   computeDomainDigest,
   parseJsonStrict,
 } from "./capsec-contract.mjs";
+import { INTERNAL_INVARIANT_EXECUTOR } from "./capsec-internal-invariant-evidence.mjs";
 
 const MAPPED_ENGINE_EXECUTION_EVIDENCE_SCHEMA =
   "ibex/capsec-mapped-engine-execution-evidence/1";
@@ -243,6 +244,7 @@ export function portableRecipeCatalogDigest(catalog) {
 export function portableRecipePlanDigest(recipe) {
   return computeDomainDigest(PORTABLE_RECIPE_PLAN_DOMAIN, {
     fixtureId: recipe.fixtureId,
+    status: recipe.status,
     executor: recipe.executor,
   });
 }
@@ -856,17 +858,32 @@ function validateRecipeCatalog(bytes, report, authorityEntry) {
   const reportExecutions = new Map(
     report.executions.map((execution) => [execution.fixtureId, execution]),
   );
+  const fullyExecutable = recipeCatalog.recipes.filter(
+    (recipe) => recipe.status === "fully-executable",
+  );
+  const internallyVerified = recipeCatalog.recipes.filter(
+    (recipe) => recipe.status === "internally-verified",
+  );
   invariant(
     recipeCatalog.recipes.every(
-      (recipe) =>
-        recipe.status === "fully-executable" &&
-        recipe.planDigest === portableRecipePlanDigest(recipe) &&
-        recipe.executor === reportExecutions.get(recipe.fixtureId)?.executor,
+      (recipe) => {
+        const statusAndExecutor =
+          recipe.status === "fully-executable" ||
+          (recipe.status === "internally-verified" &&
+            recipe.executor === INTERNAL_INVARIANT_EXECUTOR);
+        return (
+          statusAndExecutor &&
+          recipe.planDigest === portableRecipePlanDigest(recipe) &&
+          recipe.executor === reportExecutions.get(recipe.fixtureId)?.executor
+        );
+      },
     ) &&
       recipeCatalog.summary.requiredFixtures === required.length &&
-      recipeCatalog.summary.fullyExecutableFixtures === required.length &&
+      recipeCatalog.summary.fullyExecutableFixtures === fullyExecutable.length &&
+      recipeCatalog.summary.internallyVerifiedFixtures ===
+        internallyVerified.length &&
       recipeCatalog.summary.unresolvedFixtures === 0,
-    "recipe catalog does not make every required fixture fully executable",
+    "recipe catalog does not bind every required fixture to a reviewed executor",
   );
   invariant(
     recipeCatalog.recipeCatalogDigest === authorityEntry.recipeCatalogDigest &&
@@ -918,8 +935,16 @@ function validatePublicSurfaceExecution(bytes, report, authorityEntry) {
   const reportExecutions = new Map(
     report.executions.map((execution) => [execution.fixtureId, execution]),
   );
+  const publicRequired = report.executions
+    .filter(
+      (execution) =>
+        execution.executor !== INTERNAL_INVARIANT_EXECUTOR,
+    )
+    .map((execution) => execution.fixtureId)
+    .sort(compareUtf8);
+  const internalRequiredCount = required.length - publicRequired.length;
   invariant(
-    same(fixtureIds, required) &&
+    same(fixtureIds, publicRequired) &&
       artifact.executions.every((execution) => {
         const reportExecution = reportExecutions.get(execution.fixtureId);
         return (
@@ -932,13 +957,14 @@ function validatePublicSurfaceExecution(bytes, report, authorityEntry) {
         );
       }) &&
       artifact.summary.requiredFixtures === required.length &&
-      artifact.summary.executableFixtures === required.length &&
+      artifact.summary.executableFixtures === publicRequired.length &&
+      artifact.summary.internallyVerifiedFixtures === internalRequiredCount &&
       artifact.summary.residualFixtures === 0 &&
-      artifact.summary.executedFixtures === required.length &&
-      artifact.summary.passedFixtures === required.length &&
+      artifact.summary.executedFixtures === publicRequired.length &&
+      artifact.summary.passedFixtures === publicRequired.length &&
       artifact.summary.failedFixtures === 0 &&
-      artifact.summary.missingFixtures === 0,
-    "public-surface execution does not prove every required fixture passed",
+      artifact.summary.missingFixtures === internalRequiredCount,
+    "public-surface execution does not prove every public fixture passed",
   );
   invariant(
     artifact.publicSurfaceExecutionDigest ===

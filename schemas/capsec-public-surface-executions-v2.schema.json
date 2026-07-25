@@ -75,6 +75,7 @@
       "required": [
         "requiredFixtures",
         "executableFixtures",
+        "internallyVerifiedFixtures",
         "residualFixtures",
         "executedFixtures",
         "passedFixtures",
@@ -84,11 +85,12 @@
       "properties": {
         "requiredFixtures": { "type": "integer", "minimum": 1 },
         "executableFixtures": { "type": "integer", "minimum": 1 },
+        "internallyVerifiedFixtures": { "type": "integer", "minimum": 0 },
         "residualFixtures": { "const": 0 },
         "executedFixtures": { "type": "integer", "minimum": 1 },
         "passedFixtures": { "type": "integer", "minimum": 1 },
         "failedFixtures": { "const": 0 },
-        "missingFixtures": { "const": 0 }
+        "missingFixtures": { "type": "integer", "minimum": 0 }
       }
     }
   }
