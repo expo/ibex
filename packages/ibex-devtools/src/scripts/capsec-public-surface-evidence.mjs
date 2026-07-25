@@ -2937,6 +2937,36 @@ function validateRuntimeInvocation(observation, recipe) {
     if (invocation.result.kind !== "return") {
       throw new Error(`${recipe.fixtureId}: public invocation did not return`);
     }
+    if (authored.expectedStringValue !== undefined) {
+      exactKeys(
+        invocation.result,
+        [
+          "kind",
+          "moduleSpecifier",
+          "exportName",
+          "valueType",
+          "stringValue",
+        ],
+        `${recipe.fixtureId}: builtin string result`,
+      );
+      if (
+        authored.invocationSchema !==
+          "ibex/capsec-builtin-export-invocation/1" ||
+        authored.kind !== "builtin-export-call" ||
+        authored.moduleSpecifier !== "node:fs" ||
+        authored.exportName !== "readlinkSync" ||
+        typeof authored.expectedStringValue !== "string" ||
+        authored.expectedStringValue.length === 0 ||
+        invocation.result.moduleSpecifier !== authored.moduleSpecifier ||
+        invocation.result.exportName !== authored.exportName ||
+        invocation.result.valueType !== "string" ||
+        invocation.result.stringValue !== authored.expectedStringValue
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: builtin string return did not match its authored value`,
+        );
+      }
+    }
     if (
       (effectBuiltinModuleImport || noncapBuiltinModuleImport)
     ) {
@@ -3713,6 +3743,7 @@ export function validatePublicFixtureRuntimeObservation(
     ["appendFileSync", { action: "fs:write", operationPrefix: "fs-open:" }],
     ["mkdirSync", { action: "fs:write", operationPrefix: "fs-mkdir:" }],
     ["readFileSync", { action: "fs:read", operationPrefix: "fs-open:" }],
+    ["readlinkSync", { action: "fs:read", operationPrefix: "fs-readlink:" }],
     [
       "truncateSync",
       { action: "fs:write", operationPrefix: "fs-truncate:" },

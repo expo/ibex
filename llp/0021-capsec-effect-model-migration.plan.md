@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-25 (`node:fs.readlinkSync` corrects stored-link-byte authorization from ambient `fs:list` to `fs:read` commit/repeat, adds exact translated-string and denial evidence, and promotes five Apple rows; Apple accounting is now 2,646 fully executable / 3,114 internally verified / 18,280 unresolved)
 **Revised:** 2026-07-25 (`node:fs.mkdirSync` adds five Apple public recipes that physically select absolute, non-recursive creation, bind the exact absent-create decision chain, and prove creation/no-creation postconditions; Apple accounting is now 2,641 fully executable / 3,114 internally verified / 18,285 unresolved)
 **Revised:** 2026-07-25 (`node:fs.appendFileSync` adds five Apple public recipes with exact open/write decisions, prefix-plus-suffix mutation proof, and deny-no-mutation proof; Apple accounting is now 2,636 fully executable / 3,114 internally verified / 18,290 unresolved)
 **Revised:** 2026-07-25 (`node:fs.truncateSync` adds five Apple public recipes with retained-object `fs:write` commit/repeat evidence and exact mutation/non-mutation postconditions; Apple accounting is now 2,631 fully executable / 3,114 internally verified / 18,295 unresolved)
@@ -1827,8 +1828,8 @@ six mechanisms once and expands that scenario-class observation into exact
 fixture records carrying the fixture plan, common execution binding, engine
 digest, result marker, and artifact digest. Report generation validates those
 records independently; catalog status alone leaves the fixtures missing.
-Apple now has 2,641 fully executable rows, 3,114 internally verified rows, and
-18,285 unresolved rows;
+Apple now has 2,646 fully executable rows, 3,114 internally verified rows, and
+18,280 unresolved rows;
 Windows has 2,240 fully executable rows, 3,102 internally verified rows, and
 18,583 unresolved rows. The
 public callback batch is correspondingly pinned to its eight exact authored

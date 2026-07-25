@@ -5,6 +5,7 @@
 **Systems:** Security, CI, Build, Runtime, Engine, Tooling
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-23
+**Revised:** 2026-07-25 (`node:fs.readlinkSync` fixes the stored-link-byte authorization boundary and adds five result-bound Apple public recipes; current Apple accounting is 2,646 fully executable / 3,114 internally verified / 18,280 unresolved)
 **Revised:** 2026-07-25 (`node:fs.mkdirSync` adds five exact non-recursive Apple public recipes with creation and denial postconditions; current Apple accounting is 2,641 fully executable / 3,114 internally verified / 18,285 unresolved)
 **Revised:** 2026-07-25 (`node:fs.appendFileSync` adds five open/write Apple public recipes with exact append and denial postconditions; current Apple accounting is 2,636 fully executable / 3,114 internally verified / 18,290 unresolved)
 **Revised:** 2026-07-25 (`node:fs.truncateSync` adds five retained-object Apple public recipes with exact mutation postconditions; current Apple accounting is 2,631 fully executable / 3,114 internally verified / 18,295 unresolved)
@@ -84,7 +85,7 @@ Grouping every unresolved row by its **scenario** (the last dotted segment of
 the fixture id — what aspect it proves) and checking which scenarios are *ever*
 fully-executable anywhere in the 24,585-row catalog yields a clean partition:
 
-- **Public residual scenarios — 18,285 current Apple rows.** The original
+- **Public residual scenarios — 18,280 current Apple rows.** The original
   2026-07-23 measurement was 18,266 reachable rows. The proof audit first
   returned `malformed-branch-facts` to this side of the boundary; the later
   input-ownership audit retired those 661 generated rows because logical-branch
@@ -183,13 +184,13 @@ target report is constructed.
    a public callback command.
    The retired `malformed-branch-facts` scenario receives no internal or public
    credit. Current measured catalogs after the input-ownership correction:
-   Apple 2,641 fully executable / 3,114 internally verified / 18,285 unresolved;
+   Apple 2,646 fully executable / 3,114 internally verified / 18,280 unresolved;
    Windows 2,240 fully executable / 3,102 internally verified / 18,583
    unresolved. The historical two-row increase on each target is the
    honest non-capability coverage for the internal batch's binding and output
    environment controls.
 
-2. **Public-residual authoring program (currently 18,285 Apple rows) — it is a
+2. **Public-residual authoring program (currently 18,280 Apple rows) — it is a
    generator-and-execution problem, not per-row authoring.** Historical
    measured structure (2026-07-23): the then-current 18,266 rows collapsed to
    5,325 surfaces across just 53

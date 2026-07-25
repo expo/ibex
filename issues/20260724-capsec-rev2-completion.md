@@ -1115,6 +1115,36 @@ ticket closes.
   mechanisms remain about 96% complete and the overall requested task remains
   about 86%.
 
+### 2026-07-25 — `readlinkSync` authorization correction and target evidence
+
+- Auditing the next public family found a substantive runtime defect:
+  `fsReadlinkArmedWork` used stage code `5` with `needs_read = 0` immediately
+  before `readlinkat`. The Host therefore treated stored link-byte disclosure
+  as ambient `fs:list`, despite both the native and public coverage edges
+  declaring `fs:read`.
+- Corrected the shared sync/async worker to commit `fs:read` before the first
+  `readlinkat` and repeat it before every buffer-growth retry. Link retention
+  and target translation remain ambient `fs:list`; absence of `fs:read` now
+  denies before any stored link byte is read.
+- Added all five Apple `node:fs.readlinkSync` scenarios with a harness-owned
+  relative symlink. Allow emits `requested, discovery, requested, repeat,
+  commit, discovery, requested, repeat`; denial stops at the commit. All
+  allowed variants return exactly `capsec-readlink-target.txt`, while denial
+  returns no value and both the link and target bytes remain unchanged.
+- The complete 185-recipe bound-Hermes batch passes. The independent aggregate
+  accepts all 185 observations and rejects a substituted target string; the
+  combined focused suite passes 154 tests with 112,644 assertions.
+- Apple is now 24,040 required / 2,646 fully executable / 3,114 internally
+  verified / 18,280 unresolved. Windows remains 23,925 / 2,240 / 3,102 /
+  18,583. Criterion 7's literal Apple denominator is 5,760/24,040 (24.0%)
+  proven.
+- Hard part: public-evidence work can expose an implementation/registry
+  mismatch rather than merely an unexecuted row. Promoting the old trace would
+  have normalized a real authority bypass. The safe response was to repair the
+  effect boundary, prove denial before disclosure, and only then author the
+  recipe. Important enforcement mechanisms remain about 96% complete and the
+  overall requested task remains about 86%.
+
 ## Next milestone
 
 Attack criterion 7's exact-target evidence gap through real public-surface

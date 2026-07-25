@@ -5,6 +5,7 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-25 (corrects armed sync/async `readlink` so stored link bytes require an `fs:read` commit before the first `readlinkat` and a repeat before every buffer-growth retry; ambient `fs:list` remains limited to link/target traversal and cannot disclose the stored value)
 **Revised:** 2026-07-17 (LLP 0029 compiled mount profile adds typed `app`/`work` roots, metadata-only `/app`, optional authenticated `/work`, the `ibex:cwd:unset` sentinel, and stable compiled path errors in §1.3); 2026-07-17 (LLP 0029 carrier v2 changes only physical engine binding and preserves original-module SourceId provenance); 2026-07-15 (ENG-25064 landed runtime publication and admission of digest-bound per-original-module prepared graphs); 2026-07-15 (ENG-25065 scoped development module incarnations by execution generation without changing SourceId); 2026-07-15 (ENG-25064 landed the digest-bound per-original-module carrier manifest); 2026-07-15 (ENG-25058 obligation-ledger reconciliation); 2026-07-12
 (round-8 dual-model review, **terminal** — both NOT READY,
 reconciled as a **ledger-and-stop**, the honest end of the loop. Fable and Codex
@@ -1293,6 +1294,14 @@ creation — §4.1.)
   spelling; one whose existing ancestor is not is refused as unmappable.
 - **`realpath`** returns the canonical **virtual absolute** path of the final
   object.
+
+Reading the stored link value is an `fs:read` effect even though the value is
+withheld until translation succeeds. The retained link and its target are
+discovered under ambient `fs:list`, but `fs:list` alone cannot authorize
+`readlinkat`: the adapter commits `fs:read` immediately before the first call
+and repeats that authorization before every buffer-growth retry. This ordering
+both prevents link-byte disclosure under traversal authority and keeps denial
+before the first byte read.
 
 Sync and async `readlink` must agree on encoding and on the refusal; they do not
 today (`src/builtins/fs.js:5731` validates its `options` and then fails to apply

@@ -135,6 +135,10 @@ const coverage = {
       surface: { kind: "native-op", name: "__exactMkdir" },
     },
     {
+      id: "edge.readlink-worker",
+      surface: { kind: "native-op", name: "__exactReadlink" },
+    },
+    {
       id: "edge.fsopen-worker",
       surface: { kind: "native-op", name: "__exactFsOpen" },
     },
@@ -379,6 +383,10 @@ function openThenActFixture(scenario = "allow", exportName = "readFileSync") {
     new Map([
       ["mkdirSync", ["__exactMkdir", "edge.mkdir-worker", "fs-mkdir"]],
       [
+        "readlinkSync",
+        ["__exactReadlink", "edge.readlink-worker", "fs-readlink"],
+      ],
+      [
         "truncateSync",
         ["__exactTruncate", "edge.truncate-worker", "fs-truncate"],
       ],
@@ -423,6 +431,9 @@ function openThenActFixture(scenario = "allow", exportName = "readFileSync") {
   invocation.expectedTypedDecisionCount = 2;
   invocation.allowedCoverageEdgeIds = [edgeId];
   invocation.expectedActionIds = [action];
+  if (exportName === "readlinkSync" && !denial) {
+    invocation.expectedStringValue = "fixture-target.txt";
+  }
   catalog.summary.byScenario = { [scenario]: 1 };
   catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
 
@@ -495,7 +506,15 @@ function openThenActFixture(scenario = "allow", exportName = "readFileSync") {
         errorName: "Error",
         errorMessage: "Permission denied",
       }
-    : { kind: "return", valueType: "object" };
+    : exportName === "readlinkSync"
+      ? {
+          kind: "return",
+          moduleSpecifier: "node:fs",
+          exportName,
+          valueType: "string",
+          stringValue: "fixture-target.txt",
+        }
+      : { kind: "return", valueType: "object" };
   observation.typedDecisions = [
     decision({
       stage: "requested",
@@ -3047,6 +3066,7 @@ describe("CapSec public-surface promotion evidence", () => {
       "appendFileSync",
       "mkdirSync",
       "readFileSync",
+      "readlinkSync",
       "truncateSync",
     ]) {
       for (const scenario of ["allow", "deny"]) {
@@ -3076,6 +3096,18 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/typed stages, actions, or gates drifted/);
+
+    const wrongString = openThenActFixture("allow", "readlinkSync");
+    wrongString.observation.invocation.result.stringValue =
+      "substituted-target.txt";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongString.recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongString.observation,
+        coverage,
+      }),
+    ).toThrow(/string return did not match/);
 
     const mixedTraversal = openThenActFixture();
     mixedTraversal.observation.typedDecisions[1].decisionSet.effects.push(

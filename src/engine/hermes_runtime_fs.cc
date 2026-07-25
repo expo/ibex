@@ -4281,11 +4281,6 @@ static FsAsyncResult fsReadlinkArmedWork(
         "ERR_IBEX_STALE_IDENTITY", "retained symlink parent moved",
         "readlink", virtualPath);
   }
-  if (ex_host_authorize_typed_fs_open(
-          principal, backingPath.c_str(), 5, kFsSurfaceReadlink,
-          *parent, *target, 0, 0, nullptr) != 1) {
-    return fsAsyncAuthorizationError("readlink", virtualPath);
-  }
   if (!sameObjectAt(*parent, name, *target) ||
       !fdResolvesToPath(*parent, parentPath)) {
     return fsAsyncTypedError(
@@ -4294,7 +4289,19 @@ static FsAsyncResult fsReadlinkArmedWork(
   }
   std::vector<char> buffer(256);
   ssize_t length = -1;
+  uint32_t authorizationStage = 1;
   for (;;) {
+    // Reading stored link bytes is the declared fs:read effect, not ambient
+    // fs:list traversal. Commit before the first readlinkat and repeat before
+    // every retry caused by a larger link value, so no bytes are observed
+    // under traversal authority alone.
+    // @ref LLP 0023#4-symlinks-staged-discovery-contained-creation
+    if (ex_host_authorize_typed_fs_open(
+            principal, backingPath.c_str(), authorizationStage,
+            kFsSurfaceReadlink, *parent, *target, 1, 0, nullptr) != 1) {
+      return fsAsyncAuthorizationError("readlink", virtualPath);
+    }
+    authorizationStage = 2;
     length = ::readlinkat(*parent, name.c_str(), buffer.data(), buffer.size());
     int saved = length < 0 ? errno : 0;
     if (!sameObjectAt(*parent, name, *target) ||

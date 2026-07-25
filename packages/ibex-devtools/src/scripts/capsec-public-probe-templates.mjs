@@ -69,6 +69,7 @@ const FS_LIST_EXPORTS = new Set([
 // (LLP 0037 D3).
 // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
 const FS_READ_EXPORTS = new Set(["readFileSync"]);
+const FS_READLINK_EXPORTS = new Set(["readlinkSync"]);
 // Synchronous, path-taking fs:write exports. Each opens the authenticated
 // fixture file for write (an fs:list traversal credited to ambient-mount
 // authority under LLP 0037 D1) and writes the literal payload (the fs:write
@@ -90,6 +91,14 @@ const FS_DIRECTORY_PATH = Object.freeze({
 const FS_CREATED_DIRECTORY_PATH = Object.freeze({
   root: "project",
   components: [{ encoding: "utf8", value: "capsec-created-directory" }],
+});
+const FS_READLINK_PATH = Object.freeze({
+  root: "project",
+  components: [{ encoding: "utf8", value: "capsec-readlink-fixture" }],
+});
+const FS_READLINK_TARGET_PATH = Object.freeze({
+  root: "project",
+  components: [{ encoding: "utf8", value: "capsec-readlink-target.txt" }],
 });
 // Module-root effects are intentionally limited to the reviewed util source
 // families whose top-level body performs a typed NODE_DEBUG read. Each public
@@ -460,6 +469,77 @@ export function authoredBuiltinPublicProbe({
               "commit",
               "repeat",
               "repeat",
+              "repeat",
+            ],
+        allowedCoverageEdgeIds,
+        expectedActionIds: ["fs:read"],
+      },
+    };
+  }
+
+  // readlinkSync first authenticates the link object under ambient fs:list,
+  // commits fs:read immediately before reading its stored bytes, then
+  // translates the target through another authenticated traversal. The
+  // relative target value is source-owned and result-bound.
+  // @ref LLP 0023#4-symlinks-staged-discovery-contained-creation
+  if (
+    plan.actionIds.length === 1 &&
+    plan.actionIds[0] === "fs:read" &&
+    FS_READLINK_EXPORTS.has(fsExportName)
+  ) {
+    const descriptor = sourceDescriptor(
+      liveByObservedKey.get(surfaceObservedKey),
+      "node_fs",
+      fsExportName,
+      "node:fs",
+    );
+    if (!descriptor) return null;
+    const logicalPath = FS_READLINK_PATH;
+    const storedTarget = "capsec-readlink-target.txt";
+    return {
+      kind: "public-surface-invocation",
+      surfaceObservedKey,
+      command: [...BUILTIN_BATCH_COMMAND],
+      invocation: {
+        invocationSchema: "ibex/capsec-builtin-export-invocation/1",
+        kind: "builtin-export-call",
+        moduleSpecifier: "node:fs",
+        exportName: fsExportName,
+        sourceDescriptor: descriptor,
+        sourceDescriptorDigest: taggedDigest(descriptor),
+        arguments: [{ kind: "filesystem-fixture-path", logicalPath }],
+        setup: {
+          kind: "filesystem-symlink",
+          logicalPath,
+          storedTarget,
+          target: {
+            logicalPath: FS_READLINK_TARGET_PATH,
+            contents: "ibex-capsec-readlink-target\n",
+          },
+        },
+        requiredAuthority: [
+          {
+            cap: "fs:read",
+            resource: { kind: "path-exact", path: logicalPath },
+          },
+        ],
+        expectedResult: publicDenial ? "permission-denied" : "return",
+        ...(publicDenial ? {} : { expectedStringValue: storedTarget }),
+        // The sequence is pinned from the corrected bound engine: retain the
+        // link under ambient traversal, commit fs:read before readlinkat, then
+        // authenticate translation of the stored relative target. Denial
+        // stops at the read commit and discloses no link bytes.
+        expectedTypedDecisionCount: publicDenial ? 5 : 8,
+        expectedTypedStages: publicDenial
+          ? ["requested", "discovery", "requested", "repeat", "commit"]
+          : [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "commit",
+              "discovery",
+              "requested",
               "repeat",
             ],
         allowedCoverageEdgeIds,

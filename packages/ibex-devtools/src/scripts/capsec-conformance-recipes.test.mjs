@@ -341,12 +341,12 @@ describe("exact-target CapSec executable recipes", () => {
     // production graph deliberately uses deferred call-time links. The net-new
     // WebGPU obligations remain unresolved until their public-surface probes
     // are authored.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_641);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_646);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_114);
-    expect(recipes.summary.unresolvedFixtures).toBe(18_285);
+    expect(recipes.summary.unresolvedFixtures).toBe(18_280);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -511,12 +511,12 @@ describe("exact-target CapSec executable recipes", () => {
           "public-surface-filesystem-not-typed-on-target",
         ),
     );
-    // 168 = 123 + the 45 fs:list accessSync/existsSync/realpathSync/statfsSync,
-    // fs:read readFileSync, and fs:write appendFileSync/mkdirSync/
-    // truncateSync/writeFileSync rows now Apple-authored
+    // 173 = 123 + the 50 fs:list accessSync/existsSync/realpathSync/statfsSync,
+    // fs:read readFileSync/readlinkSync, and fs:write appendFileSync/
+    // mkdirSync/truncateSync/writeFileSync rows now Apple-authored
     // (LLP 0037), and therefore "not typed on target" for the ambiguous
     // Windows route.
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(168);
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(173);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
@@ -1140,6 +1140,97 @@ describe("exact-target CapSec executable recipes", () => {
           },
         },
       });
+    }
+  });
+
+  test("reads link bytes only after exact fs:read commit and binds the translated result", () => {
+    const surface = "builtin:export:node_fs:readlinkSync";
+    const readlinkRecipes = recipes.recipes.filter(
+      (recipe) =>
+        recipe.route.surfaceObservedKeys.includes(surface) &&
+        [
+          "allow",
+          "deny",
+          "malformed",
+          "missing-attribution",
+          "wrong-principal",
+        ].includes(recipe.scenario),
+    );
+    expect(readlinkRecipes).toHaveLength(5);
+    for (const recipe of readlinkRecipes) {
+      const denial = recipe.scenario === "deny";
+      expect(recipe).toMatchObject({
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          surfaceObservedKey: surface,
+          invocation: {
+            moduleSpecifier: "node:fs",
+            exportName: "readlinkSync",
+            arguments: [
+              {
+                kind: "filesystem-fixture-path",
+                logicalPath: {
+                  root: "project",
+                  components: [
+                    { encoding: "utf8", value: "capsec-readlink-fixture" },
+                  ],
+                },
+              },
+            ],
+            setup: {
+              kind: "filesystem-symlink",
+              storedTarget: "capsec-readlink-target.txt",
+              target: {
+                logicalPath: {
+                  root: "project",
+                  components: [
+                    {
+                      encoding: "utf8",
+                      value: "capsec-readlink-target.txt",
+                    },
+                  ],
+                },
+                contents: "ibex-capsec-readlink-target\n",
+              },
+            },
+            requiredAuthority: [
+              {
+                cap: "fs:read",
+                resource: { kind: "path-exact" },
+              },
+            ],
+            expectedResult: denial ? "permission-denied" : "return",
+            expectedTypedDecisionCount: denial ? 5 : 8,
+            expectedTypedStages: denial
+              ? ["requested", "discovery", "requested", "repeat", "commit"]
+              : [
+                  "requested",
+                  "discovery",
+                  "requested",
+                  "repeat",
+                  "commit",
+                  "discovery",
+                  "requested",
+                  "repeat",
+                ],
+            allowedCoverageEdgeIds: [
+              "surface.native.op.exactensurefs.1dih7no",
+              "surface.native.op.exactreadlink.1p5ozx1",
+            ],
+            expectedActionIds: ["fs:read"],
+          },
+        },
+      });
+      if (denial) {
+        expect(
+          recipe.publicSurfaceProbe.invocation,
+        ).not.toHaveProperty("expectedStringValue");
+      } else {
+        expect(
+          recipe.publicSurfaceProbe.invocation.expectedStringValue,
+        ).toBe("capsec-readlink-target.txt");
+      }
     }
   });
 

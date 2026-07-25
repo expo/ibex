@@ -84,6 +84,8 @@ struct BuiltinInvocation {
     expected_result: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     expected_boolean_value: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    expected_string_value: Option<String>,
     expected_typed_decision_count: usize,
     expected_typed_stages: Vec<String>,
     allowed_coverage_edge_ids: Vec<String>,
@@ -418,12 +420,12 @@ fn expected_authored_builtin_recipe_count(target: &str) -> usize {
     match target {
         // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
         // +5 each on Apple for fs:list accessSync/existsSync/realpathSync/statfsSync,
-        // fs:read readFileSync, and fs:write appendFileSync/mkdirSync/
+        // fs:read readFileSync/readlinkSync, and fs:write appendFileSync/mkdirSync/
         // truncateSync/writeFileSync (their allow/deny/malformed/
         // missing-attribution/wrong-principal matrices).
         // Windows keeps 120: its node_fs enforcement route is ambiguous, so
         // these public probes are not authored there.
-        "aarch64-apple-darwin" => 180,
+        "aarch64-apple-darwin" => 185,
         "x86_64-pc-windows-msvc" => 120,
         target => panic!("builtin public recipe batch has no reviewed target shape for {target}"),
     }
@@ -433,7 +435,7 @@ fn expected_authored_builtin_recipe_count(target: &str) -> usize {
 fn capsec_public_builtin_recipe_counts_are_target_specific() {
     assert_eq!(
         expected_authored_builtin_recipe_count("aarch64-apple-darwin"),
-        180
+        185
     );
     assert_eq!(
         expected_authored_builtin_recipe_count("x86_64-pc-windows-msvc"),
@@ -449,7 +451,7 @@ fn invocation_script(invocation: &BuiltinInvocation, arguments: &[serde_json::Va
                 .expect("serialize imported builtin module")
         ),
         "ibex/capsec-builtin-export-invocation/1" => format!(
-            "JSON.stringify((function(){{var m={};var e={};var b={};try{{var api=require(m);var f=api[e];if(typeof f!==\"function\")return {{kind:\"missing\",moduleSpecifier:m,exportName:e}};var value=Reflect.apply(f,api,{});var result={{kind:\"return\",moduleSpecifier:m,exportName:e,valueType:value===null?\"null\":typeof value}};if(b)result.booleanValue=value;return result;}}catch(error){{return {{kind:\"throw\",moduleSpecifier:m,exportName:e,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}};}}}})())",
+            "JSON.stringify((function(){{var m={};var e={};var b={};var s={};try{{var api=require(m);var f=api[e];if(typeof f!==\"function\")return {{kind:\"missing\",moduleSpecifier:m,exportName:e}};var value=Reflect.apply(f,api,{});var result={{kind:\"return\",moduleSpecifier:m,exportName:e,valueType:value===null?\"null\":typeof value}};if(b)result.booleanValue=value;if(s)result.stringValue=String(value);return result;}}catch(error){{return {{kind:\"throw\",moduleSpecifier:m,exportName:e,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}};}}}})())",
             serde_json::to_string(&invocation.module_specifier)
                 .expect("serialize builtin module"),
             serde_json::to_string(
@@ -460,6 +462,7 @@ fn invocation_script(invocation: &BuiltinInvocation, arguments: &[serde_json::Va
             )
             .expect("serialize builtin export"),
             invocation.expected_result == "boolean-return",
+            invocation.expected_string_value.is_some(),
             serde_json::to_string(arguments).expect("serialize builtin arguments")
         ),
         schema => panic!("unsupported effect-builtin invocation schema {schema}"),
@@ -492,6 +495,23 @@ impl PreparedInvocation {
                 created.is_dir(),
                 scenario != "deny",
                 "mkdirSync {scenario} postcondition drifted"
+            );
+            return;
+        }
+        if export_name == "readlinkSync" {
+            let project_root = self
+                .project_root
+                .as_ref()
+                .expect("filesystem symlink fixture has no project root");
+            assert_eq!(
+                std::fs::read_link(project_root.join("capsec-readlink-fixture"))
+                    .expect("read readlinkSync fixture target"),
+                std::path::PathBuf::from("capsec-readlink-target.txt")
+            );
+            assert_eq!(
+                std::fs::read(project_root.join("capsec-readlink-target.txt"))
+                    .expect("read readlinkSync target postcondition"),
+                b"ibex-capsec-readlink-target\n"
             );
             return;
         }
@@ -778,6 +798,73 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
                 fixture_contents: None,
             }
         }
+        Some("filesystem-symlink") => {
+            assert_eq!(invocation.module_specifier, "node:fs");
+            assert_eq!(invocation.source_descriptor["sourceKey"], "node_fs");
+            assert_eq!(export_name, "readlinkSync");
+            let logical_path = serde_json::json!({
+                "root": "project",
+                "components": [
+                    {"encoding": "utf8", "value": "capsec-readlink-fixture"}
+                ]
+            });
+            let target_logical_path = serde_json::json!({
+                "root": "project",
+                "components": [
+                    {"encoding": "utf8", "value": "capsec-readlink-target.txt"}
+                ]
+            });
+            assert_eq!(invocation.setup["logicalPath"], logical_path);
+            assert_eq!(
+                invocation.setup["storedTarget"],
+                "capsec-readlink-target.txt"
+            );
+            assert_eq!(
+                invocation.setup["target"],
+                serde_json::json!({
+                    "logicalPath": target_logical_path,
+                    "contents": "ibex-capsec-readlink-target\n",
+                })
+            );
+            assert_eq!(
+                invocation.required_authority,
+                vec![serde_json::json!({
+                    "cap": "fs:read",
+                    "resource": {"kind": "path-exact", "path": logical_path.clone()},
+                })]
+            );
+            assert_eq!(
+                invocation.arguments,
+                vec![serde_json::json!({
+                    "kind": "filesystem-fixture-path",
+                    "logicalPath": logical_path,
+                })]
+            );
+            let fixture_root = tempfile::tempdir().expect("create builtin symlink fixture");
+            let project_root = std::fs::canonicalize(fixture_root.path())
+                .expect("canonicalize builtin symlink fixture root");
+            std::fs::write(
+                project_root.join("capsec-readlink-target.txt"),
+                "ibex-capsec-readlink-target\n",
+            )
+            .expect("write builtin readlink target");
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(
+                "capsec-readlink-target.txt",
+                project_root.join("capsec-readlink-fixture"),
+            )
+            .expect("create builtin readlink symlink");
+            #[cfg(not(unix))]
+            panic!("filesystem-symlink public fixtures are Apple-only");
+            PreparedInvocation {
+                _fixture_root: Some(fixture_root),
+                project_root: Some(project_root),
+                arguments: vec![serde_json::Value::String(
+                    "/project/capsec-readlink-fixture".to_owned(),
+                )],
+                fixture_contents: None,
+            }
+        }
         other => panic!("unsupported effect-builtin setup {other:?}"),
     }
 }
@@ -816,6 +903,7 @@ fn reviewed_open_traversal_prefix(invocation: &BuiltinInvocation) -> Option<&'st
         invocation.expected_action_ids.as_slice(),
     ) {
         (Some("readFileSync"), [action]) if action == "fs:read" => Some("fs-open:"),
+        (Some("readlinkSync"), [action]) if action == "fs:read" => Some("fs-readlink:"),
         (Some("appendFileSync"), [action]) if action == "fs:write" => Some("fs-open:"),
         (Some("mkdirSync"), [action]) if action == "fs:write" => Some("fs-mkdir:"),
         (Some("truncateSync"), [action]) if action == "fs:write" => Some("fs-truncate:"),
@@ -859,6 +947,7 @@ fn validate_observation(
                 | "filesystem-file"
                 | "filesystem-directory"
                 | "filesystem-absent-directory"
+                | "filesystem-symlink"
         )
     ));
     assert_eq!(
@@ -877,7 +966,23 @@ fn validate_observation(
             .expect("serialize mismatched public builtin decisions")
     );
     match invocation.expected_result.as_str() {
-        "return" => assert_eq!(invocation_result["kind"], "return"),
+        "return" => {
+            assert_eq!(invocation_result["kind"], "return");
+            if let Some(expected) = &invocation.expected_string_value {
+                assert_eq!(
+                    *invocation_result,
+                    serde_json::json!({
+                        "kind": "return",
+                        "moduleSpecifier": invocation.module_specifier,
+                        "exportName": invocation.export_name,
+                        "valueType": "string",
+                        "stringValue": expected,
+                    }),
+                    "{}: string-return builtin result drifted",
+                    recipe.fixture_id
+                );
+            }
+        }
         "boolean-return" => {
             assert_eq!(
                 *invocation_result,

@@ -5,6 +5,7 @@
 **Systems:** Security, Runtime, Devtools, Verification
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-23
+**Revised:** 2026-07-25 (`node:fs.readlinkSync` binds ambient link/target traversal separately from the corrected stored-byte `fs:read` commit and exact translated string; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.mkdirSync` binds absolute non-recursive creation to the reviewed `fs-mkdir:` absent-create chain and exact creation/no-creation postconditions; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.appendFileSync` joins the reviewed open/write family with exact prefix-plus-suffix and deny-no-mutation postconditions; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.truncateSync` binds a six-decision retained-object mutation chain, denies at `fs:write` commit, and proves the exact two-byte postcondition; five Apple fixture rows move from residual to executable)
@@ -201,6 +202,27 @@ incidental traversal only for the exact `mkdirSync` / `fs:write` /
 `fs-mkdir:` tuple, and the independent validator derives
 `native-op:__exactMkdir` from all five real observations. The complete
 180-recipe builtin batch passes.
+
+### Link-byte read and translation evidence: `readlinkSync`
+
+`node:fs.readlinkSync` separates two authorities that the prior native
+implementation accidentally conflated. Retaining the link and translating its
+target are ambient `fs:list` traversal. Reading the stored link bytes is the
+declared `fs:read` effect and now commits immediately before the first
+`readlinkat`, with a repeat before every buffer-growth retry. The previous
+stage-5 / no-read call authorized that disclosure as `fs:list`; the corrected
+control denies before any stored byte is read when `fs:read` is absent.
+
+The fixed relative-link fixture yields eight decisions on allow:
+`requested, discovery, requested, repeat` for link retention; `commit` for
+stored-byte `fs:read`; then `discovery, requested, repeat` for target
+translation. Denial stops at the commit after the same four ambient decisions.
+Every allowed scenario returns the exact source-owned string
+`capsec-readlink-target.txt`; the aggregate rejects a substituted result. The
+producer and aggregate restrict traversal surplus to the exact
+`readlinkSync` / `fs:read` / `fs-readlink:` tuple, and the complete 185-recipe
+batch plus independent validator accept all five real observations with
+`native-op:__exactReadlink` as the derived terminal.
 
 ### Additional multi-edge metadata evidence: `realpathSync`
 
