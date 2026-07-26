@@ -6,7 +6,7 @@
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-25
 **Revised:** 2026-07-25
-**Related:** LLP 0000 (Ibex root), LLP 0002 (host embedding ABI), LLP 0003 (Hermes engine bridge), LLP 0006 (design principles), LLP 0012 (runtime identity), LLP 0013 / 0021 (capability security); Exact LLP 0400 (native runtime extensions)
+**Related:** LLP 0000 (Ibex root), LLP 0002 (host embedding ABI), LLP 0003 (Hermes engine bridge), LLP 0006 (design principles), LLP 0012 (runtime identity), LLP 0013 / 0021 (capability security); Exact LLP 0401 (native runtime extensions)
 
 ## Summary
 
@@ -41,7 +41,7 @@ application-extension catalog. Routing it through synchronous module calls
 would violate the runtime owner-thread model. A dynamic plugin ABI would make
 toolchain and engine compatibility less honest, not more.
 
-Exact LLP 0400 defines the product-facing tier and assigns Ibex the generic
+Exact LLP 0401 defines the product-facing tier and assigns Ibex the generic
 engine substrate. This companion RFC records the Ibex-side contract and the
 required amendments to the current bootstrap and teardown sequence.
 
