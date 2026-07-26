@@ -603,20 +603,7 @@ impl ResolverFileSystem for BoundedResolverFileSystem {
 
         #[cfg(windows)]
         {
-            let metadata = bounded_windows_symlink_metadata(self.inputs()?, &normalized)?;
-            if resolver_metadata_from_windows(&metadata).is_symlink() {
-                Err(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    "authenticated resolver refuses Windows reparse traversal",
-                )
-                .into())
-            } else {
-                Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "resolver object is not a symlink",
-                )
-                .into())
-            }
+            bounded_windows_read_link(self.inputs()?, &normalized).map_err(Into::into)
         }
 
         #[cfg(not(any(unix, windows)))]
@@ -824,11 +811,12 @@ fn resolver_windows_object(
         .map_err(|error| io::Error::other(error.to_string()))
 }
 
-/// Resolve an ordinary Windows path entirely beneath the retained boundary.
-/// Every directory transition is opened handle-relative without following a
-/// reparse point and object-matched against the witnessed handle. Reparse
-/// targets remain a fail-closed transition until their target payload can be
-/// decoded and authorized with the same containment rules as Unix.
+/// Resolve a Windows path entirely beneath the retained boundary. Every
+/// ordinary directory transition is opened handle-relative without following
+/// a reparse point and object-matched against the witnessed handle. Microsoft
+/// symlink and mount-point targets are read twice through that same retained
+/// object, lexically contained with the full pending tail, and checked against
+/// denied principal subtrees before target lookup.
 ///
 /// @ref LLP 0023#21-staged-authorization-identity
 #[cfg(windows)]
@@ -843,6 +831,7 @@ fn resolve_bounded_windows_path(
     let mut pending = resolver_relative_components(inputs, &normalized)?;
     let mut current = inputs.inner.boundary_handle.try_clone()?;
     let mut resolved = Vec::<OsString>::new();
+    let mut reparse_depth = 0usize;
 
     if pending.is_empty() {
         return Ok(BoundedWindowsResolution {
@@ -867,10 +856,37 @@ fn resolve_bounded_windows_path(
         )?;
         let metadata = witnessed.metadata()?;
         if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "authenticated resolver refuses Windows reparse traversal",
-            ));
+            reparse_depth += 1;
+            if reparse_depth > 40 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "resolver reparse depth exceeded",
+                ));
+            }
+            let target = crate::vfs::windows_read_verified_reparse_target(
+                &current,
+                component_text,
+                &witnessed,
+            )?;
+            let mut combined = crate::vfs::windows_reparse_target_under_root(
+                inputs.boundary_root(),
+                &resolved,
+                &target,
+            )?;
+            combined.extend(pending.iter().cloned());
+            let combined_target = resolver_canonical_path(inputs, &combined);
+            let combined_target = inputs.normalize_in_boundary(&combined_target)?;
+            pending = resolver_relative_components(inputs, &combined_target)?;
+            current = inputs.inner.boundary_handle.try_clone()?;
+            resolved.clear();
+            if pending.is_empty() {
+                return Ok(BoundedWindowsResolution {
+                    canonical_path: inputs.boundary_root().to_path_buf(),
+                    metadata: current.metadata()?,
+                    directory: Some(current),
+                });
+            }
+            continue;
         }
 
         if pending.is_empty() {
@@ -959,6 +975,50 @@ fn bounded_windows_symlink_metadata(
         crate::vfs::WindowsRelativeOpen::Metadata,
     )?
     .metadata()
+}
+
+#[cfg(windows)]
+fn bounded_windows_read_link(
+    inputs: &AuthenticatedResolverInputs,
+    path: &Path,
+) -> io::Result<PathBuf> {
+    let normalized = inputs.normalize_in_boundary(path)?;
+    let (parent, final_component) = bounded_windows_parent(inputs, &normalized)?;
+    let parent_handle = parent
+        .directory
+        .as_ref()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotADirectory, "invalid parent"))?;
+    let component_text = resolver_windows_component(&final_component)?;
+    let witnessed = crate::vfs::windows_open_relative_no_follow(
+        parent_handle,
+        component_text,
+        crate::vfs::WindowsRelativeOpen::Metadata,
+    )?;
+    if !resolver_metadata_from_windows(&witnessed.metadata()?).is_symlink() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "resolver object is not a symlink",
+        ));
+    }
+    let target = crate::vfs::windows_read_verified_reparse_target(
+        parent_handle,
+        component_text,
+        &witnessed,
+    )?;
+    let parent_components = resolver_relative_components(inputs, &parent.canonical_path)?
+        .into_iter()
+        .collect::<Vec<_>>();
+    let target_components = crate::vfs::windows_reparse_target_under_root(
+        inputs.boundary_root(),
+        &parent_components,
+        &target,
+    )?;
+    let absolute_target = resolver_canonical_path(inputs, &target_components);
+    let _ = inputs.normalize_in_boundary(&absolute_target)?;
+    Ok(match target {
+        crate::vfs::WindowsReparseTarget::Relative(target)
+        | crate::vfs::WindowsReparseTarget::Absolute(target) => PathBuf::from(target),
+    })
 }
 
 #[cfg(unix)]
@@ -6121,10 +6181,13 @@ mod tests {
             .is_empty());
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn authenticated_denied_foreign_subtree_blocks_symlink_but_same_root_symlink_resolves() {
+        #[cfg(unix)]
         use std::os::unix::fs::symlink;
+        #[cfg(windows)]
+        use std::os::windows::fs::symlink_file as symlink;
 
         let sandbox = tempdir().unwrap();
         let project = sandbox.path().join("project");
@@ -6280,10 +6343,13 @@ mod tests {
         assert!(error.to_string().contains("unavailable"));
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn authenticated_denied_subtree_blocks_ancestor_symlink_with_pending_tail() {
+        #[cfg(unix)]
         use std::os::unix::fs::symlink;
+        #[cfg(windows)]
+        use std::os::windows::fs::symlink_dir as symlink;
 
         let sandbox = tempdir().unwrap();
         let project = sandbox.path().join("project");
@@ -6414,10 +6480,13 @@ mod tests {
         assert_eq!(bound.package_version.as_deref(), Some("1.2.3"));
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn authenticated_resolver_refuses_outside_symlink_target() {
+        #[cfg(unix)]
         use std::os::unix::fs::symlink;
+        #[cfg(windows)]
+        use std::os::windows::fs::symlink_file;
 
         let sandbox = tempdir().unwrap();
         let project = sandbox.path().join("project");
@@ -6426,7 +6495,10 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(project.join("entry.js"), "module.exports = 1;\n").unwrap();
         std::fs::write(outside.join("target.js"), "module.exports = 'outside';\n").unwrap();
+        #[cfg(unix)]
         symlink(outside.join("target.js"), project.join("escape.js")).unwrap();
+        #[cfg(windows)]
+        symlink_file(outside.join("target.js"), project.join("escape.js")).unwrap();
 
         let project = std::fs::canonicalize(project).unwrap();
         let entry = project.join("entry.js");
@@ -6449,7 +6521,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn authenticated_resolver_refuses_windows_reparse_traversal() {
+    fn authenticated_resolver_follows_contained_windows_reparse() {
         use std::os::windows::fs::symlink_file;
 
         let sandbox = tempdir().unwrap();
@@ -6469,12 +6541,12 @@ mod tests {
             BTreeSet::new(),
         )
         .unwrap();
-        let error = test_loader()
+        let resolved = test_loader()
             .resolve_meta_authenticated("./link.js", Some(&entry), None, &inputs)
-            .expect_err("Windows reparse traversal must remain fail-closed");
-        assert!(
-            error.to_string().contains("Failed to resolve module"),
-            "unexpected Windows reparse refusal: {error:#}"
+            .expect("a contained Windows symlink must resolve through the retained boundary");
+        assert_eq!(
+            resolved.path.as_deref(),
+            Some(project.join("target.js").as_path())
         );
     }
 

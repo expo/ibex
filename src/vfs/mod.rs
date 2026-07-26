@@ -1148,7 +1148,7 @@ impl VirtualFileSystem {
 
         #[cfg(windows)]
         {
-            self.open_contained_directory_windows(namespace, operation, authorize_target)
+            self.open_contained_directory_windows(namespace, operation, true, authorize_target)
         }
 
         #[cfg(not(any(unix, windows)))]
@@ -1219,7 +1219,12 @@ impl VirtualFileSystem {
                 return Err(VfsError::stale_identity(operation, safe_path));
             }
             let reopened = self
-                .open_contained_directory_windows(retained.namespace.clone(), operation, |_| Ok(()))
+                .open_contained_directory_windows(
+                    retained.namespace.clone(),
+                    operation,
+                    false,
+                    |_| Ok(()),
+                )
                 .map_err(|error| {
                     if error.reason() == VfsReason::StaleSession {
                         error
@@ -1329,7 +1334,8 @@ impl VirtualFileSystem {
         &self,
         namespace: NamespacePath,
         operation: &str,
-        _authorize_target: F,
+        follow_reparse: bool,
+        mut authorize_target: F,
     ) -> Result<RetainedDirectory, VfsError>
     where
         F: FnMut(&NamespacePath) -> Result<(), VfsError>,
@@ -1337,60 +1343,185 @@ impl VirtualFileSystem {
         use std::os::windows::fs::MetadataExt as _;
         use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
+        const MAX_REPARSE_POINTS: usize = 32;
         let safe_path = namespace.virtual_path.clone();
-        let mut current = self.open_authenticated_project_root(operation, safe_path.clone())?;
-        if namespace.virtual_components.len() == 1 {
+        let root = self.open_authenticated_project_root(operation, safe_path.clone())?;
+        let caller = namespace.caller.clone();
+        let mut final_namespace = namespace;
+        let mut current = root
+            .try_clone()
+            .map_err(|error| VfsError::host(operation, safe_path.clone(), &error))?;
+        if final_namespace.virtual_components.len() == 1 {
             let object = object_identity_for_open_file(&current)
-                .map_err(|_| VfsError::stale_identity(operation, safe_path))?;
+                .map_err(|_| VfsError::stale_identity(operation, safe_path.clone()))?;
             return Ok(RetainedDirectory {
-                namespace,
+                namespace: final_namespace,
                 object,
                 retained: current,
             });
         }
 
+        let mut pending = final_namespace.virtual_components[1..]
+            .iter()
+            .cloned()
+            .collect::<std::collections::VecDeque<_>>();
         let mut physical_components = Vec::new();
-        for component in &namespace.virtual_components[1..] {
+        let mut reparse_count = 0usize;
+        loop {
+            let component = pending
+                .pop_front()
+                .expect("non-root retained Windows directory has a component");
             let opened = windows_open_relative_no_follow(
                 &current,
-                component,
-                WindowsRelativeOpen::Directory,
+                &component,
+                WindowsRelativeOpen::Metadata,
             )
             .map_err(|error| {
                 if error.kind() == std::io::ErrorKind::NotFound {
-                    VfsError::absent(operation, safe_path.clone())
+                    VfsError::absent(operation, final_namespace.virtual_path.clone())
                 } else {
-                    VfsError::host(operation, safe_path.clone(), &error)
+                    VfsError::host(operation, final_namespace.virtual_path.clone(), &error)
                 }
             })?;
-            let metadata = opened
-                .metadata()
-                .map_err(|error| VfsError::host(operation, safe_path.clone(), &error))?;
-            let object = object_identity_for_open_file(&opened)
-                .map_err(|_| VfsError::stale_identity(operation, safe_path.clone()))?;
+            let metadata = opened.metadata().map_err(|error| {
+                VfsError::host(operation, final_namespace.virtual_path.clone(), &error)
+            })?;
+            let object = object_identity_for_open_file(&opened).map_err(|_| {
+                VfsError::stale_identity(operation, final_namespace.virtual_path.clone())
+            })?;
             physical_components.push(component.clone());
             self.verify_authenticated_binding_root(
                 &physical_components,
                 &object,
                 operation,
-                safe_path.clone(),
+                final_namespace.virtual_path.clone(),
             )?;
             if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-                return Err(VfsError::unmappable_link(operation, safe_path));
+                physical_components.pop();
+                if !follow_reparse {
+                    return Err(VfsError::stale_identity(
+                        operation,
+                        final_namespace.virtual_path.clone(),
+                    ));
+                }
+                reparse_count += 1;
+                if reparse_count > MAX_REPARSE_POINTS {
+                    return Err(VfsError::symlink_depth(
+                        operation,
+                        final_namespace.virtual_path.clone(),
+                    ));
+                }
+                let target = windows_read_verified_reparse_target(&current, &component, &opened)
+                    .map_err(|error| match error.kind() {
+                        std::io::ErrorKind::InvalidData | std::io::ErrorKind::Unsupported => {
+                            VfsError::unmappable_link(
+                                operation,
+                                final_namespace.virtual_path.clone(),
+                            )
+                        }
+                        _ => VfsError::stale_identity(
+                            operation,
+                            final_namespace.virtual_path.clone(),
+                        ),
+                    })?;
+                let parent = physical_components
+                    .iter()
+                    .map(|component| std::ffi::OsString::from(component.as_ref()))
+                    .collect::<Vec<_>>();
+                let mut combined =
+                    windows_reparse_target_under_root(&self.mount.host_root, &parent, &target)
+                        .map_err(|error| match error.kind() {
+                            std::io::ErrorKind::PermissionDenied => VfsError::outside_mount(
+                                operation,
+                                final_namespace.virtual_path.clone(),
+                            ),
+                            _ => VfsError::unmappable_link(
+                                operation,
+                                final_namespace.virtual_path.clone(),
+                            ),
+                        })?
+                        .into_iter()
+                        .map(|component| {
+                            component
+                                .into_string()
+                                .map(Arc::<str>::from)
+                                .map_err(|_| VfsError::malformed(operation))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                combined.extend(pending);
+                let target_namespace =
+                    self.namespace_from_project_relative(&caller, combined.clone(), false)?;
+                authorize_target(&target_namespace)?;
+                final_namespace = target_namespace;
+                pending = combined.into_iter().collect();
+                current = root.try_clone().map_err(|error| {
+                    VfsError::host(operation, final_namespace.virtual_path.clone(), &error)
+                })?;
+                physical_components.clear();
+                if pending.is_empty() {
+                    let object = object_identity_for_open_file(&current).map_err(|_| {
+                        VfsError::stale_identity(operation, final_namespace.virtual_path.clone())
+                    })?;
+                    return Ok(RetainedDirectory {
+                        namespace: final_namespace,
+                        object,
+                        retained: current,
+                    });
+                }
+                continue;
             }
             if !metadata.is_dir() {
-                return Err(VfsError::host_code(operation, safe_path, "ENOTDIR"));
+                return Err(VfsError::host_code(
+                    operation,
+                    final_namespace.virtual_path.clone(),
+                    "ENOTDIR",
+                ));
             }
-            current = opened;
+            let retained = windows_open_relative_no_follow(
+                &current,
+                &component,
+                WindowsRelativeOpen::Directory,
+            )
+            .map_err(|error| {
+                let current_object = windows_open_relative_no_follow(
+                    &current,
+                    &component,
+                    WindowsRelativeOpen::Metadata,
+                )
+                .ok()
+                .and_then(|file| object_identity_for_open_file(&file).ok());
+                if current_object.as_ref() != Some(&object) {
+                    VfsError::stale_identity(operation, final_namespace.virtual_path.clone())
+                } else {
+                    VfsError::host(operation, final_namespace.virtual_path.clone(), &error)
+                }
+            })?;
+            let retained_metadata = retained.metadata().map_err(|error| {
+                VfsError::host(operation, final_namespace.virtual_path.clone(), &error)
+            })?;
+            let retained_object = object_identity_for_open_file(&retained).map_err(|_| {
+                VfsError::stale_identity(operation, final_namespace.virtual_path.clone())
+            })?;
+            if !retained_metadata.is_dir()
+                || retained_metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+                || retained_object != object
+            {
+                return Err(VfsError::stale_identity(
+                    operation,
+                    final_namespace.virtual_path.clone(),
+                ));
+            }
+            current = retained;
+            if pending.is_empty() {
+                let retained_namespace =
+                    self.namespace_from_project_relative(&caller, physical_components, false)?;
+                return Ok(RetainedDirectory {
+                    namespace: retained_namespace,
+                    object: retained_object,
+                    retained: current,
+                });
+            }
         }
-
-        let object = object_identity_for_open_file(&current)
-            .map_err(|_| VfsError::stale_identity(operation, safe_path))?;
-        Ok(RetainedDirectory {
-            namespace,
-            object,
-            retained: current,
-        })
     }
 
     #[cfg(unix)]
@@ -3056,12 +3187,12 @@ impl VirtualFileSystem {
         }
     }
 
-    /// Windows counterpart to the Unix descriptor walk for ordinary
-    /// non-reparse paths. Each name is first witnessed relative to the retained
-    /// parent; intermediate directories are reopened relative to that same
-    /// parent and object-identity matched before becoming the next traversal
-    /// root. Reparse points fail closed until their target transition is
-    /// implemented with target authorization.
+    /// Windows counterpart to the Unix descriptor walk. Each ordinary name is
+    /// first witnessed relative to the retained parent and object-matched
+    /// before becoming the next traversal root. Microsoft symlink and
+    /// mount-point reparses are read through that witnessed handle, re-read
+    /// through the same reopened object, lexically contained, and authorized as
+    /// a complete target-plus-tail path before target lookup.
     ///
     /// @ref LLP 0023#21-staged-authorization-identity — discovery retains the
     /// exact parent and final-object witness after the requested decision.
@@ -3069,7 +3200,7 @@ impl VirtualFileSystem {
     fn discover_contained<F>(
         &self,
         namespace: NamespacePath,
-        _authorize: &mut F,
+        authorize: &mut F,
     ) -> Result<(DiscoveredPath, Vec<Digest>), VfsError>
     where
         F: for<'a> FnMut(ReadAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
@@ -3079,13 +3210,22 @@ impl VirtualFileSystem {
         use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
         const OPERATION: &str = "read";
+        const MAX_REPARSE_POINTS: usize = 32;
         let safe_path = namespace.virtual_path.clone();
-        let mut current = self.open_authenticated_project_root(OPERATION, safe_path.clone())?;
-        let mut pending = namespace.virtual_components[1..]
+        let root = self.open_authenticated_project_root(OPERATION, safe_path.clone())?;
+        let caller = namespace.caller.clone();
+        let directory_intent = namespace.directory_intent;
+        let mut final_namespace = namespace;
+        let mut current = root
+            .try_clone()
+            .map_err(|error| VfsError::host(OPERATION, safe_path.clone(), &error))?;
+        let mut pending = final_namespace.virtual_components[1..]
             .iter()
             .cloned()
             .collect::<VecDeque<_>>();
         let mut physical_parent = Vec::<Arc<str>>::new();
+        let mut reparse_count = 0usize;
+        let mut traversal_decisions = Vec::new();
 
         loop {
             let component = pending
@@ -3098,18 +3238,20 @@ impl VirtualFileSystem {
             )
             .map_err(|error| {
                 if error.kind() == std::io::ErrorKind::NotFound {
-                    VfsError::absent(OPERATION, safe_path.clone())
+                    VfsError::absent(OPERATION, final_namespace.virtual_path.clone())
                 } else {
-                    VfsError::host(OPERATION, safe_path.clone(), &error)
+                    VfsError::host(OPERATION, final_namespace.virtual_path.clone(), &error)
                 }
             })?;
-            let metadata = witnessed
-                .metadata()
-                .map_err(|error| VfsError::host(OPERATION, safe_path.clone(), &error))?;
-            let witnessed_object = object_identity_for_open_file(&witnessed)
-                .map_err(|_| VfsError::stale_identity(OPERATION, safe_path.clone()))?;
-            let parent_object = object_identity_for_open_file(&current)
-                .map_err(|_| VfsError::stale_identity(OPERATION, safe_path.clone()))?;
+            let metadata = witnessed.metadata().map_err(|error| {
+                VfsError::host(OPERATION, final_namespace.virtual_path.clone(), &error)
+            })?;
+            let witnessed_object = object_identity_for_open_file(&witnessed).map_err(|_| {
+                VfsError::stale_identity(OPERATION, final_namespace.virtual_path.clone())
+            })?;
+            let parent_object = object_identity_for_open_file(&current).map_err(|_| {
+                VfsError::stale_identity(OPERATION, final_namespace.virtual_path.clone())
+            })?;
 
             let mut witnessed_components = physical_parent.clone();
             witnessed_components.push(component.clone());
@@ -3117,26 +3259,109 @@ impl VirtualFileSystem {
                 &witnessed_components,
                 &witnessed_object,
                 OPERATION,
-                safe_path.clone(),
+                final_namespace.virtual_path.clone(),
             )?;
 
             if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-                return Err(VfsError::unmappable_link(OPERATION, safe_path));
+                let mut link_components = physical_parent.clone();
+                link_components.push(component.clone());
+                let link_namespace = self.namespace_from_project_relative(
+                    &caller,
+                    link_components,
+                    !pending.is_empty(),
+                )?;
+                let link = DiscoveredPath {
+                    namespace: link_namespace,
+                    parent_object,
+                    basename: component.clone(),
+                    existence: ExistenceWitness::Present(witnessed_object),
+                    retained_parent: current,
+                };
+                let receipt = authorize(ReadAuthorization::Discovery(&link))?;
+                traversal_decisions.push(receipt.evidence_digest);
+                reparse_count += 1;
+                if reparse_count > MAX_REPARSE_POINTS {
+                    return Err(VfsError::symlink_depth(
+                        OPERATION,
+                        link.namespace.virtual_path.clone(),
+                    ));
+                }
+                let target = windows_read_verified_reparse_target(
+                    &link.retained_parent,
+                    &component,
+                    &witnessed,
+                )
+                .map_err(|error| match error.kind() {
+                    std::io::ErrorKind::InvalidData | std::io::ErrorKind::Unsupported => {
+                        VfsError::unmappable_link(OPERATION, link.namespace.virtual_path.clone())
+                    }
+                    _ => VfsError::stale_identity(OPERATION, link.namespace.virtual_path.clone()),
+                })?;
+                let parent = physical_parent
+                    .iter()
+                    .map(|component| std::ffi::OsString::from(component.as_ref()))
+                    .collect::<Vec<_>>();
+                let mut combined =
+                    windows_reparse_target_under_root(&self.mount.host_root, &parent, &target)
+                        .map_err(|error| match error.kind() {
+                            std::io::ErrorKind::PermissionDenied => VfsError::outside_mount(
+                                OPERATION,
+                                link.namespace.virtual_path.clone(),
+                            ),
+                            _ => VfsError::unmappable_link(
+                                OPERATION,
+                                link.namespace.virtual_path.clone(),
+                            ),
+                        })?
+                        .into_iter()
+                        .map(|component| {
+                            component
+                                .into_string()
+                                .map(Arc::<str>::from)
+                                .map_err(|_| VfsError::malformed(OPERATION))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                combined.extend(pending);
+                if combined.is_empty() {
+                    return Err(VfsError::host_code(
+                        OPERATION,
+                        link.namespace.virtual_path.clone(),
+                        "EISDIR",
+                    ));
+                }
+                let target_namespace = self.namespace_from_project_relative(
+                    &caller,
+                    combined.clone(),
+                    directory_intent,
+                )?;
+                let receipt = authorize(ReadAuthorization::Requested(&target_namespace))?;
+                traversal_decisions.push(receipt.evidence_digest);
+                final_namespace = target_namespace;
+                pending = combined.into_iter().collect();
+                current = root.try_clone().map_err(|error| {
+                    VfsError::host(OPERATION, final_namespace.virtual_path.clone(), &error)
+                })?;
+                physical_parent.clear();
+                continue;
             }
             if pending.is_empty() {
                 return Ok((
                     DiscoveredPath {
-                        namespace,
+                        namespace: final_namespace,
                         parent_object,
                         basename: component,
                         existence: ExistenceWitness::Present(witnessed_object),
                         retained_parent: current,
                     },
-                    Vec::new(),
+                    traversal_decisions,
                 ));
             }
             if !metadata.is_dir() {
-                return Err(VfsError::host_code(OPERATION, safe_path, "ENOTDIR"));
+                return Err(VfsError::host_code(
+                    OPERATION,
+                    final_namespace.virtual_path.clone(),
+                    "ENOTDIR",
+                ));
             }
 
             let opened = windows_open_relative_no_follow(
@@ -3153,21 +3378,25 @@ impl VirtualFileSystem {
                 .ok()
                 .and_then(|file| object_identity_for_open_file(&file).ok());
                 if current_object.as_ref() != Some(&witnessed_object) {
-                    VfsError::stale_identity(OPERATION, safe_path.clone())
+                    VfsError::stale_identity(OPERATION, final_namespace.virtual_path.clone())
                 } else {
-                    VfsError::host(OPERATION, safe_path.clone(), &error)
+                    VfsError::host(OPERATION, final_namespace.virtual_path.clone(), &error)
                 }
             })?;
-            let opened_metadata = opened
-                .metadata()
-                .map_err(|error| VfsError::host(OPERATION, safe_path.clone(), &error))?;
-            let opened_object = object_identity_for_open_file(&opened)
-                .map_err(|_| VfsError::stale_identity(OPERATION, safe_path.clone()))?;
+            let opened_metadata = opened.metadata().map_err(|error| {
+                VfsError::host(OPERATION, final_namespace.virtual_path.clone(), &error)
+            })?;
+            let opened_object = object_identity_for_open_file(&opened).map_err(|_| {
+                VfsError::stale_identity(OPERATION, final_namespace.virtual_path.clone())
+            })?;
             if !opened_metadata.is_dir()
                 || opened_metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
                 || opened_object != witnessed_object
             {
-                return Err(VfsError::stale_identity(OPERATION, safe_path));
+                return Err(VfsError::stale_identity(
+                    OPERATION,
+                    final_namespace.virtual_path.clone(),
+                ));
             }
             current = opened;
             physical_parent.push(component);
@@ -3442,6 +3671,403 @@ pub(crate) fn windows_open_relative_no_follow(
     }
     // SAFETY: NtCreateFile returned a fresh, uniquely owned handle.
     Ok(unsafe { std::fs::File::from_raw_handle(handle) })
+}
+
+/// Target bytes decoded from one Microsoft symlink or mount-point reparse
+/// object. Absolute targets use ordinary Win32 drive/UNC spelling rather than
+/// an NT-object-manager or verbatim prefix so consumers cannot accidentally
+/// reinterpret `?` as a module-specifier query delimiter.
+#[cfg(windows)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum WindowsReparseTarget {
+    Relative(String),
+    Absolute(String),
+}
+
+#[cfg(windows)]
+fn windows_ascii_prefix<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    value
+        .get(..prefix.len())
+        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(prefix))
+        .then(|| &value[prefix.len()..])
+}
+
+#[cfg(windows)]
+fn windows_ordinary_absolute_target(value: &str) -> std::io::Result<String> {
+    if let Some(rest) = windows_ascii_prefix(value, r"\??\UNC\") {
+        return Ok(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = windows_ascii_prefix(value, r"\\?\UNC\") {
+        return Ok(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = windows_ascii_prefix(value, r"\??\") {
+        return Ok(rest.to_owned());
+    }
+    if let Some(rest) = windows_ascii_prefix(value, r"\\?\") {
+        return Ok(rest.to_owned());
+    }
+    Ok(value.to_owned())
+}
+
+#[cfg(windows)]
+fn windows_reparse_utf16(
+    buffer: &[u8],
+    path_buffer_offset: usize,
+    substitute_offset: usize,
+    substitute_length: usize,
+    path_buffer_length: usize,
+) -> std::io::Result<String> {
+    if substitute_length == 0
+        || substitute_offset % 2 != 0
+        || substitute_length % 2 != 0
+        || substitute_offset
+            .checked_add(substitute_length)
+            .is_none_or(|end| end > path_buffer_length)
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "malformed Windows reparse substitute name",
+        ));
+    }
+    let start = path_buffer_offset
+        .checked_add(substitute_offset)
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Windows reparse substitute offset overflow",
+            )
+        })?;
+    let end = start.checked_add(substitute_length).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Windows reparse substitute length overflow",
+        )
+    })?;
+    let bytes = buffer.get(start..end).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "truncated Windows reparse substitute name",
+        )
+    })?;
+    let wide = bytes
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .collect::<Vec<_>>();
+    let target = String::from_utf16(&wide).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Windows reparse substitute name is not valid UTF-16",
+        )
+    })?;
+    if target.is_empty() || target.contains('\0') {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Windows reparse substitute name is empty or contains NUL",
+        ));
+    }
+    Ok(target)
+}
+
+/// Read a reparse payload through the already-retained no-follow handle.
+/// Only Microsoft's symlink and mount-point layouts are accepted; all other
+/// reparse tags remain closed rather than being delegated to the pathname
+/// parser.
+///
+/// @ref LLP 0023#4-symlinks-staged-discovery-contained-creation — link target
+/// bytes are an authenticated transition input, not permission to let the OS
+/// follow an opaque reparse provider.
+#[cfg(windows)]
+pub(crate) fn windows_read_reparse_target(
+    file: &std::fs::File,
+) -> std::io::Result<WindowsReparseTarget> {
+    use std::os::windows::io::AsRawHandle as _;
+    use std::ptr::{null, null_mut};
+    use windows_sys::Wdk::Storage::FileSystem::SYMLINK_FLAG_RELATIVE;
+    use windows_sys::Win32::Storage::FileSystem::MAXIMUM_REPARSE_DATA_BUFFER_SIZE;
+    use windows_sys::Win32::System::Ioctl::FSCTL_GET_REPARSE_POINT;
+    use windows_sys::Win32::System::SystemServices::{
+        IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
+    };
+    use windows_sys::Win32::System::IO::DeviceIoControl;
+
+    const HEADER_LENGTH: usize = 8;
+    const MOUNT_POINT_PAYLOAD_HEADER: usize = 8;
+    const SYMLINK_PAYLOAD_HEADER: usize = 12;
+
+    let mut buffer = vec![0u8; MAXIMUM_REPARSE_DATA_BUFFER_SIZE as usize];
+    let mut returned = 0u32;
+    let result = unsafe {
+        DeviceIoControl(
+            file.as_raw_handle(),
+            FSCTL_GET_REPARSE_POINT,
+            null(),
+            0,
+            buffer.as_mut_ptr().cast(),
+            buffer.len() as u32,
+            &mut returned,
+            null_mut(),
+        )
+    };
+    if result == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let returned = returned as usize;
+    if returned < HEADER_LENGTH {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "truncated Windows reparse header",
+        ));
+    }
+    buffer.truncate(returned);
+    let tag = u32::from_le_bytes(buffer[0..4].try_into().unwrap());
+    let data_length = u16::from_le_bytes(buffer[4..6].try_into().unwrap()) as usize;
+    let total_length = HEADER_LENGTH.checked_add(data_length).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Windows reparse data length overflow",
+        )
+    })?;
+    if total_length > buffer.len() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "truncated Windows reparse payload",
+        ));
+    }
+
+    let word = |offset: usize| -> std::io::Result<usize> {
+        let bytes = buffer.get(offset..offset + 2).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "truncated Windows reparse field",
+            )
+        })?;
+        Ok(u16::from_le_bytes([bytes[0], bytes[1]]) as usize)
+    };
+    let substitute_offset = word(HEADER_LENGTH)?;
+    let substitute_length = word(HEADER_LENGTH + 2)?;
+
+    if tag == IO_REPARSE_TAG_SYMLINK {
+        if data_length < SYMLINK_PAYLOAD_HEADER {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "truncated Windows symlink reparse payload",
+            ));
+        }
+        let flags = u32::from_le_bytes(
+            buffer[HEADER_LENGTH + 8..HEADER_LENGTH + 12]
+                .try_into()
+                .unwrap(),
+        );
+        if flags & !SYMLINK_FLAG_RELATIVE != 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "unsupported Windows symlink reparse flags",
+            ));
+        }
+        let target = windows_reparse_utf16(
+            &buffer,
+            HEADER_LENGTH + SYMLINK_PAYLOAD_HEADER,
+            substitute_offset,
+            substitute_length,
+            data_length - SYMLINK_PAYLOAD_HEADER,
+        )?;
+        if flags & SYMLINK_FLAG_RELATIVE != 0 {
+            if target.starts_with(['\\', '/'])
+                || target.as_bytes().get(1).is_some_and(|value| *value == b':')
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "relative Windows symlink carries an absolute target",
+                ));
+            }
+            return Ok(WindowsReparseTarget::Relative(target));
+        }
+        return windows_ordinary_absolute_target(&target).map(WindowsReparseTarget::Absolute);
+    }
+
+    if tag == IO_REPARSE_TAG_MOUNT_POINT {
+        if data_length < MOUNT_POINT_PAYLOAD_HEADER {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "truncated Windows mount-point reparse payload",
+            ));
+        }
+        let target = windows_reparse_utf16(
+            &buffer,
+            HEADER_LENGTH + MOUNT_POINT_PAYLOAD_HEADER,
+            substitute_offset,
+            substitute_length,
+            data_length - MOUNT_POINT_PAYLOAD_HEADER,
+        )?;
+        return windows_ordinary_absolute_target(&target).map(WindowsReparseTarget::Absolute);
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        format!("unsupported Windows reparse tag {tag:#010x}"),
+    ))
+}
+
+#[cfg(windows)]
+fn windows_apply_relative_components(base: &mut Vec<String>, value: &str) -> std::io::Result<()> {
+    for component in value.split(['\\', '/']) {
+        match component {
+            "" | "." => {}
+            ".." => {
+                base.pop().ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "Windows reparse target leaves the authenticated root",
+                    )
+                })?;
+            }
+            component if virtual_component_is_mappable(component, true) => {
+                base.push(component.to_owned())
+            }
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Windows reparse target has an unmappable component",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+#[derive(Debug)]
+struct WindowsAbsolutePath {
+    root: String,
+    components: Vec<String>,
+}
+
+#[cfg(windows)]
+fn windows_absolute_path(value: &str) -> std::io::Result<WindowsAbsolutePath> {
+    let value = windows_ordinary_absolute_target(value)?.replace('/', r"\");
+    if let Some(rest) = value.strip_prefix(r"\\") {
+        let mut parts = rest.split('\\');
+        let server = parts.next().unwrap_or_default();
+        let share = parts.next().unwrap_or_default();
+        if server.is_empty() || share.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Windows UNC reparse target lacks a server or share",
+            ));
+        }
+        let mut components = Vec::new();
+        windows_apply_relative_components(&mut components, &parts.collect::<Vec<_>>().join(r"\"))?;
+        return Ok(WindowsAbsolutePath {
+            root: format!(r"\\{server}\{share}"),
+            components,
+        });
+    }
+    let bytes = value.as_bytes();
+    if bytes.len() < 3 || !bytes[0].is_ascii_alphabetic() || bytes[1] != b':' || bytes[2] != b'\\' {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Windows reparse target is not an absolute drive or UNC path",
+        ));
+    }
+    let mut components = Vec::new();
+    windows_apply_relative_components(&mut components, &value[3..])?;
+    Ok(WindowsAbsolutePath {
+        root: value[..2].to_ascii_uppercase(),
+        components,
+    })
+}
+
+/// Normalize a decoded reparse target lexically beneath one authenticated
+/// Windows root. The complete result is returned as root-relative components
+/// before any target component is opened.
+#[cfg(windows)]
+pub(crate) fn windows_reparse_target_under_root(
+    root: &std::path::Path,
+    parent_components: &[std::ffi::OsString],
+    target: &WindowsReparseTarget,
+) -> std::io::Result<Vec<std::ffi::OsString>> {
+    let components = match target {
+        WindowsReparseTarget::Relative(target) => {
+            let mut components = parent_components
+                .iter()
+                .map(|component| {
+                    component.to_str().map(ToOwned::to_owned).ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "authenticated Windows parent component is not Unicode",
+                        )
+                    })
+                })
+                .collect::<std::io::Result<Vec<_>>>()?;
+            windows_apply_relative_components(&mut components, target)?;
+            components
+        }
+        WindowsReparseTarget::Absolute(target) => {
+            let root = root.to_str().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "authenticated Windows root is not Unicode",
+                )
+            })?;
+            let root = windows_absolute_path(root)?;
+            let target = windows_absolute_path(target)?;
+            if !root.root.eq_ignore_ascii_case(&target.root)
+                || target.components.len() < root.components.len()
+                || !target
+                    .components
+                    .iter()
+                    .zip(&root.components)
+                    .all(|(target, root)| target.eq_ignore_ascii_case(root))
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "Windows reparse target leaves the authenticated root",
+                ));
+            }
+            target.components[root.components.len()..].to_vec()
+        }
+    };
+    components
+        .into_iter()
+        .map(|component| Ok(std::ffi::OsString::from(component)))
+        .collect()
+}
+
+/// Read the target through the witnessed handle, reopen the same component
+/// without following it, object-match it, and require an identical second
+/// payload. Windows permits in-place reparse-data changes, so object identity
+/// alone is not a sufficient link-target witness.
+#[cfg(windows)]
+pub(crate) fn windows_read_verified_reparse_target(
+    parent: &std::fs::File,
+    component: &str,
+    witnessed: &std::fs::File,
+) -> std::io::Result<WindowsReparseTarget> {
+    use std::os::windows::fs::MetadataExt as _;
+    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+
+    let witnessed_object = object_identity_for_open_file(witnessed)
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    let first = windows_read_reparse_target(witnessed)?;
+    let reopened =
+        windows_open_relative_no_follow(parent, component, WindowsRelativeOpen::Metadata)?;
+    let metadata = reopened.metadata()?;
+    let reopened_object = object_identity_for_open_file(&reopened)
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    if reopened_object != witnessed_object
+        || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0
+    {
+        return Err(std::io::Error::other(
+            "Windows reparse object changed during target discovery",
+        ));
+    }
+    let second = windows_read_reparse_target(&reopened)?;
+    if first != second {
+        return Err(std::io::Error::other(
+            "Windows reparse target changed during discovery",
+        ));
+    }
+    Ok(first)
 }
 
 #[cfg(unix)]
@@ -4135,15 +4761,21 @@ mod tests {
         assert_eq!(session.current_cwd().unwrap(), b"/project");
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn runtime_vfs_chdir_authorizes_combined_symlink_tail_at_foreign_binding() {
+        #[cfg(unix)]
         use std::os::unix::fs::symlink;
+        #[cfg(windows)]
+        use std::os::windows::fs::symlink_dir;
 
         let temp = tempfile::tempdir().unwrap();
         let package_root = temp.path().join("node_modules/pkg");
         fs::create_dir_all(package_root.join("sub")).unwrap();
+        #[cfg(unix)]
         symlink("node_modules", temp.path().join("alias")).unwrap();
+        #[cfg(windows)]
+        symlink_dir("node_modules", temp.path().join("alias")).unwrap();
         let project_object = object_identity_for_host_path(temp.path()).unwrap();
         let root = root_principal("test-project");
         let package = package_principal("pkg");
@@ -5222,7 +5854,54 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn windows_reparse_traversal_is_refused_before_following_the_target() {
+    fn windows_reparse_targets_normalize_before_containment() {
+        use std::ffi::OsString;
+
+        let drive_root = std::path::Path::new(r"C:\Project\Root");
+        assert_eq!(
+            windows_reparse_target_under_root(
+                drive_root,
+                &[OsString::from("parent")],
+                &WindowsReparseTarget::Relative(r"..\real\file.js".into()),
+            )
+            .unwrap(),
+            [OsString::from("real"), OsString::from("file.js")]
+        );
+        assert_eq!(
+            windows_reparse_target_under_root(
+                drive_root,
+                &[],
+                &WindowsReparseTarget::Absolute(r"c:\project\root\REAL\file.js".into()),
+            )
+            .unwrap(),
+            [OsString::from("REAL"), OsString::from("file.js")]
+        );
+        assert!(windows_reparse_target_under_root(
+            drive_root,
+            &[],
+            &WindowsReparseTarget::Absolute(r"C:\Project\outside.js".into()),
+        )
+        .is_err());
+        assert_eq!(
+            windows_reparse_target_under_root(
+                std::path::Path::new(r"\\server\share\project"),
+                &[],
+                &WindowsReparseTarget::Absolute(r"\\SERVER\SHARE\project\src\main.js".into()),
+            )
+            .unwrap(),
+            [OsString::from("src"), OsString::from("main.js")]
+        );
+        assert!(windows_reparse_target_under_root(
+            drive_root,
+            &[],
+            &WindowsReparseTarget::Relative(r"..\escape.js".into()),
+        )
+        .is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_reparse_escape_is_refused_before_target_lookup() {
         let outer = tempfile::tempdir().unwrap();
         let root = outer.path().join("root");
         let target = outer.path().join("outside");
@@ -5253,10 +5932,13 @@ mod tests {
                 Ok(receipt(b"allow"))
             })
             .unwrap_err();
-        assert_eq!(error.reason(), VfsReason::UnmappableLink);
-        assert_eq!(error.code(), "ERR_IBEX_UNMAPPABLE_LINK");
-        assert_eq!(error.virtual_path(), Some("/project/alias/secret.js"));
-        assert_eq!(decisions, 1, "only requested authorization may run");
+        assert_eq!(error.reason(), VfsReason::OutsideMount);
+        assert_eq!(error.code(), "ERR_IBEX_OUTSIDE_MOUNT");
+        assert_eq!(error.virtual_path(), Some("/project/alias"));
+        assert_eq!(
+            decisions, 2,
+            "requested and link-object discovery authorization may run"
+        );
         assert!(!error.to_string().contains(outer.path().to_str().unwrap()));
     }
 
@@ -5383,16 +6065,29 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn contained_symlinks_reauthorize_targets_and_canonicalize_source_identity() {
+        #[cfg(unix)]
         use std::os::unix::fs::symlink;
+        #[cfg(windows)]
+        use std::os::windows::fs::{symlink_dir, symlink_file};
 
         let temp = tempfile::tempdir().unwrap();
         fs::create_dir_all(temp.path().join("real/dir")).unwrap();
         fs::write(temp.path().join("real/dir/file.js"), b"contained").unwrap();
+        #[cfg(unix)]
         symlink("real/dir", temp.path().join("alias")).unwrap();
+        #[cfg(windows)]
+        symlink_dir("real/dir", temp.path().join("alias")).unwrap();
+        #[cfg(unix)]
         symlink(
+            temp.path().join("real/dir/file.js"),
+            temp.path().join("absolute.js"),
+        )
+        .unwrap();
+        #[cfg(windows)]
+        symlink_file(
             temp.path().join("real/dir/file.js"),
             temp.path().join("absolute.js"),
         )
@@ -5491,12 +6186,44 @@ mod tests {
             absolute.source_label().as_str(),
             "file:///project/real/dir/file.js"
         );
+
+        #[cfg(windows)]
+        {
+            let junction = temp.path().join("junction");
+            let output = std::process::Command::new("cmd.exe")
+                .args(["/D", "/C", "mklink", "/J"])
+                .arg(&junction)
+                .arg(temp.path().join("real/dir"))
+                .output()
+                .expect("invoke contained Windows junction creation");
+            assert!(
+                output.status.success(),
+                "create contained Windows junction: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let through_junction = vfs
+                .read_authenticated(
+                    vfs.resolve_root_bytes(b"/project/junction/file.js", None)
+                        .unwrap(),
+                    SourceUse::Module,
+                    |_| Ok(receipt(b"junction")),
+                )
+                .unwrap();
+            assert_eq!(&*through_junction.bytes(), b"contained");
+            assert_eq!(
+                through_junction.source_label().as_str(),
+                "file:///project/real/dir/file.js"
+            );
+        }
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn symlink_escape_depth_and_link_object_races_fail_closed() {
+        #[cfg(unix)]
         use std::os::unix::fs::symlink;
+        #[cfg(windows)]
+        use std::os::windows::fs::symlink_file as symlink;
 
         let outside = tempfile::tempdir().unwrap();
         fs::write(outside.path().join("secret"), b"secret").unwrap();
@@ -5553,10 +6280,13 @@ mod tests {
         assert_eq!(error.reason(), VfsReason::StaleIdentity);
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn symlink_substitution_is_safe_at_every_authorization_boundary() {
+        #[cfg(unix)]
         use std::os::unix::fs::symlink;
+        #[cfg(windows)]
+        use std::os::windows::fs::symlink_file as symlink;
 
         for boundary in ["requested", "discovery", "commit", "repeat"] {
             let temp = tempfile::tempdir().unwrap();

@@ -190959,6 +190959,180 @@
       }
     },
     {
+      "id": "surface.loader.route.resolution.rust.bounded.windows.read.link.1q6mypq",
+      "classification": "effects",
+      "surface": {
+        "kind": "loader",
+        "name": "route:resolution:rust:bounded_windows_read_link"
+      },
+      "effects": [
+        {
+          "cap": "fs:list",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "requested",
+            "discovery"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "fs:read",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "commit",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "loader-referrer"
+      ],
+      "effectOwnerSource": "loader-referrer",
+      "gate": "loader-admission",
+      "effectMode": "conditional",
+      "logicalBranches": [
+        {
+          "id": "metadata-only",
+          "when": [
+            {
+              "fact": "loader.resolver.io",
+              "equals": "metadata-only"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "fs:list",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "requested",
+                "discovery"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "implicit-self",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "loader-referrer"
+          ],
+          "effectOwnerSource": "loader-referrer",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "module-resolution",
+              "source-read",
+              "module-admission"
+            ],
+            "recheckAt": [
+              "dynamic-import"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "object-identity-mismatch"
+            ]
+          }
+        },
+        {
+          "id": "symlink-target",
+          "when": [
+            {
+              "fact": "loader.resolver.io",
+              "equals": "symlink-target"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "fs:list",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "requested",
+                "discovery"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "implicit-self",
+                "session",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "fs:read",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "commit",
+                "repeat"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "implicit-self",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "loader-referrer"
+          ],
+          "effectOwnerSource": "loader-referrer",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "module-resolution",
+              "source-read",
+              "module-admission"
+            ],
+            "recheckAt": [
+              "dynamic-import"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "object-identity-mismatch"
+            ]
+          }
+        }
+      ],
+      "atomicityGroup": "surface.loader.route.resolution.rust.bounded.windows.read.link.1q6mypq.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "module-resolution",
+          "source-read",
+          "module-admission"
+        ],
+        "recheckAt": [
+          "dynamic-import"
+        ],
+        "cancelAt": [
+          "negative-generation-change",
+          "object-identity-mismatch"
+        ]
+      }
+    },
+    {
       "id": "surface.loader.route.resolution.rust.bounded.windows.symlink.metadata.0e4jke4",
       "classification": "effects",
       "surface": {

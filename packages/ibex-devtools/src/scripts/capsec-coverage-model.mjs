@@ -6727,6 +6727,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:bounded_unix_read_link",
     "route:resolution:rust:bounded_unix_symlink_metadata",
     "route:resolution:rust:bounded_windows_parent",
+    "route:resolution:rust:bounded_windows_read_link",
     "route:resolution:rust:bounded_windows_symlink_metadata",
     "route:resolution:rust:cache_tag",
     "route:resolution:rust:canonicalize",
@@ -10488,7 +10489,7 @@ function loaderClassification(surface) {
       });
     }
     if (
-      /^(?:bounded_unix_read_link|bounded_unix_symlink_metadata|bounded_windows_symlink_metadata|canonicalize|resolve_direct_file_meta_authenticated|resolve_meta_from_authenticated_bound_package|resolve_meta_from_authenticated_bound_package_typed)$/u.test(
+      /^(?:bounded_unix_read_link|bounded_unix_symlink_metadata|bounded_windows_read_link|bounded_windows_symlink_metadata|canonicalize|resolve_direct_file_meta_authenticated|resolve_meta_from_authenticated_bound_package|resolve_meta_from_authenticated_bound_package_typed)$/u.test(
         functionName,
       )
     ) {

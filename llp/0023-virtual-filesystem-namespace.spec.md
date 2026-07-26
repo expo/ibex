@@ -5,7 +5,7 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
-**Revised:** 2026-07-25 (Windows now performs ordinary non-reparse VFS and armed-resolver traversal relative to retained directory handles, object-matches every directory transition, retains exact final read objects through commit/repeat, and runs the authenticated module graph; root and nested reparse transitions remain explicitly refused pending contained-target decoding and authorization)
+**Revised:** 2026-07-25 (Windows now decodes contained Microsoft symlink and mount-point reparses through retained no-follow handles, re-reads mutable target data from the same object, authorizes the complete target-plus-tail before lookup, and restarts from the retained root; unsupported providers, outside targets, the separate Windows alias-canonicalization gap, and the typed native filesystem backend keep the target unadvertised)
 **Revised:** 2026-07-25 (corrects armed sync/async `readlink` so stored link bytes require an `fs:read` commit before the first `readlinkat` and a repeat before every buffer-growth retry; ambient `fs:list` remains limited to link/target traversal and cannot disclose the stored value)
 **Revised:** 2026-07-17 (LLP 0029 compiled mount profile adds typed `app`/`work` roots, metadata-only `/app`, optional authenticated `/work`, the `ibex:cwd:unset` sentinel, and stable compiled path errors in §1.3); 2026-07-17 (LLP 0029 carrier v2 changes only physical engine binding and preserves original-module SourceId provenance); 2026-07-15 (ENG-25064 landed runtime publication and admission of digest-bound per-original-module prepared graphs); 2026-07-15 (ENG-25065 scoped development module incarnations by execution generation without changing SourceId); 2026-07-15 (ENG-25064 landed the digest-bound per-original-module carrier manifest); 2026-07-15 (ENG-25058 obligation-ledger reconciliation); 2026-07-12
 (round-8 dual-model review, **terminal** — both NOT READY,
@@ -1999,20 +1999,38 @@ same retained parent and must identify the witnessed object before it becomes
 the next traversal root. Whole-file reads retain the exact reopened leaf through
 commit, repeat, and byte acquisition. Cwd retention applies the same transition
 rules and reopens/revalidates the authenticated root pathname before later use.
-A junction root, nested reparse transition, leaf replacement, or post-startup
-root replacement therefore fails closed without disclosing the host path.
 
-The armed Oxc filesystem uses the same retained-boundary model for ordinary
-Windows files and directories. It captures package-manifest bytes and explicit
-absences through the typed VFS, translates verbatim drive/UNC spellings only at
-the Oxc compatibility boundary, and immediately restores canonical host
-identity after resolution. This is sufficient for authenticated entry,
-relative, package-export, and package-import resolution and removes the former
-direct-artifact Windows exception from the closed module-runner proof. It does
-not claim contained reparse traversal: a reparse point is observed without
-following its target and resolution refuses before target lookup until Windows
-target-payload decoding, lexical containment, target authorization, and the
-same root-relative restart used by Unix are implemented.
+A nested Microsoft symlink or mount-point reparse is a staged transition rather
+than an OS-followed pathname. The VFS reads `FSCTL_GET_REPARSE_POINT` from the
+witnessed no-follow handle, accepts only the Microsoft symlink and mount-point
+layouts, reopens and object-matches the same component, and requires an
+identical second payload because Windows permits reparse data to change in
+place. It converts NT/verbatim drive and UNC substitute names to ordinary
+Windows spelling, normalizes relative or absolute targets beneath the
+authenticated root, appends the complete pending tail, authorizes that complete
+virtual target before target lookup, and restarts from the retained root. The
+transition depth is bounded at 32. A reparse `/project` root, unsupported
+provider tag, malformed or changing payload, outside target, leaf replacement,
+or post-startup root replacement fails closed without disclosing the host path.
+
+The armed Oxc filesystem uses the same retained-boundary and staged-reparse
+model for Windows files and directories. It captures package-manifest bytes and
+explicit absences through the typed VFS, translates verbatim drive/UNC spellings
+only at the Oxc compatibility boundary, and immediately restores canonical host
+identity after resolution. `read_link` returns only a decoded Microsoft target
+whose complete destination has already passed boundary and denied-subtree
+checks; subsequent traversal independently repeats target-plus-tail
+normalization and authorization before lookup. This makes authenticated entry,
+relative, package-export, package-import, and contained symlink/junction
+resolution executable on Windows and removes the former direct-artifact
+Windows exception from the closed module-runner proof.
+
+This is not Windows target promotion. Unsupported reparse providers remain
+closed, and the filesystem still lacks the platform alias canonicalizer needed
+to unify every Windows case, Unicode, DOS-device, and short-name spelling.
+Installed Windows `node:fs` and native filesystem effects also still lack the
+typed retained-object backend, while exact-target public evidence remains
+incomplete. The target therefore remains unadvertised.
 
 The contract this document requires:
 

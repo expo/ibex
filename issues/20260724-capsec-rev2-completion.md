@@ -1410,9 +1410,49 @@ ticket closes.
   installed Windows filesystem effects. Important enforcement mechanisms are
   about 98% complete and the overall requested task is about 89% complete.
 
+### 2026-07-25 — contained Windows reparse transitions
+
+- Implemented contained Microsoft symlink and mount-point traversal without
+  allowing the OS pathname parser to follow reparses. `FSCTL_GET_REPARSE_POINT`
+  reads the target from the witnessed no-follow handle; only the Microsoft
+  symlink and mount-point layouts are accepted. The same component is reopened
+  without following it, object-matched, and read again, and both decoded
+  payloads must agree because Windows permits in-place reparse-data mutation.
+- NT-object-manager and verbatim drive/UNC substitute names are converted to
+  ordinary spelling only for parsing. Relative and absolute targets normalize
+  beneath the authenticated root, the complete pending tail is appended and
+  authorized before target lookup, and traversal restarts from the retained
+  root. Unsupported providers, malformed/changing payloads, outside targets,
+  denied foreign-principal subtrees, and depth beyond the fixed bound fail
+  closed. Successful VFS reads and Oxc resolutions expose the canonical target
+  namespace and source identity rather than the alias spelling.
+- The exact physical Windows patch passes 30 VFS tests and 16 authenticated
+  resolver tests. Coverage now contains 7,643 edges and 15,286 target cells.
+  The refreshed Windows catalog is 23,471 required / 2,382 fully executable /
+  3,106 internally verified / 17,983 unresolved; Apple is 23,816 / 2,760 /
+  3,120 / 17,936. The new bounded `read_link` route adds twelve honest
+  unresolved exact-target scenarios and no inferred execution credit.
+- The refreshed physical Windows closed batch passes all 680 target-local
+  recipes with zero failures and zero typed or legacy decisions. Its 4,123,880
+  evidence bytes have raw SHA-256
+  `ddbbe68310b3392e37f1e36df74f19cb4d1f9bb635c8aebaa530ac06bf7bc042`.
+  The independent validator re-derived the exact 680-fixture command group and
+  accepted it with aggregate digest
+  `sha256-jWnJkzTPRZJqgReQ219-9m450PZkGYo8VNdzrRzXcNU` against catalog digest
+  `sha256-mz0t5Oigl3QgPIMznYIyB-wCp11Sbmo5SkFl9ybztHM`.
+- Hard part: a retained Windows object identity does not freeze its reparse
+  payload, and the kernel exposes target names in several NT/verbatim/ordinary
+  spellings. The transition therefore needs both object matching and an
+  identical second payload, followed by one lexical target-plus-tail check
+  before any target component is opened. Windows remains deliberately
+  unadvertised: case/Unicode/DOS-device/short-name alias canonicalization, the
+  typed retained-object backend for installed filesystem effects, and 17,983
+  public-evidence rows remain unresolved. Important enforcement mechanisms are
+  about 99% complete and the overall requested task is about 90% complete.
+
 ## Next milestone
 
-Checkpoint the now-verified retained Windows namespace/resolver work, then
-implement contained reparse transitions or reduce the separate 17,971-row
-exact-target public-evidence gap without advertising Windows before its typed
-filesystem backend and complete target evidence are genuinely ready.
+Checkpoint the contained Windows reparse work, then implement the separate
+Windows spelling-alias canonicalizer or reduce the 17,983-row exact-target
+public-evidence gap without advertising Windows before its typed filesystem
+backend and complete target evidence are genuinely ready.
