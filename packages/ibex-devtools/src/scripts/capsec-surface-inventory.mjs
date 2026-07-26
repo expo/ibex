@@ -14650,7 +14650,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       patchIdentityAuthorityDigest:
         "sha256-6e939803e5b0b5605a886debe46f3e3378ad5b34c1c7528a75954bba48366930",
       patchStackDigest:
-        "sha256-08e6330d9fabe98b6915ed2b4bc042e65e1005b2efa3676e79eaff21d930e8c1",
+        "sha256-cd3dd1da3755030de039f6c08d4b9116fd85da6a46aace96706e0fa1f1aa0329",
       sourceBuildAuthorityDigests: {
         "scripts/build-hermes-linux.sh":
           "sha256-4f6a4476f40096067fb0ed6c93f8f9bb8cf05a3e9f3f6edb0efe5915d7e28988",
@@ -14685,7 +14685,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       patchIdentityAuthorityDigest:
         "sha256-6e939803e5b0b5605a886debe46f3e3378ad5b34c1c7528a75954bba48366930",
       patchStackDigest:
-        "sha256-08e6330d9fabe98b6915ed2b4bc042e65e1005b2efa3676e79eaff21d930e8c1",
+        "sha256-cd3dd1da3755030de039f6c08d4b9116fd85da6a46aace96706e0fa1f1aa0329",
       sourceBuildAuthorityDigest:
         "sha256-a0241603b740cdd9b2747a53f6c97803192b60c7f8579b8b2f661dd048c7b1e4",
       sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",

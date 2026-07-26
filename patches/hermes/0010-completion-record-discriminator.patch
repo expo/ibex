@@ -1,3 +1,18 @@
+# LLP 0024 Hermes patch 0010 — completion-record discriminator
+# Class: B (one virtual accessor, one boolean field, two one-line insertion
+#         points on the existing evaluate paths)
+# @ref LLP 0024#6-evaluation-outcomes-and-the-abi
+#
+# The VM's CallResult for a program evaluation carries a distinct Empty
+# completion, but JSI collapses it into `undefined` while converting the
+# result, so an embedder cannot tell a declaration/empty completion from a
+# program whose value IS `undefined` without a syntactic last-expression
+# heuristic. This patch records `res->isEmpty()` at both evaluation sites
+# (source and prepared bytecode) and exposes it through an owner-thread
+# `lastEvaluationResultWasEmpty()` accessor plus the
+# `HERMES_HAS_COMPLETION_RECORD` feature-test macro, so structured evaluation
+# preserves Script completion semantics.
+#
 diff --git a/API/hermes/hermes.cpp b/API/hermes/hermes.cpp
 index 460434d10c35790247a10250d46a275623ea2795..96808afcc1940ba8141867447889086563ae22fc 100644
 --- a/API/hermes/hermes.cpp
