@@ -6,7 +6,7 @@
 //! source text.
 //!
 //! @ref LLP 0040#verification
-//! Conformance requirements are governed by Exact LLP 0402.
+//! Conformance requirements are governed by Exact LLP 0405.
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::ptr;
