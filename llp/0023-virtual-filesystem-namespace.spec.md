@@ -5,6 +5,7 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-25 (armed Windows synchronous readdir now retains and enumerates the exact directory handle, authorizes requested/discovery `fs:list` plus repeat before each disclosed member, emits only the long-name coordinate, and has no armed pathname fallback; physical replacement-race and public denial tests pass while descriptors/mutations/async routes remain unpromoted)
 **Revised:** 2026-07-25 (armed Windows synchronous lstat now stops contained traversal at the final reparse object, reopens and object-matches it through the retained parent, authorizes requested/discovery/repeat `fs:list` with `no-follow-final`, and has no armed pathname fallback; physical reparse and replacement-race tests pass while enumeration/descriptors/mutations/async routes remain unpromoted)
 **Revised:** 2026-07-25 (armed Windows synchronous stat now opens file targets for metadata only and retains them through requested/discovery/repeat `fs:list`; it also represents the authenticated mount root with no fabricated parent, serializes after repeat, and has no armed pathname fallback; enumeration, descriptors, mutations, and async routes remain unpromoted)
 **Revised:** 2026-07-25 (armed Windows synchronous whole-file reads now enter the cross-platform retained-object VFS directly with frame-derived constrained principals, authorizing requested/discovery list and commit/repeat read without any armed legacy fallback; async and other installed Windows filesystem effects remain unpromoted)
@@ -2072,35 +2073,43 @@ refuses non-ASCII and tilde spellings, refuses case-sensitive traversal
 directories, and stages/refuses arbitrary 8.3 selections through the retained
 parent entry.
 
-Armed Windows synchronous whole-file read, stat, and lstat are the first three
-installed filesystem effects to consume that retained-object backend directly.
-The engine passes its native runtime generation and frame-derived canonical
-constrained-principal stack to private bridges; JavaScript supplies only
-virtual path syntax and an optional typed bearer. `RuntimeVfsSession` resolves
-that syntax. `VirtualFileSystem::read_authenticated` retains the selected
-parent and leaf through requested/discovery `fs:list`, commit/repeat `fs:read`,
-and byte acquisition. `VirtualFileSystem::stat_authenticated` opens the leaf
-for metadata only and retains it through requested/discovery/repeat `fs:list`,
-with Repeat immediately before serialization. The list lifecycle has no
-Commit observation. Stat also handles the authenticated mount root directly:
-its final retained object has no in-namespace parent, and the authorization
-resource represents that fact instead of fabricating a root-walk object.
+Armed Windows synchronous whole-file read, stat, lstat, and readdir are the
+first four installed filesystem effects to consume that retained-object
+backend directly. The engine passes its native runtime generation and
+frame-derived canonical constrained-principal stack to private bridges;
+JavaScript supplies only virtual path syntax and an optional typed bearer.
+`RuntimeVfsSession` resolves that syntax.
+`VirtualFileSystem::read_authenticated` retains the selected parent and leaf
+through requested/discovery `fs:list`, commit/repeat `fs:read`, and byte
+acquisition. `VirtualFileSystem::stat_authenticated` opens the leaf for
+metadata only and retains it through requested/discovery/repeat `fs:list`, with
+Repeat immediately before serialization. The list lifecycle has no Commit
+observation. Stat also handles the authenticated mount root directly: its final
+retained object has no in-namespace parent, and the authorization resource
+represents that fact instead of fabricating a root-walk object.
 `VirtualFileSystem::lstat_authenticated` follows contained ancestor
 transitions but stops at a final reparse object, then reopens that entry
 no-follow through the retained parent and object-matches it before
 requested/discovery/repeat `fs:list` metadata disclosure. Its occurrence uses
-`no-follow-final`. The retained mount root is structural session state, so
-these Windows routes do not borrow the POSIX adapter's extra root-walk
-observations. Every typed error returns directly through the Node-shaped VFS
-error mapper; armed execution cannot reopen the path through the legacy
-oracle.
+`no-follow-final`. `VirtualFileSystem::readdir_authenticated` reopens a nested
+final directory relative to its retained parent with list access and without
+delete sharing, object-matches it, and enumerates `FileIdExtdBothDirectoryInformation`
+on the retained handle. It emits only each entry's long-name coordinate,
+validates but never emits its short name, preserves malformed UTF-16 as an
+explicit byte marker, sorts deterministically, and performs a Repeat
+authorization immediately before each name joins the returned listing.
+The retained mount root is structural session state, so these Windows routes
+do not borrow the POSIX adapter's extra root-walk observations. Synthetic `/`
+lists only the VFS mount names and has no filesystem observations. Every typed
+error returns directly through the Node-shaped VFS error mapper; armed
+execution cannot reopen the path through the legacy oracle.
 
 The synchronous operation inherits the VFS bounded whole-file read limit and
 cannot interleave JavaScript-driven revocation while native byte acquisition is
 in progress. That reasoning does not promote worker-backed
 `__exactFsReadFileAsync`: it still needs an operation lease with generation
-rechecks between observable chunks. Descriptor operations, enumeration,
-mutation, and all other installed Windows filesystem routes remain legacy or
+rechecks between observable chunks. Descriptor operations, mutation, and all
+other installed Windows filesystem routes remain legacy or
 closed as their individual contracts require, and exact-target public evidence
 remains incomplete. The target therefore remains unadvertised.
 

@@ -1972,10 +1972,67 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             runtime, ex_host_fs_lstat(path.backing.c_str()), "lstat", path.virtualPath);
       });
   rt.global().setProperty(rt, "__exactLstat", std::move(lstatFn));
-  rt.global().setProperty(
+  auto readdirFn = facebook::jsi::Function::createFromHostFunction(
       rt,
-      "__exactReaddir",
-      unaryPathJsonFunction(rt, "__exactReaddir", "scandir", ex_host_fs_readdir));
+      facebook::jsi::PropNameID::forAscii(rt, "__exactReaddir"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactReaddir: path required");
+        }
+        auto input = pathArg(runtime, args[0]);
+        if (ex_host_is_armed() == 1) {
+          std::string presentedHandle;
+          if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+            if (!args[1].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactReaddir: typed handleId must be a string");
+            }
+            presentedHandle = args[1].asString(runtime).utf8(runtime);
+          }
+          auto principals = exactCollectTypedPrincipalStack();
+          uint8_t* json = nullptr;
+          uint64_t length = 0;
+          int32_t hostError = 0;
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Armed Windows enumeration discloses names only from the retained directory and repeats authority for every member without pathname fallback.
+          uint32_t status = ibex_private_vfs_readdir_typed(
+              exactCurrentRuntimeNonce(),
+              currentPrincipalId(),
+              principals.data(),
+              principals.size(),
+              reinterpret_cast<const uint8_t*>(input.data()),
+              input.size(),
+              presentedHandle.empty()
+                  ? nullptr
+                  : reinterpret_cast<const uint8_t*>(presentedHandle.data()),
+              presentedHandle.size(),
+              &json,
+              &length,
+              &hostError);
+          if (status != 0) {
+            if (json != nullptr) ex_host_free_buffer(json, length);
+            exactThrowVfsError(runtime, status, hostError, "scandir", input);
+          }
+          std::string payload;
+          if (json != nullptr && length != 0) {
+            payload.assign(reinterpret_cast<const char*>(json), length);
+          }
+          if (json != nullptr) ex_host_free_buffer(json, length);
+          return facebook::jsi::String::createFromUtf8(runtime, payload);
+        }
+        auto path = exactResolveVfsPath(runtime, input);
+        requireReadCapability(runtime, path.virtualPath);
+        return jsonStringResult(
+            runtime,
+            ex_host_fs_readdir(path.backing.c_str()),
+            "scandir",
+            path.virtualPath);
+      });
+  rt.global().setProperty(rt, "__exactReaddir", std::move(readdirFn));
 
   auto mkdirFn = facebook::jsi::Function::createFromHostFunction(
       rt,

@@ -1717,6 +1717,28 @@ const nativeProjectReaddirTemplate = () =>
     ],
     requiredSourceArity: 2,
     setup: [],
+    // Windows retains the authenticated mount as session structure and uses
+    // one Requested/Discovery lifecycle for the selected directory, followed
+    // by one Repeat for the harness's single disclosed member.
+    // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+    expectedDecisionCountsByTarget: {
+      "x86_64-pc-windows-msvc": {
+        allow: 3,
+        deny: 1,
+        malformed: 3,
+        "missing-attribution": 3,
+        "wrong-principal": 3,
+      },
+    },
+    expectedStagesByTarget: {
+      "x86_64-pc-windows-msvc": {
+        allow: ["requested", "discovery", "repeat"],
+        deny: ["requested"],
+        malformed: ["requested", "discovery", "repeat"],
+        "missing-attribution": ["requested", "discovery", "repeat"],
+        "wrong-principal": ["requested", "discovery", "repeat"],
+      },
+    },
   });
 // Structural lockdown eagerly invokes these installers and then deletes the
 // globals before user code can run. Their source registrations are real, but a
@@ -4040,10 +4062,15 @@ function unsupportedWindowsTypedPublicEffectReason({
   ) {
     return null;
   }
-  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Synchronous whole-file read, stat, and lstat are the completed exceptions.
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Synchronous whole-file read, stat, lstat, and direct directory enumeration are the completed exceptions.
   if (plan.actionIds.some((actionId) => actionId.startsWith("fs:"))) {
     if (
-      ["__exactLstat", "__exactReadFile", "__exactStat"].includes(
+      [
+        "__exactLstat",
+        "__exactReadFile",
+        "__exactReaddir",
+        "__exactStat",
+      ].includes(
         publicSurfaceProbe?.invocation?.globalName,
       )
     ) {

@@ -1169,6 +1169,20 @@ extern "C" uint32_t ibex_private_vfs_lstat_typed(
     uint8_t** out_json,
     uint64_t* out_len,
     int32_t* out_errno);
+// Private retained-object directory enumeration. Output is explicit-length
+// JSON; every member is authorized at Repeat before disclosure.
+extern "C" uint32_t ibex_private_vfs_readdir_typed(
+    uint64_t runtime_nonce,
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    const uint8_t* input,
+    uint64_t input_len,
+    const uint8_t* presented_handle_id,
+    uint64_t presented_handle_id_len,
+    uint8_t** out_json,
+    uint64_t* out_len,
+    int32_t* out_errno);
 // Private native adapter: project an already-authenticated canonical backing
 // identity through one exact runtime VFS session. Success returns only an
 // explicit-length virtual spelling; the caller frees it with

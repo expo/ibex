@@ -1658,12 +1658,61 @@ ticket closes.
   mechanisms remain about 99% complete and the overall requested task remains
   about 90% complete.
 
+### 2026-07-25 — retained-object Windows directory enumeration
+
+- Promoted armed synchronous `__exactReaddir` through a private typed bridge
+  carrying the engine-derived runtime generation, actor, canonical constrained
+  principals, and strict optional bearer. Armed calls return VFS errors
+  directly and never reach `exactResolveVfsPath`, `requireReadCapability`, or
+  `ex_host_fs_readdir`.
+- Added `VirtualFileSystem::readdir_authenticated`. The authenticated mount
+  root uses its retained object with no fabricated parent; a nested final
+  directory is reopened relative to its retained parent with list access and
+  without delete sharing, then object- and case-coordinate-matched before use.
+  Windows enumeration queries `FileIdExtdBothDirectoryInformation` through
+  that exact handle, emits only the long-name coordinate, validates but never
+  emits its 8.3 short-name evidence, represents malformed UTF-16 explicitly,
+  and returns a deterministic raw-name sort.
+- Enumeration authorizes Requested before lookup, Discovery after retaining
+  the exact directory, and Repeat once per member immediately before that name
+  enters the returned listing. Physical Windows VFS tests prove the exact
+  Requested/Discovery/Repeat/Repeat trace for two sorted entries, stale-identity
+  refusal when the directory is replaced after Discovery and before any
+  Repeat, and the synthetic `/` mount listing with zero filesystem decisions.
+- Physical public Windows tests prove two-entry results with the same exact
+  four-stage trace and zero legacy decisions. A requested-stage denial returns
+  EACCES, emits one `fs:list` decision, performs no legacy authorization, and
+  leaves fixture bytes unchanged. The production observer-feature library
+  build passes together with all three focused VFS tests and both public
+  engine tests.
+- Five more exact-target Windows recipes are executable. The catalog is 23,495
+  required / 2,402 fully executable / 3,122 internally verified / 17,971
+  unresolved with digest
+  `sha256-K5BnQ4OeVvDFw62RhtvCQtDkfSvuO1FH5emlyIqWlKs`;
+  `public-surface-filesystem-not-typed-on-target` falls from 167 to 162. The
+  recipe suite passes 88 tests with 109,898 assertions, and vendored
+  regeneration succeeds.
+- The clean M4 verifier independently reproduces vendored generation, the same
+  88 recipe tests and 109,898 assertions, `ref-check`, and the
+  observer-feature library build. It also passes the retained Unix final-link
+  test and shared typed stat/lstat ABI test; a checksum dry run confirms that
+  every source and generated file in this checkpoint matches this worktree
+  byte for byte.
+- Hard part: a directory member name is content disclosed by the retained
+  directory object; it is not authorization to open the named child. The
+  implementation therefore keeps the directory object fixed and repeats
+  `fs:list` on that same occurrence before each name becomes observable,
+  without reopening child pathnames. Windows long and short names are two
+  coordinates for one entry, so the authenticated long name is the only
+  result while the short name remains refusal evidence. Important enforcement
+  mechanisms remain about 99% complete and the overall requested task remains
+  about 90% complete.
+
 ## Next milestone
 
-Continue the installed Windows filesystem audit with retained-object directory
-enumeration. Require repeat
-authorization before every disclosed entry, preserve the digest-bound
-case/short-name coordinate, and do not silently reuse pathname enumeration.
-Keep worker-backed read residual until it can recheck authority generation
-between chunks, and do not advertise Windows while other installed filesystem
-routes and 17,976 exact-target public-evidence rows remain unresolved.
+Continue the installed Windows filesystem audit with retained descriptor
+operations, starting with metadata and disclosure routes that can preserve
+owner, generation, bearer, and retained-handle identity end to end. Keep
+worker-backed read residual until it can recheck authority generation between
+chunks, and do not advertise Windows while other installed filesystem routes
+and 17,971 exact-target public-evidence rows remain unresolved.

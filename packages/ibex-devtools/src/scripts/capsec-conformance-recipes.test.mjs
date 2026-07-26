@@ -446,9 +446,9 @@ describe("exact-target CapSec executable recipes", () => {
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_397);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_402);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_976);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_971);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -513,7 +513,7 @@ describe("exact-target CapSec executable recipes", () => {
     // The callable Windows filesystem surface remains untyped where it still
     // uses the legacy path oracle. POSIX-only globals instead receive one
     // exact absence fixture and are not counted as ambiguous Windows routes.
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(167);
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(162);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
@@ -2713,6 +2713,25 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.scenario === "deny" ? 1 : 9,
       );
       expect(invocation.requiredFloor).toHaveLength(1);
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+
+    const windowsRows = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactReaddir",
+    );
+    expect(windowsRows).toHaveLength(5);
+    for (const recipe of windowsRows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "discovery", "repeat"],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 3,
+      );
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
     }

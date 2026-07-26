@@ -2650,6 +2650,164 @@ pub(crate) unsafe extern "C" fn private_vfs_lstat_typed(
     }
 }
 
+/// Enumerate one virtual directory through its exact retained object. The VFS
+/// performs one `fs:list` Repeat for every member before that member enters the
+/// returned JSON array.
+///
+/// This private native-adapter bridge cannot fall through to
+/// [`ex_host_fs_readdir`] while armed.
+/// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+/// @ref LLP 0023#21-staged-authorization-identity
+///
+/// # Safety
+///
+/// The pointer requirements are identical to [`private_vfs_stat_typed`].
+#[export_name = "ibex_private_vfs_readdir_typed"]
+pub(crate) unsafe extern "C" fn private_vfs_readdir_typed(
+    runtime_nonce: u64,
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    input: *const u8,
+    input_len: u64,
+    presented_handle_id: *const u8,
+    presented_handle_id_len: u64,
+    out_json: *mut *mut u8,
+    out_len: *mut u64,
+    out_errno: *mut i32,
+) -> u32 {
+    use base64::Engine as _;
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::{FollowMode, NonEmptyString};
+
+    const OPERATION: &str = "readdir";
+    if !out_errno.is_null() {
+        unsafe { *out_errno = 0 };
+    }
+    if let Err(error) = unsafe { initialize_vfs_output(out_json, out_len) } {
+        return vfs_error_result(&error, out_errno);
+    }
+    let session = match runtime_vfs_session(runtime_nonce, OPERATION) {
+        Ok(session) => session,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    if module_ids.is_null() || module_ids_len == 0 || module_ids_len > 257 {
+        return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
+    }
+    let input = match unsafe { vfs_input_bytes(input, input_len, OPERATION) } {
+        Ok(input) => input,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let presented = match unsafe {
+        vfs_input_bytes(
+            presented_handle_id,
+            presented_handle_id_len,
+            "readdir-handle",
+        )
+    } {
+        Ok(bytes) if bytes.is_empty() => Vec::new(),
+        Ok(bytes) => {
+            let value = match String::from_utf8(bytes)
+                .ok()
+                .and_then(|value| NonEmptyString::new(value).ok())
+            {
+                Some(value) => value,
+                None => return EX_HOST_VFS_RESULT_MALFORMED_INPUT,
+            };
+            vec![value]
+        }
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    let namespace = match session.resolve_namespace(&input) {
+        Ok(namespace) => namespace,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let vfs = match session.virtual_file_system() {
+        Ok(vfs) => vfs,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let result = with_host(
+        |host| {
+            let constrained_principals =
+                typed_principals_for_ids(host, module_ids).ok_or_else(|| {
+                    crate::vfs::VfsError::policy_denied(
+                        OPERATION,
+                        Arc::from(namespace.virtual_path()),
+                        "typed-readdir-principal-refused",
+                    )
+                })?;
+            vfs.readdir_authenticated(namespace, |authorization| {
+                let path = Arc::<str>::from(authorization.namespace().virtual_path());
+                let result = host
+                    .authorize_vfs_retained_path_stage(
+                        vfs,
+                        &module_id.to_string(),
+                        constrained_principals.clone(),
+                        "fs-readdir",
+                        "surface.native.op.exactreaddir.0tg30vk",
+                        authorization,
+                        FollowMode::FollowFinal,
+                        "fs:list",
+                        presented.clone(),
+                    )
+                    .map_err(|_| {
+                        crate::vfs::VfsError::policy_denied(
+                            OPERATION,
+                            path.clone(),
+                            "typed-readdir-evaluation-refused",
+                        )
+                    })?;
+                let receipt =
+                    crate::vfs::AuthorizationReceipt::from_structured_decision(&result.evidence)?;
+                match result.decision.outcome {
+                    DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence => {
+                        Ok(receipt)
+                    }
+                    DecisionOutcome::Deny | DecisionOutcome::RefuseArming => {
+                        Err(crate::vfs::VfsError::policy_denied(
+                            OPERATION,
+                            path,
+                            Arc::<str>::from(receipt.evidence_digest().as_str()),
+                        ))
+                    }
+                }
+            })
+        },
+        Err(crate::vfs::VfsError::stale_session(OPERATION, None)),
+    );
+    match result {
+        Ok(listing) => {
+            let entries = listing
+                .into_entries()
+                .into_iter()
+                .map(|entry| match entry {
+                    crate::vfs::AuthenticatedDirectoryEntry::Utf8(name) => {
+                        serde_json::Value::String(name)
+                    }
+                    crate::vfs::AuthenticatedDirectoryEntry::MalformedBytes(bytes) => {
+                        serde_json::json!({
+                            "__ibexMalformedPathEntry": true,
+                            "encoding": "base64url",
+                            "value": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes),
+                        })
+                    }
+                })
+                .collect::<Vec<_>>();
+            match serde_json::to_vec(&entries) {
+                Ok(json) => {
+                    unsafe { write_vfs_output(json, out_json, out_len) };
+                    EX_HOST_VFS_RESULT_OK
+                }
+                Err(_) => {
+                    vfs_error_result(&crate::vfs::VfsError::malformed("readdir-json"), out_errno)
+                }
+            }
+        }
+        Err(error) => vfs_error_result(&error, out_errno),
+    }
+}
+
 #[derive(Clone, Copy)]
 enum TypedVfsMetadataKind {
     Lstat,

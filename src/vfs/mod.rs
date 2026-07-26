@@ -2282,6 +2282,7 @@ impl CommittedPath {
 
 #[derive(Clone, Copy)]
 enum RetainedFinalAccess {
+    Directory,
     LinkMetadata,
     Metadata,
     Readable,
@@ -2733,6 +2734,28 @@ impl AuthenticatedStat {
     }
 }
 
+/// One directory member disclosed from an exact retained directory object.
+/// Invalid native name bytes remain distinguishable instead of passing through
+/// a lossy string conversion.
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum AuthenticatedDirectoryEntry {
+    Utf8(String),
+    MalformedBytes(Vec<u8>),
+}
+
+/// A directory listing whose every member passed a Repeat authorization while
+/// the same directory object remained retained.
+#[derive(Debug)]
+pub(crate) struct AuthenticatedDirectoryListing {
+    entries: Vec<AuthenticatedDirectoryEntry>,
+}
+
+impl AuthenticatedDirectoryListing {
+    pub(crate) fn into_entries(self) -> Vec<AuthenticatedDirectoryEntry> {
+        self.entries
+    }
+}
+
 impl AuthenticatedMetadata {
     pub(crate) fn source_id(&self) -> &SourceId {
         &self.source_id
@@ -2961,6 +2984,91 @@ impl VirtualFileSystem {
         F: for<'a> FnMut(RetainedPathAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
     {
         self.retained_metadata_authenticated(namespace, authorize, false, "lstat")
+    }
+
+    /// Enumerate the exact retained directory object. The `fs:list` lifecycle
+    /// has no Commit stage: Requested precedes lookup, Discovery binds the
+    /// directory object, and Repeat runs once for every member immediately
+    /// before that member enters the returned listing.
+    ///
+    /// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+    /// @ref LLP 0023#21-staged-authorization-identity
+    pub(crate) fn readdir_authenticated<F>(
+        &self,
+        namespace: NamespacePath,
+        mut authorize: F,
+    ) -> Result<AuthenticatedDirectoryListing, VfsError>
+    where
+        F: for<'a> FnMut(RetainedPathAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
+    {
+        const OPERATION: &str = "readdir";
+        self.ensure_path_session(&namespace, OPERATION)?;
+        if namespace.is_synthetic_root() {
+            return Ok(AuthenticatedDirectoryListing {
+                entries: self
+                    .mount_names()
+                    .map(|name| AuthenticatedDirectoryEntry::Utf8(name.to_owned()))
+                    .collect(),
+            });
+        }
+        let _requested = authorize(RetainedPathAuthorization::requested(&namespace))?;
+
+        #[cfg(windows)]
+        {
+            if namespace.virtual_components.len() == 1 {
+                let retained = self
+                    .open_authenticated_project_root(OPERATION, namespace.virtual_path.clone())?;
+                let object = object_identity_for_retained_file(&retained).map_err(|_| {
+                    VfsError::stale_identity(OPERATION, namespace.virtual_path.clone())
+                })?;
+                let retained_handle_id =
+                    next_vfs_identity(OPERATION, Some(namespace.virtual_path.clone()))?;
+                let _discovery = authorize(RetainedPathAuthorization::discovery(
+                    &namespace,
+                    None,
+                    object.clone(),
+                ))?;
+                return enumerate_retained_windows_directory(
+                    &namespace,
+                    None,
+                    object,
+                    retained_handle_id,
+                    &retained,
+                    &mut authorize,
+                );
+            }
+
+            let (discovered, _traversal_decisions) = self.discover_contained(
+                namespace,
+                &mut |authorization| {
+                    authorize(RetainedPathAuthorization::from_read(&authorization))
+                },
+                true,
+            )?;
+            let _discovery = authorize(RetainedPathAuthorization::from_read(
+                &ReadAuthorization::Discovery(&discovered),
+            ))?;
+            let committed = self.commit_directory_no_follow(discovered)?;
+            let parent_object = committed.discovered().parent_object().clone();
+            return enumerate_retained_windows_directory(
+                committed.namespace(),
+                Some(parent_object),
+                committed.final_object().clone(),
+                committed.retained_handle_id(),
+                &committed.retained_final,
+                &mut authorize,
+            );
+        }
+
+        #[cfg(not(windows))]
+        {
+            let _ = authorize;
+            Err(VfsError::host_code(
+                OPERATION,
+                namespace.virtual_path.clone(),
+                "ERR_IBEX_UNSUPPORTED_TARGET",
+            ))
+        }
     }
 
     fn retained_metadata_authenticated<F>(
@@ -3712,6 +3820,14 @@ impl VirtualFileSystem {
         self.commit_no_follow_with_access(discovered, RetainedFinalAccess::LinkMetadata)
     }
 
+    #[cfg(any(unix, windows))]
+    fn commit_directory_no_follow(
+        &self,
+        discovered: DiscoveredPath,
+    ) -> Result<CommittedPath, VfsError> {
+        self.commit_no_follow_with_access(discovered, RetainedFinalAccess::Directory)
+    }
+
     #[cfg(unix)]
     fn commit_no_follow_with_access(
         &self,
@@ -3731,6 +3847,13 @@ impl VirtualFileSystem {
         let basename_c = CString::new(discovered.basename.as_bytes())
             .map_err(|_| VfsError::malformed(OPERATION))?;
         let flags = match access {
+            RetainedFinalAccess::Directory => {
+                libc::O_RDONLY
+                    | libc::O_DIRECTORY
+                    | libc::O_CLOEXEC
+                    | libc::O_NOFOLLOW
+                    | libc::O_NONBLOCK
+            }
             RetainedFinalAccess::Readable => {
                 libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK
             }
@@ -3843,6 +3966,7 @@ impl VirtualFileSystem {
             &discovered.retained_parent,
             &discovered.basename,
             match access {
+                RetainedFinalAccess::Directory => WindowsRelativeOpen::Directory,
                 RetainedFinalAccess::LinkMetadata | RetainedFinalAccess::Metadata => {
                     WindowsRelativeOpen::Metadata
                 }
@@ -3869,6 +3993,13 @@ impl VirtualFileSystem {
         let final_object = object_identity_for_open_file(&final_file).map_err(|_| {
             VfsError::stale_identity(OPERATION, discovered.namespace.virtual_path.clone())
         })?;
+        if matches!(access, RetainedFinalAccess::Directory) && !metadata.is_dir() {
+            return Err(VfsError::host_code(
+                OPERATION,
+                discovered.namespace.virtual_path.clone(),
+                "ENOTDIR",
+            ));
+        }
         if &final_object != witnessed_object
             || (metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
                 && !matches!(access, RetainedFinalAccess::LinkMetadata))
@@ -3877,6 +4008,11 @@ impl VirtualFileSystem {
                 OPERATION,
                 discovered.namespace.virtual_path.clone(),
             ));
+        }
+        if matches!(access, RetainedFinalAccess::Directory) {
+            windows_require_casefold_directory(&final_file).map_err(|error| {
+                VfsError::host(OPERATION, discovered.namespace.virtual_path.clone(), &error)
+            })?;
         }
         let retained_handle_id =
             next_vfs_identity(OPERATION, Some(discovered.namespace.virtual_path.clone()))?;
@@ -3997,6 +4133,13 @@ struct WindowsDirectoryEntrySnapshot {
     file_id: [u8; 16],
     long_name: Vec<u16>,
     short_name: Vec<u16>,
+}
+
+#[cfg(windows)]
+#[derive(Debug)]
+struct WindowsListedDirectoryEntry {
+    sort_key: Vec<u8>,
+    output: AuthenticatedDirectoryEntry,
 }
 
 #[cfg(all(test, windows))]
@@ -4211,6 +4354,166 @@ fn windows_directory_entry_snapshot(
         long_name,
         short_name,
     })
+}
+
+/// Enumerate names from the retained directory handle itself. The native
+/// information class returns the long name and 8.3 alias together; only the
+/// long name is disclosed, so a short alias can never become a second
+/// authorization coordinate.
+///
+/// @ref LLP 0023#3-path-grammar-normalization-aliasing-and-containment
+#[cfg(windows)]
+fn windows_directory_entries(
+    directory: &std::fs::File,
+) -> std::io::Result<Vec<WindowsListedDirectoryEntry>> {
+    use std::os::windows::io::AsRawHandle as _;
+    use windows_sys::Wdk::Storage::FileSystem::{
+        FileIdExtdBothDirectoryInformation, NtQueryDirectoryFile, FILE_ID_EXTD_BOTH_DIR_INFORMATION,
+    };
+    use windows_sys::Win32::Foundation::{
+        RtlNtStatusToDosError, STATUS_NO_MORE_FILES, STATUS_SUCCESS,
+    };
+    use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
+
+    let fixed = std::mem::offset_of!(FILE_ID_EXTD_BOTH_DIR_INFORMATION, FileName);
+    let mut restart_scan = true;
+    let mut total_name_bytes = 0usize;
+    let mut entries = Vec::new();
+    loop {
+        // A Windows component is bounded at 255 UTF-16 code units. This
+        // aligned buffer leaves ample room for the fixed record and name.
+        let mut output = [0_u64; 128];
+        let mut io_status = IO_STATUS_BLOCK::default();
+        let status = unsafe {
+            NtQueryDirectoryFile(
+                directory.as_raw_handle(),
+                std::ptr::null_mut(),
+                None,
+                std::ptr::null(),
+                &mut io_status,
+                output.as_mut_ptr().cast(),
+                std::mem::size_of_val(&output) as u32,
+                FileIdExtdBothDirectoryInformation,
+                true,
+                std::ptr::null(),
+                restart_scan,
+            )
+        };
+        restart_scan = false;
+        if status == STATUS_NO_MORE_FILES {
+            break;
+        }
+        if status != STATUS_SUCCESS {
+            return Err(std::io::Error::from_raw_os_error(unsafe {
+                RtlNtStatusToDosError(status) as i32
+            }));
+        }
+        if io_status.Information < fixed || io_status.Information > std::mem::size_of_val(&output) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Windows directory enumeration returned a truncated entry",
+            ));
+        }
+        let entry = unsafe { &*(output.as_ptr() as *const FILE_ID_EXTD_BOTH_DIR_INFORMATION) };
+        let long_bytes = entry.FileNameLength as usize;
+        let short_bytes = usize::try_from(entry.ShortNameLength).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Windows directory enumeration returned an invalid short-name length",
+            )
+        })?;
+        if entry.NextEntryOffset != 0
+            || long_bytes == 0
+            || long_bytes % 2 != 0
+            || short_bytes % 2 != 0
+            || short_bytes > entry.ShortName.len() * std::mem::size_of::<u16>()
+            || fixed.checked_add(long_bytes).is_none()
+            || fixed + long_bytes > io_status.Information
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Windows directory enumeration returned malformed name evidence",
+            ));
+        }
+        let long_name = unsafe {
+            std::slice::from_raw_parts(
+                std::ptr::addr_of!(entry.FileName).cast::<u16>(),
+                long_bytes / std::mem::size_of::<u16>(),
+            )
+        };
+        if long_name == [b'.' as u16] || long_name == [b'.' as u16, b'.' as u16] {
+            continue;
+        }
+        total_name_bytes = total_name_bytes.checked_add(long_bytes).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Windows directory enumeration size overflow",
+            )
+        })?;
+        if total_name_bytes > crate::session_constants::MAX_INPUT_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Windows directory enumeration exceeds the bounded output size",
+            ));
+        }
+        let raw_name = long_name
+            .iter()
+            .flat_map(|unit| unit.to_le_bytes())
+            .collect::<Vec<_>>();
+        let output = match String::from_utf16(long_name) {
+            Ok(name) => AuthenticatedDirectoryEntry::Utf8(name),
+            Err(_) => AuthenticatedDirectoryEntry::MalformedBytes(raw_name.clone()),
+        };
+        entries.push(WindowsListedDirectoryEntry {
+            sort_key: raw_name,
+            output,
+        });
+    }
+    entries.sort_by(|left, right| left.sort_key.cmp(&right.sort_key));
+    Ok(entries)
+}
+
+#[cfg(windows)]
+fn enumerate_retained_windows_directory<F>(
+    namespace: &NamespacePath,
+    parent_object: Option<ObjectIdentity>,
+    final_object: ObjectIdentity,
+    retained_handle_id: u64,
+    retained: &std::fs::File,
+    authorize: &mut F,
+) -> Result<AuthenticatedDirectoryListing, VfsError>
+where
+    F: for<'a> FnMut(RetainedPathAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
+{
+    const OPERATION: &str = "readdir";
+    let verify_identity = || {
+        let current = object_identity_for_retained_file(retained)
+            .map_err(|_| VfsError::stale_identity(OPERATION, namespace.virtual_path.clone()))?;
+        if current != final_object {
+            return Err(VfsError::stale_identity(
+                OPERATION,
+                namespace.virtual_path.clone(),
+            ));
+        }
+        Ok(())
+    };
+    verify_identity()?;
+    let listed = windows_directory_entries(retained)
+        .map_err(|error| VfsError::host(OPERATION, namespace.virtual_path.clone(), &error))?;
+    verify_identity()?;
+    let mut entries = Vec::with_capacity(listed.len());
+    for entry in listed {
+        let _repeat = authorize(RetainedPathAuthorization::committed(
+            namespace,
+            capsec_semantics::model::Stage::Repeat,
+            parent_object.clone(),
+            final_object.clone(),
+            retained_handle_id,
+        ))?;
+        verify_identity()?;
+        entries.push(entry.output);
+    }
+    Ok(AuthenticatedDirectoryListing { entries })
 }
 
 /// Open one UTF-8 namespace component relative to an already retained Windows
@@ -6934,6 +7237,101 @@ mod tests {
         assert_eq!(error.reason(), VfsReason::StaleIdentity);
         assert_eq!(stages, [Stage::Requested, Stage::Discovery]);
         assert!(!error.to_string().contains(temp.path().to_str().unwrap()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_readdir_retains_the_directory_and_repeats_each_member() {
+        use capsec_semantics::model::Stage;
+
+        let temp = tempfile::tempdir().unwrap();
+        let directory = temp.path().join("listing");
+        fs::create_dir(&directory).unwrap();
+        fs::write(directory.join("z-last.txt"), b"z").unwrap();
+        fs::write(directory.join("a-first.txt"), b"a").unwrap();
+        let vfs = test_vfs(temp.path());
+        let path = vfs
+            .resolve_root_bytes(b"/project/listing", None)
+            .unwrap();
+        let mut stages = Vec::new();
+        let mut final_objects = Vec::new();
+        let listing = vfs
+            .readdir_authenticated(path, |authorization| {
+                stages.push(authorization.stage());
+                final_objects.push(authorization.final_object().cloned());
+                Ok(receipt(format!("{:?}", authorization.stage()).as_bytes()))
+            })
+            .unwrap();
+
+        assert_eq!(
+            listing.into_entries(),
+            [
+                AuthenticatedDirectoryEntry::Utf8("a-first.txt".to_owned()),
+                AuthenticatedDirectoryEntry::Utf8("z-last.txt".to_owned()),
+            ]
+        );
+        assert_eq!(
+            stages,
+            [
+                Stage::Requested,
+                Stage::Discovery,
+                Stage::Repeat,
+                Stage::Repeat,
+            ]
+        );
+        assert!(final_objects[0].is_none());
+        assert!(final_objects[1].is_some());
+        assert_eq!(final_objects[1], final_objects[2]);
+        assert_eq!(final_objects[2], final_objects[3]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_readdir_directory_replacement_after_discovery_is_stale() {
+        use capsec_semantics::model::Stage;
+
+        let temp = tempfile::tempdir().unwrap();
+        let live = temp.path().join("listing");
+        let old = temp.path().join("old-listing");
+        let replacement = temp.path().join("replacement");
+        fs::create_dir(&live).unwrap();
+        fs::create_dir(&replacement).unwrap();
+        fs::write(live.join("safe.txt"), b"safe").unwrap();
+        fs::write(replacement.join("attacker.txt"), b"attacker").unwrap();
+        let vfs = test_vfs(temp.path());
+        let path = vfs
+            .resolve_root_bytes(b"/project/listing", None)
+            .unwrap();
+        let mut stages = Vec::new();
+        let error = vfs
+            .readdir_authenticated(path, |authorization| {
+                stages.push(authorization.stage());
+                if authorization.stage() == Stage::Discovery {
+                    fs::rename(&live, &old).unwrap();
+                    fs::rename(&replacement, &live).unwrap();
+                }
+                Ok(receipt(format!("{:?}", authorization.stage()).as_bytes()))
+            })
+            .unwrap_err();
+
+        assert_eq!(error.reason(), VfsReason::StaleIdentity);
+        assert_eq!(stages, [Stage::Requested, Stage::Discovery]);
+        assert!(!error.to_string().contains(temp.path().to_str().unwrap()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_readdir_synthetic_root_is_fixed_and_decision_free() {
+        let temp = tempfile::tempdir().unwrap();
+        let vfs = test_vfs(temp.path());
+        let path = vfs.resolve_root_bytes(b"/", None).unwrap();
+        let listing = vfs
+            .readdir_authenticated(path, |_| panic!("synthetic root must not authorize"))
+            .unwrap();
+        assert_eq!(
+            listing.into_entries(),
+            [AuthenticatedDirectoryEntry::Utf8("project".to_owned())]
+        );
     }
 
     #[cfg(unix)]
