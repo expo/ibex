@@ -341,12 +341,12 @@ describe("exact-target CapSec executable recipes", () => {
     // production graph deliberately uses deferred call-time links. The net-new
     // WebGPU obligations remain unresolved until their public-surface probes
     // are authored.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_760);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_764);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_944);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_940);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -371,7 +371,7 @@ describe("exact-target CapSec executable recipes", () => {
     // routes that this harness could otherwise claim structurally. The three
     // Branch-local filesystem closures use the closed-surface harness, while
     // the direct non-recursive mkdir branch adds one native selection proof.
-    expect(nativePublicFixtures).toHaveLength(518);
+    expect(nativePublicFixtures).toHaveLength(522);
     expect(
       nativePublicFixtures
         .filter(
@@ -446,9 +446,9 @@ describe("exact-target CapSec executable recipes", () => {
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_412);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_416);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_961);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_957);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -2442,6 +2442,47 @@ describe("exact-target CapSec executable recipes", () => {
         expect(recipe.residualReasons).toEqual([]);
         expect(recipe.status).toBe("fully-executable");
       }
+    }
+  });
+
+  test("reads retained descriptor bytes and closes its source-bound setup", () => {
+    for (const catalog of [recipes, windowsRecipes]) {
+      const rows = catalog.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsRead",
+      );
+      expect(rows).toHaveLength(4);
+      for (const recipe of rows) {
+        const invocation = recipe.publicSurfaceProbe.invocation;
+        expect(invocation.arguments).toEqual([
+          { kind: "harness-fs-file-descriptor" },
+          { kind: "json-literal", value: 8 },
+          { kind: "json-literal", value: -1 },
+        ]);
+        expect(invocation.setup).toHaveLength(1);
+        expect(invocation.setup[0].globalName).toBe("__exactFsOpen");
+        expect(invocation.allowedCoverageEdgeIds).toHaveLength(2);
+        expect(
+          invocation.requiredFloor.map((selector) => selector.cap),
+        ).toEqual(["fs:list", "fs:read"]);
+        expect(invocation.expectedTypedStages).toEqual(["repeat"]);
+        expect(invocation.expectedTypedDecisionCount).toBe(1);
+        expect(invocation.expectedCleanup).toBe(
+          "closed-fs-file-descriptor",
+        );
+        expect(recipe.residualReasons).toEqual([]);
+        expect(recipe.status).toBe("fully-executable");
+      }
+      const denied = catalog.recipes.find(
+        (recipe) =>
+          recipe.terminalObservedKey === "native-op:__exactFsRead" &&
+          recipe.scenario === "deny",
+      );
+      expect(denied.publicSurfaceProbe).toBeNull();
+      expect(denied.residualReasons).toContain(
+        "native-public-deny-scenario-not-authored",
+      );
     }
   });
 

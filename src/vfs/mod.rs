@@ -3166,6 +3166,79 @@ impl VirtualFileSystem {
         Ok(AuthenticatedStat { metadata })
     }
 
+    /// Read bytes from an already retained descriptor after a fresh `fs:read`
+    /// Repeat decision over its original occurrence. A positional read restores
+    /// the descriptor cursor before returning, matching Node's `readSync`
+    /// contract. No pathname lookup or reopen is performed.
+    ///
+    /// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+    /// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+    pub(crate) fn read_descriptor_authenticated<F>(
+        &self,
+        file: &mut std::fs::File,
+        identity: &AuthenticatedFileDescriptorIdentity,
+        length: u32,
+        position: Option<u64>,
+        mut authorize: F,
+    ) -> Result<Vec<u8>, VfsError>
+    where
+        F: for<'a> FnMut(RetainedPathAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
+    {
+        use std::io::{Read as _, Seek as _, SeekFrom};
+
+        const OPERATION: &str = "read";
+        self.ensure_path_session(&identity.namespace, OPERATION)?;
+        let before = object_identity_for_retained_file(file).map_err(|_| {
+            VfsError::stale_identity(OPERATION, identity.namespace.virtual_path.clone())
+        })?;
+        if before != identity.final_object {
+            return Err(VfsError::stale_identity(
+                OPERATION,
+                identity.namespace.virtual_path.clone(),
+            ));
+        }
+        let _repeat = authorize(RetainedPathAuthorization::committed(
+            &identity.namespace,
+            capsec_semantics::model::Stage::Repeat,
+            Some(identity.parent_object.clone()),
+            identity.final_object.clone(),
+            identity.retained_handle_id,
+        ))?;
+
+        let mut bytes = vec![0; length as usize];
+        let read_result = if let Some(position) = position {
+            let saved = file.stream_position().map_err(|error| {
+                VfsError::host(OPERATION, identity.namespace.virtual_path.clone(), &error)
+            })?;
+            file.seek(SeekFrom::Start(position)).map_err(|error| {
+                VfsError::host(OPERATION, identity.namespace.virtual_path.clone(), &error)
+            })?;
+            let result = file.read(&mut bytes);
+            let restore = file.seek(SeekFrom::Start(saved));
+            match (result, restore) {
+                (Ok(read), Ok(_)) => Ok(read),
+                (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+            }
+        } else {
+            file.read(&mut bytes)
+        };
+        let bytes_read = read_result.map_err(|error| {
+            VfsError::host(OPERATION, identity.namespace.virtual_path.clone(), &error)
+        })?;
+
+        let after = object_identity_for_retained_file(file).map_err(|_| {
+            VfsError::stale_identity(OPERATION, identity.namespace.virtual_path.clone())
+        })?;
+        if after != identity.final_object {
+            return Err(VfsError::stale_identity(
+                OPERATION,
+                identity.namespace.virtual_path.clone(),
+            ));
+        }
+        bytes.truncate(bytes_read);
+        Ok(bytes)
+    }
+
     /// Enumerate the exact retained directory object. The `fs:list` lifecycle
     /// has no Commit stage: Requested precedes lookup, Discovery binds the
     /// directory object, and Repeat runs once for every member immediately
@@ -7474,6 +7547,60 @@ mod tests {
         assert!(objects[0].is_none());
         assert_eq!(objects[1], objects[2]);
         assert_eq!(objects[2], objects[3]);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn retained_read_descriptor_reads_the_original_object_and_preserves_position() {
+        use capsec_semantics::model::Stage;
+
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("descriptor.txt"), b"descriptor-bytes").unwrap();
+        let vfs = test_vfs(temp.path());
+        let path = vfs
+            .resolve_root_bytes(b"/project/descriptor.txt", None)
+            .unwrap();
+        let mut stages = Vec::new();
+        let descriptor = vfs
+            .open_read_descriptor_authenticated(path, |authorization| {
+                stages.push(match authorization {
+                    ReadAuthorization::Requested(_) => Stage::Requested,
+                    ReadAuthorization::Discovery(_) => Stage::Discovery,
+                    ReadAuthorization::Commit(_) => Stage::Commit,
+                    ReadAuthorization::Repeat(_) => Stage::Repeat,
+                });
+                Ok(receipt(b"open"))
+            })
+            .unwrap();
+        let (mut file, identity) = descriptor.into_parts();
+
+        let positioned = vfs
+            .read_descriptor_authenticated(&mut file, &identity, 5, Some(11), |authorization| {
+                stages.push(authorization.stage());
+                assert_eq!(authorization.final_object(), Some(&identity.final_object));
+                Ok(receipt(b"positioned-repeat"))
+            })
+            .unwrap();
+        let sequential = vfs
+            .read_descriptor_authenticated(&mut file, &identity, 10, None, |authorization| {
+                stages.push(authorization.stage());
+                assert_eq!(authorization.final_object(), Some(&identity.final_object));
+                Ok(receipt(b"sequential-repeat"))
+            })
+            .unwrap();
+
+        assert_eq!(positioned, b"bytes");
+        assert_eq!(sequential, b"descriptor");
+        assert_eq!(
+            stages,
+            [
+                Stage::Requested,
+                Stage::Discovery,
+                Stage::Commit,
+                Stage::Repeat,
+                Stage::Repeat,
+            ]
+        );
     }
 
     #[cfg(any(unix, windows))]

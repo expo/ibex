@@ -1755,12 +1755,58 @@ ticket closes.
   the same fd number. Important enforcement mechanisms remain about 99%
   complete and the overall requested task remains about 90% complete.
 
+### 2026-07-25 — retained Windows scalar descriptor reads
+
+- Promoted armed synchronous `__exactFsRead` for retained read-only
+  descriptors. The engine first enforces the numeric table key's runtime,
+  principal owner, and readable-open state, then the private ABI authorizes one
+  `fs:read` Repeat against the open-time namespace, parent/final object
+  identities, retained handle ID, optional bearer, and current runtime
+  generation. Armed execution reads the same opaque file and never consults
+  the legacy path capability oracle.
+- Added `VirtualFileSystem::read_descriptor_authenticated`. It checks the
+  retained file identity before authorization and after I/O. Sequential reads
+  advance the retained cursor; positional reads save and restore it, matching
+  Node's `readSync` contract. The Windows boundary now validates descriptor,
+  length, and position numbers before allocation or I/O.
+- Physical Windows verification passes the production observer-feature
+  library build, all three retained-descriptor VFS tests, the private typed ABI
+  test, and the public open/read/fstat test. The public trace is
+  `Requested`, `Discovery`, `Commit`, `Repeat`, `Repeat`, `Repeat` with actions
+  `fs:list`, `fs:list`, `fs:read`, `fs:read`, `fs:read`, `fs:list`: one
+  positional read returns `descriptor`, the following sequential read still
+  begins at offset zero and returns `retained`, fstat reports the same
+  19-byte object, and no legacy decision is observed.
+- Four `__exactFsRead` scenarios are newly executable on both exact targets;
+  the deny row remains explicitly residual because the current public harness
+  cannot create its prerequisite descriptor under that denial scenario
+  without weakening the proof. The Windows catalog is 23,495 required / 2,416
+  fully executable / 3,122 internally verified / 17,957 unresolved with
+  digest `sha256-y7G4uMp8Ti46XqsFFIPIJ5ylXsXvpb4yKEYhviPBDF4`.
+  `public-surface-filesystem-not-typed-on-target` remains 156 because the four
+  newly authored rows previously lacked public arguments rather than carrying
+  that target-specific residual. The recipe suite passes 89 tests with
+  110,081 assertions.
+- The freed-space M4 verifier independently regenerates the vendored
+  artifacts, reproduces all 89 recipe tests and 110,081 assertions, passes all
+  three retained-descriptor VFS tests, the private typed ABI test, the
+  observer-feature library check, and `ref-check`.
+- Hard part: the fd number is only an owner-scoped table coordinate. The read
+  decision must bind the open-time occurrence and retained-handle identity,
+  happen before byte disclosure, and operate on the same native file. A
+  pathname re-resolution would turn a safe retained descriptor into a new
+  ambient lookup; an authorize-then-seek/read sequence that failed to restore
+  the cursor would violate Node's positional-read semantics. Important
+  enforcement mechanisms remain about 99% complete and the overall requested
+  task remains about 90% complete.
+
 ## Next milestone
 
-Continue the installed Windows filesystem audit with retained descriptor read
-operations that can preserve owner, generation, bearer, and retained-handle
-identity end to end. Keep write-capable opens and descriptor mutations closed
-until they have an object-bound mutation protocol, keep worker-backed reads
-residual until they can recheck authority generation between chunks, and do
-not advertise Windows while other installed filesystem routes and 17,961
-exact-target public-evidence rows remain unresolved.
+Continue the installed Windows filesystem audit with synchronous retained
+descriptor vector reads that can reuse the scalar read's owner, generation,
+bearer, cursor, and retained-handle identity protocol. Keep write-capable opens
+and descriptor mutations closed until they have an object-bound mutation
+protocol, keep worker-backed reads residual until they can recheck authority
+generation between chunks, and do not advertise Windows while other installed
+filesystem routes and 17,957 exact-target public-evidence rows remain
+unresolved.

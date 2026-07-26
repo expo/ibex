@@ -21367,7 +21367,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(windows, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
-    async fn armed_windows_public_read_open_and_fstat_share_the_retained_object() {
+    async fn armed_windows_public_read_open_read_and_fstat_share_the_retained_object() {
         use capsec_semantics::model::Stage;
 
         let _lock = hermes_engine_test_lock().lock().await;
@@ -21387,7 +21387,7 @@ navigator.gpu.requestAdapter()
 
         let _ = crate::host::abi::take_installed_conformance_observations();
         assert!(crate::host::abi::begin_installed_conformance_observation(
-            "enforcement.src.engine.hermes.runtime.fs.windows.exactfsopen.fstat.retained"
+            "enforcement.src.engine.hermes.runtime.fs.windows.exactfsopen.read.fstat.retained"
         ));
         let outcome = engine
             .eval_immediate(
@@ -21395,8 +21395,13 @@ navigator.gpu.requestAdapter()
                   if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
                   var fd = __exactFsOpen('/project/descriptor.txt', 'r', 438, null);
                   try {
+                    var positioned = String.fromCharCode.apply(
+                      null, __exactFsRead(fd, 10, 9));
+                    var sequential = String.fromCharCode.apply(
+                      null, __exactFsRead(fd, 8, -1));
                     var stat = JSON.parse(__exactFsFstatSync(fd));
-                    return String(stat.size) + ':' + String(stat.is_file);
+                    return positioned + ':' + sequential + ':' +
+                      String(stat.size) + ':' + String(stat.is_file);
                   } finally {
                     __exactFsClose(fd);
                   }
@@ -21404,7 +21409,7 @@ navigator.gpu.requestAdapter()
             )
             .await
             .unwrap();
-        assert_eq!(outcome.as_deref(), Some("19:true"));
+        assert_eq!(outcome.as_deref(), Some("descriptor:retained:19:true"));
 
         let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
         assert!(
@@ -21421,6 +21426,8 @@ navigator.gpu.requestAdapter()
                 Stage::Discovery,
                 Stage::Commit,
                 Stage::Repeat,
+                Stage::Repeat,
+                Stage::Repeat,
             ]
         );
         assert_eq!(
@@ -21428,12 +21435,15 @@ navigator.gpu.requestAdapter()
                 .iter()
                 .map(|row| row.decision_set.effects[0].action.as_str())
                 .collect::<Vec<_>>(),
-            vec!["fs:list", "fs:list", "fs:read", "fs:list"]
+            vec!["fs:list", "fs:list", "fs:read", "fs:read", "fs:read", "fs:list",]
         );
         assert!(typed[..3].iter().all(|row| row.gates.iter().all(|gate| {
             gate.coverage_edge_id.as_str() == "surface.native.op.exactfsopen.05ao6wa"
         })));
-        assert!(typed[3].gates.iter().all(|gate| {
+        assert!(typed[3..5].iter().all(|row| row.gates.iter().all(|gate| {
+            gate.coverage_edge_id.as_str() == "surface.native.op.exactfsread.1ixlwve"
+        })));
+        assert!(typed[5].gates.iter().all(|gate| {
             gate.coverage_edge_id.as_str() == "surface.native.op.exactfsfstatsync.1md7g19"
         }));
         std::fs::remove_dir_all(root).unwrap();

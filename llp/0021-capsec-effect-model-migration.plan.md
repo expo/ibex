@@ -1353,6 +1353,12 @@ owners by guessing an integer. `__exactFsFstatSync` first enforces that registry
 ownership, then authorizes one `fs:list` Repeat against the stored parent,
 final object, handle ID, and bearer and obtains metadata from the same retained
 file. It performs no pathname lookup and cannot fall back to `ex_host_fs_fstat`.
+`__exactFsRead` applies the same owner/runtime and readable-open checks, then
+authorizes one `fs:read` Repeat against those stored occurrence facts before
+reading the retained file itself. Sequential reads advance that file's cursor;
+positional reads restore it before returning. The VFS checks the retained
+object identity before authorization and after I/O, and the armed engine cannot
+fall back to the pathname-based legacy read oracle.
 Armed write/create/truncate/append open flags and unsupported numeric flag bits
 return `EPERM` before virtual resolution, legacy authorization, or host file
 creation. Unarmed compatibility continues to use the existing host path.
@@ -1360,19 +1366,19 @@ creation. Unarmed compatibility continues to use the existing host path.
 This is a bounded slice, not Windows filesystem promotion. The worker-backed
 `__exactFsReadFileAsync` route remains legacy: a single pre-worker repeat would
 not satisfy the required generation/revocation recheck between observable
-chunks. Descriptor reads, durability, mutation, write-capable open, and the other
-installed Windows filesystem routes also remain residual until their own
-retained-object contracts are implemented. Exact-target recipe generation now
+chunks. Vector/async descriptor reads, durability, mutation, write-capable
+open, and the other installed Windows filesystem routes also remain residual
+until their own retained-object contracts are implemented. Exact-target recipe generation now
 schedules the five `__exactReadFile`, five `__exactStat`, and five
 `__exactLstat`, five `__exactReaddir`, six read-only `__exactFsOpen`, and four
-`__exactFsFstatSync` scenarios on Windows and continues to
+`__exactFsRead` plus four `__exactFsFstatSync` scenarios on Windows and continues to
 classify the remaining 156 callable filesystem
 recipes under
 `public-surface-filesystem-not-typed-on-target`; five `__exactAppendFile`
 recipes remain under the more exact
 `native-public-operation-not-installed-on-target` build-source boundary. The
-Windows catalog is 23,495 required / 2,412 fully executable / 3,122 internally
-verified / 17,961 unresolved. Apple retains its independently shaped typed
+Windows catalog is 23,495 required / 2,416 fully executable / 3,122 internally
+verified / 17,957 unresolved. Apple retains its independently shaped typed
 recipes.
 
 The Windows TCP globals likewise still call the legacy string capability oracle

@@ -1546,6 +1546,53 @@ const nativeProjectFsOpenTemplate = ({
       : {}),
   });
 };
+const nativeRetainedFsReadTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:read"],
+    additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
+    arguments: [
+      harnessFsFileDescriptorArgument(),
+      literalArgument(8),
+      literalArgument(-1),
+    ],
+    expectedCleanup: "closed-fs-file-descriptor",
+    expectedDecisionCounts: {
+      allow: 1,
+      malformed: 1,
+      "missing-attribution": 1,
+      "wrong-principal": 1,
+    },
+    expectedObservedActionIds: {
+      allow: ["fs:read"],
+      malformed: ["fs:read"],
+      "missing-attribution": ["fs:read"],
+      "wrong-principal": ["fs:read"],
+    },
+    expectedResults: {
+      allow: "return",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["repeat"],
+      malformed: ["repeat"],
+      "missing-attribution": ["repeat"],
+      "wrong-principal": ["repeat"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+      {
+        cap: "fs:read",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+    ],
+    requiredSourceArity: 3,
+    setup: fsReadFileSetup(),
+  });
 const nativeRetainedFsFstatTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
@@ -1975,6 +2022,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       ],
     }),
   ],
+  ["__exactFsRead", nativeRetainedFsReadTemplate()],
   ["__exactFsFstatSync", nativeRetainedFsFstatTemplate()],
   [
     "__exactFsFsyncSync",
@@ -4091,7 +4139,7 @@ function unsupportedWindowsTypedPublicEffectReason({
   ) {
     return null;
   }
-  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Synchronous whole-file read, stat, lstat, readdir, retained fstat, and the read-only open branch are the completed exceptions.
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Synchronous whole-file read, stat, lstat, readdir, retained descriptor read/fstat, and the read-only open branch are the completed exceptions.
   if (plan.actionIds.some((actionId) => actionId.startsWith("fs:"))) {
     const globalName = publicSurfaceProbe?.invocation?.globalName;
     if (
@@ -4104,6 +4152,7 @@ function unsupportedWindowsTypedPublicEffectReason({
     }
     if (
       [
+        "__exactFsRead",
         "__exactFsFstatSync",
         "__exactLstat",
         "__exactReadFile",

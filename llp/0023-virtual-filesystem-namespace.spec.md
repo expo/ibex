@@ -2075,7 +2075,7 @@ directories, and stages/refuses arbitrary 8.3 selections through the retained
 parent entry.
 
 Armed Windows synchronous whole-file read, stat, lstat, readdir, read-only
-open, and fstat are the first installed filesystem effects to consume that
+open, descriptor read, and fstat are the first installed filesystem effects to consume that
 retained-object backend directly. The engine passes its native runtime generation and
 frame-derived canonical constrained-principal stack to private bridges;
 JavaScript supplies only virtual path syntax and an optional typed bearer.
@@ -2112,7 +2112,10 @@ parent/final object identities, and retained handle ID. The private ABI also
 stores the optional presented bearer. The Windows engine publishes only an
 owner/runtime-bound numeric table key whose opaque entry owns that retained
 file; a guessed integer carries no authority. Fstat first validates that table
-owner, then `fstat_descriptor_authenticated` authorizes one `fs:list` Repeat
+owner. `read_descriptor_authenticated` authorizes one `fs:read` Repeat against
+the stored object, handle ID, and bearer before reading that exact file, checks
+its identity before authorization and after I/O, and restores the file cursor
+after a positional read. `fstat_descriptor_authenticated` authorizes one `fs:list` Repeat
 against the stored object, handle ID, and bearer and reads metadata through the
 same file. It never resolves or reopens the original pathname. Armed
 write/create/truncate/append opens and unsupported numeric flag bits return
@@ -2123,10 +2126,11 @@ The synchronous operation inherits the VFS bounded whole-file read limit and
 cannot interleave JavaScript-driven revocation while native byte acquisition is
 in progress. That reasoning does not promote worker-backed
 `__exactFsReadFileAsync`: it still needs an operation lease with generation
-rechecks between observable chunks. Descriptor reads, durability, mutation,
-write-capable opens, and all other installed Windows filesystem routes remain legacy or
-closed as their individual contracts require, and exact-target public evidence
-remains incomplete. The target therefore remains unadvertised.
+rechecks between observable chunks. Vector/async descriptor reads, durability,
+mutation, write-capable opens, and all other installed Windows filesystem
+routes remain legacy or closed as their individual contracts require, and
+exact-target public evidence remains incomplete. The target therefore remains
+unadvertised.
 
 The contract this document requires:
 

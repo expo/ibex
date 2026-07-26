@@ -371,7 +371,27 @@ int fdFromValue(facebook::jsi::Runtime& runtime, const facebook::jsi::Value& val
   if (!value.isNumber()) {
     throw facebook::jsi::JSError(runtime, "file descriptor must be a number");
   }
-  return static_cast<int>(value.asNumber());
+  const double number = value.asNumber();
+  if (!std::isfinite(number) || std::trunc(number) != number ||
+      number < static_cast<double>(std::numeric_limits<int>::min()) ||
+      number > static_cast<double>(std::numeric_limits<int>::max())) {
+    throw facebook::jsi::JSError(runtime, "file descriptor must be an integer");
+  }
+  return static_cast<int>(number);
+}
+
+uint32_t readLengthFromValue(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value) {
+  if (!value.isNumber()) {
+    throw facebook::jsi::JSError(runtime, "read length must be a number");
+  }
+  const double number = value.asNumber();
+  if (!std::isfinite(number) || std::trunc(number) != number || number < 0 ||
+      number > static_cast<double>(std::numeric_limits<uint32_t>::max())) {
+    throw facebook::jsi::JSError(runtime, "read length must be a uint32");
+  }
+  return static_cast<uint32_t>(number);
 }
 
 void* fileHandle(const FileEntry& entry) {
@@ -1856,13 +1876,15 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsRead: fd and length required");
         }
         auto fd = fdFromValue(runtime, args[0]);
-        auto length = static_cast<uint32_t>(args[1].asNumber());
+        auto length = readLengthFromValue(runtime, args[1]);
         if (sessionDescriptorReadIsEof(runtime, fd, "read")) {
           return makeUint8Array(runtime, std::vector<uint8_t>());
         }
-        std::vector<uint8_t> bytes(length);
+        std::vector<uint8_t> bytes;
         auto entry = getFileEntry(runtime, fd);
-        requireFileEntryRead(runtime, entry);
+        if (!entry.canRead) {
+          throw facebook::jsi::JSError(runtime, "fd not opened for reading");
+        }
         // A numeric position is a *positional* read: Node's readSync leaves the
         // handle's current file offset unchanged when `position` is a number. The
         // old ex_host_fs_seek + ex_host_fs_read permanently moved the cursor
@@ -1870,13 +1892,61 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         // ex_host_fs_pread, which reads at the offset and restores the cursor.
         // position < 0 / null / undefined means "read at the current position"
         // and keeps the plain read path. Mirrors the POSIX pread fix in ENG-22982.
-        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
+        bool positioned = false;
+        uint64_t position = 0;
+        if (count > 2 && args[2].isNumber() && args[2].asNumber() >= 0) {
+          const double value = args[2].asNumber();
+          constexpr double MAX_SAFE_INTEGER = 9007199254740991.0;
+          if (!std::isfinite(value) || std::trunc(value) != value ||
+              value > MAX_SAFE_INTEGER) {
+            throw facebook::jsi::JSError(
+                runtime, "read position must be a nonnegative safe integer");
+          }
+          positioned = true;
+          position = static_cast<uint64_t>(value);
+        }
         auto file = entry.file;
         std::lock_guard<std::mutex> ioLock(file->ioMutex);
+        if (ex_host_is_armed() == 1) {
+          auto principals = exactCollectTypedPrincipalStack();
+          uint8_t* data = nullptr;
+          uint64_t dataLength = 0;
+          int32_t hostError = 0;
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Descriptor reads repeat fs:read over the exact retained Windows handle and its original bearer, then read that handle without pathname fallback.
+          uint32_t status = ibex_private_vfs_read_typed(
+              exactCurrentRuntimeNonce(),
+              entry.owner,
+              principals.data(),
+              principals.size(),
+              file->handle,
+              length,
+              positioned ? 1 : 0,
+              position,
+              &data,
+              &dataLength,
+              &hostError);
+          if (status != 0) {
+            if (data != nullptr) ex_host_free_buffer(data, dataLength);
+            exactThrowVfsError(runtime, status, hostError, "read", entry.path);
+          }
+          if (dataLength > length || (dataLength != 0 && data == nullptr)) {
+            if (data != nullptr) ex_host_free_buffer(data, dataLength);
+            throwStructuredFsError(runtime, "read", entry.path, EIO);
+          }
+          if (dataLength == 0) {
+            bytes.clear();
+          } else {
+            bytes.assign(data, data + dataLength);
+          }
+          if (data != nullptr) ex_host_free_buffer(data, dataLength);
+          return makeUint8Array(runtime, std::move(bytes));
+        }
+        requireFileEntryRead(runtime, entry);
+        bytes.resize(length);
         auto nread = positioned
             ? ex_host_fs_pread(
                   file->handle, bytes.data(), length,
-                  static_cast<uint64_t>(args[2].asNumber()))
+                  position)
             : ex_host_fs_read(file->handle, bytes.data(), length);
         if (nread < 0) {
           throwFs(runtime, "read", entry.path);
