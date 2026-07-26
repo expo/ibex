@@ -91,6 +91,11 @@ jobs:
       - name: Install baseline-matched Hermes toolchain
         if: matrix.profile == 'insecure'
         working-directory: baseline
+        env:
+          # The historical installer owns a mutable Hermes source checkout and
+          # cannot safely share it with the current patch stack installed
+          # above. Keep the named baseline's toolchain exact and independent.
+          HOME: ${{ runner.temp }}/baseline-hermes-home
         run: ./scripts/download-hermes.sh
 
       - name: Build named pre-CapSec baseline
