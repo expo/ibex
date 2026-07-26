@@ -1619,6 +1619,11 @@ const nativeProjectFsOpenTemplate = ({
               ],
             },
           },
+          expectedObservedActionIdsByTarget: {
+            "x86_64-pc-windows-msvc": {
+              deny: ["fs:write"],
+            },
+          },
         }
       : {}),
     ...(async
@@ -3857,8 +3862,11 @@ function nativePublicProbeForPlan({
   if (stageContractViolation) {
     throw new Error(`${plan.fixtureId}: ${stageContractViolation}`);
   }
-  const expectedActionIds = template.expectedObservedActionIds?.[scenario]
-    ? clone(template.expectedObservedActionIds[scenario])
+  const expectedObservedActionIds =
+    template.expectedObservedActionIdsByTarget?.[target.triple]?.[scenario] ??
+    template.expectedObservedActionIds?.[scenario];
+  const expectedActionIds = expectedObservedActionIds
+    ? clone(expectedObservedActionIds)
     : adapterProbe
       ? canonicalSet(
           adapterProbe.cases
@@ -4183,7 +4191,12 @@ function moduleRunnerHostAbiProbeForPlan({
   scenario,
   route,
   liveByObservedKey,
+  target,
 }) {
+  // LLP 0026 keeps Windows on the compatibility-only module loader until its
+  // patched Hermes evaluator and compartment binder are an advertised target.
+  // Compiling the private lifecycle ABI there is not public conformance.
+  if (target.triple === "x86_64-pc-windows-msvc") return null;
   if (
     plan.classification !== "non-capability" ||
     scenario !== "non-capability" ||
@@ -4585,7 +4598,15 @@ export function buildConformanceRecipeCatalog({
       scenario,
       route,
       liveByObservedKey,
+      target,
     });
+    const moduleRunnerHostAbiUnsupportedOnTarget =
+      target.triple === "x86_64-pc-windows-msvc" &&
+      route.surfaceObservedKeys.length === 1 &&
+      route.surfaceObservedKeys[0].startsWith("host-abi:") &&
+      MODULE_RUNNER_SOURCE_GRAPH_HOST_ABIS.has(
+        route.surfaceObservedKeys[0].slice("host-abi:".length),
+      );
     const rationaleOnlyCallbackScenario =
       RATIONALE_ONLY_CALLBACK_SCENARIOS.has(scenario);
     // These fixtures require the bound carrier's exact callback/control
@@ -4628,6 +4649,8 @@ export function buildConformanceRecipeCatalog({
       ? null
       : unsupportedWindowsTypedEffectReason
         ? unsupportedWindowsTypedEffectReason
+        : moduleRunnerHostAbiUnsupportedOnTarget
+          ? "module-runner-native-abi-not-advertised-on-target"
         : (nonCapabilityBuiltinProbeResidualReason({
             route,
             liveByObservedKey,

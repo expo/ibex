@@ -1479,20 +1479,24 @@ recipes under
 `public-surface-filesystem-not-typed-on-target`; five `__exactAppendFile`
 recipes remain under the more exact
 `native-public-operation-not-installed-on-target` build-source boundary. The
-Windows catalog is 23,499 required / 2,472 fully executable / 3,122 internally
-verified / 17,905 unresolved with digest
-`sha256-QLOnvoW4r1Lv07dGQ-wizReH4pqeQ28UgnazkwiJbHQ`. Apple is
-independently shaped at 23,840 / 2,799 / 3,136 / 17,905 with digest
-`sha256-qhSEiwMOa6vxvfvfoLl9UbDLblZJn5lUEQOSgNjLMnQ`.
+corrected Windows catalog is 23,505 required / 2,453 fully executable / 3,122
+internally verified / 17,930 unresolved with digest
+`sha256-Pc_rPPo2gn0lrqXTz6uXaz_x-lpoHBLXPUpeIKmUU4M`. It no longer promotes
+19 private native module-runner lifecycle ABI rows while LLP 0026 keeps
+Windows compatibility-only. Apple is independently shaped at 23,846 / 2,799 /
+3,136 / 17,911 with digest
+`sha256-hzFaFp6ca8rOPfB-aswmofNj87HnLQAhzJZgbDPfvg0`. The six new required
+rows on each target are the landed `compat --probe` CLI surfaces; they remain
+honestly unresolved until an exact public invocation is authored.
 
 Integrating the lockdown error-prototype override repair changed the
 source-derived taming digest to
 `sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c`
 and the reviewed evaluator identity to
-`hermes-evaluators.660d8c65933319225949b3f4d64dbc9bf16b8d5ad7dfda37b2b9e4e0e9034eb2`.
+`hermes-evaluators.08bb542867d4d29fabe8e67c64eae3b78d5605fc9259dafda2e0044c41c2beae`.
 The reachable evaluator family and all three reviewed engine profiles remain
-unchanged. The exact-target recipe counts therefore stay fixed, while their
-digests above change because each catalog binds the reviewed engine identity.
+unchanged. The identity composition changes catalog digests but not semantic
+counts; the six landed CLI surfaces account for the count increase above.
 
 The Windows TCP connect path now uses the typed network adapter. `Requested`
 authorizes the caller's host/port before DNS, `Candidate` authorizes every

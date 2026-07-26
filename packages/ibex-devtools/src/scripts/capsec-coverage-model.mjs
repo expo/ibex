@@ -3068,7 +3068,7 @@ const REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES = Object.freeze([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.660d8c65933319225949b3f4d64dbc9bf16b8d5ad7dfda37b2b9e4e0e9034eb2";
+  "hermes-evaluators.08bb542867d4d29fabe8e67c64eae3b78d5605fc9259dafda2e0044c41c2beae";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
@@ -5709,6 +5709,7 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "argument-parser:ibex%20capsec%20audit:file:utf8-string",
     "argument-parser:ibex%20compat:jobs:unsigned-integer-usize",
     "argument-parser:ibex%20compat:module:utf8-string",
+    "argument-parser:ibex%20compat:probe:utf8-string",
     "argument-parser:ibex%20compat:section:utf8-string",
     "argument-parser:ibex%20compat:test:utf8-string",
     "argument-parser:ibex%20compat:timeout:unsigned-integer-u64",
@@ -5800,6 +5801,7 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "option-name:ibex%20compat:log_no_skip:--log-no-skip",
     "option-name:ibex%20compat:module:--module",
     "option-name:ibex%20compat:no_retry:--no-retry",
+    "option-name:ibex%20compat:probe:--probe",
     "option-name:ibex%20compat:quick:--quick",
     "option-name:ibex%20compat:report:--report",
     "option-name:ibex%20compat:section:--section",
@@ -5922,6 +5924,10 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "option:ibex%20compat:no_retry:default-missing:true",
     "option:ibex%20compat:no_retry:default:false",
     "option:ibex%20compat:no_retry:value-name:NO_RETRY",
+    "option:ibex%20compat:probe",
+    "option:ibex%20compat:probe:action:Set",
+    "option:ibex%20compat:probe:arity:1:1",
+    "option:ibex%20compat:probe:value-name:EXPR",
     "option:ibex%20compat:quick",
     "option:ibex%20compat:quick:action:SetTrue",
     "option:ibex%20compat:quick:arity:0:0",

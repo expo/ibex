@@ -1886,6 +1886,7 @@ fn validate_native_runtime_observation(
                         | "__exactFsOpen"
                         | "__exactFsOpenAsync"
                         | "__exactFsPathAsync"
+                        | "__exactFsReadFileAsync"
                         | "__exactLstat"
                         | "__exactMkdir"
                         | "__exactReadFile"
@@ -1905,7 +1906,13 @@ fn validate_native_runtime_observation(
     // edge may be admitted by the authored recipe. FsPathAsync remains bound
     // to the exact reviewed five-operation worker map above; in particular,
     // mkdtemp cannot inherit mkdir's worker evidence.
-    let auxiliary_worker_terminal = if matches!(
+    let windows_source = invocation.source_descriptor["sourceRef"]
+        .as_str()
+        .is_some_and(|source_ref| source_ref.contains("_windows.cc#"));
+    let target_absence = recipe.expected_observation["kind"] == "target-absence";
+    let posix_auxiliary_worker_terminal = if !target_absence
+        && !windows_source
+        && matches!(
         invocation.global_name.as_str(),
         "__exactFsOpenAsync"
             | "__exactFsFdAsync"
@@ -1919,8 +1926,36 @@ fn validate_native_runtime_observation(
     } else {
         native_async_worker_terminal(invocation)
     };
+    let retained_descriptor_setup = invocation.setup.iter().any(|setup| {
+        matches!(
+            setup,
+            NativeProbeSetup::FsReadFile { .. } | NativeProbeSetup::FsWriteFile { .. }
+        )
+    });
+    let auxiliary_allowed_terminal = if !target_absence
+        && ((retained_descriptor_setup
+        && matches!(
+            invocation.global_name.as_str(),
+            "__exactFsFdAsync"
+                | "__exactFsRead"
+                | "__exactFsReadv"
+                | "__exactFsReadAsync"
+                | "__exactFsReadvAsync"
+                | "__exactFsReadFileAsync"
+                | "__exactFsFstatSync"
+                | "__exactFsFtruncateSync"
+                | "__exactFsFchmodSync"
+                | "__exactFsFutimesSync"
+                | "__exactFsWrite"
+        ))
+            || (!windows_source && invocation.global_name == "__exactFsOpenAsync"))
+    {
+        Some("native-op:__exactFsOpen")
+    } else {
+        native_async_worker_terminal(invocation)
+    };
     let mut expected_allowed_coverage_edge_ids = recipe.edge_ids.clone();
-    if let Some(worker_terminal) = auxiliary_worker_terminal {
+    if let Some(worker_terminal) = auxiliary_allowed_terminal {
         let worker_edges = coverage_terminals
             .iter()
             .filter_map(|(edge_id, terminal)| {
@@ -2267,7 +2302,7 @@ fn validate_native_runtime_observation(
             recipe.fixture_id
         );
         probe.surface_observed_key.clone()
-    } else if let Some(worker_terminal) = auxiliary_worker_terminal {
+    } else if let Some(worker_terminal) = posix_auxiliary_worker_terminal {
         assert_eq!(
             observed_terminals,
             BTreeSet::from([worker_terminal.to_owned()]),
@@ -2610,17 +2645,24 @@ async fn execute_native_public_recipe(
         .expect("native public invocation returned no result");
     let mut invocation_result: serde_json::Value =
         serde_json::from_str(&encoded).expect("native public invocation returned invalid JSON");
-    if matches!(
-        invocation.global_name.as_str(),
-        "__exactFsFstatSync"
-            | "__exactFsFsyncSync"
-            | "__exactFsFdatasyncSync"
-            | "__exactFsFtruncateSync"
-            | "__exactFsFdAsync"
-            | "__exactFsWrite"
-            | "__exactFsWriteAsync"
-            | "__exactFsWritevAsync"
-    ) {
+    let retained_descriptor_operation = setup_state.fs_file_descriptor.is_some()
+        && matches!(
+            invocation.global_name.as_str(),
+            "__exactFsRead"
+                | "__exactFsReadv"
+                | "__exactFsReadAsync"
+                | "__exactFsReadvAsync"
+                | "__exactFsReadFileAsync"
+                | "__exactFsFstatSync"
+                | "__exactFsFsyncSync"
+                | "__exactFsFdatasyncSync"
+                | "__exactFsFtruncateSync"
+                | "__exactFsFdAsync"
+                | "__exactFsWrite"
+                | "__exactFsWriteAsync"
+                | "__exactFsWritevAsync"
+        );
+    if retained_descriptor_operation {
         let descriptor = setup_state
             .fs_file_descriptor
             .expect("retained descriptor operation requires an owned setup descriptor");

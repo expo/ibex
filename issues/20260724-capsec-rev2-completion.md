@@ -2039,7 +2039,9 @@ ticket closes.
   fixture together. The taming digest is now
   `sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c`;
   the reviewed evaluator identity is
-  `hermes-evaluators.660d8c65933319225949b3f4d64dbc9bf16b8d5ad7dfda37b2b9e4e0e9034eb2`.
+  `hermes-evaluators.08bb542867d4d29fabe8e67c64eae3b78d5605fc9259dafda2e0044c41c2beae`
+  after composing the subsequently landed Hermes 0010/0011 classification
+  headers with the reviewed lockdown change.
   Targeted inventory and semantic-classifier tests prove both the accepted
   identity and deliberate drift rejection.
 - Regenerated the 7,651-edge / 15,302-cell registry, 168-row runtime
@@ -2166,12 +2168,68 @@ ticket closes.
   enforcement mechanisms are about **99.2% complete** and the overall
   requested task is about **93% complete**.
 
+### 2026-07-26 — repaired Windows append-open evidence and full-shard honesty
+
+- Reconciled the older Windows `__exactFsOpen` write-denial contradiction.
+  LLP 0021 and the installed implementation agree that an append-capable open
+  submits `fs:write` at Requested before lookup; only the generated recipe was
+  wrong. The recipe now selects `fs:write` for the Windows write-denial branch
+  while preserving `fs:list` for read denial.
+- Running the complete physical Windows catalog exposed accumulated harness
+  assumptions hidden by focused slices. Retained read/readv and async-read
+  setup descriptors are now closed outside observation, target-absence rows
+  never enter retained cleanup, and allowed auxiliary open edges are separated
+  from the exact terminal actually observed. POSIX worker attribution remains
+  distinct from Windows source-specific typed edges.
+- LLP 0026 still advertises the native module runner only on macOS arm64 and
+  Linux x64. The Windows catalog had nevertheless promoted 19 private native
+  lifecycle ABI rows merely because their symbols compiled. Those rows are now
+  honestly unresolved on compatibility-only Windows with the explicit reason
+  `module-runner-native-abi-not-advertised-on-target`; the Apple native fixture
+  and catalog are unchanged.
+- The recipe suite passes 94 tests and 110,844 assertions. After the
+  moving-main integration, Apple
+  is 23,846 required / 2,799 fully executable / 3,136 internally verified /
+  17,911 unresolved with digest
+  `sha256-hzFaFp6ca8rOPfB-aswmofNj87HnLQAhzJZgbDPfvg0`. The corrected Windows
+  catalog is 23,505 / 2,453 / 3,122 / 17,930 with digest
+  `sha256-Pc_rPPo2gn0lrqXTz6uXaz_x-lpoHBLXPUpeIKmUU4M`. The six added
+  `compat --probe` CLI rows are unresolved on both targets and do not change
+  the executable filesystem shard.
+- Physical Windows, using the exact committed branch snapshot and strict stale
+  vendored enforcement, passes both complete production native shards: 255
+  primary rows and 244 secondary rows. The M4 verifier passes
+  `cargo check --workspace` and both halves of the existing 16-row Apple
+  filesystem production catalog with the corrected validator. After the
+  moving-main integration changed the reviewed patch-stack identity, both
+  machines rebuilt their no-debugger Hermes artifacts from the exact 12-patch
+  stack (`cd3dd1da3755`). Windows ran in a fresh Cargo target directory bound
+  to the rebuilt DLL digest; the two evidence artifacts both bind catalog
+  digest `sha256-Pc_rPPo2gn0lrqXTz6uXaz_x-lpoHBLXPUpeIKmUU4M`.
+- An exact-snapshot complete Apple run found a separate committed
+  `process.cwd` install-ID disagreement before reaching this slice. It is
+  recorded in `issues/20260726-capsec-process-cwd-install-id-drift.md`; it is
+  not treated as evidence for or against the filesystem repair.
+- Before checkpointing, `origin/main` advanced to `002ba828`; the branch
+  rebased across all three incoming commits. Their Hermes 0010/0011
+  classification headers changed the source-derived evaluator identity
+  without changing executable behavior. Composing those reviewed headers with
+  the already reviewed lockdown repair yields
+  `hermes-evaluators.08bb542867d4d29fabe8e67c64eae3b78d5605fc9259dafda2e0044c41c2beae`
+  and resolves the incoming lockdown-identity drift ticket.
+- Hard part: a source file being compiled on a target does not make its private
+  lifecycle ABI an advertised public mechanism. Exact-target evidence must
+  respect the platform contract, distinguish setup from the observation
+  window, and never infer cleanup ownership from a function name alone.
+  Important enforcement mechanisms remain about **99.2% complete** and the
+  overall requested task remains about **93% complete**.
+
 ## Next milestone
 
 Continue criterion 4 by auditing the remaining installed Windows filesystem
 routes, starting with synchronous vector/positional descriptor mutation and
-write-capable open families. Also repair the pre-existing Windows
-`__exactFsOpen` write-denial public-evidence mismatch before relying on a
-complete native shard. Do not advertise Windows while installed legacy routes
-or 17,905 exact-target public-evidence rows remain unresolved, and do not
-convert catalog labels into completion evidence.
+write-capable whole-file families. Reconcile the Apple `process.cwd` install-ID
+drift before relying on another complete Apple native shard. Do not advertise
+Windows while installed legacy routes or 17,930 exact-target public-evidence
+rows remain unresolved, and do not convert catalog labels into completion
+evidence.

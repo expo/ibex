@@ -1212,7 +1212,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "open_devtools_for_port",
-          "sourceOffset": 96821,
+          "sourceOffset": 96878,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1227,7 +1227,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "open_devtools_for_port",
-          "sourceOffset": 97130,
+          "sourceOffset": 97187,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1242,7 +1242,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "open_devtools_for_port",
-          "sourceOffset": 97504,
+          "sourceOffset": 97561,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1257,7 +1257,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "open_devtools_for_port",
-          "sourceOffset": 97697,
+          "sourceOffset": 97754,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1272,7 +1272,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "open_devtools_for_port",
-          "sourceOffset": 98110,
+          "sourceOffset": 98167,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1287,7 +1287,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "open_devtools_for_port",
-          "sourceOffset": 98316,
+          "sourceOffset": 98373,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1302,7 +1302,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_package_script",
-          "sourceOffset": 52782,
+          "sourceOffset": 52839,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1317,7 +1317,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_package_script",
-          "sourceOffset": 52946,
+          "sourceOffset": 53003,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1332,7 +1332,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_watch",
-          "sourceOffset": 72280,
+          "sourceOffset": 72337,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -6984,7 +6984,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_package_script",
-          "sourceOffset": 53028,
+          "sourceOffset": 53085,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::env:PATH:write",
           "stage": "child-environment-construction"
@@ -6999,7 +6999,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_package_script",
-          "sourceOffset": 52322,
+          "sourceOffset": 52379,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#env::var_os:PATH:read",
           "stage": "launcher-pre-arm-read"

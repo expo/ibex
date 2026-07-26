@@ -335,7 +335,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_840);
+    expect(recipes.summary.requiredFixtures).toBe(23_846);
     // Invocation-time require activation adds source-derived obligations; the
     // six eager dynamic/require-link ABIs remain residual because the
     // production graph deliberately uses deferred call-time links. The net-new
@@ -351,7 +351,7 @@ describe("exact-target CapSec executable recipes", () => {
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_905);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_911);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -448,7 +448,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_499);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_505);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch. The
@@ -461,9 +461,9 @@ describe("exact-target CapSec executable recipes", () => {
     // the same floor that the scenario denies. Typed synchronous TCP connect
     // adds its five staged public scenarios, and its exact typed setup promotes
     // the three ownership-only lifecycle consumers.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_472);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_453);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_905);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_930);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -2587,6 +2587,29 @@ describe("exact-target CapSec executable recipes", () => {
         expect(recipe.status).toBe("fully-executable");
       }
     }
+    const windowsWriteDeny = windowsRecipes.recipes.find(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsOpen" &&
+        recipe.fixtureId.includes(".logical.write.deny"),
+    );
+    expect(windowsWriteDeny).toBeDefined();
+    expect(
+      windowsWriteDeny.publicSurfaceProbe.invocation.expectedActionIds,
+    ).toEqual(["fs:write"]);
+    expect(
+      windowsWriteDeny.publicSurfaceProbe.invocation.expectedTypedStages,
+    ).toEqual(["requested"]);
+    const windowsReadDeny = windowsRecipes.recipes.find(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsOpen" &&
+        recipe.fixtureId.includes(".logical.read.deny"),
+    );
+    expect(windowsReadDeny).toBeDefined();
+    expect(
+      windowsReadDeny.publicSurfaceProbe.invocation.expectedActionIds,
+    ).toEqual(["fs:list"]);
   });
 
   test("reads retained descriptor bytes and closes its source-bound setup", () => {
@@ -5870,6 +5893,30 @@ describe("exact-target CapSec executable recipes", () => {
             .sourceRefs[0] ===
             `src/engine/hermes_module_runner.cc#${recipe.publicSurfaceProbe.invocation.functionName}` &&
           recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount === 0,
+      ),
+    ).toBe(true);
+
+    const moduleRunnerFunctionNames = new Set(
+      rows.map((recipe) => recipe.publicSurfaceProbe.invocation.functionName),
+    );
+    const windowsRows = windowsRecipes.recipes.filter((recipe) =>
+      recipe.scenario === "non-capability" &&
+      recipe.classification === "non-capability" &&
+      recipe.actionIds.length === 0 &&
+      recipe.edgeIds.length === 1 &&
+      moduleRunnerFunctionNames.has(
+        recipe.route.surfaceObservedKeys[0]?.slice("host-abi:".length),
+      ),
+    );
+    expect(windowsRows).toHaveLength(19);
+    expect(
+      windowsRows.every(
+        (recipe) =>
+          recipe.status === "unresolved" &&
+          recipe.publicSurfaceProbe === null &&
+          recipe.residualReasons.includes(
+            "module-runner-native-abi-not-advertised-on-target",
+          ),
       ),
     ).toBe(true);
 
