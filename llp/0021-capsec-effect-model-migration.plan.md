@@ -5,7 +5,8 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
-**Revised:** 2026-07-26 (armed POSIX and Windows `__exactFsReadAsync` / `__exactFsReadvAsync` now carry the runtime/owner/principal/retained-object operation lease to the filesystem worker and submit one exact-object `fs:read` Repeat immediately before their sole scalar or aggregate acquisition; vector destinations are bounded without caller-sized preauthorization allocation and receive bytes only from the successful owned result, positioned reads preserve the cursor, eight recipes become executable on each exact target, and worker-backed writes plus Windows TCP remain residual)
+**Revised:** 2026-07-26 (armed Windows TCP now authorizes requested host/port before DNS, every member of the complete canonical candidate set before connect, and the verified `getpeername` peer at Commit; retained socket identity and connection id bind generation-aware Repeat to each read/write while the registry lock prevents close/reuse races, and five connect plus three lifecycle recipes become executable)
+**Revised:** 2026-07-26 (armed POSIX and Windows `__exactFsReadAsync` / `__exactFsReadvAsync` now carry the runtime/owner/principal/retained-object operation lease to the filesystem worker and submit one exact-object `fs:read` Repeat immediately before their sole scalar or aggregate acquisition; vector destinations are bounded without caller-sized preauthorization allocation and receive bytes only from the successful owned result, positioned reads preserve the cursor, and eight recipes become executable on each exact target while worker-backed writes and durability remain residual)
 **Revised:** 2026-07-26 (armed Windows `__exactFsReadFileAsync` now captures one schedule-time runtime/principal operation lease and performs both path and retained-descriptor reads on the filesystem worker through typed VFS ABIs: path reads authorize requested/discovery `fs:list` plus commit/per-chunk `fs:read`, descriptor reads serialize the retained cursor and reauthorize every 64 KiB chunk plus EOF, denial precedes lookup or disclosure, eleven Windows recipes are newly executable, and worker-backed scalar/vector reads plus other installed Windows effects remain residual)
 **Revised:** 2026-07-25 (armed Windows exact-string `"a"` open now admits only an existing regular file through an append-only retained handle: `fs:write` Requested precedes lookup, `fs:list` Requested/Discovery authenticates the existing object, `fs:write` Commit binds its identity/generation, and scalar `__exactFsWrite` performs one exact-object Repeat immediately before a short-write append; absence never creates, denial never mutates, package-source hard-link aliases refuse at Commit, ten Windows recipes are newly executable, and all other writable/async/durability modes remain residual)
 **Revised:** 2026-07-25 (armed Windows synchronous `__exactFsReadv` now validates the runtime/owner-bound retained descriptor before inspecting a bounded vector, authorizes one exact-object `fs:read` Repeat, acquires bytes through the same retained file with positional-cursor restoration, and scatters only after success; four public scenarios are executable on each exact target while worker-backed vector reads remain residual)
@@ -1428,8 +1429,7 @@ retained cursor, while a sequential request advances it.
 This is a bounded slice, not Windows filesystem promotion. Worker-backed
 durability, mutation, write-capable open, and the other installed Windows
 filesystem routes remain residual until their own retained-object contracts are
-implemented. The typed Windows TCP boundary also remains a separate criterion-4
-gap.
+implemented.
 Exact-target recipe generation now
 schedules the five `__exactReadFile`, five `__exactStat`, and five
 `__exactLstat`, five `__exactReaddir`, six read-only `__exactFsOpen`, and four
@@ -1446,11 +1446,11 @@ recipes under
 `public-surface-filesystem-not-typed-on-target`; five `__exactAppendFile`
 recipes remain under the more exact
 `native-public-operation-not-installed-on-target` build-source boundary. The
-Windows catalog is 23,499 required / 2,448 fully executable / 3,122 internally
-verified / 17,929 unresolved with digest
-`sha256-x0r2Bx29pHVJLyj2SM20gT5K4hg2JQik1xR5kiWbMnw`. Apple remains
+Windows catalog is 23,499 required / 2,456 fully executable / 3,122 internally
+verified / 17,921 unresolved with digest
+`sha256-WKSyhVxCCwxqBksw5QzVyHxFlZ3gyPoSmRKxENblPCk`. Apple remains
 independently shaped at 23,840 / 2,791 / 3,136 / 17,913 with digest
-`sha256-oh8YVBIFBwqNizBwNfUy8WwvRUl2hbGUGXfLLUp9BdU`.
+`sha256-YgEmaptGoFnSBwa5_Ta7DQRvKMrqx9ODnuiZrxv7gVQ`.
 
 Integrating the lockdown error-prototype override repair changed the
 source-derived taming digest to
@@ -1461,22 +1461,29 @@ The reachable evaluator family and all three reviewed engine profiles remain
 unchanged. The exact-target recipe counts therefore stay fixed, while their
 digests above change because each catalog binds the reviewed engine identity.
 
-The Windows TCP globals likewise still call the legacy string capability oracle
-rather than the typed network adapter used by the Apple implementation. The
-five `__exactTcpConnect` public scenarios therefore remain residual under
-`public-surface-network-not-typed-on-target` on Windows: their authored probes
-require requested/candidate/commit evidence that the installed target cannot
-produce. Apple continues to execute those recipes through the typed network
-path. This boundary must be removed only when the Windows backend installs the
-same staged authorization, not merely when the global is callable.
+The Windows TCP connect path now uses the typed network adapter. `Requested`
+authorizes the caller's host/port before DNS, `Candidate` authorizes every
+member of the complete canonical resolver set before its connect attempt, and
+`Commit` binds the selected candidate to the actual peer returned by
+`getpeername`. The retained socket records a monotonically allocated socket
+identity, runtime/owner identity, selected candidate, verified peer, and exact
+connection id. Every armed read or write obtains a stable generation bracket,
+rechecks the current peer, submits a full `Repeat`, revalidates the same
+registry entry and connection id, and holds the registry lock through the
+WinSock operation so close and numeric-socket reuse cannot race the effect.
+Release remains authority reducing and checks ownership without requiring live
+policy authority. The five staged `__exactTcpConnect` scenarios and the three
+zero-decision close/reset/shutdown lifecycle scenarios are now executable on
+Windows. Target-aware recipe binding selects the installed Windows JSI source
+descriptor rather than borrowing the default POSIX translation unit.
 
 The non-capability `__exactTcpClose`, `__exactTcpReset`, and
-`__exactTcpShutdown` probes also remain residual on Windows under
-`native-public-prerequisite-not-typed-on-target`. Their observation is
-zero-decision, but producing the exact owned socket that they consume requires
-`__exactTcpConnect`; the harness must not grant legacy setup authority or
-credit a lifecycle observation made against a fabricated handle. Apple keeps
-executing all three through its typed loopback setup path.
+`__exactTcpShutdown` probes execute against an exact loopback socket produced
+by that typed Windows connect path. They remain zero-decision observations:
+setup supplies the required authority, while lifecycle release cannot mint or
+widen it. The sole remaining
+`native-public-prerequisite-not-typed-on-target` row is the unrelated Windows
+filesystem close setup.
 
 The Windows network translation unit registers `__exactUdpSocket` and
 `__exactUdpClose` as explicit throwing placeholders; their real operations

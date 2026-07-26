@@ -237,7 +237,7 @@
             "summary": "The Windows environment-copy helper is reached only by child-spawn routes after process:spawn authorization or by system-information branches after their exact typed sys:read decision."
           },
           "scope": "getenvString",
-          "sourceOffset": 936,
+          "sourceOffset": 1475,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#_dupenv_s:dynamic:read",
           "stage": "post-arm-host-read"
@@ -1935,7 +1935,7 @@
             "summary": "The Windows shell fallback reads host ComSpec only from the async child-spawn route after its process:spawn effect gate; an explicit child environment or shell value takes precedence."
           },
           "scope": "windowsSpawnLaunchFile",
-          "sourceOffset": 53322,
+          "sourceOffset": 62137,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:COMSPEC:read",
           "stage": "post-arm-host-read"
@@ -4865,7 +4865,7 @@
             "summary": "Windows HOME lookup is inside the StoragePaths branch after the exact typed sys:read decision."
           },
           "scope": "installOsInfoGlobals",
-          "sourceOffset": 64843,
+          "sourceOffset": 73658,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:HOME:read",
           "stage": "post-arm-host-read"
@@ -7035,7 +7035,7 @@
             "summary": "Windows parent-PATH fallback is reached only while resolving an already process:spawn-gated child launch."
           },
           "scope": "resolveWindowsExecutableForEnvironment",
-          "sourceOffset": 25479,
+          "sourceOffset": 34294,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:PATH:read",
           "stage": "post-arm-host-read"
@@ -7171,7 +7171,7 @@
             "summary": "Windows TEMP lookup is inside the StoragePaths branch after the exact typed sys:read decision."
           },
           "scope": "installOsInfoGlobals",
-          "sourceOffset": 65131,
+          "sourceOffset": 73946,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:TEMP:read",
           "stage": "post-arm-host-read"
@@ -7326,7 +7326,7 @@
             "summary": "Windows TMP lookup is inside the StoragePaths branch after the exact typed sys:read decision."
           },
           "scope": "installOsInfoGlobals",
-          "sourceOffset": 65065,
+          "sourceOffset": 73880,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:TMP:read",
           "stage": "post-arm-host-read"
@@ -7422,7 +7422,7 @@
             "summary": "Windows TMPDIR lookup is inside the StoragePaths branch after the exact typed sys:read decision."
           },
           "scope": "installOsInfoGlobals",
-          "sourceOffset": 64996,
+          "sourceOffset": 73811,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:TMPDIR:read",
           "stage": "post-arm-host-read"
@@ -7590,7 +7590,7 @@
             "summary": "Windows username lookup occurs only after the exact typed sys:read user-information decision."
           },
           "scope": "installOsInfoGlobals",
-          "sourceOffset": 69673,
+          "sourceOffset": 78488,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:USERNAME:read",
           "stage": "post-arm-host-read"
@@ -7640,7 +7640,7 @@
             "summary": "Windows USERPROFILE storage-path fallback is inside the StoragePaths branch after the exact typed sys:read decision."
           },
           "scope": "installOsInfoGlobals",
-          "sourceOffset": 64900,
+          "sourceOffset": 73715,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:USERPROFILE:read",
           "stage": "post-arm-host-read"
@@ -7661,7 +7661,7 @@
             "summary": "Windows USERPROFILE user-information fallback occurs only after the exact typed sys:read user decision."
           },
           "scope": "installOsInfoGlobals",
-          "sourceOffset": 69722,
+          "sourceOffset": 78537,
           "sourcePath": "src/engine/hermes_runtime_platform_windows.cc",
           "sourceRef": "src/engine/hermes_runtime_platform_windows.cc#getenvString:USERPROFILE:read",
           "stage": "post-arm-host-read"

@@ -457,10 +457,12 @@ describe("exact-target CapSec executable recipes", () => {
     // whole-file read adds six path and five descriptor scenarios; async
     // scalar/vector reads add four retained-descriptor scenarios apiece. Each
     // retained descriptor denial remains residual because its prerequisite
-    // handle needs the same floor that the scenario denies.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_448);
+    // handle needs the same floor that the scenario denies. Typed synchronous
+    // TCP connect adds its five staged public scenarios, and its exact typed
+    // setup promotes the three ownership-only lifecycle consumers.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_456);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_929);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_921);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -683,22 +685,52 @@ describe("exact-target CapSec executable recipes", () => {
           "public-surface-network-not-typed-on-target",
         ),
     );
-    expect(unsupportedWindowsNetworkRecipes).toHaveLength(5);
+    expect(unsupportedWindowsNetworkRecipes).toHaveLength(0);
+    const typedWindowsTcpConnect = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactTcpConnect",
+    );
+    expect(typedWindowsTcpConnect).toHaveLength(5);
     expect(
-      unsupportedWindowsNetworkRecipes.every(
-        (recipe) =>
-          recipe.status === "unresolved" &&
-          recipe.publicSurfaceProbe === null &&
-          recipe.terminalObservedKey === "native-op:__exactTcpConnect",
-      ),
-    ).toBe(true);
-    expect(
-      windowsRecipes.recipes.filter(
-        (recipe) =>
-          recipe.publicSurfaceProbe?.invocation?.globalName ===
-          "__exactTcpConnect",
-      ),
-    ).toHaveLength(0);
+      typedWindowsTcpConnect.map((recipe) => [
+        recipe.scenario,
+        recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
+        recipe.publicSurfaceProbe.invocation.expectedTypedStages,
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceRef,
+      ]),
+    ).toEqual([
+      [
+        "allow",
+        3,
+        ["requested", "candidate", "commit"],
+        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactTcpConnect",
+      ],
+      [
+        "deny",
+        1,
+        ["requested"],
+        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactTcpConnect",
+      ],
+      [
+        "malformed",
+        3,
+        ["requested", "candidate", "commit"],
+        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactTcpConnect",
+      ],
+      [
+        "missing-attribution",
+        3,
+        ["requested", "candidate", "commit"],
+        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactTcpConnect",
+      ],
+      [
+        "wrong-principal",
+        3,
+        ["requested", "candidate", "commit"],
+        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactTcpConnect",
+      ],
+    ]);
     for (const globalName of [
       "__exactTcpClose",
       "__exactTcpReset",
@@ -709,10 +741,28 @@ describe("exact-target CapSec executable recipes", () => {
           candidate.terminalObservedKey === `native-op:${globalName}` &&
           candidate.scenario === "non-capability",
       );
-      expect(recipe.publicSurfaceProbe).toBeNull();
-      expect(recipe.residualReasons).toContain(
-        "native-public-prerequisite-not-typed-on-target",
-      );
+      expect(recipe).toMatchObject({
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            globalName,
+            expectedTypedDecisionCount: 0,
+            expectedTypedStages: [],
+            setup: [
+              { kind: "tcp-loopback-listener" },
+              {
+                kind: "tcp-loopback-client",
+                globalName: "__exactTcpConnect",
+                sourceDescriptor: {
+                  sourceRef:
+                    "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactTcpConnect",
+                },
+              },
+            ],
+          },
+        },
+      });
     }
     for (const globalName of ["__exactUdpClose", "__exactUdpSocket"]) {
       const recipe = windowsRecipes.recipes.find(

@@ -2064,11 +2064,68 @@ ticket closes.
   copying its pin. Important enforcement mechanisms remain about **99%
   complete** and the overall requested task remains about **92% complete**.
 
+### 2026-07-26 — typed Windows TCP connect, peer, and lifecycle boundary
+
+- Replaced the armed Windows `__exactTcpConnect` legacy-oracle path with the
+  typed network contract. `Requested` runs before DNS; the resolver result is
+  canonicalized, sorted, and deduplicated into the complete candidate set;
+  each attempted endpoint receives `Candidate`; and `Commit` requires the
+  selected endpoint to equal the actual `getpeername` peer before the handle is
+  published. IPv4-mapped IPv6 literals remain refused rather than acquiring an
+  ambiguous address identity.
+- Retained WinSock entries now bind a monotonic socket identity, runtime,
+  owner, requested host/port, canonical candidates, selected candidate,
+  verified peer, and exact connection id. Armed reads and writes verify the
+  current peer, take a stable negative/dynamic/handle-generation bracket,
+  submit a full `Repeat`, revalidate the exact registry entry and connection
+  id, and hold the registry lock through `recv` or `send`. Close and numeric
+  `SOCKET` reuse therefore cannot race the authorized effect. Empty writes
+  still perform no effect and emit no decision.
+- Kept release authority reducing. Close, reset, and shutdown require the
+  exact runtime/owner-bound entry but not live policy authority. Once their
+  loopback setup was bound to the installed Windows connect source, the three
+  zero-decision lifecycle rows no longer needed their stale Windows
+  prerequisite exception.
+- Recipe generation now selects public invocation and nested setup descriptors
+  from the implementation branch compiled for the exact target. This promotes
+  five Windows connect scenarios plus the three lifecycle consumers without
+  attributing the POSIX source to Windows or disturbing target-absence probes.
+  Windows is now 23,499 required / 2,456 fully executable / 3,122 internally
+  verified / 17,921 unresolved with digest
+  `sha256-WKSyhVxCCwxqBksw5QzVyHxFlZ3gyPoSmRKxENblPCk`. Apple remains 23,840 /
+  2,791 / 3,136 / 17,913 with digest
+  `sha256-YgEmaptGoFnSBwa5_Ta7DQRvKMrqx9ODnuiZrxv7gVQ`. The recipe suite passes
+  93 tests and 110,682 assertions.
+- Physical Windows passes the strict staged connect/three-write observer and
+  the ownership-only lifecycle regression with zero `._*` sidecars. A focused,
+  digest-valid public catalog executes all eight promoted rows through the two
+  production native shards: four connect outcomes plus close in the primary,
+  and missing-attribution plus reset/shutdown in the secondary. The complete
+  primary shard reaches an older unrelated `__exactFsOpen` write-denial row
+  before the TCP rows and reports `fs:write` where that recipe expects
+  `fs:list`; this pre-existing full-catalog blocker is not counted as TCP
+  evidence and is tracked in
+  `issues/20260726-windows-fs-open-write-denial-evidence.md`.
+- The M4 verifier independently regenerates the complete vendored/CapSec
+  artifact chain, passes generated drift, `ref-check`, all 93 recipe tests, and
+  the existing typed Apple connect/peer observer. Checksum comparison across
+  the changed files reports timestamp-only differences and no content
+  differences. During the slice, `main` advanced to `b9558cf3`; the 63-commit
+  branch rebased cleanly before documentation and final verification.
+- Hard part: endpoint authorization is not one check around `connect`. The
+  requested name, complete candidate set, attempted candidate, committed
+  kernel peer, retained connection, and later I/O must stay in one identity
+  chain while Windows can recycle numeric socket values. Binding the verified
+  peer and holding the registry lock through I/O closes both rebinding and
+  handle-reuse gaps. Important enforcement mechanisms remain about **99%
+  complete** and the overall requested task remains about **92% complete**.
+
 ## Next milestone
 
 Continue criterion 4 with the next installed Windows boundary. The leading
-candidate is the typed TCP connect/peer path; worker-backed descriptor writes
-and durability are the next filesystem family and need their own
-mutation-before-publication contracts. Do not advertise Windows while
-installed legacy routes or 17,929 exact-target public-evidence rows remain
+candidate is worker-backed descriptor writes and durability; they need their
+own mutation-before-publication and revocation contracts. Also repair the
+pre-existing Windows `__exactFsOpen` write-denial public-evidence mismatch
+before relying on a complete native shard. Do not advertise Windows while
+installed legacy routes or 17,921 exact-target public-evidence rows remain
 unresolved, and do not convert catalog labels into completion evidence.

@@ -20247,6 +20247,92 @@ navigator.gpu.requestAdapter()
         );
     }
 
+    #[cfg(all(windows, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_windows_tcp_connect_commits_and_rechecks_the_actual_peer() {
+        use capsec_semantics::model::Stage;
+        use std::io::Read;
+        use std::net::TcpListener;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut bytes = [0u8; 3];
+            stream.read_exact(&mut bytes).unwrap();
+            bytes
+        });
+        let floor = serde_json::json!({
+            "cap": "network:connect",
+            "resource": {
+                "kind": "connect-endpoint",
+                "transport": "tcp",
+                "host": {"kind": "ip", "address": "127.0.0.1"},
+                "port": {"kind": "exact", "value": port},
+                "peerClasses": ["loopback"],
+                "route": {"kind": "direct"}
+            }
+        });
+        let (_reset, digest) = install_armed_test_host_at(None, false, false, false, vec![floor]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            crate::host::abi::begin_installed_conformance_observation(
+                "surface.native.op.exacttcpconnect.1cs9rhu"
+            ),
+            "armed Windows TCP must have an installed Host observer"
+        );
+        let script = format!(
+            r#"(function() {{
+                if (typeof __exactEnsureNet === 'function') __exactEnsureNet();
+                var socket = __exactTcpConnect('127.0.0.1', {port});
+                if (__exactTcpWrite(socket, 'x') !== 1) throw new Error('write');
+                if (__exactTcpWrite(socket, 'x') !== 1) throw new Error('write');
+                if (__exactTcpWrite(socket, 'x') !== 1) throw new Error('write');
+                __exactTcpClose(socket);
+                return 'ok';
+            }})()"#
+        );
+        let outcome = engine.eval_immediate(&script).await.unwrap();
+        assert_eq!(outcome.as_deref(), Some("ok"));
+        assert_eq!(server.join().unwrap(), *b"xxx");
+
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            legacy.is_empty(),
+            "armed Windows TCP crossed the legacy capability oracle"
+        );
+        assert_eq!(
+            typed
+                .iter()
+                .map(|row| row.decision_set.context.stage)
+                .collect::<Vec<_>>(),
+            vec![
+                Stage::Requested,
+                Stage::Candidate,
+                Stage::Commit,
+                Stage::Repeat,
+                Stage::Repeat,
+                Stage::Repeat,
+            ]
+        );
+        assert!(typed.iter().all(|row| {
+            row.decision_set.effects[0].action.as_str() == "network:connect"
+                && row.gates.iter().all(|gate| {
+                    gate.coverage_edge_id.as_str() == "surface.native.op.exacttcpconnect.1cs9rhu"
+                })
+        }));
+        let committed = serde_json::to_value(&typed[2].decision_set.effects[0].resource).unwrap();
+        assert_eq!(committed["selectedCandidate"], "127.0.0.1");
+        assert_eq!(committed["verifiedPeer"]["address"], "127.0.0.1");
+        assert_eq!(committed["verifiedPeer"]["port"], port);
+        assert!(committed["connectionId"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("tcp:")));
+    }
+
     #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
     async fn dual_stack_listener_reports_ipv4_peer_in_canonical_form() {

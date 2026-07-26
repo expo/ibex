@@ -34,6 +34,23 @@
 
 extern "C" void ex_host_free_string(char* value);
 extern "C" uint64_t ex_hermes_current_runtime_nonce();
+extern "C" int32_t ex_host_authorize_typed_network_stack(
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    uint32_t network_kind,
+    const char* host,
+    uint16_t port,
+    uint32_t stage,
+    const char* candidates_json,
+    const char* selected_candidate,
+    const char* verified_peer,
+    const char* connection_id,
+    uint64_t redirect_index);
+extern "C" int32_t ex_host_typed_generations(
+    uint64_t* negative_generation,
+    uint64_t* dynamic_generation,
+    uint64_t* handle_generation);
 
 namespace {
 
@@ -119,14 +136,23 @@ bool setSocketNonBlocking(SOCKET socket) {
 }
 
 struct WindowsSocketEntry {
-  SOCKET socket;
-  uint64_t runtimeNonce;
-  uint64_t owner;
+  SOCKET socket = INVALID_SOCKET;
+  uint64_t identity = 0;
+  uint64_t runtimeNonce = 0;
+  uint64_t owner = 0;
   std::string capability;
+  bool typedConnect = false;
+  std::string typedHost;
+  uint16_t typedPort = 0;
+  std::string typedCandidates;
+  std::string typedSelected;
+  std::string typedPeer;
+  std::string typedConnectionId;
 };
 
 std::unordered_map<int, WindowsSocketEntry> g_windows_sockets;
 int g_windows_next_socket_handle = 1;
+uint64_t g_windows_next_socket_identity = 1;
 std::mutex g_windows_sockets_mutex;
 
 struct WindowsNetOwnerStampEntry {
@@ -208,10 +234,75 @@ int registerWindowsSocket(
     uint64_t owner = currentPrincipalId()) {
   std::lock_guard<std::mutex> lock(g_windows_sockets_mutex);
   int handle = g_windows_next_socket_handle++;
-  g_windows_sockets[handle] = WindowsSocketEntry{
-      socket, exactCurrentRuntimeNonce(), owner, capability};
+  WindowsSocketEntry entry;
+  entry.socket = socket;
+  entry.identity = g_windows_next_socket_identity++;
+  entry.runtimeNonce = exactCurrentRuntimeNonce();
+  entry.owner = owner;
+  entry.capability = capability;
+  g_windows_sockets[handle] = std::move(entry);
   return handle;
 }
+
+uint64_t reserveWindowsSocketIdentity() {
+  std::lock_guard<std::mutex> lock(g_windows_sockets_mutex);
+  return g_windows_next_socket_identity++;
+}
+
+int registerWindowsTypedConnectSocket(
+    SOCKET socket,
+    uint64_t identity,
+    uint64_t owner,
+    std::string host,
+    uint16_t port,
+    std::string candidates,
+    std::string selected,
+    std::string peer,
+    std::string connectionId) {
+  std::lock_guard<std::mutex> lock(g_windows_sockets_mutex);
+  int handle = g_windows_next_socket_handle++;
+  WindowsSocketEntry entry;
+  entry.socket = socket;
+  entry.identity = identity;
+  entry.runtimeNonce = exactCurrentRuntimeNonce();
+  entry.owner = owner;
+  entry.typedConnect = true;
+  entry.typedHost = std::move(host);
+  entry.typedPort = port;
+  entry.typedCandidates = std::move(candidates);
+  entry.typedSelected = std::move(selected);
+  entry.typedPeer = std::move(peer);
+  entry.typedConnectionId = std::move(connectionId);
+  g_windows_sockets[handle] = std::move(entry);
+  return handle;
+}
+
+bool authorizeWindowsTypedTcp(
+    uint64_t principal,
+    const std::string& host,
+    uint16_t port,
+    uint32_t stage,
+    const std::string& candidates,
+    const char* selected,
+    const char* peer,
+    const char* connectionId) {
+  auto principals = exactCollectTypedPrincipalStack();
+  return ex_host_authorize_typed_network_stack(
+             principal,
+             principals.data(),
+             principals.size(),
+             2,
+             host.c_str(),
+             port,
+             stage,
+             candidates.c_str(),
+             selected,
+             peer,
+             connectionId,
+             UINT64_MAX) == 1;
+}
+
+std::optional<std::string> windowsSocketPeerText(SOCKET socket);
 
 WindowsSocketEntry requireWindowsSocket(
     facebook::jsi::Runtime& runtime,
@@ -238,8 +329,22 @@ WindowsSocketEntry requireWindowsSocket(
         runtime, std::string(operation) + ": handle belongs to a different principal");
   }
   if (!isAllowAll()) {
-    if (requireLiveAuthority && !entry.capability.empty() &&
-        !checkCapability(entry.capability)) {
+    if (requireLiveAuthority && entry.typedConnect) {
+      auto peer = windowsSocketPeerText(entry.socket);
+      if (!peer || *peer != entry.typedPeer ||
+          !authorizeWindowsTypedTcp(
+              entry.owner,
+              entry.typedHost,
+              entry.typedPort,
+              4,
+              entry.typedCandidates,
+              entry.typedSelected.c_str(),
+              peer->c_str(),
+              entry.typedConnectionId.c_str())) {
+        throw facebook::jsi::JSError(runtime, "Permission denied");
+      }
+    } else if (requireLiveAuthority && !entry.capability.empty() &&
+               !checkCapability(entry.capability)) {
       throw facebook::jsi::JSError(
           runtime, "Permission denied: network capability required");
     }
@@ -351,6 +456,162 @@ std::string socketAddressJson(const sockaddr_storage& addr) {
   }
   return "{\"address\":\"" + ip + "\",\"port\":" + std::to_string(port) +
       ",\"family\":\"" + family + "\"}";
+}
+
+std::optional<std::string> windowsAddressText(
+    const sockaddr* address,
+    int addressLength) {
+  if (!address || addressLength <= 0 ||
+      static_cast<size_t>(addressLength) > sizeof(sockaddr_storage)) {
+    return std::nullopt;
+  }
+  sockaddr_storage storage{};
+  std::memcpy(&storage, address, static_cast<size_t>(addressLength));
+  std::string text = socketAddressText(storage);
+  if (text.empty()) return std::nullopt;
+  return text;
+}
+
+std::optional<std::string> windowsSocketPeerText(SOCKET socket) {
+  sockaddr_storage address{};
+  int addressLength = sizeof(address);
+  if (getpeername(
+          socket,
+          reinterpret_cast<sockaddr*>(&address),
+          &addressLength) != 0) {
+    return std::nullopt;
+  }
+  std::string text = socketAddressText(address);
+  if (text.empty()) return std::nullopt;
+  return text;
+}
+
+std::string canonicalWindowsCandidateJson(addrinfo* result) {
+  std::vector<std::string> candidates;
+  for (auto* current = result; current != nullptr; current = current->ai_next) {
+    auto text = windowsAddressText(
+        current->ai_addr, static_cast<int>(current->ai_addrlen));
+    if (text) candidates.push_back(std::move(*text));
+  }
+  // @ref LLP 0021#wp6--convert-network-effects-and-protected-peers — the
+  // candidate stage binds the complete canonical resolver set, not whichever
+  // WinSock answer happens to connect first.
+  std::sort(candidates.begin(), candidates.end());
+  candidates.erase(
+      std::unique(candidates.begin(), candidates.end()), candidates.end());
+  std::string json = "[";
+  for (size_t index = 0; index < candidates.size(); ++index) {
+    if (index != 0) json += ',';
+    json += '"' + candidates[index] + '"';
+  }
+  json += ']';
+  return json;
+}
+
+struct WindowsNetworkAuthorizationGenerations {
+  uint64_t negative = 0;
+  uint64_t dynamic = 0;
+  uint64_t handle = 0;
+
+  bool operator==(const WindowsNetworkAuthorizationGenerations& other) const {
+    return negative == other.negative && dynamic == other.dynamic &&
+        handle == other.handle;
+  }
+};
+
+bool readWindowsNetworkAuthorizationGenerations(
+    WindowsNetworkAuthorizationGenerations& generations) {
+  return ex_host_typed_generations(
+             &generations.negative,
+             &generations.dynamic,
+             &generations.handle) == 1;
+}
+
+struct LockedWindowsSocketIo {
+  std::unique_lock<std::mutex> registryLock;
+  SOCKET socket = INVALID_SOCKET;
+
+  LockedWindowsSocketIo(
+      std::unique_lock<std::mutex> lock,
+      SOCKET retainedSocket)
+      : registryLock(std::move(lock)), socket(retainedSocket) {}
+};
+
+LockedWindowsSocketIo requireWindowsSocketIo(
+    facebook::jsi::Runtime& runtime,
+    int handle,
+    const char* operation) {
+  std::unique_lock<std::mutex> lock(g_windows_sockets_mutex);
+  auto live = g_windows_sockets.find(handle);
+  if (live == g_windows_sockets.end()) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(operation) + ": invalid handle");
+  }
+  const WindowsSocketEntry& entry = live->second;
+  if (entry.runtimeNonce != exactCurrentRuntimeNonce() ||
+      entry.owner != currentPrincipalId()) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  if (isAllowAll()) {
+    return LockedWindowsSocketIo(std::move(lock), entry.socket);
+  }
+  if (!entry.typedConnect) {
+    if (!entry.capability.empty() && !checkCapability(entry.capability)) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+    return LockedWindowsSocketIo(std::move(lock), entry.socket);
+  }
+
+  auto peer = windowsSocketPeerText(entry.socket);
+  if (!peer || *peer != entry.typedPeer) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  const uint64_t identity = entry.identity;
+  const uint64_t owner = entry.owner;
+  const SOCKET socket = entry.socket;
+  const std::string host = entry.typedHost;
+  const uint16_t port = entry.typedPort;
+  const std::string candidates = entry.typedCandidates;
+  const std::string selected = entry.typedSelected;
+  const std::string connectionId = entry.typedConnectionId;
+  lock.unlock();
+
+  for (size_t attempt = 0; attempt < 3; ++attempt) {
+    WindowsNetworkAuthorizationGenerations before;
+    WindowsNetworkAuthorizationGenerations after;
+    if (!readWindowsNetworkAuthorizationGenerations(before) ||
+        !authorizeWindowsTypedTcp(
+            owner,
+            host,
+            port,
+            4,
+            candidates,
+            selected.c_str(),
+            peer->c_str(),
+            connectionId.c_str()) ||
+        !readWindowsNetworkAuthorizationGenerations(after)) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+    if (!(before == after)) continue;
+
+    lock.lock();
+    auto current = g_windows_sockets.find(handle);
+    if (current == g_windows_sockets.end() ||
+        current->second.identity != identity ||
+        current->second.socket != socket ||
+        current->second.owner != owner ||
+        current->second.runtimeNonce != exactCurrentRuntimeNonce() ||
+        !current->second.typedConnect ||
+        current->second.typedPeer != *peer ||
+        current->second.typedConnectionId != connectionId) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+    // @ref LLP 0021#handles-dynamic-authority-and-generations — the registry
+    // lock pins the exact WinSock object from the peer-bound Repeat through
+    // recv/send, so close and SOCKET reuse cannot consume this lease.
+    return LockedWindowsSocketIo(std::move(lock), socket);
+  }
+  throw facebook::jsi::JSError(runtime, "Permission denied");
 }
 
 std::wstring utf8ToWide(const std::string& value) {
@@ -2643,13 +2904,53 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         ensureWinsock();
         std::string host = args[0].toString(runtime).utf8(runtime);
         int port = static_cast<int>(args[1].asNumber());
+        if (port <= 0 || port > 65535) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactTcpConnect: port out of range");
+        }
         if (isIpv4MappedLiteral(host)) {
           throw facebook::jsi::JSError(
               runtime,
               "__exactTcpConnect: IPv4-mapped IPv6 literals are not canonical; use IPv4");
         }
-        std::string connectCapability = networkEndpointCapability("network:connect", host, port);
-        requireNetworkCapability(runtime, connectCapability, "network:connect");
+        const bool hasLocalAddress =
+            count > 2 && !args[2].isUndefined() && !args[2].isNull();
+        const bool hasLocalPort =
+            count > 3 && !args[3].isUndefined() && !args[3].isNull();
+        std::string connectCapability =
+            networkEndpointCapability("network:connect", host, port);
+        const bool armed = ex_host_is_armed() == 1;
+        const uint64_t principal = currentPrincipalId();
+        if (armed) {
+          if (hasLocalAddress || hasLocalPort) {
+            throw facebook::jsi::JSError(
+                runtime, "local TCP bind options are closed under armed startup");
+          }
+          IN_ADDR ipv4{};
+          IN6_ADDR ipv6{};
+          std::string requestedCandidates = "[]";
+          if (InetPtonA(AF_INET, host.c_str(), &ipv4) == 1 ||
+              InetPtonA(AF_INET6, host.c_str(), &ipv6) == 1) {
+            requestedCandidates = "[\"" + host + "\"]";
+          }
+          // @ref LLP 0021#wp6--convert-network-effects-and-protected-peers —
+          // request authority precedes DNS, then each attempted address and
+          // the peer verified by getpeername receive their own typed stage.
+          if (!authorizeWindowsTypedTcp(
+                  principal,
+                  host,
+                  static_cast<uint16_t>(port),
+                  0,
+                  requestedCandidates,
+                  nullptr,
+                  nullptr,
+                  nullptr)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        } else {
+          requireNetworkCapability(
+              runtime, connectCapability, "network:connect");
+        }
         addrinfo hints{};
         hints.ai_family = AF_UNSPEC;
         hints.ai_socktype = SOCK_STREAM;
@@ -2659,17 +2960,48 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         int rc = getaddrinfo(host.c_str(), portString.c_str(), &hints, &result);
         if (rc != 0 || !result) {
           if (result) freeaddrinfo(result);
-          throw facebook::jsi::JSError(runtime, winsockErrorString("__exactTcpConnect getaddrinfo", rc));
+          throw facebook::jsi::JSError(
+              runtime,
+              winsockErrorString("__exactTcpConnect getaddrinfo", rc));
+        }
+        std::string candidatesJson = canonicalWindowsCandidateJson(result);
+        if (candidatesJson == "[]") {
+          freeaddrinfo(result);
+          throw facebook::jsi::JSError(
+              runtime, "__exactTcpConnect: resolver returned no usable candidates");
         }
         SOCKET socket = INVALID_SOCKET;
         int lastError = 0;
+        bool authorizedCandidateAttempted = false;
+        std::string selectedCandidate;
         for (addrinfo* item = result; item; item = item->ai_next) {
-          socket = ::socket(item->ai_family, item->ai_socktype, item->ai_protocol);
+          auto candidate = windowsAddressText(
+              item->ai_addr, static_cast<int>(item->ai_addrlen));
+          if (!candidate) continue;
+          if (armed &&
+              !authorizeWindowsTypedTcp(
+                  principal,
+                  host,
+                  static_cast<uint16_t>(port),
+                  1,
+                  candidatesJson,
+                  candidate->c_str(),
+                  nullptr,
+                  nullptr)) {
+              continue;
+          }
+          authorizedCandidateAttempted = true;
+          socket =
+              ::socket(item->ai_family, item->ai_socktype, item->ai_protocol);
           if (socket == INVALID_SOCKET) {
             lastError = WSAGetLastError();
             continue;
           }
-          if (::connect(socket, item->ai_addr, static_cast<int>(item->ai_addrlen)) == 0) {
+          if (::connect(
+                  socket,
+                  item->ai_addr,
+                  static_cast<int>(item->ai_addrlen)) == 0) {
+            selectedCandidate = std::move(*candidate);
             break;
           }
           lastError = WSAGetLastError();
@@ -2678,7 +3010,43 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         }
         freeaddrinfo(result);
         if (socket == INVALID_SOCKET) {
-          throw facebook::jsi::JSError(runtime, winsockErrorString("__exactTcpConnect", lastError));
+          if (armed && !authorizedCandidateAttempted) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          throw facebook::jsi::JSError(
+              runtime, winsockErrorString("__exactTcpConnect", lastError));
+        }
+        if (armed) {
+          auto peer = windowsSocketPeerText(socket);
+          const uint64_t socketIdentity = reserveWindowsSocketIdentity();
+          const std::string connectionId =
+              "tcp:" + std::to_string(exactCurrentRuntimeNonce()) + ":" +
+              std::to_string(socketIdentity) + ":" +
+              std::to_string(static_cast<uint64_t>(socket));
+          if (!peer || *peer != selectedCandidate ||
+              !authorizeWindowsTypedTcp(
+                  principal,
+                  host,
+                  static_cast<uint16_t>(port),
+                  2,
+                  candidatesJson,
+                  selectedCandidate.c_str(),
+                  peer ? peer->c_str() : nullptr,
+                  connectionId.c_str())) {
+            closesocket(socket);
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          setSocketNonBlocking(socket);
+          return facebook::jsi::Value(registerWindowsTypedConnectSocket(
+              socket,
+              socketIdentity,
+              principal,
+              std::move(host),
+              static_cast<uint16_t>(port),
+              std::move(candidatesJson),
+              std::move(selectedCandidate),
+              std::move(*peer),
+              connectionId));
         }
         setSocketNonBlocking(socket);
         return facebook::jsi::Value(registerWindowsSocket(socket, connectCapability));
@@ -2696,14 +3064,20 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         if (count < 1 || !args[0].isNumber()) {
           throw facebook::jsi::JSError(runtime, "__exactTcpRead: handle required");
         }
-        SOCKET socket = requireWindowsSocket(
-            runtime, static_cast<int>(args[0].asNumber()), "__exactTcpRead").socket;
+        int handle = static_cast<int>(args[0].asNumber());
         int maxBytes = 65536;
         if (count > 1 && args[1].isNumber()) {
           maxBytes = std::max(1, static_cast<int>(args[1].asNumber()));
         }
         std::vector<uint8_t> buffer(static_cast<size_t>(maxBytes));
-        int read = recv(socket, reinterpret_cast<char*>(buffer.data()), maxBytes, 0);
+        auto socketIo = requireWindowsSocketIo(runtime, handle, "__exactTcpRead");
+        int read = recv(
+            socketIo.socket,
+            reinterpret_cast<char*>(buffer.data()),
+            maxBytes,
+            0);
+        int error = read < 0 ? WSAGetLastError() : 0;
+        socketIo.registryLock.unlock();
         if (read > 0) {
           buffer.resize(static_cast<size_t>(read));
           return makeUint8Array(runtime, std::move(buffer));
@@ -2711,7 +3085,6 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         if (read == 0) {
           return facebook::jsi::Value::null();
         }
-        int error = WSAGetLastError();
         if (error == WSAEWOULDBLOCK || error == WSAEINPROGRESS) {
           return facebook::jsi::String::createFromUtf8(runtime, "");
         }
@@ -2730,17 +3103,18 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         if (count < 2 || !args[0].isNumber()) {
           throw facebook::jsi::JSError(runtime, "__exactTcpWrite: handle and data required");
         }
-        SOCKET socket = requireWindowsSocket(
-            runtime, static_cast<int>(args[0].asNumber()), "__exactTcpWrite").socket;
+        int handle = static_cast<int>(args[0].asNumber());
         std::vector<uint8_t> data = jsiValueToBytes(runtime, args[1]);
         if (data.empty()) return facebook::jsi::Value(0);
+        auto socketIo = requireWindowsSocketIo(runtime, handle, "__exactTcpWrite");
         int written = send(
-            socket,
+            socketIo.socket,
             reinterpret_cast<const char*>(data.data()),
             static_cast<int>(data.size()),
             0);
+        int error = written < 0 ? WSAGetLastError() : 0;
+        socketIo.registryLock.unlock();
         if (written < 0) {
-          int error = WSAGetLastError();
           if (error == WSAEWOULDBLOCK || error == WSAEINPROGRESS) {
             return facebook::jsi::Value(0);
           }

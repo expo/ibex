@@ -86,6 +86,43 @@ function nativePublicOperationIsExcludedOnWindows({ live, target }) {
   );
 }
 
+function nativePublicInvocationForTarget(live, target) {
+  const invocation = live?.metadata?.publicInvocation;
+  if (!invocation) return null;
+  const installationBranches = live?.metadata?.installationBranches;
+  if (
+    !Array.isArray(installationBranches) ||
+    installationBranches.length <= 1
+  ) {
+    return clone(invocation);
+  }
+  const selectedIds = new Set(
+    applicableImplementationBranchIds(
+      installationBranches.map((branch) => ({
+        branchId: branch.id,
+        targetVariant: branch.targetVariant,
+        targetApplicability: targetApplicabilityForVariant(
+          branch.targetVariant,
+        ),
+      })),
+      target,
+    ),
+  );
+  const sourceRefs = canonicalSet(
+    installationBranches
+      .filter((branch) => selectedIds.has(branch.id))
+      .flatMap((branch) => branch.sourceRefs ?? []),
+  );
+  if (sourceRefs.includes(invocation.sourceRef)) {
+    return clone(invocation);
+  }
+  const matchingSourceRefs = sourceRefs.filter((sourceRef) =>
+    sourceRef.endsWith(`#jsi-global:${invocation.globalName}`),
+  );
+  if (matchingSourceRefs.length !== 1) return null;
+  return { ...clone(invocation), sourceRef: matchingSourceRefs[0] };
+}
+
 const FIXTURE_SCENARIOS = [
   "attribution-missing-deny",
   "snapshot-mismatch-deny",
@@ -2263,12 +2300,6 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       1,
       [harnessLoopbackClientHandleArgument()],
       tcpLoopbackClientSetup(),
-      null,
-      {
-        unsupportedTargetReason:
-          "native-public-prerequisite-not-typed-on-target",
-        unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
-      },
     ),
   ],
   [
@@ -2277,12 +2308,6 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       1,
       [harnessLoopbackClientHandleArgument()],
       tcpLoopbackClientSetup(),
-      null,
-      {
-        unsupportedTargetReason:
-          "native-public-prerequisite-not-typed-on-target",
-        unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
-      },
     ),
   ],
   [
@@ -2291,12 +2316,6 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       2,
       [harnessLoopbackClientHandleArgument(), literalArgument(1)],
       tcpLoopbackClientSetup(),
-      null,
-      {
-        unsupportedTargetReason:
-          "native-public-prerequisite-not-typed-on-target",
-        unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
-      },
     ),
   ],
   ["__exactPerformanceNow", nativeNoEffectTemplate(0)],
@@ -3530,17 +3549,17 @@ function nativePublicReadDescriptor(surface) {
   };
 }
 
-function bindNativeArgumentSources(argument, liveByObservedKey) {
+function bindNativeArgumentSources(argument, liveByObservedKey, target) {
   if (
     argument.kind !== "native-global-result" &&
     argument.kind !== "native-global-result-property"
   ) {
     return clone(argument);
   }
-  const producer = (
+  const producerLive =
     liveByObservedKey.get(`native-op:${argument.globalName}`) ??
-    liveByObservedKey.get(`native-op:global:${argument.globalName}`)
-  )?.metadata?.publicInvocation;
+    liveByObservedKey.get(`native-op:global:${argument.globalName}`);
+  const producer = nativePublicInvocationForTarget(producerLive, target);
   if (
     !producer ||
     producer.kind !== "native-global-function" ||
@@ -3558,14 +3577,14 @@ function bindNativeArgumentSources(argument, liveByObservedKey) {
       : {}),
     globalName: argument.globalName,
     arguments: argument.arguments.map((nested) =>
-      bindNativeArgumentSources(nested, liveByObservedKey),
+      bindNativeArgumentSources(nested, liveByObservedKey, target),
     ),
     sourceDescriptor,
     sourceDescriptorDigest: taggedDigest(sourceDescriptor),
   };
 }
 
-function bindNativeSetupSources(setup, liveByObservedKey) {
+function bindNativeSetupSources(setup, liveByObservedKey, target) {
   if (
     !new Set([
       "fs-read-file",
@@ -3577,8 +3596,10 @@ function bindNativeSetupSources(setup, liveByObservedKey) {
   ) {
     return clone(setup);
   }
-  const producer = liveByObservedKey.get(`native-op:${setup.globalName}`)
-    ?.metadata?.publicInvocation;
+  const producer = nativePublicInvocationForTarget(
+    liveByObservedKey.get(`native-op:${setup.globalName}`),
+    target,
+  );
   if (
     !producer ||
     producer.kind !== "native-global-function" ||
@@ -3628,7 +3649,9 @@ function nativePublicProbeForPlan({
       unavailableReason: "native-public-operation-not-installed-on-target",
     };
   }
-  const invocation = live?.metadata?.publicInvocation;
+  const invocation = targetAbsence
+    ? live?.metadata?.publicInvocation
+    : nativePublicInvocationForTarget(live, target);
   const readDescriptor = targetAbsence
     ? null
     : nativePublicReadDescriptor(live);
@@ -3885,14 +3908,14 @@ function nativePublicProbeForPlan({
             }
           : {}),
         arguments: template.arguments.map((argument) =>
-          bindNativeArgumentSources(argument, liveByObservedKey),
+          bindNativeArgumentSources(argument, liveByObservedKey, target),
         ),
         ...(template.completion
           ? { completion: clone(template.completion) }
           : {}),
         requiredFloor: clone(template.requiredFloor ?? []),
         setup: template.setup.map((setup) =>
-          bindNativeSetupSources(setup, liveByObservedKey),
+          bindNativeSetupSources(setup, liveByObservedKey, target),
         ),
         expectedResult: template.expectedResults[scenario],
         ...(template.expectedCleanup
@@ -4360,8 +4383,18 @@ function unsupportedWindowsTypedPublicEffectReason({
     }
     return "public-surface-filesystem-not-typed-on-target";
   }
-  // @ref LLP 0021#wp6--convert-network-effects-and-protected-peers — Windows TCP surfaces still use the legacy string oracle, so candidate/commit recipes remain residual until the typed adapter is installed there.
+  // @ref LLP 0021#wp6--convert-network-effects-and-protected-peers — Windows
+  // synchronous TCP connect now supplies requested/candidate/commit evidence
+  // and retains the verified peer; other Windows network effects remain
+  // residual until their installed adapters provide the same typed facts.
   if (plan.actionIds.some((actionId) => actionId.startsWith("network:"))) {
+    if (
+      publicSurfaceProbe?.invocation?.globalName === "__exactTcpConnect" &&
+      plan.actionIds.length === 1 &&
+      plan.actionIds[0] === "network:connect"
+    ) {
+      return null;
+    }
     return "public-surface-network-not-typed-on-target";
   }
   return null;
