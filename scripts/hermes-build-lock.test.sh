@@ -240,6 +240,19 @@ grep -Fq 'ibex_write_source_patched_profile_receipt \' \
 grep -Fq '"$LINUX_LIB_DIR/hermes-profile-provenance.json"' \
     "$SCRIPT_DIR/build-hermes-linux.sh" \
     || fail "Linux builder does not install the reviewed receipt beside libhermesvm"
+grep -Fq -- '--target hermesvm hermesvm_a hermesc hermes' \
+    "$SCRIPT_DIR/build-hermes-linux.sh" \
+    || fail "Linux builder does not build the runtime-side HBC version probe"
+grep -Fq '"$TOOLS_DIR/hermes-linux-$HERMESC_ARCH"' \
+    "$SCRIPT_DIR/build-hermes-linux.sh" \
+    || fail "Linux builder does not publish the Hermes VM CLI beside hermesc"
+grep -Fq 'bundle missing bin/hermes' "$SCRIPT_DIR/download-hermes.sh" \
+    || fail "Linux prebuilt admission does not require the runtime-side HBC version probe"
+grep -Fq 'Linux bundle compiler/runtime HBC versions are missing or differ' \
+    "$SCRIPT_DIR/download-hermes.sh" \
+    || fail "Linux prebuilt admission does not compare compiler/runtime HBC versions"
+grep -Fq '"$profile_receipt" "$lib_dir/"' "$SCRIPT_DIR/download-hermes.sh" \
+    || fail "Linux prebuilt installation does not retain the reviewed profile receipt"
 
 assert_windows_locked_pristine_publication() {
     local builder="$SCRIPT_DIR/build-hermes-windows.ps1"
