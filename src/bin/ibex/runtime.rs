@@ -2717,9 +2717,11 @@ impl AuthenticatedFileIngress {
         user_arguments: &[String],
     ) -> std::result::Result<crate::engine::AuthenticatedEvaluation, AuthenticatedEvaluationFailure>
     {
+        let mut phase = StartupPhaseTrace::begin();
         let request = self
             .file_request(user_arguments)
             .map_err(classify_authenticated_preparation_failure)?;
+        phase.mark("file_request");
         #[cfg(feature = "module-runner")]
         if matches!(
             &request,
@@ -2797,7 +2799,9 @@ impl AuthenticatedFileIngress {
             build_authenticated_source_graph_v1_for_host, SourceModuleGraphBuildV1,
         };
 
+        let mut phase = StartupPhaseTrace::begin();
         let (_, source_entry) = self.authenticated_source_entry(request)?;
+        phase.mark("graph_source_entry");
 
         // The Host constructs this complete source graph only after the exact
         // entry request has been admitted and its virtual identity has been
@@ -2827,6 +2831,7 @@ impl AuthenticatedFileIngress {
                 return Ok(AuthenticatedModuleGraphPreparation::LegacyRequired);
             }
         };
+        phase.mark("graph_build");
         graph.validate_authenticated_entry_request(request)?;
         let (_, retained_entry_path, _) = graph
             .records()
@@ -2836,12 +2841,15 @@ impl AuthenticatedFileIngress {
             retained_entry_path == source_entry,
             "authenticated native source graph identity changed after the structured request was admitted"
         );
+        phase.mark("graph_validate");
 
         if let Some(prepared) =
             self.load_authenticated_prepared_module_graph(&source_entry, &graph)?
         {
+            phase.mark("graph_cache_select");
             return Ok(AuthenticatedModuleGraphPreparation::Native(prepared));
         }
+        phase.mark("graph_cache_select");
         Ok(AuthenticatedModuleGraphPreparation::Native(graph))
     }
 

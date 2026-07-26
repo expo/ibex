@@ -3120,7 +3120,9 @@ impl HermesEngine {
         };
         use ibex_runtime::module_loader::security::ModuleGraphAuthorizer;
 
+        let mut phase = crate::runtime::StartupPhaseTrace::begin();
         self.load_runtime().await?;
+        phase.mark("graph_runtime_load");
         self.maybe_enable_debugger().await?;
         self.ensure_thread()?;
         let runtime = self.ensure_runtime().await?;
@@ -3166,6 +3168,7 @@ impl HermesEngine {
             })
         }
         .map_err(anyhow::Error::new)?;
+        phase.mark("graph_admit_prepare");
 
         let (graph, mut structured) = match admitted {
             AuthenticatedModuleGraphAdmission::Native {
@@ -3214,9 +3217,12 @@ impl HermesEngine {
 
         let graph_result: Result<()> = async {
             let plan = graph.plan()?;
+            phase.mark("graph_plan");
             let (configs, authority_contexts) = graph.native_execution_inputs(generation)?;
+            phase.mark("graph_execution_inputs");
             let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
             let prepared_entries = graph.prepared_entries()?;
+            phase.mark("graph_prepared_entries");
             let has_top_level_await = plan.evaluation_order(graph.entry())?.iter().try_fold(
                 false,
                 |found, source_id| {
@@ -3244,7 +3250,9 @@ impl HermesEngine {
                         &authority_contexts,
                     )?,
                 };
+                phase.mark("graph_link");
                 linked.evaluate()?;
+                phase.mark("graph_evaluate");
                 return Ok(());
             }
 
