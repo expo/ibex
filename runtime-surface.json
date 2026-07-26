@@ -163,6 +163,11 @@
         },
         {
           "commandPath": "ibex compat",
+          "argumentId": "probe",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex compat",
           "argumentId": "section",
           "parserKind": "utf8-string"
         },
@@ -1421,6 +1426,27 @@
               "defaultMissingValues": [
                 "true"
               ],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "probe",
+            "names": [
+              "--probe"
+            ],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": [
+                "EXPR"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
               "allowHyphenValues": false
             }
           },

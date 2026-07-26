@@ -8,6 +8,9 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct CompatOptions {
+    /// Probe-mode expression (`--probe`): run one JS expression at each
+    /// observation point of the serving path instead of the fixture suite.
+    pub probe: Option<String>,
     pub section: Option<String>,
     pub module: Option<String>,
     pub test_filter: Vec<String>,
@@ -412,6 +415,7 @@ mod tests {
 
     fn base_compat_options() -> CompatOptions {
         CompatOptions {
+            probe: None,
             section: None,
             module: None,
             test_filter: Vec::new(),

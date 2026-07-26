@@ -1279,6 +1279,7 @@ async fn run(cli: Cli) -> Result<()> {
         },
         Some(Commands::SelfTest) => runtime_tests::run_all(&cli).await,
         Some(Commands::Compat {
+            probe,
             section,
             module,
             test,
@@ -1297,6 +1298,7 @@ async fn run(cli: Cli) -> Result<()> {
             timeout,
         }) => {
             compat::run_compat(compat::CompatOptions {
+                probe: probe.clone(),
                 section: section.clone(),
                 module: module.clone(),
                 test_filter: test.clone(),
