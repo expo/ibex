@@ -251,6 +251,20 @@ intrinsics are reachable from any object via prototype walks
 mint code that evaluates against the real global scope regardless of its
 endowments.
 
+Lockdown also includes **property override enablement** for the error
+intrinsics, mirroring the SES shim's `enablePropertyOverrides` (moderate
+profile). Freezing `Error.prototype` makes its data properties non-writable,
+and a non-writable prototype property rejects plain assignment on any receiver
+that inherits it (the JS "override mistake"), which breaks the ubiquitous npm
+idioms `SubError.prototype.name = 'SubError'` and `err.name = 'SubError'`.
+Before the freeze walk, lockdown converts `constructor`/`message`/`name` on
+every error prototype (plus `toString` on `%ErrorPrototype%`) into accessors
+whose setter shadows the assigned value on the receiver; assignment on the
+frozen prototypes themselves still throws, in sloppy mode too, matching SES.
+The enabled set is deliberately scoped to the error family — SES moderate's
+other enablements (`%ObjectPrototype%.toString`, `%FunctionPrototype%.bind`,
+…) are not repaired until real package breakage motivates each one.
+
 ### Mechanism 2: Per-package compartment globals
 
 Each **package** (not module — intra-package files trust each other, and

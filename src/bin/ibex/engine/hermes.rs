@@ -21515,6 +21515,92 @@ navigator.gpu.requestAdapter()
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn lockdown_enables_error_prototype_overrides() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        // @ref LLP 0013#mechanism-1 — property override enablement: freezing
+        // Error.prototype must not reject the npm error idioms
+        // `SubError.prototype.name = ...` / `err.name = ...` (the override
+        // mistake); the prototypes themselves stay unwritable.
+        let engine = HermesEngine::new().unwrap();
+        engine.load_runtime().await.unwrap();
+
+        let raw = engine
+            .eval_immediate(
+                r#"(function () {
+                  'use strict';
+                  var O = Object;
+                  function threw(fn) {
+                    try { fn(); return false; } catch (e) { return e instanceof TypeError; }
+                  }
+
+                  class SubError extends Error {}
+                  SubError.prototype.name = 'SubError';
+
+                  var renamed = new Error('boom');
+                  renamed.name = 'Renamed';
+
+                  class SubType extends TypeError {}
+                  SubType.prototype.message = 'sub default';
+
+                  // util.inherits-style legacy subclassing assigns constructor
+                  // and name through the chain as well.
+                  function Legacy() {}
+                  Legacy.prototype = O.create(Error.prototype);
+                  Legacy.prototype.constructor = Legacy;
+                  Legacy.prototype.name = 'Legacy';
+
+                  var nameDesc = O.getOwnPropertyDescriptor(Error.prototype, 'name');
+                  var result = {
+                    subclassName: new SubError('x').name,
+                    subclassShadowOwn: SubError.prototype.hasOwnProperty('name'),
+                    instanceName: renamed.name,
+                    instanceMessage: renamed.message,
+                    subTypeMessage: new SubType().message,
+                    legacyName: new Legacy().name,
+                    legacyCtor: Legacy.prototype.constructor === Legacy,
+                    errorProtoNameIntact: Error.prototype.name,
+                    typeErrorProtoNameIntact: TypeError.prototype.name,
+                    protoAssignStillThrows: threw(function () {
+                      Error.prototype.name = 'Poisoned';
+                    }),
+                    protoDefineStillRejected: !Reflect.defineProperty(
+                      Error.prototype, 'name', { value: 'Poisoned' }),
+                    accessorInstalled: typeof nameDesc.get === 'function' &&
+                      typeof nameDesc.set === 'function',
+                    accessorsFrozen: O.isFrozen(nameDesc.get) && O.isFrozen(nameDesc.set),
+                    displacedToStringFrozen: O.isFrozen(Error.prototype.toString),
+                    toStringWorks: String(new SubError('msg')) === 'SubError: msg'
+                  };
+                  return JSON.stringify(result);
+                })()"#,
+            )
+            .await
+            .unwrap()
+            .expect("override enablement probe should return JSON");
+        let state: serde_json::Value = serde_json::from_str(&raw).unwrap();
+
+        assert_eq!(state["subclassName"], "SubError", "{state}");
+        assert_eq!(state["instanceName"], "Renamed", "{state}");
+        assert_eq!(state["instanceMessage"], "boom", "{state}");
+        assert_eq!(state["subTypeMessage"], "sub default", "{state}");
+        assert_eq!(state["legacyName"], "Legacy", "{state}");
+        assert_eq!(state["errorProtoNameIntact"], "Error", "{state}");
+        assert_eq!(state["typeErrorProtoNameIntact"], "TypeError", "{state}");
+        for field in [
+            "subclassShadowOwn",
+            "legacyCtor",
+            "protoAssignStillThrows",
+            "protoDefineStillRejected",
+            "accessorInstalled",
+            "accessorsFrozen",
+            "displacedToStringFrozen",
+            "toStringWorks",
+        ] {
+            assert_eq!(state[field], true, "{field} failed: {state}");
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn fresh_runtime_preinstalls_shared_runtime_bundle() {
         // The C Hermes host callbacks are process-global in the test binary.
         // Keep engine-owning tests serial so the Rust test harness cannot
