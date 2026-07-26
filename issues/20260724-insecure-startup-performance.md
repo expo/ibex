@@ -212,6 +212,32 @@ and a CI regression gate that reports distributions.
 **Date:** 2026-07-24
 **Related:** LLP 0038; LLP 0039; ENG-24720; ENG-24643; issues/20260717-sfe-measured-budgets.md
 
+## Precommitted budgets (2026-07-26)
+
+Before implementing or running the completion harness, the startup budgets were
+committed in `benches/startup-budgets-v1.json`. The authoritative comparison
+revision is `3a0c1b6c91ff568169f6a03e611f226eb7e6b99b`, immediately before the
+first LLP 0013 implementation commit. The harness must report median, MAD, and
+p95 over five warmups and forty measured launches for both fresh application
+cache and reused application cache. "Cold" deliberately means a fresh `HOME`
+and Ibex cache while retaining ordinary operating-system page cache; dropping
+the machine-wide page cache would require privileged, disruptive measurement
+and would not model the developer loop.
+
+The default/insecure p95 limits are the acceptance budgets. Secure-development
+limits are explicit but wider because loaded-engine, registry, protected
+artifact, snapshot, policy, and final root-disposition proofs are part of that
+profile's security claim. Package-script dispatch is expected to remain nearly
+mode-independent because it does not create a Hermes runtime. The direct
+embedder diagnostic has the same limit in both builds because it does not
+install the launcher's insecure ambient-environment projection.
+
+The pre-CapSec comparison additionally requires current trivial `eval` and
+`run` p95 to remain within 3× of the named revision. That ratio is intentionally
+looser than the absolute Apple Silicon budget: it accommodates old/new compiler
+and engine artifacts while still detecting the multi-second regression that
+opened this ticket.
+
 ## Problem
 
 Ibex startup has become painfully slow during the CapSec work. The delay is

@@ -1,0 +1,103 @@
+{
+  "schema": "ibex/startup-budgets/1",
+  "baselineRevision": "3a0c1b6c91ff568169f6a03e611f226eb7e6b99b",
+  "measurement": {
+    "warmups": 5,
+    "samples": 40,
+    "percentile": 95,
+    "coldCache": "A fresh HOME and runtime cache for every sample; executable and shared-library pages remain in the operating-system page cache.",
+    "warmCache": "Five discarded launches followed by forty measured launches sharing one HOME and runtime cache.",
+    "replReady": "Elapsed process time until the first default prompt is observed through a pseudoterminal.",
+    "embeddedReady": "Repeated same-process diagnostic embedder construction, core runtime-bundle evaluation, and first user evaluation, with every runtime destroyed before the next sample."
+  },
+  "preCapsecComparison": {
+    "evalTrivialP95Ratio": 3.0,
+    "runTrivialP95Ratio": 3.0
+  },
+  "platforms": {
+    "darwin-arm64": {
+      "insecure": {
+        "warm": {
+          "replFirstPromptMs": 140,
+          "evalTrivialMs": 100,
+          "runTrivialMs": 180,
+          "packageScriptMs": 60
+        },
+        "cold": {
+          "replFirstPromptMs": 300,
+          "evalTrivialMs": 220,
+          "runTrivialMs": 400,
+          "packageScriptMs": 90
+        },
+        "embedded": {
+          "runtimeCreateMs": 35,
+          "bootstrapCompleteMs": 55,
+          "firstEvaluationMs": 10,
+          "totalMs": 100
+        }
+      },
+      "secure": {
+        "warm": {
+          "replFirstPromptMs": 420,
+          "evalTrivialMs": 300,
+          "runTrivialMs": 540,
+          "packageScriptMs": 75
+        },
+        "cold": {
+          "replFirstPromptMs": 900,
+          "evalTrivialMs": 660,
+          "runTrivialMs": 1200,
+          "packageScriptMs": 115
+        },
+        "embedded": {
+          "runtimeCreateMs": 35,
+          "bootstrapCompleteMs": 55,
+          "firstEvaluationMs": 10,
+          "totalMs": 100
+        }
+      }
+    },
+    "linux-x64": {
+      "insecure": {
+        "warm": {
+          "replFirstPromptMs": 250,
+          "evalTrivialMs": 180,
+          "runTrivialMs": 320,
+          "packageScriptMs": 90
+        },
+        "cold": {
+          "replFirstPromptMs": 500,
+          "evalTrivialMs": 360,
+          "runTrivialMs": 650,
+          "packageScriptMs": 140
+        },
+        "embedded": {
+          "runtimeCreateMs": 70,
+          "bootstrapCompleteMs": 100,
+          "firstEvaluationMs": 15,
+          "totalMs": 185
+        }
+      },
+      "secure": {
+        "warm": {
+          "replFirstPromptMs": 750,
+          "evalTrivialMs": 540,
+          "runTrivialMs": 960,
+          "packageScriptMs": 115
+        },
+        "cold": {
+          "replFirstPromptMs": 1500,
+          "evalTrivialMs": 1080,
+          "runTrivialMs": 1950,
+          "packageScriptMs": 175
+        },
+        "embedded": {
+          "runtimeCreateMs": 70,
+          "bootstrapCompleteMs": 100,
+          "firstEvaluationMs": 15,
+          "totalMs": 185
+        }
+      }
+    }
+  }
+}
