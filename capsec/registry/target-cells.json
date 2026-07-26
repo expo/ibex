@@ -137581,6 +137581,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.loader.function.rust.align.windows.resolver.namespace.0cj9leo",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.rust.align.windows.resolver.namespace.0cj9leo.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.rust.align.windows.resolver.namespace.0cj9leo",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.rust.align.windows.resolver.namespace.0cj9leo.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.loader.function.rust.authenticated.module.resolve.options.0ytophc",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -138223,6 +138257,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.loader.function.rust.open.resolver.boundary.windows.0m56leq",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.rust.open.resolver.boundary.windows.0m56leq.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.rust.open.resolver.boundary.windows.0m56leq",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.rust.open.resolver.boundary.windows.0m56leq.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.loader.function.rust.package.name.and.root.in.node.modules.0b1g5jm",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -138421,6 +138489,40 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.rust.resolve.bounded.windows.path.0kilph0",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.rust.resolve.bounded.windows.path.0kilph0.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.rust.resolve.bounded.windows.path.0kilph0",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.rust.resolve.bounded.windows.path.0kilph0.main"
+      ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
@@ -139265,6 +139367,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.loader.function.rust.resolver.metadata.from.windows.0pg53ir",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.rust.resolver.metadata.from.windows.0pg53ir.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.rust.resolver.metadata.from.windows.0pg53ir",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.rust.resolver.metadata.from.windows.0pg53ir.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.loader.function.rust.resolver.open.directory.at.0ekd5t3",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -139455,6 +139591,74 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.rust.resolver.windows.component.1vbcf6q",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.rust.resolver.windows.component.1vbcf6q.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.rust.resolver.windows.component.1vbcf6q",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.rust.resolver.windows.component.1vbcf6q.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.rust.resolver.windows.object.0vl57wk",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.rust.resolver.windows.object.0vl57wk.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.rust.resolver.windows.object.0vl57wk",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.rust.resolver.windows.object.0vl57wk.main"
+      ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
@@ -149041,6 +149245,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.loader.route.resolution.rust.align.windows.resolver.namespace.04wa2z3",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.align.windows.resolver.namespace.04wa2z3.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.align.windows.resolver.namespace.04wa2z3",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.align.windows.resolver.namespace.04wa2z3.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.loader.route.resolution.rust.authenticated.module.resolve.options.1muh5mb",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -149235,6 +149473,74 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.bounded.windows.parent.157klk5",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.bounded.windows.parent.157klk5.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.bounded.windows.parent.157klk5",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.bounded.windows.parent.157klk5.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.bounded.windows.symlink.metadata.0e4jke4",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.bounded.windows.symlink.metadata.0e4jke4.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.bounded.windows.symlink.metadata.0e4jke4",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.bounded.windows.symlink.metadata.0e4jke4.main"
+      ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
@@ -150391,6 +150697,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.loader.route.resolution.rust.open.resolver.boundary.windows.1sdxls1",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.open.resolver.boundary.windows.1sdxls1.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.open.resolver.boundary.windows.1sdxls1",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.open.resolver.boundary.windows.1sdxls1.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.loader.route.resolution.rust.output.has.esm.module.syntax.10x2lfm",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -150420,6 +150760,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.loader.route.resolution.rust.output.has.esm.module.syntax.10x2lfm.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.oxc.path.0qg9xsf",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.oxc.path.0qg9xsf.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.oxc.path.0qg9xsf",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.oxc.path.0qg9xsf.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -151031,6 +151405,40 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.resolve.bounded.windows.path.0wzajyv",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.resolve.bounded.windows.path.0wzajyv.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.resolve.bounded.windows.path.0wzajyv",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.resolve.bounded.windows.path.0wzajyv.main"
+      ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
@@ -151739,6 +152147,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.loader.route.resolution.rust.resolver.metadata.from.windows.0rdmvbo",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.resolver.metadata.from.windows.0rdmvbo.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.resolver.metadata.from.windows.0rdmvbo",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.resolver.metadata.from.windows.0rdmvbo.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.loader.route.resolution.rust.resolver.open.directory.at.0zmvibs",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -151895,6 +152337,74 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.resolver.windows.component.0hgjjlh",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.resolver.windows.component.0hgjjlh.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.resolver.windows.component.0hgjjlh",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.resolver.windows.component.0hgjjlh.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.resolver.windows.object.0zc41qd",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.resolver.windows.object.0zc41qd.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.resolver.windows.object.0zc41qd",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.resolver.windows.object.0zc41qd.main"
+      ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },

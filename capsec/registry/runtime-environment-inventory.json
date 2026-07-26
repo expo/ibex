@@ -1452,7 +1452,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_transpile_subprocess",
-          "sourceOffset": 193723,
+          "sourceOffset": 207407,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1553,7 +1553,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_transpile_subprocess_environment",
-          "sourceOffset": 195703,
+          "sourceOffset": 209387,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#Command::env_clear:dynamic:unset",
           "stage": "child-environment-construction"
@@ -1742,7 +1742,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_transpile_subprocess_environment",
-          "sourceOffset": 196292,
+          "sourceOffset": 209976,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#Command::env:APPDATA:write",
           "stage": "child-environment-construction"
@@ -1785,7 +1785,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_transpile_subprocess_environment",
-          "sourceOffset": 196011,
+          "sourceOffset": 209695,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#Command::env:BUN_RUNTIME_TRANSPILER_CACHE_PATH:write",
           "stage": "child-environment-construction"
@@ -3162,7 +3162,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capture",
-          "sourceOffset": 38746,
+          "sourceOffset": 50705,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#env::var:EXACT_RUNTIME_TRANSFORM:read",
           "stage": "armed-bootstrap-host-read"
@@ -3352,7 +3352,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capture",
-          "sourceOffset": 38340,
+          "sourceOffset": 50299,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#env::var:EXACT_TRANSPILE_SCRIPT:read",
           "stage": "armed-bootstrap-host-read"
@@ -4895,7 +4895,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_transpile_subprocess_environment",
-          "sourceOffset": 195737,
+          "sourceOffset": 209421,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#Command::env:HOME:write",
           "stage": "child-environment-construction"
@@ -5960,7 +5960,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capture",
-          "sourceOffset": 38662,
+          "sourceOffset": 50621,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#env::var:IBEX_RUNTIME_TRANSFORM:read",
           "stage": "armed-bootstrap-host-read"
@@ -6307,7 +6307,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capture",
-          "sourceOffset": 39098,
+          "sourceOffset": 51057,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#env::var:IBEX_TEST_TRANSPILE_INPUT_BARRIER:read",
           "stage": "armed-bootstrap-host-read"
@@ -6335,7 +6335,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capture",
-          "sourceOffset": 38862,
+          "sourceOffset": 50821,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#env::var:IBEX_TRANSPILE_CACHE_MAX_BYTES:read",
           "stage": "armed-bootstrap-host-read"
@@ -6451,7 +6451,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_transpile_subprocess_environment",
-          "sourceOffset": 196130,
+          "sourceOffset": 209814,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#Command::env:LANG:write",
           "stage": "child-environment-construction"
@@ -6539,7 +6539,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_transpile_subprocess_environment",
-          "sourceOffset": 196156,
+          "sourceOffset": 209840,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#Command::env:LC_ALL:write",
           "stage": "child-environment-construction"
@@ -6610,7 +6610,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_transpile_subprocess_environment",
-          "sourceOffset": 196337,
+          "sourceOffset": 210021,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#Command::env:LOCALAPPDATA:write",
           "stage": "child-environment-construction"
@@ -6724,7 +6724,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_transpile_subprocess_environment",
-          "sourceOffset": 196082,
+          "sourceOffset": 209766,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#Command::env:NODE_DISABLE_COMPILE_CACHE:write",
           "stage": "child-environment-construction"
@@ -7071,7 +7071,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "find_js_runner",
-          "sourceOffset": 196471,
+          "sourceOffset": 210155,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#env::var_os:PATH:read",
           "stage": "armed-bootstrap-host-read"
@@ -7201,7 +7201,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_transpile_subprocess_environment",
-          "sourceOffset": 195969,
+          "sourceOffset": 209653,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#Command::env:TEMP:write",
           "stage": "child-environment-construction"
@@ -7356,7 +7356,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_transpile_subprocess_environment",
-          "sourceOffset": 195928,
+          "sourceOffset": 209612,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#Command::env:TMP:write",
           "stage": "child-environment-construction"
@@ -7452,7 +7452,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_transpile_subprocess_environment",
-          "sourceOffset": 195884,
+          "sourceOffset": 209568,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#Command::env:TMPDIR:write",
           "stage": "child-environment-construction"
@@ -7556,7 +7556,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_transpile_subprocess_environment",
-          "sourceOffset": 196184,
+          "sourceOffset": 209868,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#Command::env:TZ:write",
           "stage": "child-environment-construction"
@@ -7676,7 +7676,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_transpile_subprocess_environment",
-          "sourceOffset": 196243,
+          "sourceOffset": 209927,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#Command::env:USERPROFILE:write",
           "stage": "child-environment-construction"
@@ -7747,7 +7747,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_transpile_subprocess_environment",
-          "sourceOffset": 195832,
+          "sourceOffset": 209516,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#Command::env:XDG_CACHE_HOME:write",
           "stage": "child-environment-construction"
@@ -7790,7 +7790,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_transpile_subprocess_environment",
-          "sourceOffset": 195779,
+          "sourceOffset": 209463,
           "sourcePath": "src/module_loader/mod.rs",
           "sourceRef": "src/module_loader/mod.rs#Command::env:XDG_CONFIG_HOME:write",
           "stage": "child-environment-construction"

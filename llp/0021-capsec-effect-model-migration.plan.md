@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-25 (Windows VFS and armed Oxc resolution now traverse ordinary non-reparse paths beneath retained root/directory handles, object-match every directory transition, retain final read objects through commit/repeat, and execute the closed module-runner proof through the shared authenticated source graph; Windows reparse transitions and the installed native filesystem effect backend remain fail-closed and the incomplete target remains unadvertised)
 **Revised:** 2026-07-25 (mixed filesystem dispatchers now carry exact branch-local closure: unbound path/descriptor mutations and recursive mkdir select deny-only `fs:unbound-mutation` branches before lookup, while retained-object branches remain effectful; target predicates preserve Apple worker-backed `chmod`/`utime`, close them on Windows, and source inventory binds the POSIX filesystem translation unit only to targets that compile it; Apple accounting is 2,760 fully executable / 3,114 internally verified / 17,849 unresolved and Windows accounting is 2,341 / 3,102 / 18,099)
 **Revised:** 2026-07-25 (`node:fs.opendirSync` adds five empty-directory Apple public recipes with exact `__exactReaddir` evidence, path-bound `Dir` results, and mandatory close proof; Apple accounting is now 2,666 fully executable / 3,114 internally verified / 18,260 unresolved)
 **Revised:** 2026-07-25 (`node:fs.openSync` adds fifteen flag-selected Apple public recipes across exact read, write, and read-write authority branches; every successful descriptor is closed and the three synthetic branch-selection rows remain residual; Apple accounting is now 2,661 fully executable / 3,114 internally verified / 18,265 unresolved)
@@ -1370,6 +1371,19 @@ unchanged outside those compatibility boundaries. Checked-in module-runner and c
 fixtures whose bytes or canonical JSON text are authenticated are explicitly
 LF-normalized by Git, keeping those authority and golden comparisons identical
 on Windows and Unix checkouts.
+
+The Windows Oxc boundary is now backed by retained-handle traversal rather than
+ambient pathname queries. It retains the authenticated project/package root,
+opens every ordinary component relative to that handle without following
+reparse points, and object-matches each directory witness/reopen pair. Package
+manifest semantics still come only from strict VFS-captured bytes or explicit
+absence, and `NODE_PATH` remains disabled. This makes authenticated entry,
+relative, `#imports`, and package-export resolution executable on Windows and
+lets the closed module-runner fixture use the same graph builder and authorized
+linker as Unix. Reparse traversal remains a deliberate refusal, not inferred
+support, and this module-source path does not change the separate paragraph
+above: installed Windows `node:fs`/native filesystem effects still lack the
+typed retained-object adapter and remain residual.
 
 Filesystem path occurrences now retain a non-wire projection for every
 constrained principal, keyed exactly to the constrained set and effect index.

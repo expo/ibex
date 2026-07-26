@@ -854,7 +854,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-vfs-source-read",
       "    pub fn authenticated_vfs_file_read(",
       "    fn authorize_vfs_script_read_stage(",
-      "sha256-QVTR8tp3OKUqoCYipA45baEUNs9NAM2TDpCxWVFAquE",
+      "sha256-YDfweDth5lTV9Xo01-KWuwMKAN50OnfC4w44cMiN890",
     ),
   ]),
   "src/module_loader/runner_pipeline.rs": Object.freeze([
@@ -875,8 +875,8 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
     freezeReviewedRange(
       "authenticated-vfs-read",
       "    pub(crate) fn read_authenticated<F>(",
-      "    fn discover_contained<F>(",
-      "sha256-d7nXK2wezHWYVhAZ6fKqIz-1oNbhxrix-FL1w2EGutQ",
+      "    #[cfg(unix)]\n    /// Walk one link at a time",
+      "sha256-doGdub7OW_8PPeTrNMre1Y01GwomQf1aA690WdXueJA",
     ),
   ]),
 });

@@ -6375,6 +6375,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:javascript:transformImportMeta",
     "function:javascript:wrapAsyncModule",
     "function:javascript:wrapDynamicImportValue",
+    "function:rust:align_windows_resolver_namespace",
     "function:rust:authenticated_module_resolve_options",
     "function:rust:authenticated_resolver_base_dir",
     "function:rust:build_builtin_registry",
@@ -6394,12 +6395,14 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:rust:module_resolve_options",
     "function:rust:normalize_import_target",
     "function:rust:open_resolver_boundary",
+    "function:rust:open_resolver_boundary_windows",
     "function:rust:package_name_and_root_in_node_modules",
     "function:rust:package_root_in_node_modules",
     "function:rust:pick_package_import_path",
     "function:rust:private_resolver_handle_is_canonical",
     "function:rust:resolve",
     "function:rust:resolve_bounded_unix_path",
+    "function:rust:resolve_bounded_windows_path",
     "function:rust:resolve_builtin_meta",
     "function:rust:resolve_direct_file_meta",
     "function:rust:resolve_direct_file_meta_authenticated",
@@ -6425,12 +6428,15 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:rust:resolver_fstatat_nofollow",
     "function:rust:resolver_manifest_not_found",
     "function:rust:resolver_metadata_from_stat",
+    "function:rust:resolver_metadata_from_windows",
     "function:rust:resolver_open_directory_at",
     "function:rust:resolver_read_link_at",
     "function:rust:resolver_relative_components",
     "function:rust:resolver_session_handle_is_canonical",
     "function:rust:resolver_stat_is_dir",
     "function:rust:resolver_stat_is_symlink",
+    "function:rust:resolver_windows_component",
+    "function:rust:resolver_windows_object",
     "function:rust:strip_file_module_decorations",
     "function:rust:transpile_module",
     "function:rust:transpile_module_to_cjs",
@@ -6713,12 +6719,15 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:load:rust:verify_transpile_override_identity",
     "route:load:rust:wait_for_transpile_test_barrier",
     "route:load:rust:walk_transpile_tool_directory",
+    "route:resolution:rust:align_windows_resolver_namespace",
     "route:resolution:rust:authenticated_module_resolve_options",
     "route:resolution:rust:authenticated_resolver_base_dir",
     "route:resolution:rust:boundary_root",
     "route:resolution:rust:bounded_unix_parent",
     "route:resolution:rust:bounded_unix_read_link",
     "route:resolution:rust:bounded_unix_symlink_metadata",
+    "route:resolution:rust:bounded_windows_parent",
+    "route:resolution:rust:bounded_windows_symlink_metadata",
     "route:resolution:rust:cache_tag",
     "route:resolution:rust:canonicalize",
     "route:resolution:rust:capture_transpile_tool_directory",
@@ -6753,7 +6762,9 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:normalize_windows_verbatim_path_text",
     "route:resolution:rust:normalized",
     "route:resolution:rust:open_resolver_boundary",
+    "route:resolution:rust:open_resolver_boundary_windows",
     "route:resolution:rust:output_has_esm_module_syntax",
+    "route:resolution:rust:oxc_path",
     "route:resolution:rust:oxc_target",
     "route:resolution:rust:package_name_and_root_in_node_modules",
     "route:resolution:rust:package_name_from_bare_specifier",
@@ -6772,6 +6783,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:read_transpile_cache",
     "route:resolution:rust:resolve",
     "route:resolution:rust:resolve_bounded_unix_path",
+    "route:resolution:rust:resolve_bounded_windows_path",
     "route:resolution:rust:resolve_builtin_meta",
     "route:resolution:rust:resolve_direct_file_meta_authenticated",
     "route:resolution:rust:resolve_meta",
@@ -6793,11 +6805,14 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:resolver_fstatat_nofollow",
     "route:resolution:rust:resolver_manifest_not_found",
     "route:resolution:rust:resolver_metadata_from_stat",
+    "route:resolution:rust:resolver_metadata_from_windows",
     "route:resolution:rust:resolver_open_directory_at",
     "route:resolution:rust:resolver_read_link_at",
     "route:resolution:rust:resolver_relative_components",
     "route:resolution:rust:resolver_stat_is_dir",
     "route:resolution:rust:resolver_stat_is_symlink",
+    "route:resolution:rust:resolver_windows_component",
+    "route:resolution:rust:resolver_windows_object",
     "route:resolution:rust:run_transpile_command",
     "route:resolution:rust:run_transpile_override",
     "route:resolution:rust:run_transpile_subprocess",
@@ -10435,14 +10450,14 @@ function loaderClassification(surface) {
   if (name.startsWith("route:")) {
     const functionName = name.split(":").at(-1);
     if (
-      /^(?:authenticated_module_resolve_options|boundary_root|duplicate_resolver_fd|file_system|inputs|lexical_absolute_path_for_resolver|manifest_input|normalize_in_boundary|normalized|resolver_component_cstring|resolver_relative_components|uncaptured_package_manifest_probes)$/u.test(
+      /^(?:align_windows_resolver_namespace|authenticated_module_resolve_options|boundary_root|duplicate_resolver_fd|file_system|inputs|lexical_absolute_path_for_resolver|manifest_input|normalize_in_boundary|normalized|oxc_path|resolver_component_cstring|resolver_relative_components|uncaptured_package_manifest_probes)$/u.test(
         functionName,
       )
     ) {
       return nonCapabilitySpec("authority-control-plane", "WP7");
     }
     if (
-      /^(?:is_private_runtime_source|resolver_boundary_refusal|resolver_canonical_path|resolver_manifest_not_found|resolver_metadata_from_stat|resolver_stat_is_dir|resolver_stat_is_symlink)$/u.test(
+      /^(?:is_private_runtime_source|resolver_boundary_refusal|resolver_canonical_path|resolver_manifest_not_found|resolver_metadata_from_stat|resolver_metadata_from_windows|resolver_stat_is_dir|resolver_stat_is_symlink|resolver_windows_component)$/u.test(
         functionName,
       )
     ) {
@@ -10463,7 +10478,9 @@ function loaderClassification(surface) {
       return boundedResolverSelectionEffectSpec(loaderOptions);
     }
     if (
-      /^(?:bounded_unix_parent|resolve_bounded_unix_path)$/u.test(functionName)
+      /^(?:bounded_unix_parent|bounded_windows_parent|resolve_bounded_unix_path|resolve_bounded_windows_path)$/u.test(
+        functionName,
+      )
     ) {
       return boundedResolverTraversalEffectSpec({
         ...loaderOptions,
@@ -10471,14 +10488,14 @@ function loaderClassification(surface) {
       });
     }
     if (
-      /^(?:bounded_unix_read_link|bounded_unix_symlink_metadata|canonicalize|resolve_direct_file_meta_authenticated|resolve_meta_from_authenticated_bound_package|resolve_meta_from_authenticated_bound_package_typed)$/u.test(
+      /^(?:bounded_unix_read_link|bounded_unix_symlink_metadata|bounded_windows_symlink_metadata|canonicalize|resolve_direct_file_meta_authenticated|resolve_meta_from_authenticated_bound_package|resolve_meta_from_authenticated_bound_package_typed)$/u.test(
         functionName,
       )
     ) {
       return boundedResolverTraversalEffectSpec(loaderOptions);
     }
     if (
-      /^(?:open_resolver_boundary|resolver_open_directory_at)$/u.test(
+      /^(?:open_resolver_boundary|open_resolver_boundary_windows|resolver_open_directory_at)$/u.test(
         functionName,
       )
     ) {
@@ -10488,6 +10505,9 @@ function loaderClassification(surface) {
       });
     }
     if (/^(?:resolver_fstat|resolver_fstatat_nofollow)$/u.test(functionName)) {
+      return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
+    }
+    if (functionName === "resolver_windows_object") {
       return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
     }
     if (functionName === "resolver_read_link_at") {
@@ -10706,6 +10726,7 @@ function loaderClassification(surface) {
     }
     if (
       new Set([
+        "function:rust:resolver_windows_component",
         "function:rust:normalize_windows_verbatim_path_text",
         "function:rust:strip_file_specifier_decorations",
         "function:rust:transpile_module_to_cjs",
@@ -10787,6 +10808,7 @@ function loaderClassification(surface) {
     }
     if (
       new Set([
+        "function:rust:bounded_windows_symlink_metadata",
         "function:rust:resolve_direct_file_meta_authenticated",
         "function:rust:resolve_meta_from_authenticated_bound_package",
         "function:rust:resolve_meta_from_authenticated_bound_package_typed",
@@ -10794,7 +10816,13 @@ function loaderClassification(surface) {
     ) {
       return boundedResolverTraversalEffectSpec(loaderOptions);
     }
-    if (name === "function:rust:resolve_bounded_unix_path") {
+    if (
+      new Set([
+        "function:rust:bounded_windows_parent",
+        "function:rust:resolve_bounded_unix_path",
+        "function:rust:resolve_bounded_windows_path",
+      ]).has(name)
+    ) {
       return boundedResolverTraversalEffectSpec({
         ...loaderOptions,
         lifetimeContract: "file-handle",
@@ -10803,6 +10831,7 @@ function loaderClassification(surface) {
     if (
       new Set([
         "function:rust:open_resolver_boundary",
+        "function:rust:open_resolver_boundary_windows",
         "function:rust:resolver_open_directory_at",
       ]).has(name)
     ) {
@@ -10822,13 +10851,18 @@ function loaderClassification(surface) {
     if (name === "function:rust:resolver_read_link_at") {
       return effectSpec(["fs:read"], "loader", "WP7", loaderOptions);
     }
+    if (name === "function:rust:resolver_windows_object") {
+      return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
+    }
     if (name === "function:rust:duplicate_resolver_fd") {
       return nonCapabilitySpec("authority-control-plane", "WP7");
     }
     if (
       new Set([
+        "function:rust:align_windows_resolver_namespace",
         "function:rust:authenticated_module_resolve_options",
         "function:rust:lexical_absolute_path_for_resolver",
+        "function:rust:oxc_path",
         "function:rust:resolver_component_cstring",
         "function:rust:resolver_relative_components",
       ]).has(name)
@@ -10841,6 +10875,7 @@ function loaderClassification(surface) {
         "function:rust:resolver_canonical_path",
         "function:rust:resolver_manifest_not_found",
         "function:rust:resolver_metadata_from_stat",
+        "function:rust:resolver_metadata_from_windows",
         "function:rust:resolver_stat_is_dir",
         "function:rust:resolver_stat_is_symlink",
       ]).has(name)

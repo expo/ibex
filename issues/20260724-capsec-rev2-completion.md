@@ -1353,8 +1353,66 @@ ticket closes.
   unresolved Windows resolver. Important enforcement mechanisms remain about
   97% complete and the overall requested task remains about 88%.
 
+### 2026-07-25 — retained Windows namespace and authenticated resolver
+
+- Implemented ordinary Windows namespace traversal with handle-relative
+  `NtCreateFile`, `FILE_OPEN_REPARSE_POINT`, delete-sharing retained handles,
+  and exact object matching for every witnessed/reopened directory transition.
+  Authenticated reads now carry the same requested, discovery, commit, and
+  repeat stages as Unix and retain the final readable object through byte
+  acquisition. Nested cwd retention uses the same root-relative transition
+  and later root/object revalidation.
+- The physical Windows VFS namespace filter passes all 25 tests. It covers
+  nested read and cwd traversal, staged evidence, leaf replacement between
+  discovery and commit, root replacement, reparse refusal, stable errno
+  projection, and backing-path non-disclosure.
+- Implemented the retained-boundary Windows Oxc filesystem for ordinary
+  non-reparse files and directories. Verbatim drive/UNC spellings are projected
+  only at the Oxc boundary and converted back to the authenticated canonical
+  namespace before containment checks. Captured package manifests and explicit
+  absences remain the only package-semantic inputs; `NODE_PATH` stays disabled.
+  A platform-independent manifest regression also fixes deterministic
+  `ENOTDIR` absence recognition by stable VFS code rather than a Unix errno
+  number.
+- The physical Windows authenticated-resolver filter passes 13 tests:
+  direct-file grammar, captured-manifest absence and override semantics,
+  package exports and `#imports`, exact outside-referrer bridging, ambient
+  package isolation, boundary replacement refusal, and reparse refusal.
+- Removed the Windows-only direct module-artifact exception from the closed
+  module-runner fixture. Windows now constructs the same authenticated source
+  graph, authorization plan, and `NativeSynchronousGraph` linkage as Unix
+  before proving namespace inspection closed.
+- Registered the nine new retained-boundary resolver surfaces in the
+  source-derived coverage model and regenerated every dependent registry,
+  contract, policy, and vendored identity. The refreshed Windows catalog is
+  23,459 required / 2,382 fully executable / 3,106 internally verified /
+  17,971 unresolved; Windows remains deliberately unadvertised.
+- The post-regression physical Windows closed batch passes all 680 recipes.
+  The copied 4,123,880 evidence bytes match the producing machine exactly at
+  raw SHA-256
+  `bf4ec9139345893339927144a1251ff0671766f7b5e685ce89d0bbef8af6e2fd`.
+  The independent validator re-derived the exact 680-fixture command group,
+  accepted every record with zero failures and zero typed decisions, and
+  produced artifact digest
+  `sha256-rf4EKebspXCb6H9IwT3hFawk-3n8jPtJpcbvT7Mfsjs` against catalog digest
+  `sha256-j8ArBiH8rikk2nzBItak1kIYICunnfcRVL0-WRK3DVs`.
+- The clean M4 verifier reproduces the generated registry and all downstream
+  artifacts exactly. Its combined model, inventory, recipe, public-evidence,
+  and root-global suite passes 409 tests with 125,969 assertions, and the
+  secure conformance-observer `cargo check` passes against the explicitly
+  bound Hermes framework, compiler, and headers.
+- Hard parts: Windows and Unix expose different native numeric values for the
+  same stable `ENOTDIR` result, and Windows canonicalization deliberately
+  yields verbatim paths that Oxc cannot parse as module specifiers. Both are
+  now explicit compatibility translations outside the authenticated identity
+  model. Remaining important gaps are contained Windows reparse-target
+  decoding/authorization and the separate typed retained-object backend for
+  installed Windows filesystem effects. Important enforcement mechanisms are
+  about 98% complete and the overall requested task is about 89% complete.
+
 ## Next milestone
 
-Checkpoint the now-verified Windows startup work, then continue reducing the
-17,896-row exact-target public-evidence gap without advertising Windows before
-its resolver and complete target evidence are genuinely ready.
+Checkpoint the now-verified retained Windows namespace/resolver work, then
+implement contained reparse transitions or reduce the separate 17,971-row
+exact-target public-evidence gap without advertising Windows before its typed
+filesystem backend and complete target evidence are genuinely ready.

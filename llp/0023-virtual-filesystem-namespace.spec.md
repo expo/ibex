@@ -5,7 +5,7 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
-**Revised:** 2026-07-25 (Windows armed startup now retains and authenticates the exact `/project` directory object, rejects reparse roots, and reopens/revalidates the root identity before relative-cwd use while deeper descriptor-relative Windows traversal remains explicitly unsupported)
+**Revised:** 2026-07-25 (Windows now performs ordinary non-reparse VFS and armed-resolver traversal relative to retained directory handles, object-matches every directory transition, retains exact final read objects through commit/repeat, and runs the authenticated module graph; root and nested reparse transitions remain explicitly refused pending contained-target decoding and authorization)
 **Revised:** 2026-07-25 (corrects armed sync/async `readlink` so stored link bytes require an `fs:read` commit before the first `readlinkat` and a repeat before every buffer-growth retry; ambient `fs:list` remains limited to link/target traversal and cannot disclose the stored value)
 **Revised:** 2026-07-17 (LLP 0029 compiled mount profile adds typed `app`/`work` roots, metadata-only `/app`, optional authenticated `/work`, the `ibex:cwd:unset` sentinel, and stable compiled path errors in §1.3); 2026-07-17 (LLP 0029 carrier v2 changes only physical engine binding and preserves original-module SourceId provenance); 2026-07-15 (ENG-25064 landed runtime publication and admission of digest-bound per-original-module prepared graphs); 2026-07-15 (ENG-25065 scoped development module incarnations by execution generation without changing SourceId); 2026-07-15 (ENG-25064 landed the digest-bound per-original-module carrier manifest); 2026-07-15 (ENG-25058 obligation-ledger reconciliation); 2026-07-12
 (round-8 dual-model review, **terminal** — both NOT READY,
@@ -1989,17 +1989,30 @@ these distinct edges. The Windows bridge mirrors the same generation/state lease
 contract; target promotion still depends on its independently required target
 evidence rather than this source-level parity check.
 
-Windows armed startup currently implements the retained root boundary without
-claiming deeper descriptor-relative traversal. It opens the final `/project`
-directory object with backup semantics and `OPEN_REPARSE_POINT`, rejects a
-non-directory, reparse point, or object-identity mismatch, and retains that
-handle as the runtime cwd. Before a relative-cwd use, it revalidates the retained
-handle and reopens the authenticated root pathname with the same no-reparse
-rules; both handles must identify the armed root object. A junction root or
-post-startup pathname replacement therefore fails as stale identity without
-disclosing the host path. Retaining any namespace below `/project` remains
-`ERR_IBEX_UNSUPPORTED_TARGET` on Windows until complete contained traversal and
-target evidence exist.
+Windows armed startup and ordinary namespace traversal now use retained handles
+throughout. Startup opens the final `/project` directory object with backup
+semantics and `OPEN_REPARSE_POINT`, rejects a non-directory, reparse point, or
+object-identity mismatch, and retains that handle as the runtime cwd. Each
+nested component is first witnessed with handle-relative `NtCreateFile` plus
+`FILE_OPEN_REPARSE_POINT`; a directory transition is reopened relative to the
+same retained parent and must identify the witnessed object before it becomes
+the next traversal root. Whole-file reads retain the exact reopened leaf through
+commit, repeat, and byte acquisition. Cwd retention applies the same transition
+rules and reopens/revalidates the authenticated root pathname before later use.
+A junction root, nested reparse transition, leaf replacement, or post-startup
+root replacement therefore fails closed without disclosing the host path.
+
+The armed Oxc filesystem uses the same retained-boundary model for ordinary
+Windows files and directories. It captures package-manifest bytes and explicit
+absences through the typed VFS, translates verbatim drive/UNC spellings only at
+the Oxc compatibility boundary, and immediately restores canonical host
+identity after resolution. This is sufficient for authenticated entry,
+relative, package-export, and package-import resolution and removes the former
+direct-artifact Windows exception from the closed module-runner proof. It does
+not claim contained reparse traversal: a reparse point is observed without
+following its target and resolution refuses before target lookup until Windows
+target-payload decoding, lexical containment, target authorization, and the
+same root-relative restart used by Unix are implemented.
 
 The contract this document requires:
 

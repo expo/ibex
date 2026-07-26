@@ -3575,22 +3575,10 @@ async fn execute_closed_module_runner_namespace(
     coverage: &BTreeMap<String, (String, String)>,
     engine_binary_digest: &str,
 ) -> serde_json::Value {
-    #[cfg(windows)]
-    use ibex_runtime::engine::module_runner::GraphEvaluationContext;
-    use ibex_runtime::engine::module_runner::NativeModuleRuntime;
-    #[cfg(not(windows))]
-    use ibex_runtime::engine::module_runner::NativeSynchronousGraph;
-    #[cfg(windows)]
-    use ibex_runtime::module_loader::artifact::ArtifactAdmissionV1;
-    #[cfg(windows)]
-    use ibex_runtime::module_loader::identity::SourceId;
-    #[cfg(windows)]
-    use ibex_runtime::module_loader::producer_spike::produce_module_artifact_v1;
-    #[cfg(not(windows))]
+    use ibex_runtime::engine::module_runner::{NativeModuleRuntime, NativeSynchronousGraph};
     use ibex_runtime::module_loader::runner_pipeline::{
         build_authenticated_source_graph_v1, SourceModuleGraphBuildV1,
     };
-    #[cfg(not(windows))]
     use ibex_runtime::module_loader::security::ModuleGraphAuthorizer;
 
     let invocation = &probe.invocation;
@@ -3671,7 +3659,6 @@ async fn execute_closed_module_runner_namespace(
     // @ref LLP 0027#canonical-encoding-and-validation
     let producer_digest = crate::runtime::module_producer_binary_digest()
         .expect("authenticate mapped Ibex module producer");
-    #[cfg(not(windows))]
     let graph = match build_authenticated_source_graph_v1(
         &entry,
         producer_digest.clone(),
@@ -3683,33 +3670,6 @@ async fn execute_closed_module_runner_namespace(
             "closed module-runner graph unexpectedly required legacy: {}",
             requirement
         ),
-    };
-    // The authenticated resolver filesystem remains intentionally
-    // unadvertised on Windows. This closed-surface fixture needs only one
-    // admitted record and must not manufacture full resolver support merely
-    // to reach the native ABI that it is proving closed. Produce the same
-    // root-owned entry from already-retained fixture bytes and admit it
-    // directly against the authenticated in-process producer.
-    #[cfg(windows)]
-    let (windows_source_id, windows_artifact) = {
-        use capsec_semantics::model::{NonEmptyString, PathComponent, Principal};
-
-        let source_id = SourceId::file(
-            Principal::Root {
-                identity: NonEmptyString::new("project-root").unwrap(),
-            },
-            vec![PathComponent::utf8("entry.mjs").unwrap()],
-        )
-        .expect("construct closed Windows module SourceId");
-        let artifact = produce_module_artifact_v1(
-            source_id.clone(),
-            "entry.mjs",
-            &entry,
-            "export const value = 42;\n",
-            producer_digest.clone(),
-        )
-        .expect("produce closed Windows module artifact");
-        (source_id, artifact)
     };
     let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
         .expect("create armed closed module-runner engine");
@@ -3736,75 +3696,22 @@ async fn execute_closed_module_runner_namespace(
                 let raw = std::ptr::NonNull::new(raw.cast())
                     .expect("loaded Hermes runtime pointer is non-null");
                 let native = unsafe { NativeModuleRuntime::from_raw(raw, nonce)? };
-                #[cfg(not(windows))]
-                let error = {
-                    let plan = graph.plan()?;
-                    let (configs, authority_contexts) = graph.native_execution_inputs(1)?;
-                    let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
-                    let linked = NativeSynchronousGraph::link_authorized(
-                        &native,
-                        &plan,
-                        graph.entry(),
-                        configs,
-                        &authorizer,
-                        &authority_contexts,
-                    )?;
-                    let error = linked
-                        .namespace_json(graph.entry())
-                        .expect_err("armed runtime exposed module namespace inspection")
-                        .to_string();
-                    drop(linked);
-                    error
-                };
-                #[cfg(windows)]
-                let error = {
-                    use capsec_semantics::model::NonEmptyString;
-
-                    let admission = ArtifactAdmissionV1::TrustedInProcess {
-                        expected_source_id: windows_source_id.clone(),
-                        expected_source_integrity: windows_artifact
-                            .semantics
-                            .source_integrity
-                            .clone(),
-                        expected_producer_id: NonEmptyString::new("ibex-runtime-oxc").unwrap(),
-                        producer_binary_digest: producer_digest.clone(),
-                        transform_fingerprint_digest: windows_artifact
-                            .semantics
-                            .transform_fingerprint
-                            .digest()?,
-                    };
-                    let verified = windows_artifact.verify_for_admission(&admission)?;
-                    let context = native.create_graph_context(GraphEvaluationContext::new(
-                        windows_source_id.clone(),
-                        0,
-                        0,
-                        [0],
-                        1,
-                    )?)?;
-                    let factory = native.compile_verified_factory(
-                        verified,
-                        0,
-                        None,
-                        1,
-                        "file:///project/entry.mjs",
-                    )?;
-                    let mut record = factory.create_record(&context, &windows_source_id)?;
-                    record.declare_export("value")?;
-                    record.instantiate_with_virtual_path(
-                        "file:///project/entry.mjs",
-                        Some("/project/entry.mjs"),
-                        true,
-                    )?;
-                    record.run_declare()?;
-                    let error = record
-                        .namespace_json()
-                        .expect_err("armed runtime exposed module namespace inspection")
-                        .to_string();
-                    drop(record);
-                    drop(factory);
-                    drop(context);
-                    error
-                };
+                let plan = graph.plan()?;
+                let (configs, authority_contexts) = graph.native_execution_inputs(1)?;
+                let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
+                let linked = NativeSynchronousGraph::link_authorized(
+                    &native,
+                    &plan,
+                    graph.entry(),
+                    configs,
+                    &authorizer,
+                    &authority_contexts,
+                )?;
+                let error = linked
+                    .namespace_json(graph.entry())
+                    .expect_err("armed runtime exposed module namespace inspection")
+                    .to_string();
+                drop(linked);
                 drop(native);
                 Ok(error)
             })();

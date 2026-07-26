@@ -1563,7 +1563,7 @@ impl Host {
                     Err(error)
                         if error.reason() == crate::vfs::VfsReason::Absent
                             || (error.reason() == crate::vfs::VfsReason::HostError
-                                && error.host_errno() == Some(libc::ENOTDIR)) =>
+                                && error.code() == "ENOTDIR") =>
                     {
                         capture.absences.insert(host_path);
                         capture.evidence.push(AuthenticatedManifestEvidenceRow {
@@ -8387,6 +8387,39 @@ mod tests {
         vfs.close();
         drop(host);
         drop(fixture);
+    }
+
+    #[test]
+    fn authenticated_manifest_capture_treats_file_child_enotdir_as_absent() {
+        let target = test_project_root().join(format!(
+            "manifest-file-child-enotdir-{}.mjs",
+            std::process::id()
+        ));
+        std::fs::write(&target, b"export default true;\n").unwrap();
+
+        let host = example_vfs_armed_host();
+        let vfs = host.virtual_file_system().unwrap();
+        let namespace = vfs
+            .namespace_for_authenticated_project_path(&target)
+            .unwrap();
+        let capture = host
+            .capture_authenticated_manifests(
+                &vfs,
+                &[(&namespace, ManifestSearchBase::Directory)],
+                "0",
+            )
+            .expect("a file-as-directory ENOTDIR witness is a deterministic absence");
+
+        assert!(capture
+            .evidence
+            .iter()
+            .any(|row| row.requested_virtual_path.ends_with(&format!(
+                "manifest-file-child-enotdir-{}.mjs/package.json",
+                std::process::id()
+            )) && row.state == "absent"));
+        vfs.close();
+        drop(host);
+        std::fs::remove_file(target).unwrap();
     }
 
     #[test]

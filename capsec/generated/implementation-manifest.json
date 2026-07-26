@@ -135982,11 +135982,22 @@
           "loader:external-calls:resolution"
         ],
         "proofSourceRefs": [
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:call:Ok:count-4",
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:call:Some:count-1",
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:method:as_ref:count-1",
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:method:ok_or_else:count-2",
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:method:starts_with:count-2",
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:method:strip_prefix:count-1",
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:method:to_str:count-2",
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:qualified:PathBuf::from:count-4",
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:qualified:io::Error::new:count-2",
           "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:Err:count-8",
-          "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:Ok:count-6",
+          "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:Ok:count-7",
           "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:Some:count-2",
+          "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:cfg:count-6",
+          "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:not:count-3",
           "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:and_then:count-1",
-          "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:context:count-8",
+          "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:context:count-12",
           "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:extension:count-1",
           "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:is_absolute:count-2",
           "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:is_dir:count-1",
@@ -136022,17 +136033,34 @@
           "src/module_loader/mod.rs#bounded_unix_symlink_metadata:external:method:as_ref:count-1",
           "src/module_loader/mod.rs#bounded_unix_symlink_metadata:external:method:ok_or_else:count-1",
           "src/module_loader/mod.rs#bounded_unix_symlink_metadata:external:qualified:io::Error::new:count-1",
-          "src/module_loader/mod.rs#canonicalize:external:call:Err:count-4",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:call:Err:count-1",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:call:Ok:count-1",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:method:file_name:count-1",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:method:is_dir:count-1",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:method:is_none:count-1",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:method:ok_or_else:count-2",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:method:parent:count-1",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:method:to_os_string:count-1",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:qualified:io::Error::new:count-1",
+          "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:call:let:count-1",
+          "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:method:as_ref:count-1",
+          "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:method:metadata:count-2",
+          "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:method:ok_or_else:count-1",
+          "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:qualified:crate::vfs::windows_open_relative_no_follow:count-1",
+          "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:qualified:io::Error::new:count-1",
+          "src/module_loader/mod.rs#canonicalize:external:call:Err:count-5",
           "src/module_loader/mod.rs#canonicalize:external:call:Ok:count-1",
-          "src/module_loader/mod.rs#canonicalize:external:call:cfg:count-4",
+          "src/module_loader/mod.rs#canonicalize:external:call:any:count-2",
+          "src/module_loader/mod.rs#canonicalize:external:call:cfg:count-6",
           "src/module_loader/mod.rs#canonicalize:external:call:not:count-2",
-          "src/module_loader/mod.rs#canonicalize:external:method:is_dir:count-1",
-          "src/module_loader/mod.rs#canonicalize:external:method:join:count-1",
+          "src/module_loader/mod.rs#canonicalize:external:method:and_then:count-1",
+          "src/module_loader/mod.rs#canonicalize:external:method:is_dir:count-2",
+          "src/module_loader/mod.rs#canonicalize:external:method:join:count-2",
           "src/module_loader/mod.rs#canonicalize:external:method:map:count-1",
-          "src/module_loader/mod.rs#canonicalize:external:method:ok_or_else:count-1",
-          "src/module_loader/mod.rs#canonicalize:external:method:parent:count-1",
+          "src/module_loader/mod.rs#canonicalize:external:method:ok_or_else:count-2",
+          "src/module_loader/mod.rs#canonicalize:external:method:parent:count-2",
           "src/module_loader/mod.rs#canonicalize:external:qualified:ResolverManifestInput::Present:count-1",
-          "src/module_loader/mod.rs#canonicalize:external:qualified:io::Error::new:count-3",
+          "src/module_loader/mod.rs#canonicalize:external:qualified:io::Error::new:count-4",
           "src/module_loader/mod.rs#capture_transpile_tool_directory:external:call:Ok:count-1",
           "src/module_loader/mod.rs#capture_transpile_tool_directory:external:method:as_bytes:count-1",
           "src/module_loader/mod.rs#capture_transpile_tool_directory:external:method:as_slice:count-1",
@@ -136151,8 +136179,9 @@
           "src/module_loader/mod.rs#manifest_input:external:qualified:ResolverManifestInput::Present:count-1",
           "src/module_loader/mod.rs#manifest_input:external:qualified:io::Error::other:count-1",
           "src/module_loader/mod.rs#metadata:external:call:Err:count-2",
-          "src/module_loader/mod.rs#metadata:external:call:Ok:count-2",
-          "src/module_loader/mod.rs#metadata:external:call:cfg:count-2",
+          "src/module_loader/mod.rs#metadata:external:call:Ok:count-3",
+          "src/module_loader/mod.rs#metadata:external:call:any:count-1",
+          "src/module_loader/mod.rs#metadata:external:call:cfg:count-3",
           "src/module_loader/mod.rs#metadata:external:call:not:count-1",
           "src/module_loader/mod.rs#metadata:external:qualified:ResolverFileMetadata::new:count-1",
           "src/module_loader/mod.rs#metadata:external:qualified:ResolverManifestInput::Present:count-1",
@@ -136191,9 +136220,10 @@
           "src/module_loader/mod.rs#needs_transpile:external:method:extension:count-1",
           "src/module_loader/mod.rs#needs_transpile:external:method:map:count-1",
           "src/module_loader/mod.rs#needs_transpile:external:method:unwrap_or:count-1",
-          "src/module_loader/mod.rs#new:external:call:Ok:count-1",
+          "src/module_loader/mod.rs#new:external:call:Ok:count-2",
           "src/module_loader/mod.rs#new:external:call:Some:count-2",
-          "src/module_loader/mod.rs#new:external:call:cfg:count-2",
+          "src/module_loader/mod.rs#new:external:call:any:count-1",
+          "src/module_loader/mod.rs#new:external:call:cfg:count-3",
           "src/module_loader/mod.rs#new:external:call:for:count-1",
           "src/module_loader/mod.rs#new:external:call:from:count-1",
           "src/module_loader/mod.rs#new:external:call:inside_denied_subtree:count-2",
@@ -136202,7 +136232,7 @@
           "src/module_loader/mod.rs#new:external:method:any:count-1",
           "src/module_loader/mod.rs#new:external:method:contains_key:count-1",
           "src/module_loader/mod.rs#new:external:method:context:count-4",
-          "src/module_loader/mod.rs#new:external:method:display:count-2",
+          "src/module_loader/mod.rs#new:external:method:display:count-3",
           "src/module_loader/mod.rs#new:external:method:file_name:count-2",
           "src/module_loader/mod.rs#new:external:method:insert:count-3",
           "src/module_loader/mod.rs#new:external:method:is_none:count-1",
@@ -136210,14 +136240,15 @@
           "src/module_loader/mod.rs#new:external:method:keys:count-1",
           "src/module_loader/mod.rs#new:external:method:metadata:count-1",
           "src/module_loader/mod.rs#new:external:method:starts_with:count-4",
-          "src/module_loader/mod.rs#new:external:method:with_context:count-2",
-          "src/module_loader/mod.rs#new:external:qualified:Arc::new:count-1",
+          "src/module_loader/mod.rs#new:external:method:with_context:count-3",
+          "src/module_loader/mod.rs#new:external:qualified:Arc::new:count-2",
           "src/module_loader/mod.rs#new:external:qualified:BTreeMap::new:count-1",
-          "src/module_loader/mod.rs#new:external:qualified:BTreeSet::new:count-3",
+          "src/module_loader/mod.rs#new:external:qualified:BTreeSet::new:count-4",
           "src/module_loader/mod.rs#new:external:qualified:OsStr::new:count-2",
+          "src/module_loader/mod.rs#new:external:qualified:crate::host::object_identity_for_open_file:count-1",
           "src/module_loader/mod.rs#new:external:qualified:crate::vfs::object_identity_for_metadata:count-1",
           "src/module_loader/mod.rs#new:external:qualified:std::fs::File::from:count-1",
-          "src/module_loader/mod.rs#new:external:qualified:std::sync::Mutex::new:count-1",
+          "src/module_loader/mod.rs#new:external:qualified:std::sync::Mutex::new:count-2",
           "src/module_loader/mod.rs#normalize_import_target:external:call:Some:count-2",
           "src/module_loader/mod.rs#normalize_import_target:external:method:exists:count-2",
           "src/module_loader/mod.rs#normalize_import_target:external:method:extension:count-1",
@@ -136227,10 +136258,13 @@
           "src/module_loader/mod.rs#normalize_import_target:external:method:with_extension:count-1",
           "src/module_loader/mod.rs#normalize_in_boundary:external:call:Err:count-2",
           "src/module_loader/mod.rs#normalize_in_boundary:external:call:Ok:count-1",
+          "src/module_loader/mod.rs#normalize_in_boundary:external:call:cfg:count-2",
+          "src/module_loader/mod.rs#normalize_in_boundary:external:call:not:count-1",
           "src/module_loader/mod.rs#normalize_in_boundary:external:method:any:count-1",
           "src/module_loader/mod.rs#normalize_in_boundary:external:method:as_path:count-1",
           "src/module_loader/mod.rs#normalize_in_boundary:external:method:iter:count-1",
           "src/module_loader/mod.rs#normalize_in_boundary:external:method:starts_with:count-2",
+          "src/module_loader/mod.rs#normalize_in_boundary:external:method:to_path_buf:count-1",
           "src/module_loader/mod.rs#normalize_windows_verbatim_path_text:external:call:Some:count-2",
           "src/module_loader/mod.rs#normalize_windows_verbatim_path_text:external:method:strip_prefix:count-2",
           "src/module_loader/mod.rs#normalize_windows_verbatim_path_text:external:qualified:std::borrow::Cow::Borrowed:count-2",
@@ -136246,6 +136280,23 @@
           "src/module_loader/mod.rs#open_resolver_boundary:external:qualified:io::Error::last_os_error:count-1",
           "src/module_loader/mod.rs#open_resolver_boundary:external:qualified:io::Error::new:count-1",
           "src/module_loader/mod.rs#open_resolver_boundary:external:qualified:libc::open:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:call:Err:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:call:Ok:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:custom_flags:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:file_attributes:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:is_dir:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:metadata:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:open:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:read:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:share_mode:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:qualified:io::Error::new:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:qualified:std::fs::OpenOptions::new:count-1",
+          "src/module_loader/mod.rs#oxc_path:external:call:Ok:count-1",
+          "src/module_loader/mod.rs#oxc_path:external:method:as_ref:count-1",
+          "src/module_loader/mod.rs#oxc_path:external:method:ok_or_else:count-1",
+          "src/module_loader/mod.rs#oxc_path:external:method:to_str:count-1",
+          "src/module_loader/mod.rs#oxc_path:external:qualified:PathBuf::from:count-1",
+          "src/module_loader/mod.rs#oxc_path:external:qualified:io::Error::new:count-1",
           "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:call:Some:count-1",
           "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:method:as_os_str:count-5",
           "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:method:collect:count-2",
@@ -136341,13 +136392,15 @@
           "src/module_loader/mod.rs#read:external:call:Ok:count-1",
           "src/module_loader/mod.rs#read:external:method:to_vec:count-1",
           "src/module_loader/mod.rs#read:external:qualified:ResolverManifestInput::Present:count-1",
-          "src/module_loader/mod.rs#read_link:external:call:Err:count-3",
-          "src/module_loader/mod.rs#read_link:external:call:cfg:count-2",
+          "src/module_loader/mod.rs#read_link:external:call:Err:count-5",
+          "src/module_loader/mod.rs#read_link:external:call:any:count-1",
+          "src/module_loader/mod.rs#read_link:external:call:cfg:count-3",
           "src/module_loader/mod.rs#read_link:external:call:not:count-1",
-          "src/module_loader/mod.rs#read_link:external:method:into:count-3",
+          "src/module_loader/mod.rs#read_link:external:method:into:count-5",
+          "src/module_loader/mod.rs#read_link:external:method:is_symlink:count-1",
           "src/module_loader/mod.rs#read_link:external:method:map_err:count-1",
           "src/module_loader/mod.rs#read_link:external:qualified:ResolverManifestInput::Present:count-1",
-          "src/module_loader/mod.rs#read_link:external:qualified:io::Error::new:count-2",
+          "src/module_loader/mod.rs#read_link:external:qualified:io::Error::new:count-4",
           "src/module_loader/mod.rs#read_package_manifest:external:call:Ok:count-1",
           "src/module_loader/mod.rs#read_package_manifest:external:method:display:count-2",
           "src/module_loader/mod.rs#read_package_manifest:external:method:with_context:count-2",
@@ -136383,6 +136436,22 @@
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:method:push:count-2",
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:method:to_path_buf:count-2",
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:qualified:io::Error::new:count-3",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:call:Err:count-4",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:call:Ok:count-2",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:call:Some:count-2",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:call:new:count-1",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:file_attributes:count-1",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:is_dir:count-2",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:is_empty:count-2",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:metadata:count-2",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:ok_or_else:count-1",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:pop_front:count-1",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:push:count-2",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:to_path_buf:count-1",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:try_clone:count-1",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:qualified:crate::vfs::windows_open_relative_no_follow:count-3",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:qualified:io::Error::new:count-3",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:qualified:io::Error::other:count-2",
           "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Ok:count-2",
           "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Some:count-5",
           "src/module_loader/mod.rs#resolve_builtin_meta:external:method:get:count-1",
@@ -136392,13 +136461,16 @@
           "src/module_loader/mod.rs#resolve_builtin_meta:external:qualified:identity::SourceId::builtin:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:Ok:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:Some:count-1",
+          "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:cfg:count-2",
+          "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:not:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:and_then:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:as_deref:count-1",
-          "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:context:count-1",
+          "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:context:count-2",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:display:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:file_name:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:ok_or_else:count-3",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:parent:count-1",
+          "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:to_path_buf:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:with_context:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:qualified:ConditionSet::for_kind:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:qualified:ResolverGeneric::new_with_file_system:count-1",
@@ -136408,6 +136480,8 @@
           "src/module_loader/mod.rs#resolve_meta_authenticated:external:qualified:ImportAttributes::default:count-1",
           "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:call:Err:count-4",
           "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:call:Some:count-2",
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:call:cfg:count-2",
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:as_ref:count-1",
           "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:is_empty:count-2",
           "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:starts_with:count-2",
           "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:trim:count-1",
@@ -136416,9 +136490,12 @@
           "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:qualified:ImportAttributes::default:count-1",
           "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:Err:count-4",
           "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:Some:count-4",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:cfg:count-2",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:not:count-1",
           "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:and_then:count-2",
           "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:any:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:context:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:clone:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:context:count-3",
           "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:get:count-3",
           "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_empty:count-3",
           "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_null:count-1",
@@ -136545,6 +136622,10 @@
           "src/module_loader/mod.rs#resolver_fstatat_nofollow:external:qualified:libc::fstatat:count-1",
           "src/module_loader/mod.rs#resolver_manifest_not_found:external:qualified:io::Error::new:count-1",
           "src/module_loader/mod.rs#resolver_metadata_from_stat:external:qualified:ResolverFileMetadata::new:count-1",
+          "src/module_loader/mod.rs#resolver_metadata_from_windows:external:method:file_attributes:count-1",
+          "src/module_loader/mod.rs#resolver_metadata_from_windows:external:method:is_dir:count-1",
+          "src/module_loader/mod.rs#resolver_metadata_from_windows:external:method:is_file:count-1",
+          "src/module_loader/mod.rs#resolver_metadata_from_windows:external:qualified:ResolverFileMetadata::new:count-1",
           "src/module_loader/mod.rs#resolver_open_directory_at:external:call:Err:count-1",
           "src/module_loader/mod.rs#resolver_open_directory_at:external:call:Ok:count-1",
           "src/module_loader/mod.rs#resolver_open_directory_at:external:method:as_ptr:count-1",
@@ -136576,6 +136657,13 @@
           "src/module_loader/mod.rs#resolver_relative_components:external:method:to_os_string:count-1",
           "src/module_loader/mod.rs#resolver_relative_components:external:qualified:Component::Normal:count-1",
           "src/module_loader/mod.rs#resolver_relative_components:external:qualified:VecDeque::new:count-1",
+          "src/module_loader/mod.rs#resolver_windows_component:external:method:ok_or_else:count-1",
+          "src/module_loader/mod.rs#resolver_windows_component:external:method:to_str:count-1",
+          "src/module_loader/mod.rs#resolver_windows_component:external:qualified:io::Error::new:count-1",
+          "src/module_loader/mod.rs#resolver_windows_object:external:method:map_err:count-1",
+          "src/module_loader/mod.rs#resolver_windows_object:external:method:to_string:count-1",
+          "src/module_loader/mod.rs#resolver_windows_object:external:qualified:crate::host::object_identity_for_open_file:count-1",
+          "src/module_loader/mod.rs#resolver_windows_object:external:qualified:io::Error::other:count-1",
           "src/module_loader/mod.rs#run_transpile_command:external:call:Ok:count-1",
           "src/module_loader/mod.rs#run_transpile_command:external:call:Some:count-1",
           "src/module_loader/mod.rs#run_transpile_command:external:method:as_deref:count-1",
@@ -136674,9 +136762,10 @@
           "src/module_loader/mod.rs#strip_file_specifier_decorations:external:qualified:Path::new:count-1",
           "src/module_loader/mod.rs#symlink_metadata:external:call:Err:count-2",
           "src/module_loader/mod.rs#symlink_metadata:external:call:Ok:count-1",
-          "src/module_loader/mod.rs#symlink_metadata:external:call:cfg:count-2",
+          "src/module_loader/mod.rs#symlink_metadata:external:call:any:count-1",
+          "src/module_loader/mod.rs#symlink_metadata:external:call:cfg:count-3",
           "src/module_loader/mod.rs#symlink_metadata:external:call:not:count-1",
-          "src/module_loader/mod.rs#symlink_metadata:external:method:map:count-1",
+          "src/module_loader/mod.rs#symlink_metadata:external:method:map:count-2",
           "src/module_loader/mod.rs#symlink_metadata:external:qualified:ResolverFileMetadata::new:count-1",
           "src/module_loader/mod.rs#symlink_metadata:external:qualified:ResolverManifestInput::Present:count-1",
           "src/module_loader/mod.rs#symlink_metadata:external:qualified:io::Error::new:count-1",
@@ -136879,11 +136968,22 @@
           "src/module_loader/transpile.rs#transpile_with_swc:external:qualified:swc_ecma_visit::VisitMutWith::visit_mut_with:count-2"
         ],
         "sourceRefs": [
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:call:Ok:count-4",
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:call:Some:count-1",
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:method:as_ref:count-1",
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:method:ok_or_else:count-2",
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:method:starts_with:count-2",
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:method:strip_prefix:count-1",
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:method:to_str:count-2",
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:qualified:PathBuf::from:count-4",
+          "src/module_loader/mod.rs#align_windows_resolver_namespace:external:qualified:io::Error::new:count-2",
           "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:Err:count-8",
-          "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:Ok:count-6",
+          "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:Ok:count-7",
           "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:Some:count-2",
+          "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:cfg:count-6",
+          "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:not:count-3",
           "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:and_then:count-1",
-          "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:context:count-8",
+          "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:context:count-12",
           "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:extension:count-1",
           "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:is_absolute:count-2",
           "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:is_dir:count-1",
@@ -136919,17 +137019,34 @@
           "src/module_loader/mod.rs#bounded_unix_symlink_metadata:external:method:as_ref:count-1",
           "src/module_loader/mod.rs#bounded_unix_symlink_metadata:external:method:ok_or_else:count-1",
           "src/module_loader/mod.rs#bounded_unix_symlink_metadata:external:qualified:io::Error::new:count-1",
-          "src/module_loader/mod.rs#canonicalize:external:call:Err:count-4",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:call:Err:count-1",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:call:Ok:count-1",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:method:file_name:count-1",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:method:is_dir:count-1",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:method:is_none:count-1",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:method:ok_or_else:count-2",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:method:parent:count-1",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:method:to_os_string:count-1",
+          "src/module_loader/mod.rs#bounded_windows_parent:external:qualified:io::Error::new:count-1",
+          "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:call:let:count-1",
+          "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:method:as_ref:count-1",
+          "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:method:metadata:count-2",
+          "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:method:ok_or_else:count-1",
+          "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:qualified:crate::vfs::windows_open_relative_no_follow:count-1",
+          "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:qualified:io::Error::new:count-1",
+          "src/module_loader/mod.rs#canonicalize:external:call:Err:count-5",
           "src/module_loader/mod.rs#canonicalize:external:call:Ok:count-1",
-          "src/module_loader/mod.rs#canonicalize:external:call:cfg:count-4",
+          "src/module_loader/mod.rs#canonicalize:external:call:any:count-2",
+          "src/module_loader/mod.rs#canonicalize:external:call:cfg:count-6",
           "src/module_loader/mod.rs#canonicalize:external:call:not:count-2",
-          "src/module_loader/mod.rs#canonicalize:external:method:is_dir:count-1",
-          "src/module_loader/mod.rs#canonicalize:external:method:join:count-1",
+          "src/module_loader/mod.rs#canonicalize:external:method:and_then:count-1",
+          "src/module_loader/mod.rs#canonicalize:external:method:is_dir:count-2",
+          "src/module_loader/mod.rs#canonicalize:external:method:join:count-2",
           "src/module_loader/mod.rs#canonicalize:external:method:map:count-1",
-          "src/module_loader/mod.rs#canonicalize:external:method:ok_or_else:count-1",
-          "src/module_loader/mod.rs#canonicalize:external:method:parent:count-1",
+          "src/module_loader/mod.rs#canonicalize:external:method:ok_or_else:count-2",
+          "src/module_loader/mod.rs#canonicalize:external:method:parent:count-2",
           "src/module_loader/mod.rs#canonicalize:external:qualified:ResolverManifestInput::Present:count-1",
-          "src/module_loader/mod.rs#canonicalize:external:qualified:io::Error::new:count-3",
+          "src/module_loader/mod.rs#canonicalize:external:qualified:io::Error::new:count-4",
           "src/module_loader/mod.rs#capture_transpile_tool_directory:external:call:Ok:count-1",
           "src/module_loader/mod.rs#capture_transpile_tool_directory:external:method:as_bytes:count-1",
           "src/module_loader/mod.rs#capture_transpile_tool_directory:external:method:as_slice:count-1",
@@ -137048,8 +137165,9 @@
           "src/module_loader/mod.rs#manifest_input:external:qualified:ResolverManifestInput::Present:count-1",
           "src/module_loader/mod.rs#manifest_input:external:qualified:io::Error::other:count-1",
           "src/module_loader/mod.rs#metadata:external:call:Err:count-2",
-          "src/module_loader/mod.rs#metadata:external:call:Ok:count-2",
-          "src/module_loader/mod.rs#metadata:external:call:cfg:count-2",
+          "src/module_loader/mod.rs#metadata:external:call:Ok:count-3",
+          "src/module_loader/mod.rs#metadata:external:call:any:count-1",
+          "src/module_loader/mod.rs#metadata:external:call:cfg:count-3",
           "src/module_loader/mod.rs#metadata:external:call:not:count-1",
           "src/module_loader/mod.rs#metadata:external:qualified:ResolverFileMetadata::new:count-1",
           "src/module_loader/mod.rs#metadata:external:qualified:ResolverManifestInput::Present:count-1",
@@ -137088,9 +137206,10 @@
           "src/module_loader/mod.rs#needs_transpile:external:method:extension:count-1",
           "src/module_loader/mod.rs#needs_transpile:external:method:map:count-1",
           "src/module_loader/mod.rs#needs_transpile:external:method:unwrap_or:count-1",
-          "src/module_loader/mod.rs#new:external:call:Ok:count-1",
+          "src/module_loader/mod.rs#new:external:call:Ok:count-2",
           "src/module_loader/mod.rs#new:external:call:Some:count-2",
-          "src/module_loader/mod.rs#new:external:call:cfg:count-2",
+          "src/module_loader/mod.rs#new:external:call:any:count-1",
+          "src/module_loader/mod.rs#new:external:call:cfg:count-3",
           "src/module_loader/mod.rs#new:external:call:for:count-1",
           "src/module_loader/mod.rs#new:external:call:from:count-1",
           "src/module_loader/mod.rs#new:external:call:inside_denied_subtree:count-2",
@@ -137099,7 +137218,7 @@
           "src/module_loader/mod.rs#new:external:method:any:count-1",
           "src/module_loader/mod.rs#new:external:method:contains_key:count-1",
           "src/module_loader/mod.rs#new:external:method:context:count-4",
-          "src/module_loader/mod.rs#new:external:method:display:count-2",
+          "src/module_loader/mod.rs#new:external:method:display:count-3",
           "src/module_loader/mod.rs#new:external:method:file_name:count-2",
           "src/module_loader/mod.rs#new:external:method:insert:count-3",
           "src/module_loader/mod.rs#new:external:method:is_none:count-1",
@@ -137107,14 +137226,15 @@
           "src/module_loader/mod.rs#new:external:method:keys:count-1",
           "src/module_loader/mod.rs#new:external:method:metadata:count-1",
           "src/module_loader/mod.rs#new:external:method:starts_with:count-4",
-          "src/module_loader/mod.rs#new:external:method:with_context:count-2",
-          "src/module_loader/mod.rs#new:external:qualified:Arc::new:count-1",
+          "src/module_loader/mod.rs#new:external:method:with_context:count-3",
+          "src/module_loader/mod.rs#new:external:qualified:Arc::new:count-2",
           "src/module_loader/mod.rs#new:external:qualified:BTreeMap::new:count-1",
-          "src/module_loader/mod.rs#new:external:qualified:BTreeSet::new:count-3",
+          "src/module_loader/mod.rs#new:external:qualified:BTreeSet::new:count-4",
           "src/module_loader/mod.rs#new:external:qualified:OsStr::new:count-2",
+          "src/module_loader/mod.rs#new:external:qualified:crate::host::object_identity_for_open_file:count-1",
           "src/module_loader/mod.rs#new:external:qualified:crate::vfs::object_identity_for_metadata:count-1",
           "src/module_loader/mod.rs#new:external:qualified:std::fs::File::from:count-1",
-          "src/module_loader/mod.rs#new:external:qualified:std::sync::Mutex::new:count-1",
+          "src/module_loader/mod.rs#new:external:qualified:std::sync::Mutex::new:count-2",
           "src/module_loader/mod.rs#normalize_import_target:external:call:Some:count-2",
           "src/module_loader/mod.rs#normalize_import_target:external:method:exists:count-2",
           "src/module_loader/mod.rs#normalize_import_target:external:method:extension:count-1",
@@ -137124,10 +137244,13 @@
           "src/module_loader/mod.rs#normalize_import_target:external:method:with_extension:count-1",
           "src/module_loader/mod.rs#normalize_in_boundary:external:call:Err:count-2",
           "src/module_loader/mod.rs#normalize_in_boundary:external:call:Ok:count-1",
+          "src/module_loader/mod.rs#normalize_in_boundary:external:call:cfg:count-2",
+          "src/module_loader/mod.rs#normalize_in_boundary:external:call:not:count-1",
           "src/module_loader/mod.rs#normalize_in_boundary:external:method:any:count-1",
           "src/module_loader/mod.rs#normalize_in_boundary:external:method:as_path:count-1",
           "src/module_loader/mod.rs#normalize_in_boundary:external:method:iter:count-1",
           "src/module_loader/mod.rs#normalize_in_boundary:external:method:starts_with:count-2",
+          "src/module_loader/mod.rs#normalize_in_boundary:external:method:to_path_buf:count-1",
           "src/module_loader/mod.rs#normalize_windows_verbatim_path_text:external:call:Some:count-2",
           "src/module_loader/mod.rs#normalize_windows_verbatim_path_text:external:method:strip_prefix:count-2",
           "src/module_loader/mod.rs#normalize_windows_verbatim_path_text:external:qualified:std::borrow::Cow::Borrowed:count-2",
@@ -137143,6 +137266,23 @@
           "src/module_loader/mod.rs#open_resolver_boundary:external:qualified:io::Error::last_os_error:count-1",
           "src/module_loader/mod.rs#open_resolver_boundary:external:qualified:io::Error::new:count-1",
           "src/module_loader/mod.rs#open_resolver_boundary:external:qualified:libc::open:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:call:Err:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:call:Ok:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:custom_flags:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:file_attributes:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:is_dir:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:metadata:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:open:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:read:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:share_mode:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:qualified:io::Error::new:count-1",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:external:qualified:std::fs::OpenOptions::new:count-1",
+          "src/module_loader/mod.rs#oxc_path:external:call:Ok:count-1",
+          "src/module_loader/mod.rs#oxc_path:external:method:as_ref:count-1",
+          "src/module_loader/mod.rs#oxc_path:external:method:ok_or_else:count-1",
+          "src/module_loader/mod.rs#oxc_path:external:method:to_str:count-1",
+          "src/module_loader/mod.rs#oxc_path:external:qualified:PathBuf::from:count-1",
+          "src/module_loader/mod.rs#oxc_path:external:qualified:io::Error::new:count-1",
           "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:call:Some:count-1",
           "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:method:as_os_str:count-5",
           "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:method:collect:count-2",
@@ -137238,13 +137378,15 @@
           "src/module_loader/mod.rs#read:external:call:Ok:count-1",
           "src/module_loader/mod.rs#read:external:method:to_vec:count-1",
           "src/module_loader/mod.rs#read:external:qualified:ResolverManifestInput::Present:count-1",
-          "src/module_loader/mod.rs#read_link:external:call:Err:count-3",
-          "src/module_loader/mod.rs#read_link:external:call:cfg:count-2",
+          "src/module_loader/mod.rs#read_link:external:call:Err:count-5",
+          "src/module_loader/mod.rs#read_link:external:call:any:count-1",
+          "src/module_loader/mod.rs#read_link:external:call:cfg:count-3",
           "src/module_loader/mod.rs#read_link:external:call:not:count-1",
-          "src/module_loader/mod.rs#read_link:external:method:into:count-3",
+          "src/module_loader/mod.rs#read_link:external:method:into:count-5",
+          "src/module_loader/mod.rs#read_link:external:method:is_symlink:count-1",
           "src/module_loader/mod.rs#read_link:external:method:map_err:count-1",
           "src/module_loader/mod.rs#read_link:external:qualified:ResolverManifestInput::Present:count-1",
-          "src/module_loader/mod.rs#read_link:external:qualified:io::Error::new:count-2",
+          "src/module_loader/mod.rs#read_link:external:qualified:io::Error::new:count-4",
           "src/module_loader/mod.rs#read_package_manifest:external:call:Ok:count-1",
           "src/module_loader/mod.rs#read_package_manifest:external:method:display:count-2",
           "src/module_loader/mod.rs#read_package_manifest:external:method:with_context:count-2",
@@ -137280,6 +137422,22 @@
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:method:push:count-2",
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:method:to_path_buf:count-2",
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:qualified:io::Error::new:count-3",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:call:Err:count-4",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:call:Ok:count-2",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:call:Some:count-2",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:call:new:count-1",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:file_attributes:count-1",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:is_dir:count-2",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:is_empty:count-2",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:metadata:count-2",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:ok_or_else:count-1",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:pop_front:count-1",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:push:count-2",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:to_path_buf:count-1",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:try_clone:count-1",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:qualified:crate::vfs::windows_open_relative_no_follow:count-3",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:qualified:io::Error::new:count-3",
+          "src/module_loader/mod.rs#resolve_bounded_windows_path:external:qualified:io::Error::other:count-2",
           "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Ok:count-2",
           "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Some:count-5",
           "src/module_loader/mod.rs#resolve_builtin_meta:external:method:get:count-1",
@@ -137289,13 +137447,16 @@
           "src/module_loader/mod.rs#resolve_builtin_meta:external:qualified:identity::SourceId::builtin:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:Ok:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:Some:count-1",
+          "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:cfg:count-2",
+          "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:not:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:and_then:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:as_deref:count-1",
-          "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:context:count-1",
+          "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:context:count-2",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:display:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:file_name:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:ok_or_else:count-3",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:parent:count-1",
+          "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:to_path_buf:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:with_context:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:qualified:ConditionSet::for_kind:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:qualified:ResolverGeneric::new_with_file_system:count-1",
@@ -137305,6 +137466,8 @@
           "src/module_loader/mod.rs#resolve_meta_authenticated:external:qualified:ImportAttributes::default:count-1",
           "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:call:Err:count-4",
           "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:call:Some:count-2",
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:call:cfg:count-2",
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:as_ref:count-1",
           "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:is_empty:count-2",
           "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:starts_with:count-2",
           "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:trim:count-1",
@@ -137313,9 +137476,12 @@
           "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:qualified:ImportAttributes::default:count-1",
           "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:Err:count-4",
           "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:Some:count-4",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:cfg:count-2",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:not:count-1",
           "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:and_then:count-2",
           "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:any:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:context:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:clone:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:context:count-3",
           "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:get:count-3",
           "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_empty:count-3",
           "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_null:count-1",
@@ -137442,6 +137608,10 @@
           "src/module_loader/mod.rs#resolver_fstatat_nofollow:external:qualified:libc::fstatat:count-1",
           "src/module_loader/mod.rs#resolver_manifest_not_found:external:qualified:io::Error::new:count-1",
           "src/module_loader/mod.rs#resolver_metadata_from_stat:external:qualified:ResolverFileMetadata::new:count-1",
+          "src/module_loader/mod.rs#resolver_metadata_from_windows:external:method:file_attributes:count-1",
+          "src/module_loader/mod.rs#resolver_metadata_from_windows:external:method:is_dir:count-1",
+          "src/module_loader/mod.rs#resolver_metadata_from_windows:external:method:is_file:count-1",
+          "src/module_loader/mod.rs#resolver_metadata_from_windows:external:qualified:ResolverFileMetadata::new:count-1",
           "src/module_loader/mod.rs#resolver_open_directory_at:external:call:Err:count-1",
           "src/module_loader/mod.rs#resolver_open_directory_at:external:call:Ok:count-1",
           "src/module_loader/mod.rs#resolver_open_directory_at:external:method:as_ptr:count-1",
@@ -137473,6 +137643,13 @@
           "src/module_loader/mod.rs#resolver_relative_components:external:method:to_os_string:count-1",
           "src/module_loader/mod.rs#resolver_relative_components:external:qualified:Component::Normal:count-1",
           "src/module_loader/mod.rs#resolver_relative_components:external:qualified:VecDeque::new:count-1",
+          "src/module_loader/mod.rs#resolver_windows_component:external:method:ok_or_else:count-1",
+          "src/module_loader/mod.rs#resolver_windows_component:external:method:to_str:count-1",
+          "src/module_loader/mod.rs#resolver_windows_component:external:qualified:io::Error::new:count-1",
+          "src/module_loader/mod.rs#resolver_windows_object:external:method:map_err:count-1",
+          "src/module_loader/mod.rs#resolver_windows_object:external:method:to_string:count-1",
+          "src/module_loader/mod.rs#resolver_windows_object:external:qualified:crate::host::object_identity_for_open_file:count-1",
+          "src/module_loader/mod.rs#resolver_windows_object:external:qualified:io::Error::other:count-1",
           "src/module_loader/mod.rs#run_transpile_command:external:call:Ok:count-1",
           "src/module_loader/mod.rs#run_transpile_command:external:call:Some:count-1",
           "src/module_loader/mod.rs#run_transpile_command:external:method:as_deref:count-1",
@@ -137571,9 +137748,10 @@
           "src/module_loader/mod.rs#strip_file_specifier_decorations:external:qualified:Path::new:count-1",
           "src/module_loader/mod.rs#symlink_metadata:external:call:Err:count-2",
           "src/module_loader/mod.rs#symlink_metadata:external:call:Ok:count-1",
-          "src/module_loader/mod.rs#symlink_metadata:external:call:cfg:count-2",
+          "src/module_loader/mod.rs#symlink_metadata:external:call:any:count-1",
+          "src/module_loader/mod.rs#symlink_metadata:external:call:cfg:count-3",
           "src/module_loader/mod.rs#symlink_metadata:external:call:not:count-1",
-          "src/module_loader/mod.rs#symlink_metadata:external:method:map:count-1",
+          "src/module_loader/mod.rs#symlink_metadata:external:method:map:count-2",
           "src/module_loader/mod.rs#symlink_metadata:external:qualified:ResolverFileMetadata::new:count-1",
           "src/module_loader/mod.rs#symlink_metadata:external:qualified:ResolverManifestInput::Present:count-1",
           "src/module_loader/mod.rs#symlink_metadata:external:qualified:io::Error::new:count-1",
@@ -137783,11 +137961,22 @@
         "kind": "all"
       },
       "sourceRefs": [
+        "src/module_loader/mod.rs#align_windows_resolver_namespace:external:call:Ok:count-4",
+        "src/module_loader/mod.rs#align_windows_resolver_namespace:external:call:Some:count-1",
+        "src/module_loader/mod.rs#align_windows_resolver_namespace:external:method:as_ref:count-1",
+        "src/module_loader/mod.rs#align_windows_resolver_namespace:external:method:ok_or_else:count-2",
+        "src/module_loader/mod.rs#align_windows_resolver_namespace:external:method:starts_with:count-2",
+        "src/module_loader/mod.rs#align_windows_resolver_namespace:external:method:strip_prefix:count-1",
+        "src/module_loader/mod.rs#align_windows_resolver_namespace:external:method:to_str:count-2",
+        "src/module_loader/mod.rs#align_windows_resolver_namespace:external:qualified:PathBuf::from:count-4",
+        "src/module_loader/mod.rs#align_windows_resolver_namespace:external:qualified:io::Error::new:count-2",
         "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:Err:count-8",
-        "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:Ok:count-6",
+        "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:Ok:count-7",
         "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:Some:count-2",
+        "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:cfg:count-6",
+        "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:call:not:count-3",
         "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:and_then:count-1",
-        "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:context:count-8",
+        "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:context:count-12",
         "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:extension:count-1",
         "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:is_absolute:count-2",
         "src/module_loader/mod.rs#authenticated_resolver_base_dir:external:method:is_dir:count-1",
@@ -137823,17 +138012,34 @@
         "src/module_loader/mod.rs#bounded_unix_symlink_metadata:external:method:as_ref:count-1",
         "src/module_loader/mod.rs#bounded_unix_symlink_metadata:external:method:ok_or_else:count-1",
         "src/module_loader/mod.rs#bounded_unix_symlink_metadata:external:qualified:io::Error::new:count-1",
-        "src/module_loader/mod.rs#canonicalize:external:call:Err:count-4",
+        "src/module_loader/mod.rs#bounded_windows_parent:external:call:Err:count-1",
+        "src/module_loader/mod.rs#bounded_windows_parent:external:call:Ok:count-1",
+        "src/module_loader/mod.rs#bounded_windows_parent:external:method:file_name:count-1",
+        "src/module_loader/mod.rs#bounded_windows_parent:external:method:is_dir:count-1",
+        "src/module_loader/mod.rs#bounded_windows_parent:external:method:is_none:count-1",
+        "src/module_loader/mod.rs#bounded_windows_parent:external:method:ok_or_else:count-2",
+        "src/module_loader/mod.rs#bounded_windows_parent:external:method:parent:count-1",
+        "src/module_loader/mod.rs#bounded_windows_parent:external:method:to_os_string:count-1",
+        "src/module_loader/mod.rs#bounded_windows_parent:external:qualified:io::Error::new:count-1",
+        "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:call:let:count-1",
+        "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:method:as_ref:count-1",
+        "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:method:metadata:count-2",
+        "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:method:ok_or_else:count-1",
+        "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:qualified:crate::vfs::windows_open_relative_no_follow:count-1",
+        "src/module_loader/mod.rs#bounded_windows_symlink_metadata:external:qualified:io::Error::new:count-1",
+        "src/module_loader/mod.rs#canonicalize:external:call:Err:count-5",
         "src/module_loader/mod.rs#canonicalize:external:call:Ok:count-1",
-        "src/module_loader/mod.rs#canonicalize:external:call:cfg:count-4",
+        "src/module_loader/mod.rs#canonicalize:external:call:any:count-2",
+        "src/module_loader/mod.rs#canonicalize:external:call:cfg:count-6",
         "src/module_loader/mod.rs#canonicalize:external:call:not:count-2",
-        "src/module_loader/mod.rs#canonicalize:external:method:is_dir:count-1",
-        "src/module_loader/mod.rs#canonicalize:external:method:join:count-1",
+        "src/module_loader/mod.rs#canonicalize:external:method:and_then:count-1",
+        "src/module_loader/mod.rs#canonicalize:external:method:is_dir:count-2",
+        "src/module_loader/mod.rs#canonicalize:external:method:join:count-2",
         "src/module_loader/mod.rs#canonicalize:external:method:map:count-1",
-        "src/module_loader/mod.rs#canonicalize:external:method:ok_or_else:count-1",
-        "src/module_loader/mod.rs#canonicalize:external:method:parent:count-1",
+        "src/module_loader/mod.rs#canonicalize:external:method:ok_or_else:count-2",
+        "src/module_loader/mod.rs#canonicalize:external:method:parent:count-2",
         "src/module_loader/mod.rs#canonicalize:external:qualified:ResolverManifestInput::Present:count-1",
-        "src/module_loader/mod.rs#canonicalize:external:qualified:io::Error::new:count-3",
+        "src/module_loader/mod.rs#canonicalize:external:qualified:io::Error::new:count-4",
         "src/module_loader/mod.rs#capture_transpile_tool_directory:external:call:Ok:count-1",
         "src/module_loader/mod.rs#capture_transpile_tool_directory:external:method:as_bytes:count-1",
         "src/module_loader/mod.rs#capture_transpile_tool_directory:external:method:as_slice:count-1",
@@ -137952,8 +138158,9 @@
         "src/module_loader/mod.rs#manifest_input:external:qualified:ResolverManifestInput::Present:count-1",
         "src/module_loader/mod.rs#manifest_input:external:qualified:io::Error::other:count-1",
         "src/module_loader/mod.rs#metadata:external:call:Err:count-2",
-        "src/module_loader/mod.rs#metadata:external:call:Ok:count-2",
-        "src/module_loader/mod.rs#metadata:external:call:cfg:count-2",
+        "src/module_loader/mod.rs#metadata:external:call:Ok:count-3",
+        "src/module_loader/mod.rs#metadata:external:call:any:count-1",
+        "src/module_loader/mod.rs#metadata:external:call:cfg:count-3",
         "src/module_loader/mod.rs#metadata:external:call:not:count-1",
         "src/module_loader/mod.rs#metadata:external:qualified:ResolverFileMetadata::new:count-1",
         "src/module_loader/mod.rs#metadata:external:qualified:ResolverManifestInput::Present:count-1",
@@ -137992,9 +138199,10 @@
         "src/module_loader/mod.rs#needs_transpile:external:method:extension:count-1",
         "src/module_loader/mod.rs#needs_transpile:external:method:map:count-1",
         "src/module_loader/mod.rs#needs_transpile:external:method:unwrap_or:count-1",
-        "src/module_loader/mod.rs#new:external:call:Ok:count-1",
+        "src/module_loader/mod.rs#new:external:call:Ok:count-2",
         "src/module_loader/mod.rs#new:external:call:Some:count-2",
-        "src/module_loader/mod.rs#new:external:call:cfg:count-2",
+        "src/module_loader/mod.rs#new:external:call:any:count-1",
+        "src/module_loader/mod.rs#new:external:call:cfg:count-3",
         "src/module_loader/mod.rs#new:external:call:for:count-1",
         "src/module_loader/mod.rs#new:external:call:from:count-1",
         "src/module_loader/mod.rs#new:external:call:inside_denied_subtree:count-2",
@@ -138003,7 +138211,7 @@
         "src/module_loader/mod.rs#new:external:method:any:count-1",
         "src/module_loader/mod.rs#new:external:method:contains_key:count-1",
         "src/module_loader/mod.rs#new:external:method:context:count-4",
-        "src/module_loader/mod.rs#new:external:method:display:count-2",
+        "src/module_loader/mod.rs#new:external:method:display:count-3",
         "src/module_loader/mod.rs#new:external:method:file_name:count-2",
         "src/module_loader/mod.rs#new:external:method:insert:count-3",
         "src/module_loader/mod.rs#new:external:method:is_none:count-1",
@@ -138011,14 +138219,15 @@
         "src/module_loader/mod.rs#new:external:method:keys:count-1",
         "src/module_loader/mod.rs#new:external:method:metadata:count-1",
         "src/module_loader/mod.rs#new:external:method:starts_with:count-4",
-        "src/module_loader/mod.rs#new:external:method:with_context:count-2",
-        "src/module_loader/mod.rs#new:external:qualified:Arc::new:count-1",
+        "src/module_loader/mod.rs#new:external:method:with_context:count-3",
+        "src/module_loader/mod.rs#new:external:qualified:Arc::new:count-2",
         "src/module_loader/mod.rs#new:external:qualified:BTreeMap::new:count-1",
-        "src/module_loader/mod.rs#new:external:qualified:BTreeSet::new:count-3",
+        "src/module_loader/mod.rs#new:external:qualified:BTreeSet::new:count-4",
         "src/module_loader/mod.rs#new:external:qualified:OsStr::new:count-2",
+        "src/module_loader/mod.rs#new:external:qualified:crate::host::object_identity_for_open_file:count-1",
         "src/module_loader/mod.rs#new:external:qualified:crate::vfs::object_identity_for_metadata:count-1",
         "src/module_loader/mod.rs#new:external:qualified:std::fs::File::from:count-1",
-        "src/module_loader/mod.rs#new:external:qualified:std::sync::Mutex::new:count-1",
+        "src/module_loader/mod.rs#new:external:qualified:std::sync::Mutex::new:count-2",
         "src/module_loader/mod.rs#normalize_import_target:external:call:Some:count-2",
         "src/module_loader/mod.rs#normalize_import_target:external:method:exists:count-2",
         "src/module_loader/mod.rs#normalize_import_target:external:method:extension:count-1",
@@ -138028,10 +138237,13 @@
         "src/module_loader/mod.rs#normalize_import_target:external:method:with_extension:count-1",
         "src/module_loader/mod.rs#normalize_in_boundary:external:call:Err:count-2",
         "src/module_loader/mod.rs#normalize_in_boundary:external:call:Ok:count-1",
+        "src/module_loader/mod.rs#normalize_in_boundary:external:call:cfg:count-2",
+        "src/module_loader/mod.rs#normalize_in_boundary:external:call:not:count-1",
         "src/module_loader/mod.rs#normalize_in_boundary:external:method:any:count-1",
         "src/module_loader/mod.rs#normalize_in_boundary:external:method:as_path:count-1",
         "src/module_loader/mod.rs#normalize_in_boundary:external:method:iter:count-1",
         "src/module_loader/mod.rs#normalize_in_boundary:external:method:starts_with:count-2",
+        "src/module_loader/mod.rs#normalize_in_boundary:external:method:to_path_buf:count-1",
         "src/module_loader/mod.rs#normalize_windows_verbatim_path_text:external:call:Some:count-2",
         "src/module_loader/mod.rs#normalize_windows_verbatim_path_text:external:method:strip_prefix:count-2",
         "src/module_loader/mod.rs#normalize_windows_verbatim_path_text:external:qualified:std::borrow::Cow::Borrowed:count-2",
@@ -138047,6 +138259,23 @@
         "src/module_loader/mod.rs#open_resolver_boundary:external:qualified:io::Error::last_os_error:count-1",
         "src/module_loader/mod.rs#open_resolver_boundary:external:qualified:io::Error::new:count-1",
         "src/module_loader/mod.rs#open_resolver_boundary:external:qualified:libc::open:count-1",
+        "src/module_loader/mod.rs#open_resolver_boundary_windows:external:call:Err:count-1",
+        "src/module_loader/mod.rs#open_resolver_boundary_windows:external:call:Ok:count-1",
+        "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:custom_flags:count-1",
+        "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:file_attributes:count-1",
+        "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:is_dir:count-1",
+        "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:metadata:count-1",
+        "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:open:count-1",
+        "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:read:count-1",
+        "src/module_loader/mod.rs#open_resolver_boundary_windows:external:method:share_mode:count-1",
+        "src/module_loader/mod.rs#open_resolver_boundary_windows:external:qualified:io::Error::new:count-1",
+        "src/module_loader/mod.rs#open_resolver_boundary_windows:external:qualified:std::fs::OpenOptions::new:count-1",
+        "src/module_loader/mod.rs#oxc_path:external:call:Ok:count-1",
+        "src/module_loader/mod.rs#oxc_path:external:method:as_ref:count-1",
+        "src/module_loader/mod.rs#oxc_path:external:method:ok_or_else:count-1",
+        "src/module_loader/mod.rs#oxc_path:external:method:to_str:count-1",
+        "src/module_loader/mod.rs#oxc_path:external:qualified:PathBuf::from:count-1",
+        "src/module_loader/mod.rs#oxc_path:external:qualified:io::Error::new:count-1",
         "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:call:Some:count-1",
         "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:method:as_os_str:count-5",
         "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:method:collect:count-2",
@@ -138142,13 +138371,15 @@
         "src/module_loader/mod.rs#read:external:call:Ok:count-1",
         "src/module_loader/mod.rs#read:external:method:to_vec:count-1",
         "src/module_loader/mod.rs#read:external:qualified:ResolverManifestInput::Present:count-1",
-        "src/module_loader/mod.rs#read_link:external:call:Err:count-3",
-        "src/module_loader/mod.rs#read_link:external:call:cfg:count-2",
+        "src/module_loader/mod.rs#read_link:external:call:Err:count-5",
+        "src/module_loader/mod.rs#read_link:external:call:any:count-1",
+        "src/module_loader/mod.rs#read_link:external:call:cfg:count-3",
         "src/module_loader/mod.rs#read_link:external:call:not:count-1",
-        "src/module_loader/mod.rs#read_link:external:method:into:count-3",
+        "src/module_loader/mod.rs#read_link:external:method:into:count-5",
+        "src/module_loader/mod.rs#read_link:external:method:is_symlink:count-1",
         "src/module_loader/mod.rs#read_link:external:method:map_err:count-1",
         "src/module_loader/mod.rs#read_link:external:qualified:ResolverManifestInput::Present:count-1",
-        "src/module_loader/mod.rs#read_link:external:qualified:io::Error::new:count-2",
+        "src/module_loader/mod.rs#read_link:external:qualified:io::Error::new:count-4",
         "src/module_loader/mod.rs#read_package_manifest:external:call:Ok:count-1",
         "src/module_loader/mod.rs#read_package_manifest:external:method:display:count-2",
         "src/module_loader/mod.rs#read_package_manifest:external:method:with_context:count-2",
@@ -138184,6 +138415,22 @@
         "src/module_loader/mod.rs#resolve_bounded_unix_path:external:method:push:count-2",
         "src/module_loader/mod.rs#resolve_bounded_unix_path:external:method:to_path_buf:count-2",
         "src/module_loader/mod.rs#resolve_bounded_unix_path:external:qualified:io::Error::new:count-3",
+        "src/module_loader/mod.rs#resolve_bounded_windows_path:external:call:Err:count-4",
+        "src/module_loader/mod.rs#resolve_bounded_windows_path:external:call:Ok:count-2",
+        "src/module_loader/mod.rs#resolve_bounded_windows_path:external:call:Some:count-2",
+        "src/module_loader/mod.rs#resolve_bounded_windows_path:external:call:new:count-1",
+        "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:file_attributes:count-1",
+        "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:is_dir:count-2",
+        "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:is_empty:count-2",
+        "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:metadata:count-2",
+        "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:ok_or_else:count-1",
+        "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:pop_front:count-1",
+        "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:push:count-2",
+        "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:to_path_buf:count-1",
+        "src/module_loader/mod.rs#resolve_bounded_windows_path:external:method:try_clone:count-1",
+        "src/module_loader/mod.rs#resolve_bounded_windows_path:external:qualified:crate::vfs::windows_open_relative_no_follow:count-3",
+        "src/module_loader/mod.rs#resolve_bounded_windows_path:external:qualified:io::Error::new:count-3",
+        "src/module_loader/mod.rs#resolve_bounded_windows_path:external:qualified:io::Error::other:count-2",
         "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Ok:count-2",
         "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Some:count-5",
         "src/module_loader/mod.rs#resolve_builtin_meta:external:method:get:count-1",
@@ -138193,13 +138440,16 @@
         "src/module_loader/mod.rs#resolve_builtin_meta:external:qualified:identity::SourceId::builtin:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:Ok:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:Some:count-1",
+        "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:cfg:count-2",
+        "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:not:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:and_then:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:as_deref:count-1",
-        "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:context:count-1",
+        "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:context:count-2",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:display:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:file_name:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:ok_or_else:count-3",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:parent:count-1",
+        "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:to_path_buf:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:with_context:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:qualified:ConditionSet::for_kind:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:qualified:ResolverGeneric::new_with_file_system:count-1",
@@ -138209,6 +138459,8 @@
         "src/module_loader/mod.rs#resolve_meta_authenticated:external:qualified:ImportAttributes::default:count-1",
         "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:call:Err:count-4",
         "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:call:Some:count-2",
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:call:cfg:count-2",
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:as_ref:count-1",
         "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:is_empty:count-2",
         "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:starts_with:count-2",
         "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:trim:count-1",
@@ -138217,9 +138469,12 @@
         "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:qualified:ImportAttributes::default:count-1",
         "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:Err:count-4",
         "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:Some:count-4",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:cfg:count-2",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:not:count-1",
         "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:and_then:count-2",
         "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:any:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:context:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:clone:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:context:count-3",
         "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:get:count-3",
         "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_empty:count-3",
         "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_null:count-1",
@@ -138346,6 +138601,10 @@
         "src/module_loader/mod.rs#resolver_fstatat_nofollow:external:qualified:libc::fstatat:count-1",
         "src/module_loader/mod.rs#resolver_manifest_not_found:external:qualified:io::Error::new:count-1",
         "src/module_loader/mod.rs#resolver_metadata_from_stat:external:qualified:ResolverFileMetadata::new:count-1",
+        "src/module_loader/mod.rs#resolver_metadata_from_windows:external:method:file_attributes:count-1",
+        "src/module_loader/mod.rs#resolver_metadata_from_windows:external:method:is_dir:count-1",
+        "src/module_loader/mod.rs#resolver_metadata_from_windows:external:method:is_file:count-1",
+        "src/module_loader/mod.rs#resolver_metadata_from_windows:external:qualified:ResolverFileMetadata::new:count-1",
         "src/module_loader/mod.rs#resolver_open_directory_at:external:call:Err:count-1",
         "src/module_loader/mod.rs#resolver_open_directory_at:external:call:Ok:count-1",
         "src/module_loader/mod.rs#resolver_open_directory_at:external:method:as_ptr:count-1",
@@ -138377,6 +138636,13 @@
         "src/module_loader/mod.rs#resolver_relative_components:external:method:to_os_string:count-1",
         "src/module_loader/mod.rs#resolver_relative_components:external:qualified:Component::Normal:count-1",
         "src/module_loader/mod.rs#resolver_relative_components:external:qualified:VecDeque::new:count-1",
+        "src/module_loader/mod.rs#resolver_windows_component:external:method:ok_or_else:count-1",
+        "src/module_loader/mod.rs#resolver_windows_component:external:method:to_str:count-1",
+        "src/module_loader/mod.rs#resolver_windows_component:external:qualified:io::Error::new:count-1",
+        "src/module_loader/mod.rs#resolver_windows_object:external:method:map_err:count-1",
+        "src/module_loader/mod.rs#resolver_windows_object:external:method:to_string:count-1",
+        "src/module_loader/mod.rs#resolver_windows_object:external:qualified:crate::host::object_identity_for_open_file:count-1",
+        "src/module_loader/mod.rs#resolver_windows_object:external:qualified:io::Error::other:count-1",
         "src/module_loader/mod.rs#run_transpile_command:external:call:Ok:count-1",
         "src/module_loader/mod.rs#run_transpile_command:external:call:Some:count-1",
         "src/module_loader/mod.rs#run_transpile_command:external:method:as_deref:count-1",
@@ -138475,9 +138741,10 @@
         "src/module_loader/mod.rs#strip_file_specifier_decorations:external:qualified:Path::new:count-1",
         "src/module_loader/mod.rs#symlink_metadata:external:call:Err:count-2",
         "src/module_loader/mod.rs#symlink_metadata:external:call:Ok:count-1",
-        "src/module_loader/mod.rs#symlink_metadata:external:call:cfg:count-2",
+        "src/module_loader/mod.rs#symlink_metadata:external:call:any:count-1",
+        "src/module_loader/mod.rs#symlink_metadata:external:call:cfg:count-3",
         "src/module_loader/mod.rs#symlink_metadata:external:call:not:count-1",
-        "src/module_loader/mod.rs#symlink_metadata:external:method:map:count-1",
+        "src/module_loader/mod.rs#symlink_metadata:external:method:map:count-2",
         "src/module_loader/mod.rs#symlink_metadata:external:qualified:ResolverFileMetadata::new:count-1",
         "src/module_loader/mod.rs#symlink_metadata:external:qualified:ResolverManifestInput::Present:count-1",
         "src/module_loader/mod.rs#symlink_metadata:external:qualified:io::Error::new:count-1",
@@ -141897,6 +142164,39 @@
       ]
     },
     {
+      "edgeId": "surface.loader.function.rust.align.windows.resolver.namespace.0cj9leo",
+      "observedKey": "loader:function:rust:align_windows_resolver_namespace",
+      "branchId": "surface.loader.function.rust.align.windows.resolver.namespace.0cj9leo.main",
+      "enforcementBranchId": "surface.loader.function.rust.align.windows.resolver.namespace.0cj9leo.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:rust:align_windows_resolver_namespace"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#align_windows_resolver_namespace"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#align_windows_resolver_namespace"
+        ],
+        "terminalObservedKey": "loader:function:rust:align_windows_resolver_namespace"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#align_windows_resolver_namespace"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.loader.function.rust.align.windows.resolver.namespace.0cj9leo.main.cannot-widen-authority",
+        "surface.loader.function.rust.align.windows.resolver.namespace.0cj9leo.main.non-capability",
+        "surface.loader.function.rust.align.windows.resolver.namespace.0cj9leo.main.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.loader.function.rust.authenticated.module.resolve.options.0ytophc",
       "observedKey": "loader:function:rust:authenticated_module_resolve_options",
       "branchId": "surface.loader.function.rust.authenticated.module.resolve.options.0ytophc.main",
@@ -142635,6 +142935,41 @@
       ]
     },
     {
+      "edgeId": "surface.loader.function.rust.open.resolver.boundary.windows.0m56leq",
+      "observedKey": "loader:function:rust:open_resolver_boundary_windows",
+      "branchId": "surface.loader.function.rust.open.resolver.boundary.windows.0m56leq.main",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.open.resolver.boundary.windows.0w9b2ol",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:function:rust:open_resolver_boundary_windows"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#open_resolver_boundary_windows"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#open_resolver_boundary_windows"
+        ],
+        "terminalObservedKey": "loader:function:rust:open_resolver_boundary_windows"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#open_resolver_boundary_windows"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.module.loader.mod.rs.open.resolver.boundary.windows.0w9b2ol.allow",
+        "enforcement.src.module.loader.mod.rs.open.resolver.boundary.windows.0w9b2ol.deny",
+        "enforcement.src.module.loader.mod.rs.open.resolver.boundary.windows.0w9b2ol.malformed",
+        "enforcement.src.module.loader.mod.rs.open.resolver.boundary.windows.0w9b2ol.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.open.resolver.boundary.windows.0w9b2ol.wrong-principal"
+      ]
+    },
+    {
       "edgeId": "surface.loader.function.rust.package.name.and.root.in.node.modules.0b1g5jm",
       "observedKey": "loader:function:rust:package_name_and_root_in_node_modules",
       "branchId": "surface.loader.function.rust.package.name.and.root.in.node.modules.0b1g5jm.main",
@@ -142890,6 +143225,48 @@
         "enforcement.src.module.loader.mod.rs.resolve.bounded.unix.path.1p1bemn.logical.symlink-target.malformed",
         "enforcement.src.module.loader.mod.rs.resolve.bounded.unix.path.1p1bemn.logical.symlink-target.missing-attribution",
         "enforcement.src.module.loader.mod.rs.resolve.bounded.unix.path.1p1bemn.logical.symlink-target.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.function.rust.resolve.bounded.windows.path.0kilph0",
+      "observedKey": "loader:function:rust:resolve_bounded_windows_path",
+      "branchId": "surface.loader.function.rust.resolve.bounded.windows.path.0kilph0.main",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.02412nc",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:function:rust:resolve_bounded_windows_path"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolve_bounded_windows_path"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolve_bounded_windows_path"
+        ],
+        "terminalObservedKey": "loader:function:rust:resolve_bounded_windows_path"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_bounded_windows_path"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.02412nc.logical.metadata-only.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.02412nc.logical.metadata-only.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.02412nc.logical.metadata-only.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.02412nc.logical.metadata-only.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.02412nc.logical.metadata-only.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.02412nc.logical.metadata-only.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.02412nc.logical.symlink-target.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.02412nc.logical.symlink-target.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.02412nc.logical.symlink-target.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.02412nc.logical.symlink-target.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.02412nc.logical.symlink-target.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.02412nc.logical.symlink-target.wrong-principal"
       ]
     },
     {
@@ -144051,6 +144428,37 @@
       ]
     },
     {
+      "edgeId": "surface.loader.function.rust.resolver.metadata.from.windows.0pg53ir",
+      "observedKey": "loader:function:rust:resolver_metadata_from_windows",
+      "branchId": "surface.loader.function.rust.resolver.metadata.from.windows.0pg53ir.main",
+      "enforcementBranchId": "surface.loader.function.rust.resolver.metadata.from.windows.0pg53ir.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:rust:resolver_metadata_from_windows"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolver_metadata_from_windows"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolver_metadata_from_windows"
+        ],
+        "terminalObservedKey": "loader:function:rust:resolver_metadata_from_windows"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolver_metadata_from_windows"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.loader.function.rust.resolver.metadata.from.windows.0pg53ir.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.loader.function.rust.resolver.open.directory.at.0ekd5t3",
       "observedKey": "loader:function:rust:resolver_open_directory_at",
       "branchId": "surface.loader.function.rust.resolver.open.directory.at.0ekd5t3.main",
@@ -144251,6 +144659,72 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.loader.function.rust.resolver.stat.is.symlink.0wio6wk.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.function.rust.resolver.windows.component.1vbcf6q",
+      "observedKey": "loader:function:rust:resolver_windows_component",
+      "branchId": "surface.loader.function.rust.resolver.windows.component.1vbcf6q.main",
+      "enforcementBranchId": "surface.loader.function.rust.resolver.windows.component.1vbcf6q.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:rust:resolver_windows_component"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolver_windows_component"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolver_windows_component"
+        ],
+        "terminalObservedKey": "loader:function:rust:resolver_windows_component"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolver_windows_component"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.loader.function.rust.resolver.windows.component.1vbcf6q.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.function.rust.resolver.windows.object.0vl57wk",
+      "observedKey": "loader:function:rust:resolver_windows_object",
+      "branchId": "surface.loader.function.rust.resolver.windows.object.0vl57wk.main",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.resolver.windows.object.1enxir3",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:function:rust:resolver_windows_object"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolver_windows_object"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolver_windows_object"
+        ],
+        "terminalObservedKey": "loader:function:rust:resolver_windows_object"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolver_windows_object"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.module.loader.mod.rs.resolver.windows.object.1enxir3.allow",
+        "enforcement.src.module.loader.mod.rs.resolver.windows.object.1enxir3.deny",
+        "enforcement.src.module.loader.mod.rs.resolver.windows.object.1enxir3.malformed",
+        "enforcement.src.module.loader.mod.rs.resolver.windows.object.1enxir3.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolver.windows.object.1enxir3.wrong-principal"
       ]
     },
     {
@@ -149219,7 +149693,7 @@
       "edgeId": "surface.loader.operation.resolution.metadata.0cl9rva",
       "observedKey": "loader:operation:resolution:metadata",
       "branchId": "surface.loader.operation.resolution.metadata.0cl9rva.main",
-      "enforcementBranchId": "enforcement.loader.mod.rs.directory.size.operation.method.direntry.metadata.1hvj7hy",
+      "enforcementBranchId": "enforcement.loader.mod.rs.directory.size.operation.method.direntry.metadata.0pt80hv",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -149228,6 +149702,7 @@
         "proofSourceRefs": [
           "src/module_loader/mod.rs#directory_size:operation:method:DirEntry:metadata",
           "src/module_loader/mod.rs#new:operation:method:File:metadata",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:operation:method:File:metadata",
           "src/module_loader/mod.rs#prune_transpile_cache_to_limit:operation:method:DirEntry:metadata",
           "src/module_loader/mod.rs#prune_transpile_cache_to_limit:operation:qualified:std::fs::metadata",
           "src/module_loader/mod.rs#resolver_fstat:operation:qualified:libc::fstat",
@@ -149236,6 +149711,7 @@
         "sourceRefs": [
           "src/module_loader/mod.rs#directory_size:operation:method:DirEntry:metadata",
           "src/module_loader/mod.rs#new:operation:method:File:metadata",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:operation:method:File:metadata",
           "src/module_loader/mod.rs#prune_transpile_cache_to_limit:operation:method:DirEntry:metadata",
           "src/module_loader/mod.rs#prune_transpile_cache_to_limit:operation:qualified:std::fs::metadata",
           "src/module_loader/mod.rs#resolver_fstat:operation:qualified:libc::fstat",
@@ -149251,6 +149727,7 @@
       "sourceRefs": [
         "src/module_loader/mod.rs#directory_size:operation:method:DirEntry:metadata",
         "src/module_loader/mod.rs#new:operation:method:File:metadata",
+        "src/module_loader/mod.rs#open_resolver_boundary_windows:operation:method:File:metadata",
         "src/module_loader/mod.rs#prune_transpile_cache_to_limit:operation:method:DirEntry:metadata",
         "src/module_loader/mod.rs#prune_transpile_cache_to_limit:operation:qualified:std::fs::metadata",
         "src/module_loader/mod.rs#resolver_fstat:operation:qualified:libc::fstat",
@@ -149258,11 +149735,11 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.loader.mod.rs.directory.size.operation.method.direntry.metadata.1hvj7hy.allow",
-        "enforcement.loader.mod.rs.directory.size.operation.method.direntry.metadata.1hvj7hy.deny",
-        "enforcement.loader.mod.rs.directory.size.operation.method.direntry.metadata.1hvj7hy.malformed",
-        "enforcement.loader.mod.rs.directory.size.operation.method.direntry.metadata.1hvj7hy.missing-attribution",
-        "enforcement.loader.mod.rs.directory.size.operation.method.direntry.metadata.1hvj7hy.wrong-principal"
+        "enforcement.loader.mod.rs.directory.size.operation.method.direntry.metadata.0pt80hv.allow",
+        "enforcement.loader.mod.rs.directory.size.operation.method.direntry.metadata.0pt80hv.deny",
+        "enforcement.loader.mod.rs.directory.size.operation.method.direntry.metadata.0pt80hv.malformed",
+        "enforcement.loader.mod.rs.directory.size.operation.method.direntry.metadata.0pt80hv.missing-attribution",
+        "enforcement.loader.mod.rs.directory.size.operation.method.direntry.metadata.0pt80hv.wrong-principal"
       ]
     },
     {
@@ -149277,12 +149754,14 @@
         ],
         "proofSourceRefs": [
           "src/module_loader/mod.rs#ensure_transpile_cache_dir:operation:qualified:std::fs::OpenOptions::new",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:operation:qualified:std::fs::OpenOptions::new",
           "src/module_loader/mod.rs#run_transpile_override:operation:qualified:std::fs::OpenOptions::new",
           "src/module_loader/mod.rs#run_transpile_subprocess:operation:qualified:std::fs::DirBuilder::new",
           "src/module_loader/mod.rs#run_transpile_subprocess:operation:qualified:std::fs::OpenOptions::new"
         ],
         "sourceRefs": [
           "src/module_loader/mod.rs#ensure_transpile_cache_dir:operation:qualified:std::fs::OpenOptions::new",
+          "src/module_loader/mod.rs#open_resolver_boundary_windows:operation:qualified:std::fs::OpenOptions::new",
           "src/module_loader/mod.rs#run_transpile_override:operation:qualified:std::fs::OpenOptions::new",
           "src/module_loader/mod.rs#run_transpile_subprocess:operation:qualified:std::fs::DirBuilder::new",
           "src/module_loader/mod.rs#run_transpile_subprocess:operation:qualified:std::fs::OpenOptions::new"
@@ -149296,6 +149775,7 @@
       },
       "sourceRefs": [
         "src/module_loader/mod.rs#ensure_transpile_cache_dir:operation:qualified:std::fs::OpenOptions::new",
+        "src/module_loader/mod.rs#open_resolver_boundary_windows:operation:qualified:std::fs::OpenOptions::new",
         "src/module_loader/mod.rs#run_transpile_override:operation:qualified:std::fs::OpenOptions::new",
         "src/module_loader/mod.rs#run_transpile_subprocess:operation:qualified:std::fs::DirBuilder::new",
         "src/module_loader/mod.rs#run_transpile_subprocess:operation:qualified:std::fs::OpenOptions::new"
@@ -154213,6 +154693,39 @@
       ]
     },
     {
+      "edgeId": "surface.loader.route.resolution.rust.align.windows.resolver.namespace.04wa2z3",
+      "observedKey": "loader:route:resolution:rust:align_windows_resolver_namespace",
+      "branchId": "surface.loader.route.resolution.rust.align.windows.resolver.namespace.04wa2z3.main",
+      "enforcementBranchId": "surface.loader.route.resolution.rust.align.windows.resolver.namespace.04wa2z3.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:route:resolution:rust:align_windows_resolver_namespace"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#align_windows_resolver_namespace"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#align_windows_resolver_namespace"
+        ],
+        "terminalObservedKey": "loader:route:resolution:rust:align_windows_resolver_namespace"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#align_windows_resolver_namespace"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.loader.route.resolution.rust.align.windows.resolver.namespace.04wa2z3.main.cannot-widen-authority",
+        "surface.loader.route.resolution.rust.align.windows.resolver.namespace.04wa2z3.main.non-capability",
+        "surface.loader.route.resolution.rust.align.windows.resolver.namespace.04wa2z3.main.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.loader.route.resolution.rust.authenticated.module.resolve.options.1muh5mb",
       "observedKey": "loader:route:resolution:rust:authenticated_module_resolve_options",
       "branchId": "surface.loader.route.resolution.rust.authenticated.module.resolve.options.1muh5mb.main",
@@ -154497,6 +155010,90 @@
         "enforcement.src.module.loader.mod.rs.bounded.unix.symlink.metadata.02qxumm.logical.symlink-target.malformed",
         "enforcement.src.module.loader.mod.rs.bounded.unix.symlink.metadata.02qxumm.logical.symlink-target.missing-attribution",
         "enforcement.src.module.loader.mod.rs.bounded.unix.symlink.metadata.02qxumm.logical.symlink-target.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.bounded.windows.parent.157klk5",
+      "observedKey": "loader:route:resolution:rust:bounded_windows_parent",
+      "branchId": "surface.loader.route.resolution.rust.bounded.windows.parent.157klk5.main",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.bounded.windows.parent.0mt0lc9",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:route:resolution:rust:bounded_windows_parent"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#bounded_windows_parent"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#bounded_windows_parent"
+        ],
+        "terminalObservedKey": "loader:route:resolution:rust:bounded_windows_parent"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#bounded_windows_parent"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.module.loader.mod.rs.bounded.windows.parent.0mt0lc9.logical.metadata-only.allow",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.parent.0mt0lc9.logical.metadata-only.branch-selection",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.parent.0mt0lc9.logical.metadata-only.deny",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.parent.0mt0lc9.logical.metadata-only.malformed",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.parent.0mt0lc9.logical.metadata-only.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.parent.0mt0lc9.logical.metadata-only.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.parent.0mt0lc9.logical.symlink-target.allow",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.parent.0mt0lc9.logical.symlink-target.branch-selection",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.parent.0mt0lc9.logical.symlink-target.deny",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.parent.0mt0lc9.logical.symlink-target.malformed",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.parent.0mt0lc9.logical.symlink-target.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.parent.0mt0lc9.logical.symlink-target.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.bounded.windows.symlink.metadata.0e4jke4",
+      "observedKey": "loader:route:resolution:rust:bounded_windows_symlink_metadata",
+      "branchId": "surface.loader.route.resolution.rust.bounded.windows.symlink.metadata.0e4jke4.main",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.bounded.windows.symlink.metadata.02e4nq3",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:route:resolution:rust:bounded_windows_symlink_metadata"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#bounded_windows_symlink_metadata"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#bounded_windows_symlink_metadata"
+        ],
+        "terminalObservedKey": "loader:route:resolution:rust:bounded_windows_symlink_metadata"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#bounded_windows_symlink_metadata"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.module.loader.mod.rs.bounded.windows.symlink.metadata.02e4nq3.logical.metadata-only.allow",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.symlink.metadata.02e4nq3.logical.metadata-only.branch-selection",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.symlink.metadata.02e4nq3.logical.metadata-only.deny",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.symlink.metadata.02e4nq3.logical.metadata-only.malformed",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.symlink.metadata.02e4nq3.logical.metadata-only.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.symlink.metadata.02e4nq3.logical.metadata-only.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.symlink.metadata.02e4nq3.logical.symlink-target.allow",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.symlink.metadata.02e4nq3.logical.symlink-target.branch-selection",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.symlink.metadata.02e4nq3.logical.symlink-target.deny",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.symlink.metadata.02e4nq3.logical.symlink-target.malformed",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.symlink.metadata.02e4nq3.logical.symlink-target.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.bounded.windows.symlink.metadata.02e4nq3.logical.symlink-target.wrong-principal"
       ]
     },
     {
@@ -155842,6 +156439,41 @@
       ]
     },
     {
+      "edgeId": "surface.loader.route.resolution.rust.open.resolver.boundary.windows.1sdxls1",
+      "observedKey": "loader:route:resolution:rust:open_resolver_boundary_windows",
+      "branchId": "surface.loader.route.resolution.rust.open.resolver.boundary.windows.1sdxls1.main",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.open.resolver.boundary.windows.13eh5mg",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:route:resolution:rust:open_resolver_boundary_windows"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#open_resolver_boundary_windows"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#open_resolver_boundary_windows"
+        ],
+        "terminalObservedKey": "loader:route:resolution:rust:open_resolver_boundary_windows"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#open_resolver_boundary_windows"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.module.loader.mod.rs.open.resolver.boundary.windows.13eh5mg.allow",
+        "enforcement.src.module.loader.mod.rs.open.resolver.boundary.windows.13eh5mg.deny",
+        "enforcement.src.module.loader.mod.rs.open.resolver.boundary.windows.13eh5mg.malformed",
+        "enforcement.src.module.loader.mod.rs.open.resolver.boundary.windows.13eh5mg.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.open.resolver.boundary.windows.13eh5mg.wrong-principal"
+      ]
+    },
+    {
       "edgeId": "surface.loader.route.resolution.rust.output.has.esm.module.syntax.10x2lfm",
       "observedKey": "loader:route:resolution:rust:output_has_esm_module_syntax",
       "branchId": "surface.loader.route.resolution.rust.output.has.esm.module.syntax.10x2lfm.main",
@@ -155870,6 +156502,39 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.loader.route.resolution.rust.output.has.esm.module.syntax.10x2lfm.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.oxc.path.0qg9xsf",
+      "observedKey": "loader:route:resolution:rust:oxc_path",
+      "branchId": "surface.loader.route.resolution.rust.oxc.path.0qg9xsf.main",
+      "enforcementBranchId": "surface.loader.route.resolution.rust.oxc.path.0qg9xsf.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:route:resolution:rust:oxc_path"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#oxc_path"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#oxc_path"
+        ],
+        "terminalObservedKey": "loader:route:resolution:rust:oxc_path"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#oxc_path"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.loader.route.resolution.rust.oxc.path.0qg9xsf.main.cannot-widen-authority",
+        "surface.loader.route.resolution.rust.oxc.path.0qg9xsf.main.non-capability",
+        "surface.loader.route.resolution.rust.oxc.path.0qg9xsf.main.post-lockdown-invariant"
       ]
     },
     {
@@ -156558,6 +157223,48 @@
         "enforcement.src.module.loader.mod.rs.resolve.bounded.unix.path.0fgrq4y.logical.symlink-target.malformed",
         "enforcement.src.module.loader.mod.rs.resolve.bounded.unix.path.0fgrq4y.logical.symlink-target.missing-attribution",
         "enforcement.src.module.loader.mod.rs.resolve.bounded.unix.path.0fgrq4y.logical.symlink-target.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.resolve.bounded.windows.path.0wzajyv",
+      "observedKey": "loader:route:resolution:rust:resolve_bounded_windows_path",
+      "branchId": "surface.loader.route.resolution.rust.resolve.bounded.windows.path.0wzajyv.main",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.1te1uxh",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:route:resolution:rust:resolve_bounded_windows_path"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolve_bounded_windows_path"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolve_bounded_windows_path"
+        ],
+        "terminalObservedKey": "loader:route:resolution:rust:resolve_bounded_windows_path"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_bounded_windows_path"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.1te1uxh.logical.metadata-only.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.1te1uxh.logical.metadata-only.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.1te1uxh.logical.metadata-only.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.1te1uxh.logical.metadata-only.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.1te1uxh.logical.metadata-only.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.1te1uxh.logical.metadata-only.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.1te1uxh.logical.symlink-target.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.1te1uxh.logical.symlink-target.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.1te1uxh.logical.symlink-target.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.1te1uxh.logical.symlink-target.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.1te1uxh.logical.symlink-target.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.bounded.windows.path.1te1uxh.logical.symlink-target.wrong-principal"
       ]
     },
     {
@@ -157528,6 +158235,37 @@
       ]
     },
     {
+      "edgeId": "surface.loader.route.resolution.rust.resolver.metadata.from.windows.0rdmvbo",
+      "observedKey": "loader:route:resolution:rust:resolver_metadata_from_windows",
+      "branchId": "surface.loader.route.resolution.rust.resolver.metadata.from.windows.0rdmvbo.main",
+      "enforcementBranchId": "surface.loader.route.resolution.rust.resolver.metadata.from.windows.0rdmvbo.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:route:resolution:rust:resolver_metadata_from_windows"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolver_metadata_from_windows"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolver_metadata_from_windows"
+        ],
+        "terminalObservedKey": "loader:route:resolution:rust:resolver_metadata_from_windows"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolver_metadata_from_windows"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.loader.route.resolution.rust.resolver.metadata.from.windows.0rdmvbo.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.loader.route.resolution.rust.resolver.open.directory.at.0zmvibs",
       "observedKey": "loader:route:resolution:rust:resolver_open_directory_at",
       "branchId": "surface.loader.route.resolution.rust.resolver.open.directory.at.0zmvibs.main",
@@ -157695,6 +158433,72 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.loader.route.resolution.rust.resolver.stat.is.symlink.0hd01ef.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.resolver.windows.component.0hgjjlh",
+      "observedKey": "loader:route:resolution:rust:resolver_windows_component",
+      "branchId": "surface.loader.route.resolution.rust.resolver.windows.component.0hgjjlh.main",
+      "enforcementBranchId": "surface.loader.route.resolution.rust.resolver.windows.component.0hgjjlh.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:route:resolution:rust:resolver_windows_component"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolver_windows_component"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolver_windows_component"
+        ],
+        "terminalObservedKey": "loader:route:resolution:rust:resolver_windows_component"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolver_windows_component"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.loader.route.resolution.rust.resolver.windows.component.0hgjjlh.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.resolver.windows.object.0zc41qd",
+      "observedKey": "loader:route:resolution:rust:resolver_windows_object",
+      "branchId": "surface.loader.route.resolution.rust.resolver.windows.object.0zc41qd.main",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.resolver.windows.object.0t46yw6",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:route:resolution:rust:resolver_windows_object"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolver_windows_object"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolver_windows_object"
+        ],
+        "terminalObservedKey": "loader:route:resolution:rust:resolver_windows_object"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolver_windows_object"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.module.loader.mod.rs.resolver.windows.object.0t46yw6.allow",
+        "enforcement.src.module.loader.mod.rs.resolver.windows.object.0t46yw6.deny",
+        "enforcement.src.module.loader.mod.rs.resolver.windows.object.0t46yw6.malformed",
+        "enforcement.src.module.loader.mod.rs.resolver.windows.object.0t46yw6.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolver.windows.object.0t46yw6.wrong-principal"
       ]
     },
     {
@@ -281329,11 +282133,13 @@
         "surface.loader.function.rust.module.cache.key.0uv0gjb",
         "surface.loader.function.rust.normalize.import.target.08m8i21",
         "surface.loader.function.rust.open.resolver.boundary.1wa6byo",
+        "surface.loader.function.rust.open.resolver.boundary.windows.0m56leq",
         "surface.loader.function.rust.package.name.and.root.in.node.modules.0b1g5jm",
         "surface.loader.function.rust.package.root.in.node.modules.16dl64q",
         "surface.loader.function.rust.pick.package.import.path.1aotxim",
         "surface.loader.function.rust.resolve.0im0f8i",
         "surface.loader.function.rust.resolve.bounded.unix.path.12dvvrz",
+        "surface.loader.function.rust.resolve.bounded.windows.path.0kilph0",
         "surface.loader.function.rust.resolve.direct.file.meta.0ppl70b",
         "surface.loader.function.rust.resolve.direct.file.meta.authenticated.0wsyo3z",
         "surface.loader.function.rust.resolve.meta.1w33i7e",
@@ -281354,6 +282160,7 @@
         "surface.loader.function.rust.resolver.fstat.13n04df",
         "surface.loader.function.rust.resolver.fstatat.nofollow.05rz0q5",
         "surface.loader.function.rust.resolver.open.directory.at.0ekd5t3",
+        "surface.loader.function.rust.resolver.windows.object.0vl57wk",
         "surface.loader.function.rust.transpile.module.0l4ibfl",
         "surface.loader.json.module.0vkkkgt",
         "surface.loader.native.resolve.06vmy8q",
@@ -281453,6 +282260,8 @@
         "surface.loader.route.resolution.rust.bounded.unix.parent.167nrr2",
         "surface.loader.route.resolution.rust.bounded.unix.read.link.06th733",
         "surface.loader.route.resolution.rust.bounded.unix.symlink.metadata.018671j",
+        "surface.loader.route.resolution.rust.bounded.windows.parent.157klk5",
+        "surface.loader.route.resolution.rust.bounded.windows.symlink.metadata.0e4jke4",
         "surface.loader.route.resolution.rust.canonicalize.0qnrhyx",
         "surface.loader.route.resolution.rust.capture.transpile.tool.directory.05vo8sz",
         "surface.loader.route.resolution.rust.compute.transpile.tooling.hash.10pxlwb",
@@ -281468,6 +282277,7 @@
         "surface.loader.route.resolution.rust.new.0bca46d",
         "surface.loader.route.resolution.rust.normalize.import.target.0zn2vq4",
         "surface.loader.route.resolution.rust.open.resolver.boundary.1hwlxer",
+        "surface.loader.route.resolution.rust.open.resolver.boundary.windows.1sdxls1",
         "surface.loader.route.resolution.rust.package.version.for.0p8ewh0",
         "surface.loader.route.resolution.rust.prune.transpile.cache.to.limit.0x4pdjd",
         "surface.loader.route.resolution.rust.publish.transpile.artifact.0u2q6ro",
@@ -281475,6 +282285,7 @@
         "surface.loader.route.resolution.rust.read.package.manifest.11crqyi",
         "surface.loader.route.resolution.rust.resolve.1h3w95j",
         "surface.loader.route.resolution.rust.resolve.bounded.unix.path.0nq3t2u",
+        "surface.loader.route.resolution.rust.resolve.bounded.windows.path.0wzajyv",
         "surface.loader.route.resolution.rust.resolve.direct.file.meta.authenticated.17zaun8",
         "surface.loader.route.resolution.rust.resolve.meta.0dfscy5",
         "surface.loader.route.resolution.rust.resolve.meta.authenticated.0j9vwrx",
@@ -281491,6 +282302,7 @@
         "surface.loader.route.resolution.rust.resolver.fstat.01kwlk8",
         "surface.loader.route.resolution.rust.resolver.fstatat.nofollow.1kmdv1s",
         "surface.loader.route.resolution.rust.resolver.open.directory.at.0zmvibs",
+        "surface.loader.route.resolution.rust.resolver.windows.object.0zc41qd",
         "surface.loader.route.resolution.rust.run.transpile.command.1wu2vrl",
         "surface.loader.route.resolution.rust.run.transpile.override.0z7ubjc",
         "surface.loader.route.resolution.rust.run.transpile.subprocess.0ysj9ef",
@@ -281590,7 +282402,7 @@
         "surface.startup.supervisor.history.store.open.0u6mrwv",
         "surface.startup.supervisor.history.user.key.read.create.16p08qw"
       ],
-      "rationale": "Covered by 397 observed effect edges."
+      "rationale": "Covered by 405 observed effect edges."
     },
     {
       "definitionId": "fs:read",
@@ -281710,6 +282522,7 @@
         "surface.loader.function.rust.pick.package.import.path.1aotxim",
         "surface.loader.function.rust.resolve.0im0f8i",
         "surface.loader.function.rust.resolve.bounded.unix.path.12dvvrz",
+        "surface.loader.function.rust.resolve.bounded.windows.path.0kilph0",
         "surface.loader.function.rust.resolve.direct.file.meta.0ppl70b",
         "surface.loader.function.rust.resolve.direct.file.meta.authenticated.0wsyo3z",
         "surface.loader.function.rust.resolve.meta.1w33i7e",
@@ -281789,6 +282602,8 @@
         "surface.loader.route.resolution.rust.bounded.unix.parent.167nrr2",
         "surface.loader.route.resolution.rust.bounded.unix.read.link.06th733",
         "surface.loader.route.resolution.rust.bounded.unix.symlink.metadata.018671j",
+        "surface.loader.route.resolution.rust.bounded.windows.parent.157klk5",
+        "surface.loader.route.resolution.rust.bounded.windows.symlink.metadata.0e4jke4",
         "surface.loader.route.resolution.rust.canonicalize.0qnrhyx",
         "surface.loader.route.resolution.rust.capture.transpile.tool.directory.05vo8sz",
         "surface.loader.route.resolution.rust.compute.transpile.tooling.hash.10pxlwb",
@@ -281807,6 +282622,7 @@
         "surface.loader.route.resolution.rust.read.transpile.cache.0lbx48p",
         "surface.loader.route.resolution.rust.resolve.1h3w95j",
         "surface.loader.route.resolution.rust.resolve.bounded.unix.path.0nq3t2u",
+        "surface.loader.route.resolution.rust.resolve.bounded.windows.path.0wzajyv",
         "surface.loader.route.resolution.rust.resolve.direct.file.meta.authenticated.17zaun8",
         "surface.loader.route.resolution.rust.resolve.meta.0dfscy5",
         "surface.loader.route.resolution.rust.resolve.meta.authenticated.0j9vwrx",
@@ -281886,7 +282702,7 @@
         "surface.startup.supervisor.history.journal.recover.1tl92hf",
         "surface.startup.supervisor.history.user.key.read.create.16p08qw"
       ],
-      "rationale": "Covered by 289 observed effect edges."
+      "rationale": "Covered by 293 observed effect edges."
     },
     {
       "definitionId": "fs:unbound-mutation",
@@ -285254,7 +286070,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-PHkLAD2vF9_DOCIhw-68wzc_uaJMKDgQ0ozO0AVTZe0"
+      "rawContentDigest": "sha256-TVcOqtx0zEWGTmEHupNA-FB1A4pNZRmeRNsX-nBq5x0"
     },
     {
       "kind": "output-disposition-dataset",
@@ -285269,44 +286085,44 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-bhrwYBo-gLhLU5fuPkHTUYdouJIIQfg8PIRYe9OQvzQ"
+      "rawContentDigest": "sha256-VfhJ8cqlci6Ac7UNtL4vyOgal5jK-BgaG4X1Fzv-v_c"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-G8hr-zqInylx-IdLT-Kl46XG2z07p8CaXS58zuU2agA"
+      "rawContentDigest": "sha256-EkRKAmP-ps4DXh1e5M3W8u7DvI8CWuYLDtVxPq_5R_Q"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-QY-JC657vcG5xjWBCBFFvK8yqYu1r_rr1ovXwuWIxlQ"
+      "rawContentDigest": "sha256-rIsD6LflKTHf-OVSSBBppo1tjknfDfiS9fPCDrd3QHI"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-UejkozSSGVxfl-LJ6urQ2t6mYiUgiwkSXMW-KZKGRGM"
+      "rawContentDigest": "sha256-BG8at2xdlCCKhkwhCmW8BQ3RosbjobqgAp48ljdNhmo"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-33nDovqJrKxndXjx9lFkhbOjkHRNo2iZOmUKySHm6rg"
+      "rawContentDigest": "sha256-3YdIn83gH9ZqFzUHfjX1yjxo-dSwz-vSCwHdmupqzZM"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-5iEciH9aONyKIdqyNJE1Sji5cnLjMqO4IOZfb9innks"
+      "rawContentDigest": "sha256-S-fj03Uhaj-IxRLqY0EpuvLF1u_dolV1MaDH0QDqEBE"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-q9waaJ4nMsCiIMW37PrC86ffG5LEvu_9RTBQ6RyGpx0"
+      "rawContentDigest": "sha256-aAC-VdmN1ecW1X60pxsVfyOxUlhMb5sm1XeXkqgxkwo"
     }
   ],
   "counts": {
-    "observedReferences": 13437,
-    "logicalSurfaces": 7627,
-    "enforcementBranches": 7927,
-    "coverageEdges": 7627,
-    "targetCells": 15254
+    "observedReferences": 13543,
+    "logicalSurfaces": 7642,
+    "enforcementBranches": 7942,
+    "coverageEdges": 7642,
+    "targetCells": 15284
   }
 }

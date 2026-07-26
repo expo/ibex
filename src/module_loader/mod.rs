@@ -44,10 +44,12 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::collections::VecDeque;
 #[cfg(unix)]
-use std::ffi::{CString, OsString};
+use std::ffi::CString;
+#[cfg(any(unix, windows))]
+use std::ffi::OsString;
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 #[cfg(unix)]
@@ -227,7 +229,7 @@ struct AuthenticatedResolverInputState {
     absent_package_manifests: BTreeSet<PathBuf>,
     denied_principal_subtrees: BTreeSet<PathBuf>,
     uncaptured_package_manifest_probes: std::sync::Mutex<BTreeSet<PathBuf>>,
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     boundary_handle: std::fs::File,
 }
 
@@ -310,7 +312,7 @@ impl AuthenticatedResolverInputs {
             "absent package manifest is inside a denied principal subtree"
         );
 
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = (
                 boundary_root,
@@ -319,9 +321,7 @@ impl AuthenticatedResolverInputs {
                 absent,
                 denied_subtrees,
             );
-            anyhow::bail!(
-                "authenticated module resolution requires descriptor-relative Unix traversal"
-            );
+            anyhow::bail!("authenticated module resolution requires descriptor-relative traversal");
         }
 
         #[cfg(unix)]
@@ -356,6 +356,33 @@ impl AuthenticatedResolverInputs {
                 }),
             })
         }
+
+        #[cfg(windows)]
+        {
+            let boundary_handle =
+                open_resolver_boundary_windows(&boundary_root).with_context(|| {
+                    format!(
+                        "failed to retain authenticated resolver boundary {}",
+                        boundary_root.display()
+                    )
+                })?;
+            let actual_boundary_object =
+                crate::host::object_identity_for_open_file(&boundary_handle)?;
+            anyhow::ensure!(
+                &actual_boundary_object == expected_boundary_object,
+                "authenticated resolver boundary object changed before retention"
+            );
+            Ok(Self {
+                inner: Arc::new(AuthenticatedResolverInputState {
+                    boundary_root,
+                    package_manifests: captured,
+                    absent_package_manifests: absent,
+                    denied_principal_subtrees: denied_subtrees,
+                    uncaptured_package_manifest_probes: std::sync::Mutex::new(BTreeSet::new()),
+                    boundary_handle,
+                }),
+            })
+        }
     }
 
     pub(crate) fn boundary_root(&self) -> &Path {
@@ -371,7 +398,11 @@ impl AuthenticatedResolverInputs {
     }
 
     fn normalize_in_boundary(&self, path: &Path) -> io::Result<PathBuf> {
-        let normalized = lexical_absolute_path_for_resolver(path)?;
+        #[cfg(windows)]
+        let path = align_windows_resolver_namespace(path, self.boundary_root())?;
+        #[cfg(not(windows))]
+        let path = path.to_path_buf();
+        let normalized = lexical_absolute_path_for_resolver(&path)?;
         if !normalized.starts_with(self.boundary_root()) {
             return Err(resolver_boundary_refusal());
         }
@@ -425,6 +456,19 @@ impl AuthenticatedResolverInputs {
         BoundedResolverFileSystem {
             inputs: Some(self.clone()),
         }
+    }
+
+    #[cfg(windows)]
+    fn oxc_path(&self, path: &Path) -> io::Result<PathBuf> {
+        let text = path.to_str().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "authenticated resolver path is not Unicode",
+            )
+        })?;
+        Ok(PathBuf::from(
+            normalize_windows_verbatim_path_text(text).as_ref(),
+        ))
     }
 }
 
@@ -494,7 +538,13 @@ impl ResolverFileSystem for BoundedResolverFileSystem {
             Ok(resolver_metadata_from_stat(&resolved.metadata))
         }
 
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            let resolved = resolve_bounded_windows_path(self.inputs()?, &normalized)?;
+            Ok(resolver_metadata_from_windows(&resolved.metadata))
+        }
+
+        #[cfg(not(any(unix, windows)))]
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "authenticated resolver filesystem is Unix-only",
@@ -517,7 +567,13 @@ impl ResolverFileSystem for BoundedResolverFileSystem {
                 .map(|metadata| resolver_metadata_from_stat(&metadata))
         }
 
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            bounded_windows_symlink_metadata(self.inputs()?, &normalized)
+                .map(|metadata| resolver_metadata_from_windows(&metadata))
+        }
+
+        #[cfg(not(any(unix, windows)))]
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "authenticated resolver filesystem is Unix-only",
@@ -545,7 +601,25 @@ impl ResolverFileSystem for BoundedResolverFileSystem {
             bounded_unix_read_link(self.inputs()?, &normalized).map_err(Into::into)
         }
 
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            let metadata = bounded_windows_symlink_metadata(self.inputs()?, &normalized)?;
+            if resolver_metadata_from_windows(&metadata).is_symlink() {
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "authenticated resolver refuses Windows reparse traversal",
+                )
+                .into())
+            } else {
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "resolver object is not a symlink",
+                )
+                .into())
+            }
+        }
+
+        #[cfg(not(any(unix, windows)))]
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "authenticated resolver filesystem is Unix-only",
@@ -570,7 +644,22 @@ impl ResolverFileSystem for BoundedResolverFileSystem {
                     return Ok(resolved_parent.canonical_path.join("package.json"));
                 }
 
-                #[cfg(not(unix))]
+                #[cfg(windows)]
+                {
+                    let parent = normalized.parent().ok_or_else(resolver_boundary_refusal)?;
+                    let resolved_parent = resolve_bounded_windows_path(self.inputs()?, parent)?;
+                    if !resolver_metadata_from_windows(&resolved_parent.metadata).is_dir() {
+                        return Err(io::Error::new(
+                            io::ErrorKind::NotADirectory,
+                            "manifest parent is not a directory",
+                        ));
+                    }
+                    return self
+                        .inputs()?
+                        .oxc_path(&resolved_parent.canonical_path.join("package.json"));
+                }
+
+                #[cfg(not(any(unix, windows)))]
                 {
                     return Err(io::Error::new(
                         io::ErrorKind::Unsupported,
@@ -588,7 +677,13 @@ impl ResolverFileSystem for BoundedResolverFileSystem {
                 .map(|resolved| resolved.canonical_path)
         }
 
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            resolve_bounded_windows_path(self.inputs()?, &normalized)
+                .and_then(|resolved| self.inputs()?.oxc_path(&resolved.canonical_path))
+        }
+
+        #[cfg(not(any(unix, windows)))]
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "authenticated resolver filesystem is Unix-only",
@@ -637,6 +732,233 @@ fn lexical_absolute_path_for_resolver(path: &Path) -> io::Result<PathBuf> {
         ));
     }
     Ok(normalized)
+}
+
+#[cfg(windows)]
+fn align_windows_resolver_namespace(path: &Path, boundary: &Path) -> io::Result<PathBuf> {
+    let path = path.to_str().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "authenticated resolver path is not Unicode",
+        )
+    })?;
+    let boundary = boundary.to_str().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "authenticated resolver boundary is not Unicode",
+        )
+    })?;
+    if boundary.starts_with(r"\\?\") {
+        if path.starts_with(r"\\?\") {
+            return Ok(PathBuf::from(path));
+        }
+        if let Some(unc) = path.strip_prefix(r"\\") {
+            return Ok(PathBuf::from(format!(r"\\?\UNC\{unc}")));
+        }
+        return Ok(PathBuf::from(format!(r"\\?\{path}")));
+    }
+    Ok(PathBuf::from(
+        normalize_windows_verbatim_path_text(path).as_ref(),
+    ))
+}
+
+#[cfg(windows)]
+struct BoundedWindowsResolution {
+    canonical_path: PathBuf,
+    metadata: std::fs::Metadata,
+    directory: Option<std::fs::File>,
+}
+
+#[cfg(windows)]
+fn open_resolver_boundary_windows(path: &Path) -> io::Result<std::fs::File> {
+    use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+
+    let mut options = std::fs::OpenOptions::new();
+    options
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+    let boundary = options.open(path)?;
+    let metadata = boundary.metadata()?;
+    if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "authenticated resolver boundary is not a regular directory",
+        ));
+    }
+    Ok(boundary)
+}
+
+#[cfg(windows)]
+fn resolver_windows_component(component: &OsStr) -> io::Result<&str> {
+    component.to_str().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "authenticated resolver path component is not Unicode",
+        )
+    })
+}
+
+#[cfg(windows)]
+fn resolver_metadata_from_windows(metadata: &std::fs::Metadata) -> ResolverFileMetadata {
+    use std::os::windows::fs::MetadataExt as _;
+    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+
+    let reparse = metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0;
+    ResolverFileMetadata::new(
+        !reparse && metadata.is_file(),
+        !reparse && metadata.is_dir(),
+        reparse,
+    )
+}
+
+#[cfg(windows)]
+fn resolver_windows_object(
+    file: &std::fs::File,
+) -> io::Result<capsec_semantics::model::ObjectIdentity> {
+    crate::host::object_identity_for_open_file(file)
+        .map_err(|error| io::Error::other(error.to_string()))
+}
+
+/// Resolve an ordinary Windows path entirely beneath the retained boundary.
+/// Every directory transition is opened handle-relative without following a
+/// reparse point and object-matched against the witnessed handle. Reparse
+/// targets remain a fail-closed transition until their target payload can be
+/// decoded and authorized with the same containment rules as Unix.
+///
+/// @ref LLP 0023#21-staged-authorization-identity
+#[cfg(windows)]
+fn resolve_bounded_windows_path(
+    inputs: &AuthenticatedResolverInputs,
+    path: &Path,
+) -> io::Result<BoundedWindowsResolution> {
+    use std::os::windows::fs::MetadataExt as _;
+    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+
+    let normalized = inputs.normalize_in_boundary(path)?;
+    let mut pending = resolver_relative_components(inputs, &normalized)?;
+    let mut current = inputs.inner.boundary_handle.try_clone()?;
+    let mut resolved = Vec::<OsString>::new();
+
+    if pending.is_empty() {
+        return Ok(BoundedWindowsResolution {
+            canonical_path: inputs.boundary_root().to_path_buf(),
+            metadata: current.metadata()?,
+            directory: Some(current),
+        });
+    }
+
+    loop {
+        let component = pending.pop_front().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "resolver traversal became empty",
+            )
+        })?;
+        let component_text = resolver_windows_component(&component)?;
+        let witnessed = crate::vfs::windows_open_relative_no_follow(
+            &current,
+            component_text,
+            crate::vfs::WindowsRelativeOpen::Metadata,
+        )?;
+        let metadata = witnessed.metadata()?;
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "authenticated resolver refuses Windows reparse traversal",
+            ));
+        }
+
+        if pending.is_empty() {
+            let directory = if metadata.is_dir() {
+                let opened = crate::vfs::windows_open_relative_no_follow(
+                    &current,
+                    component_text,
+                    crate::vfs::WindowsRelativeOpen::Directory,
+                )?;
+                if resolver_windows_object(&opened)? != resolver_windows_object(&witnessed)? {
+                    return Err(io::Error::other(
+                        "authenticated resolver directory changed during retention",
+                    ));
+                }
+                Some(opened)
+            } else {
+                None
+            };
+            resolved.push(component);
+            return Ok(BoundedWindowsResolution {
+                canonical_path: resolver_canonical_path(inputs, &resolved),
+                metadata,
+                directory,
+            });
+        }
+
+        if !metadata.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotADirectory,
+                "resolver path traverses a non-directory",
+            ));
+        }
+        let opened = crate::vfs::windows_open_relative_no_follow(
+            &current,
+            component_text,
+            crate::vfs::WindowsRelativeOpen::Directory,
+        )?;
+        if resolver_windows_object(&opened)? != resolver_windows_object(&witnessed)? {
+            return Err(io::Error::other(
+                "authenticated resolver directory changed during retention",
+            ));
+        }
+        current = opened;
+        resolved.push(component);
+    }
+}
+
+#[cfg(windows)]
+fn bounded_windows_parent(
+    inputs: &AuthenticatedResolverInputs,
+    path: &Path,
+) -> io::Result<(BoundedWindowsResolution, OsString)> {
+    let normalized = inputs.normalize_in_boundary(path)?;
+    let final_component = normalized
+        .file_name()
+        .ok_or_else(resolver_boundary_refusal)?
+        .to_os_string();
+    let parent = normalized.parent().ok_or_else(resolver_boundary_refusal)?;
+    let resolved_parent = resolve_bounded_windows_path(inputs, parent)?;
+    if !resolved_parent.metadata.is_dir() || resolved_parent.directory.is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotADirectory,
+            "resolver path parent is not a directory",
+        ));
+    }
+    Ok((resolved_parent, final_component))
+}
+
+#[cfg(windows)]
+fn bounded_windows_symlink_metadata(
+    inputs: &AuthenticatedResolverInputs,
+    path: &Path,
+) -> io::Result<std::fs::Metadata> {
+    let normalized = inputs.normalize_in_boundary(path)?;
+    if normalized == inputs.boundary_root() {
+        return inputs.inner.boundary_handle.metadata();
+    }
+    let (parent, final_component) = bounded_windows_parent(inputs, &normalized)?;
+    let parent_handle = parent
+        .directory
+        .as_ref()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotADirectory, "invalid parent"))?;
+    crate::vfs::windows_open_relative_no_follow(
+        parent_handle,
+        resolver_windows_component(&final_component)?,
+        crate::vfs::WindowsRelativeOpen::Metadata,
+    )?
+    .metadata()
 }
 
 #[cfg(unix)]
@@ -800,7 +1122,7 @@ fn resolver_metadata_from_stat(metadata: &libc::stat) -> ResolverFileMetadata {
     )
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn resolver_relative_components(
     inputs: &AuthenticatedResolverInputs,
     path: &Path,
@@ -820,7 +1142,7 @@ fn resolver_relative_components(
     Ok(components)
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn resolver_canonical_path(
     inputs: &AuthenticatedResolverInputs,
     components: &[OsString],
@@ -1255,10 +1577,16 @@ impl ModuleLoader {
                 &ConditionSet::for_kind(ResolutionKind::Entry),
             ),
         );
+        #[cfg(windows)]
+        let resolver_parent = inputs
+            .oxc_path(parent)
+            .context("authenticated direct-file parent is not representable for OXC")?;
+        #[cfg(not(windows))]
+        let resolver_parent = parent.to_path_buf();
         let resolved = self.resolve_with_resolver_at(
             &resolver,
             &format!("./{name}"),
-            parent,
+            &resolver_parent,
             false,
             Some(inputs),
         )?;
@@ -1316,6 +1644,10 @@ impl ModuleLoader {
             return Err(anyhow!("Empty module specifier"));
         }
         let specifier = strip_file_module_decorations(specifier);
+        #[cfg(windows)]
+        let normalized_specifier = normalize_windows_verbatim_path_text(specifier);
+        #[cfg(windows)]
+        let specifier = normalized_specifier.as_ref();
         if !attributes.is_empty() && kind == ResolutionKind::CommonJsRequire {
             return Err(anyhow!(
                 "CommonJS require does not accept import attributes"
@@ -1422,10 +1754,16 @@ impl ModuleLoader {
             inputs.file_system(),
             authenticated_module_resolve_options(true, conditions),
         );
+        #[cfg(windows)]
+        let resolver_package_root = inputs
+            .oxc_path(&package_root)
+            .context("authenticated package root is not representable for OXC")?;
+        #[cfg(not(windows))]
+        let resolver_package_root = package_root.clone();
         let mut resolved = self.resolve_with_resolver_at(
             &resolver,
             &anchored_specifier,
-            &package_root,
+            &resolver_package_root,
             false,
             Some(inputs),
         )?;
@@ -1433,6 +1771,9 @@ impl ModuleLoader {
             .file_system()
             .canonicalize(&package_root)
             .context("failed to authenticate bound package root")?;
+        let canonical_package_root = inputs
+            .normalize_in_boundary(&canonical_package_root)
+            .context("authenticated bound package root changed namespace")?;
         resolved.package_name = Some(package_name.to_owned());
         resolved.package_root = Some(canonical_package_root);
         resolved.package_version = manifest
@@ -2558,6 +2899,11 @@ fn authenticated_resolver_base_dir(
     preflighted_requested_path: Option<&Path>,
 ) -> Result<PathBuf> {
     let Some(referrer) = referrer else {
+        #[cfg(windows)]
+        return inputs
+            .oxc_path(inputs.boundary_root())
+            .context("authenticated resolver boundary is not representable for OXC");
+        #[cfg(not(windows))]
         return Ok(inputs.boundary_root().to_path_buf());
     };
     let lexical_referrer = lexical_absolute_path_for_resolver(referrer)
@@ -2591,6 +2937,9 @@ fn authenticated_resolver_base_dir(
                 lexical_absolute_path_for_resolver(&base_dir.join(specifier))
             }
             .context("preflighted resolver request is not an absolute normalized path")?;
+            let recomputed = inputs
+                .normalize_in_boundary(&recomputed)
+                .context("preflighted resolver request is outside its authenticated boundary")?;
             anyhow::ensure!(
                 recomputed == requested_path,
                 "resolver request differs from its preflighted target"
@@ -2599,6 +2948,11 @@ fn authenticated_resolver_base_dir(
             // the outside caller spelling is inert after exact preflight;
             // every OXC filesystem access remains descriptor-bounded to the
             // authenticated target package below.
+            #[cfg(windows)]
+            return inputs
+                .oxc_path(base_dir)
+                .context("authenticated resolver base is not representable for OXC");
+            #[cfg(not(windows))]
             return Ok(base_dir.to_path_buf());
         }
         Err(error) => {
@@ -2636,9 +2990,15 @@ fn authenticated_resolver_base_dir(
         }
         Err(error) => return Err(error).context("authenticated resolver referrer is unavailable"),
     };
-    file_system
+    let base_dir = file_system
         .canonicalize(&base_dir)
-        .context("failed to authenticate resolver base directory")
+        .context("failed to authenticate resolver base directory")?;
+    #[cfg(windows)]
+    return inputs
+        .oxc_path(&base_dir)
+        .context("authenticated resolver base is not representable for OXC");
+    #[cfg(not(windows))]
+    Ok(base_dir)
 }
 
 fn read_package_manifest(path: &Path) -> Result<Value> {
@@ -5592,7 +5952,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn authenticated_direct_file_refuses_nearest_malformed_manifest_but_ignores_outer_one() {
         let sandbox = tempdir().unwrap();
@@ -5649,7 +6009,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn authenticated_resolver_refuses_replaced_boundary_before_lookup() {
         let sandbox = tempdir().unwrap();
@@ -5679,7 +6039,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn authenticated_unknown_manifest_operations_record_without_host_lookup() {
         let sandbox = tempdir().unwrap();
@@ -5731,7 +6091,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn authenticated_manifest_absence_suppresses_probe_and_disk_manifest() {
         let sandbox = tempdir().unwrap();
@@ -5810,7 +6170,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn authenticated_outside_referrer_bridge_requires_one_exact_preflighted_path() {
         let sandbox = tempdir().unwrap();
@@ -5834,15 +6194,19 @@ mod tests {
         )
         .unwrap();
 
+        let resolved_base = authenticated_resolver_base_dir(
+            &inputs,
+            Some(&outside_referrer),
+            "./node_modules/shared/index.js",
+            Some(&target),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        assert_eq!(resolved_base, project);
+        #[cfg(windows)]
         assert_eq!(
-            authenticated_resolver_base_dir(
-                &inputs,
-                Some(&outside_referrer),
-                "./node_modules/shared/index.js",
-                Some(&target),
-            )
-            .unwrap(),
-            project
+            resolved_base,
+            PathBuf::from(normalize_windows_verbatim_path_text(project.to_str().unwrap()).as_ref())
         );
         let resolved = test_loader()
             .resolve_meta_authenticated(
@@ -5954,7 +6318,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn authenticated_manifests_drive_kind_exports_and_package_imports() {
         let sandbox = tempdir().unwrap();
@@ -6083,7 +6447,38 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(windows)]
+    #[test]
+    fn authenticated_resolver_refuses_windows_reparse_traversal() {
+        use std::os::windows::fs::symlink_file;
+
+        let sandbox = tempdir().unwrap();
+        let project = sandbox.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join("entry.js"), "module.exports = 1;\n").unwrap();
+        std::fs::write(project.join("target.js"), "module.exports = 2;\n").unwrap();
+        symlink_file(project.join("target.js"), project.join("link.js")).unwrap();
+
+        let project = std::fs::canonicalize(project).unwrap();
+        let entry = project.join("entry.js");
+        let inputs = AuthenticatedResolverInputs::new(
+            project.clone(),
+            &test_object_identity(&project),
+            BTreeMap::new(),
+            BTreeSet::from([project.join("package.json")]),
+            BTreeSet::new(),
+        )
+        .unwrap();
+        let error = test_loader()
+            .resolve_meta_authenticated("./link.js", Some(&entry), None, &inputs)
+            .expect_err("Windows reparse traversal must remain fail-closed");
+        assert!(
+            error.to_string().contains("Failed to resolve module"),
+            "unexpected Windows reparse refusal: {error:#}"
+        );
+    }
+
+    #[cfg(any(unix, windows))]
     #[test]
     fn authenticated_resolver_disables_node_path_and_cannot_select_an_ambient_package() {
         let options = authenticated_module_resolve_options(
