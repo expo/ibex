@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-25 (armed Windows `__exactReadFile` is the first installed filesystem effect moved from the legacy pathname oracle to the runtime VFS retained-object state machine: frame-derived constrained principals authorize requested/discovery `fs:list` and commit/repeat `fs:read`, denial never falls back, and five exact-target recipes are now executable; async reads and all other installed Windows filesystem effects remain residual)
 **Revised:** 2026-07-25 (Windows retained relative opens stage long and short directory-entry names plus 128-bit file identity, refuse selection through any 8.3 name, withhold delete sharing, and repeat/object-match the entry; physical custom-short-name and entry-replacement fixtures close the arbitrary 8.3 alias gap, leaving the typed installed filesystem backend and incomplete exact-target evidence as the Windows promotion blockers)
 **Revised:** 2026-07-25 (Windows binds ASCII case-folding into selector and occurrence identity, uses the same key for resolver manifests/absences/denied subtrees, refuses non-ASCII and tilde components, and refuses case-sensitive traversal directories while preserving lexical SourceId and distinct hard links; arbitrary administrator-assigned 8.3 aliases, the installed native filesystem effect backend, and incomplete exact-target evidence keep Windows unadvertised)
 **Revised:** 2026-07-25 (Windows VFS and armed Oxc resolution now decode contained Microsoft symlink/junction reparses from retained no-follow handles, object-match and double-read mutable payloads, authorize complete target-plus-tail paths before lookup, and restart from the retained root; unsupported providers, the Windows alias-canonicalization gap, the installed native filesystem effect backend, and incomplete exact-target evidence keep the target unadvertised)
@@ -1303,18 +1304,34 @@ watch, recursive, or removal entry points described above. Windows preserves
 distinct errno values and implements recursive-mkdir results, exclusive copy,
 truncate, utimes, and statfs through the portable host ABI.
 
-The Windows host ABI still returns unsupported for non-requested stages of the
-typed retained-object filesystem adapter, while its installed filesystem
-globals and `node:fs` exports use the legacy path oracle. Exact-target recipe
-generation therefore must not schedule those callable surfaces as typed public
-evidence merely because their source registrations exist. The Windows catalog
-keeps 129 affected public recipes (114 native and 15 builtin) residual under
+Armed Windows `__exactReadFile` is the first installed Windows filesystem
+effect to leave the legacy path oracle. Its private native bridge derives the
+runtime generation, actor, and canonical constrained-principal stack from
+engine provenance; resolves only virtual syntax; and delegates byte
+acquisition to the cross-platform `RuntimeVfsSession` retained-object read.
+That state machine emits requested/discovery `fs:list` followed by
+commit/repeat `fs:read` for the selected object. Unlike the POSIX adapter's
+six-decision recipe, the retained authenticated mount handle is structural
+session state on this route, so no extra synthetic root-walk observations are
+claimed. A refused or malformed typed call returns the VFS error and never
+falls through to `exactResolveVfsPath`, `requireReadCapability`, or
+`ex_host_fs_read_file`. The route deliberately inherits the VFS bounded
+whole-file input limit.
+
+This is a bounded slice, not Windows filesystem promotion. The worker-backed
+`__exactFsReadFileAsync` route remains legacy: a single pre-worker repeat would
+not satisfy the required generation/revocation recheck between observable
+chunks. Descriptor open/read, metadata, enumeration, mutation, and the other
+installed Windows filesystem routes also remain residual until their own
+retained-object contracts are implemented. Exact-target recipe generation now
+schedules only the five `__exactReadFile` scenarios on Windows and continues
+to classify the remaining 177 callable filesystem recipes under
 `public-surface-filesystem-not-typed-on-target`; five `__exactAppendFile`
-recipes are instead classified under the more exact
-`native-public-operation-not-installed-on-target` build-source boundary. Apple
-retains the typed recipes. This is an evidence-boundary correction, not Windows
-filesystem promotion: the obligations become executable only after the backend
-supplies the same retained-object decisions.
+recipes remain under the more exact
+`native-public-operation-not-installed-on-target` build-source boundary. The
+Windows catalog is 23,495 required / 2,387 fully executable / 3,122 internally
+verified / 17,986 unresolved. Apple retains its independently shaped typed
+recipes.
 
 The Windows TCP globals likewise still call the legacy string capability oracle
 rather than the typed network adapter used by the Apple implementation. The
@@ -2087,6 +2104,16 @@ admission, and execution observation windows are independently empty.
 Scanner-only script URLs, evaluation/call-site
 facets, installer definitions, skipped legacy bootstraps, and platform-only
 routes remain residual rather than inheriting these stage results.
+Direct `__exactReadFile` now has five Windows exact-target recipes as well as
+the existing Apple evidence. The Windows invocation passes a null typed handle
+to the public global and requires the target-specific four-stage sequence:
+requested/discovery `fs:list`, then commit/repeat `fs:read`. Success and
+negative-attribution scenarios bind returned bytes or typed refusal to that
+sequence; denial stops at requested. Physical engine tests prove successful
+bytes, pre-lookup denial, and zero legacy decisions. The lower retained VFS
+fixture separately replaces the selected leaf between discovery and commit and
+requires a stale-object refusal. The asynchronous Windows read remains
+residual because it still lacks per-chunk typed generation rechecks.
 Direct non-recursive `__exactMkdir` now uses a separate harness-owned path under
 `target/`, an exact `fs:list` and `fs:write` floor, and source-authored boolean
 arguments. Successful public execution must emit the complete seven-decision

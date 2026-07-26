@@ -1536,9 +1536,55 @@ ticket closes.
   stage-to-open gap. Important enforcement mechanisms remain about 99%
   complete and the overall requested task remains about 90%.
 
+### 2026-07-25 — first installed Windows typed filesystem effect
+
+- Promoted armed synchronous `__exactReadFile` without changing the unarmed
+  compatibility path. The engine now derives the runtime nonce, actor, and
+  canonical frame principal stack natively and passes only virtual path syntax
+  plus an optional strict typed bearer to a private Host bridge.
+- The bridge delegates to the cross-platform `RuntimeVfsSession` and retained
+  `VirtualFileSystem::read_authenticated` state machine. Windows therefore
+  authorizes requested/discovery `fs:list` and commit/repeat `fs:read` against
+  the actual retained leaf. Its authenticated mount handle is structural
+  session state, so this route honestly emits four semantic decisions rather
+  than borrowing the POSIX adapter's six-observation shape.
+- Armed failures never call `exactResolveVfsPath`,
+  `requireReadCapability`, or `ex_host_fs_read_file`. Physical Windows engine
+  tests prove exact returned bytes and all four typed stages on success; a
+  no-list floor proves EACCES at requested before lookup, unchanged fixture
+  bytes, and zero legacy decisions. The previously verified physical leaf-swap
+  barrier proves replacement between discovery and commit is stale.
+- Five exact-target Windows recipes are now executable. The catalog is 23,495
+  required / 2,387 fully executable / 3,122 internally verified / 17,986
+  unresolved with digest
+  `sha256-KajKcQuGd6P4PSZsjBzyELC8g14uEyOrFhGaGC1OZ3I`; callable filesystem
+  residuals fall from 182 to 177.
+- This is intentionally bounded to synchronous whole-file reads and inherits
+  the VFS input-size limit. Worker-backed `__exactFsReadFileAsync` remains
+  legacy because a single pre-worker repeat cannot prove live authority between
+  observable chunks. Descriptor, metadata, enumeration, mutation, and other
+  installed Windows routes remain residual or closed.
+- Independent M4 regeneration reproduces the 7,651-edge / 7,951-branch /
+  15,302-cell contract, and its recipe suite passes 88 tests with 109,828
+  assertions; `ref-check` and the native observer-feature build also pass.
+  The expanded provenance suite exposed two stale assertions left by earlier
+  branch work: a module-runner drift-test anchor still expected `auto result`,
+  and one registry test still expected pre-expansion inventory totals. Both
+  fixtures now bind the current reviewed source/artifact and pass locally and
+  on the M4.
+- Hard part: the POSIX direct reader records two authenticated-root walk
+  observations in addition to the semantic retained-leaf lifecycle, while the
+  cross-platform Windows VFS already owns the authenticated root as session
+  structure. Requiring six would invent decisions; accepting four without
+  target-bound recipe expectations would silently weaken evidence comparison.
+  Important enforcement mechanisms remain about 99% complete and the overall
+  requested task remains about 90%.
+
 ## Next milestone
 
-Checkpoint the Windows arbitrary-short-name refusal, then move to the separate
-typed retained-object backend for installed Windows filesystem effects or
-reduce the 17,991-row exact-target public-evidence gap. Do not advertise
-Windows before both remaining prerequisites are genuinely closed.
+Checkpoint the synchronous Windows whole-file read promotion, then continue
+the installed Windows filesystem audit with the next bounded retained-object
+effect slice. Keep worker-backed read residual until it can recheck authority
+generation between chunks, and do not advertise Windows while other installed
+filesystem routes and 17,986 exact-target public-evidence rows remain
+unresolved.

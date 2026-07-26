@@ -736,7 +736,7 @@ impl RuntimeVfsSession {
         Ok(self.current_namespace()?.virtual_path().as_bytes().to_vec())
     }
 
-    fn resolve_namespace(&self, input: &[u8]) -> Result<NamespacePath, VfsError> {
+    pub(crate) fn resolve_namespace(&self, input: &[u8]) -> Result<NamespacePath, VfsError> {
         self.ensure_live("resolve", None)?;
         let is_absolute = input.first() == Some(&b'/');
         let namespace = if is_absolute {
@@ -748,6 +748,17 @@ impl RuntimeVfsSession {
         };
         self.ensure_live("resolve", Some(namespace.virtual_path.clone()))?;
         Ok(namespace)
+    }
+
+    /// Borrow the immutable namespace definition bound to this live runtime.
+    ///
+    /// Private Host adapters use this only to run an object-retaining
+    /// operation after the session has resolved untrusted virtual syntax.
+    /// The returned VFS cannot mutate cwd or outlive the session lease.
+    /// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+    pub(crate) fn virtual_file_system(&self) -> Result<&VirtualFileSystem, VfsError> {
+        self.ensure_live("filesystem", None)?;
+        Ok(&self.vfs)
     }
 
     /// Resolve untrusted lexical syntax against this runtime's authenticated

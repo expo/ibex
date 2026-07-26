@@ -1254,7 +1254,7 @@ impl Host {
                 crate::vfs::ReadAuthorization::Repeat(path) => path.namespace().virtual_path(),
             });
             let result = self
-                .authorize_vfs_script_read_stage(requester_module_id, stage)
+                .authorize_vfs_script_read_stage(vfs, requester_module_id, stage)
                 .map_err(|_| {
                     crate::vfs::VfsError::policy_denied(
                         "read",
@@ -1937,8 +1937,47 @@ impl Host {
 
     fn authorize_vfs_script_read_stage(
         &self,
+        vfs: &crate::vfs::VirtualFileSystem,
         requester_module_id: &str,
         authorization: crate::vfs::ReadAuthorization<'_>,
+    ) -> capsec_semantics::Result<TypedDecisionResult> {
+        const COVERAGE_EDGE: &str = "surface.native.op.exactreadfile.1cmzco7";
+        let principal = self
+            .typed_principal_for_module(requester_module_id)
+            .ok_or_else(|| {
+                capsec_semantics::Error::ArmRefused(
+                    "typed VFS read has no authenticated requesting principal".into(),
+                )
+            })?;
+        self.authorize_vfs_read_stage(
+            vfs,
+            requester_module_id,
+            vec![principal],
+            "vfs-script-read",
+            COVERAGE_EDGE,
+            authorization,
+            Vec::new(),
+        )
+    }
+
+    /// Authorize one stage of a retained-object VFS whole-file read.
+    ///
+    /// This route consumes identity from the cross-platform VFS state machine,
+    /// rather than interpreting a platform descriptor number. Every
+    /// constrained principal receives its own binding-relative path
+    /// projection before the decision is evaluated.
+    /// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+    /// @ref LLP 0023#21-staged-authorization-identity
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn authorize_vfs_read_stage(
+        &self,
+        vfs: &crate::vfs::VirtualFileSystem,
+        requester_module_id: &str,
+        constrained_principals: Vec<capsec_semantics::model::Principal>,
+        operation_key: &str,
+        coverage_edge: &str,
+        authorization: crate::vfs::ReadAuthorization<'_>,
+        presented_handle_ids: Vec<capsec_semantics::model::NonEmptyString>,
     ) -> capsec_semantics::Result<TypedDecisionResult> {
         use capsec_semantics::decision::{EffectGate, PrincipalPathProjections};
         use capsec_semantics::model::{
@@ -1946,7 +1985,6 @@ impl Host {
             FollowMode, NonEmptyString, ObjectState, OccurrenceResource, StableId, Stage,
         };
 
-        const COVERAGE_EDGE: &str = "surface.native.op.exactreadfile.1cmzco7";
         let snapshot = self.armed_snapshot.as_deref().ok_or_else(|| {
             capsec_semantics::Error::ArmRefused(
                 "typed VFS read has no armed alias canonicalizer".into(),
@@ -1960,6 +1998,13 @@ impl Host {
                     "typed VFS read has no authenticated requesting principal".into(),
                 )
             })?;
+        if !constrained_principals.contains(&principal)
+            || !capsec_semantics::model::principal_set_is_canonical(&constrained_principals)
+        {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "typed VFS read principal stack is empty, noncanonical, or omits the actor".into(),
+            ));
+        }
         let (namespace, stage, parent_object, final_object, retained_handle) = match authorization {
             crate::vfs::ReadAuthorization::Requested(namespace) => {
                 (namespace, Stage::Requested, None, None, None)
@@ -2000,12 +2045,23 @@ impl Host {
                 ),
             ),
         };
-        let requested = namespace.logical_path().ok_or_else(|| {
+        let backing_path = vfs
+            .private_backing_path(namespace, "authorize")
+            .map_err(|error| {
+                capsec_semantics::Error::ArmRefused(format!(
+                    "typed VFS read cannot project its authenticated namespace: {error}"
+                ))
+            })?;
+        // This is a lexical projection through authenticated root bindings.
+        // It performs no target lookup; discovery and final identity arrive
+        // only through the retained handles carried by `authorization`.
+        let requested_paths =
+            self.typed_requested_logical_paths(&constrained_principals, &backing_path)?;
+        let requested = requested_paths.get(&principal).cloned().ok_or_else(|| {
             capsec_semantics::Error::ArmRefused(
-                "typed VFS read cannot target the synthetic namespace root".into(),
+                "typed VFS read actor is missing its authenticated path projection".into(),
             )
         })?;
-        let requested = snapshot.canonicalize_authorization_path(&principal, &requested)?;
 
         // Requested carries no speculative existence fact; discovery replaces
         // `Unknown` with the descriptor-observed state.
@@ -2033,17 +2089,17 @@ impl Host {
         let set = DecisionSet {
             decision_set_schema: DecisionSetSchema::V1,
             operation_id: NonEmptyString::new(format!(
-                "vfs-script-read:{requester_module_id}:{operation_resource}"
+                "{operation_key}:{requester_module_id}:{operation_resource}"
             ))
             .map_err(capsec_semantics::Error::InvalidModel)?,
-            atomicity_group: StableId::new(format!("{COVERAGE_EDGE}.decision"))
+            atomicity_group: StableId::new(format!("{coverage_edge}.decision"))
                 .map_err(capsec_semantics::Error::InvalidModel)?,
             combination: EffectCombination::Conjunction,
             context: DecisionContext {
                 stage,
                 actor: principal.clone(),
-                constrained_principals: vec![principal.clone()],
-                presented_handle_ids: Vec::new(),
+                constrained_principals,
+                presented_handle_ids,
             },
             effects: vec![Effect {
                 action: ActionId::new(action).map_err(capsec_semantics::Error::InvalidModel)?,
@@ -2051,14 +2107,13 @@ impl Host {
                 resource,
             }],
         };
-        let projections =
-            PrincipalPathProjections::new(vec![BTreeMap::from([(principal, requested)])]);
+        let projections = PrincipalPathProjections::new(vec![requested_paths]);
         self.evaluate_typed_path_decision_with_evidence(
             &set,
             &[EffectGate {
-                coverage_edge_id: StableId::new(COVERAGE_EDGE)
+                coverage_edge_id: StableId::new(coverage_edge)
                     .map_err(capsec_semantics::Error::InvalidModel)?,
-                target_cell: self.target_cell(COVERAGE_EDGE),
+                target_cell: self.target_cell(coverage_edge),
                 definition_and_edge_predicates_satisfied: true,
             }],
             &projections,

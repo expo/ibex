@@ -106,7 +106,7 @@ describe("LLP 0002 host-task ingress inventory", () => {
     const root = copyFixture();
     const pathname = path.join(root, "src/engine/hermes_module_runner.cc");
     const source = fs.readFileSync(pathname, "utf8");
-    const anchor = "auto result = entry.execute_function->call(rt);";
+    const anchor = "result = entry.execute_function->call(rt);";
     expect(source.split(anchor)).toHaveLength(2);
     fs.writeFileSync(
       pathname,

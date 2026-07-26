@@ -854,7 +854,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-vfs-source-read",
       "    pub fn authenticated_vfs_file_read(",
       "    fn authorize_vfs_script_read_stage(",
-      "sha256-YDfweDth5lTV9Xo01-KWuwMKAN50OnfC4w44cMiN890",
+      "sha256-LpkJ2-xRvIvtl1Tjyu-IRxgl6__a5aXLLoQF2bnxX_M",
     ),
   ]),
   "src/module_loader/runner_pipeline.rs": Object.freeze([

@@ -1126,6 +1126,21 @@ extern "C" uint32_t ex_host_vfs_resolve_path(
     uint8_t** out_virtual,
     uint64_t* out_virtual_len,
     int32_t* out_errno);
+// Private retained-object whole-file read. The engine supplies its native
+// runtime generation and frame-derived constrained principal stack; output is
+// explicit-length and released with ex_host_free_buffer.
+extern "C" uint32_t ibex_private_vfs_read_file_typed(
+    uint64_t runtime_nonce,
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    const uint8_t* input,
+    uint64_t input_len,
+    const uint8_t* presented_handle_id,
+    uint64_t presented_handle_id_len,
+    uint8_t** out_data,
+    uint64_t* out_len,
+    int32_t* out_errno);
 // Private native adapter: project an already-authenticated canonical backing
 // identity through one exact runtime VFS session. Success returns only an
 // explicit-length virtual spelling; the caller frees it with
@@ -1140,6 +1155,13 @@ extern "C" uint32_t ibex_private_vfs_project_realpath(
     uint64_t* out_virtual_len,
     int32_t* out_errno);
 extern "C" void ex_host_free_buffer(uint8_t* buf, uint64_t len);
+
+[[noreturn]] void exactThrowVfsError(
+    facebook::jsi::Runtime& runtime,
+    uint32_t result,
+    int32_t hostErrno,
+    const char* operation,
+    const std::string& path = "");
 
 inline uint64_t exactCurrentRuntimeNonce() {
   return g_active_runtime_nonce;

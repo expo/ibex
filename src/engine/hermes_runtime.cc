@@ -707,6 +707,15 @@ const char* errnoSymbol(int32_t value) {
 
 }  // namespace
 
+[[noreturn]] void exactThrowVfsError(
+    facebook::jsi::Runtime& runtime,
+    uint32_t result,
+    int32_t hostErrno,
+    const char* operation,
+    const std::string& path) {
+  throwVfsError(runtime, result, hostErrno, operation, path);
+}
+
 ExactResolvedVfsPath exactResolveVfsPath(
     facebook::jsi::Runtime& runtime,
     const std::string& input) {

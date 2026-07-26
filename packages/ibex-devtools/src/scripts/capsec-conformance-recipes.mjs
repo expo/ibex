@@ -1206,6 +1206,29 @@ const nativeProjectReadFileTemplate = () =>
         "repeat",
       ],
     },
+    // Windows reuses the cross-platform RuntimeVfsSession read state machine.
+    // Its authenticated mount handle is structural session state, so it emits
+    // requested/discovery/commit/repeat for the selected entry rather than
+    // the POSIX adapter's two additional root-walk observations.
+    // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+    expectedDecisionCountsByTarget: {
+      "x86_64-pc-windows-msvc": {
+        allow: 4,
+        deny: 1,
+        malformed: 4,
+        "missing-attribution": 4,
+        "wrong-principal": 4,
+      },
+    },
+    expectedStagesByTarget: {
+      "x86_64-pc-windows-msvc": {
+        allow: ["requested", "discovery", "commit", "repeat"],
+        deny: ["requested"],
+        malformed: ["requested", "discovery", "commit", "repeat"],
+        "missing-attribution": ["requested", "discovery", "commit", "repeat"],
+        "wrong-principal": ["requested", "discovery", "commit", "repeat"],
+      },
+    },
     requiredFloor: [
       {
         cap: "fs:list",
@@ -3398,7 +3421,12 @@ function nativePublicProbeForPlan({
     };
   }
   const sourceDescriptor = clone(invocation);
-  const expectedStages = template.expectedStages[scenario];
+  const expectedStages =
+    template.expectedStagesByTarget?.[target.triple]?.[scenario] ??
+    template.expectedStages[scenario];
+  const expectedDecisionCount =
+    template.expectedDecisionCountsByTarget?.[target.triple]?.[scenario] ??
+    template.expectedDecisionCounts[scenario];
   const additionalAllowedCoverageEdgeIds = [];
   const additionalAllowedCoverageEdges = [];
   for (const observedKey of template.additionalAllowedCoverageObservedKeys ??
@@ -3533,7 +3561,7 @@ function nativePublicProbeForPlan({
           ? { expectedCleanup: template.expectedCleanup }
           : {}),
         expectedTypedStages: clone(expectedStages),
-        expectedTypedDecisionCount: template.expectedDecisionCounts[scenario],
+        expectedTypedDecisionCount: expectedDecisionCount,
         allowedCoverageEdgeIds: canonicalSet([
           ...plan.edgeIds,
           ...additionalAllowedCoverageEdgeIds,
@@ -3963,8 +3991,11 @@ function unsupportedWindowsTypedPublicEffectReason({
   ) {
     return null;
   }
-  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces still use the legacy path oracle, so they cannot furnish typed public execution evidence.
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Whole-file reads are the first completed exception.
   if (plan.actionIds.some((actionId) => actionId.startsWith("fs:"))) {
+    if (publicSurfaceProbe?.invocation?.globalName === "__exactReadFile") {
+      return null;
+    }
     return "public-surface-filesystem-not-typed-on-target";
   }
   // @ref LLP 0021#wp6--convert-network-effects-and-protected-peers — Windows TCP surfaces still use the legacy string oracle, so candidate/commit recipes remain residual until the typed adapter is installed there.

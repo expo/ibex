@@ -5,6 +5,7 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-25 (armed Windows synchronous whole-file reads now enter the cross-platform retained-object VFS directly with frame-derived constrained principals, authorizing requested/discovery list and commit/repeat read without any armed legacy fallback; async and other installed Windows filesystem effects remain unpromoted)
 **Revised:** 2026-07-25 (Windows retained relative opens now stage the parent directory's long name, short name, and 128-bit file ID, refuse any request that selected the 8.3 name, open without delete sharing, and repeat/object-match the entry; arbitrary administrator-assigned short aliases therefore fail closed without making long names unusable, leaving the typed native filesystem backend and incomplete target evidence—not path aliasing—as the remaining Windows promotion blockers)
 **Revised:** 2026-07-25 (Windows authorization selectors, occurrences, captured manifests, absences, denied subtrees, and retained traversal now share the digest-bound `windows-ascii-casefold-v1` coordinate; non-ASCII and tilde spellings refuse, case-sensitive directories cannot become traversal roots, and lexical display/SourceId plus distinct hard-link entries remain unchanged; arbitrary custom 8.3 short names, the typed native filesystem backend, and incomplete target evidence keep Windows unadvertised)
 **Revised:** 2026-07-25 (Windows now decodes contained Microsoft symlink and mount-point reparses through retained no-follow handles, re-reads mutable target data from the same object, authorizes the complete target-plus-tail before lookup, and restarts from the retained root; unsupported providers, outside targets, the separate Windows alias-canonicalization gap, and the typed native filesystem backend keep the target unadvertised)
@@ -2067,8 +2068,28 @@ This is not Windows target promotion. Unsupported reparse providers remain
 closed. The digest-bound Windows adapter unifies ordinary ASCII case aliases,
 refuses non-ASCII and tilde spellings, refuses case-sensitive traversal
 directories, and stages/refuses arbitrary 8.3 selections through the retained
-parent entry. Installed Windows `node:fs` and native filesystem effects still
-lack the typed retained-object backend, while exact-target public evidence
+parent entry.
+
+Armed Windows synchronous whole-file read is the first installed filesystem
+effect to consume that retained-object backend directly. The engine passes its
+native runtime generation and frame-derived canonical constrained-principal
+stack to a private bridge; JavaScript supplies only virtual path syntax and an
+optional typed bearer. `RuntimeVfsSession` resolves that syntax and
+`VirtualFileSystem::read_authenticated` retains the selected parent and leaf
+through requested/discovery `fs:list`, commit/repeat `fs:read`, and byte
+acquisition. The retained mount root is already structural session state, so
+this Windows route has four semantic observations rather than fabricating the
+POSIX adapter's two root-walk observations. Every typed error returns directly
+through the Node-shaped VFS error mapper; armed execution cannot reopen the
+path through the legacy oracle.
+
+The synchronous operation inherits the VFS bounded whole-file read limit and
+cannot interleave JavaScript-driven revocation while native byte acquisition is
+in progress. That reasoning does not promote worker-backed
+`__exactFsReadFileAsync`: it still needs an operation lease with generation
+rechecks between observable chunks. Descriptor, metadata, enumeration,
+mutation, and all other installed Windows filesystem routes remain legacy or
+closed as their individual contracts require, and exact-target public evidence
 remains incomplete. The target therefore remains unadvertised.
 
 The contract this document requires:

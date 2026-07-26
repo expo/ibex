@@ -20857,6 +20857,127 @@ navigator.gpu.requestAdapter()
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(all(windows, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_windows_public_read_uses_typed_retained_object_stages() {
+        use capsec_semantics::model::Stage;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-windows-typed-read-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        std::fs::write(root.join("payload.txt"), b"retained-windows-bytes").unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, true, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            crate::host::abi::begin_installed_conformance_observation(
+                "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactreadfile.1phia4e"
+            ),
+            "armed Windows read must have an installed Host observer"
+        );
+        let outcome = engine
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  var bytes = __exactReadFile('/project/payload.txt', null);
+                  return String.fromCharCode.apply(null, bytes);
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("retained-windows-bytes"));
+
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            legacy.is_empty(),
+            "armed Windows read crossed the legacy capability oracle"
+        );
+        assert_eq!(
+            typed
+                .iter()
+                .map(|row| row.decision_set.context.stage)
+                .collect::<Vec<_>>(),
+            vec![
+                Stage::Requested,
+                Stage::Discovery,
+                Stage::Commit,
+                Stage::Repeat
+            ]
+        );
+        assert_eq!(
+            typed
+                .iter()
+                .map(|row| row.decision_set.effects[0].action.as_str())
+                .collect::<Vec<_>>(),
+            vec!["fs:list", "fs:list", "fs:read", "fs:read"]
+        );
+        assert!(typed.iter().all(|row| {
+            row.gates.iter().all(|gate| {
+                gate.coverage_edge_id.as_str() == "surface.native.op.exactreadfile.1cmzco7"
+            })
+        }));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(all(windows, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_windows_public_read_denies_before_lookup_without_legacy_fallback() {
+        use capsec_semantics::model::Stage;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-windows-typed-read-deny-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let target = root.join("payload.txt");
+        std::fs::write(&target, b"must-remain-unread").unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, true, false, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactreadfile.1phia4e"
+        ));
+        let outcome = engine
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  try { __exactReadFile('/project/payload.txt', null); }
+                  catch (error) { return String(error.code); }
+                  return 'unexpected-success';
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("EACCES"));
+
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            legacy.is_empty(),
+            "denied armed Windows read consulted the legacy capability oracle"
+        );
+        assert_eq!(typed.len(), 1);
+        assert_eq!(typed[0].decision_set.context.stage, Stage::Requested);
+        assert_eq!(typed[0].decision_set.effects[0].action.as_str(), "fs:list");
+        assert_eq!(std::fs::read(&target).unwrap(), b"must-remain-unread");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_read_stops_after_dynamic_authority_is_revoked_mid_stream() {

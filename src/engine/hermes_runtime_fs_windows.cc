@@ -1528,7 +1528,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto readFileFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactReadFile"),
-      1,
+      2,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -1536,7 +1536,47 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (count == 0) {
           throw facebook::jsi::JSError(runtime, "__exactReadFile: path required");
         }
-        auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
+        auto input = pathArg(runtime, args[0]);
+        if (ex_host_is_armed() == 1) {
+          std::string presentedHandle;
+          if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+            if (!args[1].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactReadFile: typed handleId must be a string");
+            }
+            presentedHandle = args[1].asString(runtime).utf8(runtime);
+          }
+          auto principals = exactCollectTypedPrincipalStack();
+          uint8_t* data = nullptr;
+          uint64_t length = 0;
+          int32_t hostError = 0;
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Armed Windows whole-file reads use the runtime VFS's retained parent/leaf state machine and never fall back to the legacy pathname oracle.
+          uint32_t status = ibex_private_vfs_read_file_typed(
+              exactCurrentRuntimeNonce(),
+              currentPrincipalId(),
+              principals.data(),
+              principals.size(),
+              reinterpret_cast<const uint8_t*>(input.data()),
+              input.size(),
+              presentedHandle.empty()
+                  ? nullptr
+                  : reinterpret_cast<const uint8_t*>(presentedHandle.data()),
+              presentedHandle.size(),
+              &data,
+              &length,
+              &hostError);
+          if (status != 0) {
+            if (data != nullptr) ex_host_free_buffer(data, length);
+            exactThrowVfsError(runtime, status, hostError, "open", input);
+          }
+          std::vector<uint8_t> bytes;
+          if (data != nullptr && length != 0) {
+            bytes.assign(data, data + length);
+          }
+          if (data != nullptr) ex_host_free_buffer(data, length);
+          return makeUint8Array(runtime, std::move(bytes));
+        }
+        auto path = exactResolveVfsPath(runtime, input);
         requireReadCapability(runtime, path.virtualPath);
         uint64_t len = 0;
         int32_t read_errno = 0;

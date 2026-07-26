@@ -446,9 +446,9 @@ describe("exact-target CapSec executable recipes", () => {
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_382);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_387);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_991);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_986);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -513,7 +513,7 @@ describe("exact-target CapSec executable recipes", () => {
     // The callable Windows filesystem surface remains untyped where it still
     // uses the legacy path oracle. POSIX-only globals instead receive one
     // exact absence fixture and are not counted as ambiguous Windows routes.
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(182);
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(177);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
@@ -521,6 +521,33 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe === null,
       ),
     ).toBe(true);
+    const typedWindowsWholeFileReads = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactReadFile",
+    );
+    expect(typedWindowsWholeFileReads).toHaveLength(5);
+    expect(
+      typedWindowsWholeFileReads.map((recipe) => [
+        recipe.scenario,
+        recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
+        recipe.publicSurfaceProbe.invocation.expectedTypedStages,
+      ]),
+    ).toEqual([
+      ["allow", 4, ["requested", "discovery", "commit", "repeat"]],
+      ["deny", 1, ["requested"]],
+      ["malformed", 4, ["requested", "discovery", "commit", "repeat"]],
+      [
+        "missing-attribution",
+        4,
+        ["requested", "discovery", "commit", "repeat"],
+      ],
+      [
+        "wrong-principal",
+        4,
+        ["requested", "discovery", "commit", "repeat"],
+      ],
+    ]);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>

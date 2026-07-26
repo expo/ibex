@@ -2432,6 +2432,142 @@ pub unsafe extern "C" fn ex_host_vfs_resolve_path(
     }
 }
 
+/// Read one virtual file through the runtime VFS's cross-platform retained
+/// object state machine. The path and optional bearer are explicit-length
+/// input; JavaScript cannot supply runtime or principal identity.
+///
+/// This is a private native-adapter bridge, not an embedder ABI. It exists
+/// separately from `ex_host_fs_read_file` so armed Windows execution cannot
+/// accidentally fall through to the legacy pathname implementation.
+/// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+/// @ref LLP 0023#21-staged-authorization-identity
+///
+/// # Safety
+///
+/// Nonempty input buffers and `module_ids` must be readable for this
+/// synchronous call. Output pointers must each address one writable value.
+#[export_name = "ibex_private_vfs_read_file_typed"]
+pub(crate) unsafe extern "C" fn private_vfs_read_file_typed(
+    runtime_nonce: u64,
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    input: *const u8,
+    input_len: u64,
+    presented_handle_id: *const u8,
+    presented_handle_id_len: u64,
+    out_data: *mut *mut u8,
+    out_len: *mut u64,
+    out_errno: *mut i32,
+) -> u32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::NonEmptyString;
+
+    if !out_errno.is_null() {
+        unsafe { *out_errno = 0 };
+    }
+    if let Err(error) = unsafe { initialize_vfs_output(out_data, out_len) } {
+        return vfs_error_result(&error, out_errno);
+    }
+    let session = match runtime_vfs_session(runtime_nonce, "read") {
+        Ok(session) => session,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    if module_ids.is_null() || module_ids_len == 0 || module_ids_len > 257 {
+        return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
+    }
+    let input = match unsafe { vfs_input_bytes(input, input_len, "read") } {
+        Ok(input) => input,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let presented = match unsafe {
+        vfs_input_bytes(presented_handle_id, presented_handle_id_len, "read-handle")
+    } {
+        Ok(bytes) if bytes.is_empty() => Vec::new(),
+        Ok(bytes) => {
+            let value = match String::from_utf8(bytes)
+                .ok()
+                .and_then(|value| NonEmptyString::new(value).ok())
+            {
+                Some(value) => value,
+                None => return EX_HOST_VFS_RESULT_MALFORMED_INPUT,
+            };
+            vec![value]
+        }
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    let namespace = match session.resolve_namespace(&input) {
+        Ok(namespace) => namespace,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let vfs = match session.virtual_file_system() {
+        Ok(vfs) => vfs,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let result = with_host(
+        |host| {
+            let constrained_principals =
+                typed_principals_for_ids(host, module_ids).ok_or_else(|| {
+                    crate::vfs::VfsError::policy_denied(
+                        "read",
+                        Arc::from(namespace.virtual_path()),
+                        "typed-read-principal-refused",
+                    )
+                })?;
+            vfs.read_authenticated(namespace, crate::vfs::SourceUse::Script, |authorization| {
+                let path = Arc::<str>::from(match &authorization {
+                    crate::vfs::ReadAuthorization::Requested(path) => path.virtual_path(),
+                    crate::vfs::ReadAuthorization::Discovery(path) => {
+                        path.namespace().virtual_path()
+                    }
+                    crate::vfs::ReadAuthorization::Commit(path) => path.namespace().virtual_path(),
+                    crate::vfs::ReadAuthorization::Repeat(path) => path.namespace().virtual_path(),
+                });
+                let result = host
+                    .authorize_vfs_read_stage(
+                        vfs,
+                        &module_id.to_string(),
+                        constrained_principals.clone(),
+                        "fs-read-file",
+                        "surface.native.op.exactreadfile.1cmzco7",
+                        authorization,
+                        presented.clone(),
+                    )
+                    .map_err(|_| {
+                        crate::vfs::VfsError::policy_denied(
+                            "read",
+                            path.clone(),
+                            "typed-read-evaluation-refused",
+                        )
+                    })?;
+                let receipt =
+                    crate::vfs::AuthorizationReceipt::from_structured_decision(&result.evidence)?;
+                match result.decision.outcome {
+                    DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence => {
+                        Ok(receipt)
+                    }
+                    DecisionOutcome::Deny | DecisionOutcome::RefuseArming => {
+                        Err(crate::vfs::VfsError::policy_denied(
+                            "read",
+                            path,
+                            Arc::<str>::from(receipt.evidence_digest().as_str()),
+                        ))
+                    }
+                }
+            })
+        },
+        Err(crate::vfs::VfsError::stale_session("read", None)),
+    );
+    match result {
+        Ok(read) => {
+            unsafe { write_vfs_output(read.into_bytes().to_vec(), out_data, out_len) };
+            EX_HOST_VFS_RESULT_OK
+        }
+        Err(error) => vfs_error_result(&error, out_errno),
+    }
+}
+
 /// Private native realpath projector. The caller supplies the canonical
 /// backing identity of an already-retained target plus its requested virtual
 /// spelling; the only output is the runtime/session-bound logical spelling.
@@ -9546,6 +9682,99 @@ mod tests {
             EX_HOST_VFS_RESULT_POLICY_DENIED,
             "an unauthenticated principal must not be collapsed into malformed or absence"
         );
+
+        ex_host_restore_context(previous);
+        assert_eq!(ex_host_vfs_unbind_runtime(nonce), EX_HOST_VFS_RESULT_OK);
+        ex_host_release_context(context);
+    }
+
+    #[test]
+    fn private_typed_vfs_read_binds_bytes_to_retained_stages_and_principal_stack() {
+        use capsec_semantics::model::{ObjectState, Stage};
+
+        let _guard = host_test_lock();
+        let host = Arc::new(crate::host::tests::example_vfs_armed_host());
+        host.begin_conformance_observation("enforcement.test.private-typed-vfs-read");
+        let context = insert_host_context(Arc::clone(&host), true);
+        assert_ne!(context, 0);
+        let nonce = 0x5459_5045_4452_4541;
+        assert_eq!(
+            ex_host_vfs_bind_runtime(context, nonce),
+            EX_HOST_VFS_RESULT_OK
+        );
+        let previous = ex_host_enter_context(context);
+        assert_ne!(previous, u64::MAX);
+
+        let principals = [0_u64];
+        let input = b"images/photo.jpg";
+        let mut data = ptr::null_mut();
+        let mut data_len = 0;
+        let mut errno = 0;
+        assert_eq!(
+            unsafe {
+                private_vfs_read_file_typed(
+                    nonce,
+                    0,
+                    principals.as_ptr(),
+                    principals.len(),
+                    input.as_ptr(),
+                    input.len() as u64,
+                    ptr::null(),
+                    0,
+                    &mut data,
+                    &mut data_len,
+                    &mut errno,
+                )
+            },
+            EX_HOST_VFS_RESULT_OK
+        );
+        assert_eq!(errno, 0);
+        assert_eq!(
+            unsafe { std::slice::from_raw_parts(data, data_len as usize) },
+            b"test image"
+        );
+        ex_host_free_buffer(data, data_len);
+
+        let observed = host.take_typed_conformance_observations();
+        assert_eq!(
+            observed
+                .iter()
+                .map(|row| row.decision_set.context.stage)
+                .collect::<Vec<_>>(),
+            vec![
+                Stage::Requested,
+                Stage::Discovery,
+                Stage::Commit,
+                Stage::Repeat
+            ]
+        );
+        assert_eq!(
+            observed
+                .iter()
+                .map(|row| row.decision_set.effects[0].action.as_str())
+                .collect::<Vec<_>>(),
+            vec!["fs:list", "fs:list", "fs:read", "fs:read"]
+        );
+        assert!(matches!(
+            observed[0].decision_set.effects[0].resource,
+            capsec_semantics::model::OccurrenceResource::PathOccurrence {
+                object_state: ObjectState::Unknown,
+                ..
+            }
+        ));
+        assert!(observed[1..].iter().all(|row| matches!(
+            row.decision_set.effects[0].resource,
+            capsec_semantics::model::OccurrenceResource::PathOccurrence {
+                object_state: ObjectState::Existing,
+                ..
+            }
+        )));
+        assert!(observed.iter().all(|row| {
+            row.decision_set.context.actor == row.decision_set.context.constrained_principals[0]
+                && row.gates.iter().all(|gate| {
+                    gate.coverage_edge_id.as_str() == "surface.native.op.exactreadfile.1cmzco7"
+                })
+        }));
 
         ex_host_restore_context(previous);
         assert_eq!(ex_host_vfs_unbind_runtime(nonce), EX_HOST_VFS_RESULT_OK);
