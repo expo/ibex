@@ -6087,6 +6087,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   var getOwnPropNames = Object.getOwnPropertyNames;
   var getOwnPropSymbols = Object.getOwnPropertySymbols;
   var defineProp = Object.defineProperty;
+  var hasOwn = Object.prototype.hasOwnProperty;
 
   // --- Evaluator taming (Mechanism 1, load-bearing) ---
   function makeTamed(name) {
@@ -6148,6 +6149,74 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     } catch (e) { throw e; }
   }
 
+  // --- Property override enablement for the error intrinsics ---
+  // Freezing Error.prototype makes its data properties non-writable, and a
+  // non-writable property on the prototype chain rejects plain assignment on
+  // any receiver that inherits it (the JS "override mistake"). That breaks the
+  // ubiquitous npm idioms `SubError.prototype.name = 'SubError'` and
+  // `err.name = 'SubError'`: TypeError in strict mode, silent no-op in sloppy.
+  // Repair as the reference lockdown (the SES shim, per LLP 0013 Mechanism 1)
+  // does: before freezing, convert the enabled properties into accessors whose
+  // setter shadows the value on the receiver. Assigning directly on the frozen
+  // prototype itself still throws — now in sloppy mode too, matching SES.
+  var overrideValueRoots = [];
+  function enableOverride(obj, label, prop) {
+    var desc;
+    try { desc = getOwnPropDesc(obj, prop); } catch (e) { if (failClosed) throw e; return; }
+    if (!desc || !('value' in desc) || !desc.configurable) return;
+    var value = desc.value;
+    if (value !== null && (typeof value === 'object' || typeof value === 'function')) {
+      // The captured value leaves the own-property graph, so neither freeze
+      // walk would reach it; queue it for an explicit freeze below.
+      overrideValueRoots.push(value);
+    }
+    // Literal accessors have no .prototype own property, so a direct freeze
+    // fully hardens them without relying on either freeze walk traversing
+    // accessor functions (the native walk lives in Hermes patch 0006).
+    var holder = {
+      get accessor() { return value; },
+      set accessor(newValue) {
+        if (this === obj) {
+          throw new TypeError(
+            "Cannot assign to read-only property '" + prop + "' of " + label);
+        }
+        if (hasOwn.call(this, prop)) {
+          this[prop] = newValue;
+        } else {
+          defineProp(this, prop, {
+            value: newValue, writable: true, enumerable: true, configurable: true
+          });
+        }
+      }
+    };
+    var holderDesc = getOwnPropDesc(holder, 'accessor');
+    try {
+      freeze(holderDesc.get);
+      freeze(holderDesc.set);
+      defineProp(obj, prop, {
+        get: holderDesc.get,
+        set: holderDesc.set,
+        enumerable: desc.enumerable,
+        configurable: true
+      });
+    } catch (e) { if (failClosed) throw e; }
+  }
+  // The enabled set is SES moderate's error family (its per-subclass
+  // motivating packages: node-fetch, bluebird, readable-stream, tape, ava),
+  // with `constructor` enabled uniformly across the subclasses.
+  var errorCtors = [Error, EvalError, RangeError, ReferenceError, SyntaxError,
+    TypeError, URIError];
+  if (typeof AggregateError === 'function') errorCtors.push(AggregateError);
+  for (var ec = 0; ec < errorCtors.length; ec++) {
+    var errCtor = errorCtors[ec];
+    if (!errCtor || !errCtor.prototype) continue;
+    var errLabel = (errCtor.name || 'Error') + '.prototype';
+    enableOverride(errCtor.prototype, errLabel, 'constructor');
+    enableOverride(errCtor.prototype, errLabel, 'message');
+    enableOverride(errCtor.prototype, errLabel, 'name');
+    if (errCtor === Error) enableOverride(errCtor.prototype, errLabel, 'toString');
+  }
+
   // --- Freeze walk over the shared intrinsics graph ---
   var frozen = new WeakSet();
   function enqueueProp(obj, key, queue) {
@@ -6191,6 +6260,10 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   for (var k = 0; k < typedArrays.length; k++) {
     if (typeof g[typedArrays[k]] === 'function') roots.push(g[typedArrays[k]]);
   }
+  // Values displaced into override-enablement getters (e.g. the original
+  // Error.prototype.toString) are no longer own properties anywhere; freeze
+  // them explicitly so the repair never leaves a mutable intrinsic behind.
+  for (var ov = 0; ov < overrideValueRoots.length; ov++) roots.push(overrideValueRoots[ov]);
   try { roots.push(getProto(getProto([][Symbol.iterator]()))); } catch (e) { if (failClosed) throw e; } // %IteratorPrototype%
   // @ref LLP 0013#mechanism-1 — (Phase 3) — freeze the intrinsics graph. With
   // IBEX_NATIVE_LOCKDOWN the transitive freeze runs in native code
