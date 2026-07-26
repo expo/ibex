@@ -335,7 +335,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_816);
+    expect(recipes.summary.requiredFixtures).toBe(23_840);
     // Invocation-time require activation adds source-derived obligations; the
     // six eager dynamic/require-link ABIs remain residual because the
     // production graph deliberately uses deferred call-time links. The net-new
@@ -345,8 +345,8 @@ describe("exact-target CapSec executable recipes", () => {
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
-    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_120);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_936);
+    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_944);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -442,13 +442,13 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_471);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_495);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch.
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_382);
-    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_106);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_983);
+    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_991);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -1491,7 +1491,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(3_120);
+    expect(rationaleOnly).toHaveLength(3_136);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -1504,8 +1504,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 517,
       "principal-restore": 517,
       "snapshot-mismatch-deny": 517,
-      "cannot-widen-authority": 526,
-      "post-lockdown-invariant": 526,
+      "cannot-widen-authority": 534,
+      "post-lockdown-invariant": 534,
     });
     // These are internal callback-security invariant scenarios: attested by
     // internal Rust proofs, not public-surface probes, so they carry the

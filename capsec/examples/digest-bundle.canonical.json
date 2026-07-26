@@ -172062,6 +172062,16 @@
             }
           },
           {
+            "id": "surface.loader.function.rust.resolver.is.package.manifest.17pyrpq",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "function:rust:resolver_is_package_manifest"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.loader.function.rust.resolver.manifest.not.found.1fbomr9",
             "classification": "non-capability",
             "surface": {
@@ -172138,6 +172148,26 @@
                 "object-identity-mismatch"
               ]
             }
+          },
+          {
+            "id": "surface.loader.function.rust.resolver.path.starts.with.1ln86s3",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "function:rust:resolver_path_starts_with"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.loader.function.rust.resolver.paths.equal.1cwl774",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "function:rust:resolver_paths_equal"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
             "id": "surface.loader.function.rust.resolver.read.link.at.1o5qqg6",
@@ -172772,6 +172802,16 @@
             },
             "rationaleId": "internal-data-transform",
             "rationale": "Transforming already-held bytes or strings carries no independent external authority."
+          },
+          {
+            "id": "surface.loader.function.rust.windows.resolver.path.key.0hele8k",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "function:rust:windows_resolver_path_key"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
             "id": "surface.loader.import.needs.0gk4sot",
@@ -198480,6 +198520,16 @@
             }
           },
           {
+            "id": "surface.loader.route.resolution.rust.resolver.is.package.manifest.1ee439l",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "route:resolution:rust:resolver_is_package_manifest"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.loader.route.resolution.rust.resolver.manifest.not.found.0js8900",
             "classification": "non-capability",
             "surface": {
@@ -198556,6 +198606,26 @@
                 "object-identity-mismatch"
               ]
             }
+          },
+          {
+            "id": "surface.loader.route.resolution.rust.resolver.path.starts.with.027ceiy",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "route:resolution:rust:resolver_path_starts_with"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.loader.route.resolution.rust.resolver.paths.equal.174vkkz",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "route:resolution:rust:resolver_paths_equal"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
             "id": "surface.loader.route.resolution.rust.resolver.read.link.at.1hohhez",
@@ -202068,6 +202138,16 @@
                 "object-identity-mismatch"
               ]
             }
+          },
+          {
+            "id": "surface.loader.route.resolution.rust.windows.resolver.path.key.00ntq1p",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "route:resolution:rust:windows_resolver_path_key"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
             "id": "surface.loader.route.subprocess.rust.configure.transpile.subprocess.environment.0cyv4e3",
@@ -281297,7 +281377,6 @@
                   "platform": {
                     "enum": [
                       "unix",
-                      "windows",
                       "android"
                     ]
                   },
@@ -281307,6 +281386,27 @@
                   },
                   "identity": {
                     "const": "byte-identity-v1"
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "platform",
+                  "volume",
+                  "identity"
+                ],
+                "properties": {
+                  "platform": {
+                    "const": "windows"
+                  },
+                  "volume": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "identity": {
+                    "const": "windows-ascii-casefold-v1"
                   }
                 },
                 "additionalProperties": false

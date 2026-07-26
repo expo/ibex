@@ -31,6 +31,7 @@ pub enum PathAliasCanonicalizerIdentity {
     ByteIdentityV1,
     AppleApfsUnicode9NfdV1,
     AppleApfsUnicode9SafeCasefoldNfdV1,
+    WindowsAsciiCasefoldV1,
 }
 
 /// Digest-bound canonicalizer selection for one platform volume.
@@ -44,15 +45,23 @@ pub struct BoundVolumePathCanonicalizer {
 
 impl BoundVolumePathCanonicalizer {
     fn validate(&self) -> Result<()> {
-        let apple_algorithm = matches!(
-            self.identity,
-            PathAliasCanonicalizerIdentity::AppleApfsUnicode9NfdV1
-                | PathAliasCanonicalizerIdentity::AppleApfsUnicode9SafeCasefoldNfdV1
+        let valid = matches!(
+            (self.platform, self.identity),
+            (
+                ObjectPlatform::Apple,
+                PathAliasCanonicalizerIdentity::AppleApfsUnicode9NfdV1
+                    | PathAliasCanonicalizerIdentity::AppleApfsUnicode9SafeCasefoldNfdV1
+            ) | (
+                ObjectPlatform::Windows,
+                PathAliasCanonicalizerIdentity::WindowsAsciiCasefoldV1
+            ) | (
+                ObjectPlatform::Unix | ObjectPlatform::Android,
+                PathAliasCanonicalizerIdentity::ByteIdentityV1
+            )
         );
-        if apple_algorithm != (self.platform == ObjectPlatform::Apple) {
+        if !valid {
             return Err(Error::AliasCanonicalizationRefused(
-                "an Apple APFS canonicalizer must bind an Apple volume, and non-Apple volumes must use byte identity"
-                    .into(),
+                "path canonicalizer identity does not match its bound platform".into(),
             ));
         }
         Ok(())
@@ -109,6 +118,21 @@ impl BoundVolumePathCanonicalizer {
                 PathComponent::utf8(folded.chars().nfd().collect::<String>())
                     .map_err(Error::AliasCanonicalizationRefused)
             }
+            PathAliasCanonicalizerIdentity::WindowsAsciiCasefoldV1 => {
+                let value = utf8_component(component)?;
+                if !value.is_ascii() {
+                    return Err(Error::AliasCanonicalizationRefused(
+                        "Windows ASCII casefold does not admit non-ASCII components".into(),
+                    ));
+                }
+                if value.contains('~') {
+                    return Err(Error::AliasCanonicalizationRefused(
+                        "Windows ASCII casefold refuses possible 8.3 alias components".into(),
+                    ));
+                }
+                PathComponent::utf8(value.to_ascii_lowercase())
+                    .map_err(Error::AliasCanonicalizationRefused)
+            }
         }
     }
 }
@@ -117,7 +141,7 @@ fn utf8_component(component: &PathComponent) -> Result<&str> {
     match component {
         PathComponent::Utf8(value) => Ok(value),
         PathComponent::Base64Url(_) => Err(Error::AliasCanonicalizationRefused(
-            "Apple bound-volume paths must be valid UTF-8".into(),
+            "bound-volume paths must be valid UTF-8".into(),
         )),
     }
 }
@@ -407,10 +431,14 @@ pub fn contract_fixture_canonicalizer_rows(
         .map(|(platform, volume)| BoundVolumePathCanonicalizer {
             platform,
             volume,
-            identity: if platform == ObjectPlatform::Apple {
-                PathAliasCanonicalizerIdentity::AppleApfsUnicode9SafeCasefoldNfdV1
-            } else {
-                PathAliasCanonicalizerIdentity::ByteIdentityV1
+            identity: match platform {
+                ObjectPlatform::Apple => {
+                    PathAliasCanonicalizerIdentity::AppleApfsUnicode9SafeCasefoldNfdV1
+                }
+                ObjectPlatform::Windows => PathAliasCanonicalizerIdentity::WindowsAsciiCasefoldV1,
+                ObjectPlatform::Unix | ObjectPlatform::Android => {
+                    PathAliasCanonicalizerIdentity::ByteIdentityV1
+                }
             },
         })
         .collect::<Vec<_>>();
@@ -484,6 +512,49 @@ mod tests {
             table.canonicalize_path(&path("\u{3a3}"), None),
             Err(Error::AliasCanonicalizationRefused(_))
         ));
+    }
+
+    #[test]
+    fn windows_ascii_aliases_share_one_coordinate_and_unsafe_names_refuse() {
+        let row = BoundVolumePathCanonicalizer {
+            platform: ObjectPlatform::Windows,
+            volume: NonEmptyString::new("volume-1").unwrap(),
+            identity: PathAliasCanonicalizerIdentity::WindowsAsciiCasefoldV1,
+        };
+        let table = PathAliasCanonicalizers::bind(
+            vec![row],
+            [PathCanonicalizerRootBinding {
+                logical_root: LogicalRoot::Project,
+                owner: None,
+                logical_path: None,
+                host_path: LogicalPath {
+                    root: LogicalRoot::Absolute,
+                    components: vec![PathComponent::utf8("Project").unwrap()],
+                    host_bound: Some(true),
+                },
+                platform: ObjectPlatform::Windows,
+                volume: NonEmptyString::new("volume-1").unwrap(),
+            }],
+        )
+        .unwrap();
+
+        assert_eq!(
+            table.canonicalize_path(&path("Secrets"), None).unwrap(),
+            table.canonicalize_path(&path("secrets"), None).unwrap()
+        );
+        assert!(matches!(
+            table.canonicalize_path(&path("caf\u{e9}"), None),
+            Err(Error::AliasCanonicalizationRefused(_))
+        ));
+        assert!(matches!(
+            table.canonicalize_path(&path("SECRET~1"), None),
+            Err(Error::AliasCanonicalizationRefused(_))
+        ));
+        assert_ne!(
+            table.canonicalize_path(&path("first.js"), None).unwrap(),
+            table.canonicalize_path(&path("second.js"), None).unwrap(),
+            "distinct directory entries must not collapse merely because they may be hard links"
+        );
     }
 
     #[test]

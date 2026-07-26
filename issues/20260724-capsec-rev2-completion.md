@@ -1450,9 +1450,61 @@ ticket closes.
   public-evidence rows remain unresolved. Important enforcement mechanisms are
   about 99% complete and the overall requested task is about 90% complete.
 
+### 2026-07-25 — digest-bound Windows ASCII case identity
+
+- Added `windows-ascii-casefold-v1` as the only Windows bound-volume
+  canonicalizer identity. Both authored selectors and occurrences require
+  UTF-8 ASCII components, reject tilde spellings, and fold ASCII case into the
+  same digest-bound authorization coordinate. Display paths and module
+  `SourceId` remain lexical, and two separately named hard-link entries remain
+  distinct.
+- Applied the same comparison key before Oxc lookup to resolver boundaries,
+  captured manifests, authenticated absences, denied principal subtrees, and
+  their collision checks. A differently cased denied subtree cannot be entered
+  through Windows' case-insensitive lookup, and `Package.json`/`package.JSON`
+  cannot be recorded as contradictory independent facts.
+- Every retained Windows root and intermediate traversal directory is queried
+  with `FileCaseSensitiveInfo`. A case-sensitive flag or failed/unsupported
+  query refuses before that handle can become a traversal root. The VFS,
+  authenticated resolver, first-party source reader, and package inventory all
+  share this rule. Reparse targets and direct retained opens reject non-ASCII
+  and tilde components before native component lookup.
+- Physical Windows verification passes the case-sensitive-directory test,
+  case-folded denial/manifest tests, uppercase-path read with lexical SourceId,
+  hard-link split, and semantic canonicalizer test. The complete focused
+  filters pass 8 Windows VFS tests and 16 authenticated resolver/package tests;
+  the two additional alias and hard-link filters pass separately.
+- The physical candidate also exposed the honest remaining boundary:
+  `fsutil 8dot3name query C:` reports volume state `0`, so 8.3 creation is
+  enabled. Windows permits administrator-assigned legal short names that need
+  not contain `~`; this patch does not pretend the tilde refusal covers them.
+  LLP 0021/0023 now name a race-safe short-name table/state contract or a
+  stronger volume/tree refusal as a remaining advertisement prerequisite.
+- Registered four new resolver control-plane functions and their four live
+  routes. The regenerated contract contains 7,651 coverage edges, 7,951
+  enforcement branches, and 15,302 target cells. The Apple candidate is
+  23,840 required / 2,760 fully executable / 3,136 internally verified /
+  17,944 unresolved (catalog digest
+  `sha256-N8XYrycvaDGNxxSSd2qy5eOrPluOWPCxwXVCXsPAthc`); Windows is
+  23,495 / 2,382 / 3,122 / 17,991 (catalog digest
+  `sha256-RWIFsBkp_S0ChP1SqvCIvx4kMYtjX6uNw4pUr5uacNg`).
+- The clean M4 verifier reproduces every generated artifact, passes the
+  five focused source/coverage/recipe/evidence suites with 397 tests and
+  126,182 assertions, and passes the native
+  `capsec-conformance-observer` Cargo check against the pinned Hermes inputs.
+  Local generated drift and `ref-check` are clean.
+- Hard part: Windows has three overlapping name systems here—ordinary
+  case-insensitive names, opt-in case-sensitive directories, and mutable
+  per-volume/per-file short-name state. Folding case without refusing
+  case-sensitive directories would collapse distinct objects; rejecting only
+  the customary `~` form would overclaim coverage of custom short names.
+  Important enforcement mechanisms remain about 99% complete and the overall
+  requested task remains about 90%.
+
 ## Next milestone
 
-Checkpoint the contained Windows reparse work, then implement the separate
-Windows spelling-alias canonicalizer or reduce the 17,983-row exact-target
-public-evidence gap without advertising Windows before its typed filesystem
-backend and complete target evidence are genuinely ready.
+Checkpoint the Windows ASCII case-identity hardening, then either implement a
+race-safe custom-short-name contract or move to the separate typed
+retained-object backend for installed Windows filesystem effects. Do not
+advertise Windows before both that identity gap and the 17,991-row exact-target
+public-evidence gap are genuinely closed.

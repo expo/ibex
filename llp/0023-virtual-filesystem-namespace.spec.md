@@ -5,6 +5,7 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-25 (Windows authorization selectors, occurrences, captured manifests, absences, denied subtrees, and retained traversal now share the digest-bound `windows-ascii-casefold-v1` coordinate; non-ASCII and tilde spellings refuse, case-sensitive directories cannot become traversal roots, and lexical display/SourceId plus distinct hard-link entries remain unchanged; arbitrary custom 8.3 short names, the typed native filesystem backend, and incomplete target evidence keep Windows unadvertised)
 **Revised:** 2026-07-25 (Windows now decodes contained Microsoft symlink and mount-point reparses through retained no-follow handles, re-reads mutable target data from the same object, authorizes the complete target-plus-tail before lookup, and restarts from the retained root; unsupported providers, outside targets, the separate Windows alias-canonicalization gap, and the typed native filesystem backend keep the target unadvertised)
 **Revised:** 2026-07-25 (corrects armed sync/async `readlink` so stored link bytes require an `fs:read` commit before the first `readlinkat` and a repeat before every buffer-growth retry; ambient `fs:list` remains limited to link/target traversal and cannot disclose the stored value)
 **Revised:** 2026-07-17 (LLP 0029 compiled mount profile adds typed `app`/`work` roots, metadata-only `/app`, optional authenticated `/work`, the `ibex:cwd:unset` sentinel, and stable compiled path errors in §1.3); 2026-07-17 (LLP 0029 carrier v2 changes only physical engine binding and preserves original-module SourceId provenance); 2026-07-15 (ENG-25064 landed runtime publication and admission of digest-bound per-original-module prepared graphs); 2026-07-15 (ENG-25065 scoped development module incarnations by execution generation without changing SourceId); 2026-07-15 (ENG-25064 landed the digest-bound per-original-module carrier manifest); 2026-07-15 (ENG-25058 obligation-ledger reconciliation); 2026-07-12
@@ -1131,6 +1132,28 @@ rows are re-probed from the independently authenticated bindings. These are
 deliberate fail-closed limitations until the snapshot carries authenticated mount
 boundaries and a complete pinned Apple case-fold table.
 
+The Windows adapter binds `windows-ascii-casefold-v1` into the snapshot. It
+requires UTF-8 ASCII components and folds ASCII case for both authored selectors
+and runtime occurrences. The resolver applies the same comparison key to its
+captured manifests, authenticated absences, and denied principal subtrees, without
+rewriting the lexical path later used for diagnostics or module `SourceId`.
+Every retained root and intermediate directory is queried with
+`FileCaseSensitiveInfo`; a set case-sensitive flag, an unsupported query, or a
+query failure refuses the traversal because folding would otherwise collapse two
+distinct entries. Reparse-target components pass the same input gate before a
+target restart. Components containing `~` refuse before native lookup, covering
+ordinary generated 8.3 spellings, and non-ASCII components refuse rather than
+borrowing an unpinned NTFS/Unicode case table. Distinct lexical names such as two
+hard-link entries remain distinct coordinates.
+
+This is deliberately named for the property it proves, not as a claim of complete
+NTFS alias equivalence. Windows permits an administrator to assign a custom legal
+8.3 short name that need not contain `~`, and the physical candidate volume still
+has short-name creation enabled. Such an alias is not yet canonicalized on both
+sides of an authored comparison. Windows therefore remains unadvertised until the
+adapter either binds a race-safe short-name table/state contract or refuses volumes
+and trees in which existing or newly introduced short aliases can occur.
+
 **Component and input rules.** These bind **adapter inputs** — the path arguments
 of `fs`, file URLs, module specifiers, and every other surface that takes a path
 *to perform an effect on*. They do not bind `node:path`'s string arithmetic, which
@@ -1159,12 +1182,12 @@ is not an adapter (below).
   names) are refused only under a Windows target, mirroring LLP 0021 WP0.
 
 **On target advertisement.** Armed execution is **not** an advertised target
-today: the machine-readable profile carries `advertisedTargets: []` with
-`aarch64-apple-darwin` as a *candidate*
-(`capsec/registry/policy-rules.json`). The CLI's hardcoded refusal of other
-targets (`src/bin/ibex/runtime.rs:1663`) is a guard, not an advertisement. This
-document therefore asserts no Windows behavior it cannot test, and the obligations
-it adds must execute before macOS/aarch64 is promoted from candidate to advertised
+today: the machine-readable profile carries `advertisedTargets: []`, with candidate
+targets governed by exact physical evidence (`capsec/registry/policy-rules.json`).
+The CLI's hardcoded target refusal is a guard, not an advertisement. The Windows
+behaviors above are physically tested candidate behavior only; the custom-short-name
+gap, typed installed filesystem backend, and incomplete exact-target report prevent
+promotion. Every obligation must execute before any candidate becomes advertised
 (`OBL-TARGET-PROMOTE`, §9).
 
 **The synthetic root is readable namespace metadata.** Listing `/` enumerates
@@ -2026,11 +2049,12 @@ resolution executable on Windows and removes the former direct-artifact
 Windows exception from the closed module-runner proof.
 
 This is not Windows target promotion. Unsupported reparse providers remain
-closed, and the filesystem still lacks the platform alias canonicalizer needed
-to unify every Windows case, Unicode, DOS-device, and short-name spelling.
-Installed Windows `node:fs` and native filesystem effects also still lack the
-typed retained-object backend, while exact-target public evidence remains
-incomplete. The target therefore remains unadvertised.
+closed. The digest-bound Windows adapter now unifies ordinary ASCII case aliases,
+refuses non-ASCII and tilde spellings, and refuses case-sensitive traversal
+directories, but it does not yet model arbitrary administrator-assigned 8.3
+short names. Installed Windows `node:fs` and native filesystem effects also
+still lack the typed retained-object backend, while exact-target public evidence
+remains incomplete. The target therefore remains unadvertised.
 
 The contract this document requires:
 
@@ -2489,7 +2513,7 @@ not survive reading past the quoted line.
 | `OBL-RESOLVE-GATE` | Apply the tier-2 membership gate and the no-probe/no-executable-body rule to **every resolve-only module bridge** — module-local, global, `__exactRequire`, and `createRequire` aliases plus native metadata resolution — not to the lexical `Exact.resolve` facade. All aliases call `checkImportGate` before native resolution. `resolve_meta` neither decodes/transpiles nor returns source; trusted package-integrity hashing is only an internal witness. The post-resolution Host gate uses the exact requested/discovery/commit/repeat VFS namespaces and retained objects, refuses a principal-changing symlink target before lookup, and revalidates a selected package target after resolution. | **this document**, **LLP 0014**, **LLP 0002**, **LLP 0004** | **yes** | `module-loader-runtime-options-llp0022.test.ts::every require.resolve alias denies before metadata resolution`; `armed_require_resolve_uses_typed_stages_without_reading_invalid_body`; `metadata_authorization_refuses_a_post_resolve_cross_principal_symlink_before_absence`; `metadata_only_package_resolution_reauthenticates_selected_target_after_resolution`; `resolve_meta_omits_source_that_full_resolve_loads` |
 | `OBL-DISCOVERY-RECORD` | Armed-snapshot fields carry the discovery origin, selected marker kind/path, marker-set version, and selected root, all included in strict snapshot ingestion and digest identity so marker-rule drift cannot silently re-root a project (§1.1). | **LLP 0021** | **yes** | `ArmedProjectRootDiscovery`; `refuses_project_root_discovery_substitution_and_binding_mismatch`; project-root discovery marker/workspace/device-boundary fixtures |
 | `OBL-INTEGRITY-BIND` | Verify installed content against the package principal's integrity digest at arming and derive the protected object/generation inventory from that same eager traversal (§1.2). Unix-family traversal produces both integrity and the generation-bearing guard inventory. Windows performs two complete inventories, opens every object relative to the pinned package-root handle, rejects reparses, and captures source from the authenticated opened object; it does not claim the still-absent object-generation guard inventory. | **LLP 0021** / **LLP 0014** | **content/source integrity yes on Unix-family and Windows; generation-bearing write-guard inventory Unix-family only** | `src/host/mod.rs::validate_snapshot_root_bindings`; `src/module_loader/mod.rs::{authenticated_package_inventory,package_tree_integrity_and_source_windows}`; mutation, symlink/reparse, cycle, root-swap, and add/remove inventory tests |
-| `OBL-ALIAS-CANON` | The versioned per-volume canonicalization function is applied to authored selectors, occurrences, root bindings, and decision-cache keys, and is bound into the snapshot digest. The Apple candidate derives its APFS case/normalization adapter from the bound volume; unsupported adapters fail arming rather than guessing (§3). | **LLP 0021** | **yes for the Apple candidate; other target adapters remain fail-closed** | `path_alias.rs`; `canonicalizer_identity_is_trusted_and_changes_snapshot_identity`; `external_snapshot_cannot_self_assert_a_bound_volume_canonicalizer`; alias fixtures |
+| `OBL-ALIAS-CANON` | The versioned per-volume canonicalization function is applied to authored selectors, occurrences, root bindings, and decision-cache keys, and is bound into the snapshot digest. The Apple candidate derives its APFS case/normalization adapter from the bound volume. Windows binds `windows-ascii-casefold-v1`, applies that coordinate to resolver control data, and refuses non-ASCII/tilde components plus case-sensitive traversal directories; arbitrary custom 8.3 aliases remain a promotion blocker. Unsupported adapters fail arming rather than guessing (§3). | **LLP 0021** | **yes for Apple; partial fail-closed Windows candidate with custom-short-name promotion gap; other target adapters fail closed** | `path_alias.rs`; `windows_resolver_path_key`; `windows_require_casefold_directory`; `canonicalizer_identity_is_trusted_and_changes_snapshot_identity`; `external_snapshot_cannot_self_assert_a_bound_volume_canonicalizer`; alias fixtures |
 | `OBL-ARMING-CONTAINMENT` | Strict snapshot ingestion requires graph nodes, exact import edges, root bindings, defining owners, and the project discovery record to form one consistent containment relation before a Host can arm. | **LLP 0021** | **yes** | `validate_snapshot_invariants`; `validate_root_bindings`; `refuses_graph_authority_and_root_binding_inconsistencies` |
 | `OBL-CWD-ACTIONS` | The registry defines `path:cwd-observe` and core-root-only `path:cwd-mutate`, both on the runtime-local session-state resource; native bridges reauthorize each requested/commit operation and never mutate the host process cwd. | **LLP 0021** registry | **yes** | capability definitions/coverage edges; `ex_host_vfs_get_cwd`; `ex_host_vfs_chdir`; cwd facade batch |
 | `OBL-CWD-SCHEMA` | Capability schema, selector/occurrence unions, Rust model, canonical bytes, containment, and cache identity admit the `session-state` resource and `session-scoped` globality. Mutation is core-enforced root-only; a denied observation produces the specified no-effect `/project` projection rather than disclosing another base. | **LLP 0021** schema | **yes** | `SessionStateName::Cwd`; schema/registry tests; `process-env-proxy.test.ts`; cwd facade batch |

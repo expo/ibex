@@ -243,65 +243,81 @@ impl AuthenticatedResolverInputs {
     ) -> Result<Self> {
         let boundary_root = lexical_absolute_path_for_resolver(&boundary_root)
             .context("authenticated resolver boundary is not an absolute normalized path")?;
+        anyhow::ensure!(
+            resolver_paths_equal(&boundary_root, &boundary_root)?,
+            "authenticated resolver boundary is outside the bound alias contract"
+        );
 
         // Validate the whole caller-supplied namespace before opening the
         // boundary descriptor. An outside manifest key must therefore fail
         // before this constructor performs any filesystem I/O.
-        let mut captured = BTreeMap::new();
+        let mut captured = BTreeMap::<PathBuf, Arc<[u8]>>::new();
         for (path, bytes) in package_manifests {
             let path = lexical_absolute_path_for_resolver(&path)
                 .context("authenticated package manifest path is not absolute")?;
             anyhow::ensure!(
-                path.starts_with(&boundary_root),
+                resolver_path_starts_with(&path, &boundary_root)?,
                 "authenticated package manifest is outside the resolver boundary"
             );
             anyhow::ensure!(
-                path.file_name() == Some(OsStr::new("package.json")),
+                resolver_is_package_manifest(&path)?,
                 "authenticated resolver inputs may contain only package.json bytes"
             );
             anyhow::ensure!(
-                captured.insert(path, Arc::<[u8]>::from(bytes)).is_none(),
+                !captured
+                    .keys()
+                    .any(|candidate| resolver_paths_equal(candidate, &path).unwrap_or(false)),
                 "authenticated package manifest paths are not unique after normalization"
             );
+            captured.insert(path, Arc::<[u8]>::from(bytes));
         }
-        let mut absent = BTreeSet::new();
+        let mut absent = BTreeSet::<PathBuf>::new();
         for path in absent_package_manifests {
             let path = lexical_absolute_path_for_resolver(&path)
                 .context("authenticated absent package manifest path is not absolute")?;
             anyhow::ensure!(
-                path.starts_with(&boundary_root),
+                resolver_path_starts_with(&path, &boundary_root)?,
                 "authenticated absent package manifest is outside the resolver boundary"
             );
             anyhow::ensure!(
-                path.file_name() == Some(OsStr::new("package.json")),
+                resolver_is_package_manifest(&path)?,
                 "authenticated resolver absences may contain only package.json paths"
             );
             anyhow::ensure!(
-                !captured.contains_key(&path),
+                !captured
+                    .keys()
+                    .any(|candidate| resolver_paths_equal(candidate, &path).unwrap_or(false)),
                 "package manifest cannot be both captured and authenticated absent"
             );
             anyhow::ensure!(
-                absent.insert(path),
+                !absent
+                    .iter()
+                    .any(|candidate| resolver_paths_equal(candidate, &path).unwrap_or(false)),
                 "authenticated absent package manifest paths are not unique after normalization"
             );
+            absent.insert(path);
         }
-        let mut denied_subtrees = BTreeSet::new();
+        let mut denied_subtrees = BTreeSet::<PathBuf>::new();
         for path in denied_principal_subtrees {
             let path = lexical_absolute_path_for_resolver(&path)
                 .context("denied principal subtree path is not absolute")?;
             anyhow::ensure!(
-                path != boundary_root && path.starts_with(&boundary_root),
+                !resolver_paths_equal(&path, &boundary_root)?
+                    && resolver_path_starts_with(&path, &boundary_root)?,
                 "denied principal subtree must be a strict descendant of the resolver boundary"
             );
             anyhow::ensure!(
-                denied_subtrees.insert(path),
+                !denied_subtrees
+                    .iter()
+                    .any(|candidate| resolver_paths_equal(candidate, &path).unwrap_or(false)),
                 "denied principal subtree paths are not unique after normalization"
             );
+            denied_subtrees.insert(path);
         }
         let inside_denied_subtree = |path: &Path| {
             denied_subtrees
                 .iter()
-                .any(|denied| path == denied || path.starts_with(denied))
+                .any(|denied| resolver_path_starts_with(path, denied).unwrap_or(true))
         };
         anyhow::ensure!(
             captured.keys().all(|path| !inside_denied_subtree(path)),
@@ -403,14 +419,14 @@ impl AuthenticatedResolverInputs {
         #[cfg(not(windows))]
         let path = path.to_path_buf();
         let normalized = lexical_absolute_path_for_resolver(&path)?;
-        if !normalized.starts_with(self.boundary_root()) {
+        if !resolver_path_starts_with(&normalized, self.boundary_root())? {
             return Err(resolver_boundary_refusal());
         }
         if self
             .inner
             .denied_principal_subtrees
             .iter()
-            .any(|denied| normalized.as_path() == denied || normalized.starts_with(denied))
+            .any(|denied| resolver_path_starts_with(&normalized, denied).unwrap_or(true))
         {
             return Err(resolver_boundary_refusal());
         }
@@ -419,13 +435,27 @@ impl AuthenticatedResolverInputs {
 
     fn manifest_input(&self, path: &Path) -> io::Result<ResolverManifestInput<'_>> {
         let normalized = self.normalize_in_boundary(path)?;
-        if normalized.file_name() != Some(OsStr::new("package.json")) {
+        if !resolver_is_package_manifest(&normalized)? {
             return Ok(ResolverManifestInput::NotManifest);
         }
-        if let Some(bytes) = self.inner.package_manifests.get(&normalized) {
+        if let Some(bytes) = self
+            .inner
+            .package_manifests
+            .iter()
+            .find_map(|(path, bytes)| {
+                resolver_paths_equal(path, &normalized)
+                    .unwrap_or(false)
+                    .then_some(bytes)
+            })
+        {
             return Ok(ResolverManifestInput::Present(bytes.as_ref()));
         }
-        if self.inner.absent_package_manifests.contains(&normalized) {
+        if self
+            .inner
+            .absent_package_manifests
+            .iter()
+            .any(|path| resolver_paths_equal(path, &normalized).unwrap_or(false))
+        {
             return Ok(ResolverManifestInput::Unavailable);
         }
         self.inner
@@ -721,6 +751,73 @@ fn lexical_absolute_path_for_resolver(path: &Path) -> io::Result<PathBuf> {
     Ok(normalized)
 }
 
+fn resolver_paths_equal(left: &Path, right: &Path) -> io::Result<bool> {
+    #[cfg(windows)]
+    {
+        return Ok(windows_resolver_path_key(left)? == windows_resolver_path_key(right)?);
+    }
+    #[cfg(not(windows))]
+    Ok(left == right)
+}
+
+fn resolver_path_starts_with(path: &Path, prefix: &Path) -> io::Result<bool> {
+    #[cfg(windows)]
+    {
+        let path = windows_resolver_path_key(path)?;
+        let prefix = windows_resolver_path_key(prefix)?;
+        return Ok(path.starts_with(&prefix));
+    }
+    #[cfg(not(windows))]
+    Ok(path.starts_with(prefix))
+}
+
+fn resolver_is_package_manifest(path: &Path) -> io::Result<bool> {
+    #[cfg(windows)]
+    {
+        let Some(file_name) = path.file_name() else {
+            return Ok(false);
+        };
+        let file_name = resolver_windows_component(file_name)?;
+        return Ok(crate::vfs::windows_component_is_alias_safe(file_name)
+            && file_name.eq_ignore_ascii_case("package.json"));
+    }
+    #[cfg(not(windows))]
+    Ok(path.file_name() == Some(OsStr::new("package.json")))
+}
+
+/// Produce the authorization comparison key for a retained Windows path.
+/// This does not replace the lexical path used for diagnostics or SourceId.
+///
+/// @ref LLP 0023#3-path-grammar-normalization-aliasing-and-containment
+#[cfg(windows)]
+fn windows_resolver_path_key(path: &Path) -> io::Result<Vec<String>> {
+    path.components()
+        .map(|component| {
+            let text = component.as_os_str().to_str().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "authenticated resolver path component is not Unicode",
+                )
+            })?;
+            if matches!(component, Component::Normal(_))
+                && !crate::vfs::windows_component_is_alias_safe(text)
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "authenticated resolver path is outside the bound Windows alias contract",
+                ));
+            }
+            if !text.is_ascii() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "authenticated resolver root is outside the bound Windows alias contract",
+                ));
+            }
+            Ok(text.to_ascii_lowercase())
+        })
+        .collect()
+}
+
 #[cfg(windows)]
 fn align_windows_resolver_namespace(path: &Path, boundary: &Path) -> io::Result<PathBuf> {
     let path = path.to_str().ok_or_else(|| {
@@ -777,6 +874,7 @@ fn open_resolver_boundary_windows(path: &Path) -> io::Result<std::fs::File> {
             "authenticated resolver boundary is not a regular directory",
         ));
     }
+    crate::vfs::windows_require_casefold_directory(&boundary)?;
     Ok(boundary)
 }
 
@@ -901,6 +999,7 @@ fn resolve_bounded_windows_path(
                         "authenticated resolver directory changed during retention",
                     ));
                 }
+                crate::vfs::windows_require_casefold_directory(&opened)?;
                 Some(opened)
             } else {
                 None
@@ -929,6 +1028,7 @@ fn resolve_bounded_windows_path(
                 "authenticated resolver directory changed during retention",
             ));
         }
+        crate::vfs::windows_require_casefold_directory(&opened)?;
         current = opened;
         resolved.push(component);
     }
@@ -1188,9 +1288,21 @@ fn resolver_relative_components(
     path: &Path,
 ) -> io::Result<VecDeque<OsString>> {
     let normalized = inputs.normalize_in_boundary(path)?;
+    #[cfg(windows)]
+    let relative = {
+        if !resolver_path_starts_with(&normalized, inputs.boundary_root())? {
+            return Err(resolver_boundary_refusal());
+        }
+        normalized
+            .components()
+            .skip(inputs.boundary_root().components().count())
+            .collect::<PathBuf>()
+    };
+    #[cfg(not(windows))]
     let relative = normalized
         .strip_prefix(inputs.boundary_root())
-        .map_err(|_| resolver_boundary_refusal())?;
+        .map_err(|_| resolver_boundary_refusal())?
+        .to_path_buf();
     let mut components = VecDeque::new();
     for component in relative.components() {
         match component {
@@ -4058,6 +4170,14 @@ fn package_tree_integrity_and_source_windows(
         name: &OsStr,
         directory: bool,
     ) -> Result<std::fs::File> {
+        let name_text = name
+            .to_str()
+            .ok_or_else(|| anyhow!("Package path component is not Unicode"))?;
+        if !crate::vfs::windows_component_is_alias_safe(name_text) {
+            return Err(anyhow!(
+                "Package path component is outside the bound Windows alias contract"
+            ));
+        }
         let mut wide = name.encode_wide().collect::<Vec<_>>();
         if wide.contains(&0) {
             return Err(anyhow!("Package path contains a NUL component"));
@@ -4148,6 +4268,7 @@ fn package_tree_integrity_and_source_windows(
         records: &mut Vec<(String, String)>,
         captured_source: &mut Option<Vec<u8>>,
     ) -> Result<()> {
+        crate::vfs::windows_require_casefold_directory(directory)?;
         let before = stamp(directory)?;
         let entries = directory_entries(&root.join(relative_directory))?;
         for (name, directory_entry) in entries {
@@ -4288,6 +4409,7 @@ fn package_tree_integrity_and_source_windows(
             root.display()
         ));
     }
+    crate::vfs::windows_require_casefold_directory(&root_handle)?;
     if let Some(expected) = expected_root {
         if crate::host::object_identity_for_open_file(&root_handle)? != *expected {
             return Err(anyhow!(
@@ -6548,6 +6670,57 @@ mod tests {
             resolved.path.as_deref(),
             Some(project.join("target.js").as_path())
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_resolver_alias_comparisons_close_denials_and_manifest_collisions() {
+        let sandbox = tempdir().unwrap();
+        let project = sandbox.path().join("Project");
+        let denied = project.join("Denied");
+        std::fs::create_dir_all(&denied).unwrap();
+        std::fs::write(denied.join("secret.js"), "module.exports = false;\n").unwrap();
+
+        let project = std::fs::canonicalize(project).unwrap();
+        let inputs = AuthenticatedResolverInputs::new(
+            project.clone(),
+            &test_object_identity(&project),
+            BTreeMap::new(),
+            BTreeSet::new(),
+            BTreeSet::from([project.join("Denied")]),
+        )
+        .unwrap();
+        assert_eq!(
+            inputs
+                .normalize_in_boundary(&project.join("denied/secret.js"))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        assert!(inputs
+            .normalize_in_boundary(&project.join("caf\u{e9}.js"))
+            .is_err());
+        assert!(inputs
+            .normalize_in_boundary(&project.join("SECRET~1.JS"))
+            .is_err());
+
+        let manifests = BTreeMap::from([(
+            project.join("Package.json"),
+            br#"{"type":"module"}"#.to_vec(),
+        )]);
+        let error = match AuthenticatedResolverInputs::new(
+            project.clone(),
+            &test_object_identity(&project),
+            manifests,
+            BTreeSet::from([project.join("package.JSON")]),
+            BTreeSet::new(),
+        ) {
+            Ok(_) => panic!("case aliases cannot be captured and absent simultaneously"),
+            Err(error) => error,
+        };
+        assert!(error
+            .to_string()
+            .contains("both captured and authenticated absent"));
     }
 
     #[cfg(any(unix, windows))]

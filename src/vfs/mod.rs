@@ -1318,6 +1318,8 @@ impl VirtualFileSystem {
         {
             return Err(VfsError::stale_identity(operation, safe_path));
         }
+        windows_require_casefold_directory(&root)
+            .map_err(|error| VfsError::host(operation, safe_path, &error))?;
         Ok(root)
     }
 
@@ -1511,6 +1513,9 @@ impl VirtualFileSystem {
                     final_namespace.virtual_path.clone(),
                 ));
             }
+            windows_require_casefold_directory(&retained).map_err(|error| {
+                VfsError::host(operation, final_namespace.virtual_path.clone(), &error)
+            })?;
             current = retained;
             if pending.is_empty() {
                 let retained_namespace =
@@ -3398,6 +3403,9 @@ impl VirtualFileSystem {
                     final_namespace.virtual_path.clone(),
                 ));
             }
+            windows_require_casefold_directory(&opened).map_err(|error| {
+                VfsError::host(OPERATION, final_namespace.virtual_path.clone(), &error)
+            })?;
             current = opened;
             physical_parent.push(component);
         }
@@ -3580,6 +3588,53 @@ pub(crate) enum WindowsRelativeOpen {
     Readable,
 }
 
+/// The Windows alias canonicalizer models an ordinary case-insensitive
+/// directory. Per-directory case sensitivity would make two distinct names
+/// collapse to one authorization coordinate, so a retained directory with
+/// that flag set is never used as a traversal root.
+///
+/// @ref LLP 0023#3-path-grammar-normalization-aliasing-and-containment
+#[cfg(windows)]
+pub(crate) fn windows_require_casefold_directory(directory: &std::fs::File) -> std::io::Result<()> {
+    use std::os::windows::io::AsRawHandle as _;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FileCaseSensitiveInfo, GetFileInformationByHandleEx, FILE_CASE_SENSITIVE_INFO,
+    };
+    use windows_sys::Win32::System::SystemServices::FILE_CS_FLAG_CASE_SENSITIVE_DIR;
+
+    let mut info = FILE_CASE_SENSITIVE_INFO::default();
+    let result = unsafe {
+        GetFileInformationByHandleEx(
+            directory.as_raw_handle(),
+            FileCaseSensitiveInfo,
+            (&mut info as *mut FILE_CASE_SENSITIVE_INFO).cast(),
+            std::mem::size_of::<FILE_CASE_SENSITIVE_INFO>() as u32,
+        )
+    };
+    if result == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if info.Flags & FILE_CS_FLAG_CASE_SENSITIVE_DIR != 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "case-sensitive Windows directories are outside the bound alias contract",
+        ));
+    }
+    Ok(())
+}
+
+/// Names admitted to the digest-bound Windows alias seam. Non-ASCII names
+/// need a pinned NTFS/Unicode table, and `~` can select an unmodeled 8.3 alias;
+/// both are refused before native lookup.
+///
+/// @ref LLP 0023#3-path-grammar-normalization-aliasing-and-containment
+#[cfg(windows)]
+pub(crate) fn windows_component_is_alias_safe(component: &str) -> bool {
+    component.is_ascii()
+        && !component.contains('~')
+        && virtual_component_is_mappable(component, true)
+}
+
 /// Open one UTF-8 namespace component relative to an already retained Windows
 /// directory. `FILE_OPEN_REPARSE_POINT` makes the returned handle name the
 /// component itself; callers inspect and either stage or refuse reparse
@@ -3607,6 +3662,12 @@ pub(crate) fn windows_open_relative_no_follow(
     };
     use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
+    if !windows_component_is_alias_safe(component) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Windows path component is outside the bound alias contract",
+        ));
+    }
     let mut wide = std::ffi::OsStr::new(component)
         .encode_wide()
         .collect::<Vec<_>>();
@@ -3921,7 +3982,7 @@ fn windows_apply_relative_components(base: &mut Vec<String>, value: &str) -> std
                     )
                 })?;
             }
-            component if virtual_component_is_mappable(component, true) => {
+            component if windows_component_is_alias_safe(component) => {
                 base.push(component.to_owned())
             }
             _ => {
@@ -5511,7 +5572,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn hard_linked_package_entries_keep_distinct_principals_ids_and_labels() {
         let temp = tempfile::tempdir().unwrap();
@@ -5850,6 +5911,79 @@ mod tests {
                 host_bound: None,
             }
         );
+
+        let alias = vfs
+            .resolve_root_bytes(b"/project/NESTED/SOURCE.JS", None)
+            .unwrap();
+        let alias_read = vfs
+            .read_authenticated(alias, SourceUse::Module, |_| Ok(receipt(b"alias")))
+            .unwrap();
+        assert_eq!(&*alias_read.bytes(), b"export default 7;");
+        assert_eq!(
+            alias_read.source_label().as_str(),
+            "file:///project/NESTED/SOURCE.JS",
+            "display identity remains lexical even though authorization folds ASCII case"
+        );
+        assert_ne!(
+            read.source_id(),
+            alias_read.source_id(),
+            "SourceId intentionally remains lexical and machine-portable"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_alias_seam_refuses_unsafe_names_and_case_sensitive_directories() {
+        for component in ["caf\u{e9}.js", "SECRET~1.JS"] {
+            assert!(!windows_component_is_alias_safe(component));
+        }
+        for component in ["Secrets.js", "package.json", "a-b_c.1"] {
+            assert!(windows_component_is_alias_safe(component));
+        }
+
+        use std::os::windows::fs::OpenOptionsExt as _;
+        use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
+
+        let temp = tempfile::tempdir().unwrap();
+        let ordinary = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(temp.path())
+            .unwrap();
+        windows_require_casefold_directory(&ordinary).unwrap();
+
+        let sensitive = temp.path().join("sensitive");
+        fs::create_dir(&sensitive).unwrap();
+        let enable = std::process::Command::new("fsutil.exe")
+            .args(["file", "setCaseSensitiveInfo"])
+            .arg(&sensitive)
+            .arg("enable")
+            .output()
+            .expect("invoke per-directory case-sensitivity control");
+        if !enable.status.success() {
+            eprintln!(
+                "case-sensitive directory setup unavailable: {}",
+                String::from_utf8_lossy(&enable.stderr)
+            );
+            return;
+        }
+        let retained = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(&sensitive)
+            .unwrap();
+        assert_eq!(
+            windows_require_casefold_directory(&retained)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::PermissionDenied
+        );
+        drop(retained);
+        let _ = std::process::Command::new("fsutil.exe")
+            .args(["file", "setCaseSensitiveInfo"])
+            .arg(&sensitive)
+            .arg("disable")
+            .status();
     }
 
     #[cfg(windows)]

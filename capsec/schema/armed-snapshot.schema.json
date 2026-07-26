@@ -577,9 +577,19 @@
           "type": "object",
           "required": ["platform", "volume", "identity"],
           "properties": {
-            "platform": { "enum": ["unix", "windows", "android"] },
+            "platform": { "enum": ["unix", "android"] },
             "volume": { "type": "string", "minLength": 1 },
             "identity": { "const": "byte-identity-v1" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["platform", "volume", "identity"],
+          "properties": {
+            "platform": { "const": "windows" },
+            "volume": { "type": "string", "minLength": 1 },
+            "identity": { "const": "windows-ascii-casefold-v1" }
           },
           "additionalProperties": false
         },

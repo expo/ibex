@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-25 (Windows binds ASCII case-folding into selector and occurrence identity, uses the same key for resolver manifests/absences/denied subtrees, refuses non-ASCII and tilde components, and refuses case-sensitive traversal directories while preserving lexical SourceId and distinct hard links; arbitrary administrator-assigned 8.3 aliases, the installed native filesystem effect backend, and incomplete exact-target evidence keep Windows unadvertised)
 **Revised:** 2026-07-25 (Windows VFS and armed Oxc resolution now decode contained Microsoft symlink/junction reparses from retained no-follow handles, object-match and double-read mutable payloads, authorize complete target-plus-tail paths before lookup, and restart from the retained root; unsupported providers, the Windows alias-canonicalization gap, the installed native filesystem effect backend, and incomplete exact-target evidence keep the target unadvertised)
 **Revised:** 2026-07-25 (mixed filesystem dispatchers now carry exact branch-local closure: unbound path/descriptor mutations and recursive mkdir select deny-only `fs:unbound-mutation` branches before lookup, while retained-object branches remain effectful; target predicates preserve Apple worker-backed `chmod`/`utime`, close them on Windows, and source inventory binds the POSIX filesystem translation unit only to targets that compile it; Apple accounting is 2,760 fully executable / 3,114 internally verified / 17,849 unresolved and Windows accounting is 2,341 / 3,102 / 18,099)
 **Revised:** 2026-07-25 (`node:fs.opendirSync` adds five empty-directory Apple public recipes with exact `__exactReaddir` evidence, path-bound `Dir` results, and mandatory close proof; Apple accounting is now 2,666 fully executable / 3,114 internally verified / 18,260 unresolved)
@@ -484,9 +485,12 @@ Initial authorable resource kinds are:
   base64url. Target-neutral identity rejects only empty, dot, dot-dot, NUL, and
   slash components; a backslash or Windows-reserved name remains representable
   for Unix. At arming, Unix/Android accepts all remaining byte names, Windows
-  additionally requires valid UTF-8 and rejects controls, forbidden characters,
-  trailing dot/space, DOS device names, and adapter-reported aliases, while an
-  Apple bound-volume adapter supplies its actual case/normalization alias key.
+  additionally requires valid UTF-8 ASCII, rejects controls, forbidden characters,
+  trailing dot/space, DOS device names, tilde spellings, and adapter-reported
+  aliases, and binds ASCII case-folding as its current candidate identity. A
+  case-sensitive Windows directory refuses rather than collapsing distinct names;
+  arbitrary custom 8.3 aliases remain a promotion blocker. The Apple bound-volume
+  adapter supplies its actual case/normalization alias key.
   Alias collisions are compared only within the same bound-root/volume
   namespace; two packages' separate package-root bindings do not alias.
   Absolute paths are explicitly host-bound, and execution still requires a
@@ -1390,10 +1394,16 @@ explicit absence, and `NODE_PATH` remains disabled. This makes authenticated
 entry, relative, `#imports`, package-export, and contained symlink/junction
 resolution executable on Windows and lets the closed module-runner fixture use
 the same graph builder and authorized linker as Unix. It does not promote the
-target: Windows case/Unicode/DOS-device/short-name alias canonicalization is a
-separate unresolved identity requirement, installed Windows `node:fs`/native
-filesystem effects still lack the typed retained-object adapter, and the exact
-target public-evidence catalog remains incomplete.
+target. Windows now binds the digest-identified `windows-ascii-casefold-v1`
+function into authored selectors and occurrences; the resolver compares captured
+manifests, absences, and denied subtrees in the same coordinate while retaining
+lexical display and SourceId. Non-ASCII and tilde components refuse before lookup,
+and every retained traversal directory must successfully prove that its
+per-directory case-sensitive flag is clear. This closes ordinary ASCII case
+aliases without collapsing hard-link entries. Administrator-assigned 8.3 aliases
+that omit `~` remain an unresolved identity requirement, installed Windows
+`node:fs`/native filesystem effects still lack the typed retained-object adapter,
+and the exact target public-evidence catalog remains incomplete.
 
 Filesystem path occurrences now retain a non-wire projection for every
 constrained principal, keyed exactly to the constrained set and effect index.

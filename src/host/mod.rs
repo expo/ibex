@@ -7177,8 +7177,17 @@ fn authenticated_source_beneath_binding(
                 root.display()
             );
         }
+        crate::vfs::windows_require_casefold_directory(&current)?;
 
         for (index, component) in components.iter().enumerate() {
+            let component_text = component
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("module source path component is not Unicode"))?;
+            if !crate::vfs::windows_component_is_alias_safe(component_text) {
+                anyhow::bail!(
+                    "module source path component is outside the bound Windows alias contract"
+                );
+            }
             let mut wide = component.encode_wide().collect::<Vec<_>>();
             if wide.contains(&0) {
                 anyhow::bail!("module source contains a NUL path component");
@@ -7282,6 +7291,7 @@ fn authenticated_source_beneath_binding(
                     source_path.display()
                 );
             }
+            crate::vfs::windows_require_casefold_directory(&opened)?;
             current = opened;
         }
         unreachable!("nonempty authenticated source path returns on its final component")

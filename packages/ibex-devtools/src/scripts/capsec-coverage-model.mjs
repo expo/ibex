@@ -6426,10 +6426,13 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:rust:resolver_component_cstring",
     "function:rust:resolver_fstat",
     "function:rust:resolver_fstatat_nofollow",
+    "function:rust:resolver_is_package_manifest",
     "function:rust:resolver_manifest_not_found",
     "function:rust:resolver_metadata_from_stat",
     "function:rust:resolver_metadata_from_windows",
     "function:rust:resolver_open_directory_at",
+    "function:rust:resolver_path_starts_with",
+    "function:rust:resolver_paths_equal",
     "function:rust:resolver_read_link_at",
     "function:rust:resolver_relative_components",
     "function:rust:resolver_session_handle_is_canonical",
@@ -6441,6 +6444,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:rust:transpile_module",
     "function:rust:transpile_module_to_cjs",
     "function:rust:validate_import_attributes",
+    "function:rust:windows_resolver_path_key",
     "import-needs",
     "import-policy-bare",
     "import-policy-resolved-path",
@@ -6804,10 +6808,13 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:resolver_component_cstring",
     "route:resolution:rust:resolver_fstat",
     "route:resolution:rust:resolver_fstatat_nofollow",
+    "route:resolution:rust:resolver_is_package_manifest",
     "route:resolution:rust:resolver_manifest_not_found",
     "route:resolution:rust:resolver_metadata_from_stat",
     "route:resolution:rust:resolver_metadata_from_windows",
     "route:resolution:rust:resolver_open_directory_at",
+    "route:resolution:rust:resolver_path_starts_with",
+    "route:resolution:rust:resolver_paths_equal",
     "route:resolution:rust:resolver_read_link_at",
     "route:resolution:rust:resolver_relative_components",
     "route:resolution:rust:resolver_stat_is_dir",
@@ -6849,6 +6856,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:verify_transpile_override_identity",
     "route:resolution:rust:wait_for_transpile_test_barrier",
     "route:resolution:rust:walk_transpile_tool_directory",
+    "route:resolution:rust:windows_resolver_path_key",
     "route:subprocess:rust:configure_transpile_subprocess_environment",
     "route:subprocess:rust:run_transpile_subprocess",
     "route:subprocess:rust:unique_tmp_path",
@@ -10451,7 +10459,7 @@ function loaderClassification(surface) {
   if (name.startsWith("route:")) {
     const functionName = name.split(":").at(-1);
     if (
-      /^(?:align_windows_resolver_namespace|authenticated_module_resolve_options|boundary_root|duplicate_resolver_fd|file_system|inputs|lexical_absolute_path_for_resolver|manifest_input|normalize_in_boundary|normalized|oxc_path|resolver_component_cstring|resolver_relative_components|uncaptured_package_manifest_probes)$/u.test(
+      /^(?:align_windows_resolver_namespace|authenticated_module_resolve_options|boundary_root|duplicate_resolver_fd|file_system|inputs|lexical_absolute_path_for_resolver|manifest_input|normalize_in_boundary|normalized|oxc_path|resolver_component_cstring|resolver_is_package_manifest|resolver_path_starts_with|resolver_paths_equal|resolver_relative_components|uncaptured_package_manifest_probes|windows_resolver_path_key)$/u.test(
         functionName,
       )
     ) {
@@ -10865,7 +10873,11 @@ function loaderClassification(surface) {
         "function:rust:lexical_absolute_path_for_resolver",
         "function:rust:oxc_path",
         "function:rust:resolver_component_cstring",
+        "function:rust:resolver_is_package_manifest",
+        "function:rust:resolver_path_starts_with",
+        "function:rust:resolver_paths_equal",
         "function:rust:resolver_relative_components",
+        "function:rust:windows_resolver_path_key",
       ]).has(name)
     ) {
       return nonCapabilitySpec("authority-control-plane", "WP7");

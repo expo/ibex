@@ -252,7 +252,8 @@ fn bound_volume_path_canonicalizers<'a>(
         );
         let identity = match object.platform {
             ObjectPlatform::Apple => apple_volume_path_canonicalizer(path)?,
-            ObjectPlatform::Unix | ObjectPlatform::Windows | ObjectPlatform::Android => {
+            ObjectPlatform::Windows => PathAliasCanonicalizerIdentity::WindowsAsciiCasefoldV1,
+            ObjectPlatform::Unix | ObjectPlatform::Android => {
                 PathAliasCanonicalizerIdentity::ByteIdentityV1
             }
         };
