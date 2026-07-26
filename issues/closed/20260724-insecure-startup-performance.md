@@ -1,7 +1,92 @@
 # Restore fast Ibex startup, prioritizing insecure REPL and embedded use
 
-**Status:** Open — dominant costs fixed 2026-07-24; budgets, CI gate, and
-embedded benchmarks remain.
+**Status:** Resolved 2026-07-26.
+**Severity:** P1
+**Systems:** CLI Runtime, REPL, Embedded API, CapSec, Performance
+**Author:** Codex, directed by Charlie Cheever
+**Date:** 2026-07-24
+**Related:** LLP 0038; LLP 0039; ENG-24720; ENG-24643; issues/20260717-sfe-measured-budgets.md
+
+## Resolution (2026-07-26)
+
+The end-to-end completion meets the precommitted startup budgets on both
+supported development platforms and both runtime profiles. The committed
+benchmark in `benches/startup_performance.rs` observes a real REPL prompt
+through a pseudoterminal, measures trivial `eval`, `run`, package dispatch, and
+the direct embedder boundary, and reports min/median/MAD/p95/max for five
+discarded warmups plus forty measured samples. A fresh `HOME` and application
+cache define the cold distribution; the warm distribution reuses them. Both
+retain normal operating-system page cache. All measurements below are release
+builds.
+
+Final p95 process results, in milliseconds:
+
+| host/profile | warm REPL | warm eval | warm run | warm package | cold REPL | cold eval | cold run | cold package |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Apple-silicon Mac mini, insecure | 39.441 | 22.565 | 45.305 | 7.340 | 113.001 | 96.561 | 114.709 | 7.464 |
+| Apple-silicon MacBook Air, secure | 165.821 | 100.738 | 285.658 | 7.273 | 215.494 | 143.225 | 327.256 | 7.373 |
+| Minisforum x86-64 Linux, insecure | 57.135 | 39.594 | 50.529 | 9.534 | 78.151 | 48.498 | 66.390 | 9.248 |
+| Minisforum x86-64 Linux, secure | 118.197 | 78.445 | 134.823 | 9.103 | 125.832 | 80.443 | 135.904 | 8.924 |
+
+Final direct-embedder p95 results:
+
+| host/profile | runtime + Host | bootstrap complete | first evaluation | ready total |
+|---|---:|---:|---:|---:|
+| macOS, insecure | 4.230 | 4.230 | 0.038 | 4.267 |
+| macOS, secure | 3.577 | 3.577 | 0.033 | 3.610 |
+| Linux, insecure | 5.147 | 5.147 | 0.054 | 5.197 |
+| Linux, secure | 4.988 | 4.988 | 0.052 | 5.039 |
+
+The macOS insecure run also rebuilt and measured the named pre-CapSec revision
+`3a0c1b6c91ff568169f6a03e611f226eb7e6b99b` on the same machine and toolchain:
+current/baseline p95 was 2.273× for trivial eval and 2.984× for trivial run,
+both within the precommitted 3× ceiling. The complete JSON reports retain the
+machine uname, revision, every distribution, budget, comparison, and failure
+list.
+
+The final attributable fixes were:
+
+- compile-time insecure mode no longer hashes the roughly 108 MB executable
+  for every module-producer identity when that build makes no binary
+  authentication claim; it uses the canonical transform-contract fingerprint.
+  Secure builds retain mapped-executable authentication.
+- build.rs emits the exact canonical registry-record bytes it already derives,
+  and runtime validates/pins those bytes instead of reparsing and
+  re-canonicalizing roughly 17 MB on every cold registry construction.
+- Linux Hermes source/prebuilt artifacts now publish the matching Hermes VM
+  CLI beside `hermesc`. `build.rs` can therefore prove compiler/runtime HBC
+  version 99 and precompile the core runtime bundle. Linux trace attribution
+  moved `shared_runtime_bundle` from roughly 60–100 ms of source evaluation to
+  2.5 ms of HBC loading; embedded constructor p95 moved from 71.12 ms to
+  5.15 ms without changing the 70 ms budget.
+- authenticated module graph preparation, linking, evaluation, registry
+  construction, engine creation, bundle evaluation, and readiness boundaries
+  now have distinct phase marks. One-shot insecure module-graph preparation
+  fell from roughly 270 ms to 27 ms after removing the executable rescan.
+
+The weekly/manual `.github/workflows/startup-performance.yml` matrix enforces
+all absolute budgets on macOS arm64 and Linux x86-64 for insecure and secure
+builds, performs the named baseline comparison for insecure builds, and
+retains each JSON report for 90 days. Baseline Hermes state is isolated from
+the current mutable source cache, and the Linux lane installs the complete
+native source-build prerequisites.
+
+Completion audit:
+
+| required outcome | evidence |
+|---|---|
+| reproducible cold/warm REPL, CLI, package, and embedded distributions | benchmark harness, fixtures, JSON schema/report, real PTY prompt observation, 5 + 40 measurement policy |
+| insecure and secure measurements on supported development platforms | four full enforced distributions above, all with empty failure lists |
+| attributable startup phases | launcher and native trace marks; targeted before/after traces above |
+| pre-regression comparison and budgets before optimization | budget-only commit `895552da`; named revision and same-host 2.273×/2.984× comparison |
+| compile-time-only insecure deviation; secure fail-closed behavior preserved | insecure identity test, secure build/checks, unchanged secure executable authentication, shared canonical-byte verification |
+| stable periodic regression gate | weekly/manual four-cell workflow with p95 enforcement and retained artifacts |
+
+The benchmark uncovered a separate secure-REPL lifecycle bug: after publishing
+a usable prompt, operator EOF is denied and exits status 1. Prompt measurement
+now terminates and reaps its PTY wrapper after the observed readiness boundary;
+the functional EOF defect remains tracked independently in
+`issues/20260726-secure-repl-operator-exit-denied.md`.
 
 ## Progress (2026-07-25)
 
@@ -147,9 +232,10 @@ identity and the fully verified engine identity. The full generated-artifact
 drift workflow, CapSec reviewed-range digests, environment inventory, contract,
 policies, both runtime bundles, and `ref-check` were refreshed and verified.
 
-The ticket remains open for its broader original scope: precommitted budgets,
-REPL/embedded/package-script benchmark harnesses, baseline comparison, and a CI
-regression gate.
+At the end of this pass, the broader original scope still required
+precommitted budgets, REPL/embedded/package-script benchmark harnesses, a
+baseline comparison, and a CI regression gate; the 2026-07-26 resolution above
+completed them.
 
 ## Progress (2026-07-24)
 
@@ -177,7 +263,6 @@ Two causes dominated, both fixed:
    533 ms, snapshot/protected-artifact hashing ~1 s, registry JSON handling
    ~2 s. Fixed with `[profile.dev.package.*]` opt overrides for `sha2`,
    `serde_json`, `ryu`, `itoa`, and `capsec-semantics` (Cargo.toml; release
-   builds unaffected).
 2. **The registry record was reconstructed every launch.** Arming re-parsed
    ~17 MB of embedded registry JSON and re-JCS-canonicalized it (450 ms even
    with optimized crates) only to byte-compare against the already-pinned
@@ -201,16 +286,12 @@ Notes against the original suspect list:
   startup takes the identical warm-pin and codegen improvements, and
   `scripts/check-secure-mode.sh` passes on the same tree.
 
-Remaining for this ticket: reproducible cold/warm benchmark harness for REPL
-first-prompt and embedded runtime creation, a pre-CapSec baseline comparison,
-precommitted budgets (author decision, per
+At that point, the remaining work was a reproducible cold/warm benchmark
+harness for REPL first-prompt and embedded runtime creation, a pre-CapSec
+baseline comparison, precommitted budgets (author decision, per
 issues/20260717-sfe-measured-budgets.md item 7 — budgets before measurement),
-and a CI regression gate that reports distributions.
-**Severity:** P1
-**Systems:** CLI Runtime, REPL, Embedded API, CapSec, Performance
-**Author:** Codex, directed by Charlie Cheever
-**Date:** 2026-07-24
-**Related:** LLP 0038; LLP 0039; ENG-24720; ENG-24643; issues/20260717-sfe-measured-budgets.md
+and a CI regression gate that reports distributions. The resolution above
+records their completion.
 
 ## Precommitted budgets (2026-07-26)
 
