@@ -153,7 +153,10 @@ cmake -S . -B "$BUILD_DIR" "${GENERATOR[@]}" \
     -DHERMES_BUILD_SHARED_JSI=OFF \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 
-cmake --build "$BUILD_DIR" --target hermesvm hermesvm_a hermesc -j"$NUM_CORES"
+# The VM CLI is a compatibility probe, not an alternate runtime selector:
+# build.rs compares its HBC version with hermesc before embedding bytecode.
+# @ref LLP 0005#bytecode-precompilation-hermesc — Linux publishes both halves of the compiler/runtime version proof
+cmake --build "$BUILD_DIR" --target hermesvm hermesvm_a hermesc hermes -j"$NUM_CORES"
 
 mkdir -p "$INSTALL_DIR/lib" "$INSTALL_DIR/bin" "$INSTALL_DIR/include"
 
@@ -183,6 +186,12 @@ if [[ -f "$BUILD_DIR/bin/hermesc" ]]; then
     cp "$BUILD_DIR/bin/hermesc" "$INSTALL_DIR/bin/"
 else
     echo "Could not find hermesc in $BUILD_DIR/bin"
+    exit 1
+fi
+if [[ -f "$BUILD_DIR/bin/hermes" ]]; then
+    cp "$BUILD_DIR/bin/hermes" "$INSTALL_DIR/bin/"
+else
+    echo "Could not find Hermes VM CLI in $BUILD_DIR/bin"
     exit 1
 fi
 
@@ -224,12 +233,14 @@ case "$ARCH" in
     *) HERMESC_ARCH="$ARCH" ;;
 esac
 cp -f "$INSTALL_DIR/bin/hermesc" "$TOOLS_DIR/hermesc-linux-$HERMESC_ARCH"
+cp -f "$INSTALL_DIR/bin/hermes" "$TOOLS_DIR/hermes-linux-$HERMESC_ARCH"
 
 echo ""
 echo "Installed Linux Hermes artifacts:"
 echo "  headers: $LINUX_HEADERS_DIR"
 echo "  libs:    $LINUX_LIB_DIR"
 echo "  hermesc: $TOOLS_DIR/hermesc-linux-$HERMESC_ARCH"
+echo "  hermes:  $TOOLS_DIR/hermes-linux-$HERMESC_ARCH"
 echo ""
 echo "Suggested env (optional):"
 echo "  export HERMES_INCLUDE_DIR=$LINUX_HEADERS_DIR"

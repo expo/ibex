@@ -53,7 +53,12 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libcurl4-openssl-dev pkg-config util-linux
+          sudo apt-get install -y \
+            libcurl4-openssl-dev \
+            libicu-dev \
+            ninja-build \
+            pkg-config \
+            util-linux
 
       - name: Install matching patched Hermes toolchain
         working-directory: current

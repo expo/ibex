@@ -9,7 +9,9 @@
 #   linux/lib/libhermesvm_a.a
 #   linux/lib/libjsi.a
 #   linux/lib/libboost_context.a
+#   linux/lib/hermes-profile-provenance.json
 #   tools/hermes/hermesc-linux-<arch>
+#   tools/hermes/hermes-linux-<arch>
 #
 # Usage:
 #   ./scripts/package-hermes-linux-artifact.sh
@@ -50,6 +52,7 @@ case "$ARCH_RAW" in
 esac
 
 HERMESC_PATH="$PROJECT_ROOT/tools/hermes/hermesc-linux-$ARCH"
+HERMES_PATH="$PROJECT_ROOT/tools/hermes/hermes-linux-$ARCH"
 HEADERS_DIR="$PROJECT_ROOT/linux/hermes-headers"
 LIB_DIR="$PROJECT_ROOT/linux/lib"
 CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/exact/hermes-linux"
@@ -75,13 +78,18 @@ if [[ ! -f "$HERMESC_PATH" ]]; then
   echo "Missing hermesc binary: $HERMESC_PATH" >&2
   exit 1
 fi
+if [[ ! -f "$HERMES_PATH" ]]; then
+  echo "Missing Hermes VM CLI: $HERMES_PATH" >&2
+  exit 1
+fi
 
 SHARED_LIB="$LIB_DIR/libhermesvm.so"
 STATIC_LIB="$LIB_DIR/libhermesvm_a.a"
 JSI_LIB="$LIB_DIR/libjsi.a"
 BOOST_CONTEXT_LIB="$LIB_DIR/libboost_context.a"
-if [[ ! -f "$SHARED_LIB" || ! -f "$STATIC_LIB" || ! -f "$JSI_LIB" || ! -f "$BOOST_CONTEXT_LIB" ]]; then
-  echo "Missing libhermesvm.so, libhermesvm_a.a, libjsi.a, or libboost_context.a in $LIB_DIR" >&2
+PROFILE_RECEIPT="$LIB_DIR/hermes-profile-provenance.json"
+if [[ ! -f "$SHARED_LIB" || ! -f "$STATIC_LIB" || ! -f "$JSI_LIB" || ! -f "$BOOST_CONTEXT_LIB" || ! -f "$PROFILE_RECEIPT" ]]; then
+  echo "Missing libhermesvm.so, libhermesvm_a.a, libjsi.a, libboost_context.a, or Hermes profile receipt in $LIB_DIR" >&2
   exit 1
 fi
 
@@ -91,9 +99,11 @@ PKG_DIR="$STAGE_DIR/$PACKAGE_NAME"
 
 mkdir -p "$PKG_DIR/lib" "$PKG_DIR/include" "$PKG_DIR/bin"
 cp -R "$HEADERS_DIR/"* "$PKG_DIR/include/"
-cp "$SHARED_LIB" "$STATIC_LIB" "$JSI_LIB" "$BOOST_CONTEXT_LIB" "$PKG_DIR/lib/"
+cp "$SHARED_LIB" "$STATIC_LIB" "$JSI_LIB" "$BOOST_CONTEXT_LIB" "$PROFILE_RECEIPT" "$PKG_DIR/lib/"
 cp "$HERMESC_PATH" "$PKG_DIR/bin/hermesc"
-chmod +x "$PKG_DIR/bin/hermesc"
+# @ref LLP 0005#bytecode-precompilation-hermesc — ship the independent runtime-side HBC version probe with hermesc
+cp "$HERMES_PATH" "$PKG_DIR/bin/hermes"
+chmod +x "$PKG_DIR/bin/hermesc" "$PKG_DIR/bin/hermes"
 
 HERMES_COMMIT="unknown"
 if [[ -d "$HERMES_SRC_DIR/.git" ]]; then

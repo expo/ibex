@@ -435,10 +435,12 @@ jobs:
           echo "install=$install" >> "$GITHUB_ENV"
           test -f "$install/include/jsi/jsi.h"
           test -x "$install/bin/hermesc"
+          test -x "$install/bin/hermes"
           test -f "$install/lib/libhermesvm.so"
           test -f "$install/lib/libhermesvm_a.a"
           test -f "$install/lib/libjsi.a"
           test -f "$install/lib/libboost_context.a"
+          test -f "$install/lib/hermes-profile-provenance.json"
           shared_symbols="$(nm -D "$install/lib/libhermesvm.so")"
           static_symbols="$(nm "$install/lib/libhermesvm_a.a" 2>/dev/null)"
           [[ "$shared_symbols" == *ex_hermes_vm_current_package_id* ]] \
@@ -446,7 +448,13 @@ jobs:
           [[ "$static_symbols" == *ex_hermes_vm_current_package_id* ]] \
             || { echo "::error::built static library lacks ex_hermes_vm_current_package_id (patch stack not applied?)"; exit 1; }
           "$install/bin/hermesc" --help >/dev/null
-          echo "Bundle verified: patched export present, hermesc runs."
+          "$install/bin/hermes" --help >/dev/null
+          # @ref LLP 0005#bytecode-precompilation-hermesc — publish only a compiler/runtime-compatible HBC tool pair
+          compiler_hbc="$("$install/bin/hermesc" -version 2>&1 | sed -n 's/.*HBC bytecode version: //p')"
+          runtime_hbc="$("$install/bin/hermes" -version 2>&1 | sed -n 's/.*HBC bytecode version: //p')"
+          test -n "$compiler_hbc"
+          test "$compiler_hbc" = "$runtime_hbc"
+          echo "Bundle verified: patched export present and compiler/runtime HBC versions match ($runtime_hbc)."
 
       - name: Install Rust toolchain
         run: scripts/install-rust-toolchain.sh

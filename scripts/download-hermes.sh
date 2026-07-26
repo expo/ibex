@@ -247,17 +247,28 @@ try_download_linux() (
 
     [[ -f "$tmp/unpack/include/jsi/jsi.h" ]] || { echo "[download] bundle missing include/jsi/jsi.h (empty headers?)" >&2; return 1; }
     [[ -x "$tmp/unpack/bin/hermesc" ]] || { echo "[download] bundle missing bin/hermesc" >&2; return 1; }
+    # @ref LLP 0005#bytecode-precompilation-hermesc — a compiler alone cannot prove the selected runtime accepts its HBC
+    [[ -x "$tmp/unpack/bin/hermes" ]] || { echo "[download] bundle missing bin/hermes" >&2; return 1; }
     shared_lib="$tmp/unpack/lib/libhermesvm.so"
     static_lib="$tmp/unpack/lib/libhermesvm_a.a"
     jsi_lib="$tmp/unpack/lib/libjsi.a"
     boost_context_lib="$tmp/unpack/lib/libboost_context.a"
+    profile_receipt="$tmp/unpack/lib/hermes-profile-provenance.json"
     [[ -f "$shared_lib" ]] || { echo "[download] bundle missing lib/libhermesvm.so" >&2; return 1; }
     [[ -f "$static_lib" ]] || { echo "[download] bundle missing lib/libhermesvm_a.a" >&2; return 1; }
     [[ -f "$jsi_lib" ]] || { echo "[download] bundle missing lib/libjsi.a" >&2; return 1; }
     [[ -f "$boost_context_lib" ]] || { echo "[download] bundle missing lib/libboost_context.a" >&2; return 1; }
+    [[ -f "$profile_receipt" ]] || { echo "[download] bundle missing lib/hermes-profile-provenance.json" >&2; return 1; }
+    ibex_hermes_profile_receipt_has_cache_key "$profile_receipt" "$cache_key" \
+        || { echo "[download] Linux bundle receipt does not bind source cache key $cache_key" >&2; return 1; }
     verify_frame_attribution_export "$shared_lib" "-D" || return 1
     verify_frame_attribution_export "$static_lib" "" || return 1
     "$tmp/unpack/bin/hermesc" --help >/dev/null 2>&1 || { echo "[download] bundled hermesc does not run on this host" >&2; return 1; }
+    "$tmp/unpack/bin/hermes" --help >/dev/null 2>&1 || { echo "[download] bundled Hermes VM CLI does not run on this host" >&2; return 1; }
+    compiler_hbc="$("$tmp/unpack/bin/hermesc" -version 2>&1 | sed -n 's/.*HBC bytecode version: //p')" || return 1
+    runtime_hbc="$("$tmp/unpack/bin/hermes" -version 2>&1 | sed -n 's/.*HBC bytecode version: //p')" || return 1
+    [[ -n "$compiler_hbc" && "$compiler_hbc" == "$runtime_hbc" ]] \
+        || { echo "[download] Linux bundle compiler/runtime HBC versions are missing or differ" >&2; return 1; }
 
     # Mirror build-hermes-linux.sh's install-into-repo step.
     headers_dir="$PROJECT_ROOT/linux/hermes-headers"
@@ -266,15 +277,17 @@ try_download_linux() (
     rm -rf "$headers_dir" || return 1
     mkdir -p "$headers_dir" "$lib_dir" "$tools_dir" || return 1
     cp -R "$tmp/unpack/include/"* "$headers_dir/" || return 1
-    cp -f "$shared_lib" "$static_lib" "$jsi_lib" "$boost_context_lib" "$lib_dir/" || return 1
+    cp -f "$shared_lib" "$static_lib" "$jsi_lib" "$boost_context_lib" "$profile_receipt" "$lib_dir/" || return 1
     cp -f "$tmp/unpack/bin/hermesc" "$tools_dir/hermesc-linux-$HOST_ARCH" || return 1
-    chmod +x "$tools_dir/hermesc-linux-$HOST_ARCH" || return 1
+    cp -f "$tmp/unpack/bin/hermes" "$tools_dir/hermes-linux-$HOST_ARCH" || return 1
+    chmod +x "$tools_dir/hermesc-linux-$HOST_ARCH" "$tools_dir/hermes-linux-$HOST_ARCH" || return 1
 
     echo ""
     echo "Installed prebuilt Linux Hermes artifacts:"
     echo "  headers: $headers_dir"
     echo "  libs:    $lib_dir/libhermesvm.so + libhermesvm_a.a + libjsi.a + libboost_context.a"
     echo "  hermesc: $tools_dir/hermesc-linux-$HOST_ARCH"
+    echo "  hermes:  $tools_dir/hermes-linux-$HOST_ARCH"
 )
 
 # LLP 0018: when the download path was attempted and the source build also
