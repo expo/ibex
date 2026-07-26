@@ -1176,6 +1176,9 @@ bool requestStructuredLifecycle(
     return false;
   }
 #if !defined(EXACT_HAVE_HERMES_ASYNC_TRIGGER_TIMEOUT)
+  (void)surface;
+  (void)requestedCode;
+  (void)hasRequestedCode;
   throw facebook::jsi::JSError(
       runtime,
       "The selected Hermes profile cannot provide fail-closed structured "

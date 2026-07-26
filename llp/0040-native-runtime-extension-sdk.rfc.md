@@ -530,7 +530,7 @@ It may type-check the Windows target, but it cannot execute or link a native
 host and cannot produce runtime, CapSec, extension, or platform-qualification
 evidence. A qualifying Windows native build must instead use the authenticated
 Ibex `windows-source-patched` Hermes profile and its provenance receipt.
-`build.rs` probes the selected `hermes.h` for
+`build.rs` probes the selected Hermes interface headers for
 `HermesRuntime::asyncTriggerTimeout`; when that capability is absent, an armed
 structured-lifecycle request throws before recording the request and the
 native structured-cancellation ABI returns `UNAVAILABLE`. There is no

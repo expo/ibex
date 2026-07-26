@@ -2143,6 +2143,11 @@ fn main() {
 
     let jsi_header = jsi_include_dir.join("jsi").join("jsi.h");
     let hermes_interfaces_header = jsi_include_dir.join("jsi").join("hermes-interfaces.h");
+    println!(
+        "cargo:rerun-if-changed={}",
+        hermes_interfaces_header.display()
+    );
+    let hermes_interfaces_header = jsi_include_dir.join("jsi").join("hermes-interfaces.h");
     let hermes_header = hermes_include_dir.join("hermes").join("hermes.h");
     let installed_runtime_config_header = hermes_include_dir
         .join("hermes")
@@ -2215,7 +2220,9 @@ fn main() {
     ) {
         build.define("EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK", None);
     }
-    if file_contains_all(&hermes_header, &["asyncTriggerTimeout("]) {
+    if file_contains_all(&hermes_interfaces_header, &["asyncTriggerTimeout("])
+        || file_contains_all(&hermes_header, &["asyncTriggerTimeout("])
+    {
         // The pinned source-patched profile exposes Hermes' any-thread
         // immediate break used by structured lifecycle/cancellation. Older
         // compile-only SDK headers do not; keep those builds fail-closed
