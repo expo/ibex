@@ -2003,9 +2003,9 @@ ticket closes.
 - Four scalar and four vector scenarios become executable on each exact
   target. Windows is now 23,499 required / 2,448 fully executable / 3,122
   internally verified / 17,929 unresolved with digest
-  `sha256-TVTCHgieqODqskNM6gJE3fP_pPmZMgWm6FUJSRE31Wg`. Apple is 23,840 /
+  `sha256-x0r2Bx29pHVJLyj2SM20gT5K4hg2JQik1xR5kiWbMnw`. Apple is 23,840 /
   2,791 / 3,136 / 17,913 with digest
-  `sha256-cLdrtBVpSCzVbV30d8N61SHMgE5llN4NflhHLY53StA`. The recipe suite passes
+  `sha256-oh8YVBIFBwqNizBwNfUy8WwvRUl2hbGUGXfLLUp9BdU`. The recipe suite passes
   93 tests with 110,661 assertions; descriptor denial remains honestly
   residual because its denied floor cannot construct the prerequisite source
   descriptor.
@@ -2020,6 +2020,49 @@ ticket closes.
   allocate or mutate caller-sized outputs before that decision. Important
   enforcement mechanisms remain about **99% complete** and the overall
   requested task remains about **92% complete**.
+
+### 2026-07-26 — integrated lockdown override repair and refreshed evaluator evidence
+
+- `main` advanced while this slice was in flight with the error-prototype
+  override repair and its LLP 0013 update. The 62-commit branch rebased cleanly
+  onto `143e0191`, but generated drift then failed closed at
+  `native-op:global:AsyncFunction`: changing the checked-in lockdown script
+  changed the source-derived taming identity even though the reachable
+  evaluator set and engine profiles did not change.
+- Reviewed the incoming error-family-only moderate override behavior against
+  LLP 0013. It converts the selected error prototype data properties into
+  frozen accessor pairs whose setters shadow only on a receiver, refuses
+  mutation of the frozen prototypes themselves, and freezes displaced
+  nonprimitive roots. It does not reopen `eval`, `Function`,
+  `AsyncFunction`, or `GeneratorFunction`.
+- Refreshed the production classifier, exported inventory identity, and model
+  fixture together. The taming digest is now
+  `sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c`;
+  the reviewed evaluator identity is
+  `hermes-evaluators.660d8c65933319225949b3f4d64dbc9bf16b8d5ad7dfda37b2b9e4e0e9034eb2`.
+  Targeted inventory and semantic-classifier tests prove both the accepted
+  identity and deliberate drift rejection.
+- Regenerated the 7,651-edge / 15,302-cell registry, 168-row runtime
+  inventory, 225-site host-task inventory, contract, policies, dispositions,
+  and vendored artifacts. Full drift, formatting, diff hygiene, `ref-check`,
+  the 93-test / 110,661-assertion recipe suite, and the 37-test /
+  425-assertion JS suite pass locally.
+- Exact-target counts remain unchanged. The identity-bound catalogs now have
+  Apple digest `sha256-oh8YVBIFBwqNizBwNfUy8WwvRUl2hbGUGXfLLUp9BdU` and
+  Windows digest `sha256-x0r2Bx29pHVJLyj2SM20gT5K4hg2JQik1xR5kiWbMnw`.
+- The M4 verifier independently regenerates the policies, registry, contract,
+  and vendored outputs, then passes drift, `ref-check`, the JS suite, the
+  worker-bound async descriptor observer, and the incoming lockdown
+  regression under strict stale-vendored enforcement. Checksum comparison
+  across the tracked tree reports 299 timestamp-only entries and no content
+  differences. Physical Windows contains zero `._*` sidecars and passes both
+  native regressions with `IBEX_FAIL_ON_STALE_VENDORED=1`.
+- Hard part: a source-derived evaluator review binds all code in the lockdown
+  taming blob, not only syntax that directly names an evaluator. A safe,
+  unrelated-looking prototype repair must therefore invalidate the old
+  evaluator review and be semantically re-reviewed rather than mechanically
+  copying its pin. Important enforcement mechanisms remain about **99%
+  complete** and the overall requested task remains about **92% complete**.
 
 ## Next milestone
 

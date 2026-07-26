@@ -1448,9 +1448,18 @@ recipes remain under the more exact
 `native-public-operation-not-installed-on-target` build-source boundary. The
 Windows catalog is 23,499 required / 2,448 fully executable / 3,122 internally
 verified / 17,929 unresolved with digest
-`sha256-TVTCHgieqODqskNM6gJE3fP_pPmZMgWm6FUJSRE31Wg`. Apple remains
+`sha256-x0r2Bx29pHVJLyj2SM20gT5K4hg2JQik1xR5kiWbMnw`. Apple remains
 independently shaped at 23,840 / 2,791 / 3,136 / 17,913 with digest
-`sha256-cLdrtBVpSCzVbV30d8N61SHMgE5llN4NflhHLY53StA`.
+`sha256-oh8YVBIFBwqNizBwNfUy8WwvRUl2hbGUGXfLLUp9BdU`.
+
+Integrating the lockdown error-prototype override repair changed the
+source-derived taming digest to
+`sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c`
+and the reviewed evaluator identity to
+`hermes-evaluators.660d8c65933319225949b3f4d64dbc9bf16b8d5ad7dfda37b2b9e4e0e9034eb2`.
+The reachable evaluator family and all three reviewed engine profiles remain
+unchanged. The exact-target recipe counts therefore stay fixed, while their
+digests above change because each catalog binds the reviewed engine identity.
 
 The Windows TCP globals likewise still call the legacy string capability oracle
 rather than the typed network adapter used by the Apple implementation. The
