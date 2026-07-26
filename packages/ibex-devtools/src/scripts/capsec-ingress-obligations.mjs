@@ -876,7 +876,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-vfs-read",
       "    pub(crate) fn read_authenticated<F>(",
       "    #[cfg(unix)]\n    /// Walk one link at a time",
-      "sha256-doGdub7OW_8PPeTrNMre1Y01GwomQf1aA690WdXueJA",
+      "sha256-Ezbs1O6y8dNxd3T_voZtMHKhR12lGGDG2-IMLH7q9FA",
     ),
   ]),
 });

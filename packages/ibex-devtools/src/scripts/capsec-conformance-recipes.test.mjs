@@ -446,9 +446,9 @@ describe("exact-target CapSec executable recipes", () => {
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_392);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_397);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_981);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_976);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -513,7 +513,7 @@ describe("exact-target CapSec executable recipes", () => {
     // The callable Windows filesystem surface remains untyped where it still
     // uses the legacy path oracle. POSIX-only globals instead receive one
     // exact absence fixture and are not counted as ambiguous Windows routes.
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(172);
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(167);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
@@ -555,6 +555,24 @@ describe("exact-target CapSec executable recipes", () => {
     expect(typedWindowsStats).toHaveLength(5);
     expect(
       typedWindowsStats.map((recipe) => [
+        recipe.scenario,
+        recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
+        recipe.publicSurfaceProbe.invocation.expectedTypedStages,
+      ]),
+    ).toEqual([
+      ["allow", 3, ["requested", "discovery", "repeat"]],
+      ["deny", 1, ["requested"]],
+      ["malformed", 3, ["requested", "discovery", "repeat"]],
+      ["missing-attribution", 3, ["requested", "discovery", "repeat"]],
+      ["wrong-principal", 3, ["requested", "discovery", "repeat"]],
+    ]);
+    const typedWindowsLstats = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactLstat",
+    );
+    expect(typedWindowsLstats).toHaveLength(5);
+    expect(
+      typedWindowsLstats.map((recipe) => [
         recipe.scenario,
         recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
         recipe.publicSurfaceProbe.invocation.expectedTypedStages,

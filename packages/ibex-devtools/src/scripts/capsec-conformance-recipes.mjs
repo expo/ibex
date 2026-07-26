@@ -1077,6 +1077,32 @@ const nativeProjectStatTemplate = () =>
       },
     },
   });
+const nativeProjectLstatTemplate = () =>
+  Object.freeze({
+    ...nativeProjectMetadataTemplate(),
+    // Windows uses the cross-platform no-follow retained-object lifecycle.
+    // The authenticated mount remains structural session state, and metadata
+    // disclosure repeats authority immediately before serialization.
+    // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+    expectedDecisionCountsByTarget: {
+      "x86_64-pc-windows-msvc": {
+        allow: 3,
+        deny: 1,
+        malformed: 3,
+        "missing-attribution": 3,
+        "wrong-principal": 3,
+      },
+    },
+    expectedStagesByTarget: {
+      "x86_64-pc-windows-msvc": {
+        allow: ["requested", "discovery", "repeat"],
+        deny: ["requested"],
+        malformed: ["requested", "discovery", "repeat"],
+        "missing-attribution": ["requested", "discovery", "repeat"],
+        "wrong-principal": ["requested", "discovery", "repeat"],
+      },
+    },
+  });
 const nativeProjectStatfsTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
@@ -2258,7 +2284,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["__exactGetTotalMem", nativeSystemInfoTemplate("memory")],
   ["__exactGetUptime", nativeSystemInfoTemplate("uptime")],
   ["__exactGetUserInfo", nativeSystemInfoTemplate("user")],
-  ["__exactLstat", nativeProjectMetadataTemplate()],
+  ["__exactLstat", nativeProjectLstatTemplate()],
   ["__exactReadFile", nativeProjectReadFileTemplate()],
   [
     "__exactRealpath",
@@ -4014,10 +4040,10 @@ function unsupportedWindowsTypedPublicEffectReason({
   ) {
     return null;
   }
-  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Synchronous whole-file read and stat are the completed exceptions.
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Synchronous whole-file read, stat, and lstat are the completed exceptions.
   if (plan.actionIds.some((actionId) => actionId.startsWith("fs:"))) {
     if (
-      ["__exactReadFile", "__exactStat"].includes(
+      ["__exactLstat", "__exactReadFile", "__exactStat"].includes(
         publicSurfaceProbe?.invocation?.globalName,
       )
     ) {

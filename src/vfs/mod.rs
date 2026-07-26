@@ -2282,6 +2282,7 @@ impl CommittedPath {
 
 #[derive(Clone, Copy)]
 enum RetainedFinalAccess {
+    LinkMetadata,
     Metadata,
     Readable,
 }
@@ -2853,7 +2854,7 @@ impl VirtualFileSystem {
 
         #[cfg(any(unix, windows))]
         let (discovered, _traversal_decisions) =
-            self.discover_contained(namespace, &mut authorize)?;
+            self.discover_contained(namespace, &mut authorize, true)?;
 
         #[cfg(any(unix, windows))]
         let _discovery = authorize(ReadAuthorization::Discovery(&discovered))?;
@@ -2939,16 +2940,43 @@ impl VirtualFileSystem {
     pub(crate) fn stat_authenticated<F>(
         &self,
         namespace: NamespacePath,
-        mut authorize: F,
+        authorize: F,
     ) -> Result<AuthenticatedStat, VfsError>
     where
         F: for<'a> FnMut(RetainedPathAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
     {
-        const OPERATION: &str = "stat";
-        self.ensure_path_session(&namespace, OPERATION)?;
+        self.retained_metadata_authenticated(namespace, authorize, true, "stat")
+    }
+
+    /// Return metadata for the retained final link object without following
+    /// it. Ancestor links still use the bounded contained-transition protocol.
+    /// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+    /// @ref LLP 0023#21-staged-authorization-identity
+    pub(crate) fn lstat_authenticated<F>(
+        &self,
+        namespace: NamespacePath,
+        authorize: F,
+    ) -> Result<AuthenticatedStat, VfsError>
+    where
+        F: for<'a> FnMut(RetainedPathAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
+    {
+        self.retained_metadata_authenticated(namespace, authorize, false, "lstat")
+    }
+
+    fn retained_metadata_authenticated<F>(
+        &self,
+        namespace: NamespacePath,
+        mut authorize: F,
+        follow_final: bool,
+        operation: &'static str,
+    ) -> Result<AuthenticatedStat, VfsError>
+    where
+        F: for<'a> FnMut(RetainedPathAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
+    {
+        self.ensure_path_session(&namespace, operation)?;
         if namespace.is_synthetic_root() {
             return Err(VfsError::synthetic_node(
-                OPERATION,
+                operation,
                 namespace.virtual_path.clone(),
             ));
         }
@@ -2956,11 +2984,11 @@ impl VirtualFileSystem {
 
         if namespace.virtual_components.len() == 1 {
             let retained =
-                self.open_authenticated_project_root(OPERATION, namespace.virtual_path.clone())?;
+                self.open_authenticated_project_root(operation, namespace.virtual_path.clone())?;
             let object = object_identity_for_retained_file(&retained)
-                .map_err(|_| VfsError::stale_identity(OPERATION, namespace.virtual_path.clone()))?;
+                .map_err(|_| VfsError::stale_identity(operation, namespace.virtual_path.clone()))?;
             let retained_handle_id =
-                next_vfs_identity(OPERATION, Some(namespace.virtual_path.clone()))?;
+                next_vfs_identity(operation, Some(namespace.virtual_path.clone()))?;
             let _discovery = authorize(RetainedPathAuthorization::discovery(
                 &namespace,
                 None,
@@ -2974,11 +3002,11 @@ impl VirtualFileSystem {
                 retained_handle_id,
             ))?;
             let metadata = retained.metadata().map_err(|error| {
-                VfsError::host(OPERATION, namespace.virtual_path.clone(), &error)
+                VfsError::host(operation, namespace.virtual_path.clone(), &error)
             })?;
             if object_identity_for_retained_file(&retained).ok().as_ref() != Some(&object) {
                 return Err(VfsError::stale_identity(
-                    OPERATION,
+                    operation,
                     namespace.virtual_path.clone(),
                 ));
             }
@@ -2986,10 +3014,11 @@ impl VirtualFileSystem {
         }
 
         #[cfg(any(unix, windows))]
-        let (discovered, _traversal_decisions) = self
-            .discover_contained(namespace, &mut |authorization| {
-                authorize(RetainedPathAuthorization::from_read(&authorization))
-            })?;
+        let (discovered, _traversal_decisions) = self.discover_contained(
+            namespace,
+            &mut |authorization| authorize(RetainedPathAuthorization::from_read(&authorization)),
+            follow_final,
+        )?;
 
         #[cfg(any(unix, windows))]
         let _discovery = authorize(RetainedPathAuthorization::from_read(
@@ -2997,13 +3026,17 @@ impl VirtualFileSystem {
         ))?;
 
         #[cfg(any(unix, windows))]
-        let committed = self.commit_metadata_no_follow(discovered)?;
+        let committed = if follow_final {
+            self.commit_metadata_no_follow(discovered)?
+        } else {
+            self.commit_link_metadata_no_follow(discovered)?
+        };
 
         #[cfg(not(any(unix, windows)))]
         {
             let _ = authorize;
             return Err(VfsError::host_code(
-                OPERATION,
+                operation,
                 namespace.virtual_path.clone(),
                 "ERR_IBEX_UNSUPPORTED_TARGET",
             ));
@@ -3016,18 +3049,18 @@ impl VirtualFileSystem {
             ))?;
             let metadata = committed.retained_final.metadata().map_err(|error| {
                 VfsError::host(
-                    OPERATION,
+                    operation,
                     committed.namespace().virtual_path.clone(),
                     &error,
                 )
             })?;
             let final_object = object_identity_for_retained_file(&committed.retained_final)
                 .map_err(|_| {
-                    VfsError::stale_identity(OPERATION, committed.namespace().virtual_path.clone())
+                    VfsError::stale_identity(operation, committed.namespace().virtual_path.clone())
                 })?;
             if final_object != committed.final_object {
                 return Err(VfsError::stale_identity(
-                    OPERATION,
+                    operation,
                     committed.namespace().virtual_path.clone(),
                 ));
             }
@@ -3071,7 +3104,7 @@ impl VirtualFileSystem {
 
         #[cfg(any(unix, windows))]
         let (discovered, traversal_decisions) =
-            self.discover_contained(namespace, &mut authorize)?;
+            self.discover_contained(namespace, &mut authorize, true)?;
 
         #[cfg(any(unix, windows))]
         let discovery = authorize(ReadAuthorization::Discovery(&discovered))?;
@@ -3233,6 +3266,7 @@ impl VirtualFileSystem {
         &self,
         namespace: NamespacePath,
         authorize: &mut F,
+        follow_final: bool,
     ) -> Result<(DiscoveredPath, Vec<Digest>), VfsError>
     where
         F: for<'a> FnMut(ReadAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
@@ -3308,6 +3342,9 @@ impl VirtualFileSystem {
                     existence: ExistenceWitness::Present(witnessed_object.clone()),
                     retained_parent: current,
                 };
+                if pending.is_empty() && !follow_final {
+                    return Ok((link, traversal_decisions));
+                }
                 let receipt = authorize(ReadAuthorization::Discovery(&link))?;
                 traversal_decisions.push(receipt.evidence_digest);
                 symlink_count += 1;
@@ -3445,6 +3482,7 @@ impl VirtualFileSystem {
         &self,
         namespace: NamespacePath,
         authorize: &mut F,
+        follow_final: bool,
     ) -> Result<(DiscoveredPath, Vec<Digest>), VfsError>
     where
         F: for<'a> FnMut(ReadAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
@@ -3521,6 +3559,9 @@ impl VirtualFileSystem {
                     existence: ExistenceWitness::Present(witnessed_object),
                     retained_parent: current,
                 };
+                if pending.is_empty() && !follow_final {
+                    return Ok((link, traversal_decisions));
+                }
                 let receipt = authorize(ReadAuthorization::Discovery(&link))?;
                 traversal_decisions.push(receipt.evidence_digest);
                 reparse_count += 1;
@@ -3663,6 +3704,14 @@ impl VirtualFileSystem {
         self.commit_no_follow_with_access(discovered, RetainedFinalAccess::Metadata)
     }
 
+    #[cfg(any(unix, windows))]
+    fn commit_link_metadata_no_follow(
+        &self,
+        discovered: DiscoveredPath,
+    ) -> Result<CommittedPath, VfsError> {
+        self.commit_no_follow_with_access(discovered, RetainedFinalAccess::LinkMetadata)
+    }
+
     #[cfg(unix)]
     fn commit_no_follow_with_access(
         &self,
@@ -3684,6 +3733,24 @@ impl VirtualFileSystem {
         let flags = match access {
             RetainedFinalAccess::Readable => {
                 libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK
+            }
+            RetainedFinalAccess::LinkMetadata => {
+                #[cfg(target_vendor = "apple")]
+                {
+                    libc::O_RDONLY | libc::O_SYMLINK | libc::O_CLOEXEC | libc::O_NONBLOCK
+                }
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                {
+                    libc::O_PATH | libc::O_CLOEXEC | libc::O_NOFOLLOW
+                }
+                #[cfg(not(any(
+                    target_vendor = "apple",
+                    target_os = "linux",
+                    target_os = "android"
+                )))]
+                {
+                    libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK
+                }
             }
             RetainedFinalAccess::Metadata => {
                 #[cfg(target_vendor = "apple")]
@@ -3776,7 +3843,9 @@ impl VirtualFileSystem {
             &discovered.retained_parent,
             &discovered.basename,
             match access {
-                RetainedFinalAccess::Metadata => WindowsRelativeOpen::Metadata,
+                RetainedFinalAccess::LinkMetadata | RetainedFinalAccess::Metadata => {
+                    WindowsRelativeOpen::Metadata
+                }
                 RetainedFinalAccess::Readable => WindowsRelativeOpen::Readable,
             },
         )
@@ -3801,7 +3870,8 @@ impl VirtualFileSystem {
             VfsError::stale_identity(OPERATION, discovered.namespace.virtual_path.clone())
         })?;
         if &final_object != witnessed_object
-            || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            || (metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+                && !matches!(access, RetainedFinalAccess::LinkMetadata))
         {
             return Err(VfsError::stale_identity(
                 OPERATION,
@@ -6806,6 +6876,90 @@ mod tests {
         assert_eq!(error.reason(), VfsReason::StaleIdentity);
         assert_eq!(stages, [Stage::Requested, Stage::Discovery]);
         assert!(!error.to_string().contains(temp.path().to_str().unwrap()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_lstat_retains_the_final_reparse_object_without_following_it() {
+        use capsec_semantics::model::Stage;
+        use std::os::windows::fs::{symlink_file, MetadataExt as _};
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("target.js"), b"target").unwrap();
+        symlink_file("target.js", temp.path().join("alias.js")).unwrap();
+        let vfs = test_vfs(temp.path());
+        let path = vfs.resolve_root_bytes(b"/project/alias.js", None).unwrap();
+        let mut stages = Vec::new();
+        let stat = vfs
+            .lstat_authenticated(path, |authorization| {
+                stages.push(authorization.stage());
+                Ok(receipt(format!("{:?}", authorization.stage()).as_bytes()))
+            })
+            .unwrap();
+
+        assert_ne!(
+            stat.into_metadata().file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT,
+            0
+        );
+        assert_eq!(stages, [Stage::Requested, Stage::Discovery, Stage::Repeat]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_lstat_link_replacement_between_discovery_and_repeat_is_stale() {
+        use capsec_semantics::model::Stage;
+        use std::os::windows::fs::symlink_file;
+
+        let temp = tempfile::tempdir().unwrap();
+        let live = temp.path().join("alias.js");
+        let old = temp.path().join("old-alias.js");
+        let replacement = temp.path().join("replacement.js");
+        fs::write(temp.path().join("target.js"), b"target").unwrap();
+        symlink_file("target.js", &live).unwrap();
+        fs::write(&replacement, b"attacker").unwrap();
+        let vfs = test_vfs(temp.path());
+        let path = vfs.resolve_root_bytes(b"/project/alias.js", None).unwrap();
+        let mut stages = Vec::new();
+        let error = vfs
+            .lstat_authenticated(path, |authorization| {
+                stages.push(authorization.stage());
+                if authorization.stage() == Stage::Discovery {
+                    fs::rename(&live, &old).unwrap();
+                    fs::rename(&replacement, &live).unwrap();
+                }
+                Ok(receipt(format!("{:?}", authorization.stage()).as_bytes()))
+            })
+            .unwrap_err();
+        assert_eq!(error.reason(), VfsReason::StaleIdentity);
+        assert_eq!(stages, [Stage::Requested, Stage::Discovery]);
+        assert!(!error.to_string().contains(temp.path().to_str().unwrap()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_lstat_retains_the_final_link_object_without_following_it() {
+        use capsec_semantics::model::Stage;
+        use std::os::unix::fs::{symlink, MetadataExt as _};
+
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("target.js"), b"target").unwrap();
+        symlink("target.js", temp.path().join("alias.js")).unwrap();
+        let vfs = test_vfs(temp.path());
+        let path = vfs.resolve_root_bytes(b"/project/alias.js", None).unwrap();
+        let mut stages = Vec::new();
+        let stat = vfs
+            .lstat_authenticated(path, |authorization| {
+                stages.push(authorization.stage());
+                Ok(receipt(format!("{:?}", authorization.stage()).as_bytes()))
+            })
+            .unwrap();
+
+        assert_eq!(
+            stat.into_metadata().mode() & u32::from(libc::S_IFMT),
+            u32::from(libc::S_IFLNK)
+        );
+        assert_eq!(stages, [Stage::Requested, Stage::Discovery, Stage::Repeat]);
     }
 
     #[cfg(unix)]

@@ -5,7 +5,8 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
-**Revised:** 2026-07-25 (armed Windows `__exactStat` is the second installed filesystem effect moved to the retained-object VFS: file and authenticated mount-root metadata authorize requested/discovery/repeat `fs:list`, serialize only after repeat, and never fall back to pathname stat; five exact-target recipes are now executable while lstat, enumeration, descriptors, mutations, and async routes remain residual)
+**Revised:** 2026-07-25 (armed Windows `__exactLstat` retains the final reparse object without following it, authorizes requested/discovery/repeat `fs:list` with `no-follow-final`, and never falls back to pathname lstat; physical replacement-race and public denial tests pass, five exact-target recipes are executable, and enumeration/descriptors/mutations/async routes remain residual)
+**Revised:** 2026-07-25 (armed Windows `__exactStat` is the second installed filesystem effect moved to the retained-object VFS: file and authenticated mount-root metadata authorize requested/discovery/repeat `fs:list`, serialize only after repeat, and never fall back to pathname stat; five exact-target recipes are now executable while enumeration, descriptors, mutations, and async routes remain residual)
 **Revised:** 2026-07-25 (armed Windows `__exactReadFile` is the first installed filesystem effect moved from the legacy pathname oracle to the runtime VFS retained-object state machine: frame-derived constrained principals authorize requested/discovery `fs:list` and commit/repeat `fs:read`, denial never falls back, and five exact-target recipes are now executable; async reads and all other installed Windows filesystem effects remain residual)
 **Revised:** 2026-07-25 (Windows retained relative opens stage long and short directory-entry names plus 128-bit file identity, refuse selection through any 8.3 name, withhold delete sharing, and repeat/object-match the entry; physical custom-short-name and entry-replacement fixtures close the arbitrary 8.3 alias gap, leaving the typed installed filesystem backend and incomplete exact-target evidence as the Windows promotion blockers)
 **Revised:** 2026-07-25 (Windows binds ASCII case-folding into selector and occurrence identity, uses the same key for resolver manifests/absences/denied subtrees, refuses non-ASCII and tilde components, and refuses case-sensitive traversal directories while preserving lexical SourceId and distinct hard links; arbitrary administrator-assigned 8.3 aliases, the installed native filesystem effect backend, and incomplete exact-target evidence keep Windows unadvertised)
@@ -1305,8 +1306,9 @@ watch, recursive, or removal entry points described above. Windows preserves
 distinct errno values and implements recursive-mkdir results, exclusive copy,
 truncate, utimes, and statfs through the portable host ABI.
 
-Armed Windows `__exactReadFile` and `__exactStat` are the first two installed
-Windows filesystem effects to leave the legacy path oracle. Their private
+Armed Windows `__exactReadFile`, `__exactStat`, and `__exactLstat` are the
+first three installed Windows filesystem effects to leave the legacy path
+oracle. Their private
 native bridges derive the runtime generation, actor, and canonical
 constrained-principal stack from engine provenance, resolve only virtual
 syntax, and delegate to the cross-platform `RuntimeVfsSession` retained-object
@@ -1316,27 +1318,31 @@ VFS bounded whole-file input limit. Stat opens the selected object for metadata
 only and emits requested/discovery/repeat `fs:list`; the list lifecycle has no
 Commit observation, and Repeat runs immediately before Node-shaped metadata
 serialization. Stat also handles the authenticated mount root without
-inventing a namespace parent. Unlike the POSIX adapter's additional root-walk
+inventing a namespace parent. Lstat uses the same three-stage list lifecycle
+with `no-follow-final`, stops traversal at a final reparse object, reopens that
+object relative to its retained parent for metadata only, and object-matches it
+before Repeat and disclosure. Unlike the POSIX adapter's additional root-walk
 observations, the retained authenticated mount handle is structural session
 state on these routes, so no synthetic observations are claimed. Refused or
 malformed typed calls return the VFS error and never fall through to
-`exactResolveVfsPath`, `requireReadCapability`, `ex_host_fs_read_file`, or
-`ex_host_fs_stat`.
+`exactResolveVfsPath`, `requireReadCapability`, `ex_host_fs_read_file`,
+`ex_host_fs_stat`, or `ex_host_fs_lstat`.
 
 This is a bounded slice, not Windows filesystem promotion. The worker-backed
 `__exactFsReadFileAsync` route remains legacy: a single pre-worker repeat would
 not satisfy the required generation/revocation recheck between observable
-chunks. Descriptor operations, lstat, enumeration, mutation, and the other
+chunks. Descriptor operations, enumeration, mutation, and the other
 installed Windows filesystem routes also remain residual until their own
 retained-object contracts are implemented. Exact-target recipe generation now
-schedules the five `__exactReadFile` and five `__exactStat` scenarios on
-Windows and continues to classify the remaining 172 callable filesystem
+schedules the five `__exactReadFile`, five `__exactStat`, and five
+`__exactLstat` scenarios on Windows and continues to classify the remaining
+167 callable filesystem
 recipes under
 `public-surface-filesystem-not-typed-on-target`; five `__exactAppendFile`
 recipes remain under the more exact
 `native-public-operation-not-installed-on-target` build-source boundary. The
-Windows catalog is 23,495 required / 2,392 fully executable / 3,122 internally
-verified / 17,981 unresolved. Apple retains its independently shaped typed
+Windows catalog is 23,495 required / 2,397 fully executable / 3,122 internally
+verified / 17,976 unresolved. Apple retains its independently shaped typed
 recipes.
 
 The Windows TCP globals likewise still call the legacy string capability oracle

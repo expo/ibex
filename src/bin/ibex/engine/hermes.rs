@@ -21121,6 +21121,124 @@ navigator.gpu.requestAdapter()
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(all(windows, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_windows_public_lstat_retains_the_final_reparse_object() {
+        use capsec_semantics::model::{FollowMode, Stage};
+        use std::os::windows::fs::symlink_file;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-windows-typed-lstat-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        std::fs::write(root.join("target.txt"), b"retained-lstat-target").unwrap();
+        symlink_file("target.txt", root.join("alias.txt")).unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, false, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactlstat.retained"
+        ));
+        let outcome = engine
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  var stat = JSON.parse(__exactLstat('/project/alias.txt', null));
+                  return String(stat.is_symlink) + ':' + String(stat.is_file);
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("true:false"));
+
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            legacy.is_empty(),
+            "armed Windows lstat crossed the legacy capability oracle"
+        );
+        assert_eq!(
+            typed
+                .iter()
+                .map(|row| row.decision_set.context.stage)
+                .collect::<Vec<_>>(),
+            vec![Stage::Requested, Stage::Discovery, Stage::Repeat]
+        );
+        assert!(typed.iter().all(|row| matches!(
+            &row.decision_set.effects[0].resource,
+            capsec_semantics::model::OccurrenceResource::PathOccurrence {
+                follow_mode: FollowMode::NoFollowFinal,
+                ..
+            }
+        )));
+        assert!(typed.iter().all(|row| {
+            row.gates.iter().all(|gate| {
+                gate.coverage_edge_id.as_str() == "surface.native.op.exactlstat.1c98s6l"
+            })
+        }));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(all(windows, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_windows_public_lstat_denies_before_lookup_without_legacy_fallback() {
+        use capsec_semantics::model::Stage;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-windows-typed-lstat-deny-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let target = root.join("target.txt");
+        std::fs::write(&target, b"lstat-metadata-must-remain-hidden").unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, true, false, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactlstat.denied"
+        ));
+        let outcome = engine
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  try { __exactLstat('/project/target.txt', null); }
+                  catch (error) { return String(error.code); }
+                  return 'unexpected-success';
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("EACCES"));
+
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            legacy.is_empty(),
+            "denied armed Windows lstat consulted the legacy capability oracle"
+        );
+        assert_eq!(typed.len(), 1);
+        assert_eq!(typed[0].decision_set.context.stage, Stage::Requested);
+        assert_eq!(typed[0].decision_set.effects[0].action.as_str(), "fs:list");
+        assert_eq!(
+            std::fs::read(&target).unwrap(),
+            b"lstat-metadata-must-remain-hidden"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_read_stops_after_dynamic_authority_is_revoked_mid_stream() {

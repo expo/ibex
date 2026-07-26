@@ -2594,28 +2594,125 @@ pub(crate) unsafe extern "C" fn private_vfs_stat_typed(
     out_len: *mut u64,
     out_errno: *mut i32,
 ) -> u32 {
+    unsafe {
+        private_vfs_metadata_typed(
+            TypedVfsMetadataKind::Stat,
+            runtime_nonce,
+            module_id,
+            module_ids,
+            module_ids_len,
+            input,
+            input_len,
+            presented_handle_id,
+            presented_handle_id_len,
+            out_json,
+            out_len,
+            out_errno,
+        )
+    }
+}
+
+/// Private retained-object lstat counterpart to
+/// [`private_vfs_stat_typed`]. The final link object is never followed.
+///
+/// # Safety
+///
+/// The pointer requirements are identical to [`private_vfs_stat_typed`].
+#[export_name = "ibex_private_vfs_lstat_typed"]
+pub(crate) unsafe extern "C" fn private_vfs_lstat_typed(
+    runtime_nonce: u64,
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    input: *const u8,
+    input_len: u64,
+    presented_handle_id: *const u8,
+    presented_handle_id_len: u64,
+    out_json: *mut *mut u8,
+    out_len: *mut u64,
+    out_errno: *mut i32,
+) -> u32 {
+    unsafe {
+        private_vfs_metadata_typed(
+            TypedVfsMetadataKind::Lstat,
+            runtime_nonce,
+            module_id,
+            module_ids,
+            module_ids_len,
+            input,
+            input_len,
+            presented_handle_id,
+            presented_handle_id_len,
+            out_json,
+            out_len,
+            out_errno,
+        )
+    }
+}
+
+#[derive(Clone, Copy)]
+enum TypedVfsMetadataKind {
+    Lstat,
+    Stat,
+}
+
+unsafe fn private_vfs_metadata_typed(
+    kind: TypedVfsMetadataKind,
+    runtime_nonce: u64,
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    input: *const u8,
+    input_len: u64,
+    presented_handle_id: *const u8,
+    presented_handle_id_len: u64,
+    out_json: *mut *mut u8,
+    out_len: *mut u64,
+    out_errno: *mut i32,
+) -> u32 {
     use capsec_semantics::decision::DecisionOutcome;
     use capsec_semantics::model::{FollowMode, NonEmptyString};
 
+    let (operation, operation_key, coverage_edge, follow_mode) = match kind {
+        TypedVfsMetadataKind::Lstat => (
+            "lstat",
+            "fs-lstat",
+            "surface.native.op.exactlstat.1c98s6l",
+            FollowMode::NoFollowFinal,
+        ),
+        TypedVfsMetadataKind::Stat => (
+            "stat",
+            "fs-stat",
+            "surface.native.op.exactstat.1432ztv",
+            FollowMode::FollowFinal,
+        ),
+    };
     if !out_errno.is_null() {
         unsafe { *out_errno = 0 };
     }
     if let Err(error) = unsafe { initialize_vfs_output(out_json, out_len) } {
         return vfs_error_result(&error, out_errno);
     }
-    let session = match runtime_vfs_session(runtime_nonce, "stat") {
+    let session = match runtime_vfs_session(runtime_nonce, operation) {
         Ok(session) => session,
         Err(error) => return vfs_error_result(&error, out_errno),
     };
     if module_ids.is_null() || module_ids_len == 0 || module_ids_len > 257 {
         return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
     }
-    let input = match unsafe { vfs_input_bytes(input, input_len, "stat") } {
+    let input = match unsafe { vfs_input_bytes(input, input_len, operation) } {
         Ok(input) => input,
         Err(error) => return vfs_error_result(&error, out_errno),
     };
     let presented = match unsafe {
-        vfs_input_bytes(presented_handle_id, presented_handle_id_len, "stat-handle")
+        vfs_input_bytes(
+            presented_handle_id,
+            presented_handle_id_len,
+            match kind {
+                TypedVfsMetadataKind::Lstat => "lstat-handle",
+                TypedVfsMetadataKind::Stat => "stat-handle",
+            },
+        )
     } {
         Ok(bytes) if bytes.is_empty() => Vec::new(),
         Ok(bytes) => {
@@ -2644,30 +2741,30 @@ pub(crate) unsafe extern "C" fn private_vfs_stat_typed(
             let constrained_principals =
                 typed_principals_for_ids(host, module_ids).ok_or_else(|| {
                     crate::vfs::VfsError::policy_denied(
-                        "stat",
+                        operation,
                         Arc::from(namespace.virtual_path()),
-                        "typed-stat-principal-refused",
+                        "typed-metadata-principal-refused",
                     )
                 })?;
-            vfs.stat_authenticated(namespace, |authorization| {
+            let authorize = |authorization: crate::vfs::RetainedPathAuthorization<'_>| {
                 let path = Arc::<str>::from(authorization.namespace().virtual_path());
                 let result = host
                     .authorize_vfs_retained_path_stage(
                         vfs,
                         &module_id.to_string(),
                         constrained_principals.clone(),
-                        "fs-stat",
-                        "surface.native.op.exactstat.1432ztv",
+                        operation_key,
+                        coverage_edge,
                         authorization,
-                        FollowMode::FollowFinal,
+                        follow_mode,
                         "fs:list",
                         presented.clone(),
                     )
                     .map_err(|_| {
                         crate::vfs::VfsError::policy_denied(
-                            "stat",
+                            operation,
                             path.clone(),
-                            "typed-stat-evaluation-refused",
+                            "typed-metadata-evaluation-refused",
                         )
                     })?;
                 let receipt =
@@ -2678,15 +2775,19 @@ pub(crate) unsafe extern "C" fn private_vfs_stat_typed(
                     }
                     DecisionOutcome::Deny | DecisionOutcome::RefuseArming => {
                         Err(crate::vfs::VfsError::policy_denied(
-                            "stat",
+                            operation,
                             path,
                             Arc::<str>::from(receipt.evidence_digest().as_str()),
                         ))
                     }
                 }
-            })
+            };
+            match kind {
+                TypedVfsMetadataKind::Lstat => vfs.lstat_authenticated(namespace, authorize),
+                TypedVfsMetadataKind::Stat => vfs.stat_authenticated(namespace, authorize),
+            }
         },
-        Err(crate::vfs::VfsError::stale_session("stat", None)),
+        Err(crate::vfs::VfsError::stale_session(operation, None)),
     );
     match result {
         Ok(stat) => {
@@ -2695,9 +2796,13 @@ pub(crate) unsafe extern "C" fn private_vfs_stat_typed(
                     unsafe { write_vfs_output(json, out_json, out_len) };
                     EX_HOST_VFS_RESULT_OK
                 }
-                Err(_) => {
-                    vfs_error_result(&crate::vfs::VfsError::malformed("stat-json"), out_errno)
-                }
+                Err(_) => vfs_error_result(
+                    &crate::vfs::VfsError::malformed(match kind {
+                        TypedVfsMetadataKind::Lstat => "lstat-json",
+                        TypedVfsMetadataKind::Stat => "stat-json",
+                    }),
+                    out_errno,
+                ),
             }
         }
         Err(error) => vfs_error_result(&error, out_errno),
@@ -9919,7 +10024,7 @@ mod tests {
 
     #[test]
     fn private_typed_vfs_stat_binds_file_and_mount_root_metadata_to_retained_stages() {
-        use capsec_semantics::model::{ObjectState, Stage};
+        use capsec_semantics::model::{FollowMode, ObjectState, Stage};
 
         let _guard = host_test_lock();
         let host = Arc::new(crate::host::tests::example_vfs_armed_host());
@@ -10021,6 +10126,56 @@ mod tests {
                 ..
             }
         )));
+
+        host.begin_conformance_observation("enforcement.test.private-typed-vfs-lstat-file");
+        let mut lstat_json = ptr::null_mut();
+        let mut lstat_json_len = 0;
+        let mut lstat_errno = 0;
+        assert_eq!(
+            unsafe {
+                private_vfs_lstat_typed(
+                    nonce,
+                    0,
+                    principals.as_ptr(),
+                    principals.len(),
+                    b"images/photo.jpg".as_ptr(),
+                    b"images/photo.jpg".len() as u64,
+                    ptr::null(),
+                    0,
+                    &mut lstat_json,
+                    &mut lstat_json_len,
+                    &mut lstat_errno,
+                )
+            },
+            EX_HOST_VFS_RESULT_OK
+        );
+        assert_eq!(lstat_errno, 0);
+        let lstat: serde_json::Value = serde_json::from_slice(unsafe {
+            std::slice::from_raw_parts(lstat_json, lstat_json_len as usize)
+        })
+        .unwrap();
+        ex_host_free_buffer(lstat_json, lstat_json_len);
+        assert_eq!(lstat["is_file"], true);
+        let lstat_observed = host.take_typed_conformance_observations();
+        assert_eq!(
+            lstat_observed
+                .iter()
+                .map(|row| row.decision_set.context.stage)
+                .collect::<Vec<_>>(),
+            vec![Stage::Requested, Stage::Discovery, Stage::Repeat]
+        );
+        assert!(lstat_observed.iter().all(|row| matches!(
+            &row.decision_set.effects[0].resource,
+            capsec_semantics::model::OccurrenceResource::PathOccurrence {
+                follow_mode: FollowMode::NoFollowFinal,
+                ..
+            }
+        )));
+        assert!(lstat_observed.iter().all(|row| {
+            row.gates.iter().all(|gate| {
+                gate.coverage_edge_id.as_str() == "surface.native.op.exactlstat.1c98s6l"
+            })
+        }));
 
         ex_host_restore_context(previous);
         assert_eq!(ex_host_vfs_unbind_runtime(nonce), EX_HOST_VFS_RESULT_OK);
