@@ -84,14 +84,14 @@ fn cached_module_producer_binary_digest(
     }
 }
 
-#[cfg(all(feature = "module-runner", unix))]
+#[cfg(all(feature = "module-runner", unix, any(not(feature = "insecure"), test)))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ModuleProducerObject {
     device: u64,
     inode: u64,
 }
 
-#[cfg(all(feature = "module-runner", unix))]
+#[cfg(all(feature = "module-runner", unix, any(not(feature = "insecure"), test)))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ModuleProducerFileState {
     object: ModuleProducerObject,
@@ -102,7 +102,7 @@ struct ModuleProducerFileState {
     changed_nanoseconds: i64,
 }
 
-#[cfg(all(feature = "module-runner", unix))]
+#[cfg(all(feature = "module-runner", unix, any(not(feature = "insecure"), test)))]
 fn module_producer_file_state(metadata: &std::fs::Metadata) -> ModuleProducerFileState {
     use std::os::unix::fs::MetadataExt as _;
 
@@ -119,7 +119,7 @@ fn module_producer_file_state(metadata: &std::fs::Metadata) -> ModuleProducerFil
     }
 }
 
-#[cfg(all(feature = "module-runner", unix))]
+#[cfg(all(feature = "module-runner", unix, any(not(feature = "insecure"), test)))]
 fn capture_module_producer_binary_digest_from_path(
     path: &Path,
     expected_object: ModuleProducerObject,
@@ -160,7 +160,11 @@ fn capture_module_producer_binary_digest_from_path(
     Ok(digest)
 }
 
-#[cfg(all(feature = "module-runner", target_os = "macos"))]
+#[cfg(all(
+    feature = "module-runner",
+    not(feature = "insecure"),
+    target_os = "macos"
+))]
 fn mapped_module_producer_object() -> Result<ModuleProducerObject> {
     #[repr(C)]
     struct ProcRegionInfo {
@@ -221,7 +225,11 @@ fn mapped_module_producer_object() -> Result<ModuleProducerObject> {
     Ok(object)
 }
 
-#[cfg(all(feature = "module-runner", target_os = "linux"))]
+#[cfg(all(
+    feature = "module-runner",
+    not(feature = "insecure"),
+    target_os = "linux"
+))]
 fn mapped_module_producer_object() -> Result<ModuleProducerObject> {
     let metadata = std::fs::metadata("/proc/self/exe")
         .context("identify the kernel-bound module producer object")?;
@@ -230,6 +238,7 @@ fn mapped_module_producer_object() -> Result<ModuleProducerObject> {
 
 #[cfg(all(
     feature = "module-runner",
+    not(feature = "insecure"),
     not(any(target_os = "macos", target_os = "linux"))
 ))]
 fn capture_module_producer_binary_digest() -> Result<capsec_semantics::model::Digest> {
@@ -238,6 +247,7 @@ fn capture_module_producer_binary_digest() -> Result<capsec_semantics::model::Di
 
 #[cfg(all(
     feature = "module-runner",
+    not(feature = "insecure"),
     any(target_os = "macos", target_os = "linux")
 ))]
 #[inline(never)]
@@ -245,6 +255,7 @@ fn module_producer_mapping_anchor() {}
 
 #[cfg(all(
     feature = "module-runner",
+    not(feature = "insecure"),
     any(target_os = "macos", target_os = "linux")
 ))]
 fn capture_module_producer_binary_digest() -> Result<capsec_semantics::model::Digest> {
@@ -259,11 +270,25 @@ fn capture_module_producer_binary_digest() -> Result<capsec_semantics::model::Di
     capture_module_producer_binary_digest_from_path(&path, object, no_follow)
 }
 
+/// Insecure builds make no binary-authentication claim, so their inline
+/// producer identity is the canonical transform contract rather than a hash of
+/// the complete running executable. This preserves exact cache invalidation
+/// for output-affecting producer changes without reading a large binary on
+/// every one-shot process launch.
+/// @ref LLP 0039#decision — insecure behavior is selected at compile time;
+/// secure builds retain mapped-executable authentication above.
+#[cfg(all(feature = "module-runner", feature = "insecure"))]
+fn capture_module_producer_binary_digest() -> Result<capsec_semantics::model::Digest> {
+    ibex_runtime::module_loader::producer_spike::module_artifact_transform_fingerprint_v1()?
+        .digest()
+}
+
 #[cfg(feature = "module-runner")]
-/// Authenticate the mapped Ibex executable containing the in-process Oxc
-/// module producer.
-/// @ref LLP 0027#canonical-encoding-and-validation — inline artifacts bind
-/// the expected in-process producer binary.
+/// Select the identity of the in-process Oxc module producer. Secure builds
+/// authenticate the mapped Ibex executable; insecure builds use the canonical
+/// transform contract documented above.
+/// @ref LLP 0027#canonical-encoding-and-validation — secure inline artifacts
+/// bind the expected in-process producer binary.
 pub(crate) fn module_producer_binary_digest() -> Result<capsec_semantics::model::Digest> {
     cached_module_producer_binary_digest(
         &MODULE_PRODUCER_BINARY_DIGEST,
@@ -10872,6 +10897,18 @@ pub(crate) mod tests {
         })
         .unwrap_err();
         assert_eq!(first.to_string(), second.to_string());
+    }
+
+    #[cfg(all(feature = "module-runner", feature = "insecure"))]
+    #[test]
+    fn insecure_module_producer_identity_is_the_transform_contract() {
+        assert_eq!(
+            module_producer_binary_digest().unwrap(),
+            ibex_runtime::module_loader::producer_spike::module_artifact_transform_fingerprint_v1()
+                .unwrap()
+                .digest()
+                .unwrap()
+        );
     }
 
     fn test_source_provenance_authority(project_root: &Path) -> BundleSourceProvenanceAuthority {
