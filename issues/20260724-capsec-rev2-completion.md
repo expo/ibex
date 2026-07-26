@@ -1854,14 +1854,71 @@ ticket closes.
   remain about 99% complete and the overall requested task is about 91%
   complete.
 
+### 2026-07-26 — retained existing-file Windows append descriptors
+
+- Promoted the first armed Windows mutation route without widening the name-
+  bound surface. Only exact string flag `"a"` is admitted, and only for an
+  existing regular file. `fs:write` Requested precedes lookup;
+  requested/discovery `fs:list` authenticates the existing leaf; native
+  append-only access retains and object-matches that leaf; and `fs:write`
+  Commit binds the final identity and authenticated package-source generation.
+  An absent target returns `ENOENT`; the public `O_CREAT` spelling never reaches
+  host creation. Numeric flags, `"as"`/`"ax"`, read-write, truncate,
+  create-on-absence, and other writable branches still fail closed before the
+  legacy oracle.
+- Promoted armed scalar `__exactFsWrite` only for those append descriptors.
+  Runtime/owner/access-class membership is checked before caller-controlled
+  byte materialization. One `fs:write` Repeat occurs immediately before one
+  native short write through the same retained file; identity is checked
+  before authorization and after I/O. The JavaScript position argument cannot
+  weaken append semantics, and a zero-length write emits no effect.
+- Added unchanged-state evidence at every refusal boundary: requested denial
+  happens before lookup and preserves the original bytes; Repeat denial happens
+  before mutation; an absent open creates nothing; and a hard-link alias to
+  authenticated package source is denied at Commit with a populated
+  `final_object_generation`, preserving both names' bytes.
+- The cross-platform package test initially failed on physical Windows because
+  Windows deliberately refuses to build authenticated package-source state
+  without an object-generation adapter. The proof is now split correctly:
+  ordinary append/absence ABI behavior runs on both platforms, the
+  object-generation hard-link guard runs on Unix-family adapters, and Windows
+  retains its stricter fail-closed package-arming contract. The Host test
+  helper now installs authenticated package-source state when constructing the
+  decision context, rather than mutating the Host afterward and accidentally
+  omitting its guards.
+- Ten Windows rows become executable: six exact open-branch rows and four
+  retained scalar-write rows. The Windows catalog is 23,499 required / 2,429
+  fully executable / 3,122 internally verified / 17,948 unresolved with
+  digest `sha256-yL9g24buQJ5oWlyHy1Yu_tiPTCzmKbylFTnzzR9D2Ug`;
+  `public-surface-filesystem-not-typed-on-target` falls from 156 to 150.
+  Apple remains 23,840 / 2,772 / 3,136 / 17,932 with digest
+  `sha256-v1scTZfh0p1RtLuvQ1KNFkx0o4NnbHNjAelaKKcIYJ0`. The recipe suite
+  passes 91 tests with 110,349 assertions.
+- Local verification passes formatting/diff hygiene, `ref-check`, generated
+  drift, the observer-feature library build, both retained-append VFS tests,
+  the cross-platform private ABI test, and the Unix-family package-hard-link
+  test. The physical Windows host passes the production library build and the
+  secure-feature private/public tests for success, requested denial, and
+  unsupported/no-create flags; the large OpenSSL PDB diagnostics are
+  non-fatal linker warnings.
+- The M4 Mini independently regenerates the vendored/CapSec artifacts,
+  reproduces all 91 recipe tests and 110,349 assertions, passes `ref-check`,
+  the observer build, all four focused VFS/ABI tests, and matches every one of
+  the 12 changed source/generated/document files byte for byte.
+- Hard part: Node's `"a"` spelling includes creation, but creation requires a
+  distinct absent-object protocol and rollback/error contract. Treating that
+  spelling as permission to call `CreateFile` would have silently widened the
+  security surface. The retained adapter therefore recognizes the public
+  spelling yet refuses its absent branch, and the exact trace intentionally has
+  no Discovery decision for absence. Important enforcement mechanisms remain
+  about 99% complete and the overall requested task is about **92% complete**.
+
 ## Next milestone
 
-Specify and implement the first retained Windows mutation slice: a
-write-capable open plus scalar write protocol that binds creation/existing
-object state, owner, generation, bearer, append/position semantics, and
-post-mutation identity without reopening by pathname. Keep every mutation
-entry point closed until that object-bound protocol and unchanged-on-denial
-evidence exist. Worker-backed reads and writes remain residual until operation
-leases can recheck authority generation between observable chunks; do not
-advertise Windows while other installed routes and 17,958 exact-target
-public-evidence rows remain unresolved.
+Re-audit LLP 0021's eight completion criteria against current proving artifacts
+and contradictions, then take the highest-impact remaining runtime boundary.
+The leading candidate is Windows worker-backed filesystem I/O: it remains
+residual until an operation lease can bind owner/principals/object/bearer and
+recheck authority generation between observable chunks. Do not advertise
+Windows while installed routes or 17,948 exact-target public-evidence rows
+remain unresolved, and do not convert catalog labels into completion evidence.

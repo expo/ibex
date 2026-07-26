@@ -1812,10 +1812,20 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         std::string virtualPath;
         void* rawFile = nullptr;
         if (ex_host_is_armed() == 1) {
-          // This checkpoint promotes only the read-only descriptor branch.
-          // Every write/create/truncate/append spelling fails before pathname
-          // resolution or the legacy capability oracle.
-          if (host_flags != EXACT_FS_READ || flags != 0) {
+          const bool retainedRead =
+              host_flags == EXACT_FS_READ && flags == 0;
+          const bool retainedExistingAppend =
+              count > 1 && args[1].isString() &&
+              args[1].asString(runtime).utf8(runtime) == "a" &&
+              host_flags ==
+                  (EXACT_FS_WRITE | EXACT_FS_CREATE | EXACT_FS_APPEND) &&
+              flags == (NODE_O_WRONLY | NODE_O_CREAT | NODE_O_APPEND);
+          // This checkpoint opens only read-only descriptors and exact
+          // existing-file "a" append descriptors. The append bridge itself
+          // refuses an absent witness, so O_CREAT never reaches host creation.
+          // Every other write/create/truncate/append spelling and all numeric
+          // flag values fail before pathname resolution or the legacy oracle.
+          if (!retainedRead && !retainedExistingAppend) {
             throwStructuredFsError(runtime, "open", input, EPERM);
           }
           std::string presentedHandle;
@@ -1830,22 +1840,40 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           uint8_t* virtualData = nullptr;
           uint64_t virtualLength = 0;
           int32_t hostError = 0;
-          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Armed Windows read descriptors retain their exact VFS object, bearer, runtime, and owner; unported write opens fail closed without pathname fallback.
-          uint32_t status = ibex_private_vfs_open_read_typed(
-              exactCurrentRuntimeNonce(),
-              currentPrincipalId(),
-              principals.data(),
-              principals.size(),
-              reinterpret_cast<const uint8_t*>(input.data()),
-              input.size(),
-              presentedHandle.empty()
-                  ? nullptr
-                  : reinterpret_cast<const uint8_t*>(presentedHandle.data()),
-              presentedHandle.size(),
-              &rawFile,
-              &virtualData,
-              &virtualLength,
-              &hostError);
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Armed Windows read and bounded existing-file append descriptors retain their exact VFS object, bearer, runtime, and owner; unported writable opens fail closed without pathname fallback.
+          uint32_t status = retainedExistingAppend
+              ? ibex_private_vfs_open_append_typed(
+                    exactCurrentRuntimeNonce(),
+                    currentPrincipalId(),
+                    principals.data(),
+                    principals.size(),
+                    reinterpret_cast<const uint8_t*>(input.data()),
+                    input.size(),
+                    presentedHandle.empty()
+                        ? nullptr
+                        : reinterpret_cast<const uint8_t*>(
+                              presentedHandle.data()),
+                    presentedHandle.size(),
+                    &rawFile,
+                    &virtualData,
+                    &virtualLength,
+                    &hostError)
+              : ibex_private_vfs_open_read_typed(
+                    exactCurrentRuntimeNonce(),
+                    currentPrincipalId(),
+                    principals.data(),
+                    principals.size(),
+                    reinterpret_cast<const uint8_t*>(input.data()),
+                    input.size(),
+                    presentedHandle.empty()
+                        ? nullptr
+                        : reinterpret_cast<const uint8_t*>(
+                              presentedHandle.data()),
+                    presentedHandle.size(),
+                    &rawFile,
+                    &virtualData,
+                    &virtualLength,
+                    &hostError);
           if (status != 0) {
             if (rawFile != nullptr) ex_host_fs_close(rawFile);
             if (virtualData != nullptr) {
@@ -2171,19 +2199,34 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsWrite: fd and data required");
         }
         auto fd = fdFromValue(runtime, args[0]);
-        auto bytes = extractBytes(runtime, args[1]);
         // Windows file handles live in the opaque g_files table, but inherited
         // stdout/stderr are process-owned OS handles rather than file-table
         // entries. Mirror the POSIX standard-descriptor exception while
         // retaining the same root/runtime-principal ownership check.
         // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
         if (fd == 1 || fd == 2) {
+          auto bytes = extractBytes(runtime, args[1]);
           return writeProcessStdio(runtime, fd, bytes);
         }
         auto entry = getFileEntry(runtime, fd);
-        requireFileEntryWrite(runtime, entry);
+        if (!entry.canWrite) {
+          throw facebook::jsi::JSError(
+              runtime, "fd not opened for writing");
+        }
+        if (ex_host_is_armed() == 1 && !entry.append) {
+          throwStructuredFsError(runtime, "write", entry.path, EPERM);
+        }
+        if (ex_host_is_armed() != 1) {
+          requireFileEntryWrite(runtime, entry);
+        }
+        // Validate the runtime/owner/access-class entry before inspecting or
+        // allocating caller-controlled byte input.
+        auto bytes = extractBytes(runtime, args[1]);
         if (bytes.empty()) {
           return facebook::jsi::Value(0.0);
+        }
+        if (bytes.size() > std::numeric_limits<uint32_t>::max()) {
+          throwStructuredFsError(runtime, "write", entry.path, EINVAL);
         }
         // A numeric position is a *positional* write: Node's writeSync leaves the
         // handle's current offset unchanged when `position` is a number. The old
@@ -2197,6 +2240,30 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             !entry.append && count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
         auto file = entry.file;
         std::lock_guard<std::mutex> ioLock(file->ioMutex);
+        if (ex_host_is_armed() == 1) {
+          auto principals = exactCollectTypedPrincipalStack();
+          uint32_t written = 0;
+          int32_t hostError = 0;
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Existing-file append writes repeat fs:write over the exact retained Windows object immediately before mutation and never fall back to a pathname or legacy capability oracle.
+          uint32_t status = ibex_private_vfs_write_append_typed(
+              exactCurrentRuntimeNonce(),
+              entry.owner,
+              principals.data(),
+              principals.size(),
+              file->handle,
+              bytes.data(),
+              static_cast<uint32_t>(bytes.size()),
+              &written,
+              &hostError);
+          if (status != 0) {
+            exactThrowVfsError(
+                runtime, status, hostError, "write", entry.path);
+          }
+          if (written > bytes.size()) {
+            throwStructuredFsError(runtime, "write", entry.path, EIO);
+          }
+          return facebook::jsi::Value(static_cast<double>(written));
+        }
         auto written = entry.append
             ? ex_host_fs_write(
                   file->handle, bytes.data(), static_cast<uint32_t>(bytes.size()))

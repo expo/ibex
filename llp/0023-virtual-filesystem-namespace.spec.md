@@ -5,6 +5,7 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-25 (armed Windows exact-string `"a"` open now retains an existing regular file through an append-only OS handle after write-requested and list-requested/discovery checks, binds the exact object/generation at write Commit, and scalar write authorizes one write Repeat immediately before append; absent paths are never created, denial leaves bytes unchanged, authenticated package-source hard-link aliases refuse at Commit, and other writable/async/durability branches remain unpromoted)
 **Revised:** 2026-07-25 (armed Windows synchronous descriptor-vector reads now validate the runtime/owner-bound retained descriptor before vector materialization, authorize one exact-object `fs:read` Repeat for the aggregate request, restore the cursor for positioned reads, and scatter only after retained-identity revalidation; worker-backed vector reads remain unpromoted)
 **Revised:** 2026-07-25 (armed Windows read-only open now retains the exact VFS file and its parent/final/handle identity behind a runtime/owner-bound opaque registry entry; fstat authorizes Repeat and reads metadata from that same file without pathname fallback, while write-capable opens fail closed before resolution and remaining descriptor operations stay unpromoted)
 **Revised:** 2026-07-25 (armed Windows synchronous readdir now retains and enumerates the exact directory handle, authorizes requested/discovery `fs:list` plus repeat before each disclosed member, emits only the long-name coordinate, and has no armed pathname fallback; physical replacement-race and public denial tests pass while descriptors/mutations/async routes remain unpromoted)
@@ -2075,8 +2076,9 @@ refuses non-ASCII and tilde spellings, refuses case-sensitive traversal
 directories, and stages/refuses arbitrary 8.3 selections through the retained
 parent entry.
 
-Armed Windows synchronous whole-file read, stat, lstat, readdir, read-only
-open, descriptor read, and fstat are the first installed filesystem effects to consume that
+Armed Windows synchronous whole-file read, stat, lstat, readdir, retained
+read/append open, descriptor read/vector-read/append-write, and fstat are the
+first installed filesystem effects to consume that
 retained-object backend directly. The engine passes its native runtime generation and
 frame-derived canonical constrained-principal stack to private bridges;
 JavaScript supplies only virtual path syntax and an optional typed bearer.
@@ -2122,20 +2124,41 @@ validated destinations only after success; denial or stale identity therefore
 leaves every destination unchanged. `fstat_descriptor_authenticated`
 authorizes one `fs:list` Repeat against the stored object, handle ID, and
 bearer and reads metadata through the same file. It never resolves or reopens
-the original pathname. Armed
-write/create/truncate/append opens and unsupported numeric flag bits return
-`EPERM` before resolution or any legacy capability call; this slice does not
-claim a mutation protocol.
+the original pathname.
 
-The synchronous operation inherits the VFS bounded whole-file read limit and
+The bounded mutation exception admits only the exact string flag `"a"` and
+only when the final regular file already exists. Before lookup,
+`open_append_descriptor_authenticated` submits lexical `fs:write` Requested;
+requested/discovery `fs:list` then authenticates and retains the leaf. The
+native file is opened append-only (`FILE_APPEND_DATA` on Windows,
+`O_APPEND|O_WRONLY` on Unix-family test hosts), without delete sharing or
+final-link following, and object-matched before `fs:write` Commit. Commit
+carries the retained final identity and the authenticated package-source
+generation when that object is protected, so an out-of-tree hard-link alias
+cannot bypass §4.2. Absence returns `ENOENT` before any create, with no
+Discovery claim. The engine stores the same owner/runtime/bearer/object/handle
+facts as read descriptors. `write_append_descriptor_authenticated` checks the
+retained identity, submits exactly one `fs:write` Repeat, performs one native
+short write, and checks identity again; append semantics ignore any supplied
+position. A Repeat denial happens before mutation. Empty writes disclose and
+mutate nothing and therefore emit no Repeat.
+
+All numeric writable flags, `"as"`/`"ax"` and other string flags,
+read-write/truncate/create-on-absence modes, positional non-append writes,
+vector writes, durability, and worker-backed writes remain `EPERM` or residual
+before pathname/legacy fallback. This exception is an existing-object scalar
+append protocol, not a claim that the rest of the mutation family is ported.
+
+The synchronous read operation inherits the VFS bounded whole-file read limit and
 cannot interleave JavaScript-driven revocation while native byte acquisition is
 in progress. That reasoning does not promote worker-backed
 `__exactFsReadFileAsync`, `__exactFsReadAsync`, or `__exactFsReadvAsync`:
 they still need operation leases with generation rechecks between observable
-chunks. Durability, mutation, write-capable opens, and all other installed
-Windows filesystem routes remain legacy or closed as their individual
-contracts require, and exact-target public evidence remains incomplete. The
-target therefore remains unadvertised.
+chunks. Creation, truncation, positional/vector mutation, durability,
+worker-backed mutation, and all other installed Windows filesystem routes
+remain legacy or closed as their individual contracts require, and exact-target
+public evidence remains incomplete. The target therefore remains
+unadvertised.
 
 The contract this document requires:
 

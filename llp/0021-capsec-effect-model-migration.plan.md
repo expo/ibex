@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-25 (armed Windows exact-string `"a"` open now admits only an existing regular file through an append-only retained handle: `fs:write` Requested precedes lookup, `fs:list` Requested/Discovery authenticates the existing object, `fs:write` Commit binds its identity/generation, and scalar `__exactFsWrite` performs one exact-object Repeat immediately before a short-write append; absence never creates, denial never mutates, package-source hard-link aliases refuse at Commit, ten Windows recipes are newly executable, and all other writable/async/durability modes remain residual)
 **Revised:** 2026-07-25 (armed Windows synchronous `__exactFsReadv` now validates the runtime/owner-bound retained descriptor before inspecting a bounded vector, authorizes one exact-object `fs:read` Repeat, acquires bytes through the same retained file with positional-cursor restoration, and scatters only after success; four public scenarios are executable on each exact target while worker-backed vector reads remain residual)
 **Revised:** 2026-07-25 (armed Windows read-only `__exactFsOpen` now returns the exact retained VFS file behind a runtime/owner-bound opaque registry entry, preserves the optional bearer for later operations, and `__exactFsFstatSync` authorizes Repeat against that same object and handle identity before metadata disclosure; write-capable opens fail closed before resolution, ten exact-target recipes are executable, and descriptor reads/mutations/async routes remain residual)
 **Revised:** 2026-07-25 (armed Windows `__exactReaddir` retains the exact directory object, enumerates it through that handle, authorizes requested/discovery `fs:list` plus repeat before each disclosed member, and never falls back to pathname enumeration; physical replacement-race and public denial tests pass, five exact-target recipes are executable, and descriptors/mutations/async routes remain residual)
@@ -1309,9 +1310,30 @@ watch, recursive, or removal entry points described above. Windows preserves
 distinct errno values and implements recursive-mkdir results, exclusive copy,
 truncate, utimes, and statfs through the portable host ABI.
 
+The first Windows mutation slice is deliberately smaller than the flag's
+legacy meaning. Armed `__exactFsOpen(path, "a")` accepts only an **existing**
+regular file. It submits `fs:write` Requested before lookup, uses
+requested/discovery `fs:list` to authenticate the existing leaf, opens that
+leaf with native append-only access and no delete sharing, object-matches it,
+then submits `fs:write` Commit with the retained identity and authenticated
+package-source generation. An absent leaf returns `ENOENT`; `O_CREAT` is never
+exercised. The descriptor registry retains the opaque append-only file,
+runtime, owner, principals, bearer, namespace, object identities, and handle
+ID. Armed scalar `__exactFsWrite` validates that registry entry before
+inspecting caller bytes, submits one `fs:write` Repeat, performs one
+short-write-preserving append through the same file, and rechecks identity
+after I/O. The JavaScript position argument cannot weaken append semantics.
+Requested denial happens before lookup and leaves bytes unchanged; Repeat
+denial happens before mutation; a hard-link alias to authenticated package
+source refuses at Commit when its retained object/generation joins the
+package-source guard. Numeric flags, `"as"`, `"ax"`, read/write modes,
+truncate/create modes, positional non-append writes, vector writes,
+durability, and worker-backed writes remain closed or residual.
+
 Armed Windows `__exactReadFile`, `__exactStat`, `__exactLstat`,
-`__exactReaddir`, read-only `__exactFsOpen`, and `__exactFsFstatSync` are the
-first installed Windows filesystem effects to leave the legacy path oracle.
+`__exactReaddir`, retained `__exactFsOpen`, `__exactFsRead`,
+`__exactFsReadv`, `__exactFsWrite`, and `__exactFsFstatSync` are the first
+installed Windows filesystem effects to leave the legacy path oracle.
 Their private
 native bridges derive the runtime generation, actor, and canonical
 constrained-principal stack from engine provenance, resolve only virtual

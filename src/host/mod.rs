@@ -2072,6 +2072,14 @@ impl Host {
                 "typed VFS operation actor is missing its authenticated path projection".into(),
             )
         })?;
+        let final_object_generation = if action == "fs:write" {
+            final_object
+                .as_ref()
+                .and_then(|object| self.authenticated_package_sources.generations.get(object))
+                .cloned()
+        } else {
+            None
+        };
 
         // Requested carries no speculative existence fact; discovery replaces
         // `Unknown` with the descriptor-observed state.
@@ -2086,7 +2094,11 @@ impl Host {
             },
             parent_object,
             final_object,
-            final_object_generation: None,
+            // @ref LLP 0023#42-authenticated-package-source-is-immutable —
+            // retained fs:write decisions carry the arming-time package
+            // generation when their exact object belongs to authenticated
+            // source, so the protected-object guard denies hard-link aliases.
+            final_object_generation,
             retained_handle,
         };
         let operation_resource = serde_json::to_string(&requested)
@@ -8345,7 +8357,7 @@ mod tests {
         }
     }
 
-    fn example_unique_package_host(
+    pub(super) fn example_unique_package_host(
         root_manifest: &[u8],
         package_files: &[(&str, &[u8])],
     ) -> (tempfile::TempDir, Host, std::path::PathBuf, String) {
@@ -8368,7 +8380,7 @@ mod tests {
         .unwrap();
         let package_root = std::fs::canonicalize(package_root).unwrap();
         let integrity = crate::module_loader::package_tree_integrity(&package_root).unwrap();
-        let mut host = example_armed_host_with(|value| {
+        let snapshot = example_armed_snapshot_with(|value| {
             replace_example_package_integrity(
                 value,
                 "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
@@ -8380,9 +8392,7 @@ mod tests {
                 serde_json::to_value(object_identity_for_host_path(&package_root).unwrap())
                     .unwrap();
         });
-        let package_binding = host
-            .armed_snapshot()
-            .unwrap()
+        let package_binding = snapshot
             .root_bindings()
             .unwrap()
             .iter()
@@ -8415,7 +8425,15 @@ mod tests {
         authenticated_package_sources
             .retained_descriptors
             .append(&mut inventory.retained_descriptors);
-        host.authenticated_package_sources = Arc::new(authenticated_package_sources);
+        let host = Host::new_armed_with_target_cells(
+            HostConfig::default(),
+            Arc::new(snapshot),
+            complete_test_target_cells(),
+            authenticated_package_sources,
+            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
+            BTreeMap::new(),
+        )
+        .unwrap();
         (fixture, host, package_root, integrity)
     }
 

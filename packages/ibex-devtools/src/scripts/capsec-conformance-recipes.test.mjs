@@ -341,12 +341,12 @@ describe("exact-target CapSec executable recipes", () => {
     // production graph deliberately uses deferred call-time links. The net-new
     // WebGPU obligations remain unresolved until their public-surface probes
     // are authored.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_768);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_772);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_936);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_932);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -371,7 +371,7 @@ describe("exact-target CapSec executable recipes", () => {
     // routes that this harness could otherwise claim structurally. The three
     // Branch-local filesystem closures use the closed-surface harness, while
     // the direct non-recursive mkdir branch adds one native selection proof.
-    expect(nativePublicFixtures).toHaveLength(526);
+    expect(nativePublicFixtures).toHaveLength(530);
     expect(
       nativePublicFixtures
         .filter(
@@ -446,11 +446,12 @@ describe("exact-target CapSec executable recipes", () => {
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch. The
-    // installed readv branch replaces one absence fixture with four executable
-    // non-deny scenarios and one honestly residual deny scenario.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_419);
+    // Existing-file append open and scalar write add six branch-local open
+    // scenarios plus four executable retained-write scenarios; the write deny
+    // remains residual because its prerequisite descriptor needs fs:write.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_429);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_958);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_948);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -515,7 +516,7 @@ describe("exact-target CapSec executable recipes", () => {
     // The callable Windows filesystem surface remains untyped where it still
     // uses the legacy path oracle. POSIX-only globals instead receive one
     // exact absence fixture and are not counted as ambiguous Windows routes.
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(156);
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(150);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
@@ -1405,6 +1406,25 @@ describe("exact-target CapSec executable recipes", () => {
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
         recipe.scenario === "deny" ? 1 : 3,
+      );
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+    const windowsWriteOpenRows = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactFsOpen" &&
+        recipe.fixtureId.includes(".logical.write."),
+    );
+    expect(windowsWriteOpenRows).toHaveLength(6);
+    for (const recipe of windowsWriteOpenRows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "requested", "discovery", "commit"],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 4,
       );
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
@@ -2523,6 +2543,53 @@ describe("exact-target CapSec executable recipes", () => {
       const denied = catalog.recipes.find(
         (recipe) =>
           recipe.terminalObservedKey === "native-op:__exactFsReadv" &&
+          recipe.scenario === "deny",
+      );
+      expect(denied.publicSurfaceProbe).toBeNull();
+      expect(denied.residualReasons).toContain(
+        "native-public-deny-scenario-not-authored",
+      );
+    }
+  });
+
+  test("appends through one retained descriptor write repeat", () => {
+    for (const catalog of [recipes, windowsRecipes]) {
+      const rows = catalog.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsWrite",
+      );
+      expect(rows).toHaveLength(4);
+      for (const recipe of rows) {
+        const invocation = recipe.publicSurfaceProbe.invocation;
+        expect(invocation.arguments).toEqual([
+          { kind: "harness-fs-file-descriptor" },
+          { kind: "json-literal", value: "-append" },
+          { kind: "json-literal", value: 0 },
+        ]);
+        expect(invocation.setup).toEqual([
+          expect.objectContaining({
+            kind: "fs-write-file",
+            globalName: "__exactFsOpen",
+            path: "target/ibex-capsec-fswrite",
+          }),
+        ]);
+        expect(invocation.allowedCoverageEdgeIds).toHaveLength(2);
+        expect(
+          invocation.requiredFloor.map((selector) => selector.cap),
+        ).toEqual(["fs:list", "fs:write"]);
+        expect(invocation.expectedActionIds).toEqual(["fs:write"]);
+        expect(invocation.expectedTypedStages).toEqual(["repeat"]);
+        expect(invocation.expectedTypedDecisionCount).toBe(1);
+        expect(invocation.expectedCleanup).toBe(
+          "closed-fs-file-descriptor-removed-owned-file",
+        );
+        expect(recipe.residualReasons).toEqual([]);
+        expect(recipe.status).toBe("fully-executable");
+      }
+      const denied = catalog.recipes.find(
+        (recipe) =>
+          recipe.terminalObservedKey === "native-op:__exactFsWrite" &&
           recipe.scenario === "deny",
       );
       expect(denied.publicSurfaceProbe).toBeNull();

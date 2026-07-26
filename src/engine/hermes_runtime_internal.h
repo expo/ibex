@@ -1142,6 +1142,21 @@ extern "C" uint32_t ibex_private_vfs_open_read_typed(
     uint8_t** out_virtual,
     uint64_t* out_virtual_len,
     int32_t* out_errno);
+// Private retained-object existing-file append open. It never creates an
+// absent path and carries the exact occurrence and bearer into later writes.
+extern "C" uint32_t ibex_private_vfs_open_append_typed(
+    uint64_t runtime_nonce,
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    const uint8_t* input,
+    uint64_t input_len,
+    const uint8_t* presented_handle_id,
+    uint64_t presented_handle_id_len,
+    void** out_file,
+    uint8_t** out_virtual,
+    uint64_t* out_virtual_len,
+    int32_t* out_errno);
 // Private retained-object whole-file read. The engine supplies its native
 // runtime generation and frame-derived constrained principal stack; output is
 // explicit-length and released with ex_host_free_buffer.
@@ -1224,6 +1239,18 @@ extern "C" uint32_t ibex_private_vfs_readv_typed(
     uint64_t position,
     uint8_t** out_data,
     uint64_t* out_len,
+    int32_t* out_errno);
+// Private retained append-descriptor write Repeat. The caller-owned input
+// remains borrowed only for this synchronous call.
+extern "C" uint32_t ibex_private_vfs_write_append_typed(
+    uint64_t runtime_nonce,
+    uint64_t descriptor_owner,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    void* file,
+    const uint8_t* data,
+    uint32_t data_len,
+    uint32_t* out_written,
     int32_t* out_errno);
 // Private retained-object directory enumeration. Output is explicit-length
 // JSON; every member is authorized at Repeat before disclosure.

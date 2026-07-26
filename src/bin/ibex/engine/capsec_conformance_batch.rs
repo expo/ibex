@@ -1194,6 +1194,7 @@ async fn run_native_setup(
                         path.as_str(),
                         "target/ibex-capsec-fsync"
                             | "target/ibex-capsec-fdatasync"
+                            | "target/ibex-capsec-fswrite"
                             | "target/ibex-capsec-ftruncate"
                             | "target/ibex-capsec-fdasync-durability"
                     ),
@@ -1911,6 +1912,7 @@ fn validate_native_runtime_observation(
             | "__exactFsFtruncateSync"
             | "__exactFsFchmodSync"
             | "__exactFsFutimesSync"
+            | "__exactFsWrite"
     ) {
         Some("native-op:__exactFsOpen")
     } else {
@@ -2614,6 +2616,7 @@ async fn execute_native_public_recipe(
             | "__exactFsFdatasyncSync"
             | "__exactFsFtruncateSync"
             | "__exactFsFdAsync"
+            | "__exactFsWrite"
     ) {
         let descriptor = setup_state
             .fs_file_descriptor
@@ -2633,10 +2636,10 @@ async fn execute_native_public_recipe(
             "retained descriptor cleanup failed"
         );
         if let Some(path) = &setup_state.fs_file_path {
-            let expected_bytes = if invocation.global_name == "__exactFsFtruncateSync" {
-                b"ib".as_slice()
-            } else {
-                b"ibex-capsec-retained-sync".as_slice()
+            let expected_bytes = match invocation.global_name.as_str() {
+                "__exactFsFtruncateSync" => b"ib".as_slice(),
+                "__exactFsWrite" => b"ibex-capsec-retained-sync-append".as_slice(),
+                _ => b"ibex-capsec-retained-sync".as_slice(),
             };
             assert_eq!(
                 std::fs::read(path).expect("read retained sync fixture"),

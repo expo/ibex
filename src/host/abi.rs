@@ -2582,6 +2582,162 @@ pub(crate) unsafe extern "C" fn private_vfs_open_read_typed(
     }
 }
 
+/// Open one existing virtual regular file through an append-only retained
+/// descriptor. `fs:write` Requested precedes lookup, `fs:list` authorizes
+/// discovery, and `fs:write` Commit binds the exact existing object. This
+/// bridge never creates an absent file.
+///
+/// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+/// @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified
+/// @ref LLP 0023#42-authenticated-package-source-is-immutable
+///
+/// # Safety
+///
+/// The pointer and lifetime requirements are identical to
+/// [`private_vfs_open_read_typed`].
+#[export_name = "ibex_private_vfs_open_append_typed"]
+pub(crate) unsafe extern "C" fn private_vfs_open_append_typed(
+    runtime_nonce: u64,
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    input: *const u8,
+    input_len: u64,
+    presented_handle_id: *const u8,
+    presented_handle_id_len: u64,
+    out_file: *mut *mut ExactFileHandle,
+    out_virtual: *mut *mut u8,
+    out_virtual_len: *mut u64,
+    out_errno: *mut i32,
+) -> u32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::{FollowMode, NonEmptyString};
+
+    if !out_errno.is_null() {
+        unsafe { *out_errno = 0 };
+    }
+    if out_file.is_null() {
+        return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
+    }
+    unsafe { *out_file = ptr::null_mut() };
+    if let Err(error) = unsafe { initialize_vfs_output(out_virtual, out_virtual_len) } {
+        return vfs_error_result(&error, out_errno);
+    }
+    let session = match runtime_vfs_session(runtime_nonce, "open") {
+        Ok(session) => session,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    if module_ids.is_null() || module_ids_len == 0 || module_ids_len > 257 {
+        return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
+    }
+    let input = match unsafe { vfs_input_bytes(input, input_len, "open") } {
+        Ok(input) => input,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let presented = match unsafe {
+        vfs_input_bytes(presented_handle_id, presented_handle_id_len, "open-handle")
+    } {
+        Ok(bytes) if bytes.is_empty() => Vec::new(),
+        Ok(bytes) => {
+            let value = match String::from_utf8(bytes)
+                .ok()
+                .and_then(|value| NonEmptyString::new(value).ok())
+            {
+                Some(value) => value,
+                None => return EX_HOST_VFS_RESULT_MALFORMED_INPUT,
+            };
+            vec![value]
+        }
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    let namespace = match session.resolve_namespace(&input) {
+        Ok(namespace) => namespace,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let vfs = match session.virtual_file_system() {
+        Ok(vfs) => vfs,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let result = with_host(
+        |host| {
+            let constrained_principals =
+                typed_principals_for_ids(host, module_ids).ok_or_else(|| {
+                    crate::vfs::VfsError::policy_denied(
+                        "open",
+                        Arc::from(namespace.virtual_path()),
+                        "typed-open-principal-refused",
+                    )
+                })?;
+            let authorize = |authorization: crate::vfs::RetainedPathAuthorization<'_>,
+                             action: &'static str| {
+                let path = Arc::<str>::from(authorization.namespace().virtual_path());
+                let result = host
+                    .authorize_vfs_retained_path_stage(
+                        vfs,
+                        &module_id.to_string(),
+                        constrained_principals.clone(),
+                        "fs-open",
+                        "surface.native.op.exactfsopen.05ao6wa",
+                        authorization,
+                        FollowMode::FollowFinal,
+                        action,
+                        presented.clone(),
+                    )
+                    .map_err(|_| {
+                        crate::vfs::VfsError::policy_denied(
+                            "open",
+                            path.clone(),
+                            "typed-open-evaluation-refused",
+                        )
+                    })?;
+                let receipt =
+                    crate::vfs::AuthorizationReceipt::from_structured_decision(&result.evidence)?;
+                match result.decision.outcome {
+                    DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence => {
+                        Ok(receipt)
+                    }
+                    DecisionOutcome::Deny | DecisionOutcome::RefuseArming => {
+                        Err(crate::vfs::VfsError::policy_denied(
+                            "open",
+                            path,
+                            Arc::<str>::from(receipt.evidence_digest().as_str()),
+                        ))
+                    }
+                }
+            };
+            vfs.open_append_descriptor_authenticated(
+                namespace,
+                |authorization| {
+                    authorize(
+                        crate::vfs::RetainedPathAuthorization::from_read(&authorization),
+                        "fs:list",
+                    )
+                },
+                |authorization| authorize(authorization, "fs:write"),
+            )
+        },
+        Err(crate::vfs::VfsError::stale_session("open", None)),
+    );
+    match result {
+        Ok(descriptor) => {
+            let (file, retained_identity) = descriptor.into_parts();
+            let virtual_path = retained_identity.virtual_path().as_bytes().to_vec();
+            let file = Box::new(ExactFileHandle {
+                file,
+                retained_identity: Some(retained_identity),
+                presented_handles: presented,
+            });
+            unsafe {
+                *out_file = Box::into_raw(file);
+                write_vfs_output(virtual_path, out_virtual, out_virtual_len);
+            }
+            EX_HOST_VFS_RESULT_OK
+        }
+        Err(error) => vfs_error_result(&error, out_errno),
+    }
+}
+
 /// Read one virtual file through the runtime VFS's cross-platform retained
 /// object state machine. The path and optional bearer are explicit-length
 /// input; JavaScript cannot supply runtime or principal identity.
@@ -3112,6 +3268,134 @@ pub(crate) unsafe extern "C" fn private_vfs_readv_typed(
             "fs-readv",
             "surface.native.op.exactfsreadv.11moytw",
         )
+    }
+}
+
+/// Append bytes to one authenticated retained file descriptor. The
+/// descriptor's original occurrence and bearer are reused for one fresh
+/// `fs:write` Repeat; no pathname is resolved or reopened.
+///
+/// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+/// @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified
+///
+/// # Safety
+///
+/// `file` must be a live handle returned by the append-open bridge. Nonempty
+/// `module_ids` and `data` must be readable, and `out_written` must be writable.
+#[export_name = "ibex_private_vfs_write_append_typed"]
+pub(crate) unsafe extern "C" fn private_vfs_write_append_typed(
+    runtime_nonce: u64,
+    descriptor_owner: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    file: *mut ExactFileHandle,
+    data: *const u8,
+    data_len: u32,
+    out_written: *mut u32,
+    out_errno: *mut i32,
+) -> u32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::FollowMode;
+
+    const OPERATION: &str = "write";
+    if !out_errno.is_null() {
+        unsafe { *out_errno = 0 };
+    }
+    if out_written.is_null() {
+        return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
+    }
+    unsafe { *out_written = 0 };
+    if file.is_null()
+        || module_ids.is_null()
+        || module_ids_len == 0
+        || module_ids_len > 257
+        || (data.is_null() && data_len != 0)
+    {
+        return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
+    }
+    let session = match runtime_vfs_session(runtime_nonce, OPERATION) {
+        Ok(session) => session,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    let bytes = if data_len == 0 {
+        &[][..]
+    } else {
+        unsafe { std::slice::from_raw_parts(data, data_len as usize) }
+    };
+    let handle = unsafe { &mut *file };
+    let Some(retained_identity) = handle.retained_identity.as_ref() else {
+        return EX_HOST_VFS_RESULT_STALE_IDENTITY;
+    };
+    let vfs = match session.virtual_file_system() {
+        Ok(vfs) => vfs,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let presented = handle.presented_handles.clone();
+    let result = with_host(
+        |host| {
+            let constrained_principals =
+                typed_principals_for_ids(host, module_ids).ok_or_else(|| {
+                    crate::vfs::VfsError::policy_denied(
+                        OPERATION,
+                        Arc::from(retained_identity.virtual_path()),
+                        "typed-descriptor-write-principal-refused",
+                    )
+                })?;
+            vfs.write_append_descriptor_authenticated(
+                &mut handle.file,
+                retained_identity,
+                bytes,
+                |authorization| {
+                    let path = Arc::<str>::from(authorization.namespace().virtual_path());
+                    let result = host
+                        .authorize_vfs_retained_path_stage(
+                            vfs,
+                            &descriptor_owner.to_string(),
+                            constrained_principals.clone(),
+                            "fs-write",
+                            "surface.native.op.exactfswrite.1locgj1",
+                            authorization,
+                            FollowMode::FollowFinal,
+                            "fs:write",
+                            presented.clone(),
+                        )
+                        .map_err(|_| {
+                            crate::vfs::VfsError::policy_denied(
+                                OPERATION,
+                                path.clone(),
+                                "typed-descriptor-write-evaluation-refused",
+                            )
+                        })?;
+                    let receipt = crate::vfs::AuthorizationReceipt::from_structured_decision(
+                        &result.evidence,
+                    )?;
+                    match result.decision.outcome {
+                        DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence => {
+                            Ok(receipt)
+                        }
+                        DecisionOutcome::Deny | DecisionOutcome::RefuseArming => {
+                            Err(crate::vfs::VfsError::policy_denied(
+                                OPERATION,
+                                path,
+                                Arc::<str>::from(receipt.evidence_digest().as_str()),
+                            ))
+                        }
+                    }
+                },
+            )
+        },
+        Err(crate::vfs::VfsError::stale_session(OPERATION, None)),
+    );
+    match result {
+        Ok(written) => match u32::try_from(written) {
+            Ok(written) => {
+                unsafe { *out_written = written };
+                EX_HOST_VFS_RESULT_OK
+            }
+            Err(_) => vfs_error_result(&crate::vfs::VfsError::malformed(OPERATION), out_errno),
+        },
+        Err(error) => vfs_error_result(&error, out_errno),
     }
 }
 
@@ -10842,6 +11126,258 @@ mod tests {
             .is_empty());
 
         ex_host_fs_close(file);
+        ex_host_restore_context(previous);
+        assert_eq!(ex_host_vfs_unbind_runtime(nonce), EX_HOST_VFS_RESULT_OK);
+        ex_host_release_context(context);
+    }
+
+    #[test]
+    fn private_typed_vfs_existing_append_repeats_write_without_creating_absent_paths() {
+        use capsec_semantics::model::Stage;
+
+        let _guard = host_test_lock();
+        let fixture = tempfile::Builder::new()
+            .prefix("typed-vfs-append-")
+            .tempdir_in(crate::host::tests::test_project_root())
+            .unwrap();
+        let relative_dir = fixture.path().file_name().unwrap().to_str().unwrap();
+        let relative = format!("{relative_dir}/append.txt");
+        let virtual_expected = format!("/project/{relative}");
+        let live = fixture.path().join("append.txt");
+        std::fs::write(&live, b"prefix").unwrap();
+
+        let host = Arc::new(crate::host::tests::example_vfs_armed_host());
+        host.begin_conformance_observation("enforcement.test.private-typed-vfs-append-open");
+        let context = insert_host_context(Arc::clone(&host), true);
+        assert_ne!(context, 0);
+        let nonce = 0x5459_5045_4441_5050;
+        assert_eq!(
+            ex_host_vfs_bind_runtime(context, nonce),
+            EX_HOST_VFS_RESULT_OK
+        );
+        let previous = ex_host_enter_context(context);
+        assert_ne!(previous, u64::MAX);
+        let principals = [0_u64];
+        let mut file = ptr::null_mut();
+        let mut virtual_path = ptr::null_mut();
+        let mut virtual_path_len = 0;
+        let mut errno = 0;
+        assert_eq!(
+            unsafe {
+                private_vfs_open_append_typed(
+                    nonce,
+                    0,
+                    principals.as_ptr(),
+                    principals.len(),
+                    relative.as_ptr(),
+                    relative.len() as u64,
+                    ptr::null(),
+                    0,
+                    &mut file,
+                    &mut virtual_path,
+                    &mut virtual_path_len,
+                    &mut errno,
+                )
+            },
+            EX_HOST_VFS_RESULT_OK
+        );
+        assert_eq!(errno, 0);
+        assert!(!file.is_null());
+        assert_eq!(
+            unsafe { std::slice::from_raw_parts(virtual_path, virtual_path_len as usize) },
+            virtual_expected.as_bytes()
+        );
+        ex_host_free_buffer(virtual_path, virtual_path_len);
+        let open_observed = host.take_typed_conformance_observations();
+        assert_eq!(
+            open_observed
+                .iter()
+                .map(|row| (
+                    row.decision_set.context.stage,
+                    row.decision_set.effects[0].action.as_str()
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                (Stage::Requested, "fs:write"),
+                (Stage::Requested, "fs:list"),
+                (Stage::Discovery, "fs:list"),
+                (Stage::Commit, "fs:write"),
+            ]
+        );
+        assert!(open_observed.iter().all(|row| row.gates.iter().all(|gate| {
+            gate.coverage_edge_id.as_str() == "surface.native.op.exactfsopen.05ao6wa"
+        })));
+
+        host.begin_conformance_observation("enforcement.test.private-typed-vfs-append-write");
+        let suffix = b"-suffix";
+        let mut written = 0;
+        assert_eq!(
+            unsafe {
+                private_vfs_write_append_typed(
+                    nonce,
+                    0,
+                    principals.as_ptr(),
+                    principals.len(),
+                    file,
+                    suffix.as_ptr(),
+                    suffix.len() as u32,
+                    &mut written,
+                    &mut errno,
+                )
+            },
+            EX_HOST_VFS_RESULT_OK
+        );
+        assert_eq!(errno, 0);
+        assert_eq!(written, suffix.len() as u32);
+        assert_eq!(std::fs::read(&live).unwrap(), b"prefix-suffix");
+        let write_observed = host.take_typed_conformance_observations();
+        assert_eq!(write_observed.len(), 1);
+        assert_eq!(write_observed[0].decision_set.context.stage, Stage::Repeat);
+        assert_eq!(
+            write_observed[0].decision_set.effects[0].action.as_str(),
+            "fs:write"
+        );
+        assert!(write_observed[0].gates.iter().all(|gate| {
+            gate.coverage_edge_id.as_str() == "surface.native.op.exactfswrite.1locgj1"
+        }));
+        ex_host_fs_close(file);
+
+        host.begin_conformance_observation("enforcement.test.private-typed-vfs-append-absent");
+        let absent_relative = format!("{relative_dir}/absent.txt");
+        file = ptr::null_mut();
+        virtual_path = ptr::null_mut();
+        virtual_path_len = 0;
+        assert_eq!(
+            unsafe {
+                private_vfs_open_append_typed(
+                    nonce,
+                    0,
+                    principals.as_ptr(),
+                    principals.len(),
+                    absent_relative.as_ptr(),
+                    absent_relative.len() as u64,
+                    ptr::null(),
+                    0,
+                    &mut file,
+                    &mut virtual_path,
+                    &mut virtual_path_len,
+                    &mut errno,
+                )
+            },
+            EX_HOST_VFS_RESULT_ABSENT
+        );
+        assert!(file.is_null());
+        assert!(virtual_path.is_null());
+        assert_eq!(virtual_path_len, 0);
+        assert!(!fixture.path().join("absent.txt").exists());
+        let absent_observed = host.take_typed_conformance_observations();
+        assert_eq!(
+            absent_observed
+                .iter()
+                .map(|row| (
+                    row.decision_set.context.stage,
+                    row.decision_set.effects[0].action.as_str()
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                (Stage::Requested, "fs:write"),
+                (Stage::Requested, "fs:list"),
+            ]
+        );
+
+        ex_host_restore_context(previous);
+        assert_eq!(ex_host_vfs_unbind_runtime(nonce), EX_HOST_VFS_RESULT_OK);
+        ex_host_release_context(context);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_typed_vfs_append_refuses_authenticated_package_hardlink_at_commit() {
+        use capsec_semantics::model::Stage;
+
+        let _guard = host_test_lock();
+        let fixture = tempfile::Builder::new()
+            .prefix("typed-vfs-append-package-hardlink-")
+            .tempdir_in(crate::host::tests::test_project_root())
+            .unwrap();
+        let relative_dir = fixture.path().file_name().unwrap().to_str().unwrap();
+        let (_package_fixture, host, package_root, _) =
+            crate::host::tests::example_unique_package_host(
+                br#"{"name":"image-lib","version":"2.4.1","main":"index.js"}"#,
+                &[("index.js", b"module.exports = true;\n")],
+            );
+        let host = Arc::new(host);
+        let package_source = package_root.join("index.js");
+        let package_bytes = std::fs::read(&package_source).unwrap();
+        let hardlink = fixture.path().join("package-hardlink.js");
+        std::fs::hard_link(&package_source, &hardlink).unwrap();
+        let hardlink_relative = format!("{relative_dir}/package-hardlink.js");
+
+        host.begin_conformance_observation(
+            "enforcement.test.private-typed-vfs-append-package-hardlink",
+        );
+        let context = insert_host_context(Arc::clone(&host), true);
+        assert_ne!(context, 0);
+        let nonce = 0x5459_5045_4441_5048;
+        assert_eq!(
+            ex_host_vfs_bind_runtime(context, nonce),
+            EX_HOST_VFS_RESULT_OK
+        );
+        let previous = ex_host_enter_context(context);
+        assert_ne!(previous, u64::MAX);
+        let principals = [0_u64];
+        let mut file = ptr::null_mut();
+        let mut virtual_path = ptr::null_mut();
+        let mut virtual_path_len = 0;
+        let mut errno = 0;
+        assert_eq!(
+            unsafe {
+                private_vfs_open_append_typed(
+                    nonce,
+                    0,
+                    principals.as_ptr(),
+                    principals.len(),
+                    hardlink_relative.as_ptr(),
+                    hardlink_relative.len() as u64,
+                    ptr::null(),
+                    0,
+                    &mut file,
+                    &mut virtual_path,
+                    &mut virtual_path_len,
+                    &mut errno,
+                )
+            },
+            EX_HOST_VFS_RESULT_POLICY_DENIED
+        );
+        assert!(file.is_null());
+        assert!(virtual_path.is_null());
+        assert_eq!(virtual_path_len, 0);
+        assert_eq!(std::fs::read(&hardlink).unwrap(), package_bytes);
+        assert_eq!(std::fs::read(&package_source).unwrap(), package_bytes);
+        let observed = host.take_typed_conformance_observations();
+        assert_eq!(
+            observed
+                .iter()
+                .map(|row| (
+                    row.decision_set.context.stage,
+                    row.decision_set.effects[0].action.as_str()
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                (Stage::Requested, "fs:write"),
+                (Stage::Requested, "fs:list"),
+                (Stage::Discovery, "fs:list"),
+                (Stage::Commit, "fs:write"),
+            ]
+        );
+        assert!(matches!(
+            &observed[3].decision_set.effects[0].resource,
+            capsec_semantics::model::OccurrenceResource::PathOccurrence {
+                final_object_generation: Some(_),
+                ..
+            }
+        ));
+
         ex_host_restore_context(previous);
         assert_eq!(ex_host_vfs_unbind_runtime(nonce), EX_HOST_VFS_RESULT_OK);
         ex_host_release_context(context);

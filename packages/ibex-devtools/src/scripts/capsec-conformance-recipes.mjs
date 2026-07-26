@@ -1538,6 +1538,52 @@ const nativeProjectFsOpenTemplate = ({
           },
         }
       : {}),
+    ...(!async &&
+    actionIds.length === 2 &&
+    actionIds.includes("fs:list") &&
+    actionIds.includes("fs:write")
+      ? {
+          // Windows exact "a" opens only an existing retained object:
+          // Requested write precedes lookup, Requested/Discovery list bind
+          // the path, and Commit write binds the append-only handle.
+          // @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified
+          expectedDecisionCountsByTarget: {
+            "x86_64-pc-windows-msvc": {
+              allow: 4,
+              "branch-selection": 4,
+              deny: 1,
+              malformed: 4,
+              "missing-attribution": 4,
+              "wrong-principal": 4,
+            },
+          },
+          expectedStagesByTarget: {
+            "x86_64-pc-windows-msvc": {
+              allow: ["requested", "requested", "discovery", "commit"],
+              "branch-selection": [
+                "requested",
+                "requested",
+                "discovery",
+                "commit",
+              ],
+              deny: ["requested"],
+              malformed: ["requested", "requested", "discovery", "commit"],
+              "missing-attribution": [
+                "requested",
+                "requested",
+                "discovery",
+                "commit",
+              ],
+              "wrong-principal": [
+                "requested",
+                "requested",
+                "discovery",
+                "commit",
+              ],
+            },
+          },
+        }
+      : {}),
     ...(async
       ? {
           additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
@@ -2038,6 +2084,14 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ],
   ["__exactFsRead", nativeRetainedFsReadTemplate()],
   ["__exactFsReadv", nativeRetainedFsReadvTemplate()],
+  [
+    "__exactFsWrite",
+    nativeRetainedFsWriteTemplate({
+      path: "target/ibex-capsec-fswrite",
+      argumentsList: [literalArgument("-append"), literalArgument(0)],
+      requiredSourceArity: 3,
+    }),
+  ],
   ["__exactFsFstatSync", nativeRetainedFsFstatTemplate()],
   [
     "__exactFsFsyncSync",
@@ -4154,14 +4208,15 @@ function unsupportedWindowsTypedPublicEffectReason({
   ) {
     return null;
   }
-  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Synchronous whole-file read, stat, lstat, readdir, retained scalar/vector descriptor read/fstat, and the read-only open branch are the completed exceptions.
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Synchronous whole-file read, stat, lstat, readdir, retained scalar/vector descriptor reads, scalar append writes/fstat, and the read/existing-append open branches are the completed exceptions.
   if (plan.actionIds.some((actionId) => actionId.startsWith("fs:"))) {
     const globalName = publicSurfaceProbe?.invocation?.globalName;
     if (
       globalName === "__exactFsOpen" &&
       plan.actionIds.length === 2 &&
       plan.actionIds.includes("fs:list") &&
-      plan.actionIds.includes("fs:read")
+      (plan.actionIds.includes("fs:read") ||
+        plan.actionIds.includes("fs:write"))
     ) {
       return null;
     }
@@ -4169,6 +4224,7 @@ function unsupportedWindowsTypedPublicEffectReason({
       [
         "__exactFsRead",
         "__exactFsReadv",
+        "__exactFsWrite",
         "__exactFsFstatSync",
         "__exactLstat",
         "__exactReadFile",

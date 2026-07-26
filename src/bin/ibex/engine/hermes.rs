@@ -21466,6 +21466,124 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(windows, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    async fn armed_windows_public_existing_append_uses_retained_write_repeat() {
+        use capsec_semantics::model::Stage;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-windows-typed-append-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let target = root.join("append.txt");
+        std::fs::write(&target, b"prefix").unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, false, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "enforcement.src.engine.hermes.runtime.fs.windows.exactfswrite.append.retained"
+        ));
+        let outcome = engine
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  var fd = __exactFsOpen('/project/append.txt', 'a', 438, null);
+                  try {
+                    return String(__exactFsWrite(fd, '-suffix', 0));
+                  } finally {
+                    __exactFsClose(fd);
+                  }
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("7"));
+        assert_eq!(std::fs::read(&target).unwrap(), b"prefix-suffix");
+
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            legacy.is_empty(),
+            "armed Windows append crossed the legacy capability oracle"
+        );
+        assert_eq!(
+            typed
+                .iter()
+                .map(|row| (
+                    row.decision_set.context.stage,
+                    row.decision_set.effects[0].action.as_str()
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                (Stage::Requested, "fs:write"),
+                (Stage::Requested, "fs:list"),
+                (Stage::Discovery, "fs:list"),
+                (Stage::Commit, "fs:write"),
+                (Stage::Repeat, "fs:write"),
+            ]
+        );
+        assert!(typed[..4].iter().all(|row| row.gates.iter().all(|gate| {
+            gate.coverage_edge_id.as_str() == "surface.native.op.exactfsopen.05ao6wa"
+        })));
+        assert!(typed[4].gates.iter().all(|gate| {
+            gate.coverage_edge_id.as_str() == "surface.native.op.exactfswrite.1locgj1"
+        }));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(all(windows, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_windows_public_append_denial_precedes_lookup_and_preserves_bytes() {
+        use capsec_semantics::model::Stage;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-windows-typed-append-deny-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let target = root.join("append.txt");
+        std::fs::write(&target, b"must-remain-unchanged").unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, false, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "enforcement.src.engine.hermes.runtime.fs.windows.exactfsopen.append.denied"
+        ));
+        let outcome = engine
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  try { __exactFsOpen('/project/append.txt', 'a', 438, null); }
+                  catch (error) { return String(error.code); }
+                  return 'unexpected-success';
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("EACCES"));
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(legacy.is_empty());
+        assert_eq!(typed.len(), 1);
+        assert_eq!(typed[0].decision_set.context.stage, Stage::Requested);
+        assert_eq!(typed[0].decision_set.effects[0].action.as_str(), "fs:write");
+        assert_eq!(std::fs::read(&target).unwrap(), b"must-remain-unchanged");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(all(windows, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
     async fn armed_windows_public_read_open_denies_before_lookup() {
         use capsec_semantics::model::Stage;
 
@@ -21512,7 +21630,9 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(windows, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
-    async fn armed_windows_public_unpromoted_open_flags_fail_closed_before_resolution() {
+    async fn armed_windows_public_unpromoted_flags_and_append_create_fail_closed() {
+        use capsec_semantics::model::Stage;
+
         let _lock = hermes_engine_test_lock().lock().await;
         let root = std::env::temp_dir().join(format!(
             "ibex-capsec-windows-write-open-closed-{}-{}",
@@ -21524,7 +21644,7 @@ navigator.gpu.requestAdapter()
         ));
         std::fs::create_dir_all(&root).unwrap();
         let root = std::fs::canonicalize(root).unwrap();
-        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, false, true, vec![]);
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, false, true, vec![]);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
 
         let _ = crate::host::abi::take_installed_conformance_observations();
@@ -21540,17 +21660,32 @@ navigator.gpu.requestAdapter()
                   catch (error) { results.push(String(error.code)); }
                   try { __exactFsOpen('/project/unknown-numeric.txt', 2048, 438, null); }
                   catch (error) { results.push(String(error.code)); }
+                  try { __exactFsOpen('/project/append-must-not-exist.txt', 'a', 438, null); }
+                  catch (error) { results.push(String(error.code)); }
                   return results.join(':');
                 })()"#,
             )
             .await
             .unwrap();
-        assert_eq!(outcome.as_deref(), Some("EPERM:EPERM"));
+        assert_eq!(outcome.as_deref(), Some("EPERM:EPERM:ENOENT"));
         let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
         assert!(legacy.is_empty());
-        assert!(typed.is_empty());
+        assert_eq!(
+            typed
+                .iter()
+                .map(|row| (
+                    row.decision_set.context.stage,
+                    row.decision_set.effects[0].action.as_str()
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                (Stage::Requested, "fs:write"),
+                (Stage::Requested, "fs:list"),
+            ]
+        );
         assert!(!root.join("must-not-exist.txt").exists());
         assert!(!root.join("unknown-numeric.txt").exists());
+        assert!(!root.join("append-must-not-exist.txt").exists());
         std::fs::remove_dir_all(root).unwrap();
     }
 

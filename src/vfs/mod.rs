@@ -2282,6 +2282,7 @@ impl CommittedPath {
 
 #[derive(Clone, Copy)]
 enum RetainedFinalAccess {
+    AppendOnly,
     Directory,
     LinkMetadata,
     Metadata,
@@ -3119,6 +3120,123 @@ impl VirtualFileSystem {
         }
     }
 
+    /// Open one existing regular file for append while retaining the exact
+    /// object and occurrence facts needed by later descriptor writes.
+    ///
+    /// Write authorization is deliberately separate from discovery:
+    /// `fs:write` Requested runs before lookup for lexical package-tree
+    /// protection, `fs:list` covers contained discovery, and `fs:write` Commit
+    /// binds the append-only descriptor. Absent-file creation is not part of
+    /// this bounded route.
+    ///
+    /// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+    /// @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified
+    /// @ref LLP 0023#42-authenticated-package-source-is-immutable
+    pub(crate) fn open_append_descriptor_authenticated<L, W>(
+        &self,
+        namespace: NamespacePath,
+        mut authorize_list: L,
+        mut authorize_write: W,
+    ) -> Result<AuthenticatedFileDescriptor, VfsError>
+    where
+        L: for<'a> FnMut(ReadAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
+        W: for<'a> FnMut(RetainedPathAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
+    {
+        const OPERATION: &str = "open";
+        self.ensure_path_session(&namespace, OPERATION)?;
+        if namespace.is_synthetic_root() {
+            return Err(VfsError::synthetic_node(
+                OPERATION,
+                namespace.virtual_path.clone(),
+            ));
+        }
+        let _write_requested = authorize_write(RetainedPathAuthorization::requested(&namespace))?;
+        let _list_requested = authorize_list(ReadAuthorization::Requested(&namespace))?;
+        if namespace.virtual_components.len() <= 1 {
+            return Err(VfsError::host_code(
+                OPERATION,
+                namespace.virtual_path.clone(),
+                "EISDIR",
+            ));
+        }
+
+        #[cfg(any(unix, windows))]
+        let (discovered, _traversal_decisions) =
+            self.discover_contained(namespace, &mut authorize_list, true)?;
+
+        #[cfg(any(unix, windows))]
+        let _discovery = authorize_list(ReadAuthorization::Discovery(&discovered))?;
+
+        #[cfg(any(unix, windows))]
+        let committed = self.commit_append_no_follow(discovered)?;
+
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = (authorize_list, authorize_write);
+            return Err(VfsError::host_code(
+                OPERATION,
+                namespace.virtual_path.clone(),
+                "ERR_IBEX_UNSUPPORTED_TARGET",
+            ));
+        }
+
+        #[cfg(any(unix, windows))]
+        {
+            let metadata = committed.retained_final.metadata().map_err(|error| {
+                VfsError::host(
+                    OPERATION,
+                    committed.namespace().virtual_path.clone(),
+                    &error,
+                )
+            })?;
+            if !metadata.is_file() {
+                return Err(VfsError::host_code(
+                    OPERATION,
+                    committed.namespace().virtual_path.clone(),
+                    if metadata.is_dir() {
+                        "EISDIR"
+                    } else {
+                        "EINVAL"
+                    },
+                ));
+            }
+            if committed.namespace().directory_intent {
+                return Err(VfsError::host_code(
+                    OPERATION,
+                    committed.namespace().virtual_path.clone(),
+                    "ENOTDIR",
+                ));
+            }
+            let current =
+                object_identity_for_retained_file(&committed.retained_final).map_err(|_| {
+                    VfsError::stale_identity(OPERATION, committed.namespace().virtual_path.clone())
+                })?;
+            if current != committed.final_object {
+                return Err(VfsError::stale_identity(
+                    OPERATION,
+                    committed.namespace().virtual_path.clone(),
+                ));
+            }
+            let _write_commit = authorize_write(RetainedPathAuthorization::committed(
+                committed.namespace(),
+                capsec_semantics::model::Stage::Commit,
+                Some(committed.discovered().parent_object().clone()),
+                committed.final_object().clone(),
+                committed.retained_handle_id(),
+            ))?;
+            let identity = AuthenticatedFileDescriptorIdentity {
+                namespace: committed.namespace().clone(),
+                parent_object: committed.discovered().parent_object().clone(),
+                final_object: committed.final_object().clone(),
+                retained_handle_id: committed.retained_handle_id(),
+            };
+            Ok(AuthenticatedFileDescriptor {
+                file: committed.retained_final,
+                identity,
+            })
+        }
+    }
+
     /// Capture metadata from an already retained descriptor after a fresh
     /// Repeat decision over its original occurrence. No pathname lookup is
     /// performed.
@@ -3237,6 +3355,58 @@ impl VirtualFileSystem {
         }
         bytes.truncate(bytes_read);
         Ok(bytes)
+    }
+
+    /// Append one caller-provided byte slice to an already retained
+    /// append-only descriptor after a fresh `fs:write` Repeat decision. The
+    /// retained identity is checked before authorization and after mutation;
+    /// no pathname lookup or reopen is performed.
+    ///
+    /// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+    /// @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified
+    pub(crate) fn write_append_descriptor_authenticated<F>(
+        &self,
+        file: &mut std::fs::File,
+        identity: &AuthenticatedFileDescriptorIdentity,
+        bytes: &[u8],
+        mut authorize: F,
+    ) -> Result<usize, VfsError>
+    where
+        F: for<'a> FnMut(RetainedPathAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
+    {
+        use std::io::Write as _;
+
+        const OPERATION: &str = "write";
+        self.ensure_path_session(&identity.namespace, OPERATION)?;
+        let before = object_identity_for_retained_file(file).map_err(|_| {
+            VfsError::stale_identity(OPERATION, identity.namespace.virtual_path.clone())
+        })?;
+        if before != identity.final_object {
+            return Err(VfsError::stale_identity(
+                OPERATION,
+                identity.namespace.virtual_path.clone(),
+            ));
+        }
+        let _repeat = authorize(RetainedPathAuthorization::committed(
+            &identity.namespace,
+            capsec_semantics::model::Stage::Repeat,
+            Some(identity.parent_object.clone()),
+            identity.final_object.clone(),
+            identity.retained_handle_id,
+        ))?;
+        let written = file.write(bytes).map_err(|error| {
+            VfsError::host(OPERATION, identity.namespace.virtual_path.clone(), &error)
+        })?;
+        let after = object_identity_for_retained_file(file).map_err(|_| {
+            VfsError::stale_identity(OPERATION, identity.namespace.virtual_path.clone())
+        })?;
+        if after != identity.final_object {
+            return Err(VfsError::stale_identity(
+                OPERATION,
+                identity.namespace.virtual_path.clone(),
+            ));
+        }
+        Ok(written)
     }
 
     /// Enumerate the exact retained directory object. The `fs:list` lifecycle
@@ -4058,6 +4228,14 @@ impl VirtualFileSystem {
     }
 
     #[cfg(any(unix, windows))]
+    fn commit_append_no_follow(
+        &self,
+        discovered: DiscoveredPath,
+    ) -> Result<CommittedPath, VfsError> {
+        self.commit_no_follow_with_access(discovered, RetainedFinalAccess::AppendOnly)
+    }
+
+    #[cfg(any(unix, windows))]
     fn commit_metadata_no_follow(
         &self,
         discovered: DiscoveredPath,
@@ -4100,6 +4278,13 @@ impl VirtualFileSystem {
         let basename_c = CString::new(discovered.basename.as_bytes())
             .map_err(|_| VfsError::malformed(OPERATION))?;
         let flags = match access {
+            RetainedFinalAccess::AppendOnly => {
+                libc::O_WRONLY
+                    | libc::O_APPEND
+                    | libc::O_CLOEXEC
+                    | libc::O_NOFOLLOW
+                    | libc::O_NONBLOCK
+            }
             RetainedFinalAccess::Directory => {
                 libc::O_RDONLY
                     | libc::O_DIRECTORY
@@ -4219,6 +4404,7 @@ impl VirtualFileSystem {
             &discovered.retained_parent,
             &discovered.basename,
             match access {
+                RetainedFinalAccess::AppendOnly => WindowsRelativeOpen::AppendOnly,
                 RetainedFinalAccess::Directory => WindowsRelativeOpen::Directory,
                 RetainedFinalAccess::LinkMetadata | RetainedFinalAccess::Metadata => {
                     WindowsRelativeOpen::Metadata
@@ -4328,6 +4514,7 @@ fn pause_before_cwd_mount_reverification(_: &std::path::Path) {}
 #[cfg(windows)]
 #[derive(Clone, Copy)]
 pub(crate) enum WindowsRelativeOpen {
+    AppendOnly,
     Metadata,
     Directory,
     Readable,
@@ -4791,9 +4978,9 @@ pub(crate) fn windows_open_relative_no_follow(
         RtlNtStatusToDosError, HANDLE, INVALID_HANDLE_VALUE, OBJ_CASE_INSENSITIVE, UNICODE_STRING,
     };
     use windows_sys::Win32::Storage::FileSystem::{
-        FileIdInfo, GetFileInformationByHandleEx, FILE_ID_INFO, FILE_LIST_DIRECTORY,
-        FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE,
-        SYNCHRONIZE,
+        FileIdInfo, GetFileInformationByHandleEx, FILE_APPEND_DATA, FILE_ID_INFO,
+        FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_READ,
+        FILE_SHARE_WRITE, FILE_TRAVERSE, SYNCHRONIZE,
     };
     use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
@@ -4869,6 +5056,9 @@ pub(crate) fn windows_open_relative_no_follow(
         SecurityQualityOfService: null(),
     };
     let (desired_access, type_options) = match kind {
+        WindowsRelativeOpen::AppendOnly => {
+            (FILE_READ_ATTRIBUTES | FILE_APPEND_DATA | SYNCHRONIZE, 0)
+        }
         WindowsRelativeOpen::Metadata => (FILE_READ_ATTRIBUTES | SYNCHRONIZE, 0),
         WindowsRelativeOpen::Directory => (
             FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | FILE_TRAVERSE | SYNCHRONIZE,
@@ -6018,7 +6208,7 @@ mod tests {
         fs::rename(&substitute, &package_root).unwrap();
 
         let error = session.chdir(b"/project/node_modules/a/sub").unwrap_err();
-        assert_eq!(error.reason(), VfsReason::StaleIdentity);
+        assert_eq!(error.reason(), VfsReason::Absent);
         assert_eq!(session.current_cwd().unwrap(), b"/project");
     }
 
@@ -7641,6 +7831,108 @@ mod tests {
         assert_eq!(fs::read(&live).unwrap(), b"attacker");
         assert_eq!(fs::read(&old).unwrap(), b"safe");
         assert!(!error.to_string().contains(temp.path().to_str().unwrap()));
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn retained_append_descriptor_binds_existing_object_and_repeats_before_write() {
+        use capsec_semantics::model::Stage;
+
+        let temp = tempfile::tempdir().unwrap();
+        let live = temp.path().join("append.txt");
+        fs::write(&live, b"prefix").unwrap();
+        let vfs = test_vfs(temp.path());
+        let path = vfs
+            .resolve_root_bytes(b"/project/append.txt", None)
+            .unwrap();
+        let mut list_stages = Vec::new();
+        let mut write_stages = Vec::new();
+        let descriptor = vfs
+            .open_append_descriptor_authenticated(
+                path,
+                |authorization| {
+                    list_stages.push(match authorization {
+                        ReadAuthorization::Requested(_) => Stage::Requested,
+                        ReadAuthorization::Discovery(_) => Stage::Discovery,
+                        ReadAuthorization::Commit(_) => Stage::Commit,
+                        ReadAuthorization::Repeat(_) => Stage::Repeat,
+                    });
+                    Ok(receipt(b"list"))
+                },
+                |authorization| {
+                    write_stages.push(authorization.stage());
+                    Ok(receipt(b"write"))
+                },
+            )
+            .unwrap();
+        let (mut file, identity) = descriptor.into_parts();
+        let written = vfs
+            .write_append_descriptor_authenticated(
+                &mut file,
+                &identity,
+                b"-suffix",
+                |authorization| {
+                    write_stages.push(authorization.stage());
+                    assert_eq!(authorization.final_object(), Some(&identity.final_object));
+                    Ok(receipt(b"write-repeat"))
+                },
+            )
+            .unwrap();
+        drop(file);
+
+        assert_eq!(written, b"-suffix".len());
+        assert_eq!(fs::read(&live).unwrap(), b"prefix-suffix");
+        assert_eq!(list_stages, [Stage::Requested, Stage::Discovery]);
+        assert_eq!(
+            write_stages,
+            [Stage::Requested, Stage::Commit, Stage::Repeat]
+        );
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn retained_append_descriptor_denial_and_absence_do_not_mutate() {
+        let temp = tempfile::tempdir().unwrap();
+        let live = temp.path().join("append.txt");
+        fs::write(&live, b"unchanged").unwrap();
+        let vfs = test_vfs(temp.path());
+        let path = vfs
+            .resolve_root_bytes(b"/project/append.txt", None)
+            .unwrap();
+        let descriptor = vfs
+            .open_append_descriptor_authenticated(
+                path,
+                |_| Ok(receipt(b"list")),
+                |_| Ok(receipt(b"write")),
+            )
+            .unwrap();
+        let (mut file, identity) = descriptor.into_parts();
+        let error = vfs
+            .write_append_descriptor_authenticated(&mut file, &identity, b"-denied", |_| {
+                Err(VfsError::policy_denied(
+                    "write",
+                    Arc::from("/project/append.txt"),
+                    "denied",
+                ))
+            })
+            .unwrap_err();
+        assert_eq!(error.reason(), VfsReason::PolicyDenied);
+        drop(file);
+        assert_eq!(fs::read(&live).unwrap(), b"unchanged");
+
+        let absent = temp.path().join("absent.txt");
+        let path = vfs
+            .resolve_root_bytes(b"/project/absent.txt", None)
+            .unwrap();
+        let error = vfs
+            .open_append_descriptor_authenticated(
+                path,
+                |_| Ok(receipt(b"list")),
+                |_| Ok(receipt(b"write")),
+            )
+            .unwrap_err();
+        assert_eq!(error.reason(), VfsReason::Absent);
+        assert!(!absent.exists());
     }
 
     #[cfg(windows)]
