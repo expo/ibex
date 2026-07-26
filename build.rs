@@ -514,15 +514,15 @@ fn windows_import_library_for_link(
     pinned
 }
 
-/// Precompute the armed registry-record content digest. The record —
+/// Precompute the armed registry-record canonical bytes and content digest. The record —
 /// registryDigest plus the capability definitions, coverage edges, target
 /// cells, and policy rules — is fully determined by checked-in files, but the
 /// runtime used to re-parse and re-canonicalize ~17 MB of JSON on every launch
-/// just to authenticate the pinned cache artifact. Computing the JCS digest
-/// here (with the same capsec-semantics code the runtime uses, so bytes are
-/// identical by construction) lets a warm startup authenticate the pinned
-/// artifact by digest and skip that work; a cold startup still constructs and
-/// byte-verifies the record in full.
+/// just to authenticate or create the pinned cache artifact. Computing the JCS
+/// bytes here (with the same capsec-semantics code the runtime uses) lets warm
+/// startup authenticate the pinned artifact by digest and lets cold startup
+/// materialize those exact bytes without repeating deterministic parsing and
+/// canonicalization.
 /// issues/20260724-insecure-startup-performance.md
 fn precompute_capsec_registry_record_digest(manifest_dir: &Path) {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -564,6 +564,8 @@ fn precompute_capsec_registry_record_digest(manifest_dir: &Path) {
         .expect("canonicalizing the capsec registry record");
     let digest = format!("sha256-{}", URL_SAFE_NO_PAD.encode(Sha256::digest(&bytes)));
     let out_dir = env_path("OUT_DIR");
+    std::fs::write(out_dir.join("capsec-registry-record.jcs"), &bytes)
+        .expect("writing precomputed registry record JCS");
     std::fs::write(out_dir.join("capsec-registry-record.digest"), &digest)
         .expect("writing precomputed registry record digest");
     std::fs::write(

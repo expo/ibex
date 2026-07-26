@@ -5028,35 +5028,18 @@ fn build_default_armed_host(
         .context("registry digest missing")?
         .to_owned();
     // Warm path: authenticate the pinned registry artifact against the
-    // build-time digest. Cold path: construct the record from the embedded
-    // registry JSON and pin it byte-verified, exactly as before.
+    // build-time digest. Cold path: pin the build-generated canonical bytes.
+    // Both are derived from the exact checked-in registry inputs by build.rs;
+    // startup never needs to parse and canonicalize the ~17 MB record.
     let registry_object =
         match pin_precomputed_registry_artifact(&cache_root, &registry_digest_name)? {
             Some(artifact) => artifact,
-            None => {
-                let registry_record = serde_json::json!({
-                    "registryDigest": value["registryDigest"],
-                    "capabilityDefinitions": serde_json::from_str::<serde_json::Value>(
-                        ibex_runtime::capsec_registry_generated::CAPSEC_CAPABILITY_DEFINITIONS_JSON,
-                    )?,
-                    "coverageEdges": serde_json::from_str::<serde_json::Value>(
-                        ibex_runtime::capsec_registry_generated::CAPSEC_COVERAGE_EDGES_JSON,
-                    )?,
-                    "targetCells": serde_json::from_str::<serde_json::Value>(
-                        ibex_runtime::capsec_registry_generated::CAPSEC_TARGET_CELLS_JSON,
-                    )?,
-                    "policyRules": serde_json::from_str::<serde_json::Value>(
-                        ibex_runtime::capsec_registry_generated::CAPSEC_POLICY_RULES_JSON,
-                    )?,
-                });
-                let registry_bytes = capsec_semantics::canonical::to_jcs_bytes(&registry_record)?;
-                materialize_protected_artifact(
-                    &cache_root,
-                    "registry",
-                    &registry_digest_name,
-                    &registry_bytes,
-                )?
-            }
+            None => materialize_protected_artifact(
+                &cache_root,
+                "registry",
+                &registry_digest_name,
+                CAPSEC_REGISTRY_RECORD_JCS,
+            )?,
         };
     phase.mark("arm_registry_record");
     let policy_object = materialize_protected_artifact(
@@ -6432,6 +6415,8 @@ const CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST: &str =
     include_str!(concat!(env!("OUT_DIR"), "/capsec-registry-record.digest"));
 const CAPSEC_REGISTRY_RECORD_CONTENT_LEN: &str =
     include_str!(concat!(env!("OUT_DIR"), "/capsec-registry-record.len"));
+const CAPSEC_REGISTRY_RECORD_JCS: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/capsec-registry-record.jcs"));
 
 /// Warm-start fast path for the registry protected artifact: authenticate an
 /// already-pinned cache file against the build-time content digest instead of
@@ -6579,6 +6564,10 @@ mod precomputed_registry_record_tests {
             bytes.len().to_string(),
             CAPSEC_REGISTRY_RECORD_CONTENT_LEN.trim(),
             "build.rs registry-record length diverged from the runtime construction"
+        );
+        assert_eq!(
+            bytes, CAPSEC_REGISTRY_RECORD_JCS,
+            "build.rs registry-record bytes diverged from the runtime construction"
         );
     }
 }
