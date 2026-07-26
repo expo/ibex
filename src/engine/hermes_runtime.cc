@@ -1175,6 +1175,12 @@ bool requestStructuredLifecycle(
   if (handle == nullptr || !handle->armed) {
     return false;
   }
+#if !defined(EXACT_HAVE_HERMES_ASYNC_TRIGGER_TIMEOUT)
+  throw facebook::jsi::JSError(
+      runtime,
+      "The selected Hermes profile cannot provide fail-closed structured "
+      "lifecycle interruption");
+#else
   // Authorization precedes both the native lifecycle record and the engine
   // interrupt. A denied request is an ordinary catchable JavaScript error and
   // cannot leave a latent exit request behind.
@@ -1191,6 +1197,7 @@ bool requestStructuredLifecycle(
   // native record before classifying the VM termination.
   handle->runtime->asyncTriggerTimeout();
   return true;
+#endif
 }
 
 facebook::jsi::Function makeProcessExitFn(
@@ -1613,7 +1620,9 @@ bool beginStructuredWorkUnit(
           runtime->structured_vm_work_active &&
           runtime->structured_cancel_requested_work_target_id == 0) {
         runtime->structured_cancel_requested_work_target_id = targetId;
+#if defined(EXACT_HAVE_HERMES_ASYNC_TRIGGER_TIMEOUT)
         runtime->runtime->asyncTriggerTimeout();
+#endif
       }
     }
     failStructuredWorkPublication(runtime);
@@ -13215,6 +13224,12 @@ extern "C" uint32_t ex_hermes_cancel_structured_work_target(
     ExactHermesRuntime* runtime,
     uint64_t runtimeNonce,
     uint64_t workTargetId) {
+#if !defined(EXACT_HAVE_HERMES_ASYNC_TRIGGER_TIMEOUT)
+  (void)runtime;
+  (void)runtimeNonce;
+  (void)workTargetId;
+  return EX_HERMES_CANCEL_UNAVAILABLE;
+#else
   if (workTargetId == 0) {
     return EX_HERMES_CANCEL_FAILED;
   }
@@ -13257,6 +13272,7 @@ extern "C" uint32_t ex_hermes_cancel_structured_work_target(
   // a successor between the exact-id check and the interrupt request.
   runtime->runtime->asyncTriggerTimeout();
   return EX_HERMES_CANCEL_ACCEPTED;
+#endif
 }
 
 // @abi-output ex_hermes_eval_structured_session result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose

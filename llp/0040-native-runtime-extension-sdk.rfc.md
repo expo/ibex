@@ -5,8 +5,8 @@
 **Systems:** Engine, Runtime, Host ABI, Capability Security, Build, Verification
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-25
-**Revised:** 2026-07-25; 2026-07-26 (registered conformance and shared-toolchain enforcement)
-**Related:** LLP 0000 (Ibex root), LLP 0002 (host embedding ABI), LLP 0003 (Hermes engine bridge), LLP 0006 (design principles), LLP 0012 (runtime identity), LLP 0013 / 0021 (capability security); Exact LLP 0405 (native runtime extensions)
+**Revised:** 2026-07-25; 2026-07-26 (registered conformance and shared-toolchain enforcement); 2026-07-26 (Windows profile qualification boundary and fail-closed lifecycle capability probe)
+**Related:** LLP 0000 (Ibex root), LLP 0002 (host embedding ABI), LLP 0003 (Hermes engine bridge), LLP 0006 (design principles), LLP 0012 (runtime identity), LLP 0013 / 0021 (capability security), LLP 0025 (terminal session ownership and lifecycle); Exact LLP 0405 (native runtime extensions)
 
 ## Summary
 
@@ -522,7 +522,22 @@ engine module with default/insecure features disabled, requires a nonzero
 fixture floor, and separately requires the target-local production
 package-policy refusal. It selects the one compiler pinned by both Exact and
 Ibex; current-source Ibex workflows consume `scripts/install-rust-toolchain.sh`
-rather than carrying another literal toolchain pin. Tests must cover:
+rather than carrying another literal toolchain pin.
+
+The legacy Windows header/import-library SDK selected by Exact's explicit
+compile-only profile is not a runtime-extension or native-conformance input.
+It may type-check the Windows target, but it cannot execute or link a native
+host and cannot produce runtime, CapSec, extension, or platform-qualification
+evidence. A qualifying Windows native build must instead use the authenticated
+Ibex `windows-source-patched` Hermes profile and its provenance receipt.
+`build.rs` probes the selected `hermes.h` for
+`HermesRuntime::asyncTriggerTimeout`; when that capability is absent, an armed
+structured-lifecycle request throws before recording the request and the
+native structured-cancellation ABI returns `UNAVAILABLE`. There is no
+best-effort interrupt fallback. These guards preserve, rather than revise,
+LLP 0025's normative lifecycle and cancellation contract.
+
+Tests must cover:
 
 1. canonical install and reverse close order;
 2. duplicate IDs, malformed digests, unsupported features, provider mismatch,

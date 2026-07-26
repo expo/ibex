@@ -22,6 +22,8 @@ mod portable_engine_build_preflight;
 mod portable_engine_promotion_report;
 #[path = "build_support/portable_host_tool_runner.rs"]
 mod portable_host_tool_runner;
+#[path = "build_support/windows_compile_only_profile.rs"]
+mod windows_compile_only_profile;
 
 #[derive(Clone)]
 struct AppleFramework {
@@ -187,6 +189,93 @@ fn read_dir_paths_or_panic(path: &Path, context: &str) -> Vec<PathBuf> {
 }
 
 const HERMES_PROFILE_PROVENANCE_SCHEMA: &str = "ibex/hermes-profile-provenance-receipt/2";
+
+fn optional_unicode_env(name: &str) -> Option<String> {
+    match std::env::var(name) {
+        Ok(value) => Some(value),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => panic!("{name} must be valid Unicode"),
+    }
+}
+
+fn windows_compile_only_profile_plan(
+    target_os: &str,
+    target_triple: &str,
+) -> Option<windows_compile_only_profile::CompileOnlyPlan> {
+    println!(
+        "cargo:rerun-if-env-changed={}",
+        windows_compile_only_profile::MODE_ENV
+    );
+    let mode_value = optional_unicode_env(windows_compile_only_profile::MODE_ENV);
+    mode_value.as_ref()?;
+
+    for variable in [
+        "HOST",
+        "IBEX_LEGACY_HERMES_BLOCK_SCOPING",
+        "IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE",
+    ]
+    .into_iter()
+    .chain(
+        windows_compile_only_profile::FORBIDDEN_SELECTOR_ENVS
+            .iter()
+            .copied(),
+    )
+    .chain(
+        windows_compile_only_profile::REQUIRED_DIRECTORY_ENVS
+            .iter()
+            .copied(),
+    ) {
+        println!("cargo:rerun-if-env-changed={variable}");
+    }
+    let host_triple = optional_unicode_env("HOST");
+    let legacy_block_scoping = optional_unicode_env("IBEX_LEGACY_HERMES_BLOCK_SCOPING");
+    let require_provenance = optional_unicode_env("IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE");
+    let present_forbidden_selectors = windows_compile_only_profile::FORBIDDEN_SELECTOR_ENVS
+        .iter()
+        .copied()
+        .filter(|variable| std::env::var_os(variable).is_some())
+        .collect::<Vec<_>>();
+    let missing_required_directories = windows_compile_only_profile::REQUIRED_DIRECTORY_ENVS
+        .iter()
+        .copied()
+        .filter(|variable| {
+            optional_unicode_env(variable)
+                .as_deref()
+                .is_none_or(str::is_empty)
+        })
+        .collect::<Vec<_>>();
+    windows_compile_only_profile::select(windows_compile_only_profile::SelectorRequest {
+        mode_value: mode_value.as_deref(),
+        target_os,
+        target_triple,
+        host_triple: host_triple.as_deref(),
+        legacy_block_scoping: legacy_block_scoping.as_deref(),
+        require_provenance: require_provenance.as_deref(),
+        present_forbidden_selectors: &present_forbidden_selectors,
+        missing_required_directories: &missing_required_directories,
+    })
+    .unwrap_or_else(|error| panic!("{error}"))
+}
+
+fn validate_windows_compile_only_artifacts(hermes_bin_dir: &Path, import_library: &Path) {
+    println!("cargo:rerun-if-changed={}", hermes_bin_dir.display());
+    let entries = read_dir_paths_or_panic(
+        hermes_bin_dir,
+        "compile-only Windows Hermes binary directory",
+    );
+    let mut names = entries
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>();
+    names.sort();
+    println!("cargo:rerun-if-changed={}", import_library.display());
+    windows_compile_only_profile::validate_artifacts(
+        &names,
+        import_library.is_file(),
+        &import_library.display().to_string(),
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
+}
 
 fn exact_json_object_fields(value: &serde_json::Value, expected: &[&str]) -> bool {
     let Some(object) = value.as_object() else {
@@ -606,6 +695,8 @@ fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     let target_triple = std::env::var("TARGET").unwrap_or_default();
+    let windows_compile_only_plan = windows_compile_only_profile_plan(&target_os, &target_triple);
+    let windows_compile_only_profile = windows_compile_only_plan.is_some();
     for variable in [
         portable_engine_build_consumption::ARTIFACT_ID_ENV,
         portable_engine_build_consumption::STORE_ROOT_ENV,
@@ -773,6 +864,9 @@ fn main() {
         );
         None
     };
+    if windows_compile_only_profile && portable_engine.is_some() {
+        panic!("compile-only Windows Hermes profile cannot select a portable engine");
+    }
     let hermes_link_static = env_truthy("HERMES_LINK_STATIC");
     let static_hermes_lib = match std::env::var("HERMES_STATIC_LIB_NAME")
         .unwrap_or_else(|_| "hermesvm_a".into())
@@ -966,6 +1060,10 @@ fn main() {
                 hermes_bin_dir.display()
             );
         }
+        if windows_compile_only_profile {
+            let import_library = hermes_lib_dir.join("hermes.lib");
+            validate_windows_compile_only_artifacts(&hermes_bin_dir, &import_library);
+        }
     }
     if target_os == "macos"
         && hermes_link_static
@@ -1047,6 +1145,15 @@ fn main() {
         // joining it to the selected manifest/runtime bytes. Running the
         // legacy checkout-relative validator here would introduce a second,
         // unrelated selector.
+    } else if let Some(plan) = windows_compile_only_plan.as_ref() {
+        // This cross-target lint profile deliberately has no runtime image or
+        // executable compiler. It is admitted only for type/code generation
+        // checks and cannot make a runtime provenance claim.
+        if !plan.embed_null_provenance {
+            panic!("compile-only Windows Hermes plan must embed null provenance");
+        }
+        std::fs::write(out_dir.join("hermes_profile_provenance.json"), b"null\n")
+            .expect("write compile-only absent Hermes provenance marker");
     } else if let Some((
         selected_binary,
         default_receipt,
@@ -1248,30 +1355,34 @@ fn main() {
     } else {
         None
     };
-    let hermes_frame_attribution_binary = match target_os.as_str() {
-        "macos" => hermes_macos_binary.clone(),
-        "linux" => {
-            if hermes_link_static {
-                [
-                    hermes_lib_dir.join(format!("lib{static_hermes_lib}.a")),
-                    hermes_lib_dir.join("libhermesvm.a"),
-                ]
-                .into_iter()
-                .find(|path| path.is_file())
-            } else {
-                hermes_lib_dir
-                    .join("libhermesvm.so")
-                    .is_file()
-                    .then(|| hermes_lib_dir.join("libhermesvm.so"))
+    let hermes_frame_attribution_binary = if windows_compile_only_profile {
+        None
+    } else {
+        match target_os.as_str() {
+            "macos" => hermes_macos_binary.clone(),
+            "linux" => {
+                if hermes_link_static {
+                    [
+                        hermes_lib_dir.join(format!("lib{static_hermes_lib}.a")),
+                        hermes_lib_dir.join("libhermesvm.a"),
+                    ]
+                    .into_iter()
+                    .find(|path| path.is_file())
+                } else {
+                    hermes_lib_dir
+                        .join("libhermesvm.so")
+                        .is_file()
+                        .then(|| hermes_lib_dir.join("libhermesvm.so"))
+                }
             }
+            "windows" => [
+                hermes_bin_dir.join("hermesvm.dll"),
+                hermes_bin_dir.join("hermes.dll"),
+            ]
+            .into_iter()
+            .find(|path| path.is_file()),
+            _ => None,
         }
-        "windows" => [
-            hermes_bin_dir.join("hermesvm.dll"),
-            hermes_bin_dir.join("hermes.dll"),
-        ]
-        .into_iter()
-        .find(|path| path.is_file()),
-        _ => None,
     };
     if let Some(path) = hermes_frame_attribution_binary.as_ref() {
         println!("cargo:rerun-if-changed={}", path.display());
@@ -2104,6 +2215,13 @@ fn main() {
     ) {
         build.define("EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK", None);
     }
+    if file_contains_all(&hermes_header, &["asyncTriggerTimeout("]) {
+        // The pinned source-patched profile exposes Hermes' any-thread
+        // immediate break used by structured lifecycle/cancellation. Older
+        // compile-only SDK headers do not; keep those builds fail-closed
+        // instead of calling an API they cannot provide.
+        build.define("EXACT_HAVE_HERMES_ASYNC_TRIGGER_TIMEOUT", None);
+    }
 
     // Debugger support is auto-detected on macOS so we do not compile against
     // debugger APIs that are missing from the checked-in Hermes framework.
@@ -2305,26 +2423,44 @@ fn main() {
             .flag("/Zc:__cplusplus");
         ws_build.compile("exact_native_websocket");
 
-        // @ref LLP 0005#c-compilation — Windows test/run binaries need the
-        // Hermes runtime DLLs beside the executable; link-search paths alone do
-        // not make Cargo-launched tests find the NuGet bin directory.
-        stage_windows_runtime_dlls(&out_dir, &hermes_bin_dir);
+        // @ref LLP 0005#c-compilation — linkable Windows test/run binaries need
+        // the Hermes runtime DLLs beside the executable; link-search paths
+        // alone do not make Cargo-launched tests find the runtime bin
+        // directory. The explicit metadata-only profile below is deliberately
+        // non-linkable and therefore stages no runtime image.
+        if let Some(plan) = windows_compile_only_plan.as_ref() {
+            // Cargo check/clippy consumes native-library metadata without
+            // invoking the target linker. Propagate an intentionally absent
+            // native dependency so any attempt to turn this header/import-lib
+            // fixture into a final executable fails at link time.
+            if plan.stage_runtime_dlls || plan.add_runtime_bin_search || !plan.poison_codegen_link {
+                panic!("compile-only Windows Hermes plan reopened a runtime/link path");
+            }
+            println!(
+                "cargo:rustc-link-lib=static={}",
+                windows_compile_only_profile::POISON_LIBRARY
+            );
+            eprintln!("ibex build: admitted non-linkable compile-only Windows Hermes profile");
+        } else {
+            stage_windows_runtime_dlls(&out_dir, &hermes_bin_dir);
+            // @ref LLP 0005#c-compilation — Cargo adds native link-search
+            // paths to the DLL search path for `cargo test`, so include the
+            // Hermes runtime DLL directory as well as the import-library
+            // directory.
+            println!(
+                "cargo:rustc-link-search=native={}",
+                hermes_bin_dir.display()
+            );
+        }
 
         println!(
             "cargo:rustc-link-search=native={}",
             hermes_lib_dir.display()
         );
-        // @ref LLP 0005#c-compilation — Cargo adds native link-search paths to
-        // the DLL search path for `cargo test`, so include the Hermes runtime
-        // DLL directory as well as the import-library directory.
-        println!(
-            "cargo:rustc-link-search=native={}",
-            hermes_bin_dir.display()
-        );
-        // Link the exact import library captured after receipt validation.
-        // The digest-unique verbatim name propagates through this crate's rlib
-        // to downstream embedders without permitting another search directory
-        // to substitute a bare `hermes.lib` after build.rs checked it.
+        // Link the exact selected import library. Runtime profiles use the
+        // digest-unique copy captured after receipt validation; the narrow
+        // compile-only path uses its profile-digest-checked fixture path and
+        // remains poisoned against codegen/link above.
         let import_library = windows_import_library
             .as_ref()
             .expect("Windows Hermes import library must be selected");

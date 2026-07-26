@@ -5,6 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-26 (a strict non-linkable Windows metadata-only profile may omit runtime-DLL staging without weakening staging for linkable builds)
 **Revised:** 2026-07-25 (LLP 0040 removes the Ibex-owned `webgpu-binding` bundle path; Ibex vendors one core runtime bundle while selected extensions supply package-owned authenticated source/HBC bootstrap bytes through the generic registry)
 **Revised:** 2026-07-25 (historical: split core and WebGPU activation bundles; superseded by LLP 0040)
 **Revised:** 2026-07-17 (LLP 0029 adds static macOS Hermes bundle linkage and carrier v2's tagged loaded/static engine binding with inspected HBC metadata); 2026-07-17 (ENG-24933 adds patched Windows source/release bundles and a downloadable macOS no-debugger Release profile, each bound to exact build authority and binary identity)
@@ -400,6 +401,23 @@ different-source refusal on every host; Windows CI additionally holds the
 destination with an exclusive Windows handle and proves publication fails
 without changing it `[observed]` (`crates/windows-dll-staging/src/lib.rs`;
 `.github/workflows/ci.yml`).
+
+There is one deliberately narrower metadata-only exception. When a
+non-Windows host cross-checks `x86_64-pc-windows-msvc` with
+`IBEX_WINDOWS_COMPILE_ONLY_PROFILE=1`, `build.rs` admits only the exact
+compile-only contract governed by Exact's
+`scripts/windows-hermes-cross-compile-profile.json`: the host and target must
+differ, the legacy semantic mode must be explicit, runtime selectors and
+provenance are forbidden, the Hermes binary directory must be present and
+empty, and the digest-checked import library must be a regular file. In that
+mode Ibex emits null runtime provenance, adds no runtime-bin search path, and
+stages no Hermes DLL. It also emits an intentionally nonexistent poison
+library dependency, so `cargo check`/Clippy may consume native metadata but
+code generation or a final link fails. This exception cannot qualify a native
+runtime or supply runtime-extension evidence. Every normal successful,
+linkable Windows build remains required to select authenticated runtime
+artifacts and stage their DLLs as described above `[observed]`
+(`build.rs`; `build_support/windows_compile_only_profile.rs`).
 
 The `host-http-server` feature controls whether the real Rust
 `ex_host_http_*` implementation is linked. The `ibex` binary can compile
