@@ -2936,7 +2936,7 @@ const REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES = Object.freeze([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.d806d778df43d42e2cd178609524f5a346e4d707cdcaabf37359c77dd3f1fec8";
+  "hermes-evaluators.66a0a55b1755b73311abc5463c0a2fda478ca2d30d2f2bfe6e203217e9e963f8";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
@@ -5250,6 +5250,8 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_build_exact_armed_embedder_artifacts",
     "ex_host_build_exact_runtime_extension_armed_embedder_artifacts",
     "ex_host_check_capability",
+    "ex_host_check_capability_constrained_stack",
+    "ex_host_check_capability_constrained_stack_no_follow_final",
     "ex_host_check_capability_no_follow_final",
     "ex_host_check_capability_stack",
     "ex_host_check_capability_stack_no_follow_final",
@@ -13147,7 +13149,7 @@ function hostAbiClassification(name) {
   }
 
   if (
-    /^(?:exhostauthorizetypedenvironment(?:read|write)stack|exhostauthorizetypedfsstack|exhostauthorizetypedlistenstack|exhostauthorizetypednetworkstack|exhostauthorizetypedprintstack|exhostauthorizetypedsysteminfostack|exhostauthorizetypedudpdatagramstack|exhostclaimarmedcontext|exhostclaimdiagnosticcontext|exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostentercontext|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlegacyauthorizationcacheable|exhostlegacyauthorizationgeneration|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhostreleasecontext|exhostrestorecontext|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
+    /^(?:exhostauthorizetypedenvironment(?:read|write)stack|exhostauthorizetypedfsstack|exhostauthorizetypedlistenstack|exhostauthorizetypednetworkstack|exhostauthorizetypedprintstack|exhostauthorizetypedsysteminfostack|exhostauthorizetypedudpdatagramstack|exhostclaimarmedcontext|exhostclaimdiagnosticcontext|exhostcheckcapability|exhostcheckcapabilityconstrainedstack|exhostcheckcapabilityconstrainedstacknofollowfinal|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostentercontext|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlegacyauthorizationcacheable|exhostlegacyauthorizationgeneration|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhostreleasecontext|exhostrestorecontext|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
       name,
     )
   ) {

@@ -145,7 +145,38 @@ const std::vector<uint64_t>* exactSwapTypedPrincipalStackForRuntimeDrive(
     const std::vector<uint64_t>* replacement) {
   const auto* previous = g_typed_principal_stack;
   g_typed_principal_stack = replacement;
+  (void)exactSyncTypedPrincipalStackToHermes();
   return previous;
+}
+
+bool exactSyncTypedPrincipalStackToHermes() {
+#if defined(EXACT_HAVE_FRAME_ATTRIBUTION) && \
+    defined(EXACT_HAVE_JOB_CONSTRAINED_PRINCIPALS)
+  if (g_vm_runtime == nullptr) return true;
+  if (g_typed_principal_stack == nullptr ||
+      g_typed_principal_stack->empty()) {
+    return ex_hermes_vm_set_embedder_job_constrained_principals(
+               g_vm_runtime, nullptr, 0) == 1;
+  }
+  constexpr size_t kMaxPrincipals = 256;
+  if (g_typed_principal_stack->size() > kMaxPrincipals) {
+    return ex_hermes_vm_set_embedder_job_constrained_principals(
+               g_vm_runtime, nullptr, kMaxPrincipals + 1) == 1;
+  }
+  uint32_t principals[kMaxPrincipals];
+  for (size_t index = 0; index < g_typed_principal_stack->size(); ++index) {
+    const uint64_t principal = (*g_typed_principal_stack)[index];
+    if (principal > std::numeric_limits<uint32_t>::max()) {
+      return ex_hermes_vm_set_embedder_job_constrained_principals(
+                 g_vm_runtime, nullptr, kMaxPrincipals + 1) == 1;
+    }
+    principals[index] = static_cast<uint32_t>(principal);
+  }
+  return ex_hermes_vm_set_embedder_job_constrained_principals(
+             g_vm_runtime, principals, g_typed_principal_stack->size()) == 1;
+#else
+  return true;
+#endif
 }
 
 #if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
@@ -331,38 +362,6 @@ void exactCleanupRuntimeFileDescriptors(uint64_t runtimeNonce) {
 
 constexpr size_t kMaxTypedPrincipalStack = 256;
 
-static std::vector<uint64_t> normalizeTypedPrincipalStack(
-    const std::vector<uint64_t>& collected) {
-#ifndef EXACT_HAVE_FRAME_ATTRIBUTION
-  return collected;
-#else
-  // kNoUserPrincipal is an absence marker, not an additional authority
-  // dimension, when the same walk also recovered a real user/scheduler
-  // principal. This is the native-resolution shape covered by Hermes patch
-  // 0008: a real callback frame supplies attribution and a no-user scheduler is
-  // not evidence of laundering. Sentinel-only attribution must still deny.
-  // A live collection that filled the bounded buffer appends a 257th no-user
-  // sentinel below; preserve that explicit truncation witness in full.
-  // @ref LLP 0021#decision-staging-and-principal-semantics
-  if (collected.size() > kMaxTypedPrincipalStack) return collected;
-  bool hasRealPrincipal = std::any_of(
-      collected.begin(), collected.end(), [](uint64_t principal) {
-        return principal != static_cast<uint64_t>(kNoUserPrincipalId)
-            && principal != static_cast<uint64_t>(kRuntimePrincipalId);
-      });
-  if (!hasRealPrincipal) return collected;
-
-  std::vector<uint64_t> normalized;
-  normalized.reserve(collected.size());
-  for (uint64_t principal : collected) {
-    if (principal != static_cast<uint64_t>(kNoUserPrincipalId)) {
-      normalized.push_back(principal);
-    }
-  }
-  return normalized;
-#endif
-}
-
 std::vector<uint64_t> exactCollectTypedPrincipalStack() {
   std::vector<uint64_t> principals;
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
@@ -373,12 +372,10 @@ std::vector<uint64_t> exactCollectTypedPrincipalStack() {
     principals.reserve(count + 1);
     for (size_t index = 0; index < count; ++index) {
       auto id = static_cast<uint64_t>(ids[index]);
-      // VM/runtime-only frames are not authority principals. Preserve the
-      // explicit truncation sentinel appended below, but do not let a normal
-      // Promise/internal frame make an otherwise attributed callback fail as
-      // an unknown principal. This matches the Windows stack walker.
-      if (id == static_cast<uint64_t>(kRuntimePrincipalId) ||
-          id == static_cast<uint64_t>(kNoUserPrincipalId)) {
+      // VM/runtime-only frames are not authority principals. A no-user value
+      // carried by a job constraint is different: it is an explicit
+      // fail-closed witness and must survive into the Host intersection.
+      if (id == static_cast<uint64_t>(kRuntimePrincipalId)) {
         continue;
       }
       if (principals.empty() || principals.back() != id) principals.push_back(id);
@@ -411,7 +408,7 @@ std::vector<uint64_t> exactCollectTypedPrincipalStack() {
     principals.push_back(scheduler);
   }
   if (principals.empty()) principals.push_back(currentPrincipalId());
-  return normalizeTypedPrincipalStack(principals);
+  return principals;
 }
 
 ScopedTypedPrincipalStack::ScopedTypedPrincipalStack(
@@ -421,10 +418,17 @@ ScopedTypedPrincipalStack::ScopedTypedPrincipalStack(
   // callback. Keep the constrained principal set alive for the full dynamic
   // scope instead of pointing into the scheduler container.
   g_typed_principal_stack = &principals_;
+  if (!exactSyncTypedPrincipalStackToHermes()) {
+    g_typed_principal_stack = previous_;
+    (void)exactSyncTypedPrincipalStackToHermes();
+    throw std::runtime_error(
+        "Hermes constrained-principal context is unavailable");
+  }
 }
 
 ScopedTypedPrincipalStack::~ScopedTypedPrincipalStack() {
   g_typed_principal_stack = previous_;
+  (void)exactSyncTypedPrincipalStackToHermes();
 }
 
 static thread_local uint32_t g_last_typed_fs_authorization_result =
@@ -3096,10 +3100,12 @@ static facebook::jsi::Value startFsAsync(
               bool delivered = false;
               pushRuntimeCallback(
                   target,
-                  [handle, principal, resolve = std::move(runtimeResolve),
+                  [handle, principal, principalStack,
+                   resolve = std::move(runtimeResolve),
                    reject = std::move(runtimeReject), resultPtr](
                       facebook::jsi::Runtime& rt) {
                     ScopedNativePrincipal nativePrincipal(principal);
+                    ScopedTypedPrincipalStack typedStack(*principalStack);
                     try {
                       if (resultPtr->ok) {
                         if (resultPtr->registerOpenedFd) {

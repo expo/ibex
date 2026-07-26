@@ -5,7 +5,7 @@
 # @ref LLP 0040
 #
 diff --git a/API/hermes/hermes.cpp b/API/hermes/hermes.cpp
-index 1e6e6340281be5d055ae6e8b6cc2c2a6aa062ef6..d727d5ac700ff51bc6bb9d66880428877c93e293 100644
+index 1e6e6340281be5d055ae6e8b6cc2c2a6aa062ef6..a100e8ed052ccdd4ec0d51e9bb411e8e41877c68 100644
 --- a/API/hermes/hermes.cpp
 +++ b/API/hermes/hermes.cpp
 @@ -249,6 +249,7 @@ class HermesRootAPI final : public IHermesRootAPI, public ISetFatalHandler {
@@ -93,7 +93,7 @@ index 1e6e6340281be5d055ae6e8b6cc2c2a6aa062ef6..d727d5ac700ff51bc6bb9d6688042887
    if (LLVM_LIKELY(vm::vmisa<vm::JSArray>(phv(arr)))) {
      return vm::JSArray::getLength(vm::vmcast<vm::JSArray>(phv(arr)), runtime_);
 diff --git a/API/jsi/jsi/hermes-interfaces.h b/API/jsi/jsi/hermes-interfaces.h
-index 4655aa8ce0cde4cf4d81e360286e4a08ffa852bb..34eb5b24a9f023383f454a4ef6d5081a98647624 100644
+index 4655aa8ce0cde4cf4d81e360286e4a08ffa852bb..f12490fae9e602d084003a67996222504247f30f 100644
 --- a/API/jsi/jsi/hermes-interfaces.h
 +++ b/API/jsi/jsi/hermes-interfaces.h
 @@ -221,6 +221,37 @@ class JSI_EXPORT IHermes : public jsi::ICast {
@@ -135,7 +135,7 @@ index 4655aa8ce0cde4cf4d81e360286e4a08ffa852bb..34eb5b24a9f023383f454a4ef6d5081a
  class IHermesSHUnit : public jsi::ICast {
   public:
 diff --git a/include/hermes/VM/JSArrayBuffer.h b/include/hermes/VM/JSArrayBuffer.h
-index 0b30b18579cf7578ebede0d1bdade7036092a7ee..52514979394efe58218caa3a4f87084bff674571 100644
+index 0b30b18579cf7578ebede0d1bdade7036092a7ee..dfdb11a21e3cec62594f40abe6086ee66060b444 100644
 --- a/include/hermes/VM/JSArrayBuffer.h
 +++ b/include/hermes/VM/JSArrayBuffer.h
 @@ -96,6 +96,33 @@ class JSArrayBuffer final : public JSObject {
@@ -195,7 +195,7 @@ index 0b30b18579cf7578ebede0d1bdade7036092a7ee..52514979394efe58218caa3a4f87084b
   public:
    JSArrayBuffer(
 diff --git a/lib/VM/JSArrayBuffer.cpp b/lib/VM/JSArrayBuffer.cpp
-index 7378a35aa0f5e5d6abae21fef53c2c879759ac93..887705f67ec08a88963d95f153b206b46048700a 100644
+index 7378a35aa0f5e5d6abae21fef53c2c879759ac93..c13ccb39b5067c56403124df6835d77eb8307e86 100644
 --- a/lib/VM/JSArrayBuffer.cpp
 +++ b/lib/VM/JSArrayBuffer.cpp
 @@ -128,7 +128,9 @@ JSArrayBuffer::JSArrayBuffer(
@@ -348,7 +348,7 @@ index 7378a35aa0f5e5d6abae21fef53c2c879759ac93..887705f67ec08a88963d95f153b206b4
  } // namespace vm
  } // namespace hermes
 diff --git a/lib/VM/SerializedValue.cpp b/lib/VM/SerializedValue.cpp
-index 1003afad594e006587935db5e97774bf231162bd..4c0dceaee1c6fd8794c33317ce068f50383471b7 100644
+index 1003afad594e006587935db5e97774bf231162bd..a23c0b3b1c7b478e5db9f467551d371344992b5a 100644
 --- a/lib/VM/SerializedValue.cpp
 +++ b/lib/VM/SerializedValue.cpp
 @@ -2035,6 +2035,10 @@ ExecutionStatus serializeTransferList(
@@ -363,7 +363,7 @@ index 1003afad594e006587935db5e97774bf231162bd..4c0dceaee1c6fd8794c33317ce068f50
      auto hash = runtime.gcStableHashJSObject(*lv.arrayBuffer);
      HermesValueInfo hvInfo{transferableHV, hash};
 diff --git a/unittests/API/APITest.cpp b/unittests/API/APITest.cpp
-index 4cfbbfe6bf9071278fcab78ee8b05ed677922ae6..16ba1fcc650d329a99273e1080b32e9d05306da5 100644
+index 4cfbbfe6bf9071278fcab78ee8b05ed677922ae6..3d42f746a251f15907fb667a106e5b648656ce47 100644
 --- a/unittests/API/APITest.cpp
 +++ b/unittests/API/APITest.cpp
 @@ -157,6 +157,76 @@ TEST_P(HermesRuntimeTest, ArrayBufferTest) {

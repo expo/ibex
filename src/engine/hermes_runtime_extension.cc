@@ -2056,6 +2056,26 @@ prepare(uint64_t host_context_id, bool authenticate_registry,
       *error = "malformed runtime extension registry";
     return nullptr;
   }
+#if defined(EXACT_HAVE_FRAME_ATTRIBUTION) && \
+    !defined(EXACT_HAVE_JOB_CONSTRAINED_PRINCIPALS)
+  if (registry->descriptor_count != 0) {
+    if (error) {
+      *error =
+          "runtime extensions require Hermes constrained-principal job "
+          "propagation";
+    }
+    return nullptr;
+  }
+#endif
+#if !defined(EXACT_HAVE_HERMES_MICROTASK_CONFIG)
+  if (registry->descriptor_count != 0) {
+    if (error) {
+      *error =
+          "runtime extensions require the Hermes engine microtask queue";
+    }
+    return nullptr;
+  }
+#endif
   state->extension_set_digest = registry->extension_set_digest;
   state->authority_capsule_digest = registry->authority_capsule_digest;
   state->executable_selection_identity =

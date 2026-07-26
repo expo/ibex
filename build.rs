@@ -7,6 +7,8 @@ use ibex_windows_dll_staging::stage_runtime_dlls;
 
 #[path = "build_support/hermes_profile_provenance.rs"]
 mod hermes_profile_provenance;
+#[path = "build_support/hermes_symbol_probe.rs"]
+mod hermes_symbol_probe;
 #[path = "build_support/portable_engine_build_consumption.rs"]
 mod portable_engine_build_consumption;
 #[cfg(target_os = "macos")]
@@ -2142,15 +2144,27 @@ fn main() {
     // against that engine would otherwise link weakly and jump through null.
     // @ref LLP 0024#9-asynchronous-failures
     let enable_structured_async_provenance = enable_frame_attribution
-        && hermes_macos_binary
+        && hermes_frame_attribution_binary
             .as_deref()
-            .map(macos_hermes_has_structured_async_provenance)
-            .unwrap_or(false);
+            .is_some_and(|path| hermes_has_structured_async_provenance(&target_os, path));
     if enable_structured_async_provenance {
         build.define("EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE", None);
         println!("cargo:rustc-cfg=exact_structured_async_provenance");
     }
     println!("cargo:rustc-check-cfg=cfg(exact_structured_async_provenance)");
+    // Patch 0013 extends, but does not replace, patch 0011's structured
+    // failure provenance. Keep the feature probes independent so a compatible
+    // older engine retains scheduler/job failure context while a non-empty
+    // runtime-extension registry still refuses without the stronger carrier.
+    let enable_job_constrained_principals = enable_structured_async_provenance
+        && hermes_frame_attribution_binary
+            .as_deref()
+            .is_some_and(|path| hermes_has_job_constrained_principals(&target_os, path));
+    if enable_job_constrained_principals {
+        build.define("EXACT_HAVE_JOB_CONSTRAINED_PRINCIPALS", None);
+        println!("cargo:rustc-cfg=exact_job_constrained_principals");
+    }
+    println!("cargo:rustc-check-cfg=cfg(exact_job_constrained_principals)");
     // No-op `ex_host_http_*` stubs are compiled exactly when no real
     // implementation is linked, i.e. when the `host-http-server` feature is
     // off. Non-MSVC builds mark them weak so an external strong implementation
@@ -3824,8 +3838,31 @@ fn macos_hermes_has_debugger_symbols(binary_path: &Path) -> bool {
 // An unpatched engine degrades to the thread-local module id instead of failing
 // to link. Linux shared objects need the dynamic symbol table; macOS frameworks
 // use the same global/undefined filter as the debugger-symbol probe above.
-fn hermes_has_frame_attribution(target_os: &str, binary_path: &Path) -> bool {
-    if target_os == "windows" {
+fn configure_defined_nm_command(
+    command: &mut std::process::Command,
+    target_os: &str,
+    binary_path: &Path,
+) {
+    match target_os {
+        "macos" => {
+            // Apple nm spells "external definitions only" as -g -U.
+            command.args(["-g", "-U"]);
+        }
+        "linux" if binary_path.extension().is_some_and(|value| value == "so") => {
+            command.args(["-D", "-g", "--defined-only"]);
+        }
+        "linux" => {
+            command.args(["-g", "--defined-only"]);
+        }
+        _ => {}
+    }
+    command.arg(binary_path);
+}
+
+fn hermes_exports_exact_symbols(target_os: &str, binary_path: &Path, required: &[&str]) -> bool {
+    use hermes_symbol_probe::{has_exact_defined_symbols, SymbolListingFormat};
+
+    let (format, output) = if target_os == "windows" {
         let output = std::process::Command::new("dumpbin")
             .arg("/exports")
             .arg(binary_path)
@@ -3833,69 +3870,42 @@ fn hermes_has_frame_attribution(target_os: &str, binary_path: &Path) -> bool {
         let Ok(output) = output else {
             return false;
         };
-        return output.status.success()
-            && String::from_utf8_lossy(&output.stdout).contains("ex_hermes_vm_current_package_id");
-    }
-
-    let mut command = std::process::Command::new("nm");
-    match target_os {
-        "macos" => {
-            command.arg("-gU");
-        }
-        "linux" if binary_path.extension().is_some_and(|value| value == "so") => {
-            command.arg("-D");
-        }
-        _ => {}
-    }
-    let output = command.arg(binary_path).output().or_else(|_| {
-        let mut command = std::process::Command::new("xcrun");
-        command.arg("nm");
-        if target_os == "macos" {
-            command.arg("-gU");
-        }
-        command.arg(binary_path).output()
-    });
-
-    let Ok(output) = output else {
-        return false;
+        (SymbolListingFormat::DumpbinExports, output)
+    } else {
+        let format = SymbolListingFormat::Nm {
+            strip_leading_underscore: target_os == "macos",
+        };
+        let mut command = std::process::Command::new("nm");
+        configure_defined_nm_command(&mut command, target_os, binary_path);
+        let output = command.output().or_else(|_| {
+            let mut command = std::process::Command::new("xcrun");
+            command.arg("nm");
+            configure_defined_nm_command(&mut command, target_os, binary_path);
+            command.output()
+        });
+        let Ok(output) = output else {
+            return false;
+        };
+        (format, output)
     };
 
-    if !output.status.success() {
-        return false;
-    }
-
-    String::from_utf8_lossy(&output.stdout).contains("ex_hermes_vm_current_package_id")
+    has_exact_defined_symbols(format, output.status.success(), &output.stdout, required)
 }
 
-fn macos_hermes_has_structured_async_provenance(binary_path: &Path) -> bool {
-    let output = std::process::Command::new("nm")
-        .args(["-gU", binary_path.to_string_lossy().as_ref()])
-        .output()
-        .or_else(|_| {
-            std::process::Command::new("xcrun")
-                .arg("nm")
-                .arg("-gU")
-                .arg(binary_path)
-                .output()
-        });
+fn hermes_has_frame_attribution(target_os: &str, binary_path: &Path) -> bool {
+    hermes_exports_exact_symbols(target_os, binary_path, &["ex_hermes_vm_current_package_id"])
+}
 
-    let Ok(output) = output else {
-        return false;
-    };
-    if !output.status.success() {
-        return false;
-    }
-    let symbols = String::from_utf8_lossy(&output.stdout);
-    [
-        "ex_hermes_vm_current_job_scheduler_principal",
-        "ex_hermes_vm_current_job_identity",
-        "ex_hermes_vm_current_job_associated_evaluation",
-        "ex_hermes_vm_set_job_associated_evaluation",
-        "ex_hermes_vm_set_embedder_job_scheduler_principal",
-        "ex_hermes_vm_take_failed_job_context",
-    ]
-    .into_iter()
-    .all(|symbol| symbols.contains(symbol))
+fn hermes_has_structured_async_provenance(target_os: &str, binary_path: &Path) -> bool {
+    use hermes_symbol_probe::STRUCTURED_ASYNC_PROVENANCE_SYMBOLS;
+
+    hermes_exports_exact_symbols(target_os, binary_path, STRUCTURED_ASYNC_PROVENANCE_SYMBOLS)
+}
+
+fn hermes_has_job_constrained_principals(target_os: &str, binary_path: &Path) -> bool {
+    use hermes_symbol_probe::JOB_CONSTRAINED_PRINCIPAL_SYMBOLS;
+
+    hermes_exports_exact_symbols(target_os, binary_path, JOB_CONSTRAINED_PRINCIPAL_SYMBOLS)
 }
 
 fn should_enable_hermes_debugger(target_os: &str, hermes_macos_binary: Option<&Path>) -> bool {

@@ -38,15 +38,6 @@ const MAX_TYPED_EVIDENCE_ENTRIES: usize = 1024;
 
 static NEXT_MODULE_RESOLVER_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
-pub(crate) enum TypedDecisionBatchAndThenResult<R> {
-    StalePolicyGeneration,
-    StaleAuthorityGenerations,
-    Evaluated {
-        decisions: Vec<capsec_semantics::decision::Decision>,
-        continuation_result: Option<R>,
-    },
-}
-
 /// Resolve one exact surface through the committed generated registry.
 ///
 /// Stateful adapters select only a closed ABI enum; this lookup supplies the
@@ -1094,7 +1085,7 @@ impl Host {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "runtime-extension-conformance"))]
     pub(crate) fn with_runtime_extension_generation_write_lock_for_test<R>(
         &self,
         body: impl FnOnce() -> R,
@@ -3729,79 +3720,6 @@ impl Host {
             .map(|(decision, ())| decision)
     }
 
-    /// Evaluate one registry-pinned ordered decision batch and run an affine
-    /// continuation only when every decision allows, without releasing the
-    /// decision-context read guard between receipts or before the
-    /// continuation returns.
-    pub(crate) fn evaluate_typed_decision_batch_and_then<R>(
-        &self,
-        requests: &[(
-            &capsec_semantics::model::DecisionSet,
-            &[capsec_semantics::decision::EffectGate],
-        )],
-        expected_policy_generation: u64,
-        expected_generations: capsec_semantics::cache::GenerationSet,
-        on_allowed: impl FnOnce() -> R,
-    ) -> capsec_semantics::Result<TypedDecisionBatchAndThenResult<R>> {
-        if requests.is_empty() || requests.len() > 2 {
-            return Err(capsec_semantics::Error::ArmRefused(
-                "typed decision batch must contain one or two decisions".into(),
-            ));
-        }
-        let context = self.decision_context.as_deref().ok_or_else(|| {
-            capsec_semantics::Error::ArmRefused(
-                "typed decision batch requested without an armed context".into(),
-            )
-        })?;
-        let context = context.read().map_err(|_| {
-            capsec_semantics::Error::ArmRefused("typed decision context lock is poisoned".into())
-        })?;
-        let Some(snapshot) = self.armed_snapshot() else {
-            return Ok(TypedDecisionBatchAndThenResult::StalePolicyGeneration);
-        };
-        if snapshot.generations().policy.get() != expected_policy_generation {
-            return Ok(TypedDecisionBatchAndThenResult::StalePolicyGeneration);
-        }
-        if context.authority().generations != expected_generations {
-            return Ok(TypedDecisionBatchAndThenResult::StaleAuthorityGenerations);
-        }
-        let mut decisions = Vec::with_capacity(requests.len());
-        let mut all_allowed = true;
-        for (set, gates) in requests {
-            let decision = capsec_semantics::decision::evaluate_decision_set(
-                &context,
-                set,
-                gates,
-                capsec_semantics::decision::Workflow::ProductionEnforce,
-                &classify_network_peer,
-            )?;
-            self.typed_decision_count.fetch_add(1, Ordering::Relaxed);
-            #[cfg(any(test, feature = "capsec-conformance-observer"))]
-            {
-                let evidence = capsec_semantics::decision::structure_decision_evidence(
-                    &context, set, &decision,
-                );
-                #[cfg(any(test, feature = "capsec-conformance-observer"))]
-                self.record_typed_decision_for_tests(evidence.clone());
-                self.record_typed_conformance_decision(set, gates, evidence);
-            }
-            all_allowed &= matches!(
-                decision.outcome,
-                capsec_semantics::decision::DecisionOutcome::Allow
-                    | capsec_semantics::decision::DecisionOutcome::AllowWithWouldDenyEvidence
-            );
-            decisions.push(decision);
-            if !all_allowed {
-                break;
-            }
-        }
-        let continuation_result = all_allowed.then(on_allowed);
-        Ok(TypedDecisionBatchAndThenResult::Evaluated {
-            decisions,
-            continuation_result,
-        })
-    }
-
     fn evaluate_typed_decision_inner_and_then<R>(
         &self,
         set: &capsec_semantics::model::DecisionSet,
@@ -4694,6 +4612,35 @@ impl Host {
         }
         self.capability_manager
             .check_stack_no_follow_final(stack, capability)
+    }
+
+    /// Check an authenticated async-continuation carrier. Unlike the optional
+    /// synchronous deputy policy, every carried principal constrains the
+    /// decision even when the capability class is not configured as a deputy.
+    pub fn check_capability_constrained_stack(&self, stack: &[&str], capability: &str) -> bool {
+        if cfg!(feature = "insecure") {
+            return true;
+        }
+        if self.unarmed_closed || self.decision_context.is_some() {
+            return false;
+        }
+        self.capability_manager
+            .check_constrained_stack(stack, capability)
+    }
+
+    pub fn check_capability_constrained_stack_no_follow_final(
+        &self,
+        stack: &[&str],
+        capability: &str,
+    ) -> bool {
+        if cfg!(feature = "insecure") {
+            return true;
+        }
+        if self.unarmed_closed || self.decision_context.is_some() {
+            return false;
+        }
+        self.capability_manager
+            .check_constrained_stack_no_follow_final(stack, capability)
     }
 
     /// Whether any deputy capability classes are configured. When none are, the
@@ -8554,6 +8501,23 @@ mod tests {
                         }
                     }));
             }
+            let compromised_package = value["principals"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|row| row["principal"]["kind"] == "package")
+                .unwrap();
+            compromised_package["floor"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({
+                    "cap": "runtime-extension:invoke",
+                    "resource": {
+                        "kind": "runtime-extension",
+                        "extensionId": "ibex.conformance",
+                        "authorityClass": "fixture.complete"
+                    }
+                }));
         })
     }
 

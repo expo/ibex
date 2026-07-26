@@ -47,7 +47,7 @@
             "summary": "The process-environment enumeration helper is called only by __exactGetAllEnv after its armed branch has returned the current principal overlay without consulting ambient host state."
           },
           "scope": "populateDiagnosticProcessEnvironment",
-          "sourceOffset": 172214,
+          "sourceOffset": 172831,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#::environ:dynamic:read",
           "stage": "post-arm-host-read"
@@ -94,7 +94,7 @@
             "summary": "The process-environment enumeration helper is called only by __exactGetAllEnv after its armed branch has returned the current principal overlay without consulting ambient host state."
           },
           "scope": "populateDiagnosticProcessEnvironment",
-          "sourceOffset": 170852,
+          "sourceOffset": 171469,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#GetEnvironmentStringsW:dynamic:read",
           "stage": "post-arm-host-read"
@@ -168,7 +168,7 @@
             "summary": "The process-environment enumeration helper is called only by __exactGetAllEnv after its armed branch has returned the current principal overlay without consulting ambient host state."
           },
           "scope": "populateDiagnosticProcessEnvironment",
-          "sourceOffset": 172173,
+          "sourceOffset": 172790,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#_NSGetEnviron:dynamic:read",
           "stage": "post-arm-host-read"
@@ -1658,7 +1658,7 @@
             "summary": "The sole runtime caller returns an armed principal-overlay value or undefined before getEnvValue can call this unarmed Host ABI fallback."
           },
           "scope": "ex_host_env_get",
-          "sourceOffset": 293656,
+          "sourceOffset": 295304,
           "sourcePath": "src/host/abi.rs",
           "sourceRef": "src/host/abi.rs#env::var_os:dynamic:read",
           "stage": "post-arm-host-read"
@@ -1673,7 +1673,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "reject_closed_startup_environment",
-          "sourceOffset": 3581,
+          "sourceOffset": 3342,
           "sourcePath": "src/host/mod.rs",
           "sourceRef": "src/host/mod.rs#env::var_os:dynamic:read",
           "stage": "launcher-pre-arm-read"
@@ -3190,7 +3190,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "security_log_enabled",
-          "sourceOffset": 100726,
+          "sourceOffset": 100774,
           "sourcePath": "src/host/abi.rs",
           "sourceRef": "src/host/abi.rs#env::var:EXACT_SECURITY_LOG:read",
           "stage": "armed-bootstrap-host-read"
@@ -4271,7 +4271,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "installGlobals",
-          "sourceOffset": 173592,
+          "sourceOffset": 174209,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:EX_SKIP_STARTUP_HOST_FUNCTIONS:read",
           "stage": "armed-bootstrap-host-read"
@@ -4653,7 +4653,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "ex_hermes_create_impl",
-          "sourceOffset": 373349,
+          "sourceOffset": 375343,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:EX_WEB_STREAMS_POLYFILL:read",
           "stage": "armed-bootstrap-host-read"
@@ -4668,7 +4668,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "rootGlobalActivationApplies",
-          "sourceOffset": 300414,
+          "sourceOffset": 301031,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:EX_WEB_STREAMS_POLYFILL:read",
           "stage": "armed-bootstrap-host-read"
@@ -5370,7 +5370,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "installCompartmentRegistry",
-          "sourceOffset": 141083,
+          "sourceOffset": 141700,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:IBEX_COMPARTMENTS:read",
           "stage": "armed-bootstrap-host-read"
@@ -5606,7 +5606,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "installCompartmentRegistry",
-          "sourceOffset": 141038,
+          "sourceOffset": 141655,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:IBEX_LOCKDOWN:read",
           "stage": "armed-bootstrap-host-read"
@@ -5948,7 +5948,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "begin",
-          "sourceOffset": 23280,
+          "sourceOffset": 23041,
           "sourcePath": "src/host/mod.rs",
           "sourceRef": "src/host/mod.rs#env::var:IBEX_STARTUP_TRACE:read",
           "stage": "armed-bootstrap-host-read"
@@ -5976,7 +5976,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "console_mirror_enabled",
-          "sourceOffset": 101248,
+          "sourceOffset": 101296,
           "sourcePath": "src/host/abi.rs",
           "sourceRef": "src/host/abi.rs#env::var:IBEX_SUPPRESS_CONSOLE_MIRROR:read",
           "stage": "armed-bootstrap-host-read"
@@ -6010,7 +6010,7 @@
             "summary": "Deterministic race injection runs only within an already typed-authorized armed filesystem create trajectory."
           },
           "scope": "pauseBeforeArmedExclusiveCreateForTest",
-          "sourceOffset": 46499,
+          "sourceOffset": 46511,
           "sourcePath": "src/engine/hermes_runtime_fs.cc",
           "sourceRef": "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_ARMED_CREATE_PAUSE_MS:read",
           "stage": "post-arm-host-read"
@@ -6044,7 +6044,7 @@
             "summary": "Commit-denial injection is reachable only inside the typed armed filesystem open/create decision trajectory."
           },
           "scope": "denyArmedOpenCommitForTest",
-          "sourceOffset": 46954,
+          "sourceOffset": 46966,
           "sourcePath": "src/engine/hermes_runtime_fs.cc",
           "sourceRef": "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_ARMED_DENY_OPEN_COMMIT:read",
           "stage": "post-arm-host-read"
@@ -6078,7 +6078,7 @@
             "summary": "Queue-capacity injection is consumed only after an exact typed filesystem operation reaches the native worker pool."
           },
           "scope": "maxQueue",
-          "sourceOffset": 108857,
+          "sourceOffset": 108869,
           "sourcePath": "src/engine/hermes_runtime_fs.cc",
           "sourceRef": "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read",
           "stage": "post-arm-host-read"
@@ -6112,7 +6112,7 @@
             "summary": "Enqueue-failure injection is consumed only after an exact typed filesystem operation reaches the native worker pool."
           },
           "scope": "maybeThrowInjectedEnqueueFailure",
-          "sourceOffset": 108498,
+          "sourceOffset": 108510,
           "sourcePath": "src/engine/hermes_runtime_fs.cc",
           "sourceRef": "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read",
           "stage": "post-arm-host-read"
@@ -6208,7 +6208,7 @@
             "summary": "The runtime-producer delay hook is compiled only into the explicit CapSec conformance-observer artifact."
           },
           "scope": "exactTestDelayRuntimeProducer",
-          "sourceOffset": 10266,
+          "sourceOffset": 10575,
           "sourcePath": "src/engine/hermes_runtime_internal.h",
           "sourceRef": "src/engine/hermes_runtime_internal.h#getenv:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS:read",
           "stage": "post-arm-host-read"

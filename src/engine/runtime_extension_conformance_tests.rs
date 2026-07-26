@@ -6,7 +6,7 @@
 //! source text.
 //!
 //! @ref LLP 0040#verification
-//! Conformance requirements are governed by Exact LLP 0401.
+//! Conformance requirements are governed by Exact LLP 0402.
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::ptr;
@@ -315,7 +315,11 @@ fn wait_for_counter(counter_id: u32, minimum: u64) {
     while counter(counter_id) < minimum {
         assert!(
             Instant::now() < deadline,
-            "timed out waiting for conformance counter {counter_id} to reach {minimum}"
+            "timed out waiting for conformance counter {counter_id} to reach {minimum}; \
+             accepted={}, rejected={}, last-post-result={}",
+            counter(COUNTER_POST_ACCEPTED),
+            counter(COUNTER_POST_REJECTED),
+            counter(COUNTER_LAST_POST_RESULT),
         );
         std::thread::sleep(Duration::from_millis(1));
     }
@@ -489,10 +493,13 @@ fn standalone_runtime_keeps_the_canonical_empty_extension_set() {
 #[test]
 fn production_armed_constructor_remains_fail_closed_without_required_hermes_hooks() {
     const PROMISE_REJECTION_CHECKPOINT_HOOK: u64 = 1 << 0;
+    const CONSTRAINED_PRINCIPAL_JOBS: u64 = 1 << 2;
+    const REQUIRED_HERMES_HOOKS: u64 =
+        PROMISE_REJECTION_CHECKPOINT_HOOK | CONSTRAINED_PRINCIPAL_JOBS;
     let _host_guard = crate::host::abi::host_test_lock();
     if unsafe { ibex_runtime_extension_conformance_armed_prerequisites_v1() }
-        & PROMISE_REJECTION_CHECKPOINT_HOOK
-        != 0
+        & REQUIRED_HERMES_HOOKS
+        == REQUIRED_HERMES_HOOKS
     {
         return;
     }
@@ -837,9 +844,12 @@ fn native_identity_sync_enqueue_async_delivery_and_buffers_execute() {
                  globalThis.__extensionEvents.push(value);
                });
                __ibexRuntimeExtensionFixture.emit("event-one");
-               __ibexRuntimeExtensionFixture.emit("event-two");
                "scheduled";"#,
         )
+        .unwrap();
+    wait_for_counter(COUNTER_POST_ACCEPTED, event_posts_before + 1);
+    runtime
+        .eval(r#"__ibexRuntimeExtensionFixture.emit("event-two"); "scheduled";"#)
         .unwrap();
     wait_for_counter(COUNTER_POST_ACCEPTED, event_posts_before + 2);
     runtime.wait_for_js(
@@ -875,6 +885,69 @@ fn native_identity_sync_enqueue_async_delivery_and_buffers_execute() {
     assert_eq!(counter(COUNTER_OWNER_CAPTURE_MISMATCH), 0);
 }
 
+#[cfg(not(feature = "insecure"))]
+#[test]
+fn promise_carrier_reaches_the_legacy_generic_capability_gate() {
+    let _host_guard = crate::host::abi::host_test_lock();
+    reset();
+    let host = crate::host::Host::new(crate::host::HostConfig::default());
+    assert!(
+        host.check_capability("0", "network:fetch:carrier.invalid"),
+        "the synchronous root control must hold legacy ambient authority"
+    );
+    assert!(
+        !host.check_capability("1", "network:fetch:carrier.invalid"),
+        "the carried package must not hold the probed legacy authority"
+    );
+    assert_ne!(crate::host::abi::install_host(host), 0);
+    // The principal-scoped evaluator is fixture-only runtime-extension
+    // conformance ABI. This gate test needs no extension installer; keeping the
+    // registry empty avoids unrelated descriptor-graph traversal of lazy
+    // storage globals under a no-user bootstrap frame.
+    let runtime = Runtime::diagnostic(ptr::null())
+        .expect("legacy-gate carrier conformance runtime construction failed");
+
+    assert_eq!(
+        runtime
+            .eval(
+                "__exactCapabilityCheck('network:fetch:carrier.invalid') \
+                 ? 'allowed' : 'denied'"
+            )
+            .unwrap(),
+        "allowed",
+        "an ordinary synchronous root check changed semantics"
+    );
+
+    runtime
+        .eval_with_principals(
+            &[0, COMPROMISED_PACKAGE_PRINCIPAL_ID],
+            r#"globalThis.__legacyCarrierCapabilityResult = "pending";
+               Promise.resolve("carried").then(function () {
+                 globalThis.__legacyCarrierCapabilityResult =
+                   __exactCapabilityCheck("network:fetch:carrier.invalid")
+                     ? "allowed"
+                     : "denied";
+               });
+               "scheduled";"#,
+        )
+        .unwrap();
+    runtime.wait_for_js(
+        "String(globalThis.__legacyCarrierCapabilityResult)",
+        "denied",
+    );
+
+    assert_eq!(
+        runtime
+            .eval(
+                "__exactCapabilityCheck('network:fetch:carrier.invalid') \
+                 ? 'allowed' : 'denied'"
+            )
+            .unwrap(),
+        "allowed",
+        "the completed carrier contaminated a later root-only job"
+    );
+}
+
 #[test]
 fn package_bearing_deputy_laundering_is_refused_on_every_continuation_path() {
     let _host_guard = crate::host::abi::host_test_lock();
@@ -893,6 +966,72 @@ fn package_bearing_deputy_laundering_is_refused_on_every_continuation_path() {
 
     reset();
     let runtime = authenticated_runtime();
+    runtime
+        .eval(
+            r#"globalThis.__deputyRootCleanPromise =
+                 new Promise(function (resolve) { resolve("root-clean"); });
+               globalThis.__deputyReturnedRootPromise =
+                 new Promise(function (resolve) { resolve("returned-root"); });
+               globalThis.__deputyCallableReturnedConstructorPromise =
+                 new Promise(function (resolve) {
+                   resolve("callable-returned-constructor");
+                 });
+               globalThis.__deputyCallableReturnedCatchPromise =
+                 new Promise(function (resolve) {
+                   resolve("callable-returned-catch");
+                 });
+               globalThis.__deputyCallableReturnedFinallyPromise =
+                 new Promise(function (resolve) {
+                   resolve("callable-returned-finally");
+                 });
+               globalThis.__deputyCleanConstructorSource =
+                 Promise.resolve("clean-constructor-source");
+               globalThis.__deputyCleanCatchSource =
+                 Promise.resolve("clean-catch-source");
+               globalThis.__deputyCleanFinallySource =
+                 Promise.resolve("clean-finally-source");
+               globalThis.__deputyRootThenCall = function (resolve) {
+                 try {
+                   __ibexRuntimeExtensionFixture.enqueue(14);
+                   globalThis.__deputyGenericThenCallResult = "allowed";
+                 } catch (_) {
+                   globalThis.__deputyGenericThenCallResult = "denied";
+                 }
+                 resolve("generic");
+               };
+               globalThis.__deputyRootThenGetter = function () {
+                 try {
+                   __ibexRuntimeExtensionFixture.enqueue(15);
+                   globalThis.__deputyGenericThenGetterResult = "allowed";
+                 } catch (_) {
+                   globalThis.__deputyGenericThenGetterResult = "denied";
+                 }
+                 return globalThis.__deputyRootThenCall;
+               };
+               globalThis.__deputyRootReturningPromise = function (executor) {
+                 executor(function () {}, function () {});
+                 return globalThis.__deputyReturnedRootPromise;
+               };
+               globalThis.__deputyRootHandledHook = function () {
+                 globalThis.__deputyMutableHandledHookResult = "called";
+                 __ibexRuntimeExtensionFixture.enqueue(20);
+               };
+               globalThis.__deputyRootRejectedHook = function () {
+                 globalThis.__deputyMutableRejectedHookResult = "called";
+                 __ibexRuntimeExtensionFixture.enqueue(21);
+               };
+               globalThis.__rootPlainObjectResult = "pending";
+               Promise.resolve({ value: "plain" }).then(function () {
+                 try {
+                   __ibexRuntimeExtensionFixture.enqueue(16);
+                   globalThis.__rootPlainObjectResult = "allowed";
+                 } catch (_) {
+                   globalThis.__rootPlainObjectResult = "denied";
+                 }
+               });
+               "root-clean-promise";"#,
+        )
+        .unwrap();
     let compromised_stack = [0_u64, COMPROMISED_PACKAGE_PRINCIPAL_ID];
     assert_eq!(
         runtime
@@ -915,7 +1054,424 @@ fn package_bearing_deputy_laundering_is_refused_on_every_continuation_path() {
     runtime
         .eval_with_principals(
             &compromised_stack,
+            r#"globalThis.__deputyMutableNoopCalled = false;
+               Promise._D = function () {
+                 globalThis.__deputyMutableNoopCalled = true;
+               };
+               Promise._B = globalThis.__deputyRootHandledHook;
+               Promise._C = globalThis.__deputyRootRejectedHook;
+               globalThis.__deputyBrandShell =
+                 Object.create(Promise.prototype);
+               globalThis.__deputyBrandArm = Promise.call.bind(
+                 Promise,
+                 globalThis.__deputyBrandShell,
+                 function () {}
+               );
+               globalThis.__deputyGenericThenable = {
+                 then: globalThis.__deputyRootThenCall
+               };
+               globalThis.__deputyGenericGetterThenable = {};
+               Object.defineProperty(
+                 globalThis.__deputyGenericGetterThenable,
+                 "then",
+                 { get: globalThis.__deputyRootThenGetter }
+               );
+               globalThis.__deputyReturningSource = Promise.resolve("source");
+               globalThis.__deputyReturningSource.constructor =
+                 globalThis.__deputyRootReturningPromise;
+               globalThis.__deputyAggregateValue =
+                 Promise.resolve("package-value");
+               globalThis.__deputyAggregateRejection =
+                 Promise.reject("package-rejection");
+               globalThis.__deputyAggregatePending =
+                 new Promise(function () {});
+               globalThis.__deputyPackageReturningPromise =
+                 function deputyPackageReturningPromise(executor) {
+                   executor(function () {}, function () {});
+                   return deputyPackageReturningPromise.returnedPromise;
+                 };
+               globalThis.__deputyPackageReturningCatchThen =
+                 function deputyPackageReturningCatchThen() {
+                   return deputyPackageReturningCatchThen.returnedPromise;
+                 };
+               globalThis.__deputyPackageReturningFinallyThen =
+                 function deputyPackageReturningFinallyThen() {
+                   return deputyPackageReturningFinallyThen.returnedPromise;
+                 };
+               "adversarial-carriers";"#,
+        )
+        .unwrap();
+    assert_eq!(
+        runtime
+            .eval(
+                r#"Object.defineProperty(
+                     globalThis.__deputyPackageReturningPromise,
+                     "returnedPromise",
+                     { value: globalThis.__deputyCallableReturnedConstructorPromise }
+                   );
+                   Object.defineProperty(
+                     globalThis.__deputyPackageReturningCatchThen,
+                     "returnedPromise",
+                     { value: globalThis.__deputyCallableReturnedCatchPromise }
+                   );
+                   Object.defineProperty(
+                     globalThis.__deputyPackageReturningFinallyThen,
+                     "returnedPromise",
+                     { value: globalThis.__deputyCallableReturnedFinallyPromise }
+                   );
+                   Object.defineProperty(
+                     globalThis.__deputyCleanConstructorSource,
+                     "constructor",
+                     { value: globalThis.__deputyPackageReturningPromise }
+                   );
+                   Object.defineProperty(
+                     globalThis.__deputyCleanCatchSource,
+                     "then",
+                     { value: globalThis.__deputyPackageReturningCatchThen }
+                   );
+                   Object.defineProperty(
+                     globalThis.__deputyCleanFinallySource,
+                     "then",
+                     { value: globalThis.__deputyPackageReturningFinallyThen }
+                   );
+                   String(
+                     globalThis.__deputyCleanConstructorSource.constructor ===
+                       globalThis.__deputyPackageReturningPromise &&
+                     globalThis.__deputyCleanCatchSource.then ===
+                       globalThis.__deputyPackageReturningCatchThen &&
+                     globalThis.__deputyCleanFinallySource.then ===
+                       globalThis.__deputyPackageReturningFinallyThen
+                   );"#,
+            )
+            .unwrap(),
+        "true",
+        "root could not wire the package-defined Promise callables"
+    );
+    for callable in [
+        "__deputyPackageReturningPromise",
+        "__deputyPackageReturningCatchThen",
+        "__deputyPackageReturningFinallyThen",
+    ] {
+        assert_eq!(
+            runtime
+                .eval(&format!(
+                    "JSON.stringify(HermesInternal.\
+                     captureCallableJobConstrainedPrincipals(globalThis.{callable}))"
+                ))
+                .unwrap(),
+            "[0,1]",
+            "the principal fixture did not stamp {callable} as package-defined"
+        );
+    }
+    assert_eq!(
+        runtime
+            .eval(
+                r#"(function () {
+                  try {
+                    globalThis.__deputyBrandArm();
+                    return "accepted";
+                  } catch (_) {
+                    try {
+                      globalThis.__deputyBrandShell.then(function () {});
+                      return "branded";
+                    } catch (_) {
+                      return "rejected";
+                    }
+                  }
+                })()"#
+            )
+            .unwrap(),
+        "rejected",
+        "Promise.call minted a private brand onto a package-retained shell"
+    );
+    runtime
+        .eval(
+            r#"globalThis.__deputyMutableNoopResult = "pending";
+               globalThis.__deputyMutableHandledHookResult = "not-called";
+               globalThis.__deputyMutableRejectedHookResult = "not-called";
+               globalThis.__deputyGenericThenResult = "pending";
+               globalThis.__deputyGenericGetterThenResult = "pending";
+               globalThis.__deputyReturningConstructorResult = "pending";
+               globalThis.__deputyCallableConstructorResult = "pending";
+               globalThis.__deputyCallableCatchThenResult = "pending";
+               globalThis.__deputyCallableFinallyThenResult = "pending";
+               globalThis.__deputyMultiAllResult = "pending";
+               globalThis.__deputyMultiAllSettledResult = "pending";
+               globalThis.__deputyMultiAnyResult = "pending";
+               globalThis.__deputyMultiRaceResult = "pending";
+               Promise.resolve(21).then(function (value) {
+                 globalThis.__deputyMutableNoopResult =
+                   String(value) + ":" +
+                   String(globalThis.__deputyMutableNoopCalled);
+               });
+               Promise.reject("hook-test").catch(function () {});
+               Promise.resolve(globalThis.__deputyGenericThenable).then(
+                 function () {
+                   try {
+                     __ibexRuntimeExtensionFixture.enqueue(17);
+                     globalThis.__deputyGenericThenResult = "allowed";
+                   } catch (_) {
+                     globalThis.__deputyGenericThenResult = "denied";
+                   }
+                 }
+               );
+               Promise.resolve(
+                 globalThis.__deputyGenericGetterThenable
+               ).then(function () {
+                 try {
+                   __ibexRuntimeExtensionFixture.enqueue(18);
+                   globalThis.__deputyGenericGetterThenResult = "allowed";
+                 } catch (_) {
+                   globalThis.__deputyGenericGetterThenResult = "denied";
+                 }
+               });
+               globalThis.__deputyReturningSource.then(function () {})
+                 .then(function () {
+                   try {
+                     __ibexRuntimeExtensionFixture.enqueue(19);
+                     globalThis.__deputyReturningConstructorResult = "allowed";
+                   } catch (_) {
+                     globalThis.__deputyReturningConstructorResult = "denied";
+                   }
+                 });
+               globalThis.__deputyCallableConstructorPublished =
+                 globalThis.__deputyCleanConstructorSource
+                   .then(function () {});
+               globalThis.__deputyCallableConstructorIdentity =
+                 globalThis.__deputyCallableConstructorPublished ===
+                   globalThis.__deputyCallableReturnedConstructorPromise;
+               globalThis.__deputyCallableConstructorPublished
+                 .then(function () {
+                   try {
+                     __ibexRuntimeExtensionFixture.enqueue(26);
+                     globalThis.__deputyCallableConstructorResult = "allowed";
+                   } catch (_) {
+                     globalThis.__deputyCallableConstructorResult = "denied";
+                   }
+                 });
+               globalThis.__deputyCallableCatchThenPublished =
+                 globalThis.__deputyCleanCatchSource.catch(function () {});
+               globalThis.__deputyCallableCatchThenIdentity =
+                 globalThis.__deputyCallableCatchThenPublished ===
+                   globalThis.__deputyCallableReturnedCatchPromise;
+               globalThis.__deputyCallableCatchThenPublished.then(function () {
+                   try {
+                     __ibexRuntimeExtensionFixture.enqueue(27);
+                     globalThis.__deputyCallableCatchThenResult = "allowed";
+                   } catch (_) {
+                     globalThis.__deputyCallableCatchThenResult = "denied";
+                   }
+                 });
+               globalThis.__deputyCallableFinallyThenPublished =
+                 globalThis.__deputyCleanFinallySource.finally(function () {});
+               globalThis.__deputyCallableFinallyThenIdentity =
+                 globalThis.__deputyCallableFinallyThenPublished ===
+                   globalThis.__deputyCallableReturnedFinallyPromise;
+               globalThis.__deputyCallableFinallyThenPublished.then(function () {
+                   try {
+                     __ibexRuntimeExtensionFixture.enqueue(28);
+                     globalThis.__deputyCallableFinallyThenResult = "allowed";
+                   } catch (_) {
+                     globalThis.__deputyCallableFinallyThenResult = "denied";
+                   }
+                 });
+               Promise.all([
+                 globalThis.__deputyAggregateValue,
+                 Promise.resolve("root-last")
+               ]).then(function () {
+                 try {
+                   __ibexRuntimeExtensionFixture.enqueue(22);
+                   globalThis.__deputyMultiAllResult = "allowed";
+                 } catch (_) {
+                   globalThis.__deputyMultiAllResult = "denied";
+                 }
+               });
+               Promise.allSettled([
+                 globalThis.__deputyAggregateValue,
+                 Promise.resolve("root-last")
+               ]).then(function () {
+                 try {
+                   __ibexRuntimeExtensionFixture.enqueue(23);
+                   globalThis.__deputyMultiAllSettledResult = "allowed";
+                 } catch (_) {
+                   globalThis.__deputyMultiAllSettledResult = "denied";
+                 }
+               });
+               Promise.any([
+                 globalThis.__deputyAggregateRejection,
+                 Promise.resolve("root-winner")
+               ]).then(function () {
+                 try {
+                   __ibexRuntimeExtensionFixture.enqueue(24);
+                   globalThis.__deputyMultiAnyResult = "allowed";
+                 } catch (_) {
+                   globalThis.__deputyMultiAnyResult = "denied";
+                 }
+               });
+               Promise.race([
+                 Promise.resolve("root-winner"),
+                 globalThis.__deputyAggregatePending
+               ]).then(function () {
+                 try {
+                   __ibexRuntimeExtensionFixture.enqueue(25);
+                   globalThis.__deputyMultiRaceResult = "allowed";
+                 } catch (_) {
+                   globalThis.__deputyMultiRaceResult = "denied";
+                 }
+               });
+               "adversarial-carriers-scheduled";"#,
+        )
+        .unwrap();
+    runtime.wait_for_js(
+        concat!(
+            "String(globalThis.__deputyMutableNoopResult !== \"pending\" && ",
+            "globalThis.__deputyGenericThenResult !== \"pending\" && ",
+            "globalThis.__deputyGenericGetterThenResult !== \"pending\" && ",
+            "globalThis.__deputyReturningConstructorResult !== \"pending\" && ",
+            "globalThis.__deputyCallableConstructorResult !== \"pending\" && ",
+            "globalThis.__deputyCallableCatchThenResult !== \"pending\" && ",
+            "globalThis.__deputyCallableFinallyThenResult !== \"pending\" && ",
+            "globalThis.__deputyMultiAllResult !== \"pending\" && ",
+            "globalThis.__deputyMultiAllSettledResult !== \"pending\" && ",
+            "globalThis.__deputyMultiAnyResult !== \"pending\" && ",
+            "globalThis.__deputyMultiRaceResult !== \"pending\" && ",
+            "globalThis.__rootPlainObjectResult !== \"pending\")"
+        ),
+        "true",
+    );
+    assert_eq!(
+        runtime
+            .eval("String(globalThis.__deputyMutableNoopResult)")
+            .unwrap(),
+        "21:false",
+        "mutable Promise._D intercepted scalar Promise construction"
+    );
+    assert_eq!(
+        runtime
+            .eval(concat!(
+                "String(globalThis.__deputyCallableConstructorIdentity + \":\" + ",
+                "globalThis.__deputyCallableCatchThenIdentity + \":\" + ",
+                "globalThis.__deputyCallableFinallyThenIdentity)"
+            ))
+            .unwrap(),
+        "true:true:true",
+        "the callable-provenance cases did not publish the pre-existing clean promises"
+    );
+    assert_eq!(
+        runtime
+            .eval(concat!(
+                "String(globalThis.__deputyMutableHandledHookResult + \":\" + ",
+                "globalThis.__deputyMutableRejectedHookResult)"
+            ))
+            .unwrap(),
+        "not-called:not-called",
+        "mutable Promise._B/_C replaced private rejection hooks"
+    );
+    for (expression, message) in [
+        (
+            "String(globalThis.__deputyGenericThenCallResult)",
+            "an unbranded then method ran as a root-clean deputy",
+        ),
+        (
+            "String(globalThis.__deputyGenericThenGetterResult)",
+            "an unbranded then getter ran as a root-clean deputy",
+        ),
+        (
+            "String(globalThis.__deputyGenericThenResult)",
+            "an unbranded thenable dropped its fail-closed provenance",
+        ),
+        (
+            "String(globalThis.__deputyGenericGetterThenResult)",
+            "a getter-backed thenable dropped its fail-closed provenance",
+        ),
+        (
+            "String(globalThis.__deputyReturningConstructorResult)",
+            "a Promise constructor returned a clean Promise and erased provenance",
+        ),
+        (
+            "String(globalThis.__deputyCallableConstructorResult)",
+            "a package-defined Promise constructor erased its own provenance",
+        ),
+        (
+            "String(globalThis.__deputyCallableCatchThenResult)",
+            "a package-defined catch then method erased its own provenance",
+        ),
+        (
+            "String(globalThis.__deputyCallableFinallyThenResult)",
+            "a package-defined finally then method erased its own provenance",
+        ),
+        (
+            "String(globalThis.__deputyMultiAllResult)",
+            "Promise.all kept only its final root-clean input",
+        ),
+        (
+            "String(globalThis.__deputyMultiAllSettledResult)",
+            "Promise.allSettled kept only its final root-clean input",
+        ),
+        (
+            "String(globalThis.__deputyMultiAnyResult)",
+            "Promise.any erased an earlier constrained rejection",
+        ),
+        (
+            "String(globalThis.__deputyMultiRaceResult)",
+            "Promise.race erased a constrained observed participant",
+        ),
+    ] {
+        assert_eq!(runtime.eval(expression).unwrap(), "denied", "{message}");
+    }
+    assert_eq!(
+        runtime
+            .eval("String(globalThis.__rootPlainObjectResult)")
+            .unwrap(),
+        "allowed",
+        "a plain object payload was falsely treated as an unknown thenable"
+    );
+
+    runtime
+        .eval_with_principals(
+            &compromised_stack,
+            r#"var genuineAdopter = new Promise(function (resolve) {
+                 resolve(globalThis.__deputyRootCleanPromise);
+               });
+               globalThis.__deputyForgedAdopter = Object.assign(
+                 Object.create(Promise.prototype),
+                 genuineAdopter
+               );
+               "forged";"#,
+        )
+        .unwrap();
+    assert_eq!(
+        runtime
+            .eval(
+                r#"(function () {
+                  try {
+                    globalThis.__deputyForgedAdopter.then(function () {
+                      __ibexRuntimeExtensionFixture.enqueue(11);
+                    });
+                    return "accepted";
+                  } catch (_) {
+                    return "rejected";
+                  }
+                })()"#
+            )
+            .unwrap(),
+        "rejected",
+        "a Promise-shaped adopter without the private context brand was accepted"
+    );
+
+    runtime
+        .eval_with_principals(
+            &compromised_stack,
             r#"globalThis.__deputyPromiseResult = "pending";
+               globalThis.__deputyFreshScalarResult = "pending";
+               globalThis.__deputyFreshScalarPromise = Promise.resolve(0);
+               globalThis.__deputyOverriddenThenAllResult = "pending";
+               globalThis.__deputyOverriddenThenAwaitResult = "pending";
+               globalThis.__deputyOverriddenThenPromise = Promise.resolve(0);
+               globalThis.__deputyOverriddenThenPromise.then =
+                 globalThis.__deputyRootCleanPromise.then.bind(
+                   globalThis.__deputyRootCleanPromise
+                 );
                Promise.resolve().then(function () {
                  try {
                    __ibexRuntimeExtensionFixture.enqueue(2);
@@ -928,6 +1484,65 @@ fn package_bearing_deputy_laundering_is_refused_on_every_continuation_path() {
         )
         .unwrap();
     runtime.wait_for_js("String(globalThis.__deputyPromiseResult)", "denied");
+    runtime
+        .eval(
+            r#"globalThis.__deputyFreshScalarPromise.then(function () {
+                 try {
+                   __ibexRuntimeExtensionFixture.enqueue(10);
+                   globalThis.__deputyFreshScalarResult = "allowed";
+                 } catch (_) {
+                   globalThis.__deputyFreshScalarResult = "denied";
+                 }
+               });
+               "fresh-scalar-handler-attached";"#,
+        )
+        .unwrap();
+    runtime.wait_for_js("String(globalThis.__deputyFreshScalarResult)", "denied");
+    runtime
+        .eval(
+            r#"Promise.all([globalThis.__deputyOverriddenThenPromise]).then(
+                 function () {
+                   try {
+                     __ibexRuntimeExtensionFixture.enqueue(12);
+                     globalThis.__deputyOverriddenThenAllResult = "allowed";
+                   } catch (_) {
+                     globalThis.__deputyOverriddenThenAllResult = "denied";
+                   }
+                 }
+               );
+               (async function () {
+                 await globalThis.__deputyOverriddenThenPromise;
+                 try {
+                   __ibexRuntimeExtensionFixture.enqueue(13);
+                   globalThis.__deputyOverriddenThenAwaitResult = "allowed";
+                 } catch (_) {
+                   globalThis.__deputyOverriddenThenAwaitResult = "denied";
+                 }
+               })();
+               "overridden-then-builtins";"#,
+        )
+        .unwrap();
+    runtime.wait_for_js(
+        concat!(
+            "String(globalThis.__deputyOverriddenThenAllResult !== \"pending\" && ",
+            "globalThis.__deputyOverriddenThenAwaitResult !== \"pending\")"
+        ),
+        "true",
+    );
+    assert_eq!(
+        runtime
+            .eval("String(globalThis.__deputyOverriddenThenAllResult)")
+            .unwrap(),
+        "denied",
+        "Promise.all honored an authority-laundering own then override",
+    );
+    assert_eq!(
+        runtime
+            .eval("String(globalThis.__deputyOverriddenThenAwaitResult)")
+            .unwrap(),
+        "denied",
+        "await honored an authority-laundering own then override",
+    );
 
     runtime
         .eval_with_principals(
@@ -946,25 +1561,214 @@ fn package_bearing_deputy_laundering_is_refused_on_every_continuation_path() {
         .unwrap();
     runtime.wait_for_js("String(globalThis.__deputyTimerResult)", "denied");
 
+    let native_posts_before = counter(COUNTER_POST_ACCEPTED);
+    runtime
+        .eval_with_principals(
+            &compromised_stack,
+            r#"globalThis.__deputyNativeCompletionResult = "pending";
+               globalThis.__deputyNativeCompletionChainResult = "pending";
+               var compromisedCompletion =
+                 __ibexRuntimeExtensionFixture.complete("native");
+               compromisedCompletion.then(
+                 function () {
+                   try {
+                     __ibexRuntimeExtensionFixture.enqueue(4);
+                     globalThis.__deputyNativeCompletionResult = "allowed";
+                   } catch (_) {
+                     globalThis.__deputyNativeCompletionResult = "denied";
+                   }
+                 },
+                 function () {
+                   globalThis.__deputyNativeCompletionResult = "completion-rejected";
+                 }
+               );
+               compromisedCompletion
+                 .then(function (value) { return value; })
+                 .then(
+                   function () {
+                     try {
+                       __ibexRuntimeExtensionFixture.enqueue(5);
+                       globalThis.__deputyNativeCompletionChainResult = "allowed";
+                     } catch (_) {
+                       globalThis.__deputyNativeCompletionChainResult = "denied";
+                     }
+                   },
+                   function () {
+                     globalThis.__deputyNativeCompletionChainResult =
+                       "completion-rejected";
+                   }
+                 );
+               "scheduled";"#,
+        )
+        .unwrap();
+    wait_for_counter(COUNTER_POST_ACCEPTED, native_posts_before + 1);
+    runtime
+        .eval_with_principals(
+            &compromised_stack,
+            r#"globalThis.__deputyLateNativeCompletionResult = "pending";
+               globalThis.__deputyLateNativeCompletion =
+                 __ibexRuntimeExtensionFixture.complete("native-late");
+               "scheduled";"#,
+        )
+        .unwrap();
+    wait_for_counter(COUNTER_POST_ACCEPTED, native_posts_before + 2);
+    runtime
+        .eval_with_principals(
+            &compromised_stack,
+            r#"globalThis.__deputySettledDownstreamResult = "pending";
+               globalThis.__deputySettledDownstreamSource =
+                 __ibexRuntimeExtensionFixture.complete("native-downstream");
+               "scheduled";"#,
+        )
+        .unwrap();
+    wait_for_counter(COUNTER_POST_ACCEPTED, native_posts_before + 3);
+    runtime
+        .eval(
+            r#"globalThis.__rootNativeCompletionResult = "pending";
+               __ibexRuntimeExtensionFixture.complete("root").then(
+                 function () {
+                   try {
+                     __ibexRuntimeExtensionFixture.enqueue(6);
+                     globalThis.__rootNativeCompletionResult = "allowed";
+                   } catch (_) {
+                     globalThis.__rootNativeCompletionResult = "denied";
+                   }
+                 },
+                 function () {
+                   globalThis.__rootNativeCompletionResult = "completion-rejected";
+                 }
+               );
+               "scheduled";"#,
+        )
+        .unwrap();
+    wait_for_counter(COUNTER_POST_ACCEPTED, native_posts_before + 4);
+    assert!(
+        runtime.poll() >= 0,
+        "native completions could not settle before delayed handlers attached"
+    );
+    runtime
+        .eval(
+            r#"globalThis.__deputyLateNativeCompletion.then(
+                 function () {
+                   try {
+                     __ibexRuntimeExtensionFixture.enqueue(7);
+                     globalThis.__deputyLateNativeCompletionResult = "allowed";
+                   } catch (_) {
+                     globalThis.__deputyLateNativeCompletionResult = "denied";
+                   }
+                 },
+                 function () {
+                   globalThis.__deputyLateNativeCompletionResult =
+                     "completion-rejected";
+                 }
+               );
+               globalThis.__deputySettledAllResult = "pending";
+               Promise.all([globalThis.__deputyLateNativeCompletion]).then(
+                 function () {
+                   try {
+                     __ibexRuntimeExtensionFixture.enqueue(9);
+                     globalThis.__deputySettledAllResult = "allowed";
+                   } catch (_) {
+                     globalThis.__deputySettledAllResult = "denied";
+                   }
+                 },
+                 function () {
+                   globalThis.__deputySettledAllResult =
+                     "completion-rejected";
+                 }
+               );
+               globalThis.__deputySettledDownstream =
+                 globalThis.__deputySettledDownstreamSource.then(
+                   function (value) {
+                     globalThis.__deputySettledDownstreamReady = "settled";
+                     return globalThis.__deputyRootCleanPromise;
+                   }
+                 );
+               "attached-after-settlement";"#,
+        )
+        .unwrap();
+    runtime.wait_for_js(
+        "String(globalThis.__deputySettledDownstreamReady)",
+        "settled",
+    );
+    runtime
+        .eval(
+            r#"globalThis.__deputySettledDownstream.then(
+                 function () {
+                   try {
+                     __ibexRuntimeExtensionFixture.enqueue(8);
+                     globalThis.__deputySettledDownstreamResult = "allowed";
+                   } catch (_) {
+                     globalThis.__deputySettledDownstreamResult = "denied";
+                   }
+                 },
+                 function () {
+                   globalThis.__deputySettledDownstreamResult =
+                     "completion-rejected";
+                 }
+               );
+               "attached-to-settled-downstream";"#,
+        )
+        .unwrap();
+    runtime.wait_for_js(
+        concat!(
+            "String(globalThis.__deputyNativeCompletionResult !== \"pending\" && ",
+            "globalThis.__deputyNativeCompletionChainResult !== \"pending\" && ",
+            "globalThis.__deputyLateNativeCompletionResult !== \"pending\" && ",
+            "globalThis.__deputySettledAllResult !== \"pending\" && ",
+            "globalThis.__deputySettledDownstreamResult !== \"pending\" && ",
+            "globalThis.__rootNativeCompletionResult !== \"pending\")"
+        ),
+        "true",
+    );
     assert_eq!(
         runtime
-            .eval_with_principals(
-                &compromised_stack,
-                r#"(function () {
-                  try {
-                    __ibexRuntimeExtensionFixture.complete("native");
-                    return "allowed";
-                  } catch (_) {
-                    return "denied";
-                  }
-                })()"#
-            )
+            .eval("String(globalThis.__deputyNativeCompletionResult)")
             .unwrap(),
         "denied",
-        "a native-completion request laundered root authority"
+        "a native-completion continuation laundered root authority",
     );
-    assert_eq!(counter(COUNTER_ENQUEUE), 0);
-    assert_eq!(counter(COUNTER_POST_ACCEPTED), 0);
+    assert_eq!(
+        runtime
+            .eval("String(globalThis.__deputyNativeCompletionChainResult)")
+            .unwrap(),
+        "denied",
+        "a chained native-completion continuation dropped its deputy constraint",
+    );
+    assert_eq!(
+        runtime
+            .eval("String(globalThis.__rootNativeCompletionResult)")
+            .unwrap(),
+        "allowed",
+        "a compromised completion contaminated an unrelated root job",
+    );
+    assert_eq!(
+        runtime
+            .eval("String(globalThis.__deputyLateNativeCompletionResult)")
+            .unwrap(),
+        "denied",
+        "a handler attached after native settlement lost the deputy constraint",
+    );
+    assert_eq!(
+        runtime
+            .eval("String(globalThis.__deputySettledDownstreamResult)")
+            .unwrap(),
+        "denied",
+        "an adopted root-clean Promise erased a downstream constraint",
+    );
+    assert_eq!(
+        runtime
+            .eval("String(globalThis.__deputySettledAllResult)")
+            .unwrap(),
+        "denied",
+        "Promise.all synchronously unwrapped a constrained settled Promise",
+    );
+    assert_eq!(counter(COUNTER_ENQUEUE), 2);
+    assert_eq!(
+        counter(COUNTER_POST_ACCEPTED),
+        native_posts_before + 4,
+        "the fixture must exercise immediate, delayed, downstream, and isolated root completions"
+    );
 }
 
 #[test]

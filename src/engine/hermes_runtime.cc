@@ -2705,7 +2705,9 @@ RuntimeCallbackTarget exactRuntimeCallbackTarget(ExactHermesRuntime* runtime) {
           EX_HERMES_ASYNC_FAILURE_NATIVE_COMPLETION,
           principal,
           exactAllocateAsyncEventIdentity(runtime),
-          exactCurrentAsyncEvaluationAssociation(runtime))};
+          exactCurrentAsyncEvaluationAssociation(runtime)),
+      std::make_shared<const std::vector<uint64_t>>(
+          exactCollectTypedPrincipalStack())};
 }
 
 uint64_t exactAllocateAsyncEventIdentity(ExactHermesRuntime* runtime) {
@@ -2838,6 +2840,7 @@ ExactRuntimeDriveGuard::ExactRuntimeDriveGuard(
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   previous_attribution_runtime_ = g_vm_runtime;
   g_vm_runtime = runtime->attribution_runtime;
+  (void)exactSyncTypedPrincipalStackToHermes();
 #endif
   dynamic_scope_active_ = true;
 }
@@ -3343,7 +3346,9 @@ void pushRuntimeCallback(RuntimeCallbackTarget target,
         std::lock_guard<std::mutex> lock(runtime->callbackMutex);
         runtime->callbackQueue.push_back(
             ExactHermesRuntime::QueuedRuntimeCallback{
-                target.failureContext, std::move(fn)});
+                target.failureContext,
+                target.constrainedPrincipals,
+                std::move(fn)});
         if (g_activeRuntimes.at(runtime).state == RuntimeLifecycleState::Closing) {
           runtime->native_worker_cv.notify_all();
         }
@@ -3381,7 +3386,9 @@ TryRuntimeCallbackResult tryPushRuntimeExtensionCallback(
       }
       runtime->callbackQueue.push_back(
           ExactHermesRuntime::QueuedRuntimeCallback{
-              target.failureContext, std::move(fn)});
+              target.failureContext,
+              target.constrainedPrincipals,
+              std::move(fn)});
       // Publish the queue-owned disposition only after insertion succeeds.
       // std::function move assignment is noexcept, so a refused enqueue leaves
       // all settlement responsibility with the producer.
@@ -3499,6 +3506,13 @@ int drainCallbackQueue(ExactHermesRuntime* runtime) {
             runtime->runtime.get(), rawCapture);
         try {
             ScopedNativePrincipal nativePrincipal(kNoNativePrincipalOverride);
+            std::unique_ptr<ScopedTypedPrincipalStack> constrainedPrincipals;
+            if (entry.constrainedPrincipals &&
+                !entry.constrainedPrincipals->empty()) {
+              constrainedPrincipals =
+                  std::make_unique<ScopedTypedPrincipalStack>(
+                      *entry.constrainedPrincipals);
+            }
             entry.callback(*runtime->runtime);
             workUnit.finish();
             if (runtime->structured_session_terminated) return count;
@@ -8919,6 +8933,12 @@ ibex_runtime_extension_conformance_armed_prerequisites_v1() {
 #ifdef HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK
   features |= UINT64_C(1) << 0;
 #endif
+#ifdef EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE
+  features |= UINT64_C(1) << 1;
+#endif
+#ifdef EXACT_HAVE_JOB_CONSTRAINED_PRINCIPALS
+  features |= UINT64_C(1) << 2;
+#endif
   return features;
 }
 
@@ -8989,6 +9009,31 @@ ibex_runtime_extension_conformance_eval_with_principals_v1(
   std::vector<uint64_t> principals(
       principal_ids, principal_ids + principal_count);
   ScopedTypedPrincipalStack principal_scope(principals);
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  // This fixture models package source, not merely a transient host callback.
+  // Stamp the actor (the final id in the required canonical root-to-package
+  // stack) onto the Domain created for this evaluation so callable-definition
+  // authentication exercises the same CodeBlock identity as the real package
+  // loader. The pending id is one-shot, but clear it on every return path too
+  // so a failed compilation cannot contaminate the next fixture evaluation.
+  const uint64_t definitionPrincipal = principals.back();
+  if (runtime->attribution_runtime == nullptr ||
+      definitionPrincipal >= static_cast<uint64_t>(kNoUserPrincipalId)) {
+    writeEvalRefusal(
+        out_value,
+        "runtime-extension principal fixture cannot stamp its source principal");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  struct PendingPackageIdReset {
+    void* attributionRuntime;
+    ~PendingPackageIdReset() {
+      ex_hermes_vm_clear_pending_package_id(attributionRuntime);
+    }
+  } pendingPackageIdReset{runtime->attribution_runtime};
+  ex_hermes_vm_set_pending_package_id(
+      runtime->attribution_runtime,
+      static_cast<uint32_t>(definitionPrincipal));
+#endif
   return evalRuntimeUnchecked(
       runtime, source, source_length, source_url, 0, out_value);
 }
@@ -13100,6 +13145,7 @@ extern "C" int32_t ibex_test_enqueue_runtime_principal_throw(
               static_cast<uint64_t>(kRuntimePrincipalId),
               exactAllocateAsyncEventIdentity(runtime),
               0),
+          {},
           [](facebook::jsi::Runtime& rt) {
             throw facebook::jsi::JSError(
                 rt, "runtime-principal-unavailable");

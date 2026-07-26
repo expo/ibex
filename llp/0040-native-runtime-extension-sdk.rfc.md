@@ -1,12 +1,12 @@
 # LLP 0040: Native Runtime Extension SDK
 
 **Type:** RFC
-**Status:** Draft
+**Status:** Review
 **Systems:** Engine, Runtime, Host ABI, Capability Security, Build, Verification
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-25
 **Revised:** 2026-07-25
-**Related:** LLP 0000 (Ibex root), LLP 0002 (host embedding ABI), LLP 0003 (Hermes engine bridge), LLP 0006 (design principles), LLP 0012 (runtime identity), LLP 0013 / 0021 (capability security); Exact LLP 0401 (native runtime extensions)
+**Related:** LLP 0000 (Ibex root), LLP 0002 (host embedding ABI), LLP 0003 (Hermes engine bridge), LLP 0006 (design principles), LLP 0012 (runtime identity), LLP 0013 / 0021 (capability security); Exact LLP 0402 (native runtime extensions)
 
 ## Summary
 
@@ -41,7 +41,7 @@ application-extension catalog. Routing it through synchronous module calls
 would violate the runtime owner-thread model. A dynamic plugin ABI would make
 toolchain and engine compatibility less honest, not more.
 
-Exact LLP 0401 defines the product-facing tier and assigns Ibex the generic
+Exact LLP 0402 defines the product-facing tier and assigns Ibex the generic
 engine substrate. This companion RFC records the Ibex-side contract and the
 required amendments to the current bootstrap and teardown sequence.
 
@@ -63,7 +63,7 @@ contracts remain authoritative. In particular:
   authenticated extension bootstrap bytes are package-owned inputs carried by
   the generated registry.
 - Exact owns every WebGPU name, wrapper, operation profile, provider service,
-  and conformance artifact under Exact LLP 0115/0397. Production Ibex source
+  and conformance artifact under Exact LLP 0115/0402. Production Ibex source
   and generated CapSec data contain no WebGPU-specific vocabulary.
 
 Historical prose below the explicitly marked superseded headings in those
@@ -320,6 +320,75 @@ guard, and no producer or other cross-thread SDK path uses it.
 There is no synchronous cross-thread dispatch, semaphore bounce,
 `callModuleSync`, or generic `__hostCall` escape hatch.
 
+Carried Hermes patch 0013 is the extension-neutral continuation primitive for
+that full context. Promise construction, resolution/thenable assimilation,
+adoption aliases, settlement, handler registration, and each queued reaction
+carry bounded, immutable constrained-principal sets in addition to the scalar
+scheduler identity used by structured failure receipts. Native owner callbacks
+publish the acquisition set while settling or invoking JavaScript. Hermes
+retains the tokens in private Promise state, unions prior, settlement,
+registration, and enqueue-time contexts monotonically, and propagates the
+result into downstream and aggregate settlement, including handlers attached
+after a Promise has already settled. The authenticated runtime-extension
+profile requires Hermes' engine microtask queue and refuses a non-empty
+registry before installation when that configuration surface is absent. The
+`setImmediate` fallback remains an ordinary Promise compatibility path, but is
+not runtime-extension confinement evidence. Missing or malformed context
+collapses to the no-user principal. Scalar `Promise.resolve` calls produce
+acquisition-branded Promises rather than shared bootstrap singletons, because
+a global neutral singleton would erase the caller context. Promise
+settlement/adoption state and handler queues also live in private lexical
+WeakMap records rather than writable underscore properties; legacy underscore
+fields and rejection hooks are non-semantic compatibility mirrors. Private
+brands cannot be minted through `Promise.call`, frozen mirrors cannot interrupt
+finalization, and mutable `_B` / `_C` / `_D` properties cannot replace the
+lexical hooks or no-op resolver.
+
+Observable `then` and `constructor` getters, thenable calls, subclass
+construction, and the dynamic `then` calls required by aggregate methods run
+under the monotonic source/current union. An unbranded callable thenable has no
+authenticated origin and therefore executes and settles fail-closed under the
+no-user principal; a plain object with no callable `then` remains ordinary data
+and retains its real resolver context. Async/await uses private
+`PerformPromiseThen` after captured intrinsic `PromiseResolve`, while
+async-generator iteration Promises merge the opaque principal token captured
+when the package-defined generator wrapper is created. Public `catch` and
+`finally` preserve dynamic behavior but retain the source token on any
+privately branded Promise result. Thus neither copying Promise-shaped fields,
+installing an own `then` override, returning a pre-existing clean Promise from
+a subclass/custom method, nor deferring a subclass executor can bypass the
+carrier. The frame collector appends every distinct member at the next effect
+boundary. Sets are per Promise/job, never per poll batch, so a compromised
+completion cannot contaminate an unrelated root completion and a root
+completion cannot erase a compromised deputy. A frame-attributing engine that
+lacks the patch export refuses a non-empty runtime-extension registry before
+installation.
+
+The embedder carrier and the Promise/job carrier are separate runtime slots.
+Entering or leaving a typed-principal scope synchronizes only the embedder
+slot; Hermes snapshots that slot into jobs without letting a later scope erase
+Promise-owned history. The generic runtime callback queue stores the complete
+immutable acquisition set alongside the structured-failure identity and
+restores it around owner delivery. Extension completions and ordinary native
+async completions, including filesystem delivery on POSIX and Windows, thereby
+enter Promise settlement under the same carrier. Nested runtime drives restore
+the prior engine and carrier on unwind.
+
+An active authenticated carrier is mandatory authority for every capability
+class, independently of LLP 0013's opt-in synchronous deputy-class policy.
+Ibex sends the complete collected set through distinct constrained-stack Host
+ABI gates; each member must pass the capability decision and every host
+boundary fence, including no-follow-final filesystem normalization. An empty
+active collection, an explicit no-user member, malformed input, unsupported
+engine state, or symbol-probe ambiguity denies. The ordinary synchronous stack
+gates retain their existing deputy semantics.
+
+Build selection probes exact defined symbols rather than substring matches or
+undefined references. Structured async provenance requires both carrier
+exports in addition to the existing scheduler/job exports on macOS, Linux, and
+Windows. The symbol parser is shared by `build.rs` and its platform-neutral
+regressions; tool failure and prefix/suffix collisions fail closed.
+
 The feature-only authenticated conformance constructor binds the same
 capsule-authenticated VFS generation as production before trusted bootstrap.
 Its diagnostic Hermes posture does not reopen ambient native storage: trusted
@@ -424,41 +493,25 @@ Inspection must not expose a mutable registry or raw provider/runtime pointer.
 
 ## Public API shape
 
-The implementation may refine names without changing these semantics:
+`include/ibex_runtime_extension.h` is the exact public authority. It publishes
+size/versioned C structs rather than an opaque forward declaration:
 
-```cpp
-namespace ibex::runtime_extension::v1 {
+- `IbexRuntimeExtensionDescriptorV1` carries the manifest and authority-capsule
+  identities, realm/install/features, globals, modules, bootstraps, operations,
+  callbacks, provider requirements, and lifecycle table;
+- `IbexRuntimeExtensionRegistryV1` carries the authenticated whole-set
+  identities, descriptor span, and provider-binding span;
+- `IbexArmedRuntimeOptionsV2` and `IbexDiagnosticRuntimeOptionsV2` carry the
+  immutable registry into `ibex_runtime_create_armed_v2` and
+  `ibex_runtime_create_diagnostic_v2`; and
+- the legacy constructors remain canonical empty-registry wrappers.
 
-struct RuntimeExtensionDescriptor {
-  const char* id;
-  const char* version;
-  const char* manifest_digest;
-  uint64_t realm_mask;
-  uint64_t required_features;
-  const char* provider_abi_id;
-  uint32_t provider_abi_min_version;
-  const RuntimeExtensionGlobalV1* globals;
-  size_t global_count;
-  const char* const* module_specifiers;
-  size_t module_specifier_count;
-  const LifecycleVTable* lifecycle;
-};
-
-struct RuntimeExtensionRegistry {
-  uint32_t sdk_version;
-  const char* extension_set_digest;
-  const char* executable_selection_identity;
-  const RuntimeExtensionDescriptor* descriptors;
-  size_t descriptor_count;
-};
-
-} // namespace ibex::runtime_extension::v1
-```
-
-The C embedding header forward-declares the registry and adds explicit
-`*_with_extensions` constructors. This does not make the C++ descriptor a
-stable C ABI; it gives C, Swift, Kotlin/JNI, and Win32 hosts one opaque pointer
-to pass through without becoming extension catalogs.
+`include/ibex/runtime_extension.hpp` is the C++17 source-authoring facade over
+that C surface. The explicit structs let C, Swift, Kotlin/JNI, and Win32 hosts
+pass generated immutable data without becoming extension catalogs. They are
+versioned embedding ABI for the pinned Ibex revision, not a promise that an
+arbitrary precompiled third-party extension remains binary-compatible across
+Ibex/Hermes toolchains.
 
 ## Verification
 
@@ -483,7 +536,16 @@ callback, and lifecycle behavior is intentionally generic. Tests must cover:
 11. repeated create/destroy and failed-create stress;
 12. copy-buffer behavior, optional external-buffer revocation, and injected
     detach failure retaining the alias/key for a successful retry;
-13. full constrained-principal intersection and handle-acquisition attribution;
+13. full constrained-principal intersection and handle-acquisition
+    attribution, including a real native completion, handlers attached after
+    native and downstream settlement, adoption of an already-settled root-clean
+    Promise, `Promise.all` over an already-settled constrained Promise, a
+    forged Promise-shaped adopter, a branded Promise with an authority-
+    laundering own `then` exercised through both `Promise.all` and `await`, a
+    generic thenable and `then` getter borrowing root functions, mutable
+    Promise compatibility hooks, a constructor that returns a pre-existing
+    clean Promise, a multi-hop Promise chain, a plain-object non-thenable
+    control, and concurrent root/compromised jobs proving per-job isolation;
 14. empty-registry compatibility for existing constructors;
 15. a standalone Ibex build with no Exact source or generated Exact table;
 16. deterministic producer post and last-copy destruction while the runtime
@@ -506,9 +568,15 @@ callback, and lifecycle behavior is intentionally generic. Tests must cover:
     including immediate retirement of the terminal callback slot;
 23. last operation-lease destruction completing on a producer while
     `HOST_CONTEXTS` is write-locked, followed by owner-checkpoint revocation;
-    and
 24. teardown revoking the owner-held lease slot without a later poll, followed
-    by last public-copy destruction on a producer after runtime destruction.
+    by last public-copy destruction on a producer after runtime destruction;
+25. the generic native callback queue restoring the complete typed-principal
+    carrier before Promise settlement, with the legacy generic capability gate
+    denying a root callback whose acquisition set contains an ungranted
+    package; and
+26. exact defined-symbol probing for the Hermes constrained-principal setter
+    and active-query exports on Mach-O, ELF, and PE/COFF listings, including
+    undefined-only, prefix/suffix-collision, and tool-failure refusals.
 
 Before any extension bootstrap or installer runs, Ibex retains the pristine
 `Object.getOwnPropertyNames`, `Object.getOwnPropertySymbols`,

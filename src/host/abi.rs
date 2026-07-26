@@ -1060,7 +1060,7 @@ impl HostContextRecord {
 static HOST_CONTEXTS: OnceLock<RwLock<HashMap<u64, HostContextRecord>>> = OnceLock::new();
 static PROCESS_IPC_BOOTSTRAP_LEASE: OnceLock<Mutex<ProcessIpcBootstrapLease>> = OnceLock::new();
 
-#[cfg(test)]
+#[cfg(all(test, feature = "runtime-extension-conformance"))]
 pub(crate) fn with_runtime_extension_host_contexts_write_lock_for_test<R>(
     body: impl FnOnce() -> R,
 ) -> R {
@@ -6232,6 +6232,51 @@ pub extern "C" fn ex_host_check_capability_stack_no_follow_final(
     } else {
         0
     }
+}
+
+/// Complete intersection for an authenticated async-continuation carrier.
+/// This is intentionally distinct from `ex_host_check_capability_stack`:
+/// ordinary synchronous stacks retain LLP 0013's opt-in deputy-class
+/// semantics, while every Promise/native-completion carrier member is a
+/// mandatory authority constraint.
+#[no_mangle]
+pub extern "C" fn ex_host_check_capability_constrained_stack(
+    module_ids: *const u64,
+    len: usize,
+    capability: *const c_char,
+) -> i32 {
+    if capability.is_null() || module_ids.is_null() || len == 0 {
+        return 0;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }.to_string_lossy();
+    let ids = unsafe { std::slice::from_raw_parts(module_ids, len) };
+    let allowed = with_rendered_principal_stack(ids, |stack_refs| {
+        with_host(
+            |host| host.check_capability_constrained_stack(stack_refs, &cap),
+            false,
+        )
+    });
+    i32::from(allowed)
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_check_capability_constrained_stack_no_follow_final(
+    module_ids: *const u64,
+    len: usize,
+    capability: *const c_char,
+) -> i32 {
+    if capability.is_null() || module_ids.is_null() || len == 0 {
+        return 0;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }.to_string_lossy();
+    let ids = unsafe { std::slice::from_raw_parts(module_ids, len) };
+    let allowed = with_rendered_principal_stack(ids, |stack_refs| {
+        with_host(
+            |host| host.check_capability_constrained_stack_no_follow_final(stack_refs, &cap),
+            false,
+        )
+    });
+    i32::from(allowed)
 }
 
 /// Whether any deputy capability classes are configured. The engine only

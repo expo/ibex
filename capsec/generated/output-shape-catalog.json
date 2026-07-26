@@ -39992,6 +39992,28 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.host.check.capability.constrained.stack.0inomqc",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_check_capability_constrained_stack"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.check.capability.constrained.stack.no.follow.final.073cu5l",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_check_capability_constrained_stack_no_follow_final"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.host.check.capability.no.follow.final.1mkhff1",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -54811,10 +54833,11 @@
         "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
         "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
         "patches/hermes/0012-keyed-external-arraybuffer-alias.patch#patch-content",
+        "patches/hermes/0013-native-job-constrained-principals.patch#patch-content",
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-67706c21da19f36661d08abda839781ef32e1cd4dd89e918e0931cff2ef9159c",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-044ec18e3b24069d12e5e1f356c6a7caa7172829c8317b822545206fb04b47f8",
         "scripts/build-hermes.sh#apply-hermes-patches.sh",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -54823,8 +54846,8 @@
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-9ba4d499b50014bce1a11922e476faa77492eff1c22f7c5c6c687ba9e8553a4a",
         "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-fd35f1514bb1e75f5b64afd2344968560fa6ac2b021ed1a6b816934afc5d3056",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -60773,10 +60796,11 @@
         "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
         "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
         "patches/hermes/0012-keyed-external-arraybuffer-alias.patch#patch-content",
+        "patches/hermes/0013-native-job-constrained-principals.patch#patch-content",
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-67706c21da19f36661d08abda839781ef32e1cd4dd89e918e0931cff2ef9159c",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-044ec18e3b24069d12e5e1f356c6a7caa7172829c8317b822545206fb04b47f8",
         "scripts/build-hermes.sh#apply-hermes-patches.sh",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -60785,8 +60809,8 @@
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-9ba4d499b50014bce1a11922e476faa77492eff1c22f7c5c6c687ba9e8553a4a",
         "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-fd35f1514bb1e75f5b64afd2344968560fa6ac2b021ed1a6b816934afc5d3056",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -64530,10 +64554,11 @@
         "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
         "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
         "patches/hermes/0012-keyed-external-arraybuffer-alias.patch#patch-content",
+        "patches/hermes/0013-native-job-constrained-principals.patch#patch-content",
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-67706c21da19f36661d08abda839781ef32e1cd4dd89e918e0931cff2ef9159c",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-044ec18e3b24069d12e5e1f356c6a7caa7172829c8317b822545206fb04b47f8",
         "scripts/build-hermes.sh#apply-hermes-patches.sh",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -64542,8 +64567,8 @@
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-9ba4d499b50014bce1a11922e476faa77492eff1c22f7c5c6c687ba9e8553a4a",
         "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-fd35f1514bb1e75f5b64afd2344968560fa6ac2b021ed1a6b816934afc5d3056",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -64584,10 +64609,11 @@
         "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
         "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
         "patches/hermes/0012-keyed-external-arraybuffer-alias.patch#patch-content",
+        "patches/hermes/0013-native-job-constrained-principals.patch#patch-content",
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-67706c21da19f36661d08abda839781ef32e1cd4dd89e918e0931cff2ef9159c",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-044ec18e3b24069d12e5e1f356c6a7caa7172829c8317b822545206fb04b47f8",
         "scripts/build-hermes.sh#apply-hermes-patches.sh",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -64596,8 +64622,8 @@
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-9ba4d499b50014bce1a11922e476faa77492eff1c22f7c5c6c687ba9e8553a4a",
         "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-fd35f1514bb1e75f5b64afd2344968560fa6ac2b021ed1a6b816934afc5d3056",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -84925,15 +84951,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-xK1iCy2spfZ1MR2YoZmXaXh-WOSaiI6Z_hPQRJmG5NQ",
+  "catalogKeyDigest": "sha256-eevsOpdJsXBYnVzzWn9SbmXR3FBD2lAfPAmIVyPR7pg",
   "counts": {
-    "coverageSurfaces": 7468,
-    "outputBearingSurfaces": 5797,
+    "coverageSurfaces": 7470,
+    "outputBearingSurfaces": 5799,
     "structuralOnlySurfaces": 1666,
     "unresolvedSurfaces": 5,
-    "catalogRows": 6476,
+    "catalogRows": 6478,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6069,
+    "sourceInventoryRows": 6071,
     "structuredRows": 407
   },
   "rows": [
@@ -154304,6 +154330,48 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.host.check.capability.constrained.stack.0inomqc",
+        "output": "[[return]]",
+        "alias": "ex_host_check_capability_constrained_stack",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_check_capability_constrained_stack"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_check_capability_constrained_stack"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.check.capability.constrained.stack.no.follow.final.073cu5l",
+        "output": "[[return]]",
+        "alias": "ex_host_check_capability_constrained_stack_no_follow_final",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_check_capability_constrained_stack_no_follow_final"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_check_capability_constrained_stack_no_follow_final"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.host.check.capability.no.follow.final.1mkhff1",
         "output": "[[return]]",
         "alias": "ex_host_check_capability_no_follow_final",
@@ -173410,10 +173478,11 @@
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
           "patches/hermes/0012-keyed-external-arraybuffer-alias.patch#patch-content",
+          "patches/hermes/0013-native-job-constrained-principals.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-67706c21da19f36661d08abda839781ef32e1cd4dd89e918e0931cff2ef9159c",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-044ec18e3b24069d12e5e1f356c6a7caa7172829c8317b822545206fb04b47f8",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -173422,8 +173491,8 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-9ba4d499b50014bce1a11922e476faa77492eff1c22f7c5c6c687ba9e8553a4a",
           "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-fd35f1514bb1e75f5b64afd2344968560fa6ac2b021ed1a6b816934afc5d3056",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -184488,10 +184557,11 @@
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
           "patches/hermes/0012-keyed-external-arraybuffer-alias.patch#patch-content",
+          "patches/hermes/0013-native-job-constrained-principals.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-67706c21da19f36661d08abda839781ef32e1cd4dd89e918e0931cff2ef9159c",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-044ec18e3b24069d12e5e1f356c6a7caa7172829c8317b822545206fb04b47f8",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -184500,8 +184570,8 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-9ba4d499b50014bce1a11922e476faa77492eff1c22f7c5c6c687ba9e8553a4a",
           "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-fd35f1514bb1e75f5b64afd2344968560fa6ac2b021ed1a6b816934afc5d3056",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -191565,10 +191635,11 @@
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
           "patches/hermes/0012-keyed-external-arraybuffer-alias.patch#patch-content",
+          "patches/hermes/0013-native-job-constrained-principals.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-67706c21da19f36661d08abda839781ef32e1cd4dd89e918e0931cff2ef9159c",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-044ec18e3b24069d12e5e1f356c6a7caa7172829c8317b822545206fb04b47f8",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -191577,8 +191648,8 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-9ba4d499b50014bce1a11922e476faa77492eff1c22f7c5c6c687ba9e8553a4a",
           "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-fd35f1514bb1e75f5b64afd2344968560fa6ac2b021ed1a6b816934afc5d3056",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
@@ -191639,10 +191710,11 @@
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
           "patches/hermes/0012-keyed-external-arraybuffer-alias.patch#patch-content",
+          "patches/hermes/0013-native-job-constrained-principals.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-67706c21da19f36661d08abda839781ef32e1cd4dd89e918e0931cff2ef9159c",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-044ec18e3b24069d12e5e1f356c6a7caa7172829c8317b822545206fb04b47f8",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -191651,8 +191723,8 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-9ba4d499b50014bce1a11922e476faa77492eff1c22f7c5c6c687ba9e8553a4a",
           "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-fd35f1514bb1e75f5b64afd2344968560fa6ac2b021ed1a6b816934afc5d3056",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",

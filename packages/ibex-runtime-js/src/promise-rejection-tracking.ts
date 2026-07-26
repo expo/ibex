@@ -410,6 +410,9 @@ export function installPromiseRejectionTracking(): void {
       reject: (reason?: any) => void
     ) => void
   ): Promise<any> {
+    if (new.target === undefined) {
+      throw new TypeError('Promises must be constructed via new');
+    }
     let promiseRef: Promise<any> | null = null;
     let hasPendingReject = false;
     let pendingReject: any = null;

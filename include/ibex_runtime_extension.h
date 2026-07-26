@@ -308,7 +308,9 @@ struct ExactHermesRuntime*
 ibex_runtime_extension_conformance_create_authenticated_fixture_v1(
     const IbexArmedRuntimeOptionsV2* options);
 /*
- * Evaluate fixture source under one explicit authenticated principal stack.
+ * Evaluate fixture package source under one explicit authenticated principal
+ * stack. The final principal also stamps the source Domain, matching the real
+ * package loader so callable-definition provenance is executable evidence.
  * This is a feature-only adversarial test control for continuation/deputy
  * conformance and is absent from ordinary artifacts. Principal IDs must be
  * sorted, unique, and registered in the fixture Host.

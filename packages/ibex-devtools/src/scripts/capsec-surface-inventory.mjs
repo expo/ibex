@@ -13126,6 +13126,7 @@ const REVIEWED_HERMES_PATCH_PATHS = [
   "patches/hermes/0010-completion-record-discriminator.patch",
   "patches/hermes/0011-structured-async-failure-provenance.patch",
   "patches/hermes/0012-keyed-external-arraybuffer-alias.patch",
+  "patches/hermes/0013-native-job-constrained-principals.patch",
 ];
 
 const REVIEWED_REACHABLE_HERMES_EVALUATORS = [
@@ -13183,7 +13184,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       patchIdentityAuthorityDigest:
         "sha256-6e939803e5b0b5605a886debe46f3e3378ad5b34c1c7528a75954bba48366930",
       patchStackDigest:
-        "sha256-109263ccf0c191903abb3f8453edcb6f890d7f6a93b431b98b3cc7f2b29bb1d7",
+        "sha256-9cfda58ce56e2770d43f36ecc17d36997fbd3e7694b9bd64a30cfbae33dd6e32",
       sourceBuildAuthorityDigests: {
         "scripts/build-hermes-linux.sh":
           "sha256-4f6a4476f40096067fb0ed6c93f8f9bb8cf05a3e9f3f6edb0efe5915d7e28988",
@@ -13218,7 +13219,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       patchIdentityAuthorityDigest:
         "sha256-6e939803e5b0b5605a886debe46f3e3378ad5b34c1c7528a75954bba48366930",
       patchStackDigest:
-        "sha256-109263ccf0c191903abb3f8453edcb6f890d7f6a93b431b98b3cc7f2b29bb1d7",
+        "sha256-9cfda58ce56e2770d43f36ecc17d36997fbd3e7694b9bd64a30cfbae33dd6e32",
       sourceBuildAuthorityDigest:
         "sha256-a0241603b740cdd9b2747a53f6c97803192b60c7f8579b8b2f661dd048c7b1e4",
       sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",

@@ -52,6 +52,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <tuple>
@@ -331,6 +332,10 @@ struct RuntimeCallbackTarget {
   ExactHermesRuntime* runtime{nullptr};
   uint64_t nonce{0};
   StructuredAsyncFailureContext failureContext{};
+  // Complete authenticated acquisition carrier captured on the runtime
+  // thread. Generic native completions restore it while invoking their owner
+  // callback so Promise settlement does not collapse to no-user.
+  std::shared_ptr<const std::vector<uint64_t>> constrainedPrincipals{};
 
   explicit operator bool() const {
     return runtime != nullptr && nonce != 0;
@@ -749,6 +754,7 @@ struct ExactHermesRuntime {
   std::mutex callbackMutex;
   struct QueuedRuntimeCallback {
     StructuredAsyncFailureContext failureContext;
+    std::shared_ptr<const std::vector<uint64_t>> constrainedPrincipals;
     std::function<void(facebook::jsi::Runtime&)> callback;
     // Optional queue-owned disposition for callbacks whose producer retains
     // an independent post-return reference. Poll and destroy invoke it on the
@@ -850,6 +856,10 @@ struct ExactHermesRuntime {
 // drive; the returned pointer remains owned by the still-live outer scope.
 const std::vector<uint64_t>* exactSwapTypedPrincipalStackForRuntimeDrive(
     const std::vector<uint64_t>* replacement);
+// Publish the current typed-principal constraint into the selected patched
+// Hermes runtime so jobs enqueued by native completions retain the full set.
+// Unsupported/root-only targets return true without touching the engine.
+bool exactSyncTypedPrincipalStackToHermes();
 
 /// Common owner-thread, liveness, generation, and non-reentrancy gate for
 /// every entry point that drives JSI or module-runner state. A successful
@@ -1110,6 +1120,7 @@ class ScopedRuntimeSecurityContext {
         g_vm_runtime = runtime->runtime_thread == std::this_thread::get_id()
             ? runtime->attribution_runtime
             : nullptr;
+        (void)exactSyncTypedPrincipalStackToHermes();
 #endif
         principalBoundary_ = true;
       }
@@ -1196,6 +1207,14 @@ extern "C" int32_t ex_host_check_capability_stack(const uint64_t* module_ids,
 extern "C" int32_t ex_host_check_capability_stack_no_follow_final(const uint64_t* module_ids,
                                                                   size_t len,
                                                                   const char* capability);
+extern "C" int32_t ex_host_check_capability_constrained_stack(
+    const uint64_t* module_ids,
+    size_t len,
+    const char* capability);
+extern "C" int32_t ex_host_check_capability_constrained_stack_no_follow_final(
+    const uint64_t* module_ids,
+    size_t len,
+    const char* capability);
 extern "C" int32_t ex_host_authorize_typed_listen_stack(
     uint64_t module_id,
     const uint64_t* module_ids,
@@ -1285,6 +1304,16 @@ extern "C" void ex_hermes_vm_set_job_associated_evaluation(
 extern "C" void ex_hermes_vm_set_embedder_job_scheduler_principal(
     void* vm_runtime,
     uint32_t principal);
+#endif
+#ifdef EXACT_HAVE_JOB_CONSTRAINED_PRINCIPALS
+extern "C" int ex_hermes_vm_set_embedder_job_constrained_principals(
+    void* vm_runtime,
+    const uint32_t* principals,
+    size_t principal_count);
+extern "C" int ex_hermes_vm_has_active_job_constrained_principals(
+    void* vm_runtime);
+#endif
+#ifdef EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE
 extern "C" int ex_hermes_vm_take_failed_job_context(
     void* vm_runtime,
     uint32_t* principal,
@@ -1307,6 +1336,12 @@ class ScopedActiveAttributionRuntime {
   explicit ScopedActiveAttributionRuntime(void* runtime)
       : previous_(g_vm_runtime) {
     g_vm_runtime = runtime;
+    if (!exactSyncTypedPrincipalStackToHermes()) {
+      g_vm_runtime = previous_;
+      (void)exactSyncTypedPrincipalStackToHermes();
+      throw std::runtime_error(
+          "Hermes constrained-principal context is unavailable");
+    }
   }
 
   ScopedActiveAttributionRuntime(const ScopedActiveAttributionRuntime&) = delete;
@@ -1314,6 +1349,7 @@ class ScopedActiveAttributionRuntime {
 
   ~ScopedActiveAttributionRuntime() {
     g_vm_runtime = previous_;
+    (void)exactSyncTypedPrincipalStackToHermes();
   }
 
  private:
@@ -1399,15 +1435,22 @@ inline bool checkCapabilityWithFsMode(const std::string& capability, bool noFoll
   auto principal = currentPrincipalId();
 #if defined(EXACT_HAVE_FRAME_ATTRIBUTION)
   // @ref LLP 0013#phase-5 — for deputy-sensitive capability classes (opt-in via
-  // policy), effective authority is the AND of every package on the call stack,
-  // so a deputy holding e.g. fs:write cannot be driven to act for an ungranted
-  // caller. Also collect when the live frame walk found no user principal: the
-  // scheduler capture can recover the package/root that caused a native-resolved
-  // continuation, avoiding a false deny while still denying ungranted schedulers.
+  // policy), effective authority is the AND of every package on the call stack.
+  // A structured Promise/native-completion carrier is different: every member
+  // is an authenticated authority constraint for every effect class, so collect
+  // and intersect it even when the currently executing callback is root and no
+  // deputy class is configured. Also collect when the live walk found no user
+  // principal so a recoverable scheduler can still be considered.
   bool deputyClasses = hasDeputyClasses();
+  bool constrainedCarrier = false;
+#if defined(EXACT_HAVE_JOB_CONSTRAINED_PRINCIPALS)
+  constrainedCarrier =
+      g_vm_runtime != nullptr &&
+      ex_hermes_vm_has_active_job_constrained_principals(g_vm_runtime) == 1;
+#endif
   bool useStack =
       g_vm_runtime != nullptr &&
-      (deputyClasses || principal == kNoUserPrincipalId);
+      (constrainedCarrier || deputyClasses || principal == kNoUserPrincipalId);
   if (useStack) {
     // Collection is innermost-first, so a full buffer drops the OUTERMOST frames
     // — exactly the low-authority callers whose absence would let the AND pass
@@ -1419,6 +1462,11 @@ inline bool checkCapabilityWithFsMode(const std::string& capability, bool noFoll
     constexpr size_t kMaxStack = 256;
     uint32_t ids32[kMaxStack];
     size_t n = ex_hermes_vm_collect_package_ids(g_vm_runtime, ids32, kMaxStack);
+    if (constrainedCarrier && n == 0) {
+      ex_host_log_event(
+          "capability_denied", principal, capability.c_str(), false);
+      return false;
+    }
     if (n > 0) {
       uint64_t ids64[kMaxStack + 1];
       for (size_t i = 0; i < n; i++) {
@@ -1455,9 +1503,17 @@ inline bool checkCapabilityWithFsMode(const std::string& capability, bool noFoll
           ids64[n++] = scheduler;
         }
       }
-      auto allowed = noFollowFinal
-          ? ex_host_check_capability_stack_no_follow_final(ids64, n, capability.c_str())
-          : ex_host_check_capability_stack(ids64, n, capability.c_str());
+      auto allowed = constrainedCarrier
+          ? (noFollowFinal
+                 ? ex_host_check_capability_constrained_stack_no_follow_final(
+                       ids64, n, capability.c_str())
+                 : ex_host_check_capability_constrained_stack(
+                       ids64, n, capability.c_str()))
+          : (noFollowFinal
+                 ? ex_host_check_capability_stack_no_follow_final(
+                       ids64, n, capability.c_str())
+                 : ex_host_check_capability_stack(
+                       ids64, n, capability.c_str()));
       ex_host_log_event(
           allowed ? "capability_granted" : "capability_denied",
           ids64[0],
