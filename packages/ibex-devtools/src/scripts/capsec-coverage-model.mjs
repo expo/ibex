@@ -30,6 +30,89 @@ const SURFACE_KINDS = new Set([
   "native-op",
   "startup",
 ]);
+const CLOSED_FS_MUTATION_ACTION = "fs:unbound-mutation";
+const CLOSED_FS_BUILTIN_MUTATION_EXPORTS = new Set([
+  "node_fs\0chmod",
+  "node_fs\0chmodsync",
+  "node_fs\0chown",
+  "node_fs\0chownsync",
+  "node_fs\0copyfile",
+  "node_fs\0copyfilesync",
+  "node_fs\0cp",
+  "node_fs\0cpsync",
+  "node_fs\0fchmod",
+  "node_fs\0fchmodsync",
+  "node_fs\0fchown",
+  "node_fs\0fchownsync",
+  "node_fs\0futimes",
+  "node_fs\0futimessync",
+  "node_fs\0lchmod",
+  "node_fs\0lchmodsync",
+  "node_fs\0lchown",
+  "node_fs\0lchownsync",
+  "node_fs\0link",
+  "node_fs\0linksync",
+  "node_fs\0lutimes",
+  "node_fs\0lutimessync",
+  "node_fs\0mkdtemp",
+  "node_fs\0mkdtempdisposable",
+  "node_fs\0mkdtempdisposablesync",
+  "node_fs\0mkdtempsync",
+  "node_fs\0rename",
+  "node_fs\0renamesync",
+  "node_fs\0rm",
+  "node_fs\0rmsync",
+  "node_fs\0rmdir",
+  "node_fs\0rmdirsync",
+  "node_fs\0symlink",
+  "node_fs\0symlinksync",
+  "node_fs\0unlink",
+  "node_fs\0unlinksync",
+  "node_fs\0utimes",
+  "node_fs\0utimessync",
+  "node_fs\0watch",
+  "node_fs\0watchfile",
+  "node_fs_promises\0filehandle.chmod",
+  "node_fs_promises\0filehandle.chown",
+  "node_fs_promises\0chmod",
+  "node_fs_promises\0chown",
+  "node_fs_promises\0copyfile",
+  "node_fs_promises\0lchmod",
+  "node_fs_promises\0lchown",
+  "node_fs_promises\0link",
+  "node_fs_promises\0lutimes",
+  "node_fs_promises\0mkdtemp",
+  "node_fs_promises\0rename",
+  "node_fs_promises\0rm",
+  "node_fs_promises\0rmdir",
+  "node_fs_promises\0symlink",
+  "node_fs_promises\0unlink",
+  "node_fs_promises\0utimes",
+]);
+const CLOSED_FS_NATIVE_MUTATION_OPERATIONS = new Set([
+  "__exactChmod",
+  "__exactChown",
+  "__exactCopyFile",
+  "__exactFsFchmod",
+  "__exactFsFchmodSync",
+  "__exactFsFchown",
+  "__exactFsFchownSync",
+  "__exactFsFutimesSync",
+  "__exactLchmod",
+  "__exactLchmodSync",
+  "__exactLchown",
+  "__exactLink",
+  "__exactLutimes",
+  "__exactLutimesSync",
+  "__exactMkdtemp",
+  "__exactRename",
+  "__exactRmdir",
+  "__exactSymlink",
+  "__exactUnlink",
+  "__exactUtimes",
+]);
+const CLOSED_FS_MUTATION_RATIONALE =
+  "This filesystem mutation has no completely specified object-bound v1 protocol and is refused before path or descriptor lookup.";
 // This is semantic approval, not discovery authority: the source scanner owns
 // the inventory and a test requires an exact stale/missing join. The broad
 // matchers later in this module run only for these reviewed native operations,
@@ -7230,6 +7313,17 @@ export function reviewedBuiltinExportNames() {
   return [...REVIEWED_BUILTIN_EXPORT_NAMES].sort(utf8Compare);
 }
 
+export function reviewedClosedFsMutationObservedKeys() {
+  return [
+    ...[...CLOSED_FS_BUILTIN_MUTATION_EXPORTS].map(
+      (key) => `builtin:export:${key.replace("\0", ":")}`,
+    ),
+    ...[...CLOSED_FS_NATIVE_MUTATION_OPERATIONS].map(
+      (name) => `native-op:${name}`,
+    ),
+  ].sort(utf8Compare);
+}
+
 export function reviewedGlobalApiNames() {
   return [...REVIEWED_GLOBAL_API_NAMES].sort(utf8Compare);
 }
@@ -8879,6 +8973,16 @@ function builtinExportClassification(surface) {
         "runtime:inspect",
         "WP7",
         "fs.unwatchFile mutates the process-wide path watcher registry and can cancel listeners owned by another principal.",
+      );
+    }
+    // @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified — reviewed public aliases refuse before path conversion or partial filesystem effects.
+    if (
+      CLOSED_FS_BUILTIN_MUTATION_EXPORTS.has(`${source}\0${api}`)
+    ) {
+      return closedSpec(
+        CLOSED_FS_MUTATION_ACTION,
+        "WP5",
+        CLOSED_FS_MUTATION_RATIONALE,
       );
     }
     if (/watch/u.test(name)) {
@@ -14344,6 +14448,14 @@ function classifyConcreteSurface(surface) {
     }
     if (surface.name === "__exactFsMutationGuard") {
       return nonCapabilitySpec("authority-control-plane", "WP5");
+    }
+    // @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified — direct native mutation terminals fail before path or descriptor lookup.
+    if (CLOSED_FS_NATIVE_MUTATION_OPERATIONS.has(surface.name)) {
+      return closedSpec(
+        CLOSED_FS_MUTATION_ACTION,
+        "WP5",
+        CLOSED_FS_MUTATION_RATIONALE,
+      );
     }
     if (surface.name === "__exactCompatModes") {
       return nonCapabilitySpec("runtime-bootstrap-state", "WP4");

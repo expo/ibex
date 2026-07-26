@@ -335,7 +335,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(24_040);
+    expect(recipes.summary.requiredFixtures).toBe(23_736);
     // Invocation-time require activation adds source-derived obligations; the
     // six eager dynamic/require-link ABIs remain residual because the
     // production graph deliberately uses deferred call-time links. The net-new
@@ -346,7 +346,7 @@ describe("exact-target CapSec executable recipes", () => {
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_114);
-    expect(recipes.summary.unresolvedFixtures).toBe(18_260);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_956);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -444,12 +444,12 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_925);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_621);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while its effectful filesystem route remains ambiguous.
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_240);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_102);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_583);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_279);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(

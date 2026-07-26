@@ -35183,9 +35183,9 @@
       "edgeId": "surface.builtin.export.node.fs.chmod.09dt2e7",
       "observedKey": "builtin:export:node_fs:chmod",
       "branchId": "surface.builtin.export.node.fs.chmod.09dt2e7.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.chmod.1w63bq5",
+      "enforcementBranchId": "surface.builtin.export.node.fs.chmod.09dt2e7.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:chmod"
         ],
@@ -35207,20 +35207,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.chmod.1w63bq5.allow",
-        "enforcement.src.builtins.fs.js.exports.chmod.1w63bq5.deny",
-        "enforcement.src.builtins.fs.js.exports.chmod.1w63bq5.malformed",
-        "enforcement.src.builtins.fs.js.exports.chmod.1w63bq5.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.chmod.1w63bq5.wrong-principal"
+        "surface.builtin.export.node.fs.chmod.09dt2e7.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.chmodsync.1ae64ns",
       "observedKey": "builtin:export:node_fs:chmodSync",
       "branchId": "surface.builtin.export.node.fs.chmodsync.1ae64ns.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.chmodsync.10o6s9r",
+      "enforcementBranchId": "surface.builtin.export.node.fs.chmodsync.1ae64ns.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:chmodSync"
         ],
@@ -35242,20 +35238,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.chmodsync.10o6s9r.allow",
-        "enforcement.src.builtins.fs.js.exports.chmodsync.10o6s9r.deny",
-        "enforcement.src.builtins.fs.js.exports.chmodsync.10o6s9r.malformed",
-        "enforcement.src.builtins.fs.js.exports.chmodsync.10o6s9r.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.chmodsync.10o6s9r.wrong-principal"
+        "surface.builtin.export.node.fs.chmodsync.1ae64ns.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.chown.0a7ny3f",
       "observedKey": "builtin:export:node_fs:chown",
       "branchId": "surface.builtin.export.node.fs.chown.0a7ny3f.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.chown.1f7rjvx",
+      "enforcementBranchId": "surface.builtin.export.node.fs.chown.0a7ny3f.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:chown"
         ],
@@ -35277,20 +35269,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.chown.1f7rjvx.allow",
-        "enforcement.src.builtins.fs.js.exports.chown.1f7rjvx.deny",
-        "enforcement.src.builtins.fs.js.exports.chown.1f7rjvx.malformed",
-        "enforcement.src.builtins.fs.js.exports.chown.1f7rjvx.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.chown.1f7rjvx.wrong-principal"
+        "surface.builtin.export.node.fs.chown.0a7ny3f.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.chownsync.0k17yvg",
       "observedKey": "builtin:export:node_fs:chownSync",
       "branchId": "surface.builtin.export.node.fs.chownsync.0k17yvg.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.chownsync.1cfhh8f",
+      "enforcementBranchId": "surface.builtin.export.node.fs.chownsync.0k17yvg.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:chownSync"
         ],
@@ -35312,11 +35300,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.chownsync.1cfhh8f.allow",
-        "enforcement.src.builtins.fs.js.exports.chownsync.1cfhh8f.deny",
-        "enforcement.src.builtins.fs.js.exports.chownsync.1cfhh8f.malformed",
-        "enforcement.src.builtins.fs.js.exports.chownsync.1cfhh8f.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.chownsync.1cfhh8f.wrong-principal"
+        "surface.builtin.export.node.fs.chownsync.0k17yvg.main.closed"
       ]
     },
     {
@@ -35416,9 +35400,9 @@
       "edgeId": "surface.builtin.export.node.fs.copyfile.020eib5",
       "observedKey": "builtin:export:node_fs:copyFile",
       "branchId": "surface.builtin.export.node.fs.copyfile.020eib5.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.copyfile.15uzzju",
+      "enforcementBranchId": "surface.builtin.export.node.fs.copyfile.020eib5.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:copyFile"
         ],
@@ -35440,20 +35424,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.copyfile.15uzzju.allow",
-        "enforcement.src.builtins.fs.js.exports.copyfile.15uzzju.deny",
-        "enforcement.src.builtins.fs.js.exports.copyfile.15uzzju.malformed",
-        "enforcement.src.builtins.fs.js.exports.copyfile.15uzzju.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.copyfile.15uzzju.wrong-principal"
+        "surface.builtin.export.node.fs.copyfile.020eib5.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.copyfilesync.1lu78j2",
       "observedKey": "builtin:export:node_fs:copyFileSync",
       "branchId": "surface.builtin.export.node.fs.copyfilesync.1lu78j2.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.copyfilesync.0vjn90e",
+      "enforcementBranchId": "surface.builtin.export.node.fs.copyfilesync.1lu78j2.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:copyFileSync"
         ],
@@ -35475,20 +35455,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.copyfilesync.0vjn90e.allow",
-        "enforcement.src.builtins.fs.js.exports.copyfilesync.0vjn90e.deny",
-        "enforcement.src.builtins.fs.js.exports.copyfilesync.0vjn90e.malformed",
-        "enforcement.src.builtins.fs.js.exports.copyfilesync.0vjn90e.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.copyfilesync.0vjn90e.wrong-principal"
+        "surface.builtin.export.node.fs.copyfilesync.1lu78j2.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.cp.0fhbdjd",
       "observedKey": "builtin:export:node_fs:cp",
       "branchId": "surface.builtin.export.node.fs.cp.0fhbdjd.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.cp.1ddifu6",
+      "enforcementBranchId": "surface.builtin.export.node.fs.cp.0fhbdjd.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:cp"
         ],
@@ -35510,20 +35486,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.cp.1ddifu6.allow",
-        "enforcement.src.builtins.fs.js.exports.cp.1ddifu6.deny",
-        "enforcement.src.builtins.fs.js.exports.cp.1ddifu6.malformed",
-        "enforcement.src.builtins.fs.js.exports.cp.1ddifu6.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.cp.1ddifu6.wrong-principal"
+        "surface.builtin.export.node.fs.cp.0fhbdjd.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.cpsync.15303ra",
       "observedKey": "builtin:export:node_fs:cpSync",
       "branchId": "surface.builtin.export.node.fs.cpsync.15303ra.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.cpsync.1wkphv2",
+      "enforcementBranchId": "surface.builtin.export.node.fs.cpsync.15303ra.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:cpSync"
         ],
@@ -35545,11 +35517,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.cpsync.1wkphv2.allow",
-        "enforcement.src.builtins.fs.js.exports.cpsync.1wkphv2.deny",
-        "enforcement.src.builtins.fs.js.exports.cpsync.1wkphv2.malformed",
-        "enforcement.src.builtins.fs.js.exports.cpsync.1wkphv2.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.cpsync.1wkphv2.wrong-principal"
+        "surface.builtin.export.node.fs.cpsync.15303ra.main.closed"
       ]
     },
     {
@@ -36249,9 +36217,9 @@
       "edgeId": "surface.builtin.export.node.fs.fchmod.0o5ull9",
       "observedKey": "builtin:export:node_fs:fchmod",
       "branchId": "surface.builtin.export.node.fs.fchmod.0o5ull9.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.fchmod.063f1ud",
+      "enforcementBranchId": "surface.builtin.export.node.fs.fchmod.0o5ull9.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:fchmod"
         ],
@@ -36273,20 +36241,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.fchmod.063f1ud.allow",
-        "enforcement.src.builtins.fs.js.exports.fchmod.063f1ud.deny",
-        "enforcement.src.builtins.fs.js.exports.fchmod.063f1ud.malformed",
-        "enforcement.src.builtins.fs.js.exports.fchmod.063f1ud.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.fchmod.063f1ud.wrong-principal"
+        "surface.builtin.export.node.fs.fchmod.0o5ull9.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.fchmodsync.11otc6a",
       "observedKey": "builtin:export:node_fs:fchmodSync",
       "branchId": "surface.builtin.export.node.fs.fchmodsync.11otc6a.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.fchmodsync.1twd8u9",
+      "enforcementBranchId": "surface.builtin.export.node.fs.fchmodsync.11otc6a.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:fchmodSync"
         ],
@@ -36308,20 +36272,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.fchmodsync.1twd8u9.allow",
-        "enforcement.src.builtins.fs.js.exports.fchmodsync.1twd8u9.deny",
-        "enforcement.src.builtins.fs.js.exports.fchmodsync.1twd8u9.malformed",
-        "enforcement.src.builtins.fs.js.exports.fchmodsync.1twd8u9.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.fchmodsync.1twd8u9.wrong-principal"
+        "surface.builtin.export.node.fs.fchmodsync.11otc6a.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.fchown.0mk6upd",
       "observedKey": "builtin:export:node_fs:fchown",
       "branchId": "surface.builtin.export.node.fs.fchown.0mk6upd.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.fchown.0keksth",
+      "enforcementBranchId": "surface.builtin.export.node.fs.fchown.0mk6upd.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:fchown"
         ],
@@ -36343,20 +36303,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.fchown.0keksth.allow",
-        "enforcement.src.builtins.fs.js.exports.fchown.0keksth.deny",
-        "enforcement.src.builtins.fs.js.exports.fchown.0keksth.malformed",
-        "enforcement.src.builtins.fs.js.exports.fchown.0keksth.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.fchown.0keksth.wrong-principal"
+        "surface.builtin.export.node.fs.fchown.0mk6upd.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.fchownsync.1rgxrxq",
       "observedKey": "builtin:export:node_fs:fchownSync",
       "branchId": "surface.builtin.export.node.fs.fchownsync.1rgxrxq.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.fchownsync.1e9wfrd",
+      "enforcementBranchId": "surface.builtin.export.node.fs.fchownsync.1rgxrxq.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:fchownSync"
         ],
@@ -36378,11 +36334,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.fchownsync.1e9wfrd.allow",
-        "enforcement.src.builtins.fs.js.exports.fchownsync.1e9wfrd.deny",
-        "enforcement.src.builtins.fs.js.exports.fchownsync.1e9wfrd.malformed",
-        "enforcement.src.builtins.fs.js.exports.fchownsync.1e9wfrd.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.fchownsync.1e9wfrd.wrong-principal"
+        "surface.builtin.export.node.fs.fchownsync.1rgxrxq.main.closed"
       ]
     },
     {
@@ -37085,9 +37037,9 @@
       "edgeId": "surface.builtin.export.node.fs.futimes.14am42r",
       "observedKey": "builtin:export:node_fs:futimes",
       "branchId": "surface.builtin.export.node.fs.futimes.14am42r.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.futimes.0nqa5gr",
+      "enforcementBranchId": "surface.builtin.export.node.fs.futimes.14am42r.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:futimes"
         ],
@@ -37109,20 +37061,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.futimes.0nqa5gr.allow",
-        "enforcement.src.builtins.fs.js.exports.futimes.0nqa5gr.deny",
-        "enforcement.src.builtins.fs.js.exports.futimes.0nqa5gr.malformed",
-        "enforcement.src.builtins.fs.js.exports.futimes.0nqa5gr.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.futimes.0nqa5gr.wrong-principal"
+        "surface.builtin.export.node.fs.futimes.14am42r.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.futimessync.0ck0u1g",
       "observedKey": "builtin:export:node_fs:futimesSync",
       "branchId": "surface.builtin.export.node.fs.futimessync.0ck0u1g.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.futimessync.0q0h4rd",
+      "enforcementBranchId": "surface.builtin.export.node.fs.futimessync.0ck0u1g.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:futimesSync"
         ],
@@ -37144,11 +37092,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.futimessync.0q0h4rd.allow",
-        "enforcement.src.builtins.fs.js.exports.futimessync.0q0h4rd.deny",
-        "enforcement.src.builtins.fs.js.exports.futimessync.0q0h4rd.malformed",
-        "enforcement.src.builtins.fs.js.exports.futimessync.0q0h4rd.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.futimessync.0q0h4rd.wrong-principal"
+        "surface.builtin.export.node.fs.futimessync.0ck0u1g.main.closed"
       ]
     },
     {
@@ -37225,9 +37169,9 @@
       "edgeId": "surface.builtin.export.node.fs.lchmod.0szuwkn",
       "observedKey": "builtin:export:node_fs:lchmod",
       "branchId": "surface.builtin.export.node.fs.lchmod.0szuwkn.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.lchmod.0agzj1j",
+      "enforcementBranchId": "surface.builtin.export.node.fs.lchmod.0szuwkn.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:lchmod"
         ],
@@ -37249,20 +37193,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.lchmod.0agzj1j.allow",
-        "enforcement.src.builtins.fs.js.exports.lchmod.0agzj1j.deny",
-        "enforcement.src.builtins.fs.js.exports.lchmod.0agzj1j.malformed",
-        "enforcement.src.builtins.fs.js.exports.lchmod.0agzj1j.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.lchmod.0agzj1j.wrong-principal"
+        "surface.builtin.export.node.fs.lchmod.0szuwkn.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.lchmodsync.0hgx82o",
       "observedKey": "builtin:export:node_fs:lchmodSync",
       "branchId": "surface.builtin.export.node.fs.lchmodsync.0hgx82o.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.lchmodsync.12tngqr",
+      "enforcementBranchId": "surface.builtin.export.node.fs.lchmodsync.0hgx82o.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:lchmodSync"
         ],
@@ -37284,20 +37224,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.lchmodsync.12tngqr.allow",
-        "enforcement.src.builtins.fs.js.exports.lchmodsync.12tngqr.deny",
-        "enforcement.src.builtins.fs.js.exports.lchmodsync.12tngqr.malformed",
-        "enforcement.src.builtins.fs.js.exports.lchmodsync.12tngqr.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.lchmodsync.12tngqr.wrong-principal"
+        "surface.builtin.export.node.fs.lchmodsync.0hgx82o.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.lchown.0h8iuyr",
       "observedKey": "builtin:export:node_fs:lchown",
       "branchId": "surface.builtin.export.node.fs.lchown.0h8iuyr.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.lchown.0bwtglb",
+      "enforcementBranchId": "surface.builtin.export.node.fs.lchown.0h8iuyr.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:lchown"
         ],
@@ -37319,20 +37255,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.lchown.0bwtglb.allow",
-        "enforcement.src.builtins.fs.js.exports.lchown.0bwtglb.deny",
-        "enforcement.src.builtins.fs.js.exports.lchown.0bwtglb.malformed",
-        "enforcement.src.builtins.fs.js.exports.lchown.0bwtglb.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.lchown.0bwtglb.wrong-principal"
+        "surface.builtin.export.node.fs.lchown.0h8iuyr.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.lchownsync.00mvnn8",
       "observedKey": "builtin:export:node_fs:lchownSync",
       "branchId": "surface.builtin.export.node.fs.lchownsync.00mvnn8.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.lchownsync.0e0rk6b",
+      "enforcementBranchId": "surface.builtin.export.node.fs.lchownsync.00mvnn8.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:lchownSync"
         ],
@@ -37354,20 +37286,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.lchownsync.0e0rk6b.allow",
-        "enforcement.src.builtins.fs.js.exports.lchownsync.0e0rk6b.deny",
-        "enforcement.src.builtins.fs.js.exports.lchownsync.0e0rk6b.malformed",
-        "enforcement.src.builtins.fs.js.exports.lchownsync.0e0rk6b.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.lchownsync.0e0rk6b.wrong-principal"
+        "surface.builtin.export.node.fs.lchownsync.00mvnn8.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.link.1wbhe5m",
       "observedKey": "builtin:export:node_fs:link",
       "branchId": "surface.builtin.export.node.fs.link.1wbhe5m.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.link.1dfuyue",
+      "enforcementBranchId": "surface.builtin.export.node.fs.link.1wbhe5m.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:link"
         ],
@@ -37389,20 +37317,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.link.1dfuyue.allow",
-        "enforcement.src.builtins.fs.js.exports.link.1dfuyue.deny",
-        "enforcement.src.builtins.fs.js.exports.link.1dfuyue.malformed",
-        "enforcement.src.builtins.fs.js.exports.link.1dfuyue.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.link.1dfuyue.wrong-principal"
+        "surface.builtin.export.node.fs.link.1wbhe5m.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.linksync.0ys64dd",
       "observedKey": "builtin:export:node_fs:linkSync",
       "branchId": "surface.builtin.export.node.fs.linksync.0ys64dd.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.linksync.0y3smym",
+      "enforcementBranchId": "surface.builtin.export.node.fs.linksync.0ys64dd.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:linkSync"
         ],
@@ -37424,11 +37348,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.linksync.0y3smym.allow",
-        "enforcement.src.builtins.fs.js.exports.linksync.0y3smym.deny",
-        "enforcement.src.builtins.fs.js.exports.linksync.0y3smym.malformed",
-        "enforcement.src.builtins.fs.js.exports.linksync.0y3smym.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.linksync.0y3smym.wrong-principal"
+        "surface.builtin.export.node.fs.linksync.0ys64dd.main.closed"
       ]
     },
     {
@@ -37505,9 +37425,9 @@
       "edgeId": "surface.builtin.export.node.fs.lutimes.0i8qml9",
       "observedKey": "builtin:export:node_fs:lutimes",
       "branchId": "surface.builtin.export.node.fs.lutimes.0i8qml9.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.lutimes.0hdy48h",
+      "enforcementBranchId": "surface.builtin.export.node.fs.lutimes.0i8qml9.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:lutimes"
         ],
@@ -37529,20 +37449,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.lutimes.0hdy48h.allow",
-        "enforcement.src.builtins.fs.js.exports.lutimes.0hdy48h.deny",
-        "enforcement.src.builtins.fs.js.exports.lutimes.0hdy48h.malformed",
-        "enforcement.src.builtins.fs.js.exports.lutimes.0hdy48h.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.lutimes.0hdy48h.wrong-principal"
+        "surface.builtin.export.node.fs.lutimes.0i8qml9.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.lutimessync.12d8b76",
       "observedKey": "builtin:export:node_fs:lutimesSync",
       "branchId": "surface.builtin.export.node.fs.lutimessync.12d8b76.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.lutimessync.06zrxyf",
+      "enforcementBranchId": "surface.builtin.export.node.fs.lutimessync.12d8b76.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:lutimesSync"
         ],
@@ -37564,11 +37480,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.lutimessync.06zrxyf.allow",
-        "enforcement.src.builtins.fs.js.exports.lutimessync.06zrxyf.deny",
-        "enforcement.src.builtins.fs.js.exports.lutimessync.06zrxyf.malformed",
-        "enforcement.src.builtins.fs.js.exports.lutimessync.06zrxyf.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.lutimessync.06zrxyf.wrong-principal"
+        "surface.builtin.export.node.fs.lutimessync.12d8b76.main.closed"
       ]
     },
     {
@@ -37645,9 +37557,9 @@
       "edgeId": "surface.builtin.export.node.fs.mkdtemp.0if5e7s",
       "observedKey": "builtin:export:node_fs:mkdtemp",
       "branchId": "surface.builtin.export.node.fs.mkdtemp.0if5e7s.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.mkdtemp.0i601mf",
+      "enforcementBranchId": "surface.builtin.export.node.fs.mkdtemp.0if5e7s.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:mkdtemp"
         ],
@@ -37669,20 +37581,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.mkdtemp.0i601mf.allow",
-        "enforcement.src.builtins.fs.js.exports.mkdtemp.0i601mf.deny",
-        "enforcement.src.builtins.fs.js.exports.mkdtemp.0i601mf.malformed",
-        "enforcement.src.builtins.fs.js.exports.mkdtemp.0i601mf.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.mkdtemp.0i601mf.wrong-principal"
+        "surface.builtin.export.node.fs.mkdtemp.0if5e7s.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.mkdtempdisposable.12dp73e",
       "observedKey": "builtin:export:node_fs:mkdtempDisposable",
       "branchId": "surface.builtin.export.node.fs.mkdtempdisposable.12dp73e.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.mkdtempdisposable.1tl8ypb",
+      "enforcementBranchId": "surface.builtin.export.node.fs.mkdtempdisposable.12dp73e.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:mkdtempDisposable"
         ],
@@ -37704,20 +37612,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.mkdtempdisposable.1tl8ypb.allow",
-        "enforcement.src.builtins.fs.js.exports.mkdtempdisposable.1tl8ypb.deny",
-        "enforcement.src.builtins.fs.js.exports.mkdtempdisposable.1tl8ypb.malformed",
-        "enforcement.src.builtins.fs.js.exports.mkdtempdisposable.1tl8ypb.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.mkdtempdisposable.1tl8ypb.wrong-principal"
+        "surface.builtin.export.node.fs.mkdtempdisposable.12dp73e.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.mkdtempdisposablesync.1u6noip",
       "observedKey": "builtin:export:node_fs:mkdtempDisposableSync",
       "branchId": "surface.builtin.export.node.fs.mkdtempdisposablesync.1u6noip.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.mkdtempdisposablesync.0s0hrph",
+      "enforcementBranchId": "surface.builtin.export.node.fs.mkdtempdisposablesync.1u6noip.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:mkdtempDisposableSync"
         ],
@@ -37739,20 +37643,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.mkdtempdisposablesync.0s0hrph.allow",
-        "enforcement.src.builtins.fs.js.exports.mkdtempdisposablesync.0s0hrph.deny",
-        "enforcement.src.builtins.fs.js.exports.mkdtempdisposablesync.0s0hrph.malformed",
-        "enforcement.src.builtins.fs.js.exports.mkdtempdisposablesync.0s0hrph.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.mkdtempdisposablesync.0s0hrph.wrong-principal"
+        "surface.builtin.export.node.fs.mkdtempdisposablesync.1u6noip.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.mkdtempsync.1sydur7",
       "observedKey": "builtin:export:node_fs:mkdtempSync",
       "branchId": "surface.builtin.export.node.fs.mkdtempsync.1sydur7.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.mkdtempsync.1slqiwt",
+      "enforcementBranchId": "surface.builtin.export.node.fs.mkdtempsync.1sydur7.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:mkdtempSync"
         ],
@@ -37774,11 +37674,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.mkdtempsync.1slqiwt.allow",
-        "enforcement.src.builtins.fs.js.exports.mkdtempsync.1slqiwt.deny",
-        "enforcement.src.builtins.fs.js.exports.mkdtempsync.1slqiwt.malformed",
-        "enforcement.src.builtins.fs.js.exports.mkdtempsync.1slqiwt.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.mkdtempsync.1slqiwt.wrong-principal"
+        "surface.builtin.export.node.fs.mkdtempsync.1sydur7.main.closed"
       ]
     },
     {
@@ -38052,9 +37948,9 @@
       "edgeId": "surface.builtin.export.node.fs.promises.chmod.0ka1mnc",
       "observedKey": "builtin:export:node_fs_promises:chmod",
       "branchId": "surface.builtin.export.node.fs.promises.chmod.0ka1mnc.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.promises.js.exports.chmod.02ptyut",
+      "enforcementBranchId": "surface.builtin.export.node.fs.promises.chmod.0ka1mnc.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs_promises:chmod"
         ],
@@ -38076,20 +37972,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.promises.js.exports.chmod.02ptyut.allow",
-        "enforcement.src.builtins.fs.promises.js.exports.chmod.02ptyut.deny",
-        "enforcement.src.builtins.fs.promises.js.exports.chmod.02ptyut.malformed",
-        "enforcement.src.builtins.fs.promises.js.exports.chmod.02ptyut.missing-attribution",
-        "enforcement.src.builtins.fs.promises.js.exports.chmod.02ptyut.wrong-principal"
+        "surface.builtin.export.node.fs.promises.chmod.0ka1mnc.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.promises.chown.1xwdhms",
       "observedKey": "builtin:export:node_fs_promises:chown",
       "branchId": "surface.builtin.export.node.fs.promises.chown.1xwdhms.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.promises.js.exports.chown.0r9vob1",
+      "enforcementBranchId": "surface.builtin.export.node.fs.promises.chown.1xwdhms.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs_promises:chown"
         ],
@@ -38111,11 +38003,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.promises.js.exports.chown.0r9vob1.allow",
-        "enforcement.src.builtins.fs.promises.js.exports.chown.0r9vob1.deny",
-        "enforcement.src.builtins.fs.promises.js.exports.chown.0r9vob1.malformed",
-        "enforcement.src.builtins.fs.promises.js.exports.chown.0r9vob1.missing-attribution",
-        "enforcement.src.builtins.fs.promises.js.exports.chown.0r9vob1.wrong-principal"
+        "surface.builtin.export.node.fs.promises.chown.1xwdhms.main.closed"
       ]
     },
     {
@@ -38153,9 +38041,9 @@
       "edgeId": "surface.builtin.export.node.fs.promises.copyfile.0p02aaw",
       "observedKey": "builtin:export:node_fs_promises:copyFile",
       "branchId": "surface.builtin.export.node.fs.promises.copyfile.0p02aaw.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.promises.js.exports.copyfile.0fi7dps",
+      "enforcementBranchId": "surface.builtin.export.node.fs.promises.copyfile.0p02aaw.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs_promises:copyFile"
         ],
@@ -38177,11 +38065,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.promises.js.exports.copyfile.0fi7dps.allow",
-        "enforcement.src.builtins.fs.promises.js.exports.copyfile.0fi7dps.deny",
-        "enforcement.src.builtins.fs.promises.js.exports.copyfile.0fi7dps.malformed",
-        "enforcement.src.builtins.fs.promises.js.exports.copyfile.0fi7dps.missing-attribution",
-        "enforcement.src.builtins.fs.promises.js.exports.copyfile.0fi7dps.wrong-principal"
+        "surface.builtin.export.node.fs.promises.copyfile.0p02aaw.main.closed"
       ]
     },
     {
@@ -38289,9 +38173,9 @@
       "edgeId": "surface.builtin.export.node.fs.promises.filehandle.chmod.04lpzu4",
       "observedKey": "builtin:export:node_fs_promises:FileHandle.chmod",
       "branchId": "surface.builtin.export.node.fs.promises.filehandle.chmod.04lpzu4.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.promises.js.exports.filehandle.chmod.0bjg8dr",
+      "enforcementBranchId": "surface.builtin.export.node.fs.promises.filehandle.chmod.04lpzu4.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs_promises:FileHandle.chmod"
         ],
@@ -38313,20 +38197,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.promises.js.exports.filehandle.chmod.0bjg8dr.allow",
-        "enforcement.src.builtins.fs.promises.js.exports.filehandle.chmod.0bjg8dr.deny",
-        "enforcement.src.builtins.fs.promises.js.exports.filehandle.chmod.0bjg8dr.malformed",
-        "enforcement.src.builtins.fs.promises.js.exports.filehandle.chmod.0bjg8dr.missing-attribution",
-        "enforcement.src.builtins.fs.promises.js.exports.filehandle.chmod.0bjg8dr.wrong-principal"
+        "surface.builtin.export.node.fs.promises.filehandle.chmod.04lpzu4.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.promises.filehandle.chown.1vmmq48",
       "observedKey": "builtin:export:node_fs_promises:FileHandle.chown",
       "branchId": "surface.builtin.export.node.fs.promises.filehandle.chown.1vmmq48.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.promises.js.exports.filehandle.chown.0s8v9zj",
+      "enforcementBranchId": "surface.builtin.export.node.fs.promises.filehandle.chown.1vmmq48.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs_promises:FileHandle.chown"
         ],
@@ -38348,11 +38228,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.promises.js.exports.filehandle.chown.0s8v9zj.allow",
-        "enforcement.src.builtins.fs.promises.js.exports.filehandle.chown.0s8v9zj.deny",
-        "enforcement.src.builtins.fs.promises.js.exports.filehandle.chown.0s8v9zj.malformed",
-        "enforcement.src.builtins.fs.promises.js.exports.filehandle.chown.0s8v9zj.missing-attribution",
-        "enforcement.src.builtins.fs.promises.js.exports.filehandle.chown.0s8v9zj.wrong-principal"
+        "surface.builtin.export.node.fs.promises.filehandle.chown.1vmmq48.main.closed"
       ]
     },
     {
@@ -38806,9 +38682,9 @@
       "edgeId": "surface.builtin.export.node.fs.promises.lchmod.0srinh2",
       "observedKey": "builtin:export:node_fs_promises:lchmod",
       "branchId": "surface.builtin.export.node.fs.promises.lchmod.0srinh2.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.promises.js.exports.lchmod.0dlh0ux",
+      "enforcementBranchId": "surface.builtin.export.node.fs.promises.lchmod.0srinh2.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs_promises:lchmod"
         ],
@@ -38830,20 +38706,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.promises.js.exports.lchmod.0dlh0ux.allow",
-        "enforcement.src.builtins.fs.promises.js.exports.lchmod.0dlh0ux.deny",
-        "enforcement.src.builtins.fs.promises.js.exports.lchmod.0dlh0ux.malformed",
-        "enforcement.src.builtins.fs.promises.js.exports.lchmod.0dlh0ux.missing-attribution",
-        "enforcement.src.builtins.fs.promises.js.exports.lchmod.0dlh0ux.wrong-principal"
+        "surface.builtin.export.node.fs.promises.lchmod.0srinh2.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.promises.lchown.0vlojoq",
       "observedKey": "builtin:export:node_fs_promises:lchown",
       "branchId": "surface.builtin.export.node.fs.promises.lchown.0vlojoq.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.promises.js.exports.lchown.1eeo8uh",
+      "enforcementBranchId": "surface.builtin.export.node.fs.promises.lchown.0vlojoq.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs_promises:lchown"
         ],
@@ -38865,20 +38737,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.promises.js.exports.lchown.1eeo8uh.allow",
-        "enforcement.src.builtins.fs.promises.js.exports.lchown.1eeo8uh.deny",
-        "enforcement.src.builtins.fs.promises.js.exports.lchown.1eeo8uh.malformed",
-        "enforcement.src.builtins.fs.promises.js.exports.lchown.1eeo8uh.missing-attribution",
-        "enforcement.src.builtins.fs.promises.js.exports.lchown.1eeo8uh.wrong-principal"
+        "surface.builtin.export.node.fs.promises.lchown.0vlojoq.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.promises.link.0qr7l8z",
       "observedKey": "builtin:export:node_fs_promises:link",
       "branchId": "surface.builtin.export.node.fs.promises.link.0qr7l8z.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.promises.js.exports.link.0p8cz5a",
+      "enforcementBranchId": "surface.builtin.export.node.fs.promises.link.0qr7l8z.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs_promises:link"
         ],
@@ -38900,11 +38768,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.promises.js.exports.link.0p8cz5a.allow",
-        "enforcement.src.builtins.fs.promises.js.exports.link.0p8cz5a.deny",
-        "enforcement.src.builtins.fs.promises.js.exports.link.0p8cz5a.malformed",
-        "enforcement.src.builtins.fs.promises.js.exports.link.0p8cz5a.missing-attribution",
-        "enforcement.src.builtins.fs.promises.js.exports.link.0p8cz5a.wrong-principal"
+        "surface.builtin.export.node.fs.promises.link.0qr7l8z.main.closed"
       ]
     },
     {
@@ -38946,9 +38810,9 @@
       "edgeId": "surface.builtin.export.node.fs.promises.lutimes.0bhsdki",
       "observedKey": "builtin:export:node_fs_promises:lutimes",
       "branchId": "surface.builtin.export.node.fs.promises.lutimes.0bhsdki.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.promises.js.exports.lutimes.0x669ih",
+      "enforcementBranchId": "surface.builtin.export.node.fs.promises.lutimes.0bhsdki.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs_promises:lutimes"
         ],
@@ -38970,11 +38834,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.promises.js.exports.lutimes.0x669ih.allow",
-        "enforcement.src.builtins.fs.promises.js.exports.lutimes.0x669ih.deny",
-        "enforcement.src.builtins.fs.promises.js.exports.lutimes.0x669ih.malformed",
-        "enforcement.src.builtins.fs.promises.js.exports.lutimes.0x669ih.missing-attribution",
-        "enforcement.src.builtins.fs.promises.js.exports.lutimes.0x669ih.wrong-principal"
+        "surface.builtin.export.node.fs.promises.lutimes.0bhsdki.main.closed"
       ]
     },
     {
@@ -39016,9 +38876,9 @@
       "edgeId": "surface.builtin.export.node.fs.promises.mkdtemp.17cjz8j",
       "observedKey": "builtin:export:node_fs_promises:mkdtemp",
       "branchId": "surface.builtin.export.node.fs.promises.mkdtemp.17cjz8j.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.promises.js.exports.mkdtemp.15gpnp5",
+      "enforcementBranchId": "surface.builtin.export.node.fs.promises.mkdtemp.17cjz8j.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs_promises:mkdtemp"
         ],
@@ -39040,11 +38900,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.promises.js.exports.mkdtemp.15gpnp5.allow",
-        "enforcement.src.builtins.fs.promises.js.exports.mkdtemp.15gpnp5.deny",
-        "enforcement.src.builtins.fs.promises.js.exports.mkdtemp.15gpnp5.malformed",
-        "enforcement.src.builtins.fs.promises.js.exports.mkdtemp.15gpnp5.missing-attribution",
-        "enforcement.src.builtins.fs.promises.js.exports.mkdtemp.15gpnp5.wrong-principal"
+        "surface.builtin.export.node.fs.promises.mkdtemp.17cjz8j.main.closed"
       ]
     },
     {
@@ -39344,9 +39200,9 @@
       "edgeId": "surface.builtin.export.node.fs.promises.rename.1nyx4c5",
       "observedKey": "builtin:export:node_fs_promises:rename",
       "branchId": "surface.builtin.export.node.fs.promises.rename.1nyx4c5.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.promises.js.exports.rename.01adq1n",
+      "enforcementBranchId": "surface.builtin.export.node.fs.promises.rename.1nyx4c5.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs_promises:rename"
         ],
@@ -39368,20 +39224,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.promises.js.exports.rename.01adq1n.allow",
-        "enforcement.src.builtins.fs.promises.js.exports.rename.01adq1n.deny",
-        "enforcement.src.builtins.fs.promises.js.exports.rename.01adq1n.malformed",
-        "enforcement.src.builtins.fs.promises.js.exports.rename.01adq1n.missing-attribution",
-        "enforcement.src.builtins.fs.promises.js.exports.rename.01adq1n.wrong-principal"
+        "surface.builtin.export.node.fs.promises.rename.1nyx4c5.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.promises.rm.10r7mni",
       "observedKey": "builtin:export:node_fs_promises:rm",
       "branchId": "surface.builtin.export.node.fs.promises.rm.10r7mni.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.promises.js.exports.rm.1xmcjvh",
+      "enforcementBranchId": "surface.builtin.export.node.fs.promises.rm.10r7mni.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs_promises:rm"
         ],
@@ -39403,20 +39255,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.promises.js.exports.rm.1xmcjvh.allow",
-        "enforcement.src.builtins.fs.promises.js.exports.rm.1xmcjvh.deny",
-        "enforcement.src.builtins.fs.promises.js.exports.rm.1xmcjvh.malformed",
-        "enforcement.src.builtins.fs.promises.js.exports.rm.1xmcjvh.missing-attribution",
-        "enforcement.src.builtins.fs.promises.js.exports.rm.1xmcjvh.wrong-principal"
+        "surface.builtin.export.node.fs.promises.rm.10r7mni.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.promises.rmdir.0za2u4l",
       "observedKey": "builtin:export:node_fs_promises:rmdir",
       "branchId": "surface.builtin.export.node.fs.promises.rmdir.0za2u4l.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.promises.js.exports.rmdir.1j7rqel",
+      "enforcementBranchId": "surface.builtin.export.node.fs.promises.rmdir.0za2u4l.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs_promises:rmdir"
         ],
@@ -39438,11 +39286,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.promises.js.exports.rmdir.1j7rqel.allow",
-        "enforcement.src.builtins.fs.promises.js.exports.rmdir.1j7rqel.deny",
-        "enforcement.src.builtins.fs.promises.js.exports.rmdir.1j7rqel.malformed",
-        "enforcement.src.builtins.fs.promises.js.exports.rmdir.1j7rqel.missing-attribution",
-        "enforcement.src.builtins.fs.promises.js.exports.rmdir.1j7rqel.wrong-principal"
+        "surface.builtin.export.node.fs.promises.rmdir.0za2u4l.main.closed"
       ]
     },
     {
@@ -39554,9 +39398,9 @@
       "edgeId": "surface.builtin.export.node.fs.promises.symlink.09z1mfq",
       "observedKey": "builtin:export:node_fs_promises:symlink",
       "branchId": "surface.builtin.export.node.fs.promises.symlink.09z1mfq.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.promises.js.exports.symlink.1n8rxeh",
+      "enforcementBranchId": "surface.builtin.export.node.fs.promises.symlink.09z1mfq.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs_promises:symlink"
         ],
@@ -39578,11 +39422,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.promises.js.exports.symlink.1n8rxeh.allow",
-        "enforcement.src.builtins.fs.promises.js.exports.symlink.1n8rxeh.deny",
-        "enforcement.src.builtins.fs.promises.js.exports.symlink.1n8rxeh.malformed",
-        "enforcement.src.builtins.fs.promises.js.exports.symlink.1n8rxeh.missing-attribution",
-        "enforcement.src.builtins.fs.promises.js.exports.symlink.1n8rxeh.wrong-principal"
+        "surface.builtin.export.node.fs.promises.symlink.09z1mfq.main.closed"
       ]
     },
     {
@@ -39624,9 +39464,9 @@
       "edgeId": "surface.builtin.export.node.fs.promises.unlink.1gh64kg",
       "observedKey": "builtin:export:node_fs_promises:unlink",
       "branchId": "surface.builtin.export.node.fs.promises.unlink.1gh64kg.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.promises.js.exports.unlink.10m86c5",
+      "enforcementBranchId": "surface.builtin.export.node.fs.promises.unlink.1gh64kg.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs_promises:unlink"
         ],
@@ -39648,20 +39488,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.promises.js.exports.unlink.10m86c5.allow",
-        "enforcement.src.builtins.fs.promises.js.exports.unlink.10m86c5.deny",
-        "enforcement.src.builtins.fs.promises.js.exports.unlink.10m86c5.malformed",
-        "enforcement.src.builtins.fs.promises.js.exports.unlink.10m86c5.missing-attribution",
-        "enforcement.src.builtins.fs.promises.js.exports.unlink.10m86c5.wrong-principal"
+        "surface.builtin.export.node.fs.promises.unlink.1gh64kg.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.promises.utimes.0p03l2k",
       "observedKey": "builtin:export:node_fs_promises:utimes",
       "branchId": "surface.builtin.export.node.fs.promises.utimes.0p03l2k.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.promises.js.exports.utimes.0743jct",
+      "enforcementBranchId": "surface.builtin.export.node.fs.promises.utimes.0p03l2k.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs_promises:utimes"
         ],
@@ -39683,11 +39519,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.promises.js.exports.utimes.0743jct.allow",
-        "enforcement.src.builtins.fs.promises.js.exports.utimes.0743jct.deny",
-        "enforcement.src.builtins.fs.promises.js.exports.utimes.0743jct.malformed",
-        "enforcement.src.builtins.fs.promises.js.exports.utimes.0743jct.missing-attribution",
-        "enforcement.src.builtins.fs.promises.js.exports.utimes.0743jct.wrong-principal"
+        "surface.builtin.export.node.fs.promises.utimes.0p03l2k.main.closed"
       ]
     },
     {
@@ -40464,9 +40296,9 @@
       "edgeId": "surface.builtin.export.node.fs.rename.1i5qhrw",
       "observedKey": "builtin:export:node_fs:rename",
       "branchId": "surface.builtin.export.node.fs.rename.1i5qhrw.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.rename.13cmuq7",
+      "enforcementBranchId": "surface.builtin.export.node.fs.rename.1i5qhrw.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:rename"
         ],
@@ -40488,20 +40320,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.rename.13cmuq7.allow",
-        "enforcement.src.builtins.fs.js.exports.rename.13cmuq7.deny",
-        "enforcement.src.builtins.fs.js.exports.rename.13cmuq7.malformed",
-        "enforcement.src.builtins.fs.js.exports.rename.13cmuq7.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.rename.13cmuq7.wrong-principal"
+        "surface.builtin.export.node.fs.rename.1i5qhrw.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.renamesync.15sj4sf",
       "observedKey": "builtin:export:node_fs:renameSync",
       "branchId": "surface.builtin.export.node.fs.renamesync.15sj4sf.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.renamesync.0000omb",
+      "enforcementBranchId": "surface.builtin.export.node.fs.renamesync.15sj4sf.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:renameSync"
         ],
@@ -40523,20 +40351,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.renamesync.0000omb.allow",
-        "enforcement.src.builtins.fs.js.exports.renamesync.0000omb.deny",
-        "enforcement.src.builtins.fs.js.exports.renamesync.0000omb.malformed",
-        "enforcement.src.builtins.fs.js.exports.renamesync.0000omb.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.renamesync.0000omb.wrong-principal"
+        "surface.builtin.export.node.fs.renamesync.15sj4sf.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.rm.0cxsxlj",
       "observedKey": "builtin:export:node_fs:rm",
       "branchId": "surface.builtin.export.node.fs.rm.0cxsxlj.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.rm.14v3pv3",
+      "enforcementBranchId": "surface.builtin.export.node.fs.rm.0cxsxlj.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:rm"
         ],
@@ -40558,20 +40382,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.rm.14v3pv3.allow",
-        "enforcement.src.builtins.fs.js.exports.rm.14v3pv3.deny",
-        "enforcement.src.builtins.fs.js.exports.rm.14v3pv3.malformed",
-        "enforcement.src.builtins.fs.js.exports.rm.14v3pv3.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.rm.14v3pv3.wrong-principal"
+        "surface.builtin.export.node.fs.rm.0cxsxlj.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.rmdir.0mgiknq",
       "observedKey": "builtin:export:node_fs:rmdir",
       "branchId": "surface.builtin.export.node.fs.rmdir.0mgiknq.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.rmdir.1fh5dwf",
+      "enforcementBranchId": "surface.builtin.export.node.fs.rmdir.0mgiknq.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:rmdir"
         ],
@@ -40593,20 +40413,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.rmdir.1fh5dwf.allow",
-        "enforcement.src.builtins.fs.js.exports.rmdir.1fh5dwf.deny",
-        "enforcement.src.builtins.fs.js.exports.rmdir.1fh5dwf.malformed",
-        "enforcement.src.builtins.fs.js.exports.rmdir.1fh5dwf.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.rmdir.1fh5dwf.wrong-principal"
+        "surface.builtin.export.node.fs.rmdir.0mgiknq.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.rmdirsync.0qv9pmd",
       "observedKey": "builtin:export:node_fs:rmdirSync",
       "branchId": "surface.builtin.export.node.fs.rmdirsync.0qv9pmd.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.rmdirsync.0z9d1l5",
+      "enforcementBranchId": "surface.builtin.export.node.fs.rmdirsync.0qv9pmd.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:rmdirSync"
         ],
@@ -40628,20 +40444,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.rmdirsync.0z9d1l5.allow",
-        "enforcement.src.builtins.fs.js.exports.rmdirsync.0z9d1l5.deny",
-        "enforcement.src.builtins.fs.js.exports.rmdirsync.0z9d1l5.malformed",
-        "enforcement.src.builtins.fs.js.exports.rmdirsync.0z9d1l5.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.rmdirsync.0z9d1l5.wrong-principal"
+        "surface.builtin.export.node.fs.rmdirsync.0qv9pmd.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.rmsync.0myrwr4",
       "observedKey": "builtin:export:node_fs:rmSync",
       "branchId": "surface.builtin.export.node.fs.rmsync.0myrwr4.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.rmsync.1rmdxs7",
+      "enforcementBranchId": "surface.builtin.export.node.fs.rmsync.0myrwr4.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:rmSync"
         ],
@@ -40663,11 +40475,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.rmsync.1rmdxs7.allow",
-        "enforcement.src.builtins.fs.js.exports.rmsync.1rmdxs7.deny",
-        "enforcement.src.builtins.fs.js.exports.rmsync.1rmdxs7.malformed",
-        "enforcement.src.builtins.fs.js.exports.rmsync.1rmdxs7.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.rmsync.1rmdxs7.wrong-principal"
+        "surface.builtin.export.node.fs.rmsync.0myrwr4.main.closed"
       ]
     },
     {
@@ -41090,9 +40898,9 @@
       "edgeId": "surface.builtin.export.node.fs.symlink.0iiqf19",
       "observedKey": "builtin:export:node_fs:symlink",
       "branchId": "surface.builtin.export.node.fs.symlink.0iiqf19.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.symlink.0lzhwnp",
+      "enforcementBranchId": "surface.builtin.export.node.fs.symlink.0iiqf19.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:symlink"
         ],
@@ -41114,20 +40922,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.symlink.0lzhwnp.allow",
-        "enforcement.src.builtins.fs.js.exports.symlink.0lzhwnp.deny",
-        "enforcement.src.builtins.fs.js.exports.symlink.0lzhwnp.malformed",
-        "enforcement.src.builtins.fs.js.exports.symlink.0lzhwnp.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.symlink.0lzhwnp.wrong-principal"
+        "surface.builtin.export.node.fs.symlink.0iiqf19.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.symlinksync.1t3iv02",
       "observedKey": "builtin:export:node_fs:symlinkSync",
       "branchId": "surface.builtin.export.node.fs.symlinksync.1t3iv02.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.symlinksync.0a5unsn",
+      "enforcementBranchId": "surface.builtin.export.node.fs.symlinksync.1t3iv02.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:symlinkSync"
         ],
@@ -41149,11 +40953,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.symlinksync.0a5unsn.allow",
-        "enforcement.src.builtins.fs.js.exports.symlinksync.0a5unsn.deny",
-        "enforcement.src.builtins.fs.js.exports.symlinksync.0a5unsn.malformed",
-        "enforcement.src.builtins.fs.js.exports.symlinksync.0a5unsn.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.symlinksync.0a5unsn.wrong-principal"
+        "surface.builtin.export.node.fs.symlinksync.1t3iv02.main.closed"
       ]
     },
     {
@@ -41261,9 +41061,9 @@
       "edgeId": "surface.builtin.export.node.fs.unlink.16slf45",
       "observedKey": "builtin:export:node_fs:unlink",
       "branchId": "surface.builtin.export.node.fs.unlink.16slf45.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.unlink.0htxhmn",
+      "enforcementBranchId": "surface.builtin.export.node.fs.unlink.16slf45.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:unlink"
         ],
@@ -41285,20 +41085,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.unlink.0htxhmn.allow",
-        "enforcement.src.builtins.fs.js.exports.unlink.0htxhmn.deny",
-        "enforcement.src.builtins.fs.js.exports.unlink.0htxhmn.malformed",
-        "enforcement.src.builtins.fs.js.exports.unlink.0htxhmn.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.unlink.0htxhmn.wrong-principal"
+        "surface.builtin.export.node.fs.unlink.16slf45.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.unlinksync.0slkcl6",
       "observedKey": "builtin:export:node_fs:unlinkSync",
       "branchId": "surface.builtin.export.node.fs.unlinksync.0slkcl6.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.unlinksync.10397kv",
+      "enforcementBranchId": "surface.builtin.export.node.fs.unlinksync.0slkcl6.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:unlinkSync"
         ],
@@ -41320,11 +41116,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.unlinksync.10397kv.allow",
-        "enforcement.src.builtins.fs.js.exports.unlinksync.10397kv.deny",
-        "enforcement.src.builtins.fs.js.exports.unlinksync.10397kv.malformed",
-        "enforcement.src.builtins.fs.js.exports.unlinksync.10397kv.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.unlinksync.10397kv.wrong-principal"
+        "surface.builtin.export.node.fs.unlinksync.0slkcl6.main.closed"
       ]
     },
     {
@@ -41362,9 +41154,9 @@
       "edgeId": "surface.builtin.export.node.fs.utimes.0ed6cfp",
       "observedKey": "builtin:export:node_fs:utimes",
       "branchId": "surface.builtin.export.node.fs.utimes.0ed6cfp.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.utimes.04sbdt7",
+      "enforcementBranchId": "surface.builtin.export.node.fs.utimes.0ed6cfp.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:utimes"
         ],
@@ -41386,20 +41178,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.utimes.04sbdt7.allow",
-        "enforcement.src.builtins.fs.js.exports.utimes.04sbdt7.deny",
-        "enforcement.src.builtins.fs.js.exports.utimes.04sbdt7.malformed",
-        "enforcement.src.builtins.fs.js.exports.utimes.04sbdt7.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.utimes.04sbdt7.wrong-principal"
+        "surface.builtin.export.node.fs.utimes.0ed6cfp.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.utimessync.1rzwzvu",
       "observedKey": "builtin:export:node_fs:utimesSync",
       "branchId": "surface.builtin.export.node.fs.utimessync.1rzwzvu.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.utimessync.1cc97fj",
+      "enforcementBranchId": "surface.builtin.export.node.fs.utimessync.1rzwzvu.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:utimesSync"
         ],
@@ -41421,11 +41209,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.utimessync.1cc97fj.allow",
-        "enforcement.src.builtins.fs.js.exports.utimessync.1cc97fj.deny",
-        "enforcement.src.builtins.fs.js.exports.utimessync.1cc97fj.malformed",
-        "enforcement.src.builtins.fs.js.exports.utimessync.1cc97fj.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.utimessync.1cc97fj.wrong-principal"
+        "surface.builtin.export.node.fs.utimessync.1rzwzvu.main.closed"
       ]
     },
     {
@@ -41463,9 +41247,9 @@
       "edgeId": "surface.builtin.export.node.fs.watch.0oe4mgp",
       "observedKey": "builtin:export:node_fs:watch",
       "branchId": "surface.builtin.export.node.fs.watch.0oe4mgp.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.watch.0pcd0j2",
+      "enforcementBranchId": "surface.builtin.export.node.fs.watch.0oe4mgp.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:watch"
         ],
@@ -41487,20 +41271,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.watch.0pcd0j2.allow",
-        "enforcement.src.builtins.fs.js.exports.watch.0pcd0j2.deny",
-        "enforcement.src.builtins.fs.js.exports.watch.0pcd0j2.malformed",
-        "enforcement.src.builtins.fs.js.exports.watch.0pcd0j2.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.watch.0pcd0j2.wrong-principal"
+        "surface.builtin.export.node.fs.watch.0oe4mgp.main.closed"
       ]
     },
     {
       "edgeId": "surface.builtin.export.node.fs.watchfile.06eb8pr",
       "observedKey": "builtin:export:node_fs:watchFile",
       "branchId": "surface.builtin.export.node.fs.watchfile.06eb8pr.main",
-      "enforcementBranchId": "enforcement.src.builtins.fs.js.exports.watchfile.0xvsxee",
+      "enforcementBranchId": "surface.builtin.export.node.fs.watchfile.06eb8pr.main",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "builtin:export:node_fs:watchFile"
         ],
@@ -41522,11 +41302,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.builtins.fs.js.exports.watchfile.0xvsxee.allow",
-        "enforcement.src.builtins.fs.js.exports.watchfile.0xvsxee.deny",
-        "enforcement.src.builtins.fs.js.exports.watchfile.0xvsxee.malformed",
-        "enforcement.src.builtins.fs.js.exports.watchfile.0xvsxee.missing-attribution",
-        "enforcement.src.builtins.fs.js.exports.watchfile.0xvsxee.wrong-principal"
+        "surface.builtin.export.node.fs.watchfile.06eb8pr.main.closed"
       ]
     },
     {
@@ -165976,9 +165752,9 @@
       "edgeId": "surface.native.op.exactchmod.0z6n1u6",
       "observedKey": "native-op:__exactChmod",
       "branchId": "surface.native.op.exactchmod.0z6n1u6.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactchmod.1mxt3cr",
+      "enforcementBranchId": "surface.native.op.exactchmod.0z6n1u6.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactChmod"
         ],
@@ -166003,20 +165779,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactchmod.1mxt3cr.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactchmod.1mxt3cr.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactchmod.1mxt3cr.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactchmod.1mxt3cr.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactchmod.1mxt3cr.wrong-principal"
+        "surface.native.op.exactchmod.0z6n1u6.default.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactchmod.0z6n1u6",
       "observedKey": "native-op:__exactChmod",
       "branchId": "surface.native.op.exactchmod.0z6n1u6.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactchmod.0jt8uj4",
+      "enforcementBranchId": "surface.native.op.exactchmod.0z6n1u6.windows",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactChmod"
         ],
@@ -166042,20 +165814,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactchmod.0jt8uj4.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactchmod.0jt8uj4.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactchmod.0jt8uj4.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactchmod.0jt8uj4.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactchmod.0jt8uj4.wrong-principal"
+        "surface.native.op.exactchmod.0z6n1u6.windows.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactchown.179ybj6",
       "observedKey": "native-op:__exactChown",
       "branchId": "surface.native.op.exactchown.179ybj6.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactchown.1l26867",
+      "enforcementBranchId": "surface.native.op.exactchown.179ybj6.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactChown"
         ],
@@ -166080,11 +165848,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactchown.1l26867.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactchown.1l26867.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactchown.1l26867.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactchown.1l26867.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactchown.1l26867.wrong-principal"
+        "surface.native.op.exactchown.179ybj6.default.closed"
       ]
     },
     {
@@ -166234,9 +165998,9 @@
       "edgeId": "surface.native.op.exactcopyfile.0rn0zb2",
       "observedKey": "native-op:__exactCopyFile",
       "branchId": "surface.native.op.exactcopyfile.0rn0zb2.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactcopyfile.0s4afjp",
+      "enforcementBranchId": "surface.native.op.exactcopyfile.0rn0zb2.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactCopyFile"
         ],
@@ -166261,20 +166025,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactcopyfile.0s4afjp.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactcopyfile.0s4afjp.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactcopyfile.0s4afjp.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactcopyfile.0s4afjp.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactcopyfile.0s4afjp.wrong-principal"
+        "surface.native.op.exactcopyfile.0rn0zb2.default.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactcopyfile.0rn0zb2",
       "observedKey": "native-op:__exactCopyFile",
       "branchId": "surface.native.op.exactcopyfile.0rn0zb2.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactcopyfile.0z4262e",
+      "enforcementBranchId": "surface.native.op.exactcopyfile.0rn0zb2.windows",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactCopyFile"
         ],
@@ -166300,11 +166060,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactcopyfile.0z4262e.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactcopyfile.0z4262e.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactcopyfile.0z4262e.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactcopyfile.0z4262e.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactcopyfile.0z4262e.wrong-principal"
+        "surface.native.op.exactcopyfile.0rn0zb2.windows.closed"
       ]
     },
     {
@@ -167989,9 +167745,9 @@
       "edgeId": "surface.native.op.exactfsfchmod.1fo8s7x",
       "observedKey": "native-op:__exactFsFchmod",
       "branchId": "surface.native.op.exactfsfchmod.1fo8s7x.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchmod.0l4igio",
+      "enforcementBranchId": "surface.native.op.exactfsfchmod.1fo8s7x.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactFsFchmod"
         ],
@@ -168016,20 +167772,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchmod.0l4igio.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchmod.0l4igio.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchmod.0l4igio.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchmod.0l4igio.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchmod.0l4igio.wrong-principal"
+        "surface.native.op.exactfsfchmod.1fo8s7x.default.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfsfchmodsync.0cry376",
       "observedKey": "native-op:__exactFsFchmodSync",
       "branchId": "surface.native.op.exactfsfchmodsync.0cry376.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchmodsync.0p5bd5l",
+      "enforcementBranchId": "surface.native.op.exactfsfchmodsync.0cry376.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactFsFchmodSync"
         ],
@@ -168054,20 +167806,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchmodsync.0p5bd5l.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchmodsync.0p5bd5l.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchmodsync.0p5bd5l.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchmodsync.0p5bd5l.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchmodsync.0p5bd5l.wrong-principal"
+        "surface.native.op.exactfsfchmodsync.0cry376.default.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfsfchown.1wlogwx",
       "observedKey": "native-op:__exactFsFchown",
       "branchId": "surface.native.op.exactfsfchown.1wlogwx.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchown.1genobo",
+      "enforcementBranchId": "surface.native.op.exactfsfchown.1wlogwx.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactFsFchown"
         ],
@@ -168092,20 +167840,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchown.1genobo.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchown.1genobo.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchown.1genobo.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchown.1genobo.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchown.1genobo.wrong-principal"
+        "surface.native.op.exactfsfchown.1wlogwx.default.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfsfchownsync.1o61nfi",
       "observedKey": "native-op:__exactFsFchownSync",
       "branchId": "surface.native.op.exactfsfchownsync.1o61nfi.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchownsync.0y9iad9",
+      "enforcementBranchId": "surface.native.op.exactfsfchownsync.1o61nfi.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactFsFchownSync"
         ],
@@ -168130,11 +167874,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchownsync.0y9iad9.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchownsync.0y9iad9.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchownsync.0y9iad9.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchownsync.0y9iad9.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfchownsync.0y9iad9.wrong-principal"
+        "surface.native.op.exactfsfchownsync.1o61nfi.default.closed"
       ]
     },
     {
@@ -168455,9 +168195,9 @@
       "edgeId": "surface.native.op.exactfsfutimessync.0hnqdt0",
       "observedKey": "native-op:__exactFsFutimesSync",
       "branchId": "surface.native.op.exactfsfutimessync.0hnqdt0.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfutimessync.0va9qc3",
+      "enforcementBranchId": "surface.native.op.exactfsfutimessync.0hnqdt0.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactFsFutimesSync"
         ],
@@ -168482,11 +168222,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfutimessync.0va9qc3.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfutimessync.0va9qc3.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfutimessync.0va9qc3.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfutimessync.0va9qc3.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfutimessync.0va9qc3.wrong-principal"
+        "surface.native.op.exactfsfutimessync.0hnqdt0.default.closed"
       ]
     },
     {
@@ -172582,9 +172318,9 @@
       "edgeId": "surface.native.op.exactlchmod.0aw9lfk",
       "observedKey": "native-op:__exactLchmod",
       "branchId": "surface.native.op.exactlchmod.0aw9lfk.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactlchmod.0olowr1",
+      "enforcementBranchId": "surface.native.op.exactlchmod.0aw9lfk.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactLchmod"
         ],
@@ -172609,20 +172345,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlchmod.0olowr1.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlchmod.0olowr1.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlchmod.0olowr1.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlchmod.0olowr1.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlchmod.0olowr1.wrong-principal"
+        "surface.native.op.exactlchmod.0aw9lfk.default.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactlchmodsync.07qlujf",
       "observedKey": "native-op:__exactLchmodSync",
       "branchId": "surface.native.op.exactlchmodsync.07qlujf.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactlchmodsync.05q97em",
+      "enforcementBranchId": "surface.native.op.exactlchmodsync.07qlujf.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactLchmodSync"
         ],
@@ -172647,20 +172379,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlchmodsync.05q97em.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlchmodsync.05q97em.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlchmodsync.05q97em.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlchmodsync.05q97em.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlchmodsync.05q97em.wrong-principal"
+        "surface.native.op.exactlchmodsync.07qlujf.default.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactlchown.0bt8f4s",
       "observedKey": "native-op:__exactLchown",
       "branchId": "surface.native.op.exactlchown.0bt8f4s.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactlchown.1chpptt",
+      "enforcementBranchId": "surface.native.op.exactlchown.0bt8f4s.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactLchown"
         ],
@@ -172685,20 +172413,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlchown.1chpptt.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlchown.1chpptt.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlchown.1chpptt.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlchown.1chpptt.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlchown.1chpptt.wrong-principal"
+        "surface.native.op.exactlchown.0bt8f4s.default.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactlink.0lxndud",
       "observedKey": "native-op:__exactLink",
       "branchId": "surface.native.op.exactlink.0lxndud.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactlink.00027ii",
+      "enforcementBranchId": "surface.native.op.exactlink.0lxndud.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactLink"
         ],
@@ -172723,11 +172447,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlink.00027ii.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlink.00027ii.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlink.00027ii.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlink.00027ii.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlink.00027ii.wrong-principal"
+        "surface.native.op.exactlink.0lxndud.default.closed"
       ]
     },
     {
@@ -173163,9 +172883,9 @@
       "edgeId": "surface.native.op.exactlutimes.1rpdm4k",
       "observedKey": "native-op:__exactLutimes",
       "branchId": "surface.native.op.exactlutimes.1rpdm4k.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactlutimes.053k44p",
+      "enforcementBranchId": "surface.native.op.exactlutimes.1rpdm4k.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactLutimes"
         ],
@@ -173190,20 +172910,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlutimes.053k44p.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlutimes.053k44p.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlutimes.053k44p.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlutimes.053k44p.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlutimes.053k44p.wrong-principal"
+        "surface.native.op.exactlutimes.1rpdm4k.default.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactlutimessync.1ygj38n",
       "observedKey": "native-op:__exactLutimesSync",
       "branchId": "surface.native.op.exactlutimessync.1ygj38n.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactlutimessync.0czstt0",
+      "enforcementBranchId": "surface.native.op.exactlutimessync.1ygj38n.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactLutimesSync"
         ],
@@ -173228,11 +172944,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlutimessync.0czstt0.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlutimessync.0czstt0.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlutimessync.0czstt0.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlutimessync.0czstt0.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlutimessync.0czstt0.wrong-principal"
+        "surface.native.op.exactlutimessync.1ygj38n.default.closed"
       ]
     },
     {
@@ -173646,9 +173358,9 @@
       "edgeId": "surface.native.op.exactmkdtemp.07xpvq5",
       "observedKey": "native-op:__exactMkdtemp",
       "branchId": "surface.native.op.exactmkdtemp.07xpvq5.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdtemp.0i92v0i",
+      "enforcementBranchId": "surface.native.op.exactmkdtemp.07xpvq5.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactMkdtemp"
         ],
@@ -173673,20 +173385,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdtemp.0i92v0i.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdtemp.0i92v0i.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdtemp.0i92v0i.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdtemp.0i92v0i.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdtemp.0i92v0i.wrong-principal"
+        "surface.native.op.exactmkdtemp.07xpvq5.default.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactmkdtemp.07xpvq5",
       "observedKey": "native-op:__exactMkdtemp",
       "branchId": "surface.native.op.exactmkdtemp.07xpvq5.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdtemp.0uyt2hl",
+      "enforcementBranchId": "surface.native.op.exactmkdtemp.07xpvq5.windows",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactMkdtemp"
         ],
@@ -173712,11 +173420,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdtemp.0uyt2hl.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdtemp.0uyt2hl.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdtemp.0uyt2hl.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdtemp.0uyt2hl.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdtemp.0uyt2hl.wrong-principal"
+        "surface.native.op.exactmkdtemp.07xpvq5.windows.closed"
       ]
     },
     {
@@ -175528,9 +175232,9 @@
       "edgeId": "surface.native.op.exactrename.10zwbcv",
       "observedKey": "native-op:__exactRename",
       "branchId": "surface.native.op.exactrename.10zwbcv.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactrename.04omn8q",
+      "enforcementBranchId": "surface.native.op.exactrename.10zwbcv.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactRename"
         ],
@@ -175555,20 +175259,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactrename.04omn8q.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactrename.04omn8q.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactrename.04omn8q.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactrename.04omn8q.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactrename.04omn8q.wrong-principal"
+        "surface.native.op.exactrename.10zwbcv.default.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactrename.10zwbcv",
       "observedKey": "native-op:__exactRename",
       "branchId": "surface.native.op.exactrename.10zwbcv.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactrename.1urat15",
+      "enforcementBranchId": "surface.native.op.exactrename.10zwbcv.windows",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactRename"
         ],
@@ -175594,11 +175294,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactrename.1urat15.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactrename.1urat15.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactrename.1urat15.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactrename.1urat15.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactrename.1urat15.wrong-principal"
+        "surface.native.op.exactrename.10zwbcv.windows.closed"
       ]
     },
     {
@@ -175819,9 +175515,9 @@
       "edgeId": "surface.native.op.exactrmdir.1mew8oz",
       "observedKey": "native-op:__exactRmdir",
       "branchId": "surface.native.op.exactrmdir.1mew8oz.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactrmdir.1wi9eig",
+      "enforcementBranchId": "surface.native.op.exactrmdir.1mew8oz.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactRmdir"
         ],
@@ -175846,20 +175542,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactrmdir.1wi9eig.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactrmdir.1wi9eig.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactrmdir.1wi9eig.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactrmdir.1wi9eig.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactrmdir.1wi9eig.wrong-principal"
+        "surface.native.op.exactrmdir.1mew8oz.default.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactrmdir.1mew8oz",
       "observedKey": "native-op:__exactRmdir",
       "branchId": "surface.native.op.exactrmdir.1mew8oz.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactrmdir.1af3l7j",
+      "enforcementBranchId": "surface.native.op.exactrmdir.1mew8oz.windows",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactRmdir"
         ],
@@ -175885,11 +175577,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactrmdir.1af3l7j.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactrmdir.1af3l7j.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactrmdir.1af3l7j.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactrmdir.1af3l7j.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactrmdir.1af3l7j.wrong-principal"
+        "surface.native.op.exactrmdir.1mew8oz.windows.closed"
       ]
     },
     {
@@ -178343,9 +178031,9 @@
       "edgeId": "surface.native.op.exactsymlink.17gte4g",
       "observedKey": "native-op:__exactSymlink",
       "branchId": "surface.native.op.exactsymlink.17gte4g.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactsymlink.148kdy5",
+      "enforcementBranchId": "surface.native.op.exactsymlink.17gte4g.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactSymlink"
         ],
@@ -178370,11 +178058,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactsymlink.148kdy5.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactsymlink.148kdy5.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactsymlink.148kdy5.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactsymlink.148kdy5.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactsymlink.148kdy5.wrong-principal"
+        "surface.native.op.exactsymlink.17gte4g.default.closed"
       ]
     },
     {
@@ -181165,9 +180849,9 @@
       "edgeId": "surface.native.op.exactunlink.1g411ke",
       "observedKey": "native-op:__exactUnlink",
       "branchId": "surface.native.op.exactunlink.1g411ke.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactunlink.1vr5zrn",
+      "enforcementBranchId": "surface.native.op.exactunlink.1g411ke.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactUnlink"
         ],
@@ -181192,20 +180876,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactunlink.1vr5zrn.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactunlink.1vr5zrn.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactunlink.1vr5zrn.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactunlink.1vr5zrn.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactunlink.1vr5zrn.wrong-principal"
+        "surface.native.op.exactunlink.1g411ke.default.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactunlink.1g411ke",
       "observedKey": "native-op:__exactUnlink",
       "branchId": "surface.native.op.exactunlink.1g411ke.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactunlink.1iwpnb4",
+      "enforcementBranchId": "surface.native.op.exactunlink.1g411ke.windows",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactUnlink"
         ],
@@ -181231,20 +180911,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactunlink.1iwpnb4.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactunlink.1iwpnb4.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactunlink.1iwpnb4.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactunlink.1iwpnb4.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactunlink.1iwpnb4.wrong-principal"
+        "surface.native.op.exactunlink.1g411ke.windows.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactutimes.19tvh2i",
       "observedKey": "native-op:__exactUtimes",
       "branchId": "surface.native.op.exactutimes.19tvh2i.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactutimes.0ezu63r",
+      "enforcementBranchId": "surface.native.op.exactutimes.19tvh2i.default",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactUtimes"
         ],
@@ -181269,20 +180945,16 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactutimes.0ezu63r.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactutimes.0ezu63r.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactutimes.0ezu63r.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactutimes.0ezu63r.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactutimes.0ezu63r.wrong-principal"
+        "surface.native.op.exactutimes.19tvh2i.default.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactutimes.19tvh2i",
       "observedKey": "native-op:__exactUtimes",
       "branchId": "surface.native.op.exactutimes.19tvh2i.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactutimes.1dllwyk",
+      "enforcementBranchId": "surface.native.op.exactutimes.19tvh2i.windows",
       "enforcementRoute": {
-        "kind": "exact-source-and-semantics",
+        "kind": "surface-branch",
         "proofPaths": [
           "native-op:__exactUtimes"
         ],
@@ -181308,11 +180980,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactutimes.1dllwyk.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactutimes.1dllwyk.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactutimes.1dllwyk.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactutimes.1dllwyk.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactutimes.1dllwyk.wrong-principal"
+        "surface.native.op.exactutimes.19tvh2i.windows.closed"
       ]
     },
     {
@@ -278692,8 +278360,6 @@
         "surface.builtin.export.node.fs.stats.issocket.1m2t1t0",
         "surface.builtin.export.node.fs.stats.issymboliclink.14h8dgt",
         "surface.builtin.export.node.fs.statsync.078u2oz",
-        "surface.builtin.export.node.fs.watch.0oe4mgp",
-        "surface.builtin.export.node.fs.watchfile.06eb8pr",
         "surface.builtin.export.node.fs.writestream.0e70l9p",
         "surface.builtin.export.node.fs.writestream.constructor.1f1acuz",
         "surface.builtin.export.node.fs.writestream.final.1779fse",
@@ -278951,22 +278617,14 @@
         "surface.loader.route.transform.rust.walk.transpile.tool.directory.02fxye4",
         "surface.native.op.exactaccess.1a12cmn",
         "surface.native.op.exactappendfile.1b1b7nn",
-        "surface.native.op.exactchmod.0z6n1u6",
-        "surface.native.op.exactchown.179ybj6",
         "surface.native.op.exactexecsync.041glur",
         "surface.native.op.exactfsfstatsync.1md7g19",
         "surface.native.op.exactfsopen.05ao6wa",
         "surface.native.op.exactfsopenasync.1jie13i",
         "surface.native.op.exactfspathasync.10cb78b",
         "surface.native.op.exactfsstatasync.0b0hr8s",
-        "surface.native.op.exactlchmod.0aw9lfk",
-        "surface.native.op.exactlchmodsync.07qlujf",
-        "surface.native.op.exactlchown.0bt8f4s",
         "surface.native.op.exactlstat.1c98s6l",
-        "surface.native.op.exactlutimes.1rpdm4k",
-        "surface.native.op.exactlutimessync.1ygj38n",
         "surface.native.op.exactmkdir.021eaz0",
-        "surface.native.op.exactmkdtemp.07xpvq5",
         "surface.native.op.exactmoduleresolve.14a0zlj",
         "surface.native.op.exactmoduleresolvemeta.0cn3rq2",
         "surface.native.op.exactnativemoduleresolve.0lt1gr6",
@@ -278975,18 +278633,13 @@
         "surface.native.op.exactreaddir.0tg30vk",
         "surface.native.op.exactreadfile.1cmzco7",
         "surface.native.op.exactrealpath.06qb6s2",
-        "surface.native.op.exactrename.10zwbcv",
-        "surface.native.op.exactrmdir.1mew8oz",
         "surface.native.op.exactsetcwd.0nm1ccf",
         "surface.native.op.exactspawn.0waye4c",
         "surface.native.op.exactspawnsync.1d4denz",
         "surface.native.op.exactsqliteopen.0a20llh",
         "surface.native.op.exactstat.1432ztv",
         "surface.native.op.exactstatfs.151kkzo",
-        "surface.native.op.exactsymlink.17gte4g",
         "surface.native.op.exacttruncate.13gh223",
-        "surface.native.op.exactunlink.1g411ke",
-        "surface.native.op.exactutimes.19tvh2i",
         "surface.native.op.exactwhich.0it66ce",
         "surface.native.op.exactwritefile.1h0gy8u",
         "surface.native.op.global.bun.1idej6y",
@@ -279028,7 +278681,7 @@
         "surface.startup.supervisor.history.store.open.0u6mrwv",
         "surface.startup.supervisor.history.user.key.read.create.16p08qw"
       ],
-      "rationale": "Covered by 412 observed effect edges."
+      "rationale": "Covered by 397 observed effect edges."
     },
     {
       "definitionId": "fs:read",
@@ -279071,20 +278724,12 @@
         "surface.builtin.export.node.dns.promises.getservers.01v0q69",
         "surface.builtin.export.node.dns.promises.resolver.1c0jtjj",
         "surface.builtin.export.node.dns.resolver.011t2fi",
-        "surface.builtin.export.node.fs.copyfile.020eib5",
-        "surface.builtin.export.node.fs.copyfilesync.1lu78j2",
-        "surface.builtin.export.node.fs.cp.0fhbdjd",
-        "surface.builtin.export.node.fs.cpsync.15303ra",
         "surface.builtin.export.node.fs.createreadstream.1thoyf2",
-        "surface.builtin.export.node.fs.link.1wbhe5m",
-        "surface.builtin.export.node.fs.linksync.0ys64dd",
         "surface.builtin.export.node.fs.open.08gsjne",
         "surface.builtin.export.node.fs.opensync.1lmvgdt",
-        "surface.builtin.export.node.fs.promises.copyfile.0p02aaw",
         "surface.builtin.export.node.fs.promises.filehandle.read.17o0u5z",
         "surface.builtin.export.node.fs.promises.filehandle.readfile.18wuop5",
         "surface.builtin.export.node.fs.promises.filehandle.readv.0zt9syb",
-        "surface.builtin.export.node.fs.promises.link.0qr7l8z",
         "surface.builtin.export.node.fs.promises.open.1lbxtab",
         "surface.builtin.export.node.fs.promises.readfile.032wlkt",
         "surface.builtin.export.node.fs.promises.readfilesync.07bcu6q",
@@ -279294,7 +278939,6 @@
         "surface.loader.route.transform.rust.verify.transpile.override.identity.1dre2id",
         "surface.loader.route.transform.rust.wait.for.transpile.test.barrier.19oz3na",
         "surface.loader.route.transform.rust.walk.transpile.tool.directory.02fxye4",
-        "surface.native.op.exactcopyfile.0rn0zb2",
         "surface.native.op.exactfsopen.05ao6wa",
         "surface.native.op.exactfsopenasync.1jie13i",
         "surface.native.op.exactfspathasync.10cb78b",
@@ -279304,7 +278948,6 @@
         "surface.native.op.exactfsreadv.11moytw",
         "surface.native.op.exactfsreadvasync.0bn4x60",
         "surface.native.op.exacthandlereadfilesync.0i8wzb6",
-        "surface.native.op.exactlink.0lxndud",
         "surface.native.op.exactmoduleresolve.14a0zlj",
         "surface.native.op.exactnativemoduleresolve.0lt1gr6",
         "surface.native.op.exactreadfile.1cmzco7",
@@ -279334,7 +278977,90 @@
         "surface.startup.supervisor.history.journal.recover.1tl92hf",
         "surface.startup.supervisor.history.user.key.read.create.16p08qw"
       ],
-      "rationale": "Covered by 299 observed effect edges."
+      "rationale": "Covered by 289 observed effect edges."
+    },
+    {
+      "definitionId": "fs:unbound-mutation",
+      "disposition": "closed",
+      "edgeIds": [
+        "surface.builtin.export.node.fs.chmod.09dt2e7",
+        "surface.builtin.export.node.fs.chmodsync.1ae64ns",
+        "surface.builtin.export.node.fs.chown.0a7ny3f",
+        "surface.builtin.export.node.fs.chownsync.0k17yvg",
+        "surface.builtin.export.node.fs.copyfile.020eib5",
+        "surface.builtin.export.node.fs.copyfilesync.1lu78j2",
+        "surface.builtin.export.node.fs.cp.0fhbdjd",
+        "surface.builtin.export.node.fs.cpsync.15303ra",
+        "surface.builtin.export.node.fs.fchmod.0o5ull9",
+        "surface.builtin.export.node.fs.fchmodsync.11otc6a",
+        "surface.builtin.export.node.fs.fchown.0mk6upd",
+        "surface.builtin.export.node.fs.fchownsync.1rgxrxq",
+        "surface.builtin.export.node.fs.futimes.14am42r",
+        "surface.builtin.export.node.fs.futimessync.0ck0u1g",
+        "surface.builtin.export.node.fs.lchmod.0szuwkn",
+        "surface.builtin.export.node.fs.lchmodsync.0hgx82o",
+        "surface.builtin.export.node.fs.lchown.0h8iuyr",
+        "surface.builtin.export.node.fs.lchownsync.00mvnn8",
+        "surface.builtin.export.node.fs.link.1wbhe5m",
+        "surface.builtin.export.node.fs.linksync.0ys64dd",
+        "surface.builtin.export.node.fs.lutimes.0i8qml9",
+        "surface.builtin.export.node.fs.lutimessync.12d8b76",
+        "surface.builtin.export.node.fs.mkdtemp.0if5e7s",
+        "surface.builtin.export.node.fs.mkdtempdisposable.12dp73e",
+        "surface.builtin.export.node.fs.mkdtempdisposablesync.1u6noip",
+        "surface.builtin.export.node.fs.mkdtempsync.1sydur7",
+        "surface.builtin.export.node.fs.promises.chmod.0ka1mnc",
+        "surface.builtin.export.node.fs.promises.chown.1xwdhms",
+        "surface.builtin.export.node.fs.promises.copyfile.0p02aaw",
+        "surface.builtin.export.node.fs.promises.filehandle.chmod.04lpzu4",
+        "surface.builtin.export.node.fs.promises.filehandle.chown.1vmmq48",
+        "surface.builtin.export.node.fs.promises.lchmod.0srinh2",
+        "surface.builtin.export.node.fs.promises.lchown.0vlojoq",
+        "surface.builtin.export.node.fs.promises.link.0qr7l8z",
+        "surface.builtin.export.node.fs.promises.lutimes.0bhsdki",
+        "surface.builtin.export.node.fs.promises.mkdtemp.17cjz8j",
+        "surface.builtin.export.node.fs.promises.rename.1nyx4c5",
+        "surface.builtin.export.node.fs.promises.rm.10r7mni",
+        "surface.builtin.export.node.fs.promises.rmdir.0za2u4l",
+        "surface.builtin.export.node.fs.promises.symlink.09z1mfq",
+        "surface.builtin.export.node.fs.promises.unlink.1gh64kg",
+        "surface.builtin.export.node.fs.promises.utimes.0p03l2k",
+        "surface.builtin.export.node.fs.rename.1i5qhrw",
+        "surface.builtin.export.node.fs.renamesync.15sj4sf",
+        "surface.builtin.export.node.fs.rm.0cxsxlj",
+        "surface.builtin.export.node.fs.rmdir.0mgiknq",
+        "surface.builtin.export.node.fs.rmdirsync.0qv9pmd",
+        "surface.builtin.export.node.fs.rmsync.0myrwr4",
+        "surface.builtin.export.node.fs.symlink.0iiqf19",
+        "surface.builtin.export.node.fs.symlinksync.1t3iv02",
+        "surface.builtin.export.node.fs.unlink.16slf45",
+        "surface.builtin.export.node.fs.unlinksync.0slkcl6",
+        "surface.builtin.export.node.fs.utimes.0ed6cfp",
+        "surface.builtin.export.node.fs.utimessync.1rzwzvu",
+        "surface.builtin.export.node.fs.watch.0oe4mgp",
+        "surface.builtin.export.node.fs.watchfile.06eb8pr",
+        "surface.native.op.exactchmod.0z6n1u6",
+        "surface.native.op.exactchown.179ybj6",
+        "surface.native.op.exactcopyfile.0rn0zb2",
+        "surface.native.op.exactfsfchmod.1fo8s7x",
+        "surface.native.op.exactfsfchmodsync.0cry376",
+        "surface.native.op.exactfsfchown.1wlogwx",
+        "surface.native.op.exactfsfchownsync.1o61nfi",
+        "surface.native.op.exactfsfutimessync.0hnqdt0",
+        "surface.native.op.exactlchmod.0aw9lfk",
+        "surface.native.op.exactlchmodsync.07qlujf",
+        "surface.native.op.exactlchown.0bt8f4s",
+        "surface.native.op.exactlink.0lxndud",
+        "surface.native.op.exactlutimes.1rpdm4k",
+        "surface.native.op.exactlutimessync.1ygj38n",
+        "surface.native.op.exactmkdtemp.07xpvq5",
+        "surface.native.op.exactrename.10zwbcv",
+        "surface.native.op.exactrmdir.1mew8oz",
+        "surface.native.op.exactsymlink.17gte4g",
+        "surface.native.op.exactunlink.1g411ke",
+        "surface.native.op.exactutimes.19tvh2i"
+      ],
+      "rationale": "Closed by 76 observed surface edges."
     },
     {
       "definitionId": "fs:watch",
@@ -279350,11 +279076,9 @@
         "surface.builtin.export.node.fs.fswatcher.ref.07irbic",
         "surface.builtin.export.node.fs.fswatcher.removelistener.0imn1zb",
         "surface.builtin.export.node.fs.fswatcher.stop.0f6d3df",
-        "surface.builtin.export.node.fs.fswatcher.unref.0ql7h2p",
-        "surface.builtin.export.node.fs.watch.0oe4mgp",
-        "surface.builtin.export.node.fs.watchfile.06eb8pr"
+        "surface.builtin.export.node.fs.fswatcher.unref.0ql7h2p"
       ],
-      "rationale": "Covered by 13 observed effect edges."
+      "rationale": "Covered by 11 observed effect edges."
     },
     {
       "definitionId": "fs:write",
@@ -279382,85 +279106,31 @@
         "surface.builtin.export.exact.sqlite.statement.run.0ls49t6",
         "surface.builtin.export.node.fs.appendfile.0cjby7k",
         "surface.builtin.export.node.fs.appendfilesync.1xt2a2z",
-        "surface.builtin.export.node.fs.chmod.09dt2e7",
-        "surface.builtin.export.node.fs.chmodsync.1ae64ns",
-        "surface.builtin.export.node.fs.chown.0a7ny3f",
-        "surface.builtin.export.node.fs.chownsync.0k17yvg",
-        "surface.builtin.export.node.fs.copyfile.020eib5",
-        "surface.builtin.export.node.fs.copyfilesync.1lu78j2",
-        "surface.builtin.export.node.fs.cp.0fhbdjd",
-        "surface.builtin.export.node.fs.cpsync.15303ra",
         "surface.builtin.export.node.fs.createwritestream.1mervrt",
-        "surface.builtin.export.node.fs.fchmod.0o5ull9",
-        "surface.builtin.export.node.fs.fchmodsync.11otc6a",
-        "surface.builtin.export.node.fs.fchown.0mk6upd",
-        "surface.builtin.export.node.fs.fchownsync.1rgxrxq",
         "surface.builtin.export.node.fs.fdatasync.0qgdb53",
         "surface.builtin.export.node.fs.fdatasyncsync.0o33e5c",
         "surface.builtin.export.node.fs.fsync.1bvg8tb",
         "surface.builtin.export.node.fs.fsyncsync.1ry4y1k",
         "surface.builtin.export.node.fs.ftruncate.0i9k166",
         "surface.builtin.export.node.fs.ftruncatesync.06n6uy5",
-        "surface.builtin.export.node.fs.futimes.14am42r",
-        "surface.builtin.export.node.fs.futimessync.0ck0u1g",
-        "surface.builtin.export.node.fs.lchmod.0szuwkn",
-        "surface.builtin.export.node.fs.lchmodsync.0hgx82o",
-        "surface.builtin.export.node.fs.lchown.0h8iuyr",
-        "surface.builtin.export.node.fs.lchownsync.00mvnn8",
-        "surface.builtin.export.node.fs.link.1wbhe5m",
-        "surface.builtin.export.node.fs.linksync.0ys64dd",
-        "surface.builtin.export.node.fs.lutimes.0i8qml9",
-        "surface.builtin.export.node.fs.lutimessync.12d8b76",
         "surface.builtin.export.node.fs.mkdir.0608wu1",
         "surface.builtin.export.node.fs.mkdirsync.1jp28ty",
-        "surface.builtin.export.node.fs.mkdtemp.0if5e7s",
-        "surface.builtin.export.node.fs.mkdtempdisposable.12dp73e",
-        "surface.builtin.export.node.fs.mkdtempdisposablesync.1u6noip",
-        "surface.builtin.export.node.fs.mkdtempsync.1sydur7",
         "surface.builtin.export.node.fs.open.08gsjne",
         "surface.builtin.export.node.fs.opensync.1lmvgdt",
         "surface.builtin.export.node.fs.promises.appendfile.1oa8l1l",
-        "surface.builtin.export.node.fs.promises.chmod.0ka1mnc",
-        "surface.builtin.export.node.fs.promises.chown.1xwdhms",
-        "surface.builtin.export.node.fs.promises.copyfile.0p02aaw",
         "surface.builtin.export.node.fs.promises.fdatasync.1y77nmc",
-        "surface.builtin.export.node.fs.promises.filehandle.chmod.04lpzu4",
-        "surface.builtin.export.node.fs.promises.filehandle.chown.1vmmq48",
         "surface.builtin.export.node.fs.promises.filehandle.truncate.12b75v5",
         "surface.builtin.export.node.fs.promises.filehandle.write.0h0i1au",
         "surface.builtin.export.node.fs.promises.filehandle.writefile.00z7rkg",
         "surface.builtin.export.node.fs.promises.filehandle.writev.1sa0ye8",
         "surface.builtin.export.node.fs.promises.fsync.17jdt4c",
-        "surface.builtin.export.node.fs.promises.lchmod.0srinh2",
-        "surface.builtin.export.node.fs.promises.lchown.0vlojoq",
-        "surface.builtin.export.node.fs.promises.link.0qr7l8z",
-        "surface.builtin.export.node.fs.promises.lutimes.0bhsdki",
         "surface.builtin.export.node.fs.promises.mkdir.0l8rdmu",
-        "surface.builtin.export.node.fs.promises.mkdtemp.17cjz8j",
         "surface.builtin.export.node.fs.promises.open.1lbxtab",
-        "surface.builtin.export.node.fs.promises.rename.1nyx4c5",
-        "surface.builtin.export.node.fs.promises.rm.10r7mni",
-        "surface.builtin.export.node.fs.promises.rmdir.0za2u4l",
-        "surface.builtin.export.node.fs.promises.symlink.09z1mfq",
         "surface.builtin.export.node.fs.promises.truncate.0sl2991",
-        "surface.builtin.export.node.fs.promises.unlink.1gh64kg",
-        "surface.builtin.export.node.fs.promises.utimes.0p03l2k",
         "surface.builtin.export.node.fs.promises.writefile.0ettdok",
         "surface.builtin.export.node.fs.promises.writev.0taaby4",
-        "surface.builtin.export.node.fs.rename.1i5qhrw",
-        "surface.builtin.export.node.fs.renamesync.15sj4sf",
-        "surface.builtin.export.node.fs.rm.0cxsxlj",
-        "surface.builtin.export.node.fs.rmdir.0mgiknq",
-        "surface.builtin.export.node.fs.rmdirsync.0qv9pmd",
-        "surface.builtin.export.node.fs.rmsync.0myrwr4",
-        "surface.builtin.export.node.fs.symlink.0iiqf19",
-        "surface.builtin.export.node.fs.symlinksync.1t3iv02",
         "surface.builtin.export.node.fs.truncate.0jv1j00",
         "surface.builtin.export.node.fs.truncatesync.1qym9sb",
-        "surface.builtin.export.node.fs.unlink.16slf45",
-        "surface.builtin.export.node.fs.unlinksync.0slkcl6",
-        "surface.builtin.export.node.fs.utimes.0ed6cfp",
-        "surface.builtin.export.node.fs.utimessync.1rzwzvu",
         "surface.builtin.export.node.fs.write.1aoq44d",
         "surface.builtin.export.node.fs.writefile.0v0wfff",
         "surface.builtin.export.node.fs.writefilesync.1m4eznw",
@@ -279608,18 +279278,10 @@
         "surface.loader.route.transform.rust.transpile.module.01i36em",
         "surface.loader.route.transform.rust.wait.for.transpile.test.barrier.19oz3na",
         "surface.native.op.exactappendfile.1b1b7nn",
-        "surface.native.op.exactchmod.0z6n1u6",
-        "surface.native.op.exactchown.179ybj6",
-        "surface.native.op.exactcopyfile.0rn0zb2",
-        "surface.native.op.exactfsfchmod.1fo8s7x",
-        "surface.native.op.exactfsfchmodsync.0cry376",
-        "surface.native.op.exactfsfchown.1wlogwx",
-        "surface.native.op.exactfsfchownsync.1o61nfi",
         "surface.native.op.exactfsfdasync.1iinzl8",
         "surface.native.op.exactfsfdatasyncsync.1p6q71s",
         "surface.native.op.exactfsfsyncsync.02nw7ns",
         "surface.native.op.exactfsftruncatesync.0un4ty5",
-        "surface.native.op.exactfsfutimessync.0hnqdt0",
         "surface.native.op.exactfsopen.05ao6wa",
         "surface.native.op.exactfsopenasync.1jie13i",
         "surface.native.op.exactfspathasync.10cb78b",
@@ -279628,24 +279290,12 @@
         "surface.native.op.exactfswritefileasync.0fv6zp9",
         "surface.native.op.exactfswritev.0662i81",
         "surface.native.op.exactfswritevasync.0l050fv",
-        "surface.native.op.exactlchmod.0aw9lfk",
-        "surface.native.op.exactlchmodsync.07qlujf",
-        "surface.native.op.exactlchown.0bt8f4s",
-        "surface.native.op.exactlink.0lxndud",
-        "surface.native.op.exactlutimes.1rpdm4k",
-        "surface.native.op.exactlutimessync.1ygj38n",
         "surface.native.op.exactmkdir.021eaz0",
-        "surface.native.op.exactmkdtemp.07xpvq5",
-        "surface.native.op.exactrename.10zwbcv",
-        "surface.native.op.exactrmdir.1mew8oz",
         "surface.native.op.exactsqliteexec.0oogg80",
         "surface.native.op.exactsqliteopen.0a20llh",
         "surface.native.op.exactsqliterun.0nde0wm",
-        "surface.native.op.exactsymlink.17gte4g",
         "surface.native.op.exacttruncate.13gh223",
         "surface.native.op.exactunixlisten.0oo86mg",
-        "surface.native.op.exactunlink.1g411ke",
-        "surface.native.op.exactutimes.19tvh2i",
         "surface.native.op.exactwritefile.1h0gy8u",
         "surface.native.op.global.bun.write.0z6cgol",
         "surface.native.op.global.exact.write.0n288x3",
@@ -279661,7 +279311,7 @@
         "surface.startup.supervisor.history.store.open.0u6mrwv",
         "surface.startup.supervisor.history.user.key.read.create.16p08qw"
       ],
-      "rationale": "Covered by 300 observed effect edges."
+      "rationale": "Covered by 226 observed effect edges."
     },
     {
       "definitionId": "gpu:operation",
@@ -282695,7 +282345,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-bW_eOvBIeUOOgI3-92_UE1biCIg13-sik0C_2mwixI8"
+      "rawContentDigest": "sha256-kCEXYIFIUVvnkGqju8PwiCERfc5H1KZTN5u6Eh4AXSM"
     },
     {
       "kind": "output-disposition-dataset",
@@ -282715,32 +282365,32 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-xTFQ3Oafa0cNwvEkumk4cQVuN69t3gKZoGjihSqQJMg"
+      "rawContentDigest": "sha256-lvZBZHoUo2fG05ned_Zdo7HUyGhipmhgiaJuc29GMlU"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-ckI8ihvyuQsXbem3ubsg-8AuKJWpsbxgxMNRcYb6m9U"
+      "rawContentDigest": "sha256-Bpa2XGN8gaR_QY5kI4m2O4CuWjQg178V6vO0ZQ5kyQQ"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-jQZMjr8H5XA1dS9x8XY4ETgWPcJBzf_VtKxkOLkDFxw"
+      "rawContentDigest": "sha256-hLpd7WWEBCD4Ew3zncg3IxLA9W1jpOP52x3_lJ1QJjM"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-MHRQNXeHuyF3FgblDKsTDLt7kvVf3BWQOzCGshqTfbM"
+      "rawContentDigest": "sha256-KZ6OLPe19gLvW8JZcwzDhNS-Q5i4fFL6TY35WKg5W1Y"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-1NAqIl5U37oiOHUTWlI4vOZw-pTYxsh2f2BjGIzZy5c"
+      "rawContentDigest": "sha256-Was8eWEP7HTz-qrk3yQ_c3KXO6qC2ECa2IQbkw3I-SE"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-IDFQ01GH-dgv8NqM0Bw0YOgFx0NQ1QlkMjIvYfDyZVs"
+      "rawContentDigest": "sha256-Pg81JI4rptAIVTn_IXfGsf5oIrIdAVq30FUBairLFA4"
     }
   ],
   "counts": {

@@ -162,6 +162,21 @@
       "description": "Read bytes from the checked filesystem object."
     },
     {
+      "id": "fs:unbound-mutation",
+      "lifecycle": "deny-only",
+      "stability": "stable",
+      "globality": "terminal",
+      "resourceKinds": ["closed-surface"],
+      "selectorSchema": "ibex/capsec-selector/1",
+      "occurrenceSchema": "ibex/capsec-occurrence/1",
+      "normalizationProfile": "closed.surface.v1",
+      "channels": { "dynamic": false, "handle": false, "synthesis": false },
+      "staticOnly": true,
+      "selectorConstraints": { "closedSurfaceClasses": ["filesystem-unbound-mutation"] },
+      "risk": { "baseTier": 4, "reasons": ["filesystem.unbound-mutation"] },
+      "description": "Filesystem mutations without a completely specified object-bound protocol remain closed."
+    },
+    {
       "id": "fs:watch",
       "lifecycle": "authorable",
       "stability": "provisional",

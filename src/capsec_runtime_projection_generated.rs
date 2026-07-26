@@ -3,7 +3,7 @@
 pub const CAPSEC_RUNTIME_PROJECTION_SCHEMA: &str = "ibex/capsec-runtime-projection/1";
 pub const CAPSEC_RUNTIME_PROJECTION_DOMAIN: &str = "ibex:capsec-runtime-projection:1";
 pub const CAPSEC_RUNTIME_PROJECTION_DIGEST: &str =
-    "sha256-qd-M1O8MiHE9iMUD9SuLGH26tj4W_TPj9V0nYsyb1eg";
+    "sha256-UHLMgZ9YUtkBh6o8umfpTjxWGzvaV1Pv0p1dQXO80Ho";
 
 #[cfg(test)]
 mod tests {

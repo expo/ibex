@@ -1204,7 +1204,32 @@ ticket closes.
   Important enforcement mechanisms remain about 96% complete and the overall
   requested task remains about 86%.
 
+### 2026-07-25 — reconciled wholly closed filesystem mutations
+
+- Added the deny-only `fs:unbound-mutation` capability vocabulary required by
+  LLP 0023 §4.1 and classified the exact reviewed inventory of 56 public
+  `node:fs`/`node:fs/promises` mutation aliases plus 20 direct native mutation
+  terminals as closed. The live-repository test binds all 76 rows exactly, so a
+  typo, missing route, or accidental effect classification fails generation.
+- Regenerated the contract and all 15 registry outputs. Apple now has 23,736
+  required obligations and Windows 23,621: each target sheds 304 impossible
+  allow/deny/malformed/etc. effect scenarios while gaining the honest
+  deny-only closure obligation. This is a model correction, not evidence
+  promotion; Apple remains 2,666 fully executable and 3,114 internally
+  verified, while Windows remains 2,240 and 3,102.
+- The contract and registry reproduce cleanly, the coverage model passes
+  142 tests with 3,359 assertions, and the recipe suite passes 87 tests with
+  108,751 assertions. The Apple catalog now reports 17,956 unresolved rows;
+  Windows reports 18,279.
+- Criterion 7's literal Apple denominator is now 5,780/23,736 (24.4%) proven.
+  Hard part: the closure model is now honest, but none of these 76 exact public
+  spellings has executable unchanged-filesystem evidence yet, and the mixed
+  `__exactFsPathAsync`, `__exactFsFdAsync`, and recursive-`mkdir` dispatchers
+  still need branch-local closure semantics. Important enforcement mechanisms
+  remain about 96% complete and the overall requested task remains about 86%.
+
 ## Next milestone
 
-Attack criterion 7's exact-target evidence gap through real public-surface
-authoring or honest closure, then run the combined ceremony to completion.
+Execute the wholly closed filesystem spellings with zero-decision and
+unchanged-filesystem proof, then add branch-local closure for the mixed
+dispatchers before returning to the broader exact-target evidence gap.

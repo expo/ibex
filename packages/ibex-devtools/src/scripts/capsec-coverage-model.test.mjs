@@ -18,6 +18,7 @@ import {
   reviewedCallbackIngressNames,
   reviewedCallbackProducerNames,
   reviewedCliNames,
+  reviewedClosedFsMutationObservedKeys,
   reviewedGlobalApiNames,
   reviewedHostAbiNames,
   reviewedInspectorNativeNames,
@@ -560,10 +561,10 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["sys:read"],
     ],
     [
-      "copy reads and writes",
+      "unbound copy mutation closed",
       surface("native-op", "__exactCopyFile"),
-      "effects",
-      ["fs:read", "fs:write"],
+      "closed",
+      ["fs:unbound-mutation"],
     ],
     [
       "readlink reads link bytes",
@@ -572,10 +573,10 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["fs:read"],
     ],
     [
-      "hard link reads and writes",
+      "unbound hard-link mutation closed",
       surface("native-op", "__exactLink"),
-      "effects",
-      ["fs:read", "fs:write"],
+      "closed",
+      ["fs:unbound-mutation"],
     ],
     [
       "module resolution metadata lists only",
@@ -675,8 +676,8 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         sourceKey: "node_fs",
         exportName: "watch",
       }),
-      "effects",
-      ["fs:list", "fs:watch"],
+      "closed",
+      ["fs:unbound-mutation"],
     ],
     [
       "builtin process kill export",
@@ -2726,18 +2727,16 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     }
   });
 
-  test("filesystem watcher polling authorizes discovery and repeated watch", () => {
+  test("public filesystem watchers remain closed before polling begins", () => {
     for (const exportName of ["watch", "watchFile"]) {
       const classified = classifyObservedSurface(
         builtinExport("node_fs", exportName),
         context,
       );
-      expect(classified.edge.classification, exportName).toBe("effects");
-      expect(edgeActions(classified), exportName).toEqual([
-        "fs:list",
-        "fs:watch",
-      ]);
-      expect(classified.edge.lifetimeContract, exportName).toBe("watch");
+      expect(classified.edge, exportName).toMatchObject({
+        classification: "closed",
+        cap: "fs:unbound-mutation",
+      });
     }
   });
 
@@ -5360,7 +5359,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     );
   });
 
-  test("definition coverage accounts for all 41 frozen definitions", () => {
+  test("definition coverage accounts for all 42 frozen definitions", () => {
     const model = buildCoverageModel(
       [
         surface("native-op", "__exactFsOpen"),
@@ -5369,10 +5368,10 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ],
       context,
     );
-    expect(model.definitionCoverage).toHaveLength(41);
+    expect(model.definitionCoverage).toHaveLength(42);
     expect(
       new Set(model.definitionCoverage.map((row) => row.definitionId)).size,
-    ).toBe(41);
+    ).toBe(42);
     expect(
       model.definitionCoverage.every((row) =>
         ["covered", "closed", "unsupported", "absent"].includes(
@@ -6291,6 +6290,17 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         edge,
       ]),
     );
+    const liveClosedFsMutationKeys = model.coverage.edges
+      .filter((edge) => edge.cap === "fs:unbound-mutation")
+      .map((edge) => {
+        const key = `${edge.surface.kind}:${edge.surface.name}`;
+        return edge.surface.kind === "builtin" ? key.toLowerCase() : key;
+      })
+      .sort();
+    expect(reviewedClosedFsMutationObservedKeys()).toEqual(
+      liveClosedFsMutationKeys,
+    );
+    expect(liveClosedFsMutationKeys).toHaveLength(76);
     expect(inventory.surfaces.length).toBeGreaterThan(500);
     for (const expected of [
       "builtin:export:node_fs:watch",
@@ -6335,8 +6345,8 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     });
     expect(edgeByObservedKey.get("builtin:export:node_fs:watch")).toMatchObject(
       {
-        classification: "effects",
-        effectMode: "conjunctive",
+        classification: "closed",
+        cap: "fs:unbound-mutation",
       },
     );
     for (const evaluator of [
