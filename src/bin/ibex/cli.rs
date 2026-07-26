@@ -320,6 +320,15 @@ pub enum Commands {
     /// per LLP 0010#runtime-command-surface.
     #[command(hide = true)]
     Compat {
+        /// Probe mode (Exact LLP 0404 N-1): evaluate one JS expression at
+        /// each observation point of the serving path (raw engine, then
+        /// post-bootstrap; module-record and packaged-HBC points are not
+        /// implemented yet) and emit a JSON measurement tuple naming the
+        /// first edge where behavior diverges. Ignores the suite-mode
+        /// flags; `--timeout` bounds each point's evaluation.
+        #[arg(long, value_name = "EXPR")]
+        probe: Option<String>,
+
         /// Run only a specific section: wpt, node, bun, exact
         #[arg(long, value_name = "SECTION")]
         section: Option<String>,
@@ -2104,6 +2113,36 @@ pub(crate) mod tests {
             }
             other => panic!("expected Compat command, got {other:?}"),
         }
+    }
+
+    /// The probe harness (Exact LLP 0404 N-1) is invoked as
+    /// `compat --probe '<expr>'` (optionally with `--timeout`) — pin that
+    /// surface, and that a bare `compat` still routes to suite mode.
+    #[test]
+    fn compat_probe_flag_parses() {
+        let cli = Cli::parse_from([
+            "ibex",
+            "compat",
+            "--probe",
+            "Object.getOwnPropertyDescriptor(Error.prototype,'name')",
+            "--timeout",
+            "20000",
+        ]);
+        match cli.command {
+            Some(Commands::Compat { probe, timeout, .. }) => {
+                assert_eq!(
+                    probe.as_deref(),
+                    Some("Object.getOwnPropertyDescriptor(Error.prototype,'name')")
+                );
+                assert_eq!(timeout, Some(20000));
+            }
+            other => panic!("expected Compat command, got {other:?}"),
+        }
+        let bare = Cli::parse_from(["ibex", "compat"]);
+        assert!(matches!(
+            bare.command,
+            Some(Commands::Compat { probe: None, .. })
+        ));
     }
 
     #[test]

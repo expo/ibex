@@ -20,6 +20,7 @@
 mod discovery;
 mod expectations;
 mod manifest;
+mod probe;
 mod reporter;
 mod runner;
 mod types;
@@ -44,6 +45,13 @@ pub(crate) fn lock_or_recover<T>(mutex: &std::sync::Mutex<T>) -> std::sync::Mute
 
 /// Entry point for `ibex compat`.
 pub async fn run_compat(opts: CompatOptions) -> Result<()> {
+    // Probe mode is a standalone measurement harness (Exact LLP 0404 N-1):
+    // it needs no fixture tree, so it must run before the repo-root/fixture
+    // discovery that the suite mode requires.
+    if let Some(probe_expr) = &opts.probe {
+        return probe::run_probe(probe_expr, opts.timeout).await;
+    }
+
     let repo_root = find_repo_root()?;
     let compat_dir = repo_root.join("test").join("compat");
 
