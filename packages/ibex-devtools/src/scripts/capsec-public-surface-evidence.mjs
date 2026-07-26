@@ -2570,10 +2570,12 @@ function validateRuntimeInvocation(observation, recipe) {
         memberName === null
           ? authored.operation.globalName
           : `${authored.operation.globalName}.${memberName}`;
-      const defaultBranch = branches?.find(
+      const directBranch = branches?.find(
         (branch) =>
           branch.route === "native-jsi-global" &&
-          branch.targetVariant === "default",
+          (branch.targetVariant === "default" ||
+            (branch.targetVariant === "posix" &&
+              descriptor.targetTriple === "aarch64-apple-darwin")),
       );
       const workletBranch = branches?.find(
         (branch) =>
@@ -2598,7 +2600,7 @@ function validateRuntimeInvocation(observation, recipe) {
         publicInvocation.arity >= 0 &&
         typeof publicInvocation.sourceRef === "string" &&
         descriptor.sourceRefs.includes(publicInvocation.sourceRef) &&
-        defaultBranch?.sourceRefs.includes(publicInvocation.sourceRef);
+        directBranch?.sourceRefs.includes(publicInvocation.sourceRef);
       const reviewedWorkletGlobal =
         appRuntimeAbsentWorkletGlobal &&
         authored.surfaceName === `global:${exportName}` &&

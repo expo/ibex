@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-25 (mixed filesystem dispatchers now carry exact branch-local closure: unbound path/descriptor mutations and recursive mkdir select deny-only `fs:unbound-mutation` branches before lookup, while retained-object branches remain effectful; target predicates preserve Apple worker-backed `chmod`/`utime`, close them on Windows, and source inventory binds the POSIX filesystem translation unit only to targets that compile it; Apple accounting is 2,760 fully executable / 3,114 internally verified / 17,849 unresolved and Windows accounting is 2,341 / 3,102 / 18,099)
 **Revised:** 2026-07-25 (`node:fs.opendirSync` adds five empty-directory Apple public recipes with exact `__exactReaddir` evidence, path-bound `Dir` results, and mandatory close proof; Apple accounting is now 2,666 fully executable / 3,114 internally verified / 18,260 unresolved)
 **Revised:** 2026-07-25 (`node:fs.openSync` adds fifteen flag-selected Apple public recipes across exact read, write, and read-write authority branches; every successful descriptor is closed and the three synthetic branch-selection rows remain residual; Apple accounting is now 2,661 fully executable / 3,114 internally verified / 18,265 unresolved)
 **Revised:** 2026-07-25 (`node:fs.readlinkSync` corrects stored-link-byte authorization from ambient `fs:list` to `fs:read` commit/repeat, adds exact translated-string and denial evidence, and promotes five Apple rows; Apple accounting is now 2,646 fully executable / 3,114 internally verified / 18,280 unresolved)
@@ -324,13 +325,19 @@ device work package must replace it with exact conjunctive logical branches
 before conformance.
 
 An exact conditional edge carries a canonical `logicalBranches` set. Each
-branch names the normalized operation facts that select it, its complete
-conjunctive effect set, principal/effect-owner sources, lifetime, and barriers.
+branch names the normalized operation facts that select it and either its
+complete conjunctive effect set, principal/effect-owner sources, lifetime, and
+barriers, or a deny-only closed disposition with its closed action and
+rationale. This permits a dispatcher to retain narrow object-bound operations
+without misclassifying adjacent unbound mutations as effects. Immutable target
+facts may participate in selection only when they come from the exact
+digest-bound target profile; they are never caller-supplied runtime input.
 Selection facts are produced only after argument/resource normalization and
 must select exactly one branch; missing, unknown, or overlapping facts deny.
 Fixture obligations are derived independently for every logical branch,
-including branch selection and explicit no-effect branches, so a union of
-possible effects cannot masquerade as executed conditional semantics.
+including branch selection, explicit no-effect branches, and a physical
+pre-effect refusal for every closed branch, so a union of possible effects
+cannot masquerade as executed conditional semantics.
 
 ### Policy forms and digests
 
@@ -2113,7 +2120,8 @@ The same owned-descriptor harness now physically executes
 `__exactFsFtruncateSync` on Apple. Four recipes require one typed `fs:write`
 repeat decision, then independently verify the exact two-byte length before
 closing the descriptor and removing the file. The global is not installed by
-the Windows filesystem backend, so Windows remains explicitly residual; the
+the Windows filesystem backend, so its exact Windows cell is an executable
+target-absence obligation; the
 Apple deny recipe also remains residual because its required writable-descriptor
 setup cannot survive the same principal's `fs:write` denial. Descriptor mode
 and timestamp mutation remain unresolved: LLP 0023 keeps `fchmod` and `futimes`
@@ -2135,11 +2143,19 @@ Apple public evidence selects `durability-write` with `fsync`, awaits event-loop
 quiescence, requires exactly one typed repeat decision, then closes the
 descriptor and verifies the unchanged owned file before removal. Its deny case
 remains residual because the setup itself requires the authority being denied,
-and the Windows backend does not install this dispatcher. The aggregate
-`metadata-write` branch remains residual: it currently combines open-family
-`ftruncate` with `fchmod`, `fchown`, and `futimes`, which LLP 0023 keeps closed
-pending object-bound mutation work. One `ftruncate` execution therefore cannot
-honestly prove that branch; its registry/runtime split is follow-up work.
+and the Windows backend does not install this dispatcher; source inventory now
+labels `hermes_runtime_fs.cc` as POSIX, so Windows receives one exact absence
+fixture rather than inheriting a fictitious fallback implementation.
+The former aggregate `metadata-write` branch is split exactly. `ftruncate`
+selects its own open-family `fs:write` branch, while `fchmod`, `fchown`, and
+`futimes` each select a deny-only `fs:unbound-mutation` branch. The same
+branch-local closure models every unbound operation spelling in
+`__exactFsPathAsync` and the recursive branch of `__exactMkdir`; the public
+closed harness invokes each spelling, requires exact `EPERM`, zero legacy and
+typed decisions, and recursively compares the entire filesystem fixture before
+and after. Apple has 17 such dispatcher closures and Windows has 16; the
+Windows-only path `chmod`/`utime` closures replace the three descriptor
+closures whose dispatcher is absent there.
 Direct `__exactReaddir` now enumerates a separate exact directory containing one
 harness-owned file. Passing evidence must select the six-decision existing-path
 component walk and three later repeat decisions: retained-target open,

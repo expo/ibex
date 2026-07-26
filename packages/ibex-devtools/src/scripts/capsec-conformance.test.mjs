@@ -363,6 +363,79 @@ describe("capsec target conformance", () => {
     });
   });
 
+  test("binds mixed closed branches only to their exact target", () => {
+    const mixedCoverage = {
+      edges: [
+        {
+          id: "edge.mixed",
+          classification: "effects",
+          surface: { kind: "native-op", name: "mixed" },
+          effects: [{ cap: "fs:write" }],
+          effectMode: "conditional",
+          logicalBranches: [
+            {
+              id: "write-apple",
+              when: [{ fact: "runtime.target.os", equals: "apple" }],
+              effects: [{ cap: "fs:write" }],
+            },
+            {
+              id: "closed-windows",
+              when: [{ fact: "runtime.target.os", equals: "windows" }],
+              disposition: "closed",
+              cap: "fs:unbound-mutation",
+              rationale: "closed before lookup",
+            },
+          ],
+        },
+      ],
+    };
+    const mixedImplementation = {
+      surfaces: [
+        {
+          edgeId: "edge.mixed",
+          observedKey: "native-op:mixed",
+          branchId: "edge.mixed.main",
+          enforcementBranchId: "edge.mixed.main",
+          enforcementRoute: { terminalObservedKey: "native-op:mixed" },
+          targetVariant: "all",
+          targetApplicability: { kind: "all" },
+          fixtureObligations: [
+            "edge.mixed.main.logical.write-apple.allow",
+            "edge.mixed.main.logical.closed-windows.closed",
+          ],
+        },
+      ],
+    };
+    const appleCatalog = fixtureCatalogForTarget({
+      coverage: mixedCoverage,
+      implementation: mixedImplementation,
+      target,
+    });
+    expect(appleCatalog[0].requiredFixtures).toEqual([
+      "edge.mixed.main.logical.write-apple.allow",
+    ]);
+    expect(appleCatalog[0].fixtureBindings[0]).toMatchObject({
+      classifications: ["effects"],
+      actionIds: ["fs:write"],
+    });
+
+    const windowsCatalog = fixtureCatalogForTarget({
+      coverage: mixedCoverage,
+      implementation: mixedImplementation,
+      target: {
+        triple: "x86_64-pc-windows-msvc",
+        features: ["native-lockdown"],
+      },
+    });
+    expect(windowsCatalog[0].requiredFixtures).toEqual([
+      "edge.mixed.main.logical.closed-windows.closed",
+    ]);
+    expect(windowsCatalog[0].fixtureBindings[0]).toMatchObject({
+      classifications: ["closed"],
+      actionIds: [],
+    });
+  });
+
   test("inventory obligations without executions remain incomplete", () => {
     const incompleteBindings = structuredClone(bindings);
     delete incompleteBindings.outputDispositionEvidenceRawContentDigest;

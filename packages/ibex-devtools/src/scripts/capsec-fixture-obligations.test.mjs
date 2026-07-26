@@ -35,11 +35,18 @@ describe("capsec branch fixture obligations", () => {
           logicalBranches: [
             { id: "read", effects: [{ cap: "fs:read" }] },
             { id: "none", effects: [] },
+            {
+              id: "mutate",
+              disposition: "closed",
+              cap: "fs:unbound-mutation",
+            },
           ],
         },
         "edge.main",
       ),
     ).toEqual([
+      "edge.main.logical.mutate.branch-selection",
+      "edge.main.logical.mutate.closed",
       "edge.main.logical.none.branch-selection",
       "edge.main.logical.none.no-effect",
       "edge.main.logical.read.allow",

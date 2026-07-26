@@ -1,6 +1,6 @@
 # Reconcile hard-closed armed filesystem mutations with effect obligations
 
-**Status:** Open
+**Status:** Resolved
 **Severity:** P1
 **Systems:** Security, Runtime, CapSec Registry, Conformance
 **Author:** Codex, directed by Charlie Cheever
@@ -46,7 +46,21 @@ closure.
 - All 76 Apple spellings execute on the bound engine with exact `EPERM`, zero
   decisions, and unchanged recursive filesystem state. The independent
   promotion validator accepts the complete 684-fixture closed batch.
-- Both candidate targets have separate 76-row executable plans. Windows still
-  needs physical execution; Apple evidence is not borrowed.
-- The mixed `__exactFsPathAsync`, `__exactFsFdAsync`, and recursive-`mkdir`
-  dispatchers still need argument-selected branch-local closure modeling.
+- Conditional coverage edges now represent branch-local closure for
+  `__exactFsPathAsync`, `__exactFsFdAsync`, and recursive `mkdir` without
+  widening or closing their reviewed effect-bearing siblings.
+- Apple has 17 and Windows has 16 target-local mixed-dispatcher closures. The
+  bound Apple engine passes the expanded 701-fixture batch, including all 93
+  armed filesystem mutations, and the independent validator accepts the whole
+  artifact.
+- POSIX filesystem globals are source-bound to the POSIX implementation rather
+  than treated as a cross-target default. The Windows plan therefore uses
+  target-absence evidence for globals not compiled into that target and never
+  borrows Apple execution.
+
+## Resolution
+
+Closed by the branch-local conditional-disposition model, exact compiled-source
+target applicability, regenerated target plans, and bound Apple unchanged-state
+execution. Physical Windows execution remains a target-promotion task rather
+than a contradiction in this closure model.

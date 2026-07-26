@@ -4031,7 +4031,7 @@ export function loadAndValidateContract() {
           const conditionKeys = [];
           edge.logicalBranches.forEach((branch, branchIndex) => {
             const conditions = branch.when.map((condition) =>
-              canonicalJson([condition.fact, condition.equals]),
+              canonicalJson(condition),
             );
             assertUnique(
               conditions,
@@ -4042,6 +4042,15 @@ export function loadAndValidateContract() {
               `${label} edge ${edge.id} branch ${branch.id} conditions`,
             );
             conditionKeys.push(canonicalJson(branch.when));
+            if (branch.disposition === "closed") {
+              const definition = definitionsById.get(branch.cap);
+              if (!definition || definition.lifecycle !== "deny-only") {
+                throw new Error(
+                  `${label} edge ${edge.id} closed logical branch ${branch.id} must name a deny-only definition`,
+                );
+              }
+              return;
+            }
             const caps = branch.effects.map((effect) => effect.cap);
             assertUnique(
               caps,
@@ -4100,7 +4109,7 @@ export function loadAndValidateContract() {
           );
           const conditionKeys = edge.logicalBranches.map((branch) => {
             const conditions = branch.when.map((condition) =>
-              canonicalJson([condition.fact, condition.equals]),
+              canonicalJson(condition),
             );
             assertUnique(
               conditions,

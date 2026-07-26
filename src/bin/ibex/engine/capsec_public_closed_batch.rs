@@ -1407,6 +1407,50 @@ fn reviewed_native_filesystem_mutation(name: &str) -> Option<ReviewedFilesystemM
 }
 
 #[cfg(test)]
+fn reviewed_native_filesystem_dispatcher_mutation(
+    name: &str,
+    operation: &str,
+) -> Option<ReviewedFilesystemMutation> {
+    let guard_operation = match operation {
+        "chmod" => "chmod",
+        "chown" => "chown",
+        "copyfile" => "copyfile",
+        "copyfile_excl" => "copyfile_excl",
+        "fchmod" => "fchmod",
+        "fchown" => "fchown",
+        "futimes" => "futimes",
+        "lchmod" => "lchmod",
+        "lchown" => "lchown",
+        "link" => "link",
+        "lutime" => "lutime",
+        "mkdir" => "mkdir",
+        "mkdtemp" => "mkdtemp",
+        "rename" => "rename",
+        "rmdir" => "rmdir",
+        "symlink" => "symlink",
+        "unlink" => "unlink",
+        "utime" => "utime",
+        _ => return None,
+    };
+    let argument_shape = match (name, operation) {
+        (
+            "__exactFsPathAsync",
+            "chmod" | "chown" | "copyfile" | "copyfile_excl" | "lchmod" | "lchown" | "link"
+            | "lutime" | "mkdtemp" | "rename" | "rmdir" | "symlink" | "unlink" | "utime",
+        ) => "path-dispatcher",
+        ("__exactFsPathAsync", "mkdir") => "path-dispatcher-recursive",
+        ("__exactFsFdAsync", "fchmod" | "fchown" | "futimes") => "descriptor-dispatcher",
+        ("__exactMkdir", "mkdir") => "recursive-mkdir",
+        _ => return None,
+    };
+    Some(ReviewedFilesystemMutation {
+        guard_operation,
+        argument_shape,
+        invocation_style: "sync",
+    })
+}
+
+#[cfg(test)]
 fn filesystem_tree_state(path: &std::path::Path) -> serde_json::Value {
     use std::time::UNIX_EPOCH;
 
@@ -1514,6 +1558,16 @@ fn filesystem_mutation_script(
     if (shape === "filehandle-times") return [1, 2];
     if (shape === "path-times") return [paths.source, 1, 2];
     if (shape === "path-prefix") return [paths.prefix];
+    if (shape === "path-dispatcher") {{
+      return [operation.guardOperation, paths.source, paths.destination, 0, 0, 0];
+    }}
+    if (shape === "path-dispatcher-recursive") {{
+      return [operation.guardOperation, paths.source, null, 1, 0, 0];
+    }}
+    if (shape === "descriptor-dispatcher") {{
+      return [operation.guardOperation, 0, 0, 0];
+    }}
+    if (shape === "recursive-mkdir") return [paths.directory, true, -1];
     if (shape === "path") {{
       return [operation.guardOperation === "rm" ||
                operation.guardOperation === "rmdir"
@@ -1703,7 +1757,10 @@ async fn execute_closed_filesystem_mutation(
         reviewed_builtin_filesystem_mutation(source_key, export_name)
             .expect("unreviewed closed filesystem builtin")
     } else {
-        assert_eq!(surface_form, "native-global");
+        assert!(
+            surface_form == "native-global" || surface_form == "native-dispatcher",
+            "unreviewed native filesystem surface form {surface_form}"
+        );
         assert_eq!(invocation.surface_kind, "native-op");
         assert!(source_key.is_none());
         assert!(export_name.is_none());
@@ -1718,8 +1775,13 @@ async fn execute_closed_filesystem_mutation(
             .expect("filesystem native mutation has no native name");
         assert_eq!(descriptor.function_name.as_deref(), Some(native_name));
         assert_eq!(invocation.surface_name, native_name);
-        reviewed_native_filesystem_mutation(native_name)
-            .expect("unreviewed closed filesystem native")
+        if surface_form == "native-dispatcher" {
+            reviewed_native_filesystem_dispatcher_mutation(native_name, guard_operation)
+                .expect("unreviewed closed filesystem dispatcher branch")
+        } else {
+            reviewed_native_filesystem_mutation(native_name)
+                .expect("unreviewed closed filesystem native")
+        }
     };
     assert_eq!(reviewed.guard_operation, guard_operation);
     assert_eq!(reviewed.argument_shape, argument_shape);
@@ -2955,7 +3017,9 @@ async fn execute_closed_shared_runtime_global_absence(
             assert!(public_invocation["arity"].as_u64().is_some());
             assert!(branches.iter().any(|branch| {
                 branch["route"] == "native-jsi-global"
-                    && branch["targetVariant"] == "default"
+                    && (branch["targetVariant"] == "default"
+                        || (branch["targetVariant"] == "posix"
+                            && catalog_target_triple == "aarch64-apple-darwin"))
             }));
         }
         assert_eq!(
@@ -4185,10 +4249,14 @@ async fn capsec_public_closed_recipe_batch() {
         sqlite_crsqlite_enable_count, 2,
         "expected both public cr-sqlite enablement exports"
     );
-    let (expected_debugger_abi, expected_shared_runtime_absence, expected_native_absence) =
-        match catalog.target.triple.as_str() {
-            "aarch64-apple-darwin" => (18, 322, 18),
-            "x86_64-pc-windows-msvc" => (18, 322, 18),
+    let (
+        expected_debugger_abi,
+        expected_shared_runtime_absence,
+        expected_native_absence,
+        expected_filesystem_mutations,
+    ) = match catalog.target.triple.as_str() {
+            "aarch64-apple-darwin" => (18, 322, 18, 93),
+            "x86_64-pc-windows-msvc" => (18, 322, 16, 79),
             target => panic!("closed public batch has no reviewed target shape for {target}"),
         };
     assert_eq!(
@@ -4204,8 +4272,8 @@ async fn capsec_public_closed_recipe_batch() {
         "expected every target-applicable reviewed armed native global"
     );
     assert_eq!(
-        filesystem_mutation_count, 76,
-        "expected every wholly closed public and direct native filesystem mutation"
+        filesystem_mutation_count, expected_filesystem_mutations,
+        "expected every wholly or branch-locally closed public and direct native filesystem mutation"
     );
     let _lock = hermes_engine_test_lock().lock().await;
     let _environment_restore = ClosedEnvironmentRestore::clear();

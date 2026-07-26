@@ -1243,6 +1243,7 @@ const nativeProjectMkdirTemplate = () =>
     expectedCleanup: "removed-created-directory",
     expectedDecisionCounts: {
       allow: 7,
+      "branch-selection": 7,
       deny: 1,
       malformed: 7,
       "missing-attribution": 7,
@@ -1253,6 +1254,7 @@ const nativeProjectMkdirTemplate = () =>
     },
     expectedResults: {
       allow: "return",
+      "branch-selection": "return",
       deny: "permission-denied",
       malformed: "return",
       "missing-attribution": "return",
@@ -1261,6 +1263,7 @@ const nativeProjectMkdirTemplate = () =>
     expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
       allow: missingProjectChildStages(),
+      "branch-selection": missingProjectChildStages(),
       deny: ["requested"],
       malformed: missingProjectChildStages(),
       "missing-attribution": missingProjectChildStages(),

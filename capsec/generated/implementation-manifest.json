@@ -163477,8 +163477,8 @@
     {
       "edgeId": "surface.native.op.exactaccess.1a12cmn",
       "observedKey": "native-op:__exactAccess",
-      "branchId": "surface.native.op.exactaccess.1a12cmn.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactaccess.12eejcs",
+      "branchId": "surface.native.op.exactaccess.1a12cmn.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactaccess.1oa7bji",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -163495,9 +163495,10 @@
         "terminalObservedKey": "native-op:__exactAccess"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactAccess",
@@ -163505,11 +163506,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactaccess.12eejcs.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactaccess.12eejcs.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactaccess.12eejcs.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactaccess.12eejcs.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactaccess.12eejcs.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactaccess.1oa7bji.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactaccess.1oa7bji.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactaccess.1oa7bji.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactaccess.1oa7bji.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactaccess.1oa7bji.wrong-principal"
       ]
     },
     {
@@ -165139,8 +165140,8 @@
     {
       "edgeId": "surface.native.op.exactappendfile.1b1b7nn",
       "observedKey": "native-op:__exactAppendFile",
-      "branchId": "surface.native.op.exactappendfile.1b1b7nn.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactappendfile.04stgr2",
+      "branchId": "surface.native.op.exactappendfile.1b1b7nn.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactappendfile.1k6gfvc",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -165157,9 +165158,10 @@
         "terminalObservedKey": "native-op:__exactAppendFile"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactAppendFile",
@@ -165167,11 +165169,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactappendfile.04stgr2.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactappendfile.04stgr2.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactappendfile.04stgr2.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactappendfile.04stgr2.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactappendfile.04stgr2.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactappendfile.1k6gfvc.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactappendfile.1k6gfvc.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactappendfile.1k6gfvc.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactappendfile.1k6gfvc.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactappendfile.1k6gfvc.wrong-principal"
       ]
     },
     {
@@ -165751,8 +165753,8 @@
     {
       "edgeId": "surface.native.op.exactchmod.0z6n1u6",
       "observedKey": "native-op:__exactChmod",
-      "branchId": "surface.native.op.exactchmod.0z6n1u6.default",
-      "enforcementBranchId": "surface.native.op.exactchmod.0z6n1u6.default",
+      "branchId": "surface.native.op.exactchmod.0z6n1u6.posix",
+      "enforcementBranchId": "surface.native.op.exactchmod.0z6n1u6.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -165769,9 +165771,10 @@
         "terminalObservedKey": "native-op:__exactChmod"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactChmod",
@@ -165779,7 +165782,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactchmod.0z6n1u6.default.closed"
+        "surface.native.op.exactchmod.0z6n1u6.posix.closed"
       ]
     },
     {
@@ -165820,8 +165823,8 @@
     {
       "edgeId": "surface.native.op.exactchown.179ybj6",
       "observedKey": "native-op:__exactChown",
-      "branchId": "surface.native.op.exactchown.179ybj6.default",
-      "enforcementBranchId": "surface.native.op.exactchown.179ybj6.default",
+      "branchId": "surface.native.op.exactchown.179ybj6.posix",
+      "enforcementBranchId": "surface.native.op.exactchown.179ybj6.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -165838,9 +165841,10 @@
         "terminalObservedKey": "native-op:__exactChown"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactChown",
@@ -165848,7 +165852,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactchown.179ybj6.default.closed"
+        "surface.native.op.exactchown.179ybj6.posix.closed"
       ]
     },
     {
@@ -165997,8 +166001,8 @@
     {
       "edgeId": "surface.native.op.exactcopyfile.0rn0zb2",
       "observedKey": "native-op:__exactCopyFile",
-      "branchId": "surface.native.op.exactcopyfile.0rn0zb2.default",
-      "enforcementBranchId": "surface.native.op.exactcopyfile.0rn0zb2.default",
+      "branchId": "surface.native.op.exactcopyfile.0rn0zb2.posix",
+      "enforcementBranchId": "surface.native.op.exactcopyfile.0rn0zb2.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -166015,9 +166019,10 @@
         "terminalObservedKey": "native-op:__exactCopyFile"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactCopyFile",
@@ -166025,7 +166030,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactcopyfile.0rn0zb2.default.closed"
+        "surface.native.op.exactcopyfile.0rn0zb2.posix.closed"
       ]
     },
     {
@@ -167603,8 +167608,8 @@
     {
       "edgeId": "surface.native.op.exactfdpollhup.0jjcx5v",
       "observedKey": "native-op:__exactFdPollHup",
-      "branchId": "surface.native.op.exactfdpollhup.0jjcx5v.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfdpollhup.0ekdaj7",
+      "branchId": "surface.native.op.exactfdpollhup.0jjcx5v.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfdpollhup.1q9r7vd",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -167621,9 +167626,10 @@
         "terminalObservedKey": "native-op:__exactFdPollHup"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFdPollHup",
@@ -167631,18 +167637,18 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfdpollhup.0ekdaj7.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfdpollhup.0ekdaj7.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfdpollhup.0ekdaj7.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfdpollhup.0ekdaj7.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfdpollhup.0ekdaj7.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfdpollhup.1q9r7vd.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfdpollhup.1q9r7vd.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfdpollhup.1q9r7vd.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfdpollhup.1q9r7vd.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfdpollhup.1q9r7vd.wrong-principal"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfsclose.0r6l8ou",
       "observedKey": "native-op:__exactFsClose",
-      "branchId": "surface.native.op.exactfsclose.0r6l8ou.default",
-      "enforcementBranchId": "surface.native.op.exactfsclose.0r6l8ou.default",
+      "branchId": "surface.native.op.exactfsclose.0r6l8ou.posix",
+      "enforcementBranchId": "surface.native.op.exactfsclose.0r6l8ou.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -167659,9 +167665,10 @@
         "terminalObservedKey": "native-op:__exactFsClose"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsClose",
@@ -167669,7 +167676,7 @@
       ],
       "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.native.op.exactfsclose.0r6l8ou.default.non-capability"
+        "surface.native.op.exactfsclose.0r6l8ou.posix.non-capability"
       ]
     },
     {
@@ -167710,8 +167717,8 @@
     {
       "edgeId": "surface.native.op.exactfscloseasync.117uwo2",
       "observedKey": "native-op:__exactFsCloseAsync",
-      "branchId": "surface.native.op.exactfscloseasync.117uwo2.default",
-      "enforcementBranchId": "surface.native.op.exactfscloseasync.117uwo2.default",
+      "branchId": "surface.native.op.exactfscloseasync.117uwo2.posix",
+      "enforcementBranchId": "surface.native.op.exactfscloseasync.117uwo2.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -167728,9 +167735,10 @@
         "terminalObservedKey": "native-op:__exactFsCloseAsync"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsCloseAsync",
@@ -167738,14 +167746,14 @@
       ],
       "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.native.op.exactfscloseasync.117uwo2.default.non-capability"
+        "surface.native.op.exactfscloseasync.117uwo2.posix.non-capability"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfsfchmod.1fo8s7x",
       "observedKey": "native-op:__exactFsFchmod",
-      "branchId": "surface.native.op.exactfsfchmod.1fo8s7x.default",
-      "enforcementBranchId": "surface.native.op.exactfsfchmod.1fo8s7x.default",
+      "branchId": "surface.native.op.exactfsfchmod.1fo8s7x.posix",
+      "enforcementBranchId": "surface.native.op.exactfsfchmod.1fo8s7x.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -167762,9 +167770,10 @@
         "terminalObservedKey": "native-op:__exactFsFchmod"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsFchmod",
@@ -167772,14 +167781,14 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfsfchmod.1fo8s7x.default.closed"
+        "surface.native.op.exactfsfchmod.1fo8s7x.posix.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfsfchmodsync.0cry376",
       "observedKey": "native-op:__exactFsFchmodSync",
-      "branchId": "surface.native.op.exactfsfchmodsync.0cry376.default",
-      "enforcementBranchId": "surface.native.op.exactfsfchmodsync.0cry376.default",
+      "branchId": "surface.native.op.exactfsfchmodsync.0cry376.posix",
+      "enforcementBranchId": "surface.native.op.exactfsfchmodsync.0cry376.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -167796,9 +167805,10 @@
         "terminalObservedKey": "native-op:__exactFsFchmodSync"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsFchmodSync",
@@ -167806,14 +167816,14 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfsfchmodsync.0cry376.default.closed"
+        "surface.native.op.exactfsfchmodsync.0cry376.posix.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfsfchown.1wlogwx",
       "observedKey": "native-op:__exactFsFchown",
-      "branchId": "surface.native.op.exactfsfchown.1wlogwx.default",
-      "enforcementBranchId": "surface.native.op.exactfsfchown.1wlogwx.default",
+      "branchId": "surface.native.op.exactfsfchown.1wlogwx.posix",
+      "enforcementBranchId": "surface.native.op.exactfsfchown.1wlogwx.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -167830,9 +167840,10 @@
         "terminalObservedKey": "native-op:__exactFsFchown"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsFchown",
@@ -167840,14 +167851,14 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfsfchown.1wlogwx.default.closed"
+        "surface.native.op.exactfsfchown.1wlogwx.posix.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfsfchownsync.1o61nfi",
       "observedKey": "native-op:__exactFsFchownSync",
-      "branchId": "surface.native.op.exactfsfchownsync.1o61nfi.default",
-      "enforcementBranchId": "surface.native.op.exactfsfchownsync.1o61nfi.default",
+      "branchId": "surface.native.op.exactfsfchownsync.1o61nfi.posix",
+      "enforcementBranchId": "surface.native.op.exactfsfchownsync.1o61nfi.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -167864,9 +167875,10 @@
         "terminalObservedKey": "native-op:__exactFsFchownSync"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsFchownSync",
@@ -167874,14 +167886,14 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfsfchownsync.1o61nfi.default.closed"
+        "surface.native.op.exactfsfchownsync.1o61nfi.posix.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfsfdasync.1iinzl8",
       "observedKey": "native-op:__exactFsFdAsync",
-      "branchId": "surface.native.op.exactfsfdasync.1iinzl8.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd",
+      "branchId": "surface.native.op.exactfsfdasync.1iinzl8.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -167898,9 +167910,10 @@
         "terminalObservedKey": "native-op:__exactFsFdAsync"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsFdAsync",
@@ -167908,25 +167921,31 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.durability-write.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.durability-write.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.durability-write.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.durability-write.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.durability-write.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.durability-write.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.metadata-write.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.metadata-write.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.metadata-write.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.metadata-write.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.metadata-write.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.metadata-write.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.durability-write.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.durability-write.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.durability-write.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.durability-write.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.durability-write.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.durability-write.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.fchmod.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.fchmod.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.fchown.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.fchown.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.futimes.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.futimes.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.truncate.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.truncate.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.truncate.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.truncate.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.truncate.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.1sgxe8m.logical.truncate.wrong-principal"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfsfdatasyncsync.1p6q71s",
       "observedKey": "native-op:__exactFsFdatasyncSync",
-      "branchId": "surface.native.op.exactfsfdatasyncsync.1p6q71s.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdatasyncsync.0wv3flr",
+      "branchId": "surface.native.op.exactfsfdatasyncsync.1p6q71s.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdatasyncsync.1w2enqb",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -167943,9 +167962,10 @@
         "terminalObservedKey": "native-op:__exactFsFdatasyncSync"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsFdatasyncSync",
@@ -167953,11 +167973,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdatasyncsync.0wv3flr.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdatasyncsync.0wv3flr.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdatasyncsync.0wv3flr.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdatasyncsync.0wv3flr.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdatasyncsync.0wv3flr.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdatasyncsync.1w2enqb.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdatasyncsync.1w2enqb.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdatasyncsync.1w2enqb.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdatasyncsync.1w2enqb.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdatasyncsync.1w2enqb.wrong-principal"
       ]
     },
     {
@@ -168002,8 +168022,8 @@
     {
       "edgeId": "surface.native.op.exactfsfstatsync.1md7g19",
       "observedKey": "native-op:__exactFsFstatSync",
-      "branchId": "surface.native.op.exactfsfstatsync.1md7g19.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfstatsync.1jf2kr1",
+      "branchId": "surface.native.op.exactfsfstatsync.1md7g19.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfstatsync.1xi8z6f",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -168020,9 +168040,10 @@
         "terminalObservedKey": "native-op:__exactFsFstatSync"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsFstatSync",
@@ -168030,11 +168051,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfstatsync.1jf2kr1.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfstatsync.1jf2kr1.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfstatsync.1jf2kr1.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfstatsync.1jf2kr1.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfstatsync.1jf2kr1.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfstatsync.1xi8z6f.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfstatsync.1xi8z6f.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfstatsync.1xi8z6f.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfstatsync.1xi8z6f.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfstatsync.1xi8z6f.wrong-principal"
       ]
     },
     {
@@ -168079,8 +168100,8 @@
     {
       "edgeId": "surface.native.op.exactfsfsyncsync.02nw7ns",
       "observedKey": "native-op:__exactFsFsyncSync",
-      "branchId": "surface.native.op.exactfsfsyncsync.02nw7ns.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfsyncsync.18l2jjb",
+      "branchId": "surface.native.op.exactfsfsyncsync.02nw7ns.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfsyncsync.1pq8zgb",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -168097,9 +168118,10 @@
         "terminalObservedKey": "native-op:__exactFsFsyncSync"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsFsyncSync",
@@ -168107,11 +168129,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfsyncsync.18l2jjb.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfsyncsync.18l2jjb.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfsyncsync.18l2jjb.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfsyncsync.18l2jjb.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfsyncsync.18l2jjb.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfsyncsync.1pq8zgb.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfsyncsync.1pq8zgb.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfsyncsync.1pq8zgb.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfsyncsync.1pq8zgb.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfsyncsync.1pq8zgb.wrong-principal"
       ]
     },
     {
@@ -168156,8 +168178,8 @@
     {
       "edgeId": "surface.native.op.exactfsftruncatesync.0un4ty5",
       "observedKey": "native-op:__exactFsFtruncateSync",
-      "branchId": "surface.native.op.exactfsftruncatesync.0un4ty5.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsftruncatesync.1cx8u5y",
+      "branchId": "surface.native.op.exactfsftruncatesync.0un4ty5.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsftruncatesync.0nsjn7w",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -168174,9 +168196,10 @@
         "terminalObservedKey": "native-op:__exactFsFtruncateSync"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsFtruncateSync",
@@ -168184,18 +168207,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsftruncatesync.1cx8u5y.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsftruncatesync.1cx8u5y.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsftruncatesync.1cx8u5y.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsftruncatesync.1cx8u5y.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsftruncatesync.1cx8u5y.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsftruncatesync.0nsjn7w.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsftruncatesync.0nsjn7w.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsftruncatesync.0nsjn7w.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsftruncatesync.0nsjn7w.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsftruncatesync.0nsjn7w.wrong-principal"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfsfutimessync.0hnqdt0",
       "observedKey": "native-op:__exactFsFutimesSync",
-      "branchId": "surface.native.op.exactfsfutimessync.0hnqdt0.default",
-      "enforcementBranchId": "surface.native.op.exactfsfutimessync.0hnqdt0.default",
+      "branchId": "surface.native.op.exactfsfutimessync.0hnqdt0.posix",
+      "enforcementBranchId": "surface.native.op.exactfsfutimessync.0hnqdt0.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -168212,9 +168235,10 @@
         "terminalObservedKey": "native-op:__exactFsFutimesSync"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsFutimesSync",
@@ -168222,14 +168246,14 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfsfutimessync.0hnqdt0.default.closed"
+        "surface.native.op.exactfsfutimessync.0hnqdt0.posix.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfsmutationguard.16p1szu",
       "observedKey": "native-op:__exactFsMutationGuard",
-      "branchId": "surface.native.op.exactfsmutationguard.16p1szu.default",
-      "enforcementBranchId": "surface.native.op.exactfsmutationguard.16p1szu.default",
+      "branchId": "surface.native.op.exactfsmutationguard.16p1szu.posix",
+      "enforcementBranchId": "surface.native.op.exactfsmutationguard.16p1szu.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -168248,9 +168272,10 @@
         "terminalObservedKey": "native-op:__exactFsMutationGuard"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#__exactFsMutationGuard",
@@ -168259,9 +168284,9 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfsmutationguard.16p1szu.default.cannot-widen-authority",
-        "surface.native.op.exactfsmutationguard.16p1szu.default.non-capability",
-        "surface.native.op.exactfsmutationguard.16p1szu.default.post-lockdown-invariant"
+        "surface.native.op.exactfsmutationguard.16p1szu.posix.cannot-widen-authority",
+        "surface.native.op.exactfsmutationguard.16p1szu.posix.non-capability",
+        "surface.native.op.exactfsmutationguard.16p1szu.posix.post-lockdown-invariant"
       ]
     },
     {
@@ -168275,10 +168300,12 @@
           "native-op:__exactFsMutationGuard"
         ],
         "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactFsMutationGuard",
           "src/engine/hermes_runtime_fs_windows.cc#__exactFsMutationGuard",
           "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsMutationGuard"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactFsMutationGuard",
           "src/engine/hermes_runtime_fs_windows.cc#__exactFsMutationGuard",
           "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsMutationGuard"
         ],
@@ -168291,6 +168318,7 @@
         "value": "windows"
       },
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactFsMutationGuard",
         "src/engine/hermes_runtime_fs_windows.cc#__exactFsMutationGuard",
         "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsMutationGuard"
       ],
@@ -168304,8 +168332,8 @@
     {
       "edgeId": "surface.native.op.exactfsopen.05ao6wa",
       "observedKey": "native-op:__exactFsOpen",
-      "branchId": "surface.native.op.exactfsopen.05ao6wa.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66",
+      "branchId": "surface.native.op.exactfsopen.05ao6wa.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -168322,9 +168350,10 @@
         "terminalObservedKey": "native-op:__exactFsOpen"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsOpen",
@@ -168332,24 +168361,24 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.read-write.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.read-write.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.read-write.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.read-write.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.read-write.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.read-write.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.read.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.read.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.read.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.read.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.read.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.read.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.write.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.write.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.write.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.write.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.write.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.0kp2q66.logical.write.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.read-write.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.read-write.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.read-write.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.read-write.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.read-write.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.read-write.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.read.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.read.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.read.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.read.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.read.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.read.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.write.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.write.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.write.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.write.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.write.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopen.06j5pmm.logical.write.wrong-principal"
       ]
     },
     {
@@ -168407,8 +168436,8 @@
     {
       "edgeId": "surface.native.op.exactfsopenasync.1jie13i",
       "observedKey": "native-op:__exactFsOpenAsync",
-      "branchId": "surface.native.op.exactfsopenasync.1jie13i.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy",
+      "branchId": "surface.native.op.exactfsopenasync.1jie13i.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -168425,9 +168454,10 @@
         "terminalObservedKey": "native-op:__exactFsOpenAsync"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsOpenAsync",
@@ -168435,31 +168465,31 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.read-write.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.read-write.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.read-write.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.read-write.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.read-write.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.read-write.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.read.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.read.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.read.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.read.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.read.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.read.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.write.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.write.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.write.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.write.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.write.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.1y2a1gy.logical.write.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.read-write.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.read-write.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.read-write.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.read-write.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.read-write.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.read-write.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.read.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.read.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.read.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.read.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.read.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.read.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.write.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.write.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.write.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.write.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.write.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsopenasync.15t3f1u.logical.write.wrong-principal"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfspathasync.10cb78b",
       "observedKey": "native-op:__exactFsPathAsync",
-      "branchId": "surface.native.op.exactfspathasync.10cb78b.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb",
+      "branchId": "surface.native.op.exactfspathasync.10cb78b.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -168476,9 +168506,10 @@
         "terminalObservedKey": "native-op:__exactFsPathAsync"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsPathAsync",
@@ -168486,121 +168517,103 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.access-read.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.access-read.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.access-read.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.access-read.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.access-read.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.access-read.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.access-write.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.access-write.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.access-write.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.access-write.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.access-write.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.access-write.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.chmod.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.chmod.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.chmod.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.chmod.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.chmod.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.chmod.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.chown.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.chown.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.chown.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.chown.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.chown.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.chown.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.copy.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.copy.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.copy.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.copy.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.copy.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.copy.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.link.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.link.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.link.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.link.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.link.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.link.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.mkdir.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.mkdir.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.mkdir.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.mkdir.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.mkdir.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.mkdir.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.mkdtemp.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.mkdtemp.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.mkdtemp.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.mkdtemp.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.mkdtemp.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.mkdtemp.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.readdir.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.readdir.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.readdir.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.readdir.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.readdir.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.readdir.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.readlink.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.readlink.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.readlink.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.readlink.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.readlink.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.readlink.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.realpath.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.realpath.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.realpath.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.realpath.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.realpath.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.realpath.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.rename.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.rename.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.rename.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.rename.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.rename.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.rename.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.rmdir.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.rmdir.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.rmdir.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.rmdir.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.rmdir.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.rmdir.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.statfs.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.statfs.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.statfs.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.statfs.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.statfs.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.statfs.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.symlink.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.symlink.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.symlink.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.symlink.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.symlink.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.symlink.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.truncate.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.truncate.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.truncate.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.truncate.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.truncate.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.truncate.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.unlink.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.unlink.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.unlink.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.unlink.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.unlink.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.unlink.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.utime.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.utime.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.utime.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.utime.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.utime.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.170vjnb.logical.utime.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.access-read.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.access-read.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.access-read.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.access-read.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.access-read.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.access-read.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.access-write.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.access-write.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.access-write.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.access-write.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.access-write.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.access-write.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.chmod-windows.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.chmod-windows.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.chmod.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.chmod.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.chmod.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.chmod.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.chmod.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.chmod.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.chown.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.chown.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.copyfile-excl.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.copyfile-excl.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.copyfile.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.copyfile.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.lchmod.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.lchmod.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.lchown.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.lchown.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.link.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.link.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.lutime.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.lutime.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.mkdir-recursive.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.mkdir-recursive.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.mkdir.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.mkdir.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.mkdir.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.mkdir.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.mkdir.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.mkdir.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.mkdtemp.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.mkdtemp.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.readdir.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.readdir.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.readdir.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.readdir.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.readdir.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.readdir.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.readlink.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.readlink.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.readlink.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.readlink.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.readlink.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.readlink.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.realpath.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.realpath.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.realpath.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.realpath.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.realpath.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.realpath.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.rename.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.rename.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.rmdir.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.rmdir.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.statfs.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.statfs.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.statfs.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.statfs.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.statfs.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.statfs.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.symlink.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.symlink.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.truncate.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.truncate.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.truncate.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.truncate.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.truncate.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.truncate.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.unlink.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.unlink.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.utime-windows.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.utime-windows.closed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.utime.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.utime.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.utime.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.utime.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.utime.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfspathasync.15h49he.logical.utime.wrong-principal"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfspathasync.10cb78b",
       "observedKey": "native-op:__exactFsPathAsync",
       "branchId": "surface.native.op.exactfspathasync.10cb78b.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -168628,121 +168641,103 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.access-read.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.access-read.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.access-read.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.access-read.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.access-read.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.access-read.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.access-write.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.access-write.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.access-write.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.access-write.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.access-write.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.access-write.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.chmod.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.chmod.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.chmod.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.chmod.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.chmod.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.chmod.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.chown.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.chown.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.chown.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.chown.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.chown.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.chown.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.copy.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.copy.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.copy.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.copy.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.copy.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.copy.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.link.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.link.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.link.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.link.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.link.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.link.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.mkdir.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.mkdir.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.mkdir.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.mkdir.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.mkdir.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.mkdir.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.mkdtemp.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.mkdtemp.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.mkdtemp.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.mkdtemp.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.mkdtemp.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.mkdtemp.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.readdir.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.readdir.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.readdir.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.readdir.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.readdir.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.readdir.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.readlink.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.readlink.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.readlink.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.readlink.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.readlink.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.readlink.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.realpath.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.realpath.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.realpath.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.realpath.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.realpath.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.realpath.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.rename.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.rename.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.rename.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.rename.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.rename.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.rename.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.rmdir.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.rmdir.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.rmdir.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.rmdir.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.rmdir.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.rmdir.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.statfs.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.statfs.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.statfs.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.statfs.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.statfs.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.statfs.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.symlink.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.symlink.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.symlink.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.symlink.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.symlink.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.symlink.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.truncate.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.truncate.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.truncate.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.truncate.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.truncate.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.truncate.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.unlink.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.unlink.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.unlink.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.unlink.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.unlink.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.unlink.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.utime.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.utime.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.utime.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.utime.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.utime.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.1od7ex6.logical.utime.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.access-read.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.access-read.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.access-read.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.access-read.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.access-read.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.access-read.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.access-write.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.access-write.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.access-write.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.access-write.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.access-write.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.access-write.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.chmod-windows.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.chmod-windows.closed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.chmod.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.chmod.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.chmod.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.chmod.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.chmod.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.chmod.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.chown.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.chown.closed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.copyfile-excl.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.copyfile-excl.closed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.copyfile.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.copyfile.closed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.lchmod.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.lchmod.closed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.lchown.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.lchown.closed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.link.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.link.closed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.lutime.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.lutime.closed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.mkdir-recursive.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.mkdir-recursive.closed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.mkdir.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.mkdir.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.mkdir.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.mkdir.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.mkdir.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.mkdir.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.mkdtemp.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.mkdtemp.closed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.readdir.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.readdir.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.readdir.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.readdir.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.readdir.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.readdir.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.readlink.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.readlink.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.readlink.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.readlink.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.readlink.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.readlink.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.realpath.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.realpath.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.realpath.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.realpath.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.realpath.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.realpath.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.rename.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.rename.closed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.rmdir.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.rmdir.closed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.statfs.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.statfs.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.statfs.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.statfs.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.statfs.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.statfs.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.symlink.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.symlink.closed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.truncate.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.truncate.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.truncate.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.truncate.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.truncate.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.truncate.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.unlink.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.unlink.closed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.utime-windows.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.utime-windows.closed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.utime.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.utime.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.utime.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.utime.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.utime.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfspathasync.048sd3x.logical.utime.wrong-principal"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfsread.1ixlwve",
       "observedKey": "native-op:__exactFsRead",
-      "branchId": "surface.native.op.exactfsread.1ixlwve.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsread.10dg4ky",
+      "branchId": "surface.native.op.exactfsread.1ixlwve.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsread.14tp9cy",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -168759,9 +168754,10 @@
         "terminalObservedKey": "native-op:__exactFsRead"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsRead",
@@ -168769,11 +168765,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsread.10dg4ky.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsread.10dg4ky.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsread.10dg4ky.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsread.10dg4ky.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsread.10dg4ky.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsread.14tp9cy.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsread.14tp9cy.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsread.14tp9cy.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsread.14tp9cy.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsread.14tp9cy.wrong-principal"
       ]
     },
     {
@@ -168818,8 +168814,8 @@
     {
       "edgeId": "surface.native.op.exactfsreadasync.0l952a6",
       "observedKey": "native-op:__exactFsReadAsync",
-      "branchId": "surface.native.op.exactfsreadasync.0l952a6.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1tlghxq",
+      "branchId": "surface.native.op.exactfsreadasync.0l952a6.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1mg62ny",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -168836,9 +168832,10 @@
         "terminalObservedKey": "native-op:__exactFsReadAsync"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsReadAsync",
@@ -168846,11 +168843,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1tlghxq.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1tlghxq.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1tlghxq.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1tlghxq.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1tlghxq.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1mg62ny.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1mg62ny.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1mg62ny.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1mg62ny.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1mg62ny.wrong-principal"
       ]
     },
     {
@@ -168895,8 +168892,8 @@
     {
       "edgeId": "surface.native.op.exactfsreadfileasync.0fw3fo0",
       "observedKey": "native-op:__exactFsReadFileAsync",
-      "branchId": "surface.native.op.exactfsreadfileasync.0fw3fo0.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.1s7zz8b",
+      "branchId": "surface.native.op.exactfsreadfileasync.0fw3fo0.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.17ydgxj",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -168913,9 +168910,10 @@
         "terminalObservedKey": "native-op:__exactFsReadFileAsync"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsReadFileAsync",
@@ -168923,18 +168921,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.1s7zz8b.logical.descriptor.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.1s7zz8b.logical.descriptor.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.1s7zz8b.logical.descriptor.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.1s7zz8b.logical.descriptor.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.1s7zz8b.logical.descriptor.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.1s7zz8b.logical.descriptor.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.1s7zz8b.logical.path.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.1s7zz8b.logical.path.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.1s7zz8b.logical.path.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.1s7zz8b.logical.path.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.1s7zz8b.logical.path.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.1s7zz8b.logical.path.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.17ydgxj.logical.descriptor.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.17ydgxj.logical.descriptor.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.17ydgxj.logical.descriptor.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.17ydgxj.logical.descriptor.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.17ydgxj.logical.descriptor.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.17ydgxj.logical.descriptor.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.17ydgxj.logical.path.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.17ydgxj.logical.path.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.17ydgxj.logical.path.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.17ydgxj.logical.path.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.17ydgxj.logical.path.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadfileasync.17ydgxj.logical.path.wrong-principal"
       ]
     },
     {
@@ -168986,8 +168984,8 @@
     {
       "edgeId": "surface.native.op.exactfsreadv.11moytw",
       "observedKey": "native-op:__exactFsReadv",
-      "branchId": "surface.native.op.exactfsreadv.11moytw.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadv.17znlgk",
+      "branchId": "surface.native.op.exactfsreadv.11moytw.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadv.1q7cduw",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -169004,9 +169002,10 @@
         "terminalObservedKey": "native-op:__exactFsReadv"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsReadv",
@@ -169014,18 +169013,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadv.17znlgk.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadv.17znlgk.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadv.17znlgk.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadv.17znlgk.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadv.17znlgk.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadv.1q7cduw.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadv.1q7cduw.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadv.1q7cduw.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadv.1q7cduw.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadv.1q7cduw.wrong-principal"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfsreadvasync.0bn4x60",
       "observedKey": "native-op:__exactFsReadvAsync",
-      "branchId": "surface.native.op.exactfsreadvasync.0bn4x60.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.1wa1wow",
+      "branchId": "surface.native.op.exactfsreadvasync.0bn4x60.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.0po4ksk",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -169042,9 +169041,10 @@
         "terminalObservedKey": "native-op:__exactFsReadvAsync"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsReadvAsync",
@@ -169052,11 +169052,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.1wa1wow.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.1wa1wow.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.1wa1wow.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.1wa1wow.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.1wa1wow.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.0po4ksk.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.0po4ksk.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.0po4ksk.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.0po4ksk.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.0po4ksk.wrong-principal"
       ]
     },
     {
@@ -169101,8 +169101,8 @@
     {
       "edgeId": "surface.native.op.exactfsstatasync.0b0hr8s",
       "observedKey": "native-op:__exactFsStatAsync",
-      "branchId": "surface.native.op.exactfsstatasync.0b0hr8s.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.1sup8ax",
+      "branchId": "surface.native.op.exactfsstatasync.0b0hr8s.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.04gdlrh",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -169119,9 +169119,10 @@
         "terminalObservedKey": "native-op:__exactFsStatAsync"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsStatAsync",
@@ -169129,18 +169130,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.1sup8ax.logical.descriptor.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.1sup8ax.logical.descriptor.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.1sup8ax.logical.descriptor.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.1sup8ax.logical.descriptor.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.1sup8ax.logical.descriptor.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.1sup8ax.logical.descriptor.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.1sup8ax.logical.path.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.1sup8ax.logical.path.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.1sup8ax.logical.path.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.1sup8ax.logical.path.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.1sup8ax.logical.path.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.1sup8ax.logical.path.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.04gdlrh.logical.descriptor.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.04gdlrh.logical.descriptor.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.04gdlrh.logical.descriptor.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.04gdlrh.logical.descriptor.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.04gdlrh.logical.descriptor.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.04gdlrh.logical.descriptor.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.04gdlrh.logical.path.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.04gdlrh.logical.path.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.04gdlrh.logical.path.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.04gdlrh.logical.path.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.04gdlrh.logical.path.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsstatasync.04gdlrh.logical.path.wrong-principal"
       ]
     },
     {
@@ -169192,8 +169193,8 @@
     {
       "edgeId": "surface.native.op.exactfswrite.1locgj1",
       "observedKey": "native-op:__exactFsWrite",
-      "branchId": "surface.native.op.exactfswrite.1locgj1.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfswrite.03o9wvi",
+      "branchId": "surface.native.op.exactfswrite.1locgj1.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfswrite.1wbndck",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -169210,9 +169211,10 @@
         "terminalObservedKey": "native-op:__exactFsWrite"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsWrite",
@@ -169220,11 +169222,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswrite.03o9wvi.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswrite.03o9wvi.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswrite.03o9wvi.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswrite.03o9wvi.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswrite.03o9wvi.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswrite.1wbndck.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswrite.1wbndck.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswrite.1wbndck.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswrite.1wbndck.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswrite.1wbndck.wrong-principal"
       ]
     },
     {
@@ -169269,8 +169271,8 @@
     {
       "edgeId": "surface.native.op.exactfswriteasync.0f1ap1j",
       "observedKey": "native-op:__exactFsWriteAsync",
-      "branchId": "surface.native.op.exactfswriteasync.0f1ap1j.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfswriteasync.0wrrvwu",
+      "branchId": "surface.native.op.exactfswriteasync.0f1ap1j.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfswriteasync.17ld6r8",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -169287,9 +169289,10 @@
         "terminalObservedKey": "native-op:__exactFsWriteAsync"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsWriteAsync",
@@ -169297,11 +169300,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswriteasync.0wrrvwu.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswriteasync.0wrrvwu.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswriteasync.0wrrvwu.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswriteasync.0wrrvwu.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswriteasync.0wrrvwu.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswriteasync.17ld6r8.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswriteasync.17ld6r8.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswriteasync.17ld6r8.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswriteasync.17ld6r8.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswriteasync.17ld6r8.wrong-principal"
       ]
     },
     {
@@ -169346,8 +169349,8 @@
     {
       "edgeId": "surface.native.op.exactfswritefileasync.0fv6zp9",
       "observedKey": "native-op:__exactFsWriteFileAsync",
-      "branchId": "surface.native.op.exactfswritefileasync.0fv6zp9.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0mhpfjt",
+      "branchId": "surface.native.op.exactfswritefileasync.0fv6zp9.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0jipbob",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -169364,9 +169367,10 @@
         "terminalObservedKey": "native-op:__exactFsWriteFileAsync"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsWriteFileAsync",
@@ -169374,18 +169378,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0mhpfjt.logical.descriptor.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0mhpfjt.logical.descriptor.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0mhpfjt.logical.descriptor.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0mhpfjt.logical.descriptor.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0mhpfjt.logical.descriptor.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0mhpfjt.logical.descriptor.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0mhpfjt.logical.path.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0mhpfjt.logical.path.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0mhpfjt.logical.path.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0mhpfjt.logical.path.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0mhpfjt.logical.path.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0mhpfjt.logical.path.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0jipbob.logical.descriptor.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0jipbob.logical.descriptor.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0jipbob.logical.descriptor.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0jipbob.logical.descriptor.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0jipbob.logical.descriptor.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0jipbob.logical.descriptor.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0jipbob.logical.path.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0jipbob.logical.path.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0jipbob.logical.path.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0jipbob.logical.path.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0jipbob.logical.path.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritefileasync.0jipbob.logical.path.wrong-principal"
       ]
     },
     {
@@ -169437,8 +169441,8 @@
     {
       "edgeId": "surface.native.op.exactfswritev.0662i81",
       "observedKey": "native-op:__exactFsWritev",
-      "branchId": "surface.native.op.exactfswritev.0662i81.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritev.01ra2uo",
+      "branchId": "surface.native.op.exactfswritev.0662i81.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritev.0pd338i",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -169455,9 +169459,10 @@
         "terminalObservedKey": "native-op:__exactFsWritev"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsWritev",
@@ -169465,18 +169470,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritev.01ra2uo.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritev.01ra2uo.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritev.01ra2uo.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritev.01ra2uo.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritev.01ra2uo.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritev.0pd338i.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritev.0pd338i.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritev.0pd338i.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritev.0pd338i.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritev.0pd338i.wrong-principal"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfswritevasync.0l050fv",
       "observedKey": "native-op:__exactFsWritevAsync",
-      "branchId": "surface.native.op.exactfswritevasync.0l050fv.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritevasync.1cntoc8",
+      "branchId": "surface.native.op.exactfswritevasync.0l050fv.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritevasync.0k6uxtm",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -169493,9 +169498,10 @@
         "terminalObservedKey": "native-op:__exactFsWritevAsync"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsWritevAsync",
@@ -169503,11 +169509,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritevasync.1cntoc8.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritevasync.1cntoc8.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritevasync.1cntoc8.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritevasync.1cntoc8.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritevasync.1cntoc8.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritevasync.0k6uxtm.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritevasync.0k6uxtm.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritevasync.0k6uxtm.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritevasync.0k6uxtm.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfswritevasync.0k6uxtm.wrong-principal"
       ]
     },
     {
@@ -172173,8 +172179,8 @@
     {
       "edgeId": "surface.native.op.exactipcrecvmsg.0gk98ri",
       "observedKey": "native-op:__exactIpcRecvMsg",
-      "branchId": "surface.native.op.exactipcrecvmsg.0gk98ri.default",
-      "enforcementBranchId": "surface.native.op.exactipcrecvmsg.0gk98ri.default",
+      "branchId": "surface.native.op.exactipcrecvmsg.0gk98ri.posix",
+      "enforcementBranchId": "surface.native.op.exactipcrecvmsg.0gk98ri.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -172193,9 +172199,10 @@
         "terminalObservedKey": "native-op:__exactIpcRecvMsg"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#__exactIpcRecvMsg",
@@ -172204,14 +172211,14 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.exactipcrecvmsg.0gk98ri.default.closed"
+        "surface.native.op.exactipcrecvmsg.0gk98ri.posix.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactipcsendmsg.0zqe1hg",
       "observedKey": "native-op:__exactIpcSendMsg",
-      "branchId": "surface.native.op.exactipcsendmsg.0zqe1hg.default",
-      "enforcementBranchId": "surface.native.op.exactipcsendmsg.0zqe1hg.default",
+      "branchId": "surface.native.op.exactipcsendmsg.0zqe1hg.posix",
+      "enforcementBranchId": "surface.native.op.exactipcsendmsg.0zqe1hg.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -172230,9 +172237,10 @@
         "terminalObservedKey": "native-op:__exactIpcSendMsg"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#__exactIpcSendMsg",
@@ -172241,7 +172249,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.exactipcsendmsg.0zqe1hg.default.closed"
+        "surface.native.op.exactipcsendmsg.0zqe1hg.posix.closed"
       ]
     },
     {
@@ -172317,8 +172325,8 @@
     {
       "edgeId": "surface.native.op.exactlchmod.0aw9lfk",
       "observedKey": "native-op:__exactLchmod",
-      "branchId": "surface.native.op.exactlchmod.0aw9lfk.default",
-      "enforcementBranchId": "surface.native.op.exactlchmod.0aw9lfk.default",
+      "branchId": "surface.native.op.exactlchmod.0aw9lfk.posix",
+      "enforcementBranchId": "surface.native.op.exactlchmod.0aw9lfk.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -172335,9 +172343,10 @@
         "terminalObservedKey": "native-op:__exactLchmod"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactLchmod",
@@ -172345,14 +172354,14 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactlchmod.0aw9lfk.default.closed"
+        "surface.native.op.exactlchmod.0aw9lfk.posix.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactlchmodsync.07qlujf",
       "observedKey": "native-op:__exactLchmodSync",
-      "branchId": "surface.native.op.exactlchmodsync.07qlujf.default",
-      "enforcementBranchId": "surface.native.op.exactlchmodsync.07qlujf.default",
+      "branchId": "surface.native.op.exactlchmodsync.07qlujf.posix",
+      "enforcementBranchId": "surface.native.op.exactlchmodsync.07qlujf.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -172369,9 +172378,10 @@
         "terminalObservedKey": "native-op:__exactLchmodSync"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactLchmodSync",
@@ -172379,14 +172389,14 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactlchmodsync.07qlujf.default.closed"
+        "surface.native.op.exactlchmodsync.07qlujf.posix.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactlchown.0bt8f4s",
       "observedKey": "native-op:__exactLchown",
-      "branchId": "surface.native.op.exactlchown.0bt8f4s.default",
-      "enforcementBranchId": "surface.native.op.exactlchown.0bt8f4s.default",
+      "branchId": "surface.native.op.exactlchown.0bt8f4s.posix",
+      "enforcementBranchId": "surface.native.op.exactlchown.0bt8f4s.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -172403,9 +172413,10 @@
         "terminalObservedKey": "native-op:__exactLchown"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactLchown",
@@ -172413,14 +172424,14 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactlchown.0bt8f4s.default.closed"
+        "surface.native.op.exactlchown.0bt8f4s.posix.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactlink.0lxndud",
       "observedKey": "native-op:__exactLink",
-      "branchId": "surface.native.op.exactlink.0lxndud.default",
-      "enforcementBranchId": "surface.native.op.exactlink.0lxndud.default",
+      "branchId": "surface.native.op.exactlink.0lxndud.posix",
+      "enforcementBranchId": "surface.native.op.exactlink.0lxndud.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -172437,9 +172448,10 @@
         "terminalObservedKey": "native-op:__exactLink"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactLink",
@@ -172447,7 +172459,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactlink.0lxndud.default.closed"
+        "surface.native.op.exactlink.0lxndud.posix.closed"
       ]
     },
     {
@@ -172805,8 +172817,8 @@
     {
       "edgeId": "surface.native.op.exactlstat.1c98s6l",
       "observedKey": "native-op:__exactLstat",
-      "branchId": "surface.native.op.exactlstat.1c98s6l.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactlstat.01p81os",
+      "branchId": "surface.native.op.exactlstat.1c98s6l.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactlstat.02pb3um",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -172823,9 +172835,10 @@
         "terminalObservedKey": "native-op:__exactLstat"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactLstat",
@@ -172833,11 +172846,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlstat.01p81os.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlstat.01p81os.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlstat.01p81os.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlstat.01p81os.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactlstat.01p81os.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactlstat.02pb3um.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactlstat.02pb3um.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactlstat.02pb3um.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactlstat.02pb3um.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactlstat.02pb3um.wrong-principal"
       ]
     },
     {
@@ -172882,8 +172895,8 @@
     {
       "edgeId": "surface.native.op.exactlutimes.1rpdm4k",
       "observedKey": "native-op:__exactLutimes",
-      "branchId": "surface.native.op.exactlutimes.1rpdm4k.default",
-      "enforcementBranchId": "surface.native.op.exactlutimes.1rpdm4k.default",
+      "branchId": "surface.native.op.exactlutimes.1rpdm4k.posix",
+      "enforcementBranchId": "surface.native.op.exactlutimes.1rpdm4k.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -172900,9 +172913,10 @@
         "terminalObservedKey": "native-op:__exactLutimes"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactLutimes",
@@ -172910,14 +172924,14 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactlutimes.1rpdm4k.default.closed"
+        "surface.native.op.exactlutimes.1rpdm4k.posix.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactlutimessync.1ygj38n",
       "observedKey": "native-op:__exactLutimesSync",
-      "branchId": "surface.native.op.exactlutimessync.1ygj38n.default",
-      "enforcementBranchId": "surface.native.op.exactlutimessync.1ygj38n.default",
+      "branchId": "surface.native.op.exactlutimessync.1ygj38n.posix",
+      "enforcementBranchId": "surface.native.op.exactlutimessync.1ygj38n.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -172934,9 +172948,10 @@
         "terminalObservedKey": "native-op:__exactLutimesSync"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactLutimesSync",
@@ -172944,7 +172959,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactlutimessync.1ygj38n.default.closed"
+        "surface.native.op.exactlutimessync.1ygj38n.posix.closed"
       ]
     },
     {
@@ -173280,8 +173295,8 @@
     {
       "edgeId": "surface.native.op.exactmkdir.021eaz0",
       "observedKey": "native-op:__exactMkdir",
-      "branchId": "surface.native.op.exactmkdir.021eaz0.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdir.0hoyga9",
+      "branchId": "surface.native.op.exactmkdir.021eaz0.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdir.0ur53q3",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -173298,9 +173313,10 @@
         "terminalObservedKey": "native-op:__exactMkdir"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactMkdir",
@@ -173308,18 +173324,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdir.0hoyga9.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdir.0hoyga9.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdir.0hoyga9.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdir.0hoyga9.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdir.0hoyga9.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdir.0ur53q3.logical.non-recursive.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdir.0ur53q3.logical.non-recursive.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdir.0ur53q3.logical.non-recursive.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdir.0ur53q3.logical.non-recursive.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdir.0ur53q3.logical.non-recursive.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdir.0ur53q3.logical.non-recursive.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdir.0ur53q3.logical.recursive.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactmkdir.0ur53q3.logical.recursive.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactmkdir.021eaz0",
       "observedKey": "native-op:__exactMkdir",
       "branchId": "surface.native.op.exactmkdir.021eaz0.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdir.1ovplru",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdir.0g0wafo",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -173347,18 +173366,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdir.1ovplru.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdir.1ovplru.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdir.1ovplru.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdir.1ovplru.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdir.1ovplru.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdir.0g0wafo.logical.non-recursive.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdir.0g0wafo.logical.non-recursive.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdir.0g0wafo.logical.non-recursive.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdir.0g0wafo.logical.non-recursive.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdir.0g0wafo.logical.non-recursive.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdir.0g0wafo.logical.non-recursive.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdir.0g0wafo.logical.recursive.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactmkdir.0g0wafo.logical.recursive.closed"
       ]
     },
     {
       "edgeId": "surface.native.op.exactmkdtemp.07xpvq5",
       "observedKey": "native-op:__exactMkdtemp",
-      "branchId": "surface.native.op.exactmkdtemp.07xpvq5.default",
-      "enforcementBranchId": "surface.native.op.exactmkdtemp.07xpvq5.default",
+      "branchId": "surface.native.op.exactmkdtemp.07xpvq5.posix",
+      "enforcementBranchId": "surface.native.op.exactmkdtemp.07xpvq5.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -173375,9 +173397,10 @@
         "terminalObservedKey": "native-op:__exactMkdtemp"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactMkdtemp",
@@ -173385,7 +173408,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactmkdtemp.07xpvq5.default.closed"
+        "surface.native.op.exactmkdtemp.07xpvq5.posix.closed"
       ]
     },
     {
@@ -174147,8 +174170,8 @@
     {
       "edgeId": "surface.native.op.exactopendir.0eh7ha4",
       "observedKey": "native-op:__exactOpendir",
-      "branchId": "surface.native.op.exactopendir.0eh7ha4.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactopendir.122wxlh",
+      "branchId": "surface.native.op.exactopendir.0eh7ha4.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactopendir.19yqv8h",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -174165,9 +174188,10 @@
         "terminalObservedKey": "native-op:__exactOpendir"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactOpendir",
@@ -174175,11 +174199,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactopendir.122wxlh.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactopendir.122wxlh.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactopendir.122wxlh.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactopendir.122wxlh.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactopendir.122wxlh.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactopendir.19yqv8h.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactopendir.19yqv8h.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactopendir.19yqv8h.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactopendir.19yqv8h.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactopendir.19yqv8h.wrong-principal"
       ]
     },
     {
@@ -174854,8 +174878,8 @@
     {
       "edgeId": "surface.native.op.exactreaddir.0tg30vk",
       "observedKey": "native-op:__exactReaddir",
-      "branchId": "surface.native.op.exactreaddir.0tg30vk.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactreaddir.03zg62h",
+      "branchId": "surface.native.op.exactreaddir.0tg30vk.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactreaddir.0i4k74l",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -174872,9 +174896,10 @@
         "terminalObservedKey": "native-op:__exactReaddir"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactReaddir",
@@ -174882,11 +174907,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreaddir.03zg62h.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreaddir.03zg62h.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreaddir.03zg62h.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreaddir.03zg62h.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreaddir.03zg62h.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreaddir.0i4k74l.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreaddir.0i4k74l.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreaddir.0i4k74l.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreaddir.0i4k74l.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreaddir.0i4k74l.wrong-principal"
       ]
     },
     {
@@ -174931,8 +174956,8 @@
     {
       "edgeId": "surface.native.op.exactreadfile.1cmzco7",
       "observedKey": "native-op:__exactReadFile",
-      "branchId": "surface.native.op.exactreadfile.1cmzco7.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0bk9p97",
+      "branchId": "surface.native.op.exactreadfile.1cmzco7.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0yimwa1",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -174949,9 +174974,10 @@
         "terminalObservedKey": "native-op:__exactReadFile"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactReadFile",
@@ -174959,11 +174985,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0bk9p97.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0bk9p97.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0bk9p97.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0bk9p97.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0bk9p97.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0yimwa1.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0yimwa1.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0yimwa1.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0yimwa1.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0yimwa1.wrong-principal"
       ]
     },
     {
@@ -175008,8 +175034,8 @@
     {
       "edgeId": "surface.native.op.exactreadlink.1p5ozx1",
       "observedKey": "native-op:__exactReadlink",
-      "branchId": "surface.native.op.exactreadlink.1p5ozx1.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactreadlink.10h1en4",
+      "branchId": "surface.native.op.exactreadlink.1p5ozx1.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactreadlink.0t5e2cu",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -175026,9 +175052,10 @@
         "terminalObservedKey": "native-op:__exactReadlink"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactReadlink",
@@ -175036,11 +175063,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadlink.10h1en4.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadlink.10h1en4.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadlink.10h1en4.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadlink.10h1en4.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadlink.10h1en4.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadlink.0t5e2cu.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadlink.0t5e2cu.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadlink.0t5e2cu.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadlink.0t5e2cu.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadlink.0t5e2cu.wrong-principal"
       ]
     },
     {
@@ -175085,8 +175112,8 @@
     {
       "edgeId": "surface.native.op.exactrealpath.06qb6s2",
       "observedKey": "native-op:__exactRealpath",
-      "branchId": "surface.native.op.exactrealpath.06qb6s2.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactrealpath.0xjqb2z",
+      "branchId": "surface.native.op.exactrealpath.06qb6s2.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactrealpath.1i37wp7",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -175103,9 +175130,10 @@
         "terminalObservedKey": "native-op:__exactRealpath"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactRealpath",
@@ -175113,11 +175141,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactrealpath.0xjqb2z.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactrealpath.0xjqb2z.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactrealpath.0xjqb2z.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactrealpath.0xjqb2z.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactrealpath.0xjqb2z.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactrealpath.1i37wp7.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactrealpath.1i37wp7.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactrealpath.1i37wp7.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactrealpath.1i37wp7.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactrealpath.1i37wp7.wrong-principal"
       ]
     },
     {
@@ -175231,8 +175259,8 @@
     {
       "edgeId": "surface.native.op.exactrename.10zwbcv",
       "observedKey": "native-op:__exactRename",
-      "branchId": "surface.native.op.exactrename.10zwbcv.default",
-      "enforcementBranchId": "surface.native.op.exactrename.10zwbcv.default",
+      "branchId": "surface.native.op.exactrename.10zwbcv.posix",
+      "enforcementBranchId": "surface.native.op.exactrename.10zwbcv.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -175249,9 +175277,10 @@
         "terminalObservedKey": "native-op:__exactRename"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactRename",
@@ -175259,7 +175288,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactrename.10zwbcv.default.closed"
+        "surface.native.op.exactrename.10zwbcv.posix.closed"
       ]
     },
     {
@@ -175514,8 +175543,8 @@
     {
       "edgeId": "surface.native.op.exactrmdir.1mew8oz",
       "observedKey": "native-op:__exactRmdir",
-      "branchId": "surface.native.op.exactrmdir.1mew8oz.default",
-      "enforcementBranchId": "surface.native.op.exactrmdir.1mew8oz.default",
+      "branchId": "surface.native.op.exactrmdir.1mew8oz.posix",
+      "enforcementBranchId": "surface.native.op.exactrmdir.1mew8oz.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -175532,9 +175561,10 @@
         "terminalObservedKey": "native-op:__exactRmdir"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactRmdir",
@@ -175542,7 +175572,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactrmdir.1mew8oz.default.closed"
+        "surface.native.op.exactrmdir.1mew8oz.posix.closed"
       ]
     },
     {
@@ -177631,8 +177661,8 @@
     {
       "edgeId": "surface.native.op.exactstat.1432ztv",
       "observedKey": "native-op:__exactStat",
-      "branchId": "surface.native.op.exactstat.1432ztv.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactstat.0w8uxig",
+      "branchId": "surface.native.op.exactstat.1432ztv.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactstat.13e4a2i",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -177649,9 +177679,10 @@
         "terminalObservedKey": "native-op:__exactStat"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactStat",
@@ -177659,11 +177690,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactstat.0w8uxig.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactstat.0w8uxig.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactstat.0w8uxig.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactstat.0w8uxig.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactstat.0w8uxig.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactstat.13e4a2i.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactstat.13e4a2i.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactstat.13e4a2i.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactstat.13e4a2i.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactstat.13e4a2i.wrong-principal"
       ]
     },
     {
@@ -177708,8 +177739,8 @@
     {
       "edgeId": "surface.native.op.exactstatfs.151kkzo",
       "observedKey": "native-op:__exactStatfs",
-      "branchId": "surface.native.op.exactstatfs.151kkzo.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactstatfs.0jlvd3p",
+      "branchId": "surface.native.op.exactstatfs.151kkzo.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactstatfs.1gpzc81",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -177726,9 +177757,10 @@
         "terminalObservedKey": "native-op:__exactStatfs"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactStatfs",
@@ -177736,11 +177768,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactstatfs.0jlvd3p.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactstatfs.0jlvd3p.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactstatfs.0jlvd3p.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactstatfs.0jlvd3p.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactstatfs.0jlvd3p.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactstatfs.1gpzc81.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactstatfs.1gpzc81.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactstatfs.1gpzc81.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactstatfs.1gpzc81.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactstatfs.1gpzc81.wrong-principal"
       ]
     },
     {
@@ -178030,8 +178062,8 @@
     {
       "edgeId": "surface.native.op.exactsymlink.17gte4g",
       "observedKey": "native-op:__exactSymlink",
-      "branchId": "surface.native.op.exactsymlink.17gte4g.default",
-      "enforcementBranchId": "surface.native.op.exactsymlink.17gte4g.default",
+      "branchId": "surface.native.op.exactsymlink.17gte4g.posix",
+      "enforcementBranchId": "surface.native.op.exactsymlink.17gte4g.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -178048,9 +178080,10 @@
         "terminalObservedKey": "native-op:__exactSymlink"
       },
       "branchKind": "single",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactSymlink",
@@ -178058,7 +178091,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactsymlink.17gte4g.default.closed"
+        "surface.native.op.exactsymlink.17gte4g.posix.closed"
       ]
     },
     {
@@ -179799,8 +179832,8 @@
     {
       "edgeId": "surface.native.op.exacttruncate.13gh223",
       "observedKey": "native-op:__exactTruncate",
-      "branchId": "surface.native.op.exacttruncate.13gh223.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exacttruncate.0iyo232",
+      "branchId": "surface.native.op.exacttruncate.13gh223.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exacttruncate.1uixivs",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -179817,9 +179850,10 @@
         "terminalObservedKey": "native-op:__exactTruncate"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactTruncate",
@@ -179827,11 +179861,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exacttruncate.0iyo232.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exacttruncate.0iyo232.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exacttruncate.0iyo232.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exacttruncate.0iyo232.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exacttruncate.0iyo232.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exacttruncate.1uixivs.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exacttruncate.1uixivs.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exacttruncate.1uixivs.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exacttruncate.1uixivs.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exacttruncate.1uixivs.wrong-principal"
       ]
     },
     {
@@ -180848,8 +180882,8 @@
     {
       "edgeId": "surface.native.op.exactunlink.1g411ke",
       "observedKey": "native-op:__exactUnlink",
-      "branchId": "surface.native.op.exactunlink.1g411ke.default",
-      "enforcementBranchId": "surface.native.op.exactunlink.1g411ke.default",
+      "branchId": "surface.native.op.exactunlink.1g411ke.posix",
+      "enforcementBranchId": "surface.native.op.exactunlink.1g411ke.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -180866,9 +180900,10 @@
         "terminalObservedKey": "native-op:__exactUnlink"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactUnlink",
@@ -180876,7 +180911,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactunlink.1g411ke.default.closed"
+        "surface.native.op.exactunlink.1g411ke.posix.closed"
       ]
     },
     {
@@ -180917,8 +180952,8 @@
     {
       "edgeId": "surface.native.op.exactutimes.19tvh2i",
       "observedKey": "native-op:__exactUtimes",
-      "branchId": "surface.native.op.exactutimes.19tvh2i.default",
-      "enforcementBranchId": "surface.native.op.exactutimes.19tvh2i.default",
+      "branchId": "surface.native.op.exactutimes.19tvh2i.posix",
+      "enforcementBranchId": "surface.native.op.exactutimes.19tvh2i.posix",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
@@ -180935,9 +180970,10 @@
         "terminalObservedKey": "native-op:__exactUtimes"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactUtimes",
@@ -180945,7 +180981,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactutimes.19tvh2i.default.closed"
+        "surface.native.op.exactutimes.19tvh2i.posix.closed"
       ]
     },
     {
@@ -181159,8 +181195,8 @@
     {
       "edgeId": "surface.native.op.exactwritefile.1h0gy8u",
       "observedKey": "native-op:__exactWriteFile",
-      "branchId": "surface.native.op.exactwritefile.1h0gy8u.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactwritefile.153nw53",
+      "branchId": "surface.native.op.exactwritefile.1h0gy8u.posix",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactwritefile.13j277b",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -181177,9 +181213,10 @@
         "terminalObservedKey": "native-op:__exactWriteFile"
       },
       "branchKind": "alternative",
-      "targetVariant": "default",
+      "targetVariant": "posix",
       "targetApplicability": {
-        "kind": "fallback"
+        "kind": "operating-system-family",
+        "value": "posix"
       },
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactWriteFile",
@@ -181187,11 +181224,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactwritefile.153nw53.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactwritefile.153nw53.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactwritefile.153nw53.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactwritefile.153nw53.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactwritefile.153nw53.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactwritefile.13j277b.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactwritefile.13j277b.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactwritefile.13j277b.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactwritefile.13j277b.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactwritefile.13j277b.wrong-principal"
       ]
     },
     {
@@ -282345,7 +282382,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-kCEXYIFIUVvnkGqju8PwiCERfc5H1KZTN5u6Eh4AXSM"
+      "rawContentDigest": "sha256-cwk-scMfTY4UV7fTOGmNGlZAj7IQNAZRv9g6hr2Ppk8"
     },
     {
       "kind": "output-disposition-dataset",
@@ -282365,36 +282402,36 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-lvZBZHoUo2fG05ned_Zdo7HUyGhipmhgiaJuc29GMlU"
+      "rawContentDigest": "sha256-hoVX79Fb8_I6onEH8mJ2hUWbQutyzjQrrkcgieQWH1U"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-Bpa2XGN8gaR_QY5kI4m2O4CuWjQg178V6vO0ZQ5kyQQ"
+      "rawContentDigest": "sha256-QY-JC657vcG5xjWBCBFFvK8yqYu1r_rr1ovXwuWIxlQ"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-hLpd7WWEBCD4Ew3zncg3IxLA9W1jpOP52x3_lJ1QJjM"
+      "rawContentDigest": "sha256-wCZiGYqvPqgAKDjugdVYw8hcPlQQ0cBQO6Y8m_AS5gc"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-KZ6OLPe19gLvW8JZcwzDhNS-Q5i4fFL6TY35WKg5W1Y"
+      "rawContentDigest": "sha256--gfxBfyYlylFc2xpfRKs-oE9bBorcHVyElxIC5DPGVU"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-Was8eWEP7HTz-qrk3yQ_c3KXO6qC2ECa2IQbkw3I-SE"
+      "rawContentDigest": "sha256-X4CUxRLfEWhTsf7T_SzXQfmIjliOjSbhcMWSKCIyvbM"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-Pg81JI4rptAIVTn_IXfGsf5oIrIdAVq30FUBairLFA4"
+      "rawContentDigest": "sha256-5yDRhZ_mQPYN5P_FeYSGPfkBvRlHePGkcrhbaddI0EY"
     }
   ],
   "counts": {
-    "observedReferences": 13371,
+    "observedReferences": 13372,
     "logicalSurfaces": 7627,
     "enforcementBranches": 7847,
     "coverageEdges": 7627,

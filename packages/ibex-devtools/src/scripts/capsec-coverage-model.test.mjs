@@ -2037,14 +2037,29 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(pathDispatcher.edge.logicalBranches).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "copy",
-          effects: expect.arrayContaining([
-            expect.objectContaining({ cap: "fs:read" }),
-            expect.objectContaining({ cap: "fs:write" }),
-          ]),
+          id: "copyfile",
+          disposition: "closed",
+          cap: "fs:unbound-mutation",
         }),
         expect.objectContaining({ id: "readlink" }),
         expect.objectContaining({ id: "access-write" }),
+        expect.objectContaining({
+          id: "mkdir-recursive",
+          disposition: "closed",
+        }),
+        expect.objectContaining({
+          id: "chmod",
+          when: expect.arrayContaining([
+            { fact: "runtime.target.os", equals: "apple" },
+          ]),
+        }),
+        expect.objectContaining({
+          id: "chmod-windows",
+          disposition: "closed",
+          when: expect.arrayContaining([
+            { fact: "runtime.target.os", equals: "windows" },
+          ]),
+        }),
       ]),
     );
 
@@ -2058,10 +2073,37 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
           id: "durability-write",
           effectOwnerSource: "descriptor-owner",
         }),
-        expect.objectContaining({ id: "metadata-write" }),
+        expect.objectContaining({ id: "truncate" }),
+        expect.objectContaining({
+          id: "fchmod",
+          disposition: "closed",
+          cap: "fs:unbound-mutation",
+        }),
       ]),
     );
-    expect(fdDispatcher.edge.logicalBranches).toHaveLength(2);
+    expect(fdDispatcher.edge.logicalBranches).toHaveLength(5);
+
+    const mkdir = classifyObservedSurface(
+      surface("native-op", "__exactMkdir"),
+      context,
+    );
+    expect(mkdir.edge.effectMode).toBe("conditional");
+    expect(mkdir.edge.logicalBranches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "non-recursive",
+          effects: expect.arrayContaining([
+            expect.objectContaining({ cap: "fs:list" }),
+            expect.objectContaining({ cap: "fs:write" }),
+          ]),
+        }),
+        expect.objectContaining({
+          id: "recursive",
+          disposition: "closed",
+          cap: "fs:unbound-mutation",
+        }),
+      ]),
+    );
 
     for (const name of [
       "__exactFsReadFileAsync",

@@ -335,18 +335,18 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_736);
+    expect(recipes.summary.requiredFixtures).toBe(23_723);
     // Invocation-time require activation adds source-derived obligations; the
     // six eager dynamic/require-link ABIs remain residual because the
     // production graph deliberately uses deferred call-time links. The net-new
     // WebGPU obligations remain unresolved until their public-surface probes
     // are authored.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_742);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_760);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_114);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_880);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_849);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -369,11 +369,9 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally. The three
-    // armed mkdtemp scenarios remain residual until their generated paths can
-    // be authenticated strongly enough for safe cleanup. ENG-24933 adds the
-    // reviewed direct-operation and retained-descriptor probes without
-    // widening that mkdtemp boundary.
-    expect(nativePublicFixtures).toHaveLength(517);
+    // Branch-local filesystem closures use the closed-surface harness, while
+    // the direct non-recursive mkdir branch adds one native selection proof.
+    expect(nativePublicFixtures).toHaveLength(518);
     expect(
       nativePublicFixtures
         .filter(
@@ -444,12 +442,12 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_621);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_542);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while its effectful filesystem route remains ambiguous.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_316);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_341);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_102);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_203);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_099);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -511,14 +509,10 @@ describe("exact-target CapSec executable recipes", () => {
           "public-surface-filesystem-not-typed-on-target",
         ),
     );
-    // 193 = 123 + the 70 fs:list accessSync/existsSync/opendirSync/
-    // realpathSync/statfsSync,
-    // fs:read readFileSync/readlinkSync, and fs:write appendFileSync/
-    // mkdirSync/truncateSync/writeFileSync rows plus openSync's read, write,
-    // and read-write branches now Apple-authored
-    // (LLP 0037), and therefore "not typed on target" for the ambiguous
-    // Windows route.
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(193);
+    // The callable Windows filesystem surface remains untyped where it still
+    // uses the legacy path oracle. POSIX-only globals instead receive one
+    // exact absence fixture and are not counted as ambiguous Windows routes.
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(182);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
@@ -530,9 +524,11 @@ describe("exact-target CapSec executable recipes", () => {
       windowsRecipes.recipes.filter(
         (recipe) =>
           recipe.publicSurfaceProbe?.invocation?.globalName ===
-          "__exactFsOpenAsync",
+            "__exactFsOpenAsync" &&
+          recipe.scenario === "absent" &&
+          recipe.publicSurfaceProbe.kind === "target-absence-probe",
       ),
-    ).toHaveLength(0);
+    ).toHaveLength(1);
     const windowsFsClose = windowsRecipes.recipes.find(
       (recipe) =>
         recipe.terminalObservedKey === "native-op:__exactFsClose" &&
@@ -646,7 +642,7 @@ describe("exact-target CapSec executable recipes", () => {
       },
     );
     expect(windowsExcludedDefaultGlobals.size).toBe(32);
-    expect(windowsExcludedDefaultRecipes).toHaveLength(36);
+    expect(windowsExcludedDefaultRecipes).toHaveLength(35);
     expect(
       windowsExcludedDefaultRecipes.every(
         (recipe) =>
@@ -667,7 +663,9 @@ describe("exact-target CapSec executable recipes", () => {
     const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
-    expect(windowsAbsenceRecipes).toHaveLength(22);
+    // The exact Windows plan includes the existing platform exclusions plus
+    // every POSIX-only native global omitted by the Windows build.
+    expect(windowsAbsenceRecipes).toHaveLength(46);
     expect(
       windowsAbsenceRecipes.every(
         (recipe) =>
@@ -689,7 +687,7 @@ describe("exact-target CapSec executable recipes", () => {
           "capsec_public_closed_recipe_batch",
         ),
       ),
-    ).toHaveLength(684);
+    ).toHaveLength(685);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -710,7 +708,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
           "armed-native-global-absence",
       ),
-    ).toHaveLength(18);
+    ).toHaveLength(16);
   });
 
   test("authors every node:os effect scenario without hand-labeling a native terminal", () => {
@@ -1793,23 +1791,35 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
-  test("keeps armed mkdtemp residual because its public entry point is closed", () => {
-    const rows = recipes.recipes.filter((recipe) =>
-      recipe.fixtureId.includes(
-        ".exactfspathasync.170vjnb.logical.mkdtemp.",
-      ),
+  test("closes armed async mkdtemp before path lookup", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.terminalObservedKey === "native-op:__exactFsPathAsync" &&
+        recipe.fixtureId.includes(".logical.mkdtemp."),
     );
-    expect(rows).toHaveLength(6);
-    expect(rows.filter((recipe) => recipe.adapterProbe !== null)).toHaveLength(
-      5,
-    );
-    for (const recipe of rows) {
-      expect(recipe.publicSurfaceProbe).toBeNull();
-      expect(recipe.status).toBe("unresolved");
-      expect(recipe.residualReasons).toContain(
-        "native-public-arguments-not-authored",
-      );
-    }
+    expect(rows).toHaveLength(2);
+    const closed = rows.find((recipe) => recipe.scenario === "closed");
+    expect(closed).toMatchObject({
+      classification: "closed",
+      status: "fully-executable",
+      residualReasons: [],
+      publicSurfaceProbe: {
+        invocation: {
+          operation: {
+            kind: "filesystem-unbound-mutation",
+            surfaceForm: "native-dispatcher",
+            guardOperation: "mkdtemp",
+          },
+        },
+      },
+    });
+    expect(
+      rows.find((recipe) => recipe.scenario === "branch-selection"),
+    ).toMatchObject({
+      classification: "closed",
+      status: "unresolved",
+      publicSurfaceProbe: null,
+    });
   });
 
   test("binds async statfs metadata to the retained object", () => {
@@ -2102,7 +2112,7 @@ describe("exact-target CapSec executable recipes", () => {
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName === "__exactMkdir",
     );
-    expect(rows).toHaveLength(5);
+    expect(rows).toHaveLength(6);
     for (const recipe of rows) {
       const invocation = recipe.publicSurfaceProbe.invocation;
       expect(invocation.arguments).toEqual([
@@ -2465,15 +2475,31 @@ describe("exact-target CapSec executable recipes", () => {
     expect(denyRows.every((recipe) => recipe.status === "unresolved")).toBe(
       true,
     );
-    const metadataRows = recipes.recipes.filter(
+    const truncateRows = recipes.recipes.filter(
       (recipe) =>
         recipe.fixtureId.includes(".exactfsfdasync.") &&
-        recipe.fixtureId.includes(".logical.metadata-write."),
+        recipe.fixtureId.includes(".logical.truncate."),
     );
-    expect(metadataRows).toHaveLength(6);
-    expect(metadataRows.every((recipe) => recipe.status === "unresolved")).toBe(
+    expect(truncateRows).toHaveLength(6);
+    expect(truncateRows.every((recipe) => recipe.status === "unresolved")).toBe(
       true,
     );
+    const closedMetadataRows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.fixtureId.includes(".exactfsfdasync.") &&
+        ["fchmod", "fchown", "futimes"].some((branch) =>
+          recipe.fixtureId.includes(`.logical.${branch}.`),
+        ),
+    );
+    expect(closedMetadataRows).toHaveLength(6);
+    expect(
+      closedMetadataRows.filter((recipe) => recipe.scenario === "closed"),
+    ).toHaveLength(3);
+    expect(
+      closedMetadataRows
+        .filter((recipe) => recipe.scenario === "closed")
+        .every((recipe) => recipe.status === "fully-executable"),
+    ).toBe(true);
   });
 
   test("flushes retained writable descriptors and removes their owned files", () => {
@@ -2577,14 +2603,14 @@ describe("exact-target CapSec executable recipes", () => {
         (recipe) =>
           recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
       );
-      expect(windowsRows).toHaveLength(0);
-      expect(
-        windowsRecipes.recipes.find(
-          (recipe) =>
-            recipe.terminalObservedKey === `native-op:${globalName}` &&
-            recipe.scenario === "allow",
-        ).residualReasons,
-      ).toContain("native-public-operation-not-installed-on-target");
+      expect(windowsRows).toHaveLength(1);
+      expect(windowsRows[0]).toMatchObject({
+        scenario: "absent",
+        status: "fully-executable",
+        expectedObservation: { kind: "target-absence" },
+        residualReasons: [],
+        publicSurfaceProbe: { kind: "target-absence-probe" },
+      });
     }
     for (const globalName of ["__exactFsFchmodSync", "__exactFsFutimesSync"]) {
       expect(
@@ -3351,15 +3377,17 @@ describe("exact-target CapSec executable recipes", () => {
     });
   });
 
-  test("binds every wholly closed filesystem mutation to target-local unchanged-state evidence", () => {
-    const terminalsByTarget = [];
+  test("binds every wholly and branch-locally closed filesystem mutation to target-local unchanged-state evidence", () => {
+    const guardsByTarget = [];
     for (const catalog of [recipes, windowsRecipes]) {
       const rows = catalog.recipes.filter(
         (recipe) =>
           recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
           "filesystem-unbound-mutation",
       );
-      expect(rows, catalog.target.triple).toHaveLength(76);
+      expect(rows, catalog.target.triple).toHaveLength(
+        catalog.target.triple === "aarch64-apple-darwin" ? 93 : 79,
+      );
       expect(
         rows.filter(
           (recipe) =>
@@ -3375,7 +3403,19 @@ describe("exact-target CapSec executable recipes", () => {
             "native-global",
         ),
         catalog.target.triple,
-      ).toHaveLength(20);
+      ).toHaveLength(
+        catalog.target.triple === "aarch64-apple-darwin" ? 20 : 7,
+      );
+      expect(
+        rows.filter(
+          (recipe) =>
+            recipe.publicSurfaceProbe.invocation.operation.surfaceForm ===
+            "native-dispatcher",
+        ),
+        catalog.target.triple,
+      ).toHaveLength(
+        catalog.target.triple === "aarch64-apple-darwin" ? 17 : 16,
+      );
       expect(
         rows.every((recipe) => {
           const invocation = recipe.publicSurfaceProbe.invocation;
@@ -3404,11 +3444,16 @@ describe("exact-target CapSec executable recipes", () => {
         }),
         catalog.target.triple,
       ).toBe(true);
-      terminalsByTarget.push(
-        rows.map((recipe) => recipe.terminalObservedKey).sort(),
+      guardsByTarget.push(
+        [...new Set(
+          rows.map(
+            (recipe) =>
+              recipe.publicSurfaceProbe.invocation.operation.guardOperation,
+          ),
+        )].sort(),
       );
     }
-    expect(terminalsByTarget[0]).toEqual(terminalsByTarget[1]);
+    expect(guardsByTarget[0]).toEqual(guardsByTarget[1]);
     expect(
       new Set(
         recipes.recipes
@@ -3427,6 +3472,7 @@ describe("exact-target CapSec executable recipes", () => {
         "chmod",
         "chown",
         "copyfile",
+        "copyfile_excl",
         "cp",
         "fchmod",
         "fchown",
@@ -3434,7 +3480,9 @@ describe("exact-target CapSec executable recipes", () => {
         "lchmod",
         "lchown",
         "link",
+        "lutime",
         "lutimes",
+        "mkdir",
         "mkdtemp",
         "rename",
         "rm",

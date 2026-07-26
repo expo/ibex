@@ -222,6 +222,43 @@ const CLOSED_FS_NATIVE_INVOCATION_SHAPES = new Map([
   ["__exactUtimes", ["utime", "path-times"]],
 ]);
 
+const CLOSED_FS_DISPATCHER_INVOCATION_SHAPES = new Map([
+  [
+    "__exactFsPathAsync",
+    new Map([
+      ["chmod-windows", ["chmod", "path-dispatcher"]],
+      ["chown", ["chown", "path-dispatcher"]],
+      ["copyfile", ["copyfile", "path-dispatcher"]],
+      ["copyfile-excl", ["copyfile_excl", "path-dispatcher"]],
+      ["lchmod", ["lchmod", "path-dispatcher"]],
+      ["lchown", ["lchown", "path-dispatcher"]],
+      ["link", ["link", "path-dispatcher"]],
+      ["lutime", ["lutime", "path-dispatcher"]],
+      ["mkdir-recursive", ["mkdir", "path-dispatcher-recursive"]],
+      ["mkdtemp", ["mkdtemp", "path-dispatcher"]],
+      ["rename", ["rename", "path-dispatcher"]],
+      ["rmdir", ["rmdir", "path-dispatcher"]],
+      ["symlink", ["symlink", "path-dispatcher"]],
+      ["unlink", ["unlink", "path-dispatcher"]],
+      ["utime-windows", ["utime", "path-dispatcher"]],
+    ]),
+  ],
+  [
+    "__exactFsFdAsync",
+    new Map([
+      ["fchmod", ["fchmod", "descriptor-dispatcher"]],
+      ["fchown", ["fchown", "descriptor-dispatcher"]],
+      ["futimes", ["futimes", "descriptor-dispatcher"]],
+    ]),
+  ],
+  [
+    "__exactMkdir",
+    new Map([
+      ["recursive", ["mkdir", "recursive-mkdir"]],
+    ]),
+  ],
+]);
+
 function reviewedSharedRuntimeAbsentSurface(surfaceName) {
   return (
     SHARED_RUNTIME_ABSENT_GLOBALS.has(surfaceName) ||
@@ -1260,10 +1297,12 @@ function armedNativeGlobalAbsenceProbe({
   const metadata = live?.metadata;
   const branches = metadata?.installationBranches;
   const publicInvocation = metadata?.publicInvocation;
-  const defaultBranch = branches?.find(
+  const directBranch = branches?.find(
     (branch) =>
       branch.route === "native-jsi-global" &&
-      branch.targetVariant === "default",
+      (branch.targetVariant === "default" ||
+        (branch.targetVariant === "posix" &&
+          target.triple !== "x86_64-pc-windows-msvc")),
   );
   const workletBranch = branches?.find(
     (branch) =>
@@ -1288,7 +1327,7 @@ function armedNativeGlobalAbsenceProbe({
     Number.isSafeInteger(publicInvocation.arity) &&
     publicInvocation.arity >= 0 &&
     typeof publicInvocation.sourceRef === "string" &&
-    defaultBranch?.sourceRefs.includes(publicInvocation.sourceRef);
+    directBranch?.sourceRefs.includes(publicInvocation.sourceRef);
   const reviewedWorkletGlobal =
     appRuntimeAbsentWorkletGlobal &&
     `global:${expectedExportName}` === surfaceName &&
@@ -1377,10 +1416,18 @@ function filesystemMutationProbe({
   const surfaceObservedKey = route.surfaceObservedKeys[0];
   const live = liveByObservedKey.get(surfaceObservedKey);
   const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const selectedLogicalBranch = edge?.logicalBranches?.find((branch) =>
+    plan.fixtureId.includes(`.logical.${branch.id}.`),
+  );
+  const closureCap =
+    selectedLogicalBranch?.disposition === "closed"
+      ? selectedLogicalBranch.cap
+      : edge?.classification === "closed"
+        ? edge.cap
+        : null;
   if (
     edge?.id !== plan.edgeIds[0] ||
-    edge.classification !== "closed" ||
-    edge.cap !== "fs:unbound-mutation" ||
+    closureCap !== "fs:unbound-mutation" ||
     !Array.isArray(live?.sourceRefs) ||
     live.sourceRefs.length === 0
   ) {
@@ -1437,7 +1484,14 @@ function filesystemMutationProbe({
             ? "sync"
             : "callback";
   } else if (live.kind === "native-op") {
-    const shape = CLOSED_FS_NATIVE_INVOCATION_SHAPES.get(live.name);
+    const dispatcherShape =
+      selectedLogicalBranch?.disposition === "closed"
+        ? CLOSED_FS_DISPATCHER_INVOCATION_SHAPES.get(live.name)?.get(
+            selectedLogicalBranch.id,
+          )
+        : null;
+    const shape =
+      dispatcherShape ?? CLOSED_FS_NATIVE_INVOCATION_SHAPES.get(live.name);
     if (
       !shape ||
       route.alternatives.length !== 1 ||
@@ -1447,7 +1501,7 @@ function filesystemMutationProbe({
       return null;
     }
     [guardOperation, argumentShape] = shape;
-    surfaceForm = "native-global";
+    surfaceForm = dispatcherShape ? "native-dispatcher" : "native-global";
     invocationStyle = "sync";
     nativeName = live.name;
   } else {

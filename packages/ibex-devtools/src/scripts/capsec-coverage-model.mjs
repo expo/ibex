@@ -7732,7 +7732,7 @@ function conditionalBranchEffectSpec(
     );
   }
   return effectSpec(
-    branches.flatMap((branch) => branch.actions),
+    branches.flatMap((branch) => branch.actions ?? []),
     family,
     implementationOwner,
     {
@@ -7828,31 +7828,64 @@ function filesystemPathOrDescriptorEffectSpec(actions) {
 }
 
 function filesystemPathDispatcherEffectSpec() {
-  const branch = (id, actions) => ({
+  const branch = (id, actions, when = []) => ({
     id,
-    when: [{ fact: "filesystem.path.operation", equals: id }],
+    when: [
+      { fact: "filesystem.path.operation", equals: id },
+      ...when,
+    ],
     actions,
+  });
+  const closed = (id, operation = id, when = []) => ({
+    id,
+    when: [
+      { fact: "filesystem.path.operation", equals: operation },
+      ...when,
+    ],
+    disposition: "closed",
+    action: "fs:unbound-mutation",
+    rationale:
+      "The dispatcher refuses this unbound filesystem mutation before path lookup or mutation.",
   });
   return conditionalBranchEffectSpec(
     [
       branch("access-read", ["fs:list"]),
       branch("access-write", ["fs:write"]),
-      branch("chmod", ["fs:list", "fs:write"]),
-      branch("chown", ["fs:list", "fs:write"]),
-      branch("copy", ["fs:read", "fs:write"]),
-      branch("link", ["fs:read", "fs:write"]),
-      branch("mkdir", ["fs:list", "fs:write"]),
-      branch("mkdtemp", ["fs:list", "fs:write"]),
+      branch("chmod", ["fs:list", "fs:write"], [
+        { fact: "runtime.target.os", equals: "apple" },
+      ]),
+      closed("chmod-windows", "chmod", [
+        { fact: "runtime.target.os", equals: "windows" },
+      ]),
+      closed("chown"),
+      closed("copyfile"),
+      closed("copyfile-excl"),
+      closed("lchmod"),
+      closed("lchown"),
+      closed("link"),
+      closed("lutime"),
+      branch("mkdir", ["fs:list", "fs:write"], [
+        { fact: "filesystem.mkdir.recursive", equals: "false" },
+      ]),
+      closed("mkdir-recursive", "mkdir", [
+        { fact: "filesystem.mkdir.recursive", equals: "true" },
+      ]),
+      closed("mkdtemp"),
       branch("readdir", ["fs:list"]),
       branch("readlink", ["fs:read"]),
       branch("realpath", ["fs:list"]),
-      branch("rename", ["fs:list", "fs:write"]),
-      branch("rmdir", ["fs:list", "fs:write"]),
+      closed("rename"),
+      closed("rmdir"),
       branch("statfs", ["fs:list"]),
-      branch("symlink", ["fs:list", "fs:write"]),
+      closed("symlink"),
       branch("truncate", ["fs:list", "fs:write"]),
-      branch("unlink", ["fs:list", "fs:write"]),
-      branch("utime", ["fs:list", "fs:write"]),
+      closed("unlink"),
+      branch("utime", ["fs:list", "fs:write"], [
+        { fact: "runtime.target.os", equals: "apple" },
+      ]),
+      closed("utime-windows", "utime", [
+        { fact: "runtime.target.os", equals: "windows" },
+      ]),
     ],
     "filesystem",
     "WP5",
@@ -7867,14 +7900,47 @@ function filesystemDescriptorDispatcherEffectSpec() {
     principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
     effectOwnerSource: "descriptor-owner",
   });
+  const closed = (id) => ({
+    id,
+    when: [{ fact: "filesystem.descriptor.operation", equals: id }],
+    disposition: "closed",
+    action: "fs:unbound-mutation",
+    rationale:
+      "The dispatcher refuses this descriptor metadata mutation before descriptor lookup.",
+  });
   return conditionalBranchEffectSpec(
     [
       branch("durability-write", ["fs:write"]),
-      branch("metadata-write", ["fs:write"]),
+      branch("truncate", ["fs:write"]),
+      closed("fchmod"),
+      closed("fchown"),
+      closed("futimes"),
     ],
     "filesystem",
     "WP5",
     { lifetimeContract: "file-handle" },
+  );
+}
+
+function filesystemMkdirEffectSpec() {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "non-recursive",
+        when: [{ fact: "filesystem.mkdir.recursive", equals: "false" }],
+        actions: ["fs:list", "fs:write"],
+      },
+      {
+        id: "recursive",
+        when: [{ fact: "filesystem.mkdir.recursive", equals: "true" }],
+        disposition: "closed",
+        action: "fs:unbound-mutation",
+        rationale:
+          "Recursive directory creation is refused before path lookup or mutation.",
+      },
+    ],
+    "filesystem",
+    "WP5",
   );
 }
 
@@ -15059,6 +15125,9 @@ function classifyConcreteSurface(surface) {
           : ["fs:list"];
       return filesystemPathOrDescriptorEffectSpec(actions);
     }
+    if (/^exactmkdir$/u.test(name)) {
+      return filesystemMkdirEffectSpec();
+    }
     if (/opendir|readdir|stat|access|realpath/u.test(name)) {
       return effectSpec(["fs:list"], "filesystem", "WP5", descriptorOptions);
     }
@@ -15265,8 +15334,8 @@ function semanticEdge(surface, specification, context) {
             }))
             .sort((left, right) =>
               utf8Compare(
-                JSON.stringify([left.fact, left.equals]),
-                JSON.stringify([right.fact, right.equals]),
+                JSON.stringify({ equals: left.equals, fact: left.fact }),
+                JSON.stringify({ equals: right.equals, fact: right.fact }),
               ),
             );
           if (when.length === 0) {
@@ -15354,8 +15423,8 @@ function semanticEdge(surface, specification, context) {
           }))
           .sort((left, right) =>
             utf8Compare(
-              JSON.stringify([left.fact, left.equals]),
-              JSON.stringify([right.fact, right.equals]),
+              JSON.stringify({ equals: left.equals, fact: left.fact }),
+              JSON.stringify({ equals: right.equals, fact: right.fact }),
             ),
           );
         const overlaps = priorConditions.some((prior) =>
@@ -15367,6 +15436,39 @@ function semanticEdge(surface, specification, context) {
           );
         }
         priorConditions.push(when);
+        if (branch.disposition === "closed") {
+          const definition = context.definitionsById.get(branch.action);
+          if (!definition) {
+            throw new Error(
+              `${surface.observedKey}: unknown closed logical branch action ${branch.action}`,
+            );
+          }
+          if (definition.lifecycle !== "deny-only") {
+            throw new Error(
+              `${surface.observedKey}: closed logical branch action ${branch.action} is not deny-only`,
+            );
+          }
+          if (typeof branch.rationale !== "string" || branch.rationale === "") {
+            throw new Error(
+              `${surface.observedKey}: closed logical branch ${branchId} lacks a rationale`,
+            );
+          }
+          // @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified
+          // — mixed dispatchers retain their narrow object-bound operations,
+          // while each unbound mutation spelling is closed before lookup.
+          return {
+            id: branchId,
+            when,
+            disposition: "closed",
+            cap: branch.action,
+            rationale: branch.rationale,
+          };
+        }
+        if (branch.disposition !== undefined) {
+          throw new Error(
+            `${surface.observedKey}: unsupported logical branch disposition ${branch.disposition}`,
+          );
+        }
         const branchBarriers =
           branch.barriers ??
           specification.barriers ??

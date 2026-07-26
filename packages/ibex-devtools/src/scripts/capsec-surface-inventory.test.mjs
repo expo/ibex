@@ -3249,6 +3249,17 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       route: "native-jsi-global",
       targetVariant: "windows",
     });
+    const posixRows = scanCppGlobalPropertySurfaces(
+      source,
+      "src/engine/hermes_runtime_fs.cc",
+    );
+    expect(
+      posixRows.find((row) => row.name === "global:print").metadata.branches[0],
+    ).toMatchObject({
+      branchKind: "single",
+      route: "native-jsi-global",
+      targetVariant: "posix",
+    });
     expect(
       rows
         .filter((row) => !row.name.includes("[[dynamic-table:"))

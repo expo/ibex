@@ -209240,11 +209240,47 @@
           }
         },
         {
-          "id": "metadata-write",
+          "id": "fchmod",
           "when": [
             {
               "fact": "filesystem.descriptor.operation",
-              "equals": "metadata-write"
+              "equals": "fchmod"
+            }
+          ],
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this descriptor metadata mutation before descriptor lookup."
+        },
+        {
+          "id": "fchown",
+          "when": [
+            {
+              "fact": "filesystem.descriptor.operation",
+              "equals": "fchown"
+            }
+          ],
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this descriptor metadata mutation before descriptor lookup."
+        },
+        {
+          "id": "futimes",
+          "when": [
+            {
+              "fact": "filesystem.descriptor.operation",
+              "equals": "futimes"
+            }
+          ],
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this descriptor metadata mutation before descriptor lookup."
+        },
+        {
+          "id": "truncate",
+          "when": [
+            {
+              "fact": "filesystem.descriptor.operation",
+              "equals": "truncate"
             }
           ],
           "effects": [
@@ -210252,6 +210288,10 @@
           "id": "chmod",
           "when": [
             {
+              "fact": "runtime.target.os",
+              "equals": "apple"
+            },
+            {
               "fact": "filesystem.path.operation",
               "equals": "chmod"
             }
@@ -210311,6 +210351,22 @@
           }
         },
         {
+          "id": "chmod-windows",
+          "when": [
+            {
+              "fact": "filesystem.path.operation",
+              "equals": "chmod"
+            },
+            {
+              "fact": "runtime.target.os",
+              "equals": "windows"
+            }
+          ],
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this unbound filesystem mutation before path lookup or mutation."
+        },
+        {
           "id": "chown",
           "when": [
             {
@@ -210318,121 +210374,57 @@
               "equals": "chown"
             }
           ],
-          "effects": [
-            {
-              "cap": "fs:list",
-              "selectorNormalizer": "fs.path.selector.v1",
-              "occurrenceNormalizer": "fs.path.occurrence.v1",
-              "stages": [
-                "requested",
-                "discovery"
-              ],
-              "positiveSources": [
-                "ambient-root",
-                "handle",
-                "implicit-self",
-                "session",
-                "static-floor"
-              ]
-            },
-            {
-              "cap": "fs:write",
-              "selectorNormalizer": "fs.path.selector.v1",
-              "occurrenceNormalizer": "fs.path.occurrence.v1",
-              "stages": [
-                "commit",
-                "repeat"
-              ],
-              "positiveSources": [
-                "ambient-root",
-                "handle",
-                "session",
-                "static-floor"
-              ]
-            }
-          ],
-          "principalSources": [
-            "frame-set",
-            "schedule-time"
-          ],
-          "effectOwnerSource": "innermost-nontransparent-frame",
-          "lifetimeContract": "operation",
-          "barriers": {
-            "authorizeBefore": [
-              "path-discovery",
-              "object-open",
-              "first-use"
-            ],
-            "recheckAt": [
-              "object-use"
-            ],
-            "cancelAt": [
-              "negative-generation-change",
-              "object-identity-mismatch"
-            ]
-          }
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this unbound filesystem mutation before path lookup or mutation."
         },
         {
-          "id": "copy",
+          "id": "copyfile",
           "when": [
             {
               "fact": "filesystem.path.operation",
-              "equals": "copy"
+              "equals": "copyfile"
             }
           ],
-          "effects": [
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this unbound filesystem mutation before path lookup or mutation."
+        },
+        {
+          "id": "copyfile-excl",
+          "when": [
             {
-              "cap": "fs:read",
-              "selectorNormalizer": "fs.path.selector.v1",
-              "occurrenceNormalizer": "fs.path.occurrence.v1",
-              "stages": [
-                "commit",
-                "repeat"
-              ],
-              "positiveSources": [
-                "ambient-root",
-                "handle",
-                "implicit-self",
-                "session",
-                "static-floor"
-              ]
-            },
-            {
-              "cap": "fs:write",
-              "selectorNormalizer": "fs.path.selector.v1",
-              "occurrenceNormalizer": "fs.path.occurrence.v1",
-              "stages": [
-                "commit",
-                "repeat"
-              ],
-              "positiveSources": [
-                "ambient-root",
-                "handle",
-                "session",
-                "static-floor"
-              ]
+              "fact": "filesystem.path.operation",
+              "equals": "copyfile-excl"
             }
           ],
-          "principalSources": [
-            "frame-set",
-            "schedule-time"
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this unbound filesystem mutation before path lookup or mutation."
+        },
+        {
+          "id": "lchmod",
+          "when": [
+            {
+              "fact": "filesystem.path.operation",
+              "equals": "lchmod"
+            }
           ],
-          "effectOwnerSource": "innermost-nontransparent-frame",
-          "lifetimeContract": "operation",
-          "barriers": {
-            "authorizeBefore": [
-              "path-discovery",
-              "object-open",
-              "first-use"
-            ],
-            "recheckAt": [
-              "object-use"
-            ],
-            "cancelAt": [
-              "negative-generation-change",
-              "object-identity-mismatch"
-            ]
-          }
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this unbound filesystem mutation before path lookup or mutation."
+        },
+        {
+          "id": "lchown",
+          "when": [
+            {
+              "fact": "filesystem.path.operation",
+              "equals": "lchown"
+            }
+          ],
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this unbound filesystem mutation before path lookup or mutation."
         },
         {
           "id": "link",
@@ -210442,63 +210434,29 @@
               "equals": "link"
             }
           ],
-          "effects": [
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this unbound filesystem mutation before path lookup or mutation."
+        },
+        {
+          "id": "lutime",
+          "when": [
             {
-              "cap": "fs:read",
-              "selectorNormalizer": "fs.path.selector.v1",
-              "occurrenceNormalizer": "fs.path.occurrence.v1",
-              "stages": [
-                "commit",
-                "repeat"
-              ],
-              "positiveSources": [
-                "ambient-root",
-                "handle",
-                "implicit-self",
-                "session",
-                "static-floor"
-              ]
-            },
-            {
-              "cap": "fs:write",
-              "selectorNormalizer": "fs.path.selector.v1",
-              "occurrenceNormalizer": "fs.path.occurrence.v1",
-              "stages": [
-                "commit",
-                "repeat"
-              ],
-              "positiveSources": [
-                "ambient-root",
-                "handle",
-                "session",
-                "static-floor"
-              ]
+              "fact": "filesystem.path.operation",
+              "equals": "lutime"
             }
           ],
-          "principalSources": [
-            "frame-set",
-            "schedule-time"
-          ],
-          "effectOwnerSource": "innermost-nontransparent-frame",
-          "lifetimeContract": "operation",
-          "barriers": {
-            "authorizeBefore": [
-              "path-discovery",
-              "object-open",
-              "first-use"
-            ],
-            "recheckAt": [
-              "object-use"
-            ],
-            "cancelAt": [
-              "negative-generation-change",
-              "object-identity-mismatch"
-            ]
-          }
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this unbound filesystem mutation before path lookup or mutation."
         },
         {
           "id": "mkdir",
           "when": [
+            {
+              "fact": "filesystem.mkdir.recursive",
+              "equals": "false"
+            },
             {
               "fact": "filesystem.path.operation",
               "equals": "mkdir"
@@ -210559,6 +210517,22 @@
           }
         },
         {
+          "id": "mkdir-recursive",
+          "when": [
+            {
+              "fact": "filesystem.path.operation",
+              "equals": "mkdir"
+            },
+            {
+              "fact": "filesystem.mkdir.recursive",
+              "equals": "true"
+            }
+          ],
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this unbound filesystem mutation before path lookup or mutation."
+        },
+        {
           "id": "mkdtemp",
           "when": [
             {
@@ -210566,59 +210540,9 @@
               "equals": "mkdtemp"
             }
           ],
-          "effects": [
-            {
-              "cap": "fs:list",
-              "selectorNormalizer": "fs.path.selector.v1",
-              "occurrenceNormalizer": "fs.path.occurrence.v1",
-              "stages": [
-                "requested",
-                "discovery"
-              ],
-              "positiveSources": [
-                "ambient-root",
-                "handle",
-                "implicit-self",
-                "session",
-                "static-floor"
-              ]
-            },
-            {
-              "cap": "fs:write",
-              "selectorNormalizer": "fs.path.selector.v1",
-              "occurrenceNormalizer": "fs.path.occurrence.v1",
-              "stages": [
-                "commit",
-                "repeat"
-              ],
-              "positiveSources": [
-                "ambient-root",
-                "handle",
-                "session",
-                "static-floor"
-              ]
-            }
-          ],
-          "principalSources": [
-            "frame-set",
-            "schedule-time"
-          ],
-          "effectOwnerSource": "innermost-nontransparent-frame",
-          "lifetimeContract": "operation",
-          "barriers": {
-            "authorizeBefore": [
-              "path-discovery",
-              "object-open",
-              "first-use"
-            ],
-            "recheckAt": [
-              "object-use"
-            ],
-            "cancelAt": [
-              "negative-generation-change",
-              "object-identity-mismatch"
-            ]
-          }
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this unbound filesystem mutation before path lookup or mutation."
         },
         {
           "id": "readdir",
@@ -210769,59 +210693,9 @@
               "equals": "rename"
             }
           ],
-          "effects": [
-            {
-              "cap": "fs:list",
-              "selectorNormalizer": "fs.path.selector.v1",
-              "occurrenceNormalizer": "fs.path.occurrence.v1",
-              "stages": [
-                "requested",
-                "discovery"
-              ],
-              "positiveSources": [
-                "ambient-root",
-                "handle",
-                "implicit-self",
-                "session",
-                "static-floor"
-              ]
-            },
-            {
-              "cap": "fs:write",
-              "selectorNormalizer": "fs.path.selector.v1",
-              "occurrenceNormalizer": "fs.path.occurrence.v1",
-              "stages": [
-                "commit",
-                "repeat"
-              ],
-              "positiveSources": [
-                "ambient-root",
-                "handle",
-                "session",
-                "static-floor"
-              ]
-            }
-          ],
-          "principalSources": [
-            "frame-set",
-            "schedule-time"
-          ],
-          "effectOwnerSource": "innermost-nontransparent-frame",
-          "lifetimeContract": "operation",
-          "barriers": {
-            "authorizeBefore": [
-              "path-discovery",
-              "object-open",
-              "first-use"
-            ],
-            "recheckAt": [
-              "object-use"
-            ],
-            "cancelAt": [
-              "negative-generation-change",
-              "object-identity-mismatch"
-            ]
-          }
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this unbound filesystem mutation before path lookup or mutation."
         },
         {
           "id": "rmdir",
@@ -210831,59 +210705,9 @@
               "equals": "rmdir"
             }
           ],
-          "effects": [
-            {
-              "cap": "fs:list",
-              "selectorNormalizer": "fs.path.selector.v1",
-              "occurrenceNormalizer": "fs.path.occurrence.v1",
-              "stages": [
-                "requested",
-                "discovery"
-              ],
-              "positiveSources": [
-                "ambient-root",
-                "handle",
-                "implicit-self",
-                "session",
-                "static-floor"
-              ]
-            },
-            {
-              "cap": "fs:write",
-              "selectorNormalizer": "fs.path.selector.v1",
-              "occurrenceNormalizer": "fs.path.occurrence.v1",
-              "stages": [
-                "commit",
-                "repeat"
-              ],
-              "positiveSources": [
-                "ambient-root",
-                "handle",
-                "session",
-                "static-floor"
-              ]
-            }
-          ],
-          "principalSources": [
-            "frame-set",
-            "schedule-time"
-          ],
-          "effectOwnerSource": "innermost-nontransparent-frame",
-          "lifetimeContract": "operation",
-          "barriers": {
-            "authorizeBefore": [
-              "path-discovery",
-              "object-open",
-              "first-use"
-            ],
-            "recheckAt": [
-              "object-use"
-            ],
-            "cancelAt": [
-              "negative-generation-change",
-              "object-identity-mismatch"
-            ]
-          }
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this unbound filesystem mutation before path lookup or mutation."
         },
         {
           "id": "statfs",
@@ -210940,59 +210764,9 @@
               "equals": "symlink"
             }
           ],
-          "effects": [
-            {
-              "cap": "fs:list",
-              "selectorNormalizer": "fs.path.selector.v1",
-              "occurrenceNormalizer": "fs.path.occurrence.v1",
-              "stages": [
-                "requested",
-                "discovery"
-              ],
-              "positiveSources": [
-                "ambient-root",
-                "handle",
-                "implicit-self",
-                "session",
-                "static-floor"
-              ]
-            },
-            {
-              "cap": "fs:write",
-              "selectorNormalizer": "fs.path.selector.v1",
-              "occurrenceNormalizer": "fs.path.occurrence.v1",
-              "stages": [
-                "commit",
-                "repeat"
-              ],
-              "positiveSources": [
-                "ambient-root",
-                "handle",
-                "session",
-                "static-floor"
-              ]
-            }
-          ],
-          "principalSources": [
-            "frame-set",
-            "schedule-time"
-          ],
-          "effectOwnerSource": "innermost-nontransparent-frame",
-          "lifetimeContract": "operation",
-          "barriers": {
-            "authorizeBefore": [
-              "path-discovery",
-              "object-open",
-              "first-use"
-            ],
-            "recheckAt": [
-              "object-use"
-            ],
-            "cancelAt": [
-              "negative-generation-change",
-              "object-identity-mismatch"
-            ]
-          }
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this unbound filesystem mutation before path lookup or mutation."
         },
         {
           "id": "truncate",
@@ -211064,63 +210838,17 @@
               "equals": "unlink"
             }
           ],
-          "effects": [
-            {
-              "cap": "fs:list",
-              "selectorNormalizer": "fs.path.selector.v1",
-              "occurrenceNormalizer": "fs.path.occurrence.v1",
-              "stages": [
-                "requested",
-                "discovery"
-              ],
-              "positiveSources": [
-                "ambient-root",
-                "handle",
-                "implicit-self",
-                "session",
-                "static-floor"
-              ]
-            },
-            {
-              "cap": "fs:write",
-              "selectorNormalizer": "fs.path.selector.v1",
-              "occurrenceNormalizer": "fs.path.occurrence.v1",
-              "stages": [
-                "commit",
-                "repeat"
-              ],
-              "positiveSources": [
-                "ambient-root",
-                "handle",
-                "session",
-                "static-floor"
-              ]
-            }
-          ],
-          "principalSources": [
-            "frame-set",
-            "schedule-time"
-          ],
-          "effectOwnerSource": "innermost-nontransparent-frame",
-          "lifetimeContract": "operation",
-          "barriers": {
-            "authorizeBefore": [
-              "path-discovery",
-              "object-open",
-              "first-use"
-            ],
-            "recheckAt": [
-              "object-use"
-            ],
-            "cancelAt": [
-              "negative-generation-change",
-              "object-identity-mismatch"
-            ]
-          }
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this unbound filesystem mutation before path lookup or mutation."
         },
         {
           "id": "utime",
           "when": [
+            {
+              "fact": "runtime.target.os",
+              "equals": "apple"
+            },
             {
               "fact": "filesystem.path.operation",
               "equals": "utime"
@@ -211179,6 +210907,22 @@
               "object-identity-mismatch"
             ]
           }
+        },
+        {
+          "id": "utime-windows",
+          "when": [
+            {
+              "fact": "filesystem.path.operation",
+              "equals": "utime"
+            },
+            {
+              "fact": "runtime.target.os",
+              "equals": "windows"
+            }
+          ],
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "The dispatcher refuses this unbound filesystem mutation before path lookup or mutation."
         }
       ],
       "atomicityGroup": "surface.native.op.exactfspathasync.10cb78b.decision",
@@ -214470,7 +214214,83 @@
       ],
       "effectOwnerSource": "innermost-nontransparent-frame",
       "gate": "reclassifies",
-      "effectMode": "conjunctive",
+      "effectMode": "conditional",
+      "logicalBranches": [
+        {
+          "id": "non-recursive",
+          "when": [
+            {
+              "fact": "filesystem.mkdir.recursive",
+              "equals": "false"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "fs:list",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "requested",
+                "discovery"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "implicit-self",
+                "session",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "fs:write",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "commit",
+                "repeat"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "frame-set",
+            "schedule-time"
+          ],
+          "effectOwnerSource": "innermost-nontransparent-frame",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "path-discovery",
+              "object-open",
+              "first-use"
+            ],
+            "recheckAt": [
+              "object-use"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "object-identity-mismatch"
+            ]
+          }
+        },
+        {
+          "id": "recursive",
+          "when": [
+            {
+              "fact": "filesystem.mkdir.recursive",
+              "equals": "true"
+            }
+          ],
+          "disposition": "closed",
+          "cap": "fs:unbound-mutation",
+          "rationale": "Recursive directory creation is refused before path lookup or mutation."
+        }
+      ],
       "atomicityGroup": "surface.native.op.exactmkdir.021eaz0.decision",
       "lifetimeContract": "operation",
       "barriers": {

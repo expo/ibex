@@ -1259,8 +1259,43 @@ ticket closes.
   branch-local modeling task. Important enforcement mechanisms remain about
   96% complete and the overall requested task remains about 86%.
 
+### 2026-07-25 — closed mixed filesystem dispatcher branches
+
+- Extended conditional coverage semantics so one callable can expose exact
+  effect-bearing and deny-only logical branches. Closed branches carry an
+  immutable branch predicate, deny-only capability, and rationale; they do not
+  leak into the callable's effect union. LLP 0023's fail-before-lookup rule now
+  covers the mixed path dispatcher, descriptor dispatcher, and recursive
+  `mkdir` branch without closing their reviewed open siblings.
+- Corrected implementation applicability for
+  `src/engine/hermes_runtime_fs.cc`: the POSIX source is no longer treated as a
+  cross-target default when `build.rs` compiles
+  `hermes_runtime_fs_windows.cc` instead. Windows therefore receives exact
+  target-absence recipes for POSIX-only globals rather than fictitious
+  fallback implementation credit.
+- Authored 17 Apple and 16 Windows target-local mixed-dispatcher closures. The
+  bound Apple batch passes all 701 closed fixtures, including 93 armed
+  filesystem mutation probes. Every mutation returns exact `EPERM`, emits zero
+  typed and legacy decisions, and preserves the recursive filesystem snapshot.
+  The independent validator accepts all 701 records with digest
+  `sha256-ZfCnLdowsI7zb1eWfYzn0piATq6SueWXlCjgiBpAPSc`.
+- Apple is now 23,723 required / 2,760 fully executable / 3,114 internally
+  verified / 17,849 unresolved. Windows has an authored target-local plan at
+  23,542 / 2,341 / 3,102 / 18,099; its physical Windows execution remains part
+  of the broader target-promotion gap and is not inferred from Apple evidence.
+  Criterion 7's literal Apple denominator is now 5,874/23,723 (24.8%) proven.
+- The focused model, inventory, recipe, and evidence suite passes 407 tests on
+  a fresh M4 mini worktree. The local recipe suite passes 88 tests, the
+  CapSec-semantics crate passes 116 unit/integration tests, `ref-check` passes
+  2,100 references, and the generated contract reproduces exactly.
+- Hard part: target applicability is a security claim, not inventory
+  decoration. Treating the POSIX implementation as a default silently lent
+  nonexistent native routes to Windows, while treating a mixed dispatcher as
+  wholly effectful invented impossible allow obligations. Important
+  enforcement mechanisms remain about 96% complete and the overall requested
+  task remains about 87%.
+
 ## Next milestone
 
-Add branch-local closure for the mixed filesystem dispatchers, execute the
-Windows target-local closure plan, and then return to the broader exact-target
-evidence gap.
+Execute the Windows target-local closure plan when a suitable Windows engine is
+available, and continue reducing the broader exact-target public-evidence gap.

@@ -14510,15 +14510,22 @@ export function scanCppGlobalPropertySurfaces(
     }
   }
 
-  const targetVariant = sourcePath.includes("windows")
-    ? "windows"
-    : sourcePath.includes("ios")
-      ? "ios"
-      : sourcePath.includes("android")
-        ? "android"
-        : sourcePath.includes("worklet")
-          ? "worklet"
-          : "default";
+  // @ref LLP 0021#generated-semantic-datasets — target cells bind the exact
+  // compiled implementation. build.rs selects hermes_runtime_fs_windows.cc
+  // instead of hermes_runtime_fs.cc on Windows, so the latter is a POSIX
+  // family branch rather than a universal fallback.
+  const targetVariant =
+    sourcePath === "src/engine/hermes_runtime_fs.cc"
+      ? "posix"
+      : sourcePath.includes("windows")
+        ? "windows"
+        : sourcePath.includes("ios")
+          ? "ios"
+          : sourcePath.includes("android")
+            ? "android"
+            : sourcePath.includes("worklet")
+              ? "worklet"
+              : "default";
   return sortSurfaces(
     [...facts.entries()].map(([exportName, refs]) => {
       const [globalName, ...memberSegments] = exportName.split(".");

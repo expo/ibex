@@ -1353,6 +1353,15 @@ and stream aliases. A newly added mutation surface is closed until this document
 it, so it cannot escape classification by being unlisted — the same default-closed
 discipline §6 applies to observables.
 
+A callable that dispatches both open and closed operations represents this rule with
+exact logical branches: the open branch carries its ordinary effects, while each
+closed operation branch carries the deny-only `fs:unbound-mutation` disposition.
+Selecting the operation is still part of the public-entry boundary; a closed branch
+must refuse before resolving any path or descriptor. Immutable target facts may
+select a platform-specific branch (for example, worker-backed path `chmod` on Apple
+versus closure on Windows), but they come from the bound target profile and are not
+caller-controlled.
+
 **Open in v1, and specified completely** — each is a single object reached under a
 retained parent:
 

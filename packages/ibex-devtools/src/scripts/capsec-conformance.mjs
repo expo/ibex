@@ -276,6 +276,31 @@ export function executionBindingDigest({
   });
 }
 
+function targetOsForTriple(triple) {
+  if (triple.endsWith("-apple-darwin")) return "apple";
+  if (triple.endsWith("-pc-windows-msvc")) return "windows";
+  return null;
+}
+
+function logicalBranchAppliesToTarget(branch, target) {
+  const targetConditions = branch.when.filter(
+    (condition) => condition.fact === "runtime.target.os",
+  );
+  if (targetConditions.length === 0) return true;
+  const targetOs = targetOsForTriple(target.triple);
+  return targetConditions.every((condition) => condition.equals === targetOs);
+}
+
+function logicalBranchForFixture(edge, rows, fixtureId) {
+  return edge.logicalBranches?.find((branch) =>
+    rows.some((row) =>
+      fixtureId.startsWith(
+        `${row.enforcementBranchId}.logical.${branch.id}.`,
+      ),
+    ),
+  );
+}
+
 export function fixtureCatalogForTarget({ coverage, implementation, target }) {
   const rowsByEdge = new Map();
   for (const row of implementation.surfaces) {
@@ -293,11 +318,18 @@ export function fixtureCatalogForTarget({ coverage, implementation, target }) {
       return row;
     });
     const absenceFixture = absenceFixtureForTarget(edge.id, target);
-    const requiredFixtures = canonicalSet(
+    const allRequiredFixtures = canonicalSet(
       selected.length === 0
         ? [absenceFixture]
         : selected.flatMap((row) => row.fixtureObligations),
     );
+    const requiredFixtures = allRequiredFixtures.filter((fixtureId) => {
+      const logicalBranch = logicalBranchForFixture(edge, selected, fixtureId);
+      return (
+        logicalBranch === undefined ||
+        logicalBranchAppliesToTarget(logicalBranch, target)
+      );
+    });
     const fixtureBindings = requiredFixtures.map((fixtureId) => {
       const matchingRows = selected.filter((row) =>
         row.fixtureObligations.includes(fixtureId),
@@ -307,12 +339,10 @@ export function fixtureCatalogForTarget({ coverage, implementation, target }) {
           `${edge.id}: fixture ${fixtureId} has no selected implementation branch`,
         );
       }
-      const logicalBranch = edge.logicalBranches?.find((branch) =>
-        matchingRows.some((row) =>
-          fixtureId.startsWith(
-            `${row.enforcementBranchId}.logical.${branch.id}.`,
-          ),
-        ),
+      const logicalBranch = logicalBranchForFixture(
+        edge,
+        matchingRows,
+        fixtureId,
       );
       return {
         fixtureId,
@@ -330,9 +360,16 @@ export function fixtureCatalogForTarget({ coverage, implementation, target }) {
                   row.enforcementRoute?.terminalObservedKey ?? row.observedKey,
               ),
         ),
-        classifications: [edge.classification],
+        classifications: [
+          logicalBranch?.disposition === "closed"
+            ? "closed"
+            : edge.classification,
+        ],
         actionIds: canonicalSet(
-          (logicalBranch?.effects ?? edge.effects ?? []).map(
+          (logicalBranch?.disposition === "closed"
+            ? []
+            : (logicalBranch?.effects ?? edge.effects ?? [])
+          ).map(
             (effect) => effect.cap,
           ),
         ),

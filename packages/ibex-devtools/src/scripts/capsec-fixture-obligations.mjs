@@ -24,6 +24,12 @@ export function fixtureObligationsForBranch(edge, branchId) {
       return canonicalStringSet(
         edge.logicalBranches.flatMap((logicalBranch) => {
           const prefix = `${branchId}.logical.${logicalBranch.id}`;
+          if (logicalBranch.disposition === "closed") {
+            return [
+              `${prefix}.branch-selection`,
+              `${prefix}.closed`,
+            ];
+          }
           if (logicalBranch.effects.length === 0) {
             // @ref LLP 0036#the-unresolved-catalog-split-into-two-provable-categories
             // — branch predicates are admitted registry metadata, not
