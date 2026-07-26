@@ -1,3 +1,36 @@
+# LLP 0024 Hermes patch 0011 — structured async failure provenance
+# Class: B (POD job-provenance fields + a queue kept in lockstep with
+#         jobQueue_, exported extern "C" accessors, an opt-in checkpoint mode
+#         in the internal Promise rejection tracker, and bounded trap-free
+#         JSI text/metadata primitives)
+# @ref LLP 0024#9-asynchronous-failures
+#
+# Gives the structured evaluator engine-true provenance for asynchronous
+# failures without invoking project code:
+#
+#   * Captures the scheduling principal, a job identity, and the embedder's
+#     associated evaluation at enqueueJob (the scheduler's frame is still live
+#     there), carries them in a JobScheduleContext queue kept in lockstep with
+#     jobQueue_, restores them as ambient Runtime state across drainJobs, and
+#     records the context of a job that exits exceptionally; the new
+#     ex_hermes_vm_* exports (current_job_scheduler_principal,
+#     current_job_identity, current_job_associated_evaluation,
+#     set_job_associated_evaluation, set_embedder_job_scheduler_principal,
+#     take_failed_job_context) let the host attribute a failed job to the
+#     evaluation that scheduled it.
+#
+#   * Adds a poll-checkpoint mode to the internal Promise rejection tracker:
+#     the embedding host is notified synchronously when a currently-unhandled
+#     promise rejects and when a continuation is attached later, and cancels
+#     by Promise identity — no timers and no user-visible property access.
+#
+#   * Extracts a closed SafeJSErrorClass from an actual Error's internal
+#     direct-prototype identity, and source-bounds Stage-1 primitive text plus
+#     Error message/stack to HERMES_SAFE_TEXT_MAX_BYTES (16 KiB) of valid
+#     UTF-8 including an explicit trusted truncation marker, without invoking
+#     project code or first materializing attacker-sized text
+#     (getSafeStage1Text / getSafeJSErrorMetadata).
+#
 diff --git a/API/hermes/hermes.cpp b/API/hermes/hermes.cpp
 index 96808afcc1940ba8141867447889086563ae22fc..1e6e6340281be5d055ae6e8b6cc2c2a6aa062ef6 100644
 --- a/API/hermes/hermes.cpp
