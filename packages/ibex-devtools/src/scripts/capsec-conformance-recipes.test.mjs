@@ -446,9 +446,9 @@ describe("exact-target CapSec executable recipes", () => {
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_402);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_412);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_971);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_961);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -513,7 +513,7 @@ describe("exact-target CapSec executable recipes", () => {
     // The callable Windows filesystem surface remains untyped where it still
     // uses the legacy path oracle. POSIX-only globals instead receive one
     // exact absence fixture and are not counted as ambiguous Windows routes.
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(162);
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(156);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
@@ -1284,6 +1284,7 @@ describe("exact-target CapSec executable recipes", () => {
         ).toBe("capsec-readlink-target.txt");
       }
     }
+
   });
 
   test("opens exact files with flag-selected authority and closes every returned descriptor", () => {
@@ -1385,6 +1386,26 @@ describe("exact-target CapSec executable recipes", () => {
       expect(recipe.residualReasons).toContain(
         "conditional-branch-selection-probe-not-authored",
       );
+    }
+
+    const windowsReadOpenRows = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactFsOpen" &&
+        recipe.fixtureId.includes(".logical.read."),
+    );
+    expect(windowsReadOpenRows).toHaveLength(6);
+    for (const recipe of windowsReadOpenRows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "discovery", "commit"],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 3,
+      );
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
     }
   });
 
@@ -2449,13 +2470,22 @@ describe("exact-target CapSec executable recipes", () => {
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
     }
-    expect(
-      windowsRecipes.recipes.filter(
-        (recipe) =>
-          recipe.publicSurfaceProbe?.invocation?.globalName ===
-          "__exactFsFstatSync",
-      ),
-    ).toHaveLength(0);
+    const windowsRows = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactFsFstatSync",
+    );
+    expect(windowsRows).toHaveLength(4);
+    for (const recipe of windowsRows) {
+      expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual([
+        "repeat",
+      ]);
+      expect(
+        recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
+      ).toBe(1);
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
     const denied = recipes.recipes.find(
       (recipe) =>
         recipe.terminalObservedKey === "native-op:__exactFsFstatSync" &&
@@ -2464,17 +2494,6 @@ describe("exact-target CapSec executable recipes", () => {
     expect(denied.publicSurfaceProbe).toBeNull();
     expect(denied.residualReasons).toContain(
       "native-public-deny-scenario-not-authored",
-    );
-    const windowsResiduals = windowsRecipes.recipes.find(
-      (recipe) =>
-        recipe.terminalObservedKey === "native-op:__exactFsFstatSync" &&
-        recipe.scenario === "allow",
-    ).residualReasons;
-    expect(windowsResiduals).toContain(
-      "native-public-operation-not-typed-on-target",
-    );
-    expect(windowsResiduals).not.toContain(
-      "native-public-operation-not-installed-on-target",
     );
   });
 

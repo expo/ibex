@@ -1708,11 +1708,59 @@ ticket closes.
   mechanisms remain about 99% complete and the overall requested task remains
   about 90% complete.
 
+### 2026-07-25 — retained Windows read descriptors and fstat
+
+- Promoted the read-only branch of armed `__exactFsOpen`. Requested and
+  Discovery authorize `fs:list`; Commit authorizes `fs:read` against the
+  regular-file object actually opened. The private ABI returns that exact
+  retained file together with its namespace, parent/final object identities,
+  retained handle ID, canonical virtual path, and optional presented bearer.
+- The Windows descriptor table now keeps the opaque retained file plus its
+  engine-derived runtime and principal owner. The numeric JavaScript fd is
+  only a monotonically allocated table key: guessing a number cannot create a
+  file handle or cross runtime/owner boundaries.
+- Promoted armed `__exactFsFstatSync` on those retained read descriptors. It
+  validates the descriptor owner, authorizes one `fs:list` Repeat using the
+  stored object/handle/bearer facts, and serializes metadata from the same
+  retained file without resolving or reopening its original pathname.
+  Replacement after Discovery fails as stale before Commit.
+- Write/create/truncate/append opens and unsupported numeric flag bits remain
+  deliberately closed. They return `EPERM` before virtual resolution, legacy
+  capability checks, or host creation, while unarmed compatibility remains
+  unchanged. Descriptor reads, durability, mutations, and worker-backed
+  variants remain residual pending their own retained-operation protocols.
+- Physical Windows verification passes the allowed public open/fstat trace
+  (`Requested`, `Discovery`, `Commit`, `Repeat`), requested-stage denial with
+  unchanged bytes and zero legacy decisions, write-open fail-closed with no
+  file creation, both VFS retained-identity tests, the private ABI test, and
+  the observer-feature production library check.
+- Ten Windows exact-target rows are newly executable: six read-open rows and
+  four fstat rows. The catalog is 23,495 required / 2,412 fully executable /
+  3,122 internally verified / 17,961 unresolved with digest
+  `sha256-zOOo9FfGLpjTW6btOL7RfvQbjxGcqbZBA6rdtivT7tc`;
+  `public-surface-filesystem-not-typed-on-target` is now 156. The recipe suite
+  passes 88 tests with 109,967 assertions.
+- The M4 verifier independently regenerates the vendored artifacts, reproduces
+  all 88 recipe tests and 109,967 assertions, passes both retained-descriptor
+  VFS tests, the private typed ABI test, the observer-feature library check,
+  and `ref-check`. Its checkout initially lacked the macOS Hermes SDK and
+  compiler; installing the same pinned 20 MiB framework/header/tool set made
+  the native verification self-contained.
+- Hard part: a public numeric descriptor cannot be treated as authority or as
+  stable object identity. Runtime/owner membership, the opaque retained file,
+  original object identity, handle ID, bearer, and current generation must
+  travel together through the private ABI and be rechecked at Repeat. This
+  slice therefore promotes only operations that can use the same file object;
+  it does not infer safety for reads or mutations merely because they accept
+  the same fd number. Important enforcement mechanisms remain about 99%
+  complete and the overall requested task remains about 90% complete.
+
 ## Next milestone
 
-Continue the installed Windows filesystem audit with retained descriptor
-operations, starting with metadata and disclosure routes that can preserve
-owner, generation, bearer, and retained-handle identity end to end. Keep
-worker-backed read residual until it can recheck authority generation between
-chunks, and do not advertise Windows while other installed filesystem routes
-and 17,971 exact-target public-evidence rows remain unresolved.
+Continue the installed Windows filesystem audit with retained descriptor read
+operations that can preserve owner, generation, bearer, and retained-handle
+identity end to end. Keep write-capable opens and descriptor mutations closed
+until they have an object-bound mutation protocol, keep worker-backed reads
+residual until they can recheck authority generation between chunks, and do
+not advertise Windows while other installed filesystem routes and 17,961
+exact-target public-evidence rows remain unresolved.

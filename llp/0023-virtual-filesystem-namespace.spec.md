@@ -5,6 +5,7 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-25 (armed Windows read-only open now retains the exact VFS file and its parent/final/handle identity behind a runtime/owner-bound opaque registry entry; fstat authorizes Repeat and reads metadata from that same file without pathname fallback, while write-capable opens fail closed before resolution and remaining descriptor operations stay unpromoted)
 **Revised:** 2026-07-25 (armed Windows synchronous readdir now retains and enumerates the exact directory handle, authorizes requested/discovery `fs:list` plus repeat before each disclosed member, emits only the long-name coordinate, and has no armed pathname fallback; physical replacement-race and public denial tests pass while descriptors/mutations/async routes remain unpromoted)
 **Revised:** 2026-07-25 (armed Windows synchronous lstat now stops contained traversal at the final reparse object, reopens and object-matches it through the retained parent, authorizes requested/discovery/repeat `fs:list` with `no-follow-final`, and has no armed pathname fallback; physical reparse and replacement-race tests pass while enumeration/descriptors/mutations/async routes remain unpromoted)
 **Revised:** 2026-07-25 (armed Windows synchronous stat now opens file targets for metadata only and retains them through requested/discovery/repeat `fs:list`; it also represents the authenticated mount root with no fabricated parent, serializes after repeat, and has no armed pathname fallback; enumeration, descriptors, mutations, and async routes remain unpromoted)
@@ -2073,9 +2074,9 @@ refuses non-ASCII and tilde spellings, refuses case-sensitive traversal
 directories, and stages/refuses arbitrary 8.3 selections through the retained
 parent entry.
 
-Armed Windows synchronous whole-file read, stat, lstat, and readdir are the
-first four installed filesystem effects to consume that retained-object
-backend directly. The engine passes its native runtime generation and
+Armed Windows synchronous whole-file read, stat, lstat, readdir, read-only
+open, and fstat are the first installed filesystem effects to consume that
+retained-object backend directly. The engine passes its native runtime generation and
 frame-derived canonical constrained-principal stack to private bridges;
 JavaScript supplies only virtual path syntax and an optional typed bearer.
 `RuntimeVfsSession` resolves that syntax.
@@ -2104,12 +2105,26 @@ lists only the VFS mount names and has no filesystem observations. Every typed
 error returns directly through the Node-shaped VFS error mapper; armed
 execution cannot reopen the path through the legacy oracle.
 
+`VirtualFileSystem::open_read_descriptor_authenticated` performs Requested and
+Discovery `fs:list`, opens and object-matches the regular-file leaf for a
+Commit `fs:read`, and returns the exact retained `File` with its namespace,
+parent/final object identities, and retained handle ID. The private ABI also
+stores the optional presented bearer. The Windows engine publishes only an
+owner/runtime-bound numeric table key whose opaque entry owns that retained
+file; a guessed integer carries no authority. Fstat first validates that table
+owner, then `fstat_descriptor_authenticated` authorizes one `fs:list` Repeat
+against the stored object, handle ID, and bearer and reads metadata through the
+same file. It never resolves or reopens the original pathname. Armed
+write/create/truncate/append opens and unsupported numeric flag bits return
+`EPERM` before resolution or any legacy capability call; this slice does not
+claim a mutation protocol.
+
 The synchronous operation inherits the VFS bounded whole-file read limit and
 cannot interleave JavaScript-driven revocation while native byte acquisition is
 in progress. That reasoning does not promote worker-backed
 `__exactFsReadFileAsync`: it still needs an operation lease with generation
-rechecks between observable chunks. Descriptor operations, mutation, and all
-other installed Windows filesystem routes remain legacy or
+rechecks between observable chunks. Descriptor reads, durability, mutation,
+write-capable opens, and all other installed Windows filesystem routes remain legacy or
 closed as their individual contracts require, and exact-target public evidence
 remains incomplete. The target therefore remains unadvertised.
 

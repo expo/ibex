@@ -1503,6 +1503,37 @@ const nativeProjectFsOpenTemplate = ({
     })),
     requiredSourceArity: 4,
     setup: [],
+    ...(!async &&
+    actionIds.length === 2 &&
+    actionIds.includes("fs:list") &&
+    actionIds.includes("fs:read")
+      ? {
+          // Windows read-only open enters the retained VFS directly: Requested
+          // list, Discovery of the exact file, then Commit read. Write/create
+          // branches remain separately residual and fail closed.
+          // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+          expectedDecisionCountsByTarget: {
+            "x86_64-pc-windows-msvc": {
+              allow: 3,
+              "branch-selection": 3,
+              deny: 1,
+              malformed: 3,
+              "missing-attribution": 3,
+              "wrong-principal": 3,
+            },
+          },
+          expectedStagesByTarget: {
+            "x86_64-pc-windows-msvc": {
+              allow: ["requested", "discovery", "commit"],
+              "branch-selection": ["requested", "discovery", "commit"],
+              deny: ["requested"],
+              malformed: ["requested", "discovery", "commit"],
+              "missing-attribution": ["requested", "discovery", "commit"],
+              "wrong-principal": ["requested", "discovery", "commit"],
+            },
+          },
+        }
+      : {}),
     ...(async
       ? {
           additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
@@ -1557,8 +1588,6 @@ const nativeRetainedFsFstatTemplate = () =>
     ],
     requiredSourceArity: 1,
     setup: fsReadFileSetup(),
-    unsupportedTargetReason: "native-public-operation-not-typed-on-target",
-    unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
   });
 const nativeRetainedFsWriteTemplate = ({
   path,
@@ -4062,17 +4091,25 @@ function unsupportedWindowsTypedPublicEffectReason({
   ) {
     return null;
   }
-  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Synchronous whole-file read, stat, lstat, and direct directory enumeration are the completed exceptions.
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Synchronous whole-file read, stat, lstat, readdir, retained fstat, and the read-only open branch are the completed exceptions.
   if (plan.actionIds.some((actionId) => actionId.startsWith("fs:"))) {
+    const globalName = publicSurfaceProbe?.invocation?.globalName;
+    if (
+      globalName === "__exactFsOpen" &&
+      plan.actionIds.length === 2 &&
+      plan.actionIds.includes("fs:list") &&
+      plan.actionIds.includes("fs:read")
+    ) {
+      return null;
+    }
     if (
       [
+        "__exactFsFstatSync",
         "__exactLstat",
         "__exactReadFile",
         "__exactReaddir",
         "__exactStat",
-      ].includes(
-        publicSurfaceProbe?.invocation?.globalName,
-      )
+      ].includes(globalName)
     ) {
       return null;
     }

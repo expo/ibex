@@ -2734,6 +2734,37 @@ impl AuthenticatedStat {
     }
 }
 
+/// Identity retained with a JavaScript-visible file descriptor. The host
+/// spelling is deliberately absent: subsequent descriptor operations use the
+/// exact native handle and this typed occurrence.
+#[derive(Clone, Debug)]
+pub(crate) struct AuthenticatedFileDescriptorIdentity {
+    namespace: NamespacePath,
+    parent_object: ObjectIdentity,
+    final_object: ObjectIdentity,
+    retained_handle_id: u64,
+}
+
+impl AuthenticatedFileDescriptorIdentity {
+    pub(crate) fn virtual_path(&self) -> &str {
+        self.namespace.virtual_path()
+    }
+}
+
+/// A newly opened read descriptor plus the occurrence facts required for every
+/// later Repeat authorization.
+#[derive(Debug)]
+pub(crate) struct AuthenticatedFileDescriptor {
+    file: std::fs::File,
+    identity: AuthenticatedFileDescriptorIdentity,
+}
+
+impl AuthenticatedFileDescriptor {
+    pub(crate) fn into_parts(self) -> (std::fs::File, AuthenticatedFileDescriptorIdentity) {
+        (self.file, self.identity)
+    }
+}
+
 /// One directory member disclosed from an exact retained directory object.
 /// Invalid native name bytes remain distinguishable instead of passing through
 /// a lossy string conversion.
@@ -2984,6 +3015,155 @@ impl VirtualFileSystem {
         F: for<'a> FnMut(RetainedPathAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
     {
         self.retained_metadata_authenticated(namespace, authorize, false, "lstat")
+    }
+
+    /// Open a regular file for descriptor-backed reads while retaining the
+    /// exact object and occurrence facts needed by later operations. Open
+    /// itself ends at Commit because it discloses no file bytes.
+    ///
+    /// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+    /// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+    pub(crate) fn open_read_descriptor_authenticated<F>(
+        &self,
+        namespace: NamespacePath,
+        mut authorize: F,
+    ) -> Result<AuthenticatedFileDescriptor, VfsError>
+    where
+        F: for<'a> FnMut(ReadAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
+    {
+        const OPERATION: &str = "open";
+        self.ensure_path_session(&namespace, OPERATION)?;
+        if namespace.is_synthetic_root() {
+            return Err(VfsError::synthetic_node(
+                OPERATION,
+                namespace.virtual_path.clone(),
+            ));
+        }
+        let _requested = authorize(ReadAuthorization::Requested(&namespace))?;
+        if namespace.virtual_components.len() <= 1 {
+            return Err(VfsError::host_code(
+                OPERATION,
+                namespace.virtual_path.clone(),
+                "EISDIR",
+            ));
+        }
+
+        #[cfg(any(unix, windows))]
+        let (discovered, _traversal_decisions) =
+            self.discover_contained(namespace, &mut authorize, true)?;
+
+        #[cfg(any(unix, windows))]
+        let _discovery = authorize(ReadAuthorization::Discovery(&discovered))?;
+
+        #[cfg(any(unix, windows))]
+        let committed = self.commit_no_follow(discovered)?;
+
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = authorize;
+            return Err(VfsError::host_code(
+                OPERATION,
+                namespace.virtual_path.clone(),
+                "ERR_IBEX_UNSUPPORTED_TARGET",
+            ));
+        }
+
+        #[cfg(any(unix, windows))]
+        {
+            let _commit = authorize(ReadAuthorization::Commit(&committed))?;
+            let metadata = committed.retained_final.metadata().map_err(|error| {
+                VfsError::host(
+                    OPERATION,
+                    committed.namespace().virtual_path.clone(),
+                    &error,
+                )
+            })?;
+            if !metadata.is_file() {
+                return Err(VfsError::host_code(
+                    OPERATION,
+                    committed.namespace().virtual_path.clone(),
+                    if metadata.is_dir() {
+                        "EISDIR"
+                    } else {
+                        "EINVAL"
+                    },
+                ));
+            }
+            if committed.namespace().directory_intent {
+                return Err(VfsError::host_code(
+                    OPERATION,
+                    committed.namespace().virtual_path.clone(),
+                    "ENOTDIR",
+                ));
+            }
+            let current =
+                object_identity_for_retained_file(&committed.retained_final).map_err(|_| {
+                    VfsError::stale_identity(OPERATION, committed.namespace().virtual_path.clone())
+                })?;
+            if current != committed.final_object {
+                return Err(VfsError::stale_identity(
+                    OPERATION,
+                    committed.namespace().virtual_path.clone(),
+                ));
+            }
+            let identity = AuthenticatedFileDescriptorIdentity {
+                namespace: committed.namespace().clone(),
+                parent_object: committed.discovered().parent_object().clone(),
+                final_object: committed.final_object().clone(),
+                retained_handle_id: committed.retained_handle_id(),
+            };
+            Ok(AuthenticatedFileDescriptor {
+                file: committed.retained_final,
+                identity,
+            })
+        }
+    }
+
+    /// Capture metadata from an already retained descriptor after a fresh
+    /// Repeat decision over its original occurrence. No pathname lookup is
+    /// performed.
+    ///
+    /// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+    pub(crate) fn fstat_descriptor_authenticated<F>(
+        &self,
+        file: &std::fs::File,
+        identity: &AuthenticatedFileDescriptorIdentity,
+        mut authorize: F,
+    ) -> Result<AuthenticatedStat, VfsError>
+    where
+        F: for<'a> FnMut(RetainedPathAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
+    {
+        const OPERATION: &str = "fstat";
+        self.ensure_path_session(&identity.namespace, OPERATION)?;
+        let before = object_identity_for_retained_file(file).map_err(|_| {
+            VfsError::stale_identity(OPERATION, identity.namespace.virtual_path.clone())
+        })?;
+        if before != identity.final_object {
+            return Err(VfsError::stale_identity(
+                OPERATION,
+                identity.namespace.virtual_path.clone(),
+            ));
+        }
+        let _repeat = authorize(RetainedPathAuthorization::committed(
+            &identity.namespace,
+            capsec_semantics::model::Stage::Repeat,
+            Some(identity.parent_object.clone()),
+            identity.final_object.clone(),
+            identity.retained_handle_id,
+        ))?;
+        let metadata = file.metadata().map_err(|error| {
+            VfsError::host(OPERATION, identity.namespace.virtual_path.clone(), &error)
+        })?;
+        let after = object_identity_for_retained_file(file).map_err(|_| {
+            VfsError::stale_identity(OPERATION, identity.namespace.virtual_path.clone())
+        })?;
+        if after != identity.final_object {
+            return Err(VfsError::stale_identity(
+                OPERATION,
+                identity.namespace.virtual_path.clone(),
+            ));
+        }
+        Ok(AuthenticatedStat { metadata })
     }
 
     /// Enumerate the exact retained directory object. The `fs:list` lifecycle
@@ -7239,6 +7419,103 @@ mod tests {
         assert!(!error.to_string().contains(temp.path().to_str().unwrap()));
     }
 
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn retained_read_descriptor_fstat_repeats_the_original_object() {
+        use capsec_semantics::model::Stage;
+
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("descriptor.txt"), b"descriptor-bytes").unwrap();
+        let vfs = test_vfs(temp.path());
+        let path = vfs
+            .resolve_root_bytes(b"/project/descriptor.txt", None)
+            .unwrap();
+        let mut stages = Vec::new();
+        let mut objects = Vec::new();
+        let descriptor = vfs
+            .open_read_descriptor_authenticated(path, |authorization| {
+                let stage = match &authorization {
+                    ReadAuthorization::Requested(_) => Stage::Requested,
+                    ReadAuthorization::Discovery(_) => Stage::Discovery,
+                    ReadAuthorization::Commit(_) => Stage::Commit,
+                    ReadAuthorization::Repeat(_) => Stage::Repeat,
+                };
+                stages.push(stage);
+                objects.push(match &authorization {
+                    ReadAuthorization::Requested(_) => None,
+                    ReadAuthorization::Discovery(path) => path.witnessed_object().cloned(),
+                    ReadAuthorization::Commit(path) => Some(path.final_object().clone()),
+                    ReadAuthorization::Repeat(path) => Some(path.final_object().clone()),
+                });
+                Ok(receipt(format!("{stage:?}").as_bytes()))
+            })
+            .unwrap();
+        assert_eq!(stages, [Stage::Requested, Stage::Discovery, Stage::Commit]);
+
+        let (file, identity) = descriptor.into_parts();
+        let metadata = vfs
+            .fstat_descriptor_authenticated(&file, &identity, |authorization| {
+                stages.push(authorization.stage());
+                objects.push(authorization.final_object().cloned());
+                Ok(receipt(b"fstat-repeat"))
+            })
+            .unwrap()
+            .into_metadata();
+        assert_eq!(metadata.len(), b"descriptor-bytes".len() as u64);
+        assert_eq!(
+            stages,
+            [
+                Stage::Requested,
+                Stage::Discovery,
+                Stage::Commit,
+                Stage::Repeat,
+            ]
+        );
+        assert!(objects[0].is_none());
+        assert_eq!(objects[1], objects[2]);
+        assert_eq!(objects[2], objects[3]);
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn retained_read_descriptor_refuses_replacement_after_discovery() {
+        use capsec_semantics::model::Stage;
+
+        let temp = tempfile::tempdir().unwrap();
+        let live = temp.path().join("descriptor.txt");
+        let old = temp.path().join("old-descriptor.txt");
+        let replacement = temp.path().join("replacement.txt");
+        fs::write(&live, b"safe").unwrap();
+        fs::write(&replacement, b"attacker").unwrap();
+        let vfs = test_vfs(temp.path());
+        let path = vfs
+            .resolve_root_bytes(b"/project/descriptor.txt", None)
+            .unwrap();
+        let mut stages = Vec::new();
+        let error = vfs
+            .open_read_descriptor_authenticated(path, |authorization| {
+                let stage = match &authorization {
+                    ReadAuthorization::Requested(_) => Stage::Requested,
+                    ReadAuthorization::Discovery(_) => Stage::Discovery,
+                    ReadAuthorization::Commit(_) => Stage::Commit,
+                    ReadAuthorization::Repeat(_) => Stage::Repeat,
+                };
+                stages.push(stage);
+                if matches!(authorization, ReadAuthorization::Discovery(_)) {
+                    fs::rename(&live, &old).unwrap();
+                    fs::rename(&replacement, &live).unwrap();
+                }
+                Ok(receipt(format!("{stage:?}").as_bytes()))
+            })
+            .unwrap_err();
+
+        assert_eq!(error.reason(), VfsReason::StaleIdentity);
+        assert_eq!(stages, [Stage::Requested, Stage::Discovery]);
+        assert_eq!(fs::read(&live).unwrap(), b"attacker");
+        assert_eq!(fs::read(&old).unwrap(), b"safe");
+        assert!(!error.to_string().contains(temp.path().to_str().unwrap()));
+    }
+
     #[cfg(windows)]
     #[test]
     fn windows_readdir_retains_the_directory_and_repeats_each_member() {
@@ -7250,9 +7527,7 @@ mod tests {
         fs::write(directory.join("z-last.txt"), b"z").unwrap();
         fs::write(directory.join("a-first.txt"), b"a").unwrap();
         let vfs = test_vfs(temp.path());
-        let path = vfs
-            .resolve_root_bytes(b"/project/listing", None)
-            .unwrap();
+        let path = vfs.resolve_root_bytes(b"/project/listing", None).unwrap();
         let mut stages = Vec::new();
         let mut final_objects = Vec::new();
         let listing = vfs
@@ -7299,9 +7574,7 @@ mod tests {
         fs::write(live.join("safe.txt"), b"safe").unwrap();
         fs::write(replacement.join("attacker.txt"), b"attacker").unwrap();
         let vfs = test_vfs(temp.path());
-        let path = vfs
-            .resolve_root_bytes(b"/project/listing", None)
-            .unwrap();
+        let path = vfs.resolve_root_bytes(b"/project/listing", None).unwrap();
         let mut stages = Vec::new();
         let error = vfs
             .readdir_authenticated(path, |authorization| {

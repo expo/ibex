@@ -21365,6 +21365,170 @@ navigator.gpu.requestAdapter()
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(all(windows, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_windows_public_read_open_and_fstat_share_the_retained_object() {
+        use capsec_semantics::model::Stage;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-windows-typed-open-fstat-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("descriptor.txt"), b"retained-descriptor").unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, true, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "enforcement.src.engine.hermes.runtime.fs.windows.exactfsopen.fstat.retained"
+        ));
+        let outcome = engine
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  var fd = __exactFsOpen('/project/descriptor.txt', 'r', 438, null);
+                  try {
+                    var stat = JSON.parse(__exactFsFstatSync(fd));
+                    return String(stat.size) + ':' + String(stat.is_file);
+                  } finally {
+                    __exactFsClose(fd);
+                  }
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("19:true"));
+
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            legacy.is_empty(),
+            "armed Windows descriptor open/fstat crossed the legacy capability oracle"
+        );
+        assert_eq!(
+            typed
+                .iter()
+                .map(|row| row.decision_set.context.stage)
+                .collect::<Vec<_>>(),
+            vec![
+                Stage::Requested,
+                Stage::Discovery,
+                Stage::Commit,
+                Stage::Repeat,
+            ]
+        );
+        assert_eq!(
+            typed
+                .iter()
+                .map(|row| row.decision_set.effects[0].action.as_str())
+                .collect::<Vec<_>>(),
+            vec!["fs:list", "fs:list", "fs:read", "fs:list"]
+        );
+        assert!(typed[..3].iter().all(|row| row.gates.iter().all(|gate| {
+            gate.coverage_edge_id.as_str() == "surface.native.op.exactfsopen.05ao6wa"
+        })));
+        assert!(typed[3].gates.iter().all(|gate| {
+            gate.coverage_edge_id.as_str() == "surface.native.op.exactfsfstatsync.1md7g19"
+        }));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(all(windows, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_windows_public_read_open_denies_before_lookup() {
+        use capsec_semantics::model::Stage;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-windows-typed-open-deny-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let target = root.join("secret.txt");
+        std::fs::write(&target, b"descriptor-secret").unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, true, false, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "enforcement.src.engine.hermes.runtime.fs.windows.exactfsopen.denied"
+        ));
+        let outcome = engine
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  try { __exactFsOpen('/project/secret.txt', 'r', 438, null); }
+                  catch (error) { return String(error.code); }
+                  return 'unexpected-success';
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("EACCES"));
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(legacy.is_empty());
+        assert_eq!(typed.len(), 1);
+        assert_eq!(typed[0].decision_set.context.stage, Stage::Requested);
+        assert_eq!(typed[0].decision_set.effects[0].action.as_str(), "fs:list");
+        assert_eq!(std::fs::read(&target).unwrap(), b"descriptor-secret");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(all(windows, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_windows_public_unpromoted_open_flags_fail_closed_before_resolution() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-windows-write-open-closed-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, false, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "enforcement.src.engine.hermes.runtime.fs.windows.exactfsopen.write.closed"
+        ));
+        let outcome = engine
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  var results = [];
+                  try { __exactFsOpen('/project/must-not-exist.txt', 'w', 438, null); }
+                  catch (error) { results.push(String(error.code)); }
+                  try { __exactFsOpen('/project/unknown-numeric.txt', 2048, 438, null); }
+                  catch (error) { results.push(String(error.code)); }
+                  return results.join(':');
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("EPERM:EPERM"));
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(legacy.is_empty());
+        assert!(typed.is_empty());
+        assert!(!root.join("must-not-exist.txt").exists());
+        assert!(!root.join("unknown-numeric.txt").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_read_stops_after_dynamic_authority_is_revoked_mid_stream() {

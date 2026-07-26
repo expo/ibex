@@ -1126,6 +1126,22 @@ extern "C" uint32_t ex_host_vfs_resolve_path(
     uint8_t** out_virtual,
     uint64_t* out_virtual_len,
     int32_t* out_errno);
+// Private retained-object read-only descriptor open. The returned opaque file
+// handle is released with ex_host_fs_close and carries its original occurrence
+// and bearer for later descriptor Repeat operations.
+extern "C" uint32_t ibex_private_vfs_open_read_typed(
+    uint64_t runtime_nonce,
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    const uint8_t* input,
+    uint64_t input_len,
+    const uint8_t* presented_handle_id,
+    uint64_t presented_handle_id_len,
+    void** out_file,
+    uint8_t** out_virtual,
+    uint64_t* out_virtual_len,
+    int32_t* out_errno);
 // Private retained-object whole-file read. The engine supplies its native
 // runtime generation and frame-derived constrained principal stack; output is
 // explicit-length and released with ex_host_free_buffer.
@@ -1166,6 +1182,17 @@ extern "C" uint32_t ibex_private_vfs_lstat_typed(
     uint64_t input_len,
     const uint8_t* presented_handle_id,
     uint64_t presented_handle_id_len,
+    uint8_t** out_json,
+    uint64_t* out_len,
+    int32_t* out_errno);
+// Private retained-descriptor metadata Repeat. Output ownership matches
+// ibex_private_vfs_stat_typed.
+extern "C" uint32_t ibex_private_vfs_fstat_typed(
+    uint64_t runtime_nonce,
+    uint64_t descriptor_owner,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    void* file,
     uint8_t** out_json,
     uint64_t* out_len,
     int32_t* out_errno);
