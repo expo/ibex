@@ -3474,6 +3474,127 @@ pub(crate) unsafe extern "C" fn private_vfs_readv_async_typed(
     }
 }
 
+unsafe fn private_vfs_write_typed_for_surface(
+    runtime_nonce: u64,
+    descriptor_owner: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    file: *mut ExactFileHandle,
+    data: *const u8,
+    data_len: u32,
+    out_written: *mut u32,
+    out_errno: *mut i32,
+    operation: &'static str,
+    operation_key: &'static str,
+    coverage_edge_id: &'static str,
+) -> u32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::FollowMode;
+
+    if !out_errno.is_null() {
+        unsafe { *out_errno = 0 };
+    }
+    if out_written.is_null() {
+        return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
+    }
+    unsafe { *out_written = 0 };
+    if file.is_null()
+        || module_ids.is_null()
+        || module_ids_len == 0
+        || module_ids_len > 257
+        || (data.is_null() && data_len != 0)
+    {
+        return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
+    }
+    let session = match runtime_vfs_session(runtime_nonce, operation) {
+        Ok(session) => session,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    let bytes = if data_len == 0 {
+        &[][..]
+    } else {
+        unsafe { std::slice::from_raw_parts(data, data_len as usize) }
+    };
+    if bytes.is_empty() {
+        return EX_HOST_VFS_RESULT_OK;
+    }
+    let handle = unsafe { &mut *file };
+    let Some(retained_identity) = handle.retained_identity.as_ref() else {
+        return EX_HOST_VFS_RESULT_STALE_IDENTITY;
+    };
+    let vfs = match session.virtual_file_system() {
+        Ok(vfs) => vfs,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let presented = handle.presented_handles.clone();
+    let result = with_host(
+        |host| {
+            let constrained_principals =
+                typed_principals_for_ids(host, module_ids).ok_or_else(|| {
+                    crate::vfs::VfsError::policy_denied(
+                        operation,
+                        Arc::from(retained_identity.virtual_path()),
+                        "typed-descriptor-write-principal-refused",
+                    )
+                })?;
+            vfs.write_append_descriptor_authenticated(
+                &mut handle.file,
+                retained_identity,
+                bytes,
+                |authorization| {
+                    let path = Arc::<str>::from(authorization.namespace().virtual_path());
+                    let result = host
+                        .authorize_vfs_retained_path_stage(
+                            vfs,
+                            &descriptor_owner.to_string(),
+                            constrained_principals.clone(),
+                            operation_key,
+                            coverage_edge_id,
+                            authorization,
+                            FollowMode::FollowFinal,
+                            "fs:write",
+                            presented.clone(),
+                        )
+                        .map_err(|_| {
+                            crate::vfs::VfsError::policy_denied(
+                                operation,
+                                path.clone(),
+                                "typed-descriptor-write-evaluation-refused",
+                            )
+                        })?;
+                    let receipt = crate::vfs::AuthorizationReceipt::from_structured_decision(
+                        &result.evidence,
+                    )?;
+                    match result.decision.outcome {
+                        DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence => {
+                            Ok(receipt)
+                        }
+                        DecisionOutcome::Deny | DecisionOutcome::RefuseArming => {
+                            Err(crate::vfs::VfsError::policy_denied(
+                                operation,
+                                path,
+                                Arc::<str>::from(receipt.evidence_digest().as_str()),
+                            ))
+                        }
+                    }
+                },
+            )
+        },
+        Err(crate::vfs::VfsError::stale_session(operation, None)),
+    );
+    match result {
+        Ok(written) => match u32::try_from(written) {
+            Ok(written) => {
+                unsafe { *out_written = written };
+                EX_HOST_VFS_RESULT_OK
+            }
+            Err(_) => vfs_error_result(&crate::vfs::VfsError::malformed(operation), out_errno),
+        },
+        Err(error) => vfs_error_result(&error, out_errno),
+    }
+}
+
 /// Append bytes to one authenticated retained file descriptor. The
 /// descriptor's original occurrence and bearer are reused for one fresh
 /// `fs:write` Repeat; no pathname is resolved or reopened.
@@ -3497,35 +3618,120 @@ pub(crate) unsafe extern "C" fn private_vfs_write_append_typed(
     out_written: *mut u32,
     out_errno: *mut i32,
 ) -> u32 {
+    unsafe {
+        private_vfs_write_typed_for_surface(
+            runtime_nonce,
+            descriptor_owner,
+            module_ids,
+            module_ids_len,
+            file,
+            data,
+            data_len,
+            out_written,
+            out_errno,
+            "write",
+            "fs-write",
+            "surface.native.op.exactfswrite.1locgj1",
+        )
+    }
+}
+
+/// Worker-backed scalar append using the async descriptor-write edge.
+///
+/// # Safety
+///
+/// The safety contract is identical to [`private_vfs_write_append_typed`].
+#[export_name = "ibex_private_vfs_write_async_typed"]
+pub(crate) unsafe extern "C" fn private_vfs_write_async_typed(
+    runtime_nonce: u64,
+    descriptor_owner: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    file: *mut ExactFileHandle,
+    data: *const u8,
+    data_len: u32,
+    out_written: *mut u32,
+    out_errno: *mut i32,
+) -> u32 {
+    unsafe {
+        private_vfs_write_typed_for_surface(
+            runtime_nonce,
+            descriptor_owner,
+            module_ids,
+            module_ids_len,
+            file,
+            data,
+            data_len,
+            out_written,
+            out_errno,
+            "write",
+            "fs-write-async",
+            "surface.native.op.exactfswriteasync.0f1ap1j",
+        )
+    }
+}
+
+/// Worker-backed aggregate append using the async descriptor-writev edge.
+///
+/// # Safety
+///
+/// The safety contract is identical to [`private_vfs_write_append_typed`].
+#[export_name = "ibex_private_vfs_writev_async_typed"]
+pub(crate) unsafe extern "C" fn private_vfs_writev_async_typed(
+    runtime_nonce: u64,
+    descriptor_owner: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    file: *mut ExactFileHandle,
+    data: *const u8,
+    data_len: u32,
+    out_written: *mut u32,
+    out_errno: *mut i32,
+) -> u32 {
+    unsafe {
+        private_vfs_write_typed_for_surface(
+            runtime_nonce,
+            descriptor_owner,
+            module_ids,
+            module_ids_len,
+            file,
+            data,
+            data_len,
+            out_written,
+            out_errno,
+            "writev",
+            "fs-writev-async",
+            "surface.native.op.exactfswritevasync.0l050fv",
+        )
+    }
+}
+
+unsafe fn private_vfs_sync_typed_for_surface(
+    runtime_nonce: u64,
+    descriptor_owner: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    file: *mut ExactFileHandle,
+    data_only: bool,
+    out_errno: *mut i32,
+    operation: &'static str,
+    operation_key: &'static str,
+    coverage_edge_id: &'static str,
+) -> u32 {
     use capsec_semantics::decision::DecisionOutcome;
     use capsec_semantics::model::FollowMode;
 
-    const OPERATION: &str = "write";
     if !out_errno.is_null() {
         unsafe { *out_errno = 0 };
     }
-    if out_written.is_null() {
+    if file.is_null() || module_ids.is_null() || module_ids_len == 0 || module_ids_len > 257 {
         return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
     }
-    unsafe { *out_written = 0 };
-    if file.is_null()
-        || module_ids.is_null()
-        || module_ids_len == 0
-        || module_ids_len > 257
-        || (data.is_null() && data_len != 0)
-    {
-        return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
-    }
-    let session = match runtime_vfs_session(runtime_nonce, OPERATION) {
+    let session = match runtime_vfs_session(runtime_nonce, operation) {
         Ok(session) => session,
         Err(error) => return vfs_error_result(&error, out_errno),
     };
     let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
-    let bytes = if data_len == 0 {
-        &[][..]
-    } else {
-        unsafe { std::slice::from_raw_parts(data, data_len as usize) }
-    };
     let handle = unsafe { &mut *file };
     let Some(retained_identity) = handle.retained_identity.as_ref() else {
         return EX_HOST_VFS_RESULT_STALE_IDENTITY;
@@ -3540,15 +3746,15 @@ pub(crate) unsafe extern "C" fn private_vfs_write_append_typed(
             let constrained_principals =
                 typed_principals_for_ids(host, module_ids).ok_or_else(|| {
                     crate::vfs::VfsError::policy_denied(
-                        OPERATION,
+                        operation,
                         Arc::from(retained_identity.virtual_path()),
-                        "typed-descriptor-write-principal-refused",
+                        "typed-descriptor-sync-principal-refused",
                     )
                 })?;
-            vfs.write_append_descriptor_authenticated(
+            vfs.sync_descriptor_authenticated(
                 &mut handle.file,
                 retained_identity,
-                bytes,
+                data_only,
                 |authorization| {
                     let path = Arc::<str>::from(authorization.namespace().virtual_path());
                     let result = host
@@ -3556,8 +3762,8 @@ pub(crate) unsafe extern "C" fn private_vfs_write_append_typed(
                             vfs,
                             &descriptor_owner.to_string(),
                             constrained_principals.clone(),
-                            "fs-write",
-                            "surface.native.op.exactfswrite.1locgj1",
+                            operation_key,
+                            coverage_edge_id,
                             authorization,
                             FollowMode::FollowFinal,
                             "fs:write",
@@ -3565,9 +3771,9 @@ pub(crate) unsafe extern "C" fn private_vfs_write_append_typed(
                         )
                         .map_err(|_| {
                             crate::vfs::VfsError::policy_denied(
-                                OPERATION,
+                                operation,
                                 path.clone(),
-                                "typed-descriptor-write-evaluation-refused",
+                                "typed-descriptor-sync-evaluation-refused",
                             )
                         })?;
                     let receipt = crate::vfs::AuthorizationReceipt::from_structured_decision(
@@ -3579,7 +3785,7 @@ pub(crate) unsafe extern "C" fn private_vfs_write_append_typed(
                         }
                         DecisionOutcome::Deny | DecisionOutcome::RefuseArming => {
                             Err(crate::vfs::VfsError::policy_denied(
-                                OPERATION,
+                                operation,
                                 path,
                                 Arc::<str>::from(receipt.evidence_digest().as_str()),
                             ))
@@ -3588,17 +3794,71 @@ pub(crate) unsafe extern "C" fn private_vfs_write_append_typed(
                 },
             )
         },
-        Err(crate::vfs::VfsError::stale_session(OPERATION, None)),
+        Err(crate::vfs::VfsError::stale_session(operation, None)),
     );
     match result {
-        Ok(written) => match u32::try_from(written) {
-            Ok(written) => {
-                unsafe { *out_written = written };
-                EX_HOST_VFS_RESULT_OK
-            }
-            Err(_) => vfs_error_result(&crate::vfs::VfsError::malformed(OPERATION), out_errno),
-        },
+        Ok(()) => EX_HOST_VFS_RESULT_OK,
         Err(error) => vfs_error_result(&error, out_errno),
+    }
+}
+
+/// Flush all retained descriptor state under the synchronous fsync edge.
+///
+/// # Safety
+///
+/// `file` must be a live append-open handle and `module_ids` readable.
+#[export_name = "ibex_private_vfs_fsync_typed"]
+pub(crate) unsafe extern "C" fn private_vfs_fsync_typed(
+    runtime_nonce: u64,
+    descriptor_owner: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    file: *mut ExactFileHandle,
+    out_errno: *mut i32,
+) -> u32 {
+    unsafe {
+        private_vfs_sync_typed_for_surface(
+            runtime_nonce,
+            descriptor_owner,
+            module_ids,
+            module_ids_len,
+            file,
+            false,
+            out_errno,
+            "fsync",
+            "fs-fsync-sync",
+            "surface.native.op.exactfsfsyncsync.02nw7ns",
+        )
+    }
+}
+
+/// Flush retained descriptor data under the synchronous fdatasync edge.
+///
+/// # Safety
+///
+/// `file` must be a live append-open handle and `module_ids` readable.
+#[export_name = "ibex_private_vfs_fdatasync_typed"]
+pub(crate) unsafe extern "C" fn private_vfs_fdatasync_typed(
+    runtime_nonce: u64,
+    descriptor_owner: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    file: *mut ExactFileHandle,
+    out_errno: *mut i32,
+) -> u32 {
+    unsafe {
+        private_vfs_sync_typed_for_surface(
+            runtime_nonce,
+            descriptor_owner,
+            module_ids,
+            module_ids_len,
+            file,
+            true,
+            out_errno,
+            "fdatasync",
+            "fs-fdatasync-sync",
+            "surface.native.op.exactfsfdatasyncsync.1p6q71s",
+        )
     }
 }
 
@@ -6128,6 +6388,22 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
         27 => (
             "fs-readv-async",
             "surface.native.op.exactfsreadvasync.0bn4x60",
+        ),
+        28 => (
+            "fs-write-async",
+            "surface.native.op.exactfswriteasync.0f1ap1j",
+        ),
+        29 => (
+            "fs-writev-async",
+            "surface.native.op.exactfswritevasync.0l050fv",
+        ),
+        30 => (
+            "fs-fsync-sync",
+            "surface.native.op.exactfsfsyncsync.02nw7ns",
+        ),
+        31 => (
+            "fs-fdatasync-sync",
+            "surface.native.op.exactfsfdatasyncsync.1p6q71s",
         ),
         _ => return EX_HOST_VFS_RESULT_MALFORMED_INPUT,
     };
@@ -11451,6 +11727,151 @@ mod tests {
         assert!(write_observed[0].gates.iter().all(|gate| {
             gate.coverage_edge_id.as_str() == "surface.native.op.exactfswrite.1locgj1"
         }));
+
+        host.begin_conformance_observation("enforcement.test.private-typed-vfs-empty-write");
+        written = u32::MAX;
+        assert_eq!(
+            unsafe {
+                private_vfs_write_async_typed(
+                    nonce,
+                    0,
+                    principals.as_ptr(),
+                    principals.len(),
+                    file,
+                    ptr::null(),
+                    0,
+                    &mut written,
+                    &mut errno,
+                )
+            },
+            EX_HOST_VFS_RESULT_OK
+        );
+        assert_eq!(written, 0);
+        assert!(host.take_typed_conformance_observations().is_empty());
+
+        for (label, bytes, bridge, expected_edge) in [
+            (
+                "enforcement.test.private-typed-vfs-async-write",
+                b"-async".as_slice(),
+                private_vfs_write_async_typed
+                    as unsafe extern "C" fn(
+                        u64,
+                        u64,
+                        *const u64,
+                        usize,
+                        *mut ExactFileHandle,
+                        *const u8,
+                        u32,
+                        *mut u32,
+                        *mut i32,
+                    ) -> u32,
+                "surface.native.op.exactfswriteasync.0f1ap1j",
+            ),
+            (
+                "enforcement.test.private-typed-vfs-async-writev",
+                b"-vector".as_slice(),
+                private_vfs_writev_async_typed
+                    as unsafe extern "C" fn(
+                        u64,
+                        u64,
+                        *const u64,
+                        usize,
+                        *mut ExactFileHandle,
+                        *const u8,
+                        u32,
+                        *mut u32,
+                        *mut i32,
+                    ) -> u32,
+                "surface.native.op.exactfswritevasync.0l050fv",
+            ),
+        ] {
+            host.begin_conformance_observation(label);
+            written = 0;
+            assert_eq!(
+                unsafe {
+                    bridge(
+                        nonce,
+                        0,
+                        principals.as_ptr(),
+                        principals.len(),
+                        file,
+                        bytes.as_ptr(),
+                        bytes.len() as u32,
+                        &mut written,
+                        &mut errno,
+                    )
+                },
+                EX_HOST_VFS_RESULT_OK
+            );
+            assert_eq!(written, bytes.len() as u32);
+            let observed = host.take_typed_conformance_observations();
+            assert_eq!(observed.len(), 1);
+            assert_eq!(observed[0].decision_set.context.stage, Stage::Repeat);
+            assert_eq!(
+                observed[0].decision_set.effects[0].action.as_str(),
+                "fs:write"
+            );
+            assert!(observed[0]
+                .gates
+                .iter()
+                .all(|gate| gate.coverage_edge_id.as_str() == expected_edge));
+        }
+        assert_eq!(std::fs::read(&live).unwrap(), b"prefix-suffix-async-vector");
+
+        for (label, bridge, expected_edge) in [
+            (
+                "enforcement.test.private-typed-vfs-fsync",
+                private_vfs_fsync_typed
+                    as unsafe extern "C" fn(
+                        u64,
+                        u64,
+                        *const u64,
+                        usize,
+                        *mut ExactFileHandle,
+                        *mut i32,
+                    ) -> u32,
+                "surface.native.op.exactfsfsyncsync.02nw7ns",
+            ),
+            (
+                "enforcement.test.private-typed-vfs-fdatasync",
+                private_vfs_fdatasync_typed
+                    as unsafe extern "C" fn(
+                        u64,
+                        u64,
+                        *const u64,
+                        usize,
+                        *mut ExactFileHandle,
+                        *mut i32,
+                    ) -> u32,
+                "surface.native.op.exactfsfdatasyncsync.1p6q71s",
+            ),
+        ] {
+            host.begin_conformance_observation(label);
+            assert_eq!(
+                unsafe {
+                    bridge(
+                        nonce,
+                        0,
+                        principals.as_ptr(),
+                        principals.len(),
+                        file,
+                        &mut errno,
+                    )
+                },
+                EX_HOST_VFS_RESULT_OK
+            );
+            let observed = host.take_typed_conformance_observations();
+            assert_eq!(observed.len(), 1);
+            assert_eq!(observed[0].decision_set.context.stage, Stage::Repeat);
+            assert_eq!(
+                observed[0].decision_set.effects[0].action.as_str(),
+                "fs:write"
+            );
+            assert!(observed[0]
+                .gates
+                .iter()
+                .all(|gate| gate.coverage_edge_id.as_str() == expected_edge));
+        }
         ex_host_fs_close(file);
 
         host.begin_conformance_observation("enforcement.test.private-typed-vfs-append-absent");

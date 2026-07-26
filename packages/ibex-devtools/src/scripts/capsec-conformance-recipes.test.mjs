@@ -342,16 +342,16 @@ describe("exact-target CapSec executable recipes", () => {
     // WebGPU obligations remain unresolved until their public-surface probes
     // are authored.
     // Async whole-file read contributes six exact-path scenarios and five
-    // retained-descriptor scenarios. Async scalar/vector reads contribute four
-    // retained-descriptor scenarios apiece. Descriptor denial remains residual
-    // because the harness cannot prepare its source descriptor under a denied
-    // fs:read floor.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_791);
+    // retained-descriptor scenarios. Async scalar/vector reads and writes
+    // contribute four retained-descriptor scenarios apiece. Descriptor denial
+    // remains residual because the harness cannot prepare its source descriptor
+    // under a denied matching floor.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_799);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_913);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_905);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -377,7 +377,7 @@ describe("exact-target CapSec executable recipes", () => {
     // branch-local filesystem closures use the closed-surface harness, while
     // the direct non-recursive mkdir branch and retained async reads add native
     // selection proofs.
-    expect(nativePublicFixtures).toHaveLength(549);
+    expect(nativePublicFixtures).toHaveLength(557);
     expect(
       nativePublicFixtures
         .filter(
@@ -455,14 +455,15 @@ describe("exact-target CapSec executable recipes", () => {
     // Existing-file append open and scalar write add six branch-local open
     // scenarios plus four executable retained-write scenarios. Worker-backed
     // whole-file read adds six path and five descriptor scenarios; async
-    // scalar/vector reads add four retained-descriptor scenarios apiece. Each
-    // retained descriptor denial remains residual because its prerequisite
-    // handle needs the same floor that the scenario denies. Typed synchronous
-    // TCP connect adds its five staged public scenarios, and its exact typed
-    // setup promotes the three ownership-only lifecycle consumers.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_456);
+    // scalar/vector reads and writes add four retained-descriptor scenarios
+    // apiece, while synchronous durability adds four per surface. Each retained
+    // descriptor denial remains residual because its prerequisite handle needs
+    // the same floor that the scenario denies. Typed synchronous TCP connect
+    // adds its five staged public scenarios, and its exact typed setup promotes
+    // the three ownership-only lifecycle consumers.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_472);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_921);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_905);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -527,7 +528,7 @@ describe("exact-target CapSec executable recipes", () => {
     // The callable Windows filesystem surface remains untyped where it still
     // uses the legacy path oracle. POSIX-only globals instead receive one
     // exact absence fixture and are not counted as ambiguous Windows routes.
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(150);
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(142);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
@@ -2962,7 +2963,7 @@ describe("exact-target CapSec executable recipes", () => {
           globalName: "__exactFsOpen",
           path,
         });
-        expect(invocation.allowedCoverageEdgeIds).toHaveLength(2);
+        expect(invocation.allowedCoverageEdgeIds).toHaveLength(1);
         expect(
           invocation.requiredFloor.map((selector) => selector.cap),
         ).toEqual(["fs:list", "fs:write"]);
@@ -2988,14 +2989,64 @@ describe("exact-target CapSec executable recipes", () => {
         (recipe) =>
           recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
       );
-      expect(windowsRows).toHaveLength(0);
+      expect(windowsRows).toHaveLength(4);
       expect(
-        windowsRecipes.recipes.find(
+        windowsRows.every(
           (recipe) =>
-            recipe.terminalObservedKey === `native-op:${globalName}` &&
-            recipe.scenario === "allow",
-        ).residualReasons,
-      ).toContain("public-surface-filesystem-not-typed-on-target");
+            recipe.status === "fully-executable" &&
+            recipe.residualReasons.length === 0,
+        ),
+      ).toBe(true);
+    }
+  });
+
+  test("writes bounded async scalar and vector inputs after one worker repeat", () => {
+    for (const [globalName, path, extraArguments] of [
+      [
+        "__exactFsWriteAsync",
+        "target/ibex-capsec-fswrite-async",
+        [
+          { kind: "json-literal", value: "-async" },
+          { kind: "json-literal", value: -1 },
+        ],
+      ],
+      [
+        "__exactFsWritevAsync",
+        "target/ibex-capsec-fswritev-async",
+        [
+          { kind: "harness-uint8-array-list", byteLengths: [2, 3] },
+          { kind: "json-literal", value: -1 },
+        ],
+      ],
+    ]) {
+      for (const catalog of [recipes, windowsRecipes]) {
+        const rows = catalog.recipes.filter(
+          (recipe) =>
+            recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+        );
+        expect(rows).toHaveLength(4);
+        for (const recipe of rows) {
+          const invocation = recipe.publicSurfaceProbe.invocation;
+          expect(invocation.arguments).toEqual([
+            { kind: "harness-fs-file-descriptor" },
+            ...extraArguments,
+          ]);
+          expect(invocation.setup[0]).toMatchObject({
+            kind: "fs-write-file",
+            globalName: "__exactFsOpen",
+            path,
+          });
+          expect(invocation.completion).toEqual({
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          });
+          expect(invocation.expectedActionIds).toEqual(["fs:write"]);
+          expect(invocation.expectedTypedStages).toEqual(["repeat"]);
+          expect(invocation.expectedTypedDecisionCount).toBe(1);
+          expect(recipe.residualReasons).toEqual([]);
+          expect(recipe.status).toBe("fully-executable");
+        }
+      }
     }
   });
 

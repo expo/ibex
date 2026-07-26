@@ -1306,6 +1306,44 @@ extern "C" uint32_t ibex_private_vfs_write_append_typed(
     uint32_t data_len,
     uint32_t* out_written,
     int32_t* out_errno);
+// Worker-backed retained append writes. Each bridge binds its Repeat to the
+// corresponding async scalar/vector coverage edge.
+extern "C" uint32_t ibex_private_vfs_write_async_typed(
+    uint64_t runtime_nonce,
+    uint64_t descriptor_owner,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    void* file,
+    const uint8_t* data,
+    uint32_t data_len,
+    uint32_t* out_written,
+    int32_t* out_errno);
+extern "C" uint32_t ibex_private_vfs_writev_async_typed(
+    uint64_t runtime_nonce,
+    uint64_t descriptor_owner,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    void* file,
+    const uint8_t* data,
+    uint32_t data_len,
+    uint32_t* out_written,
+    int32_t* out_errno);
+// Retained writable-descriptor durability repeats. These do not mutate file
+// contents and intentionally have separate surface identities from writes.
+extern "C" uint32_t ibex_private_vfs_fsync_typed(
+    uint64_t runtime_nonce,
+    uint64_t descriptor_owner,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    void* file,
+    int32_t* out_errno);
+extern "C" uint32_t ibex_private_vfs_fdatasync_typed(
+    uint64_t runtime_nonce,
+    uint64_t descriptor_owner,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    void* file,
+    int32_t* out_errno);
 // Private retained-object directory enumeration. Output is explicit-length
 // JSON; every member is authorized at Repeat before disclosure.
 extern "C" uint32_t ibex_private_vfs_readdir_typed(

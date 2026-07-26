@@ -1195,6 +1195,8 @@ async fn run_native_setup(
                         "target/ibex-capsec-fsync"
                             | "target/ibex-capsec-fdatasync"
                             | "target/ibex-capsec-fswrite"
+                            | "target/ibex-capsec-fswrite-async"
+                            | "target/ibex-capsec-fswritev-async"
                             | "target/ibex-capsec-ftruncate"
                             | "target/ibex-capsec-fdasync-durability"
                     ),
@@ -1588,11 +1590,12 @@ fn native_async_invocation_script(
         .expect("async native invocation requires a completion contract");
     assert_eq!(completion.kind, "event-loop-quiescence");
     assert_eq!(completion.timeout_milliseconds, 1_000);
-    assert!(arguments
-        .iter()
-        .all(|argument| argument["kind"] == "json-literal"));
+    assert!(arguments.iter().all(|argument| matches!(
+        argument["kind"].as_str(),
+        Some("json-literal" | "harness-uint8-array-list")
+    )));
     format!(
-        "(function(){{var slot={};var n={};var owns=Object.prototype.hasOwnProperty;if(owns.call(globalThis,slot)&&(!Reflect.deleteProperty(globalThis,slot)||owns.call(globalThis,slot)))throw new Error(\"stale native async result slot could not be removed\");Object.defineProperty(globalThis,slot,{{value:null,writable:true,enumerable:false,configurable:true}});if(!owns.call(globalThis,slot)||globalThis[slot]!==null)throw new Error(\"native async result slot was not installed\");function record(value){{if(!owns.call(globalThis,slot))throw new Error(\"native async result slot was removed while pending\");globalThis[slot]=JSON.stringify(value);}}function returned(value){{var cleanup=n===\"__exactFsCloseAsync\"&&typeof args[0]===\"number\"?\"consumed-fs-file-descriptor\":\"none\";if(n===\"__exactFsOpenAsync\"&&typeof value===\"number\"&&typeof globalThis.__exactFsClose===\"function\"){{globalThis.__exactFsClose(value);cleanup=\"closed-fs-file-descriptor\";}}return {{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,resultString:typeof value===\"string\"?value:null,cleanup:cleanup}};}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};var args=specs.map(function(spec){{if(spec.kind!==\"json-literal\")throw new Error(\"async native fixtures accept only source-owned JSON literals\");return spec.value;}});try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record(returned(value));return \"completed\";}}value.then(function(result){{record(returned(result));}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
+        "(function(){{var slot={};var n={};var owns=Object.prototype.hasOwnProperty;if(owns.call(globalThis,slot)&&(!Reflect.deleteProperty(globalThis,slot)||owns.call(globalThis,slot)))throw new Error(\"stale native async result slot could not be removed\");Object.defineProperty(globalThis,slot,{{value:null,writable:true,enumerable:false,configurable:true}});if(!owns.call(globalThis,slot)||globalThis[slot]!==null)throw new Error(\"native async result slot was not installed\");function record(value){{if(!owns.call(globalThis,slot))throw new Error(\"native async result slot was removed while pending\");globalThis[slot]=JSON.stringify(value);}}function returned(value){{var cleanup=n===\"__exactFsCloseAsync\"&&typeof args[0]===\"number\"?\"consumed-fs-file-descriptor\":\"none\";if(n===\"__exactFsOpenAsync\"&&typeof value===\"number\"&&typeof globalThis.__exactFsClose===\"function\"){{globalThis.__exactFsClose(value);cleanup=\"closed-fs-file-descriptor\";}}return {{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,resultString:typeof value===\"string\"?value:null,cleanup:cleanup}};}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};var args=specs.map(function(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-uint8-array-list\")return spec.byteLengths.map(function(length){{return new Uint8Array(length);}});throw new Error(\"unsupported async native fixture argument: \"+String(spec&&spec.kind));}});try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record(returned(value));return \"completed\";}}value.then(function(result){{record(returned(result));}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
         serde_json::to_string(NATIVE_ASYNC_RESULT_SLOT).expect("serialize native async slot"),
         serde_json::to_string(&invocation.global_name).expect("serialize async native global"),
         serde_json::to_string(arguments).expect("serialize async native arguments"),
@@ -1907,8 +1910,6 @@ fn validate_native_runtime_observation(
         "__exactFsOpenAsync"
             | "__exactFsFdAsync"
             | "__exactFsFstatSync"
-            | "__exactFsFsyncSync"
-            | "__exactFsFdatasyncSync"
             | "__exactFsFtruncateSync"
             | "__exactFsFchmodSync"
             | "__exactFsFutimesSync"
@@ -2617,6 +2618,8 @@ async fn execute_native_public_recipe(
             | "__exactFsFtruncateSync"
             | "__exactFsFdAsync"
             | "__exactFsWrite"
+            | "__exactFsWriteAsync"
+            | "__exactFsWritevAsync"
     ) {
         let descriptor = setup_state
             .fs_file_descriptor
@@ -2637,9 +2640,17 @@ async fn execute_native_public_recipe(
         );
         if let Some(path) = &setup_state.fs_file_path {
             let expected_bytes = match invocation.global_name.as_str() {
-                "__exactFsFtruncateSync" => b"ib".as_slice(),
-                "__exactFsWrite" => b"ibex-capsec-retained-sync-append".as_slice(),
-                _ => b"ibex-capsec-retained-sync".as_slice(),
+                "__exactFsFtruncateSync" => b"ib".to_vec(),
+                "__exactFsWrite" => b"ibex-capsec-retained-sync-append".to_vec(),
+                "__exactFsWriteAsync" => {
+                    b"ibex-capsec-retained-sync-async".to_vec()
+                }
+                "__exactFsWritevAsync" => {
+                    let mut bytes = b"ibex-capsec-retained-sync".to_vec();
+                    bytes.extend_from_slice(&[0; 5]);
+                    bytes
+                }
+                _ => b"ibex-capsec-retained-sync".to_vec(),
             };
             assert_eq!(
                 std::fs::read(path).expect("read retained sync fixture"),

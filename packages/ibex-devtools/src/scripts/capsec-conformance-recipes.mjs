@@ -1850,10 +1850,11 @@ const nativeRetainedFsWriteTemplate = ({
   argumentsList = [],
   requiredSourceArity = 1,
   unsupportedTargetTriples = [],
+  additionalAllowedCoverageObservedKeys = ["native-op:__exactFsOpen"],
 }) =>
   Object.freeze({
     actionIds: ["fs:write"],
-    additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
+    additionalAllowedCoverageObservedKeys,
     arguments: [harnessFsFileDescriptorArgument(), ...argumentsList],
     expectedCleanup: "closed-fs-file-descriptor-removed-owned-file",
     expectedDecisionCounts: {
@@ -1895,6 +1896,23 @@ const nativeRetainedFsWriteTemplate = ({
     ...(unsupportedTargetTriples.length > 0
       ? { unsupportedTargetTriples }
       : {}),
+  });
+const nativeRetainedFsWorkerWriteTemplate = ({
+  path,
+  argumentsList,
+  requiredSourceArity,
+}) =>
+  Object.freeze({
+    ...nativeRetainedFsWriteTemplate({
+      path,
+      argumentsList,
+      requiredSourceArity,
+      additionalAllowedCoverageObservedKeys: [],
+    }),
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
   });
 const nativeRetainedFsAsyncWriteTemplate = ({
   path,
@@ -2243,14 +2261,39 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       requiredSourceArity: 3,
     }),
   ],
+  [
+    "__exactFsWriteAsync",
+    nativeRetainedFsWorkerWriteTemplate({
+      path: "target/ibex-capsec-fswrite-async",
+      argumentsList: [literalArgument("-async"), literalArgument(-1)],
+      requiredSourceArity: 3,
+    }),
+  ],
+  [
+    "__exactFsWritevAsync",
+    nativeRetainedFsWorkerWriteTemplate({
+      path: "target/ibex-capsec-fswritev-async",
+      argumentsList: [
+        harnessUint8ArrayListArgument([2, 3]),
+        literalArgument(-1),
+      ],
+      requiredSourceArity: 3,
+    }),
+  ],
   ["__exactFsFstatSync", nativeRetainedFsFstatTemplate()],
   [
     "__exactFsFsyncSync",
-    nativeRetainedFsWriteTemplate({ path: "target/ibex-capsec-fsync" }),
+    nativeRetainedFsWriteTemplate({
+      path: "target/ibex-capsec-fsync",
+      additionalAllowedCoverageObservedKeys: [],
+    }),
   ],
   [
     "__exactFsFdatasyncSync",
-    nativeRetainedFsWriteTemplate({ path: "target/ibex-capsec-fdatasync" }),
+    nativeRetainedFsWriteTemplate({
+      path: "target/ibex-capsec-fdatasync",
+      additionalAllowedCoverageObservedKeys: [],
+    }),
   ],
   [
     "__exactFsFtruncateSync",
@@ -4352,7 +4395,7 @@ function unsupportedWindowsTypedPublicEffectReason({
   ) {
     return null;
   }
-  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Synchronous and async whole-file reads, stat, lstat, readdir, retained scalar/vector descriptor reads, scalar append writes/fstat, and the read/existing-append open branches are the completed exceptions.
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Synchronous and async whole-file reads, stat, lstat, readdir, retained scalar/vector descriptor reads and writes, scalar append writes/fstat/durability, and the read/existing-append open branches are the completed exceptions.
   if (plan.actionIds.some((actionId) => actionId.startsWith("fs:"))) {
     const globalName = publicSurfaceProbe?.invocation?.globalName;
     if (
@@ -4371,6 +4414,10 @@ function unsupportedWindowsTypedPublicEffectReason({
         "__exactFsReadv",
         "__exactFsReadvAsync",
         "__exactFsWrite",
+        "__exactFsWriteAsync",
+        "__exactFsWritevAsync",
+        "__exactFsFsyncSync",
+        "__exactFsFdatasyncSync",
         "__exactFsFstatSync",
         "__exactFsReadFileAsync",
         "__exactLstat",

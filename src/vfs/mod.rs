@@ -3409,6 +3409,61 @@ impl VirtualFileSystem {
         Ok(written)
     }
 
+    /// Flush one retained writable descriptor after a fresh `fs:write`
+    /// Repeat. Durability is part of the original write authority: a later
+    /// denial must never turn an already-visible mutation into a
+    /// partial-mutation-then-denial result.
+    ///
+    /// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+    /// @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified
+    pub(crate) fn sync_descriptor_authenticated<F>(
+        &self,
+        file: &mut std::fs::File,
+        identity: &AuthenticatedFileDescriptorIdentity,
+        data_only: bool,
+        mut authorize: F,
+    ) -> Result<(), VfsError>
+    where
+        F: for<'a> FnMut(RetainedPathAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
+    {
+        const OPERATION: &str = "sync";
+        self.ensure_path_session(&identity.namespace, OPERATION)?;
+        let before = object_identity_for_retained_file(file).map_err(|_| {
+            VfsError::stale_identity(OPERATION, identity.namespace.virtual_path.clone())
+        })?;
+        if before != identity.final_object {
+            return Err(VfsError::stale_identity(
+                OPERATION,
+                identity.namespace.virtual_path.clone(),
+            ));
+        }
+        let _repeat = authorize(RetainedPathAuthorization::committed(
+            &identity.namespace,
+            capsec_semantics::model::Stage::Repeat,
+            Some(identity.parent_object.clone()),
+            identity.final_object.clone(),
+            identity.retained_handle_id,
+        ))?;
+        let result = if data_only {
+            file.sync_data()
+        } else {
+            file.sync_all()
+        };
+        result.map_err(|error| {
+            VfsError::host(OPERATION, identity.namespace.virtual_path.clone(), &error)
+        })?;
+        let after = object_identity_for_retained_file(file).map_err(|_| {
+            VfsError::stale_identity(OPERATION, identity.namespace.virtual_path.clone())
+        })?;
+        if after != identity.final_object {
+            return Err(VfsError::stale_identity(
+                OPERATION,
+                identity.namespace.virtual_path.clone(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Enumerate the exact retained directory object. The `fs:list` lifecycle
     /// has no Commit stage: Requested precedes lookup, Discovery binds the
     /// directory object, and Repeat runs once for every member immediately

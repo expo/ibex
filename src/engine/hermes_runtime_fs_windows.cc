@@ -1044,6 +1044,8 @@ FsAsyncResult fsReadWholeTypedHandleWork(
 
 using TypedDescriptorReadBridge =
     decltype(&ibex_private_vfs_read_async_typed);
+using TypedDescriptorWriteBridge =
+    decltype(&ibex_private_vfs_write_async_typed);
 
 FsAsyncResult fsReadTypedHandleWork(
     uint64_t runtimeNonce,
@@ -1092,6 +1094,48 @@ FsAsyncResult fsReadTypedHandleWork(
     result.bytes.assign(data, data + dataLength);
   }
   if (data != nullptr) ex_host_free_buffer(data, dataLength);
+  return result;
+}
+
+FsAsyncResult fsWriteTypedHandleWork(
+    uint64_t runtimeNonce,
+    uint64_t descriptorOwner,
+    const std::shared_ptr<std::vector<uint64_t>>& principals,
+    const std::shared_ptr<WindowsFileHandle>& file,
+    const std::string& pathForError,
+    const std::vector<uint8_t>& bytes,
+    const std::string& syscall,
+    TypedDescriptorWriteBridge bridge) {
+  if (!file || !file->handle) {
+    return fsAsyncBadFd(syscall);
+  }
+  if (bytes.empty()) {
+    auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
+    result.number = 0;
+    return result;
+  }
+  uint32_t written = 0;
+  int32_t hostError = 0;
+  std::lock_guard<std::mutex> ioLock(file->ioMutex);
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Bounded async append input is owned by the worker; its exact-object Repeat and retained-handle mutation occur together under the descriptor I/O lock.
+  uint32_t status = bridge(
+      runtimeNonce,
+      descriptorOwner,
+      principals->data(),
+      principals->size(),
+      file->handle,
+      bytes.data(),
+      static_cast<uint32_t>(bytes.size()),
+      &written,
+      &hostError);
+  if (status != 0) {
+    return fsAsyncVfsError(status, hostError, syscall, pathForError);
+  }
+  if (written > bytes.size()) {
+    return fsAsyncSyscallError(syscall, pathForError, EIO);
+  }
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
+  result.number = static_cast<double>(written);
   return result;
 }
 
@@ -1696,6 +1740,57 @@ bool parseWindowsReadIoVecTotalLength(
     }
   }
   totalLength = static_cast<uint32_t>(aggregateLength);
+  return true;
+}
+
+bool parseWindowsWriteIoVecBytes(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value,
+    std::vector<uint8_t>& aggregate,
+    const char* operation) {
+  constexpr size_t kMaxWindowsIoVecCount = 1024;
+  if (!value.isObject()) {
+    return false;
+  }
+  auto listObj = value.asObject(runtime);
+  if (!listObj.isArray(runtime)) {
+    return false;
+  }
+  size_t length = 0;
+  exactByteLengthFromValue(
+      runtime, listObj.getProperty(runtime, "length"), "writev buffer count", 0,
+      length);
+  if (length > kMaxWindowsIoVecCount) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(operation) + ": too many buffers");
+  }
+  uint64_t aggregateLength = 0;
+  for (size_t i = 0; i < length; i++) {
+    auto entry = listObj.getProperty(
+        runtime,
+        facebook::jsi::PropNameID::forAscii(runtime, std::to_string(i)));
+    if (!entry.isObject()) {
+      return false;
+    }
+    auto entryObj = entry.asObject(runtime);
+    size_t byteLength = 0;
+    const uint8_t* source = nullptr;
+    if (!extractArrayBufferView(
+            runtime, entryObj, source, byteLength, nullptr) ||
+        (byteLength != 0 && source == nullptr)) {
+      return false;
+    }
+    aggregateLength += byteLength;
+    if (aggregateLength > kMaxHostIoChunk) {
+      throw facebook::jsi::JSError(
+          runtime,
+          std::string(operation) +
+              ": aggregate buffer length exceeds the host I/O limit");
+    }
+    if (byteLength != 0) {
+      aggregate.insert(aggregate.end(), source, source + byteLength);
+    }
+  }
   return true;
 }
 
@@ -3287,14 +3382,57 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         int fd = fdFromValue(runtime, args[0]);
         requireSessionDescriptorWrite(runtime, fd, "write");
         auto entry = getFileEntry(runtime, fd);
-        requireFileEntryWrite(runtime, entry);
+        if (!entry.canWrite) {
+          throw facebook::jsi::JSError(
+              runtime, "fd not opened for writing");
+        }
+        const bool armed = ex_host_is_armed() == 1;
+        if (armed && !entry.append) {
+          throwStructuredFsError(runtime, "write", entry.path, EPERM);
+        }
+        if (!armed) {
+          requireFileEntryWrite(runtime, entry);
+        }
         auto dataBytes =
             std::make_shared<std::vector<uint8_t>>(extractBytes(runtime, args[1]));
-        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
-        int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
+        if (dataBytes->size() > kMaxHostIoChunk) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactFsWriteAsync: buffer length exceeds the host I/O limit");
+        }
+        uint64_t unsignedPosition = 0;
+        bool positioned =
+            count > 2 && readPositionFromValue(
+                             runtime, args[2], unsignedPosition);
+        int64_t position =
+            positioned ? static_cast<int64_t>(unsignedPosition) : -1;
         auto file = entry.file;
         auto path = entry.path;
         bool append = entry.append;
+        if (armed) {
+          auto principals = std::make_shared<std::vector<uint64_t>>(
+              exactCollectTypedPrincipalStack());
+          return startFsAsync(
+              handle,
+              runtime,
+              [runtimeNonce = handle->runtime_nonce,
+               descriptorOwner = entry.owner,
+               principals,
+               file,
+               path,
+               dataBytes]() -> FsAsyncResult {
+                return fsWriteTypedHandleWork(
+                    runtimeNonce,
+                    descriptorOwner,
+                    principals,
+                    file,
+                    path,
+                    *dataBytes,
+                    "write",
+                    ibex_private_vfs_write_async_typed);
+              },
+              principals);
+        }
         return startFsAsync(
             handle, runtime, [file, path, append, dataBytes, positioned, position]() -> FsAsyncResult {
               return fsWriteChunkWork(file, path, append, *dataBytes, positioned, position);
@@ -3409,18 +3547,63 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         int fd = fdFromValue(runtime, args[0]);
         requireSessionDescriptorWrite(runtime, fd, "writev");
         auto entry = getFileEntry(runtime, fd);
-        requireFileEntryWrite(runtime, entry);
+        if (!entry.canWrite) {
+          throw facebook::jsi::JSError(
+              runtime, "fd not opened for writing");
+        }
+        const bool armed = ex_host_is_armed() == 1;
+        if (armed && !entry.append) {
+          throwStructuredFsError(runtime, "writev", entry.path, EPERM);
+        }
+        if (!armed) {
+          requireFileEntryWrite(runtime, entry);
+        }
         std::vector<std::vector<uint8_t>> buffers;
-        if (!parseWindowsIoVecArguments(runtime, args[1], buffers)) {
+        auto aggregate = std::make_shared<std::vector<uint8_t>>();
+        if (armed
+                ? !parseWindowsWriteIoVecBytes(
+                      runtime,
+                      args[1],
+                      *aggregate,
+                      "__exactFsWritevAsync")
+                : !parseWindowsIoVecArguments(runtime, args[1], buffers)) {
           throw facebook::jsi::JSError(
               runtime, "__exactFsWritevAsync: buffers must be Uint8Array-like objects");
         }
-        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
-        int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
+        uint64_t unsignedPosition = 0;
+        bool positioned =
+            count > 2 && readPositionFromValue(
+                             runtime, args[2], unsignedPosition);
+        int64_t position =
+            positioned ? static_cast<int64_t>(unsignedPosition) : -1;
         auto buffersPtr = std::make_shared<std::vector<std::vector<uint8_t>>>(std::move(buffers));
         auto file = entry.file;
         auto path = entry.path;
         bool append = entry.append;
+        if (armed) {
+          auto principals = std::make_shared<std::vector<uint64_t>>(
+              exactCollectTypedPrincipalStack());
+          return startFsAsync(
+              handle,
+              runtime,
+              [runtimeNonce = handle->runtime_nonce,
+               descriptorOwner = entry.owner,
+               principals,
+               file,
+               path,
+               aggregate]() -> FsAsyncResult {
+                return fsWriteTypedHandleWork(
+                    runtimeNonce,
+                    descriptorOwner,
+                    principals,
+                    file,
+                    path,
+                    *aggregate,
+                    "writev",
+                    ibex_private_vfs_writev_async_typed);
+              },
+              principals);
+        }
         return startFsAsync(
             handle, runtime,
             [file, path, append, buffersPtr, positioned, position]() -> FsAsyncResult {
@@ -3554,11 +3737,45 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
                 throw facebook::jsi::JSError(
                     runtime, std::string(name) + ": fd required");
               }
-              auto entry =
-                  getFileEntry(runtime, fdFromValue(runtime, args[0]));
-              requireFileEntryWrite(runtime, entry);
+              auto fd = fdFromValue(runtime, args[0]);
+              requireSessionDescriptorWrite(runtime, fd, syscall);
+              auto entry = getFileEntry(runtime, fd);
+              if (!entry.canWrite) {
+                throw facebook::jsi::JSError(
+                    runtime, "fd not opened for writing");
+              }
               auto file = entry.file;
               std::lock_guard<std::mutex> ioLock(file->ioMutex);
+              if (ex_host_is_armed() == 1) {
+                if (!entry.append) {
+                  throwStructuredFsError(
+                      runtime, syscall, entry.path, EPERM);
+                }
+                auto principals = exactCollectTypedPrincipalStack();
+                int32_t hostError = 0;
+                // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Durability reuses the retained writable object and performs one fs:write Repeat immediately before flushing it.
+                uint32_t status = dataOnly
+                    ? ibex_private_vfs_fdatasync_typed(
+                          exactCurrentRuntimeNonce(),
+                          entry.owner,
+                          principals.data(),
+                          principals.size(),
+                          file->handle,
+                          &hostError)
+                    : ibex_private_vfs_fsync_typed(
+                          exactCurrentRuntimeNonce(),
+                          entry.owner,
+                          principals.data(),
+                          principals.size(),
+                          file->handle,
+                          &hostError);
+                if (status != 0) {
+                  exactThrowVfsError(
+                      runtime, status, hostError, syscall, entry.path);
+                }
+                return facebook::jsi::Value::undefined();
+              }
+              requireFileEntryWrite(runtime, entry);
               if (ex_host_fs_sync(file->handle, dataOnly) != 0) {
                 throwFs(runtime, syscall, entry.path);
               }

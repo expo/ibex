@@ -564,7 +564,7 @@ ticket closes.
 | 1. Typed effect model is the only production plane | Implemented | Armed production hosts construct `VerifiedDecisionContext`; the legacy `PolicyFile` parser and all HostConfig policy/path/override inputs have been deleted. |
 | 2. Every production surface has classification and target cell | Implemented | The generated registry currently validates 7,651 coverage edges and 15,302 target cells with zero drift. |
 | 3. Canonical policy and snapshots are typed, deterministic, digest-bound, fail-closed | Implemented | Strict policy/snapshot schemas, canonical-JCS digests, protected-artifact joins, and mismatch/forgery suites pass in the secure gate. |
-| 4. Filesystem/network bind used object or peer with staged authorization | In progress; unproved routes remain unadvertised or fail closed | Retained VFS objects, symlink/race fixtures, verified-peer records, and repeat-stage leases pass for promoted routes. The audit previously overstated this criterion: installed Windows worker-backed scalar/vector filesystem I/O and TCP still use legacy paths, while residual operations remain outside every advertised profile. |
+| 4. Filesystem/network bind used object or peer with staged authorization | In progress; unproved routes remain unadvertised or fail closed | Retained VFS objects, symlink/race fixtures, verified-peer records, and repeat-stage leases pass for promoted routes. Windows TCP plus worker-backed scalar/vector descriptor reads and append writes now authorize on the effect side of their worker boundaries; remaining installed Windows filesystem routes and residual operations stay outside every advertised profile. |
 | 5. Handles, dynamic authority, deputy intersection, import gating, and audit share immutable semantics | Implemented | Generated operation algebra, generation-bound receipts, graph authority contexts, handle/revocation suites, and structured evidence all pass. |
 | 6. Plain `ibex` enforces and has no silent weakening path | Implemented | `insecure` is absent from Cargo defaults. Plain and explicit-enforce startup produce the same pre-code target-admission refusal; secure-development and no-sandbox postures require separately named compile-time features. |
 | 7. Every advertised target has a passing generated report | Blocked, honestly closed | The advertisement set is empty. Apple and Windows are candidates only; current physical reports remain incomplete and cannot authorize promotion. |
@@ -2120,12 +2120,58 @@ ticket closes.
   handle-reuse gaps. Important enforcement mechanisms remain about **99%
   complete** and the overall requested task remains about **92% complete**.
 
+### 2026-07-26 — worker-bound descriptor writes and retained durability
+
+- Audited scalar/vector async descriptor writes on both installed filesystem
+  backends. POSIX authorized on the runtime thread before dispatch, leaving
+  revocation separated from the eventual mutation; Windows still used the
+  legacy worker path. Both now retain bounded caller input and submit one
+  surface-specific exact-object `fs:write` Repeat on the filesystem worker
+  immediately before the sole scalar or aggregate mutation. Empty writes
+  return zero without a decision.
+- POSIX duplicates the exact retained descriptor and performs its Repeat
+  immediately before `write`/`pwrite` or `writev`/`pwritev`. Windows admits
+  only an existing append-only retained file, holds its I/O mutex, and calls a
+  typed VFS bridge that object-matches before and after one append. Vector
+  inputs are capped at 1,024 views and flattened into one bounded aggregate,
+  preserving one logical `writev` mutation without partially authorized
+  component writes.
+- Windows `__exactFsFsyncSync` and `__exactFsFdatasyncSync` now use the retained
+  typed VFS file and authorize one `fs:write` Repeat immediately before
+  `sync_all` or `sync_data`. The audit exposed a conformance-model defect:
+  durability evidence had treated its prerequisite open decision as an allowed
+  public-surface observation. Both backends now attribute durability Repeats
+  to distinct `fsync` and `fdatasync` public edges, and the harness requires
+  exactly that edge with open and cleanup outside the decision window.
+- Eight async-write rows become executable on each exact target, and eight
+  durability rows become executable on Windows. Apple is now 23,840 required /
+  2,799 fully executable / 3,136 internally verified / 17,905 unresolved with
+  digest `sha256-qhSEiwMOa6vxvfvfoLl9UbDLblZJn5lUEQOSgNjLMnQ`.
+  Windows is 23,499 / 2,472 / 3,122 / 17,905 with digest
+  `sha256-QLOnvoW4r1Lv07dGQ-wizReH4pqeQ28UgnazkwiJbHQ`. The recipe suite
+  passes 94 tests and 110,894 assertions.
+- The M4 verifier compiles the complete workspace with the pinned Hermes SDK,
+  passes the expanded private typed-VFS unit test, and executes both halves of
+  the 16-row Apple production catalog. Physical Windows compiles the actual
+  Windows C++ translation unit under strict stale-vendored enforcement and
+  executes both halves of the corresponding 16-row catalog. All four native
+  shards pass. The local M5 control plane still lacks a usable macOS Hermes
+  framework, so it is not counted as native production evidence.
+- Hard part: mutation authorization must be on the effect side of the async
+  boundary, but write input is caller-owned and can change before a worker
+  runs. Snapshotting and bounding it before dispatch, then authorizing the
+  exact retained object immediately before one mutation, closes both the
+  authority-timing and partial-vector gaps. Durability also needs its own
+  attribution even though it consumes pre-existing write authority. Important
+  enforcement mechanisms are about **99.2% complete** and the overall
+  requested task is about **93% complete**.
+
 ## Next milestone
 
-Continue criterion 4 with the next installed Windows boundary. The leading
-candidate is worker-backed descriptor writes and durability; they need their
-own mutation-before-publication and revocation contracts. Also repair the
-pre-existing Windows `__exactFsOpen` write-denial public-evidence mismatch
-before relying on a complete native shard. Do not advertise Windows while
-installed legacy routes or 17,921 exact-target public-evidence rows remain
-unresolved, and do not convert catalog labels into completion evidence.
+Continue criterion 4 by auditing the remaining installed Windows filesystem
+routes, starting with synchronous vector/positional descriptor mutation and
+write-capable open families. Also repair the pre-existing Windows
+`__exactFsOpen` write-denial public-evidence mismatch before relying on a
+complete native shard. Do not advertise Windows while installed legacy routes
+or 17,905 exact-target public-evidence rows remain unresolved, and do not
+convert catalog labels into completion evidence.

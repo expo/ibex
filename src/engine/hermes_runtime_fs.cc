@@ -95,6 +95,10 @@ constexpr uint32_t kFsSurfaceSqliteOpen = 18;
 constexpr uint32_t kFsSurfacePathAsync = 25;
 constexpr uint32_t kFsSurfaceReadAsync = 26;
 constexpr uint32_t kFsSurfaceReadvAsync = 27;
+constexpr uint32_t kFsSurfaceWriteAsync = 28;
+constexpr uint32_t kFsSurfaceWritevAsync = 29;
+constexpr uint32_t kFsSurfaceFsyncSync = 30;
+constexpr uint32_t kFsSurfaceFdatasyncSync = 31;
 constexpr size_t kMaxArmedSymlinkHops = 32;
 
 struct IoVecMetadata {
@@ -826,7 +830,11 @@ static bool requireFdRead(facebook::jsi::Runtime& runtime, int fd, const char* s
   return false;
 }
 
-static void requireFdWrite(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
+static void requireFdWriteForSurface(
+    facebook::jsi::Runtime& runtime,
+    int fd,
+    const char* syscall,
+    uint32_t surface) {
   requireSessionDescriptorWrite(runtime, fd, syscall);
   auto entry = requireOwnedFd(runtime, fd, syscall);
   if (isAllowAll()) return;
@@ -839,13 +847,17 @@ static void requireFdWrite(facebook::jsi::Runtime& runtime, int fd, const char* 
         ? nullptr
         : entry.presentedHandleId.c_str();
     if (ex_host_authorize_typed_fs_open(
-            entry.owner, entry.backingPath.c_str(), 2, 0,
+            entry.owner, entry.backingPath.c_str(), 2, surface,
             entry.retainedParent ? *entry.retainedParent : -1, fd, 0, 1, handle) != 1) {
       throwTypedFsAuthorizationError(runtime, syscall, entry.virtualPath);
     }
   } else if (!checkCapability("fs:write:" + entry.backingPath)) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
+}
+
+static void requireFdWrite(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
+  requireFdWriteForSurface(runtime, fd, syscall, 0);
 }
 
 static void requireFdMetadataWrite(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
@@ -1011,6 +1023,60 @@ static bool parseAsyncReadIoVecLengths(
               ": aggregate buffer length exceeds the host I/O limit");
     }
     lengths.push_back(byteLength);
+  }
+  return true;
+}
+
+static bool parseAsyncWriteIoVecBuffers(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value,
+    std::vector<std::vector<uint8_t>>& buffers,
+    const char* operation) {
+  constexpr size_t kMaxIoVecCount = 1024;
+  if (!value.isObject()) {
+    return false;
+  }
+  auto listObj = value.asObject(runtime);
+  if (!listObj.isArray(runtime)) {
+    return false;
+  }
+  size_t length = 0;
+  exactByteLengthFromValue(
+      runtime, listObj.getProperty(runtime, "length"), "writev buffer count", 0,
+      length);
+  if (length > kMaxIoVecCount) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(operation) + ": too many buffers");
+  }
+  buffers.reserve(length);
+  uint64_t aggregateLength = 0;
+  for (size_t i = 0; i < length; ++i) {
+    auto entry = listObj.getProperty(
+        runtime,
+        facebook::jsi::PropNameID::forAscii(runtime, std::to_string(i)));
+    if (!entry.isObject()) {
+      return false;
+    }
+    auto entryObj = entry.asObject(runtime);
+    const uint8_t* source = nullptr;
+    size_t byteLength = 0;
+    if (!extractArrayBufferView(
+            runtime, entryObj, source, byteLength, nullptr) ||
+        (byteLength != 0 && source == nullptr)) {
+      return false;
+    }
+    aggregateLength += byteLength;
+    if (aggregateLength > kMaxHostWriteChunk) {
+      throw facebook::jsi::JSError(
+          runtime,
+          std::string(operation) +
+              ": aggregate buffer length exceeds the host I/O limit");
+    }
+    std::vector<uint8_t> bytes(byteLength);
+    if (byteLength != 0) {
+      std::copy(source, source + byteLength, bytes.begin());
+    }
+    buffers.push_back(std::move(bytes));
   }
   return true;
 }
@@ -3711,6 +3777,36 @@ static FsAsyncResult fsReadvArmedWork(
   return fsReadvWork(fd, buffers, positioned, position);
 }
 
+static FsAsyncResult fsWriteChunkArmedWork(
+    uint64_t principal,
+    const std::string& backingPath,
+    const std::string& virtualPath,
+    const std::string& presentedHandle,
+    const std::shared_ptr<int>& parent,
+    int fd,
+    const std::vector<uint8_t>& bytes,
+    bool positioned,
+    int64_t position) {
+  if (bytes.empty()) {
+    auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
+    result.number = 0;
+    return result;
+  }
+  if (!parent) {
+    return fsAsyncAuthorizationError("write", virtualPath);
+  }
+  RepeatedFsAuthorizationLease authorizationLease;
+  const char* presented =
+      presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — The worker repeats fs:write over the duplicated exact object immediately before its only scalar mutation.
+  if (authorizeRepeatedFsWithLease(
+          authorizationLease, principal, backingPath.c_str(),
+          kFsSurfaceWriteAsync, 2, *parent, fd, 0, 1, presented) != 1) {
+    return fsAsyncAuthorizationError("write", virtualPath);
+  }
+  return fsWriteChunkWork(fd, bytes, positioned, position);
+}
+
 static FsAsyncResult fsWritevWork(
     int fd,
     std::vector<std::vector<uint8_t>>& buffers,
@@ -3736,6 +3832,39 @@ static FsAsyncResult fsWritevWork(
   auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
   result.number = static_cast<double>(bytesWritten);
   return result;
+}
+
+static FsAsyncResult fsWritevArmedWork(
+    uint64_t principal,
+    const std::string& backingPath,
+    const std::string& virtualPath,
+    const std::string& presentedHandle,
+    const std::shared_ptr<int>& parent,
+    int fd,
+    std::vector<std::vector<uint8_t>>& buffers,
+    bool positioned,
+    int64_t position) {
+  if (buffers.empty() ||
+      std::all_of(
+          buffers.begin(), buffers.end(),
+          [](const std::vector<uint8_t>& buffer) { return buffer.empty(); })) {
+    auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
+    result.number = 0;
+    return result;
+  }
+  if (!parent) {
+    return fsAsyncAuthorizationError("writev", virtualPath);
+  }
+  RepeatedFsAuthorizationLease authorizationLease;
+  const char* presented =
+      presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Async writev snapshots bounded vectors, then repeats fs:write on the worker immediately before the one retained-object writev mutation.
+  if (authorizeRepeatedFsWithLease(
+          authorizationLease, principal, backingPath.c_str(),
+          kFsSurfaceWritevAsync, 2, *parent, fd, 0, 1, presented) != 1) {
+    return fsAsyncAuthorizationError("writev", virtualPath);
+  }
+  return fsWritevWork(fd, buffers, positioned, position);
 }
 
 static FsAsyncResult fsAsyncString(std::string value) {
@@ -6556,7 +6685,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFsyncSync: fd required");
         }
         int fd = static_cast<int>(args[0].asNumber());
-        requireFdMetadataWrite(runtime, fd, "fsync");
+        // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Durability repeats fs:write against the retained descriptor under its own public surface identity immediately before the flush.
+        requireFdWriteForSurface(
+            runtime, fd, "fsync", kFsSurfaceFsyncSync);
         if (::fsync(fd) != 0) {
           throwFsError(runtime, "fsync", "");
         }
@@ -6573,7 +6704,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFdatasyncSync: fd required");
         }
         int fd = static_cast<int>(args[0].asNumber());
-        requireFdMetadataWrite(runtime, fd, "fdatasync");
+        // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Data-only durability uses the same retained writable object but remains attributable to its distinct public edge.
+        requireFdWriteForSurface(
+            runtime, fd, "fdatasync", kFsSurfaceFdatasyncSync);
 #if defined(__APPLE__)
         // macOS doesn't have fdatasync, use fsync instead
         if (::fsync(fd) != 0) {
@@ -7140,12 +7273,51 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
               runtime, "__exactFsWriteAsync: fd and data required");
         }
         int fd = static_cast<int>(args[0].asNumber());
-        requireFdWrite(runtime, fd, "write");
+        requireSessionDescriptorWrite(runtime, fd, "write");
+        auto entry = requireOwnedFd(runtime, fd, "write");
+        if (!entry.canWrite) {
+          throw facebook::jsi::JSError(
+              runtime, "write: fd not opened for writing");
+        }
+        const bool armed = ex_host_is_armed() == 1;
+        const bool processStdio =
+            fd >= STDIN_FILENO && fd <= STDERR_FILENO &&
+            !entry.retainedParent;
+        if (!armed || processStdio) {
+          requireFdWrite(runtime, fd, "write");
+        }
         auto workerFd = retainFdForAsyncWrite(runtime, fd, "write");
         auto dataBytes = std::make_shared<std::vector<uint8_t>>(
             extractBytes(runtime, args[1]));
-        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
-        int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
+        if (armed && dataBytes->size() > kMaxHostWriteChunk) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactFsWriteAsync: buffer length exceeds the host I/O limit");
+        }
+        uint64_t unsignedPosition = 0;
+        bool positioned =
+            count > 2 &&
+            readAsyncPositionFromValue(runtime, args[2], unsignedPosition);
+        int64_t position =
+            positioned ? static_cast<int64_t>(unsignedPosition) : -1;
+        if (armed && !processStdio) {
+          return startFsAsync(
+              handle,
+              runtime,
+              [workerFd,
+               principal = entry.owner,
+               backingPath = entry.backingPath,
+               virtualPath = entry.virtualPath,
+               presentedHandle = entry.presentedHandleId,
+               parent = entry.retainedParent,
+               dataBytes,
+               positioned,
+               position]() -> FsAsyncResult {
+                return fsWriteChunkArmedWork(
+                    principal, backingPath, virtualPath, presentedHandle,
+                    parent, workerFd->get(), *dataBytes, positioned, position);
+              });
+        }
         return startFsAsync(
             handle, runtime, [workerFd, dataBytes, positioned, position]() -> FsAsyncResult {
               return fsRunOwnedFd(workerFd, [dataBytes, positioned, position](int owned) { return fsWriteChunkWork(owned, *dataBytes, positioned, position); });
@@ -7254,18 +7426,56 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
               runtime, "__exactFsWritevAsync: fd and buffers required");
         }
         int fd = static_cast<int>(args[0].asNumber());
-        requireFdWrite(runtime, fd, "writev");
+        requireSessionDescriptorWrite(runtime, fd, "writev");
+        auto entry = requireOwnedFd(runtime, fd, "writev");
+        if (!entry.canWrite) {
+          throw facebook::jsi::JSError(
+              runtime, "writev: fd not opened for writing");
+        }
+        const bool armed = ex_host_is_armed() == 1;
+        const bool processStdio =
+            fd >= STDIN_FILENO && fd <= STDERR_FILENO &&
+            !entry.retainedParent;
+        if (!armed || processStdio) {
+          requireFdWrite(runtime, fd, "writev");
+        }
         auto workerFd = retainFdForAsyncWrite(runtime, fd, "writev");
         std::vector<std::vector<uint8_t>> buffers;
         std::vector<struct iovec> iovecs;
-        if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, nullptr)) {
+        if (armed
+                ? !parseAsyncWriteIoVecBuffers(
+                      runtime, args[1], buffers, "__exactFsWritevAsync")
+                : !parseIoVecArguments(
+                      runtime, args[1], buffers, iovecs, nullptr)) {
           throw facebook::jsi::JSError(
               runtime, "__exactFsWritevAsync: buffers must be Uint8Array-like objects");
         }
-        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
-        int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
+        uint64_t unsignedPosition = 0;
+        bool positioned =
+            count > 2 &&
+            readAsyncPositionFromValue(runtime, args[2], unsignedPosition);
+        int64_t position =
+            positioned ? static_cast<int64_t>(unsignedPosition) : -1;
         auto buffersPtr = std::make_shared<std::vector<std::vector<uint8_t>>>(
             std::move(buffers));
+        if (armed && !processStdio) {
+          return startFsAsync(
+              handle,
+              runtime,
+              [workerFd,
+               principal = entry.owner,
+               backingPath = entry.backingPath,
+               virtualPath = entry.virtualPath,
+               presentedHandle = entry.presentedHandleId,
+               parent = entry.retainedParent,
+               buffersPtr,
+               positioned,
+               position]() -> FsAsyncResult {
+                return fsWritevArmedWork(
+                    principal, backingPath, virtualPath, presentedHandle,
+                    parent, workerFd->get(), *buffersPtr, positioned, position);
+              });
+        }
         return startFsAsync(
             handle, runtime, [workerFd, buffersPtr, positioned, position]() -> FsAsyncResult {
               return fsRunOwnedFd(workerFd, [buffersPtr, positioned, position](int owned) { return fsWritevWork(owned, *buffersPtr, positioned, position); });

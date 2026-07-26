@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-26 (armed POSIX and Windows `__exactFsWriteAsync` / `__exactFsWritevAsync` now retain bounded caller input and submit one exact-object `fs:write` Repeat on the filesystem worker immediately before their sole scalar or aggregate mutation; Windows restricts the typed worker route to an existing append-only retained file, and both Windows descriptor durability surfaces plus their POSIX counterparts use distinct public-edge Repeats immediately before flushing, promoting eight async-write recipes on both targets and eight additional durability recipes on Windows)
 **Revised:** 2026-07-26 (armed Windows TCP now authorizes requested host/port before DNS, every member of the complete canonical candidate set before connect, and the verified `getpeername` peer at Commit; retained socket identity and connection id bind generation-aware Repeat to each read/write while the registry lock prevents close/reuse races, and five connect plus three lifecycle recipes become executable)
 **Revised:** 2026-07-26 (armed POSIX and Windows `__exactFsReadAsync` / `__exactFsReadvAsync` now carry the runtime/owner/principal/retained-object operation lease to the filesystem worker and submit one exact-object `fs:read` Repeat immediately before their sole scalar or aggregate acquisition; vector destinations are bounded without caller-sized preauthorization allocation and receive bytes only from the successful owned result, positioned reads preserve the cursor, and eight recipes become executable on each exact target while worker-backed writes and durability remain residual)
 **Revised:** 2026-07-26 (armed Windows `__exactFsReadFileAsync` now captures one schedule-time runtime/principal operation lease and performs both path and retained-descriptor reads on the filesystem worker through typed VFS ABIs: path reads authorize requested/discovery `fs:list` plus commit/per-chunk `fs:read`, descriptor reads serialize the retained cursor and reauthorize every 64 KiB chunk plus EOF, denial precedes lookup or disclosure, eleven Windows recipes are newly executable, and worker-backed scalar/vector reads plus other installed Windows effects remain residual)
@@ -1330,13 +1331,17 @@ Requested denial happens before lookup and leaves bytes unchanged; Repeat
 denial happens before mutation; a hard-link alias to authenticated package
 source refuses at Commit when its retained object/generation joins the
 package-source guard. Numeric flags, `"as"`, `"ax"`, read/write modes,
-truncate/create modes, positional non-append writes, vector writes,
-durability, and worker-backed writes remain closed or residual.
+truncate/create modes, positional non-append writes, synchronous vector writes,
+and the remaining write-capable descriptor families
+remain closed or residual. Worker-backed append writes and synchronous
+durability are the bounded exceptions described below.
 
 Armed Windows `__exactReadFile`, `__exactStat`, `__exactLstat`,
 `__exactReaddir`, retained `__exactFsOpen`, `__exactFsRead`,
 `__exactFsReadv`, `__exactFsWrite`, `__exactFsFstatSync`, and
-`__exactFsReadFileAsync` are the first
+`__exactFsReadFileAsync`, `__exactFsReadAsync`, `__exactFsReadvAsync`,
+`__exactFsWriteAsync`, `__exactFsWritevAsync`, `__exactFsFsyncSync`, and
+`__exactFsFdatasyncSync` are the first
 installed Windows filesystem effects to leave the legacy path oracle.
 Their private
 native bridges derive the runtime generation, actor, and canonical
@@ -1426,10 +1431,34 @@ validates all destinations before scattering that aggregate. Empty requests
 perform no acquisition and emit no decision. Positioned requests preserve the
 retained cursor, while a sequential request advances it.
 
-This is a bounded slice, not Windows filesystem promotion. Worker-backed
-durability, mutation, write-capable open, and the other installed Windows
-filesystem routes remain residual until their own retained-object contracts are
-implemented.
+Armed scalar `__exactFsWriteAsync` and aggregate `__exactFsWritevAsync` use the
+corresponding worker-side retained-object protocol. The runtime thread first
+validates the owner/runtime-bound writable descriptor and snapshots no more
+than 1,024 actual ArrayBuffer views with an aggregate host-I/O bound. On POSIX,
+the worker submits one surface-specific exact-object `fs:write` Repeat against
+the duplicated retained descriptor immediately before `write`/`pwrite` or
+`writev`/`pwritev`. On Windows, the route accepts only an existing retained
+append-only descriptor, holds its I/O mutex, and passes either the scalar bytes
+or one flattened vector aggregate to a surface-specific typed VFS bridge. That
+bridge object-matches before the Repeat, appends once, and object-matches again
+before returning. Flattening preserves one logical `writev` mutation and
+prevents partial authorization across component buffers. Empty scalar and
+all-empty vector requests return zero without a typed decision.
+
+Synchronous descriptor durability now has the same exact-object boundary on
+both installed backends. `__exactFsFsyncSync` and
+`__exactFsFdatasyncSync` validate a retained writable descriptor and submit one
+`fs:write` Repeat attributed to their own distinct public surface edge
+immediately before `fsync`/`fdatasync` or `sync_all`/`sync_data`. Windows holds
+the retained file's I/O mutex while the private VFS bridge object-matches,
+authorizes, flushes, and rechecks. POSIX uses the retained parent plus the live
+descriptor identity immediately before its syscall. Durability does not borrow
+the prerequisite open edge, and cleanup remains outside the decision window.
+
+This is a bounded slice, not Windows filesystem promotion. Unsupported
+write-capable open modes, synchronous vector/positional mutation, and the other
+installed Windows filesystem routes remain residual until their own
+retained-object contracts are implemented.
 Exact-target recipe generation now
 schedules the five `__exactReadFile`, five `__exactStat`, and five
 `__exactLstat`, five `__exactReaddir`, six read-only `__exactFsOpen`, and four
@@ -1440,17 +1469,21 @@ scenarios; descriptor denial remains residual because the same denied floor
 cannot create its required retained setup handle. It additionally schedules
 four executable retained-descriptor rows apiece for `__exactFsReadAsync` and
 `__exactFsReadvAsync` on both targets; each deny row remains residual for the
-same source-setup reason. The generator continues to
-classify the remaining 150 callable filesystem
+same source-setup reason. It also schedules four executable rows apiece for
+`__exactFsWriteAsync` and `__exactFsWritevAsync` on both targets, plus four
+apiece for `__exactFsFsyncSync` and `__exactFsFdatasyncSync` on both targets.
+Each deny row remains residual because the denied `fs:write` floor cannot
+construct its prerequisite writable descriptor. The generator continues to
+classify the remaining 142 callable Windows filesystem
 recipes under
 `public-surface-filesystem-not-typed-on-target`; five `__exactAppendFile`
 recipes remain under the more exact
 `native-public-operation-not-installed-on-target` build-source boundary. The
-Windows catalog is 23,499 required / 2,456 fully executable / 3,122 internally
-verified / 17,921 unresolved with digest
-`sha256-WKSyhVxCCwxqBksw5QzVyHxFlZ3gyPoSmRKxENblPCk`. Apple remains
-independently shaped at 23,840 / 2,791 / 3,136 / 17,913 with digest
-`sha256-YgEmaptGoFnSBwa5_Ta7DQRvKMrqx9ODnuiZrxv7gVQ`.
+Windows catalog is 23,499 required / 2,472 fully executable / 3,122 internally
+verified / 17,905 unresolved with digest
+`sha256-QLOnvoW4r1Lv07dGQ-wizReH4pqeQ28UgnazkwiJbHQ`. Apple is
+independently shaped at 23,840 / 2,799 / 3,136 / 17,905 with digest
+`sha256-qhSEiwMOa6vxvfvfoLl9UbDLblZJn5lUEQOSgNjLMnQ`.
 
 Integrating the lockdown error-prototype override repair changed the
 source-derived taming digest to
@@ -2303,21 +2336,20 @@ descriptor after collecting observations. Cleanup therefore cannot contribute
 an unrelated decision to the recipe it proves. The deny recipe remains
 residual: denying the same principal's `fs:list` authority would prevent the
 prerequisite descriptor from being opened, so the harness cannot honestly
-stage that retained-object scenario. Windows remains residual independently
-because its installed descriptor-metadata implementation still uses the
-legacy capability check rather than the typed retained-object gate.
+stage that retained-object scenario. Windows now executes the same four
+retained-object scenarios through its typed descriptor-metadata gate.
 Retained `__exactFsFsyncSync` and `__exactFsFdatasyncSync` durability each add
-four physical Apple recipes. Before observation, the harness creates a distinct
-exact file under `target/` and opens an append descriptor through the
-source-bound native surface under joint `fs:list` and `fs:write` floors. Each
-durability invocation must emit one typed `fs:write` repeat decision, preserve
-the fixture bytes, and then close the descriptor and remove the owned file
-outside the decision window. The Windows implementation still performs the
-legacy capability check for descriptor durability, so its four recipes per
-surface remain residual until a typed retained-object gate exists. Denial also
-remains residual because denying the descriptor's required `fs:write`
-authority would prevent the prerequisite writable descriptor from being
-opened.
+four physical recipes on both exact targets. Before observation, the harness
+creates a distinct exact file under `target/` and opens an append descriptor
+through the source-bound native surface under joint `fs:list` and `fs:write`
+floors. Each durability invocation must emit one typed `fs:write` repeat
+decision on its own public edge, preserve the fixture bytes, and then close the
+descriptor and remove the owned file outside the decision window. Windows
+performs the flush through the same retained typed VFS file while holding its
+I/O mutex; POSIX authorizes the live retained descriptor immediately before the
+syscall. Denial remains residual because denying the descriptor's required
+`fs:write` authority would prevent the prerequisite writable descriptor from
+being opened.
 The same owned-descriptor harness now physically executes
 `__exactFsFtruncateSync` on Apple. Four recipes require one typed `fs:write`
 repeat decision, then independently verify the exact two-byte length before
