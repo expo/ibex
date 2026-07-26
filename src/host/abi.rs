@@ -2752,8 +2752,7 @@ pub(crate) unsafe extern "C" fn private_vfs_open_append_typed(
 ///
 /// Nonempty input buffers and `module_ids` must be readable for this
 /// synchronous call. Output pointers must each address one writable value.
-#[export_name = "ibex_private_vfs_read_file_typed"]
-pub(crate) unsafe extern "C" fn private_vfs_read_file_typed(
+unsafe fn private_vfs_read_file_typed_for_surface(
     runtime_nonce: u64,
     module_id: u64,
     module_ids: *const u64,
@@ -2765,6 +2764,8 @@ pub(crate) unsafe extern "C" fn private_vfs_read_file_typed(
     out_data: *mut *mut u8,
     out_len: *mut u64,
     out_errno: *mut i32,
+    adapter_operation: &'static str,
+    coverage_edge_id: &'static str,
 ) -> u32 {
     use capsec_semantics::decision::DecisionOutcome;
     use capsec_semantics::model::NonEmptyString;
@@ -2835,8 +2836,8 @@ pub(crate) unsafe extern "C" fn private_vfs_read_file_typed(
                         vfs,
                         &module_id.to_string(),
                         constrained_principals.clone(),
-                        "fs-read-file",
-                        "surface.native.op.exactreadfile.1cmzco7",
+                        adapter_operation,
+                        coverage_edge_id,
                         authorization,
                         presented.clone(),
                     )
@@ -2871,6 +2872,85 @@ pub(crate) unsafe extern "C" fn private_vfs_read_file_typed(
             EX_HOST_VFS_RESULT_OK
         }
         Err(error) => vfs_error_result(&error, out_errno),
+    }
+}
+
+/// Synchronous whole-file read adapter.
+///
+/// # Safety
+///
+/// The safety contract is identical to
+/// [`private_vfs_read_file_typed_for_surface`].
+#[export_name = "ibex_private_vfs_read_file_typed"]
+pub(crate) unsafe extern "C" fn private_vfs_read_file_typed(
+    runtime_nonce: u64,
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    input: *const u8,
+    input_len: u64,
+    presented_handle_id: *const u8,
+    presented_handle_id_len: u64,
+    out_data: *mut *mut u8,
+    out_len: *mut u64,
+    out_errno: *mut i32,
+) -> u32 {
+    unsafe {
+        private_vfs_read_file_typed_for_surface(
+            runtime_nonce,
+            module_id,
+            module_ids,
+            module_ids_len,
+            input,
+            input_len,
+            presented_handle_id,
+            presented_handle_id_len,
+            out_data,
+            out_len,
+            out_errno,
+            "fs-read-file",
+            "surface.native.op.exactreadfile.1cmzco7",
+        )
+    }
+}
+
+/// Worker-backed whole-file read adapter. The retained VFS protocol is shared
+/// with the synchronous form, but evidence is attributed to the async native
+/// surface that scheduled and owns the operation.
+///
+/// # Safety
+///
+/// The safety contract is identical to [`private_vfs_read_file_typed`].
+#[export_name = "ibex_private_vfs_read_file_async_typed"]
+pub(crate) unsafe extern "C" fn private_vfs_read_file_async_typed(
+    runtime_nonce: u64,
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    input: *const u8,
+    input_len: u64,
+    presented_handle_id: *const u8,
+    presented_handle_id_len: u64,
+    out_data: *mut *mut u8,
+    out_len: *mut u64,
+    out_errno: *mut i32,
+) -> u32 {
+    unsafe {
+        private_vfs_read_file_typed_for_surface(
+            runtime_nonce,
+            module_id,
+            module_ids,
+            module_ids_len,
+            input,
+            input_len,
+            presented_handle_id,
+            presented_handle_id_len,
+            out_data,
+            out_len,
+            out_errno,
+            "fs-read-file-async",
+            "surface.native.op.exactfsreadfileasync.0fw3fo0",
+        )
     }
 }
 
@@ -3223,6 +3303,48 @@ pub(crate) unsafe extern "C" fn private_vfs_read_typed(
             "read",
             "fs-read",
             "surface.native.op.exactfsread.1ixlwve",
+        )
+    }
+}
+
+/// Read the next chunk of one authenticated retained descriptor for a
+/// whole-file read. The descriptor cursor advances only after a fresh
+/// `fs:read` Repeat over its original object identity and bearer.
+///
+/// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+/// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+///
+/// # Safety
+///
+/// The safety contract is identical to [`private_vfs_read_typed`].
+#[export_name = "ibex_private_vfs_read_file_descriptor_typed"]
+pub(crate) unsafe extern "C" fn private_vfs_read_file_descriptor_typed(
+    runtime_nonce: u64,
+    descriptor_owner: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    file: *mut ExactFileHandle,
+    length: u32,
+    out_data: *mut *mut u8,
+    out_len: *mut u64,
+    out_errno: *mut i32,
+) -> u32 {
+    unsafe {
+        private_vfs_read_typed_for_surface(
+            runtime_nonce,
+            descriptor_owner,
+            module_ids,
+            module_ids_len,
+            file,
+            length,
+            0,
+            0,
+            out_data,
+            out_len,
+            out_errno,
+            "read-file",
+            "fs-read-file",
+            "surface.native.op.exactfsreadfileasync.0fw3fo0",
         )
     }
 }

@@ -341,12 +341,16 @@ describe("exact-target CapSec executable recipes", () => {
     // production graph deliberately uses deferred call-time links. The net-new
     // WebGPU obligations remain unresolved until their public-surface probes
     // are authored.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_772);
+    // Async whole-file read now contributes six exact-path scenarios and five
+    // retained-descriptor scenarios. Descriptor denial remains residual
+    // because the harness cannot prepare its source descriptor under a denied
+    // fs:read floor.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_783);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_932);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_921);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -371,7 +375,7 @@ describe("exact-target CapSec executable recipes", () => {
     // routes that this harness could otherwise claim structurally. The three
     // Branch-local filesystem closures use the closed-surface harness, while
     // the direct non-recursive mkdir branch adds one native selection proof.
-    expect(nativePublicFixtures).toHaveLength(530);
+    expect(nativePublicFixtures).toHaveLength(541);
     expect(
       nativePublicFixtures
         .filter(
@@ -447,11 +451,13 @@ describe("exact-target CapSec executable recipes", () => {
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch. The
     // Existing-file append open and scalar write add six branch-local open
-    // scenarios plus four executable retained-write scenarios; the write deny
-    // remains residual because its prerequisite descriptor needs fs:write.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_429);
+    // scenarios plus four executable retained-write scenarios. Worker-backed
+    // whole-file read adds six path and five descriptor scenarios; each
+    // retained descriptor denial remains residual because its prerequisite
+    // handle needs the same floor that the scenario denies.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_440);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_948);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_937);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -551,6 +557,68 @@ describe("exact-target CapSec executable recipes", () => {
         ["requested", "discovery", "commit", "repeat"],
       ],
     ]);
+    const typedWindowsAsyncWholeFileReads = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactFsReadFileAsync",
+    );
+    expect(typedWindowsAsyncWholeFileReads).toHaveLength(11);
+    expect(
+      typedWindowsAsyncWholeFileReads.map((recipe) => [
+        recipe.fixtureId.includes(".logical.descriptor.")
+          ? "descriptor"
+          : "path",
+        recipe.scenario,
+        recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
+        recipe.publicSurfaceProbe.invocation.expectedTypedStages,
+      ]),
+    ).toEqual([
+      ["descriptor", "allow", 2, ["repeat", "repeat"]],
+      ["descriptor", "branch-selection", 2, ["repeat", "repeat"]],
+      ["descriptor", "malformed", 2, ["repeat", "repeat"]],
+      ["descriptor", "missing-attribution", 2, ["repeat", "repeat"]],
+      ["descriptor", "wrong-principal", 2, ["repeat", "repeat"]],
+      [
+        "path",
+        "allow",
+        4,
+        ["requested", "discovery", "commit", "repeat"],
+      ],
+      [
+        "path",
+        "branch-selection",
+        4,
+        ["requested", "discovery", "commit", "repeat"],
+      ],
+      ["path", "deny", 1, ["requested"]],
+      [
+        "path",
+        "malformed",
+        4,
+        ["requested", "discovery", "commit", "repeat"],
+      ],
+      [
+        "path",
+        "missing-attribution",
+        4,
+        ["requested", "discovery", "commit", "repeat"],
+      ],
+      [
+        "path",
+        "wrong-principal",
+        4,
+        ["requested", "discovery", "commit", "repeat"],
+      ],
+    ]);
+    const asyncDescriptorDeny = windowsRecipes.recipes.find(
+      (recipe) =>
+        recipe.fixtureId.includes(".exactfsreadfileasync.") &&
+        recipe.fixtureId.includes(".logical.descriptor.deny"),
+    );
+    expect(asyncDescriptorDeny.publicSurfaceProbe).toBeNull();
+    expect(asyncDescriptorDeny.residualReasons).toContain(
+      "native-public-deny-scenario-not-authored",
+    );
     const typedWindowsStats = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName === "__exactStat",

@@ -20980,6 +20980,232 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(windows, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    async fn armed_windows_async_readfile_path_uses_worker_typed_stages() {
+        use capsec_semantics::model::Stage;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-windows-async-read-path-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("payload.txt"), b"worker-retained-bytes").unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, true, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactreadfile.async"
+        ));
+        engine
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  globalThis.__windowsAsyncTypedRead = 'pending';
+                  __exactFsReadFileAsync('/project/payload.txt', 'r', 0, null).then(
+                    function(bytes) {
+                      globalThis.__windowsAsyncTypedRead =
+                        String.fromCharCode.apply(null, bytes);
+                    },
+                    function(error) {
+                      globalThis.__windowsAsyncTypedRead = 'error:' + String(error.code);
+                    });
+                  return 'queued';
+                })()"#,
+            )
+            .await
+            .unwrap();
+        engine.drive_event_loop().await.unwrap();
+        let outcome = engine
+            .eval_immediate("globalThis.__windowsAsyncTypedRead")
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("worker-retained-bytes"));
+
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            legacy.is_empty(),
+            "armed Windows async readFile crossed the legacy capability oracle"
+        );
+        assert_eq!(
+            typed
+                .iter()
+                .map(|row| row.decision_set.context.stage)
+                .collect::<Vec<_>>(),
+            vec![
+                Stage::Requested,
+                Stage::Discovery,
+                Stage::Commit,
+                Stage::Repeat
+            ]
+        );
+        assert_eq!(
+            typed
+                .iter()
+                .map(|row| row.decision_set.effects[0].action.as_str())
+                .collect::<Vec<_>>(),
+            vec!["fs:list", "fs:list", "fs:read", "fs:read"]
+        );
+        assert!(typed.iter().all(|row| row.gates.iter().all(|gate| {
+            gate.coverage_edge_id.as_str() == "surface.native.op.exactfsreadfileasync.0fw3fo0"
+        })));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(all(windows, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_windows_async_readfile_descriptor_repeats_each_chunk() {
+        use capsec_semantics::model::Stage;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-windows-async-read-fd-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut payload = vec![0x41; 70 * 1024];
+        payload[70 * 1024 - 1] = 0x5a;
+        std::fs::write(root.join("payload.bin"), &payload).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, true, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  globalThis.__windowsAsyncReadFd =
+                    __exactFsOpen('/project/payload.bin', 'r', 438, null);
+                  return 'opened';
+                })()"#,
+            )
+            .await
+            .unwrap();
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactreadfile.async.fd"
+        ));
+        engine
+            .eval_immediate(
+                r#"(function() {
+                  globalThis.__windowsAsyncTypedFdRead = 'pending';
+                  __exactFsReadFileAsync(
+                    globalThis.__windowsAsyncReadFd, 'r', 0, null).then(
+                    function(bytes) {
+                      globalThis.__windowsAsyncTypedFdRead =
+                        String(bytes.length) + ':' + String(bytes[0]) + ':' +
+                        String(bytes[bytes.length - 1]);
+                      __exactFsClose(globalThis.__windowsAsyncReadFd);
+                    },
+                    function(error) {
+                      globalThis.__windowsAsyncTypedFdRead =
+                        'error:' + String(error.code);
+                    });
+                  return 'queued';
+                })()"#,
+            )
+            .await
+            .unwrap();
+        engine.drive_event_loop().await.unwrap();
+        let outcome = engine
+            .eval_immediate("globalThis.__windowsAsyncTypedFdRead")
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("71680:65:90"));
+
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            legacy.is_empty(),
+            "armed Windows descriptor readFile crossed the legacy capability oracle"
+        );
+        assert_eq!(
+            typed
+                .iter()
+                .map(|row| row.decision_set.context.stage)
+                .collect::<Vec<_>>(),
+            vec![Stage::Repeat, Stage::Repeat, Stage::Repeat]
+        );
+        assert!(typed
+            .iter()
+            .all(|row| row.decision_set.effects[0].action.as_str() == "fs:read"));
+        assert!(typed.iter().all(|row| row.gates.iter().all(|gate| {
+            gate.coverage_edge_id.as_str() == "surface.native.op.exactfsreadfileasync.0fw3fo0"
+        })));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(all(windows, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_windows_async_readfile_denies_on_worker_before_lookup() {
+        use capsec_semantics::model::Stage;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-windows-async-read-deny-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let target = root.join("payload.txt");
+        std::fs::write(&target, b"must-remain-unread").unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, true, false, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactreadfile.async.denied"
+        ));
+        engine
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  globalThis.__windowsAsyncDeniedRead = 'pending';
+                  __exactFsReadFileAsync('/project/payload.txt', 'r', 0, null).then(
+                    function() {
+                      globalThis.__windowsAsyncDeniedRead = 'unexpected-success';
+                    },
+                    function(error) {
+                      globalThis.__windowsAsyncDeniedRead = String(error.code);
+                    });
+                  return 'queued';
+                })()"#,
+            )
+            .await
+            .unwrap();
+        engine.drive_event_loop().await.unwrap();
+        let outcome = engine
+            .eval_immediate("globalThis.__windowsAsyncDeniedRead")
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("EACCES"));
+
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            legacy.is_empty(),
+            "denied armed Windows async readFile consulted the legacy capability oracle"
+        );
+        assert_eq!(typed.len(), 1);
+        assert_eq!(typed[0].decision_set.context.stage, Stage::Requested);
+        assert_eq!(typed[0].decision_set.effects[0].action.as_str(), "fs:list");
+        assert_eq!(std::fs::read(&target).unwrap(), b"must-remain-unread");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(all(windows, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
     async fn armed_windows_public_stat_uses_retained_metadata_for_file_and_root() {
         use capsec_semantics::model::Stage;
 

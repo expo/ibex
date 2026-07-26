@@ -1653,6 +1653,101 @@ const nativeRetainedFsReadvTemplate = () =>
     ],
     requiredSourceArity: 4,
   });
+const nativeRetainedFsReadFileAsyncTemplate = () => {
+  const retained = nativeRetainedFsReadTemplate();
+  const repeatStages = ["repeat", "repeat"];
+  return Object.freeze({
+    ...retained,
+    arguments: [
+      harnessFsFileDescriptorArgument(),
+      literalArgument("r"),
+      literalArgument(0),
+      literalArgument(null),
+    ],
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+    expectedDecisionCounts: {
+      allow: 2,
+      "branch-selection": 2,
+      malformed: 2,
+      "missing-attribution": 2,
+      "wrong-principal": 2,
+    },
+    expectedObservedActionIds: {
+      allow: ["fs:read"],
+      "branch-selection": ["fs:read"],
+      malformed: ["fs:read"],
+      "missing-attribution": ["fs:read"],
+      "wrong-principal": ["fs:read"],
+    },
+    expectedResults: {
+      allow: "return",
+      "branch-selection": "return",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: repeatStages,
+      "branch-selection": repeatStages,
+      malformed: repeatStages,
+      "missing-attribution": repeatStages,
+      "wrong-principal": repeatStages,
+    },
+    requiredSourceArity: 4,
+  });
+};
+const nativeProjectFsReadFileAsyncTemplate = () => {
+  const pathRead = nativeProjectReadFileTemplate();
+  return Object.freeze({
+    ...pathRead,
+    arguments: [
+      literalArgument("Cargo.toml"),
+      literalArgument("r"),
+      literalArgument(0),
+      literalArgument(null),
+    ],
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+    expectedDecisionCounts: {
+      ...pathRead.expectedDecisionCounts,
+      "branch-selection": pathRead.expectedDecisionCounts.allow,
+    },
+    expectedDecisionCountsByTarget: {
+      ...pathRead.expectedDecisionCountsByTarget,
+      "x86_64-pc-windows-msvc": {
+        ...pathRead.expectedDecisionCountsByTarget[
+          "x86_64-pc-windows-msvc"
+        ],
+        "branch-selection":
+          pathRead.expectedDecisionCountsByTarget[
+            "x86_64-pc-windows-msvc"
+          ].allow,
+      },
+    },
+    expectedResults: {
+      ...pathRead.expectedResults,
+      "branch-selection": "return",
+    },
+    expectedStages: {
+      ...pathRead.expectedStages,
+      "branch-selection": pathRead.expectedStages.allow,
+    },
+    expectedStagesByTarget: {
+      ...pathRead.expectedStagesByTarget,
+      "x86_64-pc-windows-msvc": {
+        ...pathRead.expectedStagesByTarget["x86_64-pc-windows-msvc"],
+        "branch-selection":
+          pathRead.expectedStagesByTarget["x86_64-pc-windows-msvc"].allow,
+      },
+    },
+    requiredSourceArity: 4,
+  });
+};
 const nativeRetainedFsFstatTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
@@ -2813,6 +2908,13 @@ function nativeEffectStages(nonDenyStages) {
 }
 
 const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
+  [
+    "__exactFsReadFileAsync",
+    new Map([
+      ["descriptor", nativeRetainedFsReadFileAsyncTemplate()],
+      ["path", nativeProjectFsReadFileAsyncTemplate()],
+    ]),
+  ],
   [
     "__exactFsFdAsync",
     new Map([
@@ -4208,7 +4310,7 @@ function unsupportedWindowsTypedPublicEffectReason({
   ) {
     return null;
   }
-  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Synchronous whole-file read, stat, lstat, readdir, retained scalar/vector descriptor reads, scalar append writes/fstat, and the read/existing-append open branches are the completed exceptions.
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Synchronous and async whole-file reads, stat, lstat, readdir, retained scalar/vector descriptor reads, scalar append writes/fstat, and the read/existing-append open branches are the completed exceptions.
   if (plan.actionIds.some((actionId) => actionId.startsWith("fs:"))) {
     const globalName = publicSurfaceProbe?.invocation?.globalName;
     if (
@@ -4226,6 +4328,7 @@ function unsupportedWindowsTypedPublicEffectReason({
         "__exactFsReadv",
         "__exactFsWrite",
         "__exactFsFstatSync",
+        "__exactFsReadFileAsync",
         "__exactLstat",
         "__exactReadFile",
         "__exactReaddir",

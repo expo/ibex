@@ -1172,6 +1172,20 @@ extern "C" uint32_t ibex_private_vfs_read_file_typed(
     uint8_t** out_data,
     uint64_t* out_len,
     int32_t* out_errno);
+// Worker-backed whole-file read using the async readFile coverage contract.
+// Inputs and output ownership match ibex_private_vfs_read_file_typed.
+extern "C" uint32_t ibex_private_vfs_read_file_async_typed(
+    uint64_t runtime_nonce,
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    const uint8_t* input,
+    uint64_t input_len,
+    const uint8_t* presented_handle_id,
+    uint64_t presented_handle_id_len,
+    uint8_t** out_data,
+    uint64_t* out_len,
+    int32_t* out_errno);
 // Private retained-object stat. Output is explicit-length Node-shaped JSON and
 // is released with ex_host_free_buffer.
 extern "C" uint32_t ibex_private_vfs_stat_typed(
@@ -1222,6 +1236,19 @@ extern "C" uint32_t ibex_private_vfs_read_typed(
     uint32_t length,
     uint8_t positioned,
     uint64_t position,
+    uint8_t** out_data,
+    uint64_t* out_len,
+    int32_t* out_errno);
+// Private retained-descriptor whole-file read Repeat. Each call advances the
+// descriptor by at most `length` bytes and attributes the decision to the
+// readFile surface rather than the scalar read surface.
+extern "C" uint32_t ibex_private_vfs_read_file_descriptor_typed(
+    uint64_t runtime_nonce,
+    uint64_t descriptor_owner,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    void* file,
+    uint32_t length,
     uint8_t** out_data,
     uint64_t* out_len,
     int32_t* out_errno);

@@ -747,10 +747,13 @@ facebook::jsi::Value makeFsAsyncErrorValue(
 facebook::jsi::Value startFsAsync(
     ExactHermesRuntime* handle,
     facebook::jsi::Runtime& runtime,
-    std::function<FsAsyncResult()> work) {
+    std::function<FsAsyncResult()> work,
+    std::shared_ptr<std::vector<uint64_t>> principalStack = nullptr) {
   uint64_t principal = currentPrincipalId();
-  auto principalStack =
-      std::make_shared<std::vector<uint64_t>>(exactCollectTypedPrincipalStack());
+  if (!principalStack) {
+    principalStack =
+        std::make_shared<std::vector<uint64_t>>(exactCollectTypedPrincipalStack());
+  }
   auto workPtr = std::make_shared<std::function<FsAsyncResult()>>(std::move(work));
   auto promiseCtor = runtime.global().getPropertyAsFunction(runtime, "Promise");
   auto executor = facebook::jsi::Function::createFromHostFunction(
@@ -872,6 +875,171 @@ facebook::jsi::Value startFsAsync(
         return facebook::jsi::Value::undefined();
       });
   return promiseCtor.callAsConstructor(runtime, executor);
+}
+
+FsAsyncResult fsAsyncVfsError(
+    uint32_t status,
+    int32_t hostError,
+    const std::string& syscall,
+    const std::string& path) {
+  const char* code = "ERR_IBEX_VFS";
+  const char* detail = "virtual filesystem operation failed";
+  switch (status) {
+    case 1:
+      code = "EPERM";
+      detail = "closed filesystem operation";
+      break;
+    case 2:
+      code = "ERR_IBEX_STALE_SESSION";
+      detail = "stale runtime session";
+      break;
+    case 3:
+      code = "ERR_INVALID_ARG_VALUE";
+      detail = "malformed virtual path";
+      break;
+    case 4:
+      code = "ERR_INVALID_FILE_URL_PATH";
+      detail = "encoded path separator";
+      break;
+    case 5:
+      code = "ERR_IBEX_OUTSIDE_MOUNT";
+      detail = "path is outside the virtual mount";
+      break;
+    case 6:
+      code = "ERR_IBEX_SYNTHETIC_NODE";
+      detail = "operation requires a retained filesystem object";
+      break;
+    case 7:
+      code = "EACCES";
+      detail = "filesystem policy denied";
+      break;
+    case 8:
+      code = "ENOENT";
+      detail = "no such file or directory";
+      break;
+    case 9:
+      code = "ELOOP";
+      detail = "too many symbolic links";
+      break;
+    case 10:
+      code = "ERR_IBEX_UNMAPPABLE_LINK";
+      detail = "link has no unique virtual spelling";
+      break;
+    case 11:
+      code = "ERR_IBEX_STALE_IDENTITY";
+      detail = "retained filesystem identity is stale";
+      break;
+    case 12:
+      code = "ERR_IBEX_INPUT_TOO_LARGE";
+      detail = "virtual path exceeds the input limit";
+      break;
+    case 13:
+      return fsAsyncSyscallError(
+          syscall, path, hostError != 0 ? hostError : EIO);
+    default:
+      break;
+  }
+  std::string message =
+      std::string(code) + ": " + syscall + ": " + detail;
+  if (!path.empty()) message += " '" + path + "'";
+  return fsAsyncError(code, std::move(message), syscall, path);
+}
+
+FsAsyncResult fsReadFileTypedWork(
+    uint64_t runtimeNonce,
+    uint64_t principal,
+    const std::shared_ptr<std::vector<uint64_t>>& principals,
+    const std::string& input,
+    const std::string& presentedHandle) {
+  uint8_t* data = nullptr;
+  uint64_t length = 0;
+  int32_t hostError = 0;
+  uint32_t status = ibex_private_vfs_read_file_async_typed(
+      runtimeNonce,
+      principal,
+      principals->data(),
+      principals->size(),
+      reinterpret_cast<const uint8_t*>(input.data()),
+      input.size(),
+      presentedHandle.empty()
+          ? nullptr
+          : reinterpret_cast<const uint8_t*>(presentedHandle.data()),
+      presentedHandle.size(),
+      &data,
+      &length,
+      &hostError);
+  if (status != 0) {
+    if (data != nullptr) ex_host_free_buffer(data, length);
+    return fsAsyncVfsError(status, hostError, "open", input);
+  }
+  if (length != 0 && data == nullptr) {
+    return fsAsyncSyscallError("read", input, EIO);
+  }
+  if (static_cast<double>(length) > kMaxReadFileBytes) {
+    if (data != nullptr) ex_host_free_buffer(data, length);
+    FsAsyncResult result;
+    result.tooLarge = true;
+    result.tooLargeSize = static_cast<double>(length);
+    return result;
+  }
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Bytes);
+  if (length != 0) {
+    result.bytes.assign(data, data + length);
+  }
+  if (data != nullptr) ex_host_free_buffer(data, length);
+  return result;
+}
+
+FsAsyncResult fsReadWholeTypedHandleWork(
+    uint64_t runtimeNonce,
+    uint64_t descriptorOwner,
+    const std::shared_ptr<std::vector<uint64_t>>& principals,
+    const std::shared_ptr<WindowsFileHandle>& file,
+    const std::string& pathForError) {
+  if (!file || !file->handle) {
+    return fsAsyncBadFd("read");
+  }
+  std::vector<uint8_t> bytes;
+  std::lock_guard<std::mutex> ioLock(file->ioMutex);
+  for (;;) {
+    uint8_t* chunk = nullptr;
+    uint64_t chunkLength = 0;
+    int32_t hostError = 0;
+    // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Worker-backed descriptor readFile holds one retained Windows object and repeats generation-aware fs:read authorization before every bounded cursor advance.
+    uint32_t status = ibex_private_vfs_read_file_descriptor_typed(
+        runtimeNonce,
+        descriptorOwner,
+        principals->data(),
+        principals->size(),
+        file->handle,
+        64 * 1024,
+        &chunk,
+        &chunkLength,
+        &hostError);
+    if (status != 0) {
+      if (chunk != nullptr) ex_host_free_buffer(chunk, chunkLength);
+      return fsAsyncVfsError(status, hostError, "read", pathForError);
+    }
+    if (chunkLength > 64 * 1024 || (chunkLength != 0 && chunk == nullptr)) {
+      if (chunk != nullptr) ex_host_free_buffer(chunk, chunkLength);
+      return fsAsyncSyscallError("read", pathForError, EIO);
+    }
+    if (chunkLength == 0) {
+      if (chunk != nullptr) ex_host_free_buffer(chunk, chunkLength);
+      break;
+    }
+    bytes.insert(bytes.end(), chunk, chunk + chunkLength);
+    ex_host_free_buffer(chunk, chunkLength);
+    if (static_cast<double>(bytes.size()) > kMaxReadFileBytes) {
+      FsAsyncResult result;
+      result.tooLarge = true;
+      result.tooLargeSize = static_cast<double>(bytes.size());
+      return result;
+    }
+  }
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Bytes);
+  result.bytes = std::move(bytes);
+  return result;
 }
 
 FsAsyncResult fsReadWholeHandleWork(
@@ -2794,7 +2962,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto readFileAsyncFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactFsReadFileAsync"),
-      3,
+      4,
       [handle](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -2811,14 +2979,72 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             });
           }
           auto entry = getFileEntry(runtime, fd);
-          requireFileEntryRead(runtime, entry);
+          if (!entry.canRead) {
+            throw facebook::jsi::JSError(
+                runtime, "fd not opened for reading");
+          }
           auto file = entry.file;
           auto path = entry.path;
+          if (ex_host_is_armed() == 1) {
+            auto principals = std::make_shared<std::vector<uint64_t>>(
+                exactCollectTypedPrincipalStack());
+            return startFsAsync(
+                handle,
+                runtime,
+                [runtimeNonce = handle->runtime_nonce,
+                 descriptorOwner = entry.owner,
+                 principals,
+                 file,
+                 path]() -> FsAsyncResult {
+                  return fsReadWholeTypedHandleWork(
+                      runtimeNonce, descriptorOwner, principals, file, path);
+                },
+                principals);
+          }
+          requireFileEntryRead(runtime, entry);
           return startFsAsync(handle, runtime, [file, path]() -> FsAsyncResult {
             return fsReadWholeHandleWork(file, path);
           });
         }
-        auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
+        auto input = pathArg(runtime, args[0]);
+        if (ex_host_is_armed() == 1) {
+          int nodeFlags = nodeOpenFlagsFromValue(runtime, args, count, 1);
+          uint32_t hostFlags = hostFlagsFromNodeFlags(nodeFlags);
+          if ((hostFlags & EXACT_FS_READ) == 0 ||
+              (hostFlags &
+               (EXACT_FS_WRITE | EXACT_FS_CREATE | EXACT_FS_TRUNCATE |
+                EXACT_FS_APPEND)) != 0) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          std::string presentedHandle;
+          if (count > 3 && !args[3].isUndefined() && !args[3].isNull()) {
+            if (!args[3].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime,
+                  "__exactFsReadFileAsync: typed handleId must be a string");
+            }
+            presentedHandle = args[3].asString(runtime).utf8(runtime);
+          }
+          auto principals = std::make_shared<std::vector<uint64_t>>(
+              exactCollectTypedPrincipalStack());
+          return startFsAsync(
+              handle,
+              runtime,
+              [runtimeNonce = handle->runtime_nonce,
+               principal = currentPrincipalId(),
+               principals,
+               input,
+               presentedHandle]() -> FsAsyncResult {
+                return fsReadFileTypedWork(
+                    runtimeNonce,
+                    principal,
+                    principals,
+                    input,
+                    presentedHandle);
+              },
+              principals);
+        }
+        auto path = exactResolveVfsPath(runtime, input);
         requireReadCapability(runtime, path.virtualPath);
         return startFsAsync(
             handle,

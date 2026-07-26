@@ -5,6 +5,7 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-26 (armed Windows worker-backed whole-file reads now carry one schedule-time runtime/principal operation lease into typed VFS execution: paths authorize requested/discovery list plus commit/per-chunk read entirely on the worker, retained descriptors serialize their cursor and submit a fresh exact-object read Repeat for every 64 KiB chunk plus EOF, and denial cannot reach lookup, byte disclosure, or the legacy oracle)
 **Revised:** 2026-07-25 (armed Windows exact-string `"a"` open now retains an existing regular file through an append-only OS handle after write-requested and list-requested/discovery checks, binds the exact object/generation at write Commit, and scalar write authorizes one write Repeat immediately before append; absent paths are never created, denial leaves bytes unchanged, authenticated package-source hard-link aliases refuse at Commit, and other writable/async/durability branches remain unpromoted)
 **Revised:** 2026-07-25 (armed Windows synchronous descriptor-vector reads now validate the runtime/owner-bound retained descriptor before vector materialization, authorize one exact-object `fs:read` Repeat for the aggregate request, restore the cursor for positioned reads, and scatter only after retained-identity revalidation; worker-backed vector reads remain unpromoted)
 **Revised:** 2026-07-25 (armed Windows read-only open now retains the exact VFS file and its parent/final/handle identity behind a runtime/owner-bound opaque registry entry; fstat authorizes Repeat and reads metadata from that same file without pathname fallback, while write-capable opens fail closed before resolution and remaining descriptor operations stay unpromoted)
@@ -2076,8 +2077,9 @@ refuses non-ASCII and tilde spellings, refuses case-sensitive traversal
 directories, and stages/refuses arbitrary 8.3 selections through the retained
 parent entry.
 
-Armed Windows synchronous whole-file read, stat, lstat, readdir, retained
-read/append open, descriptor read/vector-read/append-write, and fstat are the
+Armed Windows synchronous and worker-backed whole-file read, stat, lstat,
+readdir, retained read/append open, descriptor read/vector-read/append-write,
+and fstat are the
 first installed filesystem effects to consume that
 retained-object backend directly. The engine passes its native runtime generation and
 frame-derived canonical constrained-principal stack to private bridges;
@@ -2149,12 +2151,26 @@ vector writes, durability, and worker-backed writes remain `EPERM` or residual
 before pathname/legacy fallback. This exception is an existing-object scalar
 append protocol, not a claim that the rest of the mutation family is ported.
 
-The synchronous read operation inherits the VFS bounded whole-file read limit and
-cannot interleave JavaScript-driven revocation while native byte acquisition is
-in progress. That reasoning does not promote worker-backed
-`__exactFsReadFileAsync`, `__exactFsReadAsync`, or `__exactFsReadvAsync`:
-they still need operation leases with generation rechecks between observable
-chunks. Creation, truncation, positional/vector mutation, durability,
+The synchronous read operation inherits the VFS bounded whole-file read limit
+and cannot interleave JavaScript-driven revocation while native byte acquisition
+is in progress. Worker-backed `__exactFsReadFileAsync` uses the stronger
+operation protocol required for off-thread execution. The runtime thread
+captures the runtime nonce, actor, canonical constrained-principal stack,
+virtual input, and optional bearer once; the filesystem record uses that same
+stack for its native-worker lease and private typed ABI call. A path is not
+resolved before dispatch: Requested/Discovery `fs:list`, Commit `fs:read`, and
+generation-aware per-chunk Repeat all execute inside
+`read_authenticated` on the worker, so denial precedes lookup and byte
+disclosure. A descriptor operation retains its owner/runtime-bound opaque file,
+holds the per-file I/O mutex from the current cursor through EOF, and invokes
+`read_descriptor_authenticated` for each 64 KiB chunk plus EOF. Every call
+submits a fresh exact-object Repeat, and the cursor advances only after that
+decision succeeds. Promise delivery returns to the attributed runtime thread;
+neither branch has a pathname or legacy-capability fallback.
+
+Worker-backed `__exactFsReadAsync` and `__exactFsReadvAsync` still need their
+own chunk-aware retained-object protocols. Creation, truncation,
+positional/vector mutation, durability,
 worker-backed mutation, and all other installed Windows filesystem routes
 remain legacy or closed as their individual contracts require, and exact-target
 public evidence remains incomplete. The target therefore remains

@@ -212271,6 +212271,22 @@
             },
             "effects": [
               {
+                "cap": "fs:list",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "discovery"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
                 "cap": "fs:read",
                 "selectorNormalizer": "fs.path.selector.v1",
                 "occurrenceNormalizer": "fs.path.occurrence.v1",
@@ -212309,7 +212325,6 @@
                     "selectorNormalizer": "fs.path.selector.v1",
                     "occurrenceNormalizer": "fs.path.occurrence.v1",
                     "stages": [
-                      "commit",
                       "repeat"
                     ],
                     "positiveSources": [
@@ -212352,6 +212367,22 @@
                   }
                 ],
                 "effects": [
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
                   {
                     "cap": "fs:read",
                     "selectorNormalizer": "fs.path.selector.v1",

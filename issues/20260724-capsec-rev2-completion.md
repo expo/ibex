@@ -562,9 +562,9 @@ ticket closes.
 | Criterion | Status | Current evidence or contradiction |
 |---|---|---|
 | 1. Typed effect model is the only production plane | Implemented | Armed production hosts construct `VerifiedDecisionContext`; the legacy `PolicyFile` parser and all HostConfig policy/path/override inputs have been deleted. |
-| 2. Every production surface has classification and target cell | Implemented | The generated registry currently validates 7,602 coverage edges and 15,204 target cells with zero drift. |
+| 2. Every production surface has classification and target cell | Implemented | The generated registry currently validates 7,651 coverage edges and 15,302 target cells with zero drift. |
 | 3. Canonical policy and snapshots are typed, deterministic, digest-bound, fail-closed | Implemented | Strict policy/snapshot schemas, canonical-JCS digests, protected-artifact joins, and mismatch/forgery suites pass in the secure gate. |
-| 4. Filesystem/network bind used object or peer with staged authorization | Implemented for the supported runtime surface | Retained VFS objects, symlink/race fixtures, verified-peer records, and repeat-stage leases pass. Residual operations remain closed rather than entering an advertised profile. |
+| 4. Filesystem/network bind used object or peer with staged authorization | In progress; unproved routes remain unadvertised or fail closed | Retained VFS objects, symlink/race fixtures, verified-peer records, and repeat-stage leases pass for promoted routes. The audit previously overstated this criterion: installed Windows worker-backed scalar/vector filesystem I/O and TCP still use legacy paths, while residual operations remain outside every advertised profile. |
 | 5. Handles, dynamic authority, deputy intersection, import gating, and audit share immutable semantics | Implemented | Generated operation algebra, generation-bound receipts, graph authority contexts, handle/revocation suites, and structured evidence all pass. |
 | 6. Plain `ibex` enforces and has no silent weakening path | Implemented | `insecure` is absent from Cargo defaults. Plain and explicit-enforce startup produce the same pre-code target-admission refusal; secure-development and no-sandbox postures require separately named compile-time features. |
 | 7. Every advertised target has a passing generated report | Blocked, honestly closed | The advertisement set is empty. Apple and Windows are candidates only; current physical reports remain incomplete and cannot authorize promotion. |
@@ -1913,12 +1913,68 @@ ticket closes.
   no Discovery decision for absence. Important enforcement mechanisms remain
   about 99% complete and the overall requested task is about **92% complete**.
 
+### 2026-07-26 — worker-backed Windows whole-file reads
+
+- Corrected the LLP 0021 completion audit: criterion 4 was not implemented for
+  the whole supported runtime surface while installed Windows worker-backed
+  filesystem and TCP routes still used legacy authorization. Those routes are
+  unadvertised and fail closed where required, but that posture is not
+  substantive completion.
+- Promoted armed Windows `__exactFsReadFileAsync` for both path and retained
+  descriptor inputs. One schedule-time runtime nonce, actor, constrained-
+  principal stack, virtual input, and optional bearer now feed both the native
+  worker-operation lease and the private typed ABI. The path branch performs
+  Requested/Discovery `fs:list`, Commit `fs:read`, and generation-aware
+  per-chunk Repeat entirely on the worker; requested denial happens before any
+  lookup. No armed path is pre-resolved through `exactResolveVfsPath` or checked
+  through the legacy capability oracle.
+- Retained-descriptor whole-file reads hold the descriptor's I/O mutex from its
+  current cursor through EOF. The worker reads in 64 KiB chunks through the
+  exact retained VFS file, submits a fresh `fs:read` Repeat for each data chunk
+  and EOF, and advances the cursor only after the corresponding decision
+  succeeds. The 70 KiB physical fixture proves two data Repeats plus EOF and
+  no pathname reopen or legacy observation.
+- The coverage model now describes the real branch-local contract instead of
+  flattening both inputs into a generic read: descriptors carry only
+  `fs:read` Repeat, while paths carry requested/discovery `fs:list` plus
+  commit/repeat `fs:read`. Contract, registry, example-policy, runtime-
+  inventory, and vendored fingerprints were regenerated from that source of
+  truth.
+- Eleven Windows rows become executable: all six path scenarios and five
+  retained-descriptor scenarios. Descriptor denial remains honestly residual
+  because the same denied floor cannot construct its prerequisite retained
+  handle. Windows is now 23,499 required / 2,440 fully executable / 3,122
+  internally verified / 17,937 unresolved with digest
+  `sha256-HQeZVZNVmqKNPQmlNPpBC6hId7H24FjEaro3Ehekbjs`. Apple is 23,840 /
+  2,783 / 3,136 / 17,921 with digest
+  `sha256-3xWwanXGuVSL5fmgUBzw5LQOmzX9N2uEsqk9-QWTGE4`. The recipe suite passes
+  91 tests with 110,451 assertions.
+- The physical Windows verifier passes the three path, descriptor-chunk, and
+  denial tests under `IBEX_FAIL_ON_STALE_VENDORED=1`; the initial strict run
+  correctly rejected 28 copied macOS `._*` sidecars, which were enumerated and
+  removed from that disposable checkout before the successful rerun. The M4
+  Mini independently regenerates all vendored and CapSec artifacts, passes the
+  same recipe suite, full generated-drift chain, `ref-check`, and observer-
+  feature library build; checksum-mode synchronization reports no content
+  differences across the changed-file set.
+- Hard part: an async Promise boundary is not an authorization boundary. A
+  check on the runtime thread followed by arbitrary worker I/O would leave
+  revocation and object identity unbound during disclosure. The worker must
+  carry the exact captured principal lease and reauthorize the exact retained
+  object between chunks, including EOF, while cursor serialization prevents
+  concurrent operations from splitting one logical `readFile` result.
+  Important enforcement mechanisms remain about **99% complete** and the
+  overall requested task remains about **92% complete**; the audit correction
+  prevents that estimate from hiding the remaining Windows scalar/vector
+  worker and TCP boundaries.
+
 ## Next milestone
 
-Re-audit LLP 0021's eight completion criteria against current proving artifacts
-and contradictions, then take the highest-impact remaining runtime boundary.
-The leading candidate is Windows worker-backed filesystem I/O: it remains
-residual until an operation lease can bind owner/principals/object/bearer and
-recheck authority generation between observable chunks. Do not advertise
-Windows while installed routes or 17,948 exact-target public-evidence rows
-remain unresolved, and do not convert catalog labels into completion evidence.
+Continue criterion 4 with the next installed Windows worker boundary. The
+leading candidate is scalar/vector `__exactFsReadAsync` /
+`__exactFsReadvAsync`: each must retain owner/principals/object/bearer, define
+atomic caller-buffer publication, and recheck the current generation at the
+actual worker acquisition boundary. The Windows typed TCP peer path remains
+the other named criterion-4 gap. Do not advertise Windows while installed
+legacy routes or 17,937 exact-target public-evidence rows remain unresolved,
+and do not convert catalog labels into completion evidence.

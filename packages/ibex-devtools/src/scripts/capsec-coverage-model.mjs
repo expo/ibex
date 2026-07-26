@@ -7851,6 +7851,29 @@ function filesystemPathOrDescriptorEffectSpec(actions) {
   );
 }
 
+function filesystemReadFileAsyncEffectSpec() {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "descriptor",
+        when: [{ fact: "filesystem.input.kind", equals: "descriptor" }],
+        actions: ["fs:read"],
+        stagesByAction: { "fs:read": ["repeat"] },
+        principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
+        effectOwnerSource: "descriptor-owner",
+      },
+      {
+        id: "path",
+        when: [{ fact: "filesystem.input.kind", equals: "path" }],
+        actions: ["fs:list", "fs:read"],
+      },
+    ],
+    "filesystem",
+    "WP5",
+    { lifetimeContract: "file-handle" },
+  );
+}
+
 function filesystemPathDispatcherEffectSpec() {
   const branch = (id, actions, when = []) => ({
     id,
@@ -15166,11 +15189,10 @@ function classifyConcreteSurface(surface) {
       return filesystemDescriptorDispatcherEffectSpec();
     }
     if (/^exactfs(?:readfile|writefile|stat)async$/u.test(name)) {
-      const actions = /readfile/u.test(name)
-        ? ["fs:read"]
-        : /writefile/u.test(name)
-          ? ["fs:write"]
-          : ["fs:list"];
+      if (/readfile/u.test(name)) {
+        return filesystemReadFileAsyncEffectSpec();
+      }
+      const actions = /writefile/u.test(name) ? ["fs:write"] : ["fs:list"];
       return filesystemPathOrDescriptorEffectSpec(actions);
     }
     if (/^exactmkdir$/u.test(name)) {
