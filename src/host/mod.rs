@@ -1979,15 +1979,53 @@ impl Host {
         authorization: crate::vfs::ReadAuthorization<'_>,
         presented_handle_ids: Vec<capsec_semantics::model::NonEmptyString>,
     ) -> capsec_semantics::Result<TypedDecisionResult> {
+        use capsec_semantics::model::{FollowMode, Stage};
+
+        let authorization = crate::vfs::RetainedPathAuthorization::from_read(&authorization);
+        let action = if matches!(authorization.stage(), Stage::Requested | Stage::Discovery) {
+            "fs:list"
+        } else {
+            "fs:read"
+        };
+        self.authorize_vfs_retained_path_stage(
+            vfs,
+            requester_module_id,
+            constrained_principals,
+            operation_key,
+            coverage_edge,
+            authorization,
+            FollowMode::FollowFinal,
+            action,
+            presented_handle_ids,
+        )
+    }
+
+    /// Authorize one stage of a retained VFS path operation using identity
+    /// facts supplied only by the VFS. This lower layer also represents the
+    /// authenticated mount root, whose retained object has no namespace
+    /// parent.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn authorize_vfs_retained_path_stage(
+        &self,
+        vfs: &crate::vfs::VirtualFileSystem,
+        requester_module_id: &str,
+        constrained_principals: Vec<capsec_semantics::model::Principal>,
+        operation_key: &str,
+        coverage_edge: &str,
+        authorization: crate::vfs::RetainedPathAuthorization<'_>,
+        follow_mode: capsec_semantics::model::FollowMode,
+        action: &str,
+        presented_handle_ids: Vec<capsec_semantics::model::NonEmptyString>,
+    ) -> capsec_semantics::Result<TypedDecisionResult> {
         use capsec_semantics::decision::{EffectGate, PrincipalPathProjections};
         use capsec_semantics::model::{
             ActionId, DecisionContext, DecisionSet, DecisionSetSchema, Effect, EffectCombination,
-            FollowMode, NonEmptyString, ObjectState, OccurrenceResource, StableId, Stage,
+            NonEmptyString, ObjectState, OccurrenceResource, StableId, Stage,
         };
 
         let snapshot = self.armed_snapshot.as_deref().ok_or_else(|| {
             capsec_semantics::Error::ArmRefused(
-                "typed VFS read has no armed alias canonicalizer".into(),
+                "typed VFS operation has no armed alias canonicalizer".into(),
             )
         })?;
         validate_armed_alias_volume_topology(snapshot)?;
@@ -1995,61 +2033,33 @@ impl Host {
             .typed_principal_for_module(requester_module_id)
             .ok_or_else(|| {
                 capsec_semantics::Error::ArmRefused(
-                    "typed VFS read has no authenticated requesting principal".into(),
+                    "typed VFS operation has no authenticated requesting principal".into(),
                 )
             })?;
         if !constrained_principals.contains(&principal)
             || !capsec_semantics::model::principal_set_is_canonical(&constrained_principals)
         {
             return Err(capsec_semantics::Error::ArmRefused(
-                "typed VFS read principal stack is empty, noncanonical, or omits the actor".into(),
+                "typed VFS operation principal stack is empty, noncanonical, or omits the actor"
+                    .into(),
             ));
         }
-        let (namespace, stage, parent_object, final_object, retained_handle) = match authorization {
-            crate::vfs::ReadAuthorization::Requested(namespace) => {
-                (namespace, Stage::Requested, None, None, None)
-            }
-            crate::vfs::ReadAuthorization::Discovery(discovered) => (
-                discovered.namespace(),
-                Stage::Discovery,
-                Some(discovered.parent_object().clone()),
-                discovered.witnessed_object().cloned(),
-                None,
-            ),
-            crate::vfs::ReadAuthorization::Commit(committed) => (
-                committed.namespace(),
-                Stage::Commit,
-                Some(committed.discovered().parent_object().clone()),
-                Some(committed.final_object().clone()),
-                Some(
-                    NonEmptyString::new(format!(
-                        "vfs:{}:{}",
-                        committed.namespace().session_generation(),
-                        committed.retained_handle_id()
-                    ))
-                    .map_err(capsec_semantics::Error::InvalidModel)?,
-                ),
-            ),
-            crate::vfs::ReadAuthorization::Repeat(committed) => (
-                committed.namespace(),
-                Stage::Repeat,
-                Some(committed.discovered().parent_object().clone()),
-                Some(committed.final_object().clone()),
-                Some(
-                    NonEmptyString::new(format!(
-                        "vfs:{}:{}",
-                        committed.namespace().session_generation(),
-                        committed.retained_handle_id()
-                    ))
-                    .map_err(capsec_semantics::Error::InvalidModel)?,
-                ),
-            ),
-        };
+        let namespace = authorization.namespace();
+        let stage = authorization.stage();
+        let parent_object = authorization.parent_object().cloned();
+        let final_object = authorization.final_object().cloned();
+        let retained_handle = authorization
+            .retained_handle_id()
+            .map(|handle| {
+                NonEmptyString::new(format!("vfs:{}:{handle}", namespace.session_generation()))
+            })
+            .transpose()
+            .map_err(capsec_semantics::Error::InvalidModel)?;
         let backing_path = vfs
             .private_backing_path(namespace, "authorize")
             .map_err(|error| {
                 capsec_semantics::Error::ArmRefused(format!(
-                    "typed VFS read cannot project its authenticated namespace: {error}"
+                    "typed VFS operation cannot project its authenticated namespace: {error}"
                 ))
             })?;
         // This is a lexical projection through authenticated root bindings.
@@ -2059,7 +2069,7 @@ impl Host {
             self.typed_requested_logical_paths(&constrained_principals, &backing_path)?;
         let requested = requested_paths.get(&principal).cloned().ok_or_else(|| {
             capsec_semantics::Error::ArmRefused(
-                "typed VFS read actor is missing its authenticated path projection".into(),
+                "typed VFS operation actor is missing its authenticated path projection".into(),
             )
         })?;
 
@@ -2068,7 +2078,7 @@ impl Host {
         // @ref LLP 0023#21-staged-authorization-identity
         let resource = OccurrenceResource::PathOccurrence {
             requested: requested.clone(),
-            follow_mode: FollowMode::FollowFinal,
+            follow_mode,
             object_state: if stage == Stage::Requested {
                 ObjectState::Unknown
             } else {
@@ -2078,11 +2088,6 @@ impl Host {
             final_object,
             final_object_generation: None,
             retained_handle,
-        };
-        let action = if matches!(stage, Stage::Requested | Stage::Discovery) {
-            "fs:list"
-        } else {
-            "fs:read"
         };
         let operation_resource = serde_json::to_string(&requested)
             .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;

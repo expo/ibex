@@ -1045,6 +1045,38 @@ const nativeProjectMetadataTemplate = (
     requiredSourceArity: 2,
     setup: [],
   });
+const nativeProjectStatTemplate = () =>
+  Object.freeze({
+    ...nativeProjectMetadataTemplate([
+      "requested",
+      "discovery",
+      "requested",
+      "repeat",
+      "repeat",
+    ]),
+    // Windows retains the authenticated mount as session structure and emits
+    // one semantic lifecycle for the selected target, including /project
+    // itself. It therefore has no synthetic component-walk observations.
+    // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+    expectedDecisionCountsByTarget: {
+      "x86_64-pc-windows-msvc": {
+        allow: 3,
+        deny: 1,
+        malformed: 3,
+        "missing-attribution": 3,
+        "wrong-principal": 3,
+      },
+    },
+    expectedStagesByTarget: {
+      "x86_64-pc-windows-msvc": {
+        allow: ["requested", "discovery", "repeat"],
+        deny: ["requested"],
+        malformed: ["requested", "discovery", "repeat"],
+        "missing-attribution": ["requested", "discovery", "repeat"],
+        "wrong-principal": ["requested", "discovery", "repeat"],
+      },
+    },
+  });
 const nativeProjectStatfsTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
@@ -2239,16 +2271,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       "repeat",
     ]),
   ],
-  [
-    "__exactStat",
-    nativeProjectMetadataTemplate([
-      "requested",
-      "discovery",
-      "requested",
-      "repeat",
-      "repeat",
-    ]),
-  ],
+  ["__exactStat", nativeProjectStatTemplate()],
   [
     "__exactHashRaw",
     nativeNoEffectTemplate(2, [
@@ -3991,9 +4014,13 @@ function unsupportedWindowsTypedPublicEffectReason({
   ) {
     return null;
   }
-  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Whole-file reads are the first completed exception.
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Synchronous whole-file read and stat are the completed exceptions.
   if (plan.actionIds.some((actionId) => actionId.startsWith("fs:"))) {
-    if (publicSurfaceProbe?.invocation?.globalName === "__exactReadFile") {
+    if (
+      ["__exactReadFile", "__exactStat"].includes(
+        publicSurfaceProbe?.invocation?.globalName,
+      )
+    ) {
       return null;
     }
     return "public-surface-filesystem-not-typed-on-target";

@@ -2280,6 +2280,12 @@ impl CommittedPath {
     }
 }
 
+#[derive(Clone, Copy)]
+enum RetainedFinalAccess {
+    Metadata,
+    Readable,
+}
+
 /// Module-cache identity. It is a tagged structured key, never a display URL.
 /// @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
 /// — file identity uses defining-principal plus lexical binding-relative path.
@@ -2537,6 +2543,110 @@ impl fmt::Debug for ReadAuthorization<'_> {
     }
 }
 
+/// Stage facts for a retained-path operation whose effect contract is supplied
+/// by the Host adapter. Unlike [`ReadAuthorization`], this representation can
+/// describe the authenticated mount root, which has no in-namespace parent.
+pub(crate) struct RetainedPathAuthorization<'a> {
+    namespace: &'a NamespacePath,
+    stage: capsec_semantics::model::Stage,
+    parent_object: Option<ObjectIdentity>,
+    final_object: Option<ObjectIdentity>,
+    retained_handle_id: Option<u64>,
+}
+
+impl<'a> RetainedPathAuthorization<'a> {
+    fn requested(namespace: &'a NamespacePath) -> Self {
+        Self {
+            namespace,
+            stage: capsec_semantics::model::Stage::Requested,
+            parent_object: None,
+            final_object: None,
+            retained_handle_id: None,
+        }
+    }
+
+    fn discovery(
+        namespace: &'a NamespacePath,
+        parent_object: Option<ObjectIdentity>,
+        final_object: ObjectIdentity,
+    ) -> Self {
+        Self {
+            namespace,
+            stage: capsec_semantics::model::Stage::Discovery,
+            parent_object,
+            final_object: Some(final_object),
+            retained_handle_id: None,
+        }
+    }
+
+    fn committed(
+        namespace: &'a NamespacePath,
+        stage: capsec_semantics::model::Stage,
+        parent_object: Option<ObjectIdentity>,
+        final_object: ObjectIdentity,
+        retained_handle_id: u64,
+    ) -> Self {
+        debug_assert!(matches!(
+            stage,
+            capsec_semantics::model::Stage::Commit | capsec_semantics::model::Stage::Repeat
+        ));
+        Self {
+            namespace,
+            stage,
+            parent_object,
+            final_object: Some(final_object),
+            retained_handle_id: Some(retained_handle_id),
+        }
+    }
+
+    pub(crate) fn from_read(authorization: &ReadAuthorization<'a>) -> Self {
+        match authorization {
+            ReadAuthorization::Requested(namespace) => Self::requested(namespace),
+            ReadAuthorization::Discovery(discovered) => Self {
+                namespace: discovered.namespace(),
+                stage: capsec_semantics::model::Stage::Discovery,
+                parent_object: Some(discovered.parent_object().clone()),
+                final_object: discovered.witnessed_object().cloned(),
+                retained_handle_id: None,
+            },
+            ReadAuthorization::Commit(committed) => Self::committed(
+                committed.namespace(),
+                capsec_semantics::model::Stage::Commit,
+                Some(committed.discovered().parent_object().clone()),
+                committed.final_object().clone(),
+                committed.retained_handle_id(),
+            ),
+            ReadAuthorization::Repeat(committed) => Self::committed(
+                committed.namespace(),
+                capsec_semantics::model::Stage::Repeat,
+                Some(committed.discovered().parent_object().clone()),
+                committed.final_object().clone(),
+                committed.retained_handle_id(),
+            ),
+        }
+    }
+
+    pub(crate) fn namespace(&self) -> &NamespacePath {
+        self.namespace
+    }
+
+    pub(crate) fn stage(&self) -> capsec_semantics::model::Stage {
+        self.stage
+    }
+
+    pub(crate) fn parent_object(&self) -> Option<&ObjectIdentity> {
+        self.parent_object.as_ref()
+    }
+
+    pub(crate) fn final_object(&self) -> Option<&ObjectIdentity> {
+        self.final_object.as_ref()
+    }
+
+    pub(crate) fn retained_handle_id(&self) -> Option<u64> {
+        self.retained_handle_id
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AuthenticatedReadEvidence {
     requested_decision: Digest,
@@ -2607,6 +2717,19 @@ pub struct AuthenticatedRead {
 pub(crate) struct AuthenticatedMetadata {
     source_id: SourceId,
     source_label: SourceLabel,
+}
+
+/// Metadata captured from the exact retained object after its Repeat
+/// authorization. The backing host spelling and handle remain private.
+#[derive(Debug)]
+pub(crate) struct AuthenticatedStat {
+    metadata: std::fs::Metadata,
+}
+
+impl AuthenticatedStat {
+    pub(crate) fn into_metadata(self) -> std::fs::Metadata {
+        self.metadata
+    }
 }
 
 impl AuthenticatedMetadata {
@@ -2804,6 +2927,111 @@ impl VirtualFileSystem {
                 }),
                 source_label: SourceLabel::file(committed.namespace())?,
             })
+        }
+    }
+
+    /// Return metadata for the exact retained target, including the
+    /// authenticated mount root. Final links are resolved through the bounded
+    /// contained-transition protocol; the final object is opened for metadata
+    /// only and remains retained through Repeat and metadata acquisition.
+    /// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+    /// @ref LLP 0023#21-staged-authorization-identity
+    pub(crate) fn stat_authenticated<F>(
+        &self,
+        namespace: NamespacePath,
+        mut authorize: F,
+    ) -> Result<AuthenticatedStat, VfsError>
+    where
+        F: for<'a> FnMut(RetainedPathAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
+    {
+        const OPERATION: &str = "stat";
+        self.ensure_path_session(&namespace, OPERATION)?;
+        if namespace.is_synthetic_root() {
+            return Err(VfsError::synthetic_node(
+                OPERATION,
+                namespace.virtual_path.clone(),
+            ));
+        }
+        let _requested = authorize(RetainedPathAuthorization::requested(&namespace))?;
+
+        if namespace.virtual_components.len() == 1 {
+            let retained =
+                self.open_authenticated_project_root(OPERATION, namespace.virtual_path.clone())?;
+            let object = object_identity_for_retained_file(&retained)
+                .map_err(|_| VfsError::stale_identity(OPERATION, namespace.virtual_path.clone()))?;
+            let retained_handle_id =
+                next_vfs_identity(OPERATION, Some(namespace.virtual_path.clone()))?;
+            let _discovery = authorize(RetainedPathAuthorization::discovery(
+                &namespace,
+                None,
+                object.clone(),
+            ))?;
+            let _repeat = authorize(RetainedPathAuthorization::committed(
+                &namespace,
+                capsec_semantics::model::Stage::Repeat,
+                None,
+                object.clone(),
+                retained_handle_id,
+            ))?;
+            let metadata = retained.metadata().map_err(|error| {
+                VfsError::host(OPERATION, namespace.virtual_path.clone(), &error)
+            })?;
+            if object_identity_for_retained_file(&retained).ok().as_ref() != Some(&object) {
+                return Err(VfsError::stale_identity(
+                    OPERATION,
+                    namespace.virtual_path.clone(),
+                ));
+            }
+            return Ok(AuthenticatedStat { metadata });
+        }
+
+        #[cfg(any(unix, windows))]
+        let (discovered, _traversal_decisions) = self
+            .discover_contained(namespace, &mut |authorization| {
+                authorize(RetainedPathAuthorization::from_read(&authorization))
+            })?;
+
+        #[cfg(any(unix, windows))]
+        let _discovery = authorize(RetainedPathAuthorization::from_read(
+            &ReadAuthorization::Discovery(&discovered),
+        ))?;
+
+        #[cfg(any(unix, windows))]
+        let committed = self.commit_metadata_no_follow(discovered)?;
+
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = authorize;
+            return Err(VfsError::host_code(
+                OPERATION,
+                namespace.virtual_path.clone(),
+                "ERR_IBEX_UNSUPPORTED_TARGET",
+            ));
+        }
+
+        #[cfg(any(unix, windows))]
+        {
+            let _repeat = authorize(RetainedPathAuthorization::from_read(
+                &ReadAuthorization::Repeat(&committed),
+            ))?;
+            let metadata = committed.retained_final.metadata().map_err(|error| {
+                VfsError::host(
+                    OPERATION,
+                    committed.namespace().virtual_path.clone(),
+                    &error,
+                )
+            })?;
+            let final_object = object_identity_for_retained_file(&committed.retained_final)
+                .map_err(|_| {
+                    VfsError::stale_identity(OPERATION, committed.namespace().virtual_path.clone())
+                })?;
+            if final_object != committed.final_object {
+                return Err(VfsError::stale_identity(
+                    OPERATION,
+                    committed.namespace().virtual_path.clone(),
+                ));
+            }
+            Ok(AuthenticatedStat { metadata })
         }
     }
 
@@ -3422,8 +3650,25 @@ impl VirtualFileSystem {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn commit_no_follow(&self, discovered: DiscoveredPath) -> Result<CommittedPath, VfsError> {
+        self.commit_no_follow_with_access(discovered, RetainedFinalAccess::Readable)
+    }
+
+    #[cfg(any(unix, windows))]
+    fn commit_metadata_no_follow(
+        &self,
+        discovered: DiscoveredPath,
+    ) -> Result<CommittedPath, VfsError> {
+        self.commit_no_follow_with_access(discovered, RetainedFinalAccess::Metadata)
+    }
+
+    #[cfg(unix)]
+    fn commit_no_follow_with_access(
+        &self,
+        discovered: DiscoveredPath,
+        access: RetainedFinalAccess,
+    ) -> Result<CommittedPath, VfsError> {
         use std::ffi::CString;
         use std::os::fd::{AsRawFd, FromRawFd};
 
@@ -3436,11 +3681,34 @@ impl VirtualFileSystem {
         };
         let basename_c = CString::new(discovered.basename.as_bytes())
             .map_err(|_| VfsError::malformed(OPERATION))?;
+        let flags = match access {
+            RetainedFinalAccess::Readable => {
+                libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK
+            }
+            RetainedFinalAccess::Metadata => {
+                #[cfg(target_vendor = "apple")]
+                {
+                    libc::O_EVTONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK
+                }
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                {
+                    libc::O_PATH | libc::O_CLOEXEC | libc::O_NOFOLLOW
+                }
+                #[cfg(not(any(
+                    target_vendor = "apple",
+                    target_os = "linux",
+                    target_os = "android"
+                )))]
+                {
+                    libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK
+                }
+            }
+        };
         let fd = unsafe {
             libc::openat(
                 discovered.retained_parent.as_raw_fd(),
                 basename_c.as_ptr(),
-                libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK,
+                flags,
             )
         };
         if fd < 0 {
@@ -3486,10 +3754,14 @@ impl VirtualFileSystem {
     }
 
     /// Reopen the witnessed Windows leaf relative to its retained parent and
-    /// keep that exact readable handle through commit, repeat, and byte
-    /// acquisition.
+    /// keep that exact handle through commit, repeat, and the selected
+    /// metadata or byte acquisition.
     #[cfg(windows)]
-    fn commit_no_follow(&self, discovered: DiscoveredPath) -> Result<CommittedPath, VfsError> {
+    fn commit_no_follow_with_access(
+        &self,
+        discovered: DiscoveredPath,
+        access: RetainedFinalAccess,
+    ) -> Result<CommittedPath, VfsError> {
         use std::os::windows::fs::MetadataExt as _;
         use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
@@ -3503,7 +3775,10 @@ impl VirtualFileSystem {
         let final_file = windows_open_relative_no_follow(
             &discovered.retained_parent,
             &discovered.basename,
-            WindowsRelativeOpen::Readable,
+            match access {
+                RetainedFinalAccess::Metadata => WindowsRelativeOpen::Metadata,
+                RetainedFinalAccess::Readable => WindowsRelativeOpen::Readable,
+            },
         )
         .map_err(|error| {
             let current_object = windows_open_relative_no_follow(
@@ -6501,6 +6776,35 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.reason(), VfsReason::StaleIdentity);
         assert_eq!(stages, ["requested", "discovery"]);
+        assert!(!error.to_string().contains(temp.path().to_str().unwrap()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_stat_leaf_replacement_between_discovery_and_repeat_is_stale() {
+        use capsec_semantics::model::Stage;
+
+        let temp = tempfile::tempdir().unwrap();
+        let live = temp.path().join("source.js");
+        let old = temp.path().join("old.js");
+        let replacement = temp.path().join("replacement.js");
+        fs::write(&live, b"authenticated").unwrap();
+        fs::write(&replacement, b"attacker").unwrap();
+        let vfs = test_vfs(temp.path());
+        let path = vfs.resolve_root_bytes(b"/project/source.js", None).unwrap();
+        let mut stages = Vec::new();
+        let error = vfs
+            .stat_authenticated(path, |authorization| {
+                stages.push(authorization.stage());
+                if authorization.stage() == Stage::Discovery {
+                    fs::rename(&live, &old).unwrap();
+                    fs::rename(&replacement, &live).unwrap();
+                }
+                Ok(receipt(format!("{:?}", authorization.stage()).as_bytes()))
+            })
+            .unwrap_err();
+        assert_eq!(error.reason(), VfsReason::StaleIdentity);
+        assert_eq!(stages, [Stage::Requested, Stage::Discovery]);
         assert!(!error.to_string().contains(temp.path().to_str().unwrap()));
     }
 

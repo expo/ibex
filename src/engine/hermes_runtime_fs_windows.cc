@@ -1858,8 +1858,63 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactFsFstatSync", std::move(fsFstatFn));
 
-  rt.global().setProperty(
-      rt, "__exactStat", unaryPathJsonFunction(rt, "__exactStat", "stat", ex_host_fs_stat));
+  auto statFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactStat"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0) {
+          throw facebook::jsi::JSError(runtime, "__exactStat: path required");
+        }
+        auto input = pathArg(runtime, args[0]);
+        if (ex_host_is_armed() == 1) {
+          std::string presentedHandle;
+          if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+            if (!args[1].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactStat: typed handleId must be a string");
+            }
+            presentedHandle = args[1].asString(runtime).utf8(runtime);
+          }
+          auto principals = exactCollectTypedPrincipalStack();
+          uint8_t* json = nullptr;
+          uint64_t length = 0;
+          int32_t hostError = 0;
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Armed Windows stat discloses metadata only from the retained VFS target and never reopens through the legacy pathname oracle.
+          uint32_t status = ibex_private_vfs_stat_typed(
+              exactCurrentRuntimeNonce(),
+              currentPrincipalId(),
+              principals.data(),
+              principals.size(),
+              reinterpret_cast<const uint8_t*>(input.data()),
+              input.size(),
+              presentedHandle.empty()
+                  ? nullptr
+                  : reinterpret_cast<const uint8_t*>(presentedHandle.data()),
+              presentedHandle.size(),
+              &json,
+              &length,
+              &hostError);
+          if (status != 0) {
+            if (json != nullptr) ex_host_free_buffer(json, length);
+            exactThrowVfsError(runtime, status, hostError, "stat", input);
+          }
+          std::string payload;
+          if (json != nullptr && length != 0) {
+            payload.assign(reinterpret_cast<const char*>(json), length);
+          }
+          if (json != nullptr) ex_host_free_buffer(json, length);
+          return facebook::jsi::String::createFromUtf8(runtime, payload);
+        }
+        auto path = exactResolveVfsPath(runtime, input);
+        requireReadCapability(runtime, path.virtualPath);
+        return jsonStringResult(
+            runtime, ex_host_fs_stat(path.backing.c_str()), "stat", path.virtualPath);
+      });
+  rt.global().setProperty(rt, "__exactStat", std::move(statFn));
   rt.global().setProperty(
       rt, "__exactLstat", unaryPathJsonFunction(rt, "__exactLstat", "lstat", ex_host_fs_lstat));
   rt.global().setProperty(
