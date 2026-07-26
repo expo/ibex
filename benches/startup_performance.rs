@@ -245,13 +245,27 @@ fn fixture_root() -> PathBuf {
 }
 
 fn ibex_binary() -> PathBuf {
-    std::env::var_os("IBEX_BENCH_BIN")
+    let path = std::env::var_os("IBEX_BENCH_BIN")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_ibex")))
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_ibex")));
+    std::fs::canonicalize(&path).unwrap_or_else(|error| {
+        panic!(
+            "cannot resolve Ibex benchmark binary {}: {error}",
+            path.display()
+        )
+    })
 }
 
 fn baseline_binary() -> Option<PathBuf> {
-    std::env::var_os("IBEX_BENCH_BASELINE_BIN").map(PathBuf::from)
+    std::env::var_os("IBEX_BENCH_BASELINE_BIN").map(|value| {
+        let path = PathBuf::from(value);
+        std::fs::canonicalize(&path).unwrap_or_else(|error| {
+            panic!(
+                "cannot resolve baseline benchmark binary {}: {error}",
+                path.display()
+            )
+        })
+    })
 }
 
 fn profile_name() -> String {
