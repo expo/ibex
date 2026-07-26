@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-25 (Windows retained relative opens stage long and short directory-entry names plus 128-bit file identity, refuse selection through any 8.3 name, withhold delete sharing, and repeat/object-match the entry; physical custom-short-name and entry-replacement fixtures close the arbitrary 8.3 alias gap, leaving the typed installed filesystem backend and incomplete exact-target evidence as the Windows promotion blockers)
 **Revised:** 2026-07-25 (Windows binds ASCII case-folding into selector and occurrence identity, uses the same key for resolver manifests/absences/denied subtrees, refuses non-ASCII and tilde components, and refuses case-sensitive traversal directories while preserving lexical SourceId and distinct hard links; arbitrary administrator-assigned 8.3 aliases, the installed native filesystem effect backend, and incomplete exact-target evidence keep Windows unadvertised)
 **Revised:** 2026-07-25 (Windows VFS and armed Oxc resolution now decode contained Microsoft symlink/junction reparses from retained no-follow handles, object-match and double-read mutable payloads, authorize complete target-plus-tail paths before lookup, and restart from the retained root; unsupported providers, the Windows alias-canonicalization gap, the installed native filesystem effect backend, and incomplete exact-target evidence keep the target unadvertised)
 **Revised:** 2026-07-25 (mixed filesystem dispatchers now carry exact branch-local closure: unbound path/descriptor mutations and recursive mkdir select deny-only `fs:unbound-mutation` branches before lookup, while retained-object branches remain effectful; target predicates preserve Apple worker-backed `chmod`/`utime`, close them on Windows, and source inventory binds the POSIX filesystem translation unit only to targets that compile it; Apple accounting is 2,760 fully executable / 3,114 internally verified / 17,849 unresolved and Windows accounting is 2,341 / 3,102 / 18,099)
@@ -488,9 +489,11 @@ Initial authorable resource kinds are:
   additionally requires valid UTF-8 ASCII, rejects controls, forbidden characters,
   trailing dot/space, DOS device names, tilde spellings, and adapter-reported
   aliases, and binds ASCII case-folding as its current candidate identity. A
-  case-sensitive Windows directory refuses rather than collapsing distinct names;
-  arbitrary custom 8.3 aliases remain a promotion blocker. The Apple bound-volume
-  adapter supplies its actual case/normalization alias key.
+  case-sensitive Windows directory refuses rather than collapsing distinct names.
+  Retained relative opens additionally stage the exact long/short directory-entry
+  names and file ID, refuse selection through any 8.3 name, and repeat the entry
+  after opening without delete sharing. The Apple bound-volume adapter supplies
+  its actual case/normalization alias key.
   Alias collisions are compared only within the same bound-root/volume
   namespace; two packages' separate package-root bindings do not alias.
   Absolute paths are explicitly host-bound, and execution still requires a
@@ -1401,7 +1404,10 @@ lexical display and SourceId. Non-ASCII and tilde components refuse before looku
 and every retained traversal directory must successfully prove that its
 per-directory case-sensitive flag is clear. This closes ordinary ASCII case
 aliases without collapsing hard-link entries. Administrator-assigned 8.3 aliases
-that omit `~` remain an unresolved identity requirement, installed Windows
+that omit `~` are closed by the retained relative-open protocol: stage the
+parent entry's long name, short name, and 128-bit file ID; refuse a short-name
+selection; open no-follow without delete sharing; then repeat and object-match
+the entry. Query failure and replacement refuse. Installed Windows
 `node:fs`/native filesystem effects still lack the typed retained-object adapter,
 and the exact target public-evidence catalog remains incomplete.
 

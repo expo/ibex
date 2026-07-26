@@ -3635,6 +3635,228 @@ pub(crate) fn windows_component_is_alias_safe(component: &str) -> bool {
         && virtual_component_is_mappable(component, true)
 }
 
+#[cfg(windows)]
+#[derive(Debug, PartialEq, Eq)]
+struct WindowsDirectoryEntrySnapshot {
+    file_id: [u8; 16],
+    long_name: Vec<u16>,
+    short_name: Vec<u16>,
+}
+
+#[cfg(all(test, windows))]
+type WindowsEntryOpenHook = Option<(String, std::sync::Arc<std::sync::Barrier>)>;
+
+#[cfg(all(test, windows))]
+static WINDOWS_ENTRY_OPEN_HOOK: std::sync::OnceLock<std::sync::Mutex<WindowsEntryOpenHook>> =
+    std::sync::OnceLock::new();
+
+#[cfg(all(test, windows))]
+fn pause_after_windows_entry_snapshot(component: &str) {
+    let hook = WINDOWS_ENTRY_OPEN_HOOK
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .ok()
+        .and_then(|hook| hook.as_ref().cloned());
+    if let Some((target, barrier)) = hook {
+        if target == component {
+            barrier.wait();
+            barrier.wait();
+        }
+    }
+}
+
+/// Stage the exact entry selected by one component without opening the child.
+/// The snapshot carries both names and the 128-bit file identity so the
+/// retained open can be object-matched and repeated after delete-sharing is
+/// withheld.
+///
+/// @ref LLP 0023#3-path-grammar-normalization-aliasing-and-containment
+#[cfg(windows)]
+fn windows_directory_entry_snapshot(
+    directory: &std::fs::File,
+    component: &str,
+) -> std::io::Result<WindowsDirectoryEntrySnapshot> {
+    use std::os::windows::io::{AsRawHandle as _, FromRawHandle as _};
+    use windows_sys::Wdk::Storage::FileSystem::{
+        FileIdExtdBothDirectoryInformation, NtQueryDirectoryFile, FILE_ID_EXTD_BOTH_DIR_INFORMATION,
+    };
+    use windows_sys::Win32::Foundation::{RtlNtStatusToDosError, STATUS_SUCCESS, UNICODE_STRING};
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FileIdInfo, GetFileInformationByHandleEx, GetFinalPathNameByHandleW,
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO,
+        FILE_LIST_DIRECTORY, FILE_NAME_OPENED, FILE_SHARE_DELETE, FILE_SHARE_READ,
+        FILE_SHARE_WRITE, OPEN_EXISTING, VOLUME_NAME_DOS,
+    };
+    use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
+
+    let required = unsafe {
+        GetFinalPathNameByHandleW(
+            directory.as_raw_handle(),
+            std::ptr::null_mut(),
+            0,
+            FILE_NAME_OPENED | VOLUME_NAME_DOS,
+        )
+    };
+    if required == 0 {
+        let error = std::io::Error::last_os_error();
+        return Err(std::io::Error::new(
+            error.kind(),
+            format!("cannot size retained Windows directory path: {error}"),
+        ));
+    }
+    let mut opened_path = vec![0_u16; required as usize + 1];
+    let written = unsafe {
+        GetFinalPathNameByHandleW(
+            directory.as_raw_handle(),
+            opened_path.as_mut_ptr(),
+            opened_path.len() as u32,
+            FILE_NAME_OPENED | VOLUME_NAME_DOS,
+        )
+    };
+    if written == 0 || written as usize >= opened_path.len() {
+        let error = std::io::Error::last_os_error();
+        return Err(std::io::Error::new(
+            error.kind(),
+            format!("cannot read retained Windows directory path: {error}"),
+        ));
+    }
+    opened_path.truncate(written as usize);
+    opened_path.push(0);
+
+    let reopened = unsafe {
+        CreateFileW(
+            opened_path.as_ptr(),
+            FILE_LIST_DIRECTORY,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            std::ptr::null_mut(),
+        )
+    };
+    if reopened.is_null() || reopened == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+        let error = std::io::Error::last_os_error();
+        return Err(std::io::Error::new(
+            error.kind(),
+            format!("cannot reopen retained Windows directory by identity: {error}"),
+        ));
+    }
+    // SAFETY: CreateFileW returned a fresh, uniquely owned handle.
+    let reopened = unsafe { std::fs::File::from_raw_handle(reopened) };
+    let mut retained_id = FILE_ID_INFO::default();
+    let mut reopened_id = FILE_ID_INFO::default();
+    for (file, identity) in [(directory, &mut retained_id), (&reopened, &mut reopened_id)] {
+        if unsafe {
+            GetFileInformationByHandleEx(
+                file.as_raw_handle(),
+                FileIdInfo,
+                (identity as *mut FILE_ID_INFO).cast(),
+                std::mem::size_of::<FILE_ID_INFO>() as u32,
+            )
+        } == 0
+        {
+            let error = std::io::Error::last_os_error();
+            return Err(std::io::Error::new(
+                error.kind(),
+                format!("cannot identify retained Windows directory query handle: {error}"),
+            ));
+        }
+    }
+    if retained_id.VolumeSerialNumber != reopened_id.VolumeSerialNumber
+        || retained_id.FileId.Identifier != reopened_id.FileId.Identifier
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "retained Windows directory path changed before entry query",
+        ));
+    }
+
+    let mut component_wide = component.encode_utf16().collect::<Vec<_>>();
+    let component_bytes = component_wide
+        .len()
+        .checked_mul(std::mem::size_of::<u16>())
+        .and_then(|value| u16::try_from(value).ok())
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Windows path component exceeds the native query limit",
+            )
+        })?;
+    let name = UNICODE_STRING {
+        Length: component_bytes,
+        MaximumLength: component_bytes,
+        Buffer: component_wide.as_mut_ptr(),
+    };
+    // A Windows component is at most 255 UTF-16 code units. Keep the buffer
+    // comfortably larger and aligned for FILE_ID_EXTD_BOTH_DIR_INFORMATION.
+    let mut output = [0_u64; 128];
+    let mut io_status = IO_STATUS_BLOCK::default();
+    let status = unsafe {
+        NtQueryDirectoryFile(
+            reopened.as_raw_handle(),
+            std::ptr::null_mut(),
+            None,
+            std::ptr::null(),
+            &mut io_status,
+            output.as_mut_ptr().cast(),
+            std::mem::size_of_val(&output) as u32,
+            FileIdExtdBothDirectoryInformation,
+            true,
+            &name,
+            true,
+        )
+    };
+    if status != STATUS_SUCCESS {
+        let error =
+            std::io::Error::from_raw_os_error(unsafe { RtlNtStatusToDosError(status) as i32 });
+        return Err(std::io::Error::new(
+            error.kind(),
+            format!("cannot query retained Windows directory entry: {error}"),
+        ));
+    }
+
+    let fixed = std::mem::offset_of!(FILE_ID_EXTD_BOTH_DIR_INFORMATION, FileName);
+    if io_status.Information < fixed || io_status.Information > std::mem::size_of_val(&output) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Windows directory query returned a truncated entry",
+        ));
+    }
+    let entry = unsafe { &*(output.as_ptr() as *const FILE_ID_EXTD_BOTH_DIR_INFORMATION) };
+    let long_bytes = entry.FileNameLength as usize;
+    let short_bytes = usize::try_from(entry.ShortNameLength).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Windows directory query returned an invalid short-name length",
+        )
+    })?;
+    if long_bytes % 2 != 0
+        || short_bytes % 2 != 0
+        || short_bytes > entry.ShortName.len() * std::mem::size_of::<u16>()
+        || fixed.checked_add(long_bytes).is_none()
+        || fixed + long_bytes > io_status.Information
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Windows directory query returned malformed name evidence",
+        ));
+    }
+    let long_name = unsafe {
+        std::slice::from_raw_parts(
+            std::ptr::addr_of!(entry.FileName).cast::<u16>(),
+            long_bytes / std::mem::size_of::<u16>(),
+        )
+    }
+    .to_vec();
+    let short_name = entry.ShortName[..short_bytes / std::mem::size_of::<u16>()].to_vec();
+
+    Ok(WindowsDirectoryEntrySnapshot {
+        file_id: entry.FileId.Identifier,
+        long_name,
+        short_name,
+    })
+}
+
 /// Open one UTF-8 namespace component relative to an already retained Windows
 /// directory. `FILE_OPEN_REPARSE_POINT` makes the returned handle name the
 /// component itself; callers inspect and either stage or refuse reparse
@@ -3657,8 +3879,9 @@ pub(crate) fn windows_open_relative_no_follow(
         RtlNtStatusToDosError, HANDLE, INVALID_HANDLE_VALUE, OBJ_CASE_INSENSITIVE, UNICODE_STRING,
     };
     use windows_sys::Win32::Storage::FileSystem::{
-        FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_DELETE,
-        FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, SYNCHRONIZE,
+        FileIdInfo, GetFileInformationByHandleEx, FILE_ID_INFO, FILE_LIST_DIRECTORY,
+        FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE,
+        SYNCHRONIZE,
     };
     use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
@@ -3677,6 +3900,39 @@ pub(crate) fn windows_open_relative_no_follow(
             "invalid Windows path component",
         ));
     }
+    let before = windows_directory_entry_snapshot(parent, component).map_err(|error| {
+        std::io::Error::new(
+            error.kind(),
+            format!("cannot stage Windows directory entry before open: {error}"),
+        )
+    })?;
+    let ascii_case_equal = |left: &[u16], right: &[u16]| {
+        left.len() == right.len()
+            && left.iter().zip(right).all(|(&left, &right)| {
+                let fold = |value: u16| {
+                    if (b'A' as u16..=b'Z' as u16).contains(&value) {
+                        value + (b'a' - b'A') as u16
+                    } else {
+                        value
+                    }
+                };
+                fold(left) == fold(right)
+            })
+    };
+    if ascii_case_equal(&before.short_name, &wide) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "Windows 8.3 aliases are outside the bound alias contract",
+        ));
+    }
+    if !ascii_case_equal(&before.long_name, &wide) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "Windows directory query selected an unmodeled name alias",
+        ));
+    }
+    #[cfg(test)]
+    pause_after_windows_entry_snapshot(component);
     let byte_length = wide
         .len()
         .checked_mul(std::mem::size_of::<u16>())
@@ -3718,7 +3974,7 @@ pub(crate) fn windows_open_relative_no_follow(
             &mut io_status,
             null(),
             0,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
             FILE_OPEN,
             FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT | type_options,
             null_mut(),
@@ -3726,12 +3982,44 @@ pub(crate) fn windows_open_relative_no_follow(
         )
     };
     if status < 0 || handle.is_null() || handle == INVALID_HANDLE_VALUE {
-        return Err(std::io::Error::from_raw_os_error(
-            unsafe { RtlNtStatusToDosError(status) } as i32,
+        let error =
+            std::io::Error::from_raw_os_error(unsafe { RtlNtStatusToDosError(status) } as i32);
+        return Err(std::io::Error::new(
+            error.kind(),
+            format!("cannot retain Windows directory entry: {error}"),
         ));
     }
     // SAFETY: NtCreateFile returned a fresh, uniquely owned handle.
-    Ok(unsafe { std::fs::File::from_raw_handle(handle) })
+    let opened = unsafe { std::fs::File::from_raw_handle(handle) };
+    let mut opened_id = FILE_ID_INFO::default();
+    if unsafe {
+        GetFileInformationByHandleEx(
+            opened.as_raw_handle(),
+            FileIdInfo,
+            (&mut opened_id as *mut FILE_ID_INFO).cast(),
+            std::mem::size_of::<FILE_ID_INFO>() as u32,
+        )
+    } == 0
+    {
+        let error = std::io::Error::last_os_error();
+        return Err(std::io::Error::new(
+            error.kind(),
+            format!("cannot identify retained Windows directory entry: {error}"),
+        ));
+    }
+    let after = windows_directory_entry_snapshot(parent, component).map_err(|error| {
+        std::io::Error::new(
+            error.kind(),
+            format!("cannot repeat Windows directory entry after open: {error}"),
+        )
+    })?;
+    if before != after || opened_id.FileId.Identifier != before.file_id {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "Windows directory entry changed during retained open",
+        ));
+    }
+    Ok(opened)
 }
 
 /// Target bytes decoded from one Microsoft symlink or mount-point reparse
@@ -5984,6 +6272,103 @@ mod tests {
             .arg(&sensitive)
             .arg("disable")
             .status();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_relative_open_refuses_custom_short_alias_and_accepts_long_name() {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt as _;
+        use std::os::windows::fs::OpenOptionsExt as _;
+        use std::os::windows::io::AsRawHandle as _;
+        use windows_sys::Win32::Storage::FileSystem::{
+            SetFileShortNameW, DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_DELETE,
+            FILE_SHARE_READ, FILE_SHARE_WRITE,
+        };
+
+        let temp = tempfile::tempdir().unwrap();
+        let long_name = "long-security-document.js";
+        let path = temp.path().join(long_name);
+        fs::write(&path, "export default false;\n").unwrap();
+
+        let short_name = "CSTMSEC.JS";
+        let short_wide = OsStr::new(short_name)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let short_name_handle = std::fs::OpenOptions::new()
+            .access_mode(DELETE)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(&path)
+            .unwrap();
+        if unsafe { SetFileShortNameW(short_name_handle.as_raw_handle(), short_wide.as_ptr()) } == 0
+        {
+            eprintln!(
+                "custom 8.3 short-name setup unavailable: {}",
+                std::io::Error::last_os_error()
+            );
+            return;
+        }
+        drop(short_name_handle);
+
+        let parent = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(temp.path())
+            .unwrap();
+        let long =
+            windows_open_relative_no_follow(&parent, long_name, WindowsRelativeOpen::Readable)
+                .unwrap();
+        drop(long);
+
+        assert_eq!(
+            windows_open_relative_no_follow(&parent, short_name, WindowsRelativeOpen::Readable,)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::PermissionDenied
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_relative_open_refuses_entry_replacement_between_snapshot_and_open() {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
+
+        let temp = tempfile::tempdir().unwrap();
+        let victim_name = "victim.js";
+        let victim = temp.path().join(victim_name);
+        let replacement = temp.path().join("replacement.js");
+        fs::write(&victim, "export default 'old';\n").unwrap();
+        fs::write(&replacement, "export default 'new';\n").unwrap();
+
+        let parent = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(temp.path())
+            .unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        *WINDOWS_ENTRY_OPEN_HOOK
+            .get_or_init(|| std::sync::Mutex::new(None))
+            .lock()
+            .unwrap() = Some((victim_name.to_owned(), barrier.clone()));
+
+        let worker = std::thread::spawn(move || {
+            windows_open_relative_no_follow(&parent, victim_name, WindowsRelativeOpen::Readable)
+        });
+        barrier.wait();
+        fs::rename(&victim, temp.path().join("old-victim.js")).unwrap();
+        fs::rename(&replacement, &victim).unwrap();
+        barrier.wait();
+
+        let error = worker.join().unwrap().unwrap_err();
+        *WINDOWS_ENTRY_OPEN_HOOK
+            .get_or_init(|| std::sync::Mutex::new(None))
+            .lock()
+            .unwrap() = None;
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(error.to_string().contains("changed during retained open"));
     }
 
     #[cfg(windows)]

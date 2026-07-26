@@ -1501,10 +1501,44 @@ ticket closes.
   Important enforcement mechanisms remain about 99% complete and the overall
   requested task remains about 90%.
 
+### 2026-07-25 — race-closed Windows arbitrary short-name refusal
+
+- Closed the custom 8.3 alias seam in the single retained Windows
+  relative-open primitive. Before opening a child, the runtime queries the
+  exact parent-directory entry as `FileIdExtdBothDirectoryInformation` and
+  stages its long name, short name, and 128-bit file ID. The query uses a fresh
+  directory handle whose ID is first matched to the retained parent.
+- A request that selected the staged short name refuses, including a legal
+  administrator-assigned alias with no tilde. Long-name access remains usable
+  even when the object has a generated or custom short name; this avoids the
+  impractical alternative of refusing every ordinary NTFS long-name entry.
+- The child opens no-follow without delete sharing, preventing rename and
+  `SetFileShortName` mutation while retained. The parent entry is queried again
+  and the before/after snapshots plus opened child ID must agree. Unsupported
+  directory information, malformed evidence, parent-path replacement, and
+  entry replacement all fail closed.
+- The physical Windows fixture successfully assigns `CSTMSEC.JS`, proves the
+  long `long-security-document.js` entry still opens, and proves the custom
+  alias refuses. A barrier fixture replaces `victim.js` with a different
+  object after the first snapshot; the repeated snapshot/object match refuses
+  it. The complete Windows filters pass 10 VFS tests and 16 authenticated
+  resolver/package tests.
+- This strengthens existing VFS/resolver enforcement routes rather than adding
+  a public surface, so the generated contract remains 7,651 coverage edges,
+  7,951 enforcement branches, and 15,302 target cells. Windows remains
+  unadvertised because installed `node:fs`/native filesystem effects still
+  lack the typed retained-object backend and 17,991 exact-target
+  public-evidence rows remain unresolved.
+- Hard part: querying the alternate name from the opened child once is not
+  race-safe—an attacker can remove the alias between selection and query.
+  Directory enumeration supplies both names and identity before open; removing
+  delete sharing pins the selected entry while the second snapshot closes the
+  stage-to-open gap. Important enforcement mechanisms remain about 99%
+  complete and the overall requested task remains about 90%.
+
 ## Next milestone
 
-Checkpoint the Windows ASCII case-identity hardening, then either implement a
-race-safe custom-short-name contract or move to the separate typed
-retained-object backend for installed Windows filesystem effects. Do not
-advertise Windows before both that identity gap and the 17,991-row exact-target
-public-evidence gap are genuinely closed.
+Checkpoint the Windows arbitrary-short-name refusal, then move to the separate
+typed retained-object backend for installed Windows filesystem effects or
+reduce the 17,991-row exact-target public-evidence gap. Do not advertise
+Windows before both remaining prerequisites are genuinely closed.
