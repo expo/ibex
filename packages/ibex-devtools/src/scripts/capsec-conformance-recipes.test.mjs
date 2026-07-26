@@ -341,12 +341,12 @@ describe("exact-target CapSec executable recipes", () => {
     // production graph deliberately uses deferred call-time links. The net-new
     // WebGPU obligations remain unresolved until their public-surface probes
     // are authored.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_646);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_661);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_114);
-    expect(recipes.summary.unresolvedFixtures).toBe(18_280);
+    expect(recipes.summary.unresolvedFixtures).toBe(18_265);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -511,12 +511,13 @@ describe("exact-target CapSec executable recipes", () => {
           "public-surface-filesystem-not-typed-on-target",
         ),
     );
-    // 173 = 123 + the 50 fs:list accessSync/existsSync/realpathSync/statfsSync,
+    // 188 = 123 + the 65 fs:list accessSync/existsSync/realpathSync/statfsSync,
     // fs:read readFileSync/readlinkSync, and fs:write appendFileSync/
-    // mkdirSync/truncateSync/writeFileSync rows now Apple-authored
+    // mkdirSync/truncateSync/writeFileSync rows plus openSync's read, write,
+    // and read-write branches now Apple-authored
     // (LLP 0037), and therefore "not typed on target" for the ambiguous
     // Windows route.
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(173);
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(188);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
@@ -1231,6 +1232,108 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe.invocation.expectedStringValue,
         ).toBe("capsec-readlink-target.txt");
       }
+    }
+  });
+
+  test("opens exact files with flag-selected authority and closes every returned descriptor", () => {
+    const surface = "builtin:export:node_fs:openSync";
+    const openRecipes = recipes.recipes.filter((recipe) =>
+      recipe.route.surfaceObservedKeys.includes(surface),
+    );
+    const branchByActions = new Map([
+      [
+        JSON.stringify(["fs:list", "fs:read"]),
+        { flags: "r", requiredCaps: ["fs:read"] },
+      ],
+      [
+        JSON.stringify(["fs:list", "fs:write"]),
+        { flags: "a", requiredCaps: ["fs:write"] },
+      ],
+      [
+        JSON.stringify(["fs:list", "fs:read", "fs:write"]),
+        { flags: "r+", requiredCaps: ["fs:read", "fs:write"] },
+      ],
+    ]);
+    const executable = openRecipes.filter(
+      (recipe) => recipe.status === "fully-executable",
+    );
+    const branchSelection = openRecipes.filter(
+      (recipe) => recipe.scenario === "branch-selection",
+    );
+    expect(openRecipes).toHaveLength(18);
+    expect(executable).toHaveLength(15);
+    expect(branchSelection).toHaveLength(3);
+
+    for (const recipe of executable) {
+      const denial = recipe.scenario === "deny";
+      const branch = branchByActions.get(JSON.stringify(recipe.actionIds));
+      expect(branch).toBeDefined();
+      expect(recipe).toMatchObject({
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          surfaceObservedKey: surface,
+          invocation: {
+            moduleSpecifier: "node:fs",
+            exportName: "openSync",
+            arguments: [
+              {
+                kind: "filesystem-fixture-path",
+                logicalPath: {
+                  root: "project",
+                  components: [
+                    { encoding: "utf8", value: "capsec-stat-fixture.txt" },
+                  ],
+                },
+              },
+              { kind: "literal-utf8", value: branch.flags },
+            ],
+            setup: {
+              kind: "filesystem-file",
+              contents: "ibex-capsec-stat-fixture\n",
+            },
+            requiredAuthority: branch.requiredCaps.map((cap) => ({
+              cap,
+              resource: { kind: "path-exact" },
+            })),
+            expectedResult: denial ? "permission-denied" : "return",
+            expectedTypedDecisionCount: 6,
+            expectedTypedStages: [
+              "requested",
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "commit",
+            ],
+            allowedCoverageEdgeIds: [
+              "surface.native.op.exactensurefs.1dih7no",
+              "surface.native.op.exactfsopen.05ao6wa",
+            ],
+            expectedActionIds: recipe.actionIds,
+          },
+        },
+      });
+      if (denial) {
+        expect(recipe.publicSurfaceProbe.invocation).not.toHaveProperty(
+          "expectedCleanup",
+        );
+      } else {
+        expect(
+          recipe.publicSurfaceProbe.invocation.expectedCleanup,
+        ).toBe("closed-fs-file-descriptor");
+      }
+    }
+
+    for (const recipe of branchSelection) {
+      expect(branchByActions.has(JSON.stringify(recipe.actionIds))).toBe(true);
+      expect(recipe).toMatchObject({
+        status: "unresolved",
+        publicSurfaceProbe: null,
+      });
+      expect(recipe.residualReasons).toContain(
+        "conditional-branch-selection-probe-not-authored",
+      );
     }
   });
 

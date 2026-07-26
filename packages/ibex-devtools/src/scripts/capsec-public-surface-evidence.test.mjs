@@ -532,6 +532,42 @@ function openThenActFixture(scenario = "allow", exportName = "readFileSync") {
   return { catalog, recipe, observation };
 }
 
+function openSyncFixture() {
+  const fixture = openThenActFixture("allow", "openSync");
+  const { catalog, recipe, observation } = fixture;
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  recipe.actionIds = ["fs:list", "fs:read", "fs:write"];
+  invocation.expectedActionIds = [...recipe.actionIds];
+  invocation.expectedCleanup = "closed-fs-file-descriptor";
+  invocation.requiredAuthority = ["fs:read", "fs:write"].map((cap) => ({
+    cap,
+    resource: {
+      kind: "path-exact",
+      path: {
+        root: "project",
+        components: [{ encoding: "utf8", value: "fixture.txt" }],
+      },
+    },
+  }));
+  observation.invocation.result = {
+    kind: "return",
+    moduleSpecifier: "node:fs",
+    exportName: "openSync",
+    valueType: "number",
+    cleanup: "closed-fs-file-descriptor",
+  };
+  const commit = observation.typedDecisions[1];
+  const readEffect = commit.decisionSet.effects[0];
+  readEffect.cap = "fs:read";
+  commit.decisionSet.effects.push({
+    ...structuredClone(readEffect),
+    cap: "fs:write",
+  });
+  commit.gates.push(structuredClone(commit.gates[0]));
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return fixture;
+}
+
 function realpathAuxiliaryFixture(scenario = "allow") {
   const catalog = completeCatalog();
   const recipe = catalog.recipes[0];
@@ -3141,6 +3177,53 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/not an ambient open traversal/);
+  });
+
+  test("binds openSync success to an exact numeric result and descriptor cleanup", () => {
+    const accepted = openSyncFixture();
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: accepted.recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: accepted.observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const substitutedCleanup = openSyncFixture();
+    substitutedCleanup.observation.invocation.result.cleanup =
+      "descriptor-left-open";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: substitutedCleanup.recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: substitutedCleanup.observation,
+        coverage,
+      }),
+    ).toThrow(/descriptor cleanup did not match/);
+
+    const missingCleanup = openSyncFixture();
+    delete missingCleanup.observation.invocation.result.cleanup;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: missingCleanup.recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: missingCleanup.observation,
+        coverage,
+      }),
+    ).toThrow(/cleanup result has unknown or missing fields/);
+
+    const unauthoredCleanup = openSyncFixture();
+    delete unauthoredCleanup.recipe.publicSurfaceProbe.invocation
+      .expectedCleanup;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: unauthoredCleanup.recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: unauthoredCleanup.observation,
+        coverage,
+      }),
+    ).toThrow(/malformed builtin descriptor cleanup expectation/);
   });
 
   test("binds realpath helper decisions without replacing its allow terminal", () => {

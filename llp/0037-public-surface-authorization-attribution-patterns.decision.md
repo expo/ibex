@@ -5,6 +5,7 @@
 **Systems:** Security, Runtime, Devtools, Verification
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-23
+**Revised:** 2026-07-25 (`node:fs.openSync` binds the exact `r`, `a`, and `r+` branches to read, write, and conjunctive read-write authority; every successful numeric descriptor is closed, file bytes remain unchanged, and fifteen Apple rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.readlinkSync` binds ambient link/target traversal separately from the corrected stored-byte `fs:read` commit and exact translated string; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.mkdirSync` binds absolute non-recursive creation to the reviewed `fs-mkdir:` absent-create chain and exact creation/no-creation postconditions; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.appendFileSync` joins the reviewed open/write family with exact prefix-plus-suffix and deny-no-mutation postconditions; five Apple fixture rows move from residual to executable)
@@ -223,6 +224,35 @@ producer and aggregate restrict traversal surplus to the exact
 `readlinkSync` / `fs:read` / `fs-readlink:` tuple, and the complete 185-recipe
 batch plus independent validator accept all five real observations with
 `native-op:__exactReadlink` as the derived terminal.
+
+### Flag-selected descriptor evidence: `openSync`
+
+`node:fs.openSync` is the first authored public carrier whose literal argument
+selects among three capability sets on one native terminal. The fixture uses an
+existing exact file with `r` for `fs:read`, `a` for `fs:write`, and `r+` for
+the conjunction of `fs:read` and `fs:write`. The final mode deliberately avoids
+truncation or creation so the public result can prove authority selection and
+descriptor ownership without conflating either with a content mutation.
+
+All three branches emit the same six stages on the bound Apple engine:
+`requested, requested, discovery, requested, repeat, commit`. The first five
+decisions are ambient `fs:list` traversal under the exact `fs-open:` operation
+identity. The commit carries the branch-selected floor effect; `r+` carries two
+effects in one conjunctive decision and successful evidence binds one decisive
+static-floor row to each effect. A denied conjunction correctly needs only the
+single decisive denial row that blocks it. The producer validates both
+cardinalities rather than flattening the multi-effect decision to the
+single-effect shape.
+
+Every successful invocation must return a number and the harness must close
+that exact descriptor before recording
+`cleanup: "closed-fs-file-descriptor"`. The independent aggregate exact-checks
+the result shape and rejects a missing or substituted cleanup marker. The
+native harness also verifies that the fixture bytes are unchanged for every
+allowed and denied scenario. Fifteen real effect rows (five scenarios for each
+flag branch) are executable in the complete 200-recipe batch; the three
+synthetic `branch-selection` rows remain honestly unresolved because no public
+runtime input supplies registry branch facts.
 
 ### Additional multi-edge metadata evidence: `realpathSync`
 

@@ -79,6 +79,21 @@ const FS_READLINK_EXPORTS = new Set(["readlinkSync"]);
 const FS_WRITE_EXPORTS = new Set(["appendFileSync", "writeFileSync"]);
 const FS_MKDIR_EXPORTS = new Set(["mkdirSync"]);
 const FS_TRUNCATE_EXPORTS = new Set(["truncateSync"]);
+// @ref LLP 0037#flag-selected-descriptor-evidence-opensync — Literal flags bind each public recipe to one exact authority branch.
+const FS_OPEN_SYNC_BRANCHES = new Map([
+  [
+    canonicalJson(["fs:list", "fs:read"]),
+    { flags: "r", requiredCaps: ["fs:read"] },
+  ],
+  [
+    canonicalJson(["fs:list", "fs:write"]),
+    { flags: "a", requiredCaps: ["fs:write"] },
+  ],
+  [
+    canonicalJson(["fs:list", "fs:read", "fs:write"]),
+    { flags: "r+", requiredCaps: ["fs:read", "fs:write"] },
+  ],
+]);
 const FS_WRITE_PAYLOAD = "ibex-capsec-write-fixture\n";
 const FS_FIXTURE_PATH = Object.freeze({
   root: "project",
@@ -407,6 +422,68 @@ export function authoredBuiltinPublicProbe({
   const fsPrefix = "builtin:export:node_fs:";
   if (!surfaceObservedKey.startsWith(fsPrefix)) return null;
   const fsExportName = surfaceObservedKey.slice(fsPrefix.length);
+
+  // openSync has three registry branches selected by its flags. These fixed
+  // flags cover read, write, and read-write without mutating the existing
+  // fixture; the harness closes the returned descriptor before accepting the
+  // result.
+  // @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified
+  const openSyncBranch =
+    fsExportName === "openSync"
+      ? FS_OPEN_SYNC_BRANCHES.get(canonicalJson(plan.actionIds))
+      : null;
+  if (openSyncBranch) {
+    const descriptor = sourceDescriptor(
+      liveByObservedKey.get(surfaceObservedKey),
+      "node_fs",
+      fsExportName,
+      "node:fs",
+    );
+    if (!descriptor) return null;
+    const logicalPath = FS_FIXTURE_PATH;
+    const expectedTypedStages = [
+      "requested",
+      "requested",
+      "discovery",
+      "requested",
+      "repeat",
+      "commit",
+    ];
+    return {
+      kind: "public-surface-invocation",
+      surfaceObservedKey,
+      command: [...BUILTIN_BATCH_COMMAND],
+      invocation: {
+        invocationSchema: "ibex/capsec-builtin-export-invocation/1",
+        kind: "builtin-export-call",
+        moduleSpecifier: "node:fs",
+        exportName: fsExportName,
+        sourceDescriptor: descriptor,
+        sourceDescriptorDigest: taggedDigest(descriptor),
+        arguments: [
+          { kind: "filesystem-fixture-path", logicalPath },
+          { kind: "literal-utf8", value: openSyncBranch.flags },
+        ],
+        setup: {
+          kind: "filesystem-file",
+          logicalPath,
+          contents: "ibex-capsec-stat-fixture\n",
+        },
+        requiredAuthority: openSyncBranch.requiredCaps.map((cap) => ({
+          cap,
+          resource: { kind: "path-exact", path: logicalPath },
+        })),
+        expectedResult: publicDenial ? "permission-denied" : "return",
+        ...(publicDenial
+          ? {}
+          : { expectedCleanup: "closed-fs-file-descriptor" }),
+        expectedTypedDecisionCount: expectedTypedStages.length,
+        expectedTypedStages,
+        allowedCoverageEdgeIds,
+        expectedActionIds: [...plan.actionIds],
+      },
+    };
+  }
 
   // fs:read family — synchronous, path-taking reads of the authenticated
   // fixture file. Opens (fs:list traversal, LLP 0037 D1) then reads (fs:read

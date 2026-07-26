@@ -86,6 +86,8 @@ struct BuiltinInvocation {
     expected_boolean_value: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     expected_string_value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    expected_cleanup: Option<String>,
     expected_typed_decision_count: usize,
     expected_typed_stages: Vec<String>,
     allowed_coverage_edge_ids: Vec<String>,
@@ -419,13 +421,14 @@ fn builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
 fn expected_authored_builtin_recipe_count(target: &str) -> usize {
     match target {
         // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
-        // +5 each on Apple for fs:list accessSync/existsSync/realpathSync/statfsSync,
-        // fs:read readFileSync/readlinkSync, and fs:write appendFileSync/mkdirSync/
-        // truncateSync/writeFileSync (their allow/deny/malformed/
-        // missing-attribution/wrong-principal matrices).
+        // +5 each on Apple for fs:list accessSync/existsSync/realpathSync/
+        // statfsSync, fs:read readFileSync/readlinkSync, fs:write
+        // appendFileSync/mkdirSync/truncateSync/writeFileSync, and each of
+        // openSync's read/write/read-write branches (their allow/deny/
+        // malformed/missing-attribution/wrong-principal matrices).
         // Windows keeps 120: its node_fs enforcement route is ambiguous, so
         // these public probes are not authored there.
-        "aarch64-apple-darwin" => 185,
+        "aarch64-apple-darwin" => 200,
         "x86_64-pc-windows-msvc" => 120,
         target => panic!("builtin public recipe batch has no reviewed target shape for {target}"),
     }
@@ -435,7 +438,7 @@ fn expected_authored_builtin_recipe_count(target: &str) -> usize {
 fn capsec_public_builtin_recipe_counts_are_target_specific() {
     assert_eq!(
         expected_authored_builtin_recipe_count("aarch64-apple-darwin"),
-        185
+        200
     );
     assert_eq!(
         expected_authored_builtin_recipe_count("x86_64-pc-windows-msvc"),
@@ -451,7 +454,7 @@ fn invocation_script(invocation: &BuiltinInvocation, arguments: &[serde_json::Va
                 .expect("serialize imported builtin module")
         ),
         "ibex/capsec-builtin-export-invocation/1" => format!(
-            "JSON.stringify((function(){{var m={};var e={};var b={};var s={};try{{var api=require(m);var f=api[e];if(typeof f!==\"function\")return {{kind:\"missing\",moduleSpecifier:m,exportName:e}};var value=Reflect.apply(f,api,{});var result={{kind:\"return\",moduleSpecifier:m,exportName:e,valueType:value===null?\"null\":typeof value}};if(b)result.booleanValue=value;if(s)result.stringValue=String(value);return result;}}catch(error){{return {{kind:\"throw\",moduleSpecifier:m,exportName:e,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}};}}}})())",
+            "JSON.stringify((function(){{var m={};var e={};var b={};var s={};var c={};try{{var api=require(m);var f=api[e];if(typeof f!==\"function\")return {{kind:\"missing\",moduleSpecifier:m,exportName:e}};var value=Reflect.apply(f,api,{});var result={{kind:\"return\",moduleSpecifier:m,exportName:e,valueType:value===null?\"null\":typeof value}};if(b)result.booleanValue=value;if(s)result.stringValue=String(value);if(c){{if(typeof value!==\"number\"||typeof api.closeSync!==\"function\")throw new Error(\"descriptor cleanup unavailable\");api.closeSync(value);result.cleanup=c;}}return result;}}catch(error){{return {{kind:\"throw\",moduleSpecifier:m,exportName:e,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}};}}}})())",
             serde_json::to_string(&invocation.module_specifier)
                 .expect("serialize builtin module"),
             serde_json::to_string(
@@ -463,6 +466,8 @@ fn invocation_script(invocation: &BuiltinInvocation, arguments: &[serde_json::Va
             .expect("serialize builtin export"),
             invocation.expected_result == "boolean-return",
             invocation.expected_string_value.is_some(),
+            serde_json::to_string(&invocation.expected_cleanup)
+                .expect("serialize builtin cleanup expectation"),
             serde_json::to_string(arguments).expect("serialize builtin arguments")
         ),
         schema => panic!("unsupported effect-builtin invocation schema {schema}"),
@@ -536,6 +541,7 @@ impl PreparedInvocation {
                 .as_bytes()
                 .to_vec(),
             ("truncateSync", _) => original[..2].to_vec(),
+            ("openSync", _) => original.to_vec(),
             _ => return,
         };
         let fixture_path = self
@@ -596,15 +602,42 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
             // invocation script — the read/list exports take one path argument,
             // the write export additionally takes the literal payload.
             // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
-            let expected_cap = match export_name {
+            let open_sync_flags = (export_name == "openSync").then(|| {
+                assert_eq!(invocation.arguments.len(), 2);
+                assert_eq!(invocation.arguments[1]["kind"], "literal-utf8");
+                invocation.arguments[1]["value"]
+                    .as_str()
+                    .expect("openSync flags must be a string")
+            });
+            let expected_caps = match export_name {
                 "accessSync"
                 | "existsSync"
                 | "lstatSync"
                 | "realpathSync"
                 | "statfsSync"
-                | "statSync" => "fs:list",
-                "readFileSync" => "fs:read",
-                "appendFileSync" | "truncateSync" | "writeFileSync" => "fs:write",
+                | "statSync" => vec!["fs:list"],
+                "readFileSync" => vec!["fs:read"],
+                "appendFileSync" | "truncateSync" | "writeFileSync" => {
+                    vec!["fs:write"]
+                }
+                "openSync" => match open_sync_flags.expect("openSync has no flags") {
+                    "r" => {
+                        assert_eq!(invocation.expected_action_ids, ["fs:list", "fs:read"]);
+                        vec!["fs:read"]
+                    }
+                    "a" => {
+                        assert_eq!(invocation.expected_action_ids, ["fs:list", "fs:write"]);
+                        vec!["fs:write"]
+                    }
+                    "r+" => {
+                        assert_eq!(
+                            invocation.expected_action_ids,
+                            ["fs:list", "fs:read", "fs:write"]
+                        );
+                        vec!["fs:read", "fs:write"]
+                    }
+                    flags => panic!("unsupported openSync flags {flags}"),
+                },
                 other => panic!("unsupported filesystem-file fs export {other}"),
             };
             if export_name == "realpathSync" {
@@ -650,10 +683,13 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
             assert_eq!(invocation.setup["logicalPath"], logical_path);
             assert_eq!(
                 invocation.required_authority,
-                vec![serde_json::json!({
-                    "cap": expected_cap,
-                    "resource": {"kind": "path-exact", "path": logical_path.clone()},
-                })]
+                expected_caps
+                    .into_iter()
+                    .map(|cap| serde_json::json!({
+                        "cap": cap,
+                        "resource": {"kind": "path-exact", "path": logical_path.clone()},
+                    }))
+                    .collect::<Vec<_>>()
             );
             let contents = invocation.setup["contents"]
                 .as_str()
@@ -668,7 +704,15 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
             let mut runtime_arguments = vec![serde_json::Value::String(
                 "/project/capsec-stat-fixture.txt".to_owned(),
             )];
-            if matches!(export_name, "appendFileSync" | "writeFileSync") {
+            if export_name == "openSync" {
+                let flags = open_sync_flags.expect("openSync has no flags");
+                runtime_arguments.push(serde_json::Value::String(flags.to_owned()));
+                assert_eq!(
+                    invocation.expected_cleanup.as_deref(),
+                    (invocation.expected_result == "return")
+                        .then_some("closed-fs-file-descriptor")
+                );
+            } else if matches!(export_name, "appendFileSync" | "writeFileSync") {
                 // The write export takes a literal payload as its second
                 // argument; the read/list exports take only the path.
                 assert_eq!(invocation.arguments.len(), 2);
@@ -906,6 +950,21 @@ fn reviewed_open_traversal_prefix(invocation: &BuiltinInvocation) -> Option<&'st
         (Some("readlinkSync"), [action]) if action == "fs:read" => Some("fs-readlink:"),
         (Some("appendFileSync"), [action]) if action == "fs:write" => Some("fs-open:"),
         (Some("mkdirSync"), [action]) if action == "fs:write" => Some("fs-mkdir:"),
+        (Some("openSync"), [list, read])
+            if list == "fs:list" && read == "fs:read" =>
+        {
+            Some("fs-open:")
+        }
+        (Some("openSync"), [list, write])
+            if list == "fs:list" && write == "fs:write" =>
+        {
+            Some("fs-open:")
+        }
+        (Some("openSync"), [list, read, write])
+            if list == "fs:list" && read == "fs:read" && write == "fs:write" =>
+        {
+            Some("fs-open:")
+        }
         (Some("truncateSync"), [action]) if action == "fs:write" => Some("fs-truncate:"),
         (Some("writeFileSync"), [action]) if action == "fs:write" => Some("fs-open:"),
         _ => None,
@@ -968,6 +1027,12 @@ fn validate_observation(
     match invocation.expected_result.as_str() {
         "return" => {
             assert_eq!(invocation_result["kind"], "return");
+            assert!(
+                invocation.expected_string_value.is_none()
+                    || invocation.expected_cleanup.is_none(),
+                "{}: builtin return cannot bind both a string and cleanup",
+                recipe.fixture_id
+            );
             if let Some(expected) = &invocation.expected_string_value {
                 assert_eq!(
                     *invocation_result,
@@ -979,6 +1044,20 @@ fn validate_observation(
                         "stringValue": expected,
                     }),
                     "{}: string-return builtin result drifted",
+                    recipe.fixture_id
+                );
+            }
+            if let Some(expected) = &invocation.expected_cleanup {
+                assert_eq!(
+                    *invocation_result,
+                    serde_json::json!({
+                        "kind": "return",
+                        "moduleSpecifier": invocation.module_specifier,
+                        "exportName": invocation.export_name,
+                        "valueType": "number",
+                        "cleanup": expected,
+                    }),
+                    "{}: descriptor-cleanup builtin result drifted",
                     recipe.fixture_id
                 );
             }
@@ -1170,10 +1249,12 @@ fn validate_observation(
         let decisive = decision["evidence"]["evidence"]
             .as_array()
             .expect("observed decision has no decisive evidence");
+        // @ref LLP 0037#flag-selected-descriptor-evidence-opensync — A successful conjunction binds every effect; one denied effect is decisive.
+        let expected_decisive_count = if decision_denied { 1 } else { effects.len() };
         assert_eq!(
             decisive.len(),
-            1,
-            "{}: builtin decision must have one decisive authority row",
+            expected_decisive_count,
+            "{}: builtin decision decisive authority cardinality drifted",
             recipe.fixture_id
         );
         let mount_binding_discovery = !decision_denied
@@ -1216,31 +1297,52 @@ fn validate_observation(
                 Some("principal.000000.floor."),
             )
         };
-        assert_eq!(
-            decisive[0]["stratum"], expected_stratum,
-            "{}: decisive authority stratum drifted: {}",
-            recipe.fixture_id, decisive[0]
-        );
-        assert_eq!(
-            decisive[0]["reason"], expected_reason,
-            "{}: decisive authority reason drifted: {}",
-            recipe.fixture_id, decisive[0]
-        );
-        assert_eq!(
-            decisive[0]["principal"],
-            serde_json::json!({"kind": "root", "identity": "project-root"})
-        );
-        if let Some(expected_source_prefix) = expected_source_prefix {
+        let mut decisive_effect_indexes = BTreeSet::new();
+        for authority in decisive {
+            let effect_index = authority["effectIndex"]
+                .as_u64()
+                .expect("decisive authority row has no effect index")
+                as usize;
             assert!(
-                decisive[0]["sourceId"]
-                    .as_str()
-                    .is_some_and(|source| source.starts_with(expected_source_prefix)),
-                "{}: decisive authority source has the wrong stratum index: {}",
+                effect_index < effects.len() && decisive_effect_indexes.insert(effect_index),
+                "{}: decisive authority effect index drifted: {}",
                 recipe.fixture_id,
-                decisive[0]
+                authority
             );
-        } else {
-            assert_eq!(decisive[0]["sourceId"], serde_json::Value::Null);
+            assert_eq!(
+                authority["stratum"], expected_stratum,
+                "{}: decisive authority stratum drifted: {}",
+                recipe.fixture_id, authority
+            );
+            assert_eq!(
+                authority["reason"], expected_reason,
+                "{}: decisive authority reason drifted: {}",
+                recipe.fixture_id, authority
+            );
+            assert_eq!(
+                authority["principal"],
+                serde_json::json!({"kind": "root", "identity": "project-root"})
+            );
+            if let Some(expected_source_prefix) = expected_source_prefix {
+                assert!(
+                    authority["sourceId"]
+                        .as_str()
+                        .is_some_and(|source| source.starts_with(expected_source_prefix)),
+                    "{}: decisive authority source has the wrong stratum index: {}",
+                    recipe.fixture_id,
+                    authority
+                );
+            } else {
+                assert_eq!(authority["sourceId"], serde_json::Value::Null);
+            }
+        }
+        if !decision_denied {
+            assert_eq!(
+                decisive_effect_indexes,
+                (0..effects.len()).collect(),
+                "{}: allowed decision did not bind every effect",
+                recipe.fixture_id
+            );
         }
     }
     assert!(!observed_edges.is_empty());
@@ -1438,10 +1540,13 @@ async fn execute_isolated_recipe(
         })
         .expect("isolated recipe has no effect-builtin invocation");
     let authority = canonical_values(invocation.required_authority.clone());
-    assert_eq!(
-        authority.len(),
-        1,
-        "{}: isolated builtin recipe must bind one exact authority selector",
+    assert!(
+        authority.len() == 1
+            || (authority.len() == 2
+                && invocation.export_name.as_deref() == Some("openSync")
+                && invocation.expected_action_ids
+                    == ["fs:list", "fs:read", "fs:write"]),
+        "{}: isolated builtin recipe has an unsupported authority selector set",
         recipe.fixture_id
     );
     let prepared = prepare_invocation(invocation);

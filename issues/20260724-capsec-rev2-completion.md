@@ -1145,6 +1145,36 @@ ticket closes.
   recipe. Important enforcement mechanisms remain about 96% complete and the
   overall requested task remains about 86%.
 
+### 2026-07-25 — `openSync` flag branches and descriptor cleanup evidence
+
+- Added fifteen Apple `node:fs.openSync` effect recipes: five scenarios each
+  for literal `r` (`fs:read`), `a` (`fs:write`), and `r+` (conjunctive
+  `fs:read` + `fs:write`). The three generated `branch-selection` rows remain
+  unresolved because registry branch facts are not caller-supplied runtime
+  input.
+- Every branch binds the bound-engine six-stage sequence `requested,
+  requested, discovery, requested, repeat, commit`. The five traversal
+  decisions are ambient `fs:list`; the commit carries the exact selected floor
+  effects. Successful multi-effect decisions now require one decisive
+  authority row per effect, while a denied conjunction requires the one
+  decisive denial row that blocks it.
+- Every allowed result must be a numeric descriptor, which the harness closes
+  before recording `closed-fs-file-descriptor`; the independent aggregate
+  rejects missing or substituted cleanup. The harness also proves the fixture
+  bytes remain unchanged for allow and denial.
+- The complete 200-recipe bound-Hermes batch passes. The independent aggregate
+  accepts all 200 observations, including all fifteen `openSync` rows; the
+  combined focused suite passes 156 tests with 112,750 assertions.
+- Apple is now 24,040 required / 2,661 fully executable / 3,114 internally
+  verified / 18,265 unresolved. Windows remains 23,925 / 2,240 / 3,102 /
+  18,583. Criterion 7's literal Apple denominator is 5,775/24,040 (24.0%)
+  proven.
+- Hard part: `openSync` is one public export with three argument-selected
+  authority shapes, and the read-write commit is genuinely multi-effect.
+  Treating it like a single-capability export would either leak descriptors or
+  under-validate the conjunction. Important enforcement mechanisms remain
+  about 96% complete and the overall requested task remains about 86%.
+
 ## Next milestone
 
 Attack criterion 7's exact-target evidence gap through real public-surface

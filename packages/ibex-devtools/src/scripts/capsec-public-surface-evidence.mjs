@@ -2884,6 +2884,29 @@ function validateRuntimeInvocation(observation, recipe) {
   if (!invocation.result || typeof invocation.result !== "object") {
     throw new Error(`${recipe.fixtureId}: runtime invocation has no result`);
   }
+  const builtinExportInvocation =
+    authored.invocationSchema ===
+      "ibex/capsec-builtin-export-invocation/1" &&
+    authored.kind === "builtin-export-call";
+  const builtinOpenSync =
+    builtinExportInvocation &&
+    authored.moduleSpecifier === "node:fs" &&
+    authored.exportName === "openSync";
+  // @ref LLP 0037#flag-selected-descriptor-evidence-opensync — A successful descriptor claim is incomplete unless the public harness closed it.
+  if (
+    (builtinOpenSync &&
+      ((authored.expectedResult === "return" &&
+        authored.expectedCleanup !== "closed-fs-file-descriptor") ||
+        (authored.expectedResult !== "return" &&
+          authored.expectedCleanup !== undefined))) ||
+    (!builtinOpenSync &&
+      builtinExportInvocation &&
+      authored.expectedCleanup !== undefined)
+  ) {
+    throw new Error(
+      `${recipe.fixtureId}: malformed builtin descriptor cleanup expectation`,
+    );
+  }
   if (authored.expectedResult === "normal-return") {
     if (
       authored.invocationSchema !== "ibex/capsec-builtin-call-invocation/1" ||
@@ -2937,6 +2960,14 @@ function validateRuntimeInvocation(observation, recipe) {
     if (invocation.result.kind !== "return") {
       throw new Error(`${recipe.fixtureId}: public invocation did not return`);
     }
+    if (
+      authored.expectedStringValue !== undefined &&
+      authored.expectedCleanup !== undefined
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: builtin return cannot bind both a string and cleanup`,
+      );
+    }
     if (authored.expectedStringValue !== undefined) {
       exactKeys(
         invocation.result,
@@ -2964,6 +2995,29 @@ function validateRuntimeInvocation(observation, recipe) {
       ) {
         throw new Error(
           `${recipe.fixtureId}: builtin string return did not match its authored value`,
+        );
+      }
+    }
+    if (builtinOpenSync) {
+      exactKeys(
+        invocation.result,
+        [
+          "kind",
+          "moduleSpecifier",
+          "exportName",
+          "valueType",
+          "cleanup",
+        ],
+        `${recipe.fixtureId}: builtin cleanup result`,
+      );
+      if (
+        invocation.result.moduleSpecifier !== authored.moduleSpecifier ||
+        invocation.result.exportName !== authored.exportName ||
+        invocation.result.valueType !== "number" ||
+        invocation.result.cleanup !== authored.expectedCleanup
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: builtin descriptor cleanup did not match its authored result`,
         );
       }
     }
@@ -3740,25 +3794,58 @@ export function validatePublicFixtureRuntimeObservation(
   // to their declared semantic operation.
   // @ref LLP 0037#d2--declared-vs-incidental-capabilities-in-the-coverage-edge
   const builtinOpenThenActDescriptor = new Map([
-    ["appendFileSync", { action: "fs:write", operationPrefix: "fs-open:" }],
-    ["mkdirSync", { action: "fs:write", operationPrefix: "fs-mkdir:" }],
-    ["readFileSync", { action: "fs:read", operationPrefix: "fs-open:" }],
-    ["readlinkSync", { action: "fs:read", operationPrefix: "fs-readlink:" }],
+    [
+      "appendFileSync",
+      { expectedActions: ["fs:write"], operationPrefix: "fs-open:" },
+    ],
+    [
+      "mkdirSync",
+      { expectedActions: ["fs:write"], operationPrefix: "fs-mkdir:" },
+    ],
+    [
+      "readFileSync",
+      { expectedActions: ["fs:read"], operationPrefix: "fs-open:" },
+    ],
+    [
+      "readlinkSync",
+      { expectedActions: ["fs:read"], operationPrefix: "fs-readlink:" },
+    ],
+    [
+      "openSync",
+      {
+        expectedActions: authored.expectedActionIds,
+        operationPrefix: "fs-open:",
+      },
+    ],
     [
       "truncateSync",
-      { action: "fs:write", operationPrefix: "fs-truncate:" },
+      { expectedActions: ["fs:write"], operationPrefix: "fs-truncate:" },
     ],
-    ["writeFileSync", { action: "fs:write", operationPrefix: "fs-open:" }],
+    [
+      "writeFileSync",
+      { expectedActions: ["fs:write"], operationPrefix: "fs-open:" },
+    ],
   ]).get(authored.exportName);
   const builtinOpenThenAct =
     authored.invocationSchema ===
       "ibex/capsec-builtin-export-invocation/1" &&
     authored.kind === "builtin-export-call" &&
     authored.moduleSpecifier === "node:fs" &&
-    typeof builtinOpenThenActDescriptor?.action === "string" &&
+    Array.isArray(builtinOpenThenActDescriptor?.expectedActions) &&
+    builtinOpenThenActDescriptor.expectedActions.length > 0 &&
     typeof builtinOpenThenActDescriptor.operationPrefix === "string" &&
     canonicalJson(authored.expectedActionIds) ===
-      canonicalJson([builtinOpenThenActDescriptor.action]);
+      canonicalJson(builtinOpenThenActDescriptor.expectedActions) &&
+    (authored.exportName !== "openSync" ||
+      [
+        ["fs:list", "fs:read"],
+        ["fs:list", "fs:write"],
+        ["fs:list", "fs:read", "fs:write"],
+      ].some(
+        (actions) =>
+          canonicalJson(actions) ===
+          canonicalJson(authored.expectedActionIds),
+      ));
   const outcomeDeclaredCarrier = callbackInvariant || startupEnvironment;
   const auxiliaryCarrier =
     outcomeDeclaredCarrier ||
