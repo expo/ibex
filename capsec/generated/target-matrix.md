@@ -7,4 +7,4 @@ The registry contains 7651 semantic coverage edges, including 0 conditional-unre
 | Exact target | Structural features | Selected implementation branches | Branchless cells | Enforced | Closed | Non-capability | Absent | Unsupported |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | aarch64-apple-darwin | hermes-frame-attribution, native-compartments, native-lockdown | 7546 | 112 | 0 | 0 | 0 | 0 | 7651 |
-| x86_64-pc-windows-msvc | hermes-frame-attribution, native-compartments, native-lockdown | 7404 | 254 | 0 | 0 | 0 | 0 | 7651 |
+| x86_64-pc-windows-msvc | hermes-frame-attribution, native-compartments, native-lockdown | 7405 | 253 | 0 | 0 | 0 | 0 | 7651 |

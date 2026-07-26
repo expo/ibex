@@ -2914,6 +2914,118 @@ pub(crate) unsafe extern "C" fn private_vfs_fstat_typed(
     }
 }
 
+unsafe fn private_vfs_read_typed_for_surface(
+    runtime_nonce: u64,
+    descriptor_owner: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    file: *mut ExactFileHandle,
+    length: u32,
+    positioned: u8,
+    position: u64,
+    out_data: *mut *mut u8,
+    out_len: *mut u64,
+    out_errno: *mut i32,
+    operation: &'static str,
+    adapter_operation: &'static str,
+    coverage_edge_id: &'static str,
+) -> u32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::FollowMode;
+
+    if !out_errno.is_null() {
+        unsafe { *out_errno = 0 };
+    }
+    if let Err(error) = unsafe { initialize_vfs_output(out_data, out_len) } {
+        return vfs_error_result(&error, out_errno);
+    }
+    if file.is_null()
+        || module_ids.is_null()
+        || module_ids_len == 0
+        || module_ids_len > 257
+        || positioned > 1
+    {
+        return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
+    }
+    let session = match runtime_vfs_session(runtime_nonce, operation) {
+        Ok(session) => session,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    let handle = unsafe { &mut *file };
+    let Some(retained_identity) = handle.retained_identity.as_ref() else {
+        return EX_HOST_VFS_RESULT_STALE_IDENTITY;
+    };
+    let vfs = match session.virtual_file_system() {
+        Ok(vfs) => vfs,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let presented = handle.presented_handles.clone();
+    let result = with_host(
+        |host| {
+            let constrained_principals =
+                typed_principals_for_ids(host, module_ids).ok_or_else(|| {
+                    crate::vfs::VfsError::policy_denied(
+                        operation,
+                        Arc::from(retained_identity.virtual_path()),
+                        "typed-descriptor-read-principal-refused",
+                    )
+                })?;
+            vfs.read_descriptor_authenticated(
+                &mut handle.file,
+                retained_identity,
+                length,
+                (positioned == 1).then_some(position),
+                |authorization| {
+                    let path = Arc::<str>::from(authorization.namespace().virtual_path());
+                    let result = host
+                        .authorize_vfs_retained_path_stage(
+                            vfs,
+                            &descriptor_owner.to_string(),
+                            constrained_principals.clone(),
+                            adapter_operation,
+                            coverage_edge_id,
+                            authorization,
+                            FollowMode::FollowFinal,
+                            "fs:read",
+                            presented.clone(),
+                        )
+                        .map_err(|_| {
+                            crate::vfs::VfsError::policy_denied(
+                                operation,
+                                path.clone(),
+                                "typed-descriptor-read-evaluation-refused",
+                            )
+                        })?;
+                    let receipt = crate::vfs::AuthorizationReceipt::from_structured_decision(
+                        &result.evidence,
+                    )?;
+                    match result.decision.outcome {
+                        DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence => {
+                            Ok(receipt)
+                        }
+                        DecisionOutcome::Deny | DecisionOutcome::RefuseArming => {
+                            Err(crate::vfs::VfsError::policy_denied(
+                                operation,
+                                path,
+                                Arc::<str>::from(receipt.evidence_digest().as_str()),
+                            ))
+                        }
+                    }
+                },
+            )
+        },
+        Err(crate::vfs::VfsError::stale_session(operation, None)),
+    );
+    match result {
+        Ok(bytes) => {
+            unsafe { write_vfs_output(bytes, out_data, out_len) };
+            EX_HOST_VFS_RESULT_OK
+        }
+        Err(error) => vfs_error_result(&error, out_errno),
+    }
+}
+
 /// Read from one authenticated retained file descriptor. The descriptor's
 /// original occurrence and bearer are reused for one fresh `fs:read` Repeat;
 /// no pathname is resolved or reopened.
@@ -2939,100 +3051,67 @@ pub(crate) unsafe extern "C" fn private_vfs_read_typed(
     out_len: *mut u64,
     out_errno: *mut i32,
 ) -> u32 {
-    use capsec_semantics::decision::DecisionOutcome;
-    use capsec_semantics::model::FollowMode;
+    unsafe {
+        private_vfs_read_typed_for_surface(
+            runtime_nonce,
+            descriptor_owner,
+            module_ids,
+            module_ids_len,
+            file,
+            length,
+            positioned,
+            position,
+            out_data,
+            out_len,
+            out_errno,
+            "read",
+            "fs-read",
+            "surface.native.op.exactfsread.1ixlwve",
+        )
+    }
+}
 
-    const OPERATION: &str = "read";
-    if !out_errno.is_null() {
-        unsafe { *out_errno = 0 };
-    }
-    if let Err(error) = unsafe { initialize_vfs_output(out_data, out_len) } {
-        return vfs_error_result(&error, out_errno);
-    }
-    if file.is_null()
-        || module_ids.is_null()
-        || module_ids_len == 0
-        || module_ids_len > 257
-        || positioned > 1
-    {
-        return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
-    }
-    let session = match runtime_vfs_session(runtime_nonce, OPERATION) {
-        Ok(session) => session,
-        Err(error) => return vfs_error_result(&error, out_errno),
-    };
-    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
-    let handle = unsafe { &mut *file };
-    let Some(retained_identity) = handle.retained_identity.as_ref() else {
-        return EX_HOST_VFS_RESULT_STALE_IDENTITY;
-    };
-    let vfs = match session.virtual_file_system() {
-        Ok(vfs) => vfs,
-        Err(error) => return vfs_error_result(&error, out_errno),
-    };
-    let presented = handle.presented_handles.clone();
-    let result = with_host(
-        |host| {
-            let constrained_principals =
-                typed_principals_for_ids(host, module_ids).ok_or_else(|| {
-                    crate::vfs::VfsError::policy_denied(
-                        OPERATION,
-                        Arc::from(retained_identity.virtual_path()),
-                        "typed-descriptor-read-principal-refused",
-                    )
-                })?;
-            vfs.read_descriptor_authenticated(
-                &mut handle.file,
-                retained_identity,
-                length,
-                (positioned == 1).then_some(position),
-                |authorization| {
-                    let path = Arc::<str>::from(authorization.namespace().virtual_path());
-                    let result = host
-                        .authorize_vfs_retained_path_stage(
-                            vfs,
-                            &descriptor_owner.to_string(),
-                            constrained_principals.clone(),
-                            "fs-read",
-                            "surface.native.op.exactfsread.1ixlwve",
-                            authorization,
-                            FollowMode::FollowFinal,
-                            "fs:read",
-                            presented.clone(),
-                        )
-                        .map_err(|_| {
-                            crate::vfs::VfsError::policy_denied(
-                                OPERATION,
-                                path.clone(),
-                                "typed-descriptor-read-evaluation-refused",
-                            )
-                        })?;
-                    let receipt = crate::vfs::AuthorizationReceipt::from_structured_decision(
-                        &result.evidence,
-                    )?;
-                    match result.decision.outcome {
-                        DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence => {
-                            Ok(receipt)
-                        }
-                        DecisionOutcome::Deny | DecisionOutcome::RefuseArming => {
-                            Err(crate::vfs::VfsError::policy_denied(
-                                OPERATION,
-                                path,
-                                Arc::<str>::from(receipt.evidence_digest().as_str()),
-                            ))
-                        }
-                    }
-                },
-            )
-        },
-        Err(crate::vfs::VfsError::stale_session(OPERATION, None)),
-    );
-    match result {
-        Ok(bytes) => {
-            unsafe { write_vfs_output(bytes, out_data, out_len) };
-            EX_HOST_VFS_RESULT_OK
-        }
-        Err(error) => vfs_error_result(&error, out_errno),
+/// Read and scatter bytes for one synchronous authenticated descriptor-vector
+/// call. The aggregate acquisition is still one exact-object `fs:read`
+/// Repeat; the Windows adapter scatters the owned result only after success.
+///
+/// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+/// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+///
+/// # Safety
+///
+/// The safety contract is identical to [`private_vfs_read_typed`].
+#[export_name = "ibex_private_vfs_readv_typed"]
+pub(crate) unsafe extern "C" fn private_vfs_readv_typed(
+    runtime_nonce: u64,
+    descriptor_owner: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    file: *mut ExactFileHandle,
+    length: u32,
+    positioned: u8,
+    position: u64,
+    out_data: *mut *mut u8,
+    out_len: *mut u64,
+    out_errno: *mut i32,
+) -> u32 {
+    unsafe {
+        private_vfs_read_typed_for_surface(
+            runtime_nonce,
+            descriptor_owner,
+            module_ids,
+            module_ids_len,
+            file,
+            length,
+            positioned,
+            position,
+            out_data,
+            out_len,
+            out_errno,
+            "readv",
+            "fs-readv",
+            "surface.native.op.exactfsreadv.11moytw",
+        )
     }
 }
 
@@ -10573,7 +10652,7 @@ mod tests {
     }
 
     #[test]
-    fn private_typed_vfs_read_open_retains_descriptor_identity() {
+    fn private_typed_vfs_descriptor_reads_retain_identity_and_surface() {
         use capsec_semantics::model::Stage;
 
         let _guard = host_test_lock();
@@ -10684,6 +10763,45 @@ mod tests {
             .context
             .presented_handle_ids
             .is_empty());
+
+        host.begin_conformance_observation("enforcement.test.private-typed-vfs-readv");
+        let mut vector_data = ptr::null_mut();
+        let mut vector_data_len = 0;
+        let mut readv_errno = 0;
+        assert_eq!(
+            unsafe {
+                private_vfs_readv_typed(
+                    nonce,
+                    0,
+                    principals.as_ptr(),
+                    principals.len(),
+                    file,
+                    4,
+                    1,
+                    0,
+                    &mut vector_data,
+                    &mut vector_data_len,
+                    &mut readv_errno,
+                )
+            },
+            EX_HOST_VFS_RESULT_OK
+        );
+        assert_eq!(readv_errno, 0);
+        assert_eq!(
+            unsafe { std::slice::from_raw_parts(vector_data, vector_data_len as usize) },
+            b"test"
+        );
+        ex_host_free_buffer(vector_data, vector_data_len);
+        let readv_observed = host.take_typed_conformance_observations();
+        assert_eq!(readv_observed.len(), 1);
+        assert_eq!(readv_observed[0].decision_set.context.stage, Stage::Repeat);
+        assert_eq!(
+            readv_observed[0].decision_set.effects[0].action.as_str(),
+            "fs:read"
+        );
+        assert!(readv_observed[0].gates.iter().all(|gate| {
+            gate.coverage_edge_id.as_str() == "surface.native.op.exactfsreadv.11moytw"
+        }));
 
         host.begin_conformance_observation("enforcement.test.private-typed-vfs-fstat");
         let mut json = ptr::null_mut();

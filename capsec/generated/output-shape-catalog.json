@@ -52814,7 +52814,9 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_fs.cc#__exactFsReadv",
-        "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsReadv"
+        "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsReadv",
+        "src/engine/hermes_runtime_fs_windows.cc#__exactFsReadv",
+        "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsReadv"
       ],
       "outputKinds": [
         "native-invocation"
@@ -165624,7 +165626,9 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_fs.cc#__exactFsReadv",
-          "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsReadv"
+          "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsReadv",
+          "src/engine/hermes_runtime_fs_windows.cc#__exactFsReadv",
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsReadv"
         ]
       },
       "requiredValueProof": "live-value-observation"

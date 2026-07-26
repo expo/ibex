@@ -170324,7 +170324,7 @@
         ],
         "terminalObservedKey": "native-op:__exactFsReadv"
       },
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "posix",
       "targetApplicability": {
         "kind": "operating-system-family",
@@ -170341,6 +170341,45 @@
         "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadv.1q7cduw.malformed",
         "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadv.1q7cduw.missing-attribution",
         "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadv.1q7cduw.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactfsreadv.11moytw",
+      "observedKey": "native-op:__exactFsReadv",
+      "branchId": "surface.native.op.exactfsreadv.11moytw.windows",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadv.0ut4t4v",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "native-op:__exactFsReadv"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_fs_windows.cc#__exactFsReadv",
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsReadv"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_fs_windows.cc#__exactFsReadv",
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsReadv"
+        ],
+        "terminalObservedKey": "native-op:__exactFsReadv"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "windows",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "windows"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_fs_windows.cc#__exactFsReadv",
+        "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsReadv"
+      ],
+      "implementationOwner": "WP5",
+      "fixtureObligations": [
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadv.0ut4t4v.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadv.0ut4t4v.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadv.0ut4t4v.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadv.0ut4t4v.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadv.0ut4t4v.wrong-principal"
       ]
     },
     {
@@ -286528,7 +286567,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-Y7Jclpb6ia9pPMRePAcBiGcv7rRirhx-S9-ymiOlG90"
+      "rawContentDigest": "sha256-_HCOmaweKthXr4ixqtnlTLdHCoMEHOuJUStBzUDZImM"
     },
     {
       "kind": "output-disposition-dataset",
@@ -286543,12 +286582,12 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-zKZ4a1xxGqUFSdISLhncQyKZN82ZSkV34ymp-N-cRH4"
+      "rawContentDigest": "sha256-oX7TMy-X9Cp_qk--VboixnZq4WZnF2Oa_ArEWowmc4Q"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-V92H2btFYxbMQS6-lzZyrf71SBVGol00Nh5UAPSQcws"
+      "rawContentDigest": "sha256-ak6tC2VftYjsfMoa0ZCSBowtAg-SZeS15N3KLqhVUEg"
     },
     {
       "kind": "registry",
@@ -286558,28 +286597,28 @@
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-g5LzwC5_0rRpDj0l1dqhMmIXq2c0b_KN-MEZjmHYSsg"
+      "rawContentDigest": "sha256-JnInSUgsbvQs9hKMbx7IFsMlIGqWTqGD3gYGUzNkL-I"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-HNtm4f3WIica0Bt0rS2nXVZ3Zud6l6jVUo5C2OpzHmc"
+      "rawContentDigest": "sha256-YeP_cEGqUsWnzmN8RLElbZEstCPCHVV_Q6SRWGf57Fk"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-gYjBHLBIO0_YbCPbmQXSVVnCZMjNd7rLNLcRll0wy0w"
+      "rawContentDigest": "sha256-qEcYgONqfsVUhPCJmDz0tA-Q-9LNuXrEPHHhdQxGrPA"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-bnlSnrH5yByuJ_54HDNEm0U2xaOeROlaBNCpX0Ucm24"
+      "rawContentDigest": "sha256-6hIXOAv3an-EsqMPU9FXZt2cFtd9q9DnQdotccuTutc"
     }
   ],
   "counts": {
-    "observedReferences": 13602,
+    "observedReferences": 13604,
     "logicalSurfaces": 7651,
-    "enforcementBranches": 7951,
+    "enforcementBranches": 7952,
     "coverageEdges": 7651,
     "targetCells": 15302
   }

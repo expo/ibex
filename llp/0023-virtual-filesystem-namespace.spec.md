@@ -5,6 +5,7 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-25 (armed Windows synchronous descriptor-vector reads now validate the runtime/owner-bound retained descriptor before vector materialization, authorize one exact-object `fs:read` Repeat for the aggregate request, restore the cursor for positioned reads, and scatter only after retained-identity revalidation; worker-backed vector reads remain unpromoted)
 **Revised:** 2026-07-25 (armed Windows read-only open now retains the exact VFS file and its parent/final/handle identity behind a runtime/owner-bound opaque registry entry; fstat authorizes Repeat and reads metadata from that same file without pathname fallback, while write-capable opens fail closed before resolution and remaining descriptor operations stay unpromoted)
 **Revised:** 2026-07-25 (armed Windows synchronous readdir now retains and enumerates the exact directory handle, authorizes requested/discovery `fs:list` plus repeat before each disclosed member, emits only the long-name coordinate, and has no armed pathname fallback; physical replacement-race and public denial tests pass while descriptors/mutations/async routes remain unpromoted)
 **Revised:** 2026-07-25 (armed Windows synchronous lstat now stops contained traversal at the final reparse object, reopens and object-matches it through the retained parent, authorizes requested/discovery/repeat `fs:list` with `no-follow-final`, and has no armed pathname fallback; physical reparse and replacement-race tests pass while enumeration/descriptors/mutations/async routes remain unpromoted)
@@ -2115,9 +2116,13 @@ file; a guessed integer carries no authority. Fstat first validates that table
 owner. `read_descriptor_authenticated` authorizes one `fs:read` Repeat against
 the stored object, handle ID, and bearer before reading that exact file, checks
 its identity before authorization and after I/O, and restores the file cursor
-after a positional read. `fstat_descriptor_authenticated` authorizes one `fs:list` Repeat
-against the stored object, handle ID, and bearer and reads metadata through the
-same file. It never resolves or reopens the original pathname. Armed
+after a positional read. Synchronous `__exactFsReadv` reuses that operation for
+one bounded aggregate acquisition, then scatters the owned bytes across the
+validated destinations only after success; denial or stale identity therefore
+leaves every destination unchanged. `fstat_descriptor_authenticated`
+authorizes one `fs:list` Repeat against the stored object, handle ID, and
+bearer and reads metadata through the same file. It never resolves or reopens
+the original pathname. Armed
 write/create/truncate/append opens and unsupported numeric flag bits return
 `EPERM` before resolution or any legacy capability call; this slice does not
 claim a mutation protocol.
@@ -2125,12 +2130,12 @@ claim a mutation protocol.
 The synchronous operation inherits the VFS bounded whole-file read limit and
 cannot interleave JavaScript-driven revocation while native byte acquisition is
 in progress. That reasoning does not promote worker-backed
-`__exactFsReadFileAsync`: it still needs an operation lease with generation
-rechecks between observable chunks. Vector/async descriptor reads, durability,
-mutation, write-capable opens, and all other installed Windows filesystem
-routes remain legacy or closed as their individual contracts require, and
-exact-target public evidence remains incomplete. The target therefore remains
-unadvertised.
+`__exactFsReadFileAsync`, `__exactFsReadAsync`, or `__exactFsReadvAsync`:
+they still need operation leases with generation rechecks between observable
+chunks. Durability, mutation, write-capable opens, and all other installed
+Windows filesystem routes remain legacy or closed as their individual
+contracts require, and exact-target public evidence remains incomplete. The
+target therefore remains unadvertised.
 
 The contract this document requires:
 

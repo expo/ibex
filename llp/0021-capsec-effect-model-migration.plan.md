@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-25 (armed Windows synchronous `__exactFsReadv` now validates the runtime/owner-bound retained descriptor before inspecting a bounded vector, authorizes one exact-object `fs:read` Repeat, acquires bytes through the same retained file with positional-cursor restoration, and scatters only after success; four public scenarios are executable on each exact target while worker-backed vector reads remain residual)
 **Revised:** 2026-07-25 (armed Windows read-only `__exactFsOpen` now returns the exact retained VFS file behind a runtime/owner-bound opaque registry entry, preserves the optional bearer for later operations, and `__exactFsFstatSync` authorizes Repeat against that same object and handle identity before metadata disclosure; write-capable opens fail closed before resolution, ten exact-target recipes are executable, and descriptor reads/mutations/async routes remain residual)
 **Revised:** 2026-07-25 (armed Windows `__exactReaddir` retains the exact directory object, enumerates it through that handle, authorizes requested/discovery `fs:list` plus repeat before each disclosed member, and never falls back to pathname enumeration; physical replacement-race and public denial tests pass, five exact-target recipes are executable, and descriptors/mutations/async routes remain residual)
 **Revised:** 2026-07-25 (armed Windows `__exactLstat` retains the final reparse object without following it, authorizes requested/discovery/repeat `fs:list` with `no-follow-final`, and never falls back to pathname lstat; physical replacement-race and public denial tests pass, five exact-target recipes are executable, and enumeration/descriptors/mutations/async routes remain residual)
@@ -1353,32 +1354,42 @@ owners by guessing an integer. `__exactFsFstatSync` first enforces that registry
 ownership, then authorizes one `fs:list` Repeat against the stored parent,
 final object, handle ID, and bearer and obtains metadata from the same retained
 file. It performs no pathname lookup and cannot fall back to `ex_host_fs_fstat`.
-`__exactFsRead` applies the same owner/runtime and readable-open checks, then
-authorizes one `fs:read` Repeat against those stored occurrence facts before
-reading the retained file itself. Sequential reads advance that file's cursor;
-positional reads restore it before returning. The VFS checks the retained
-object identity before authorization and after I/O, and the armed engine cannot
-fall back to the pathname-based legacy read oracle.
+`__exactFsRead` and synchronous `__exactFsReadv` apply the same owner/runtime
+and readable-open checks, then authorize one `fs:read` Repeat against those
+stored occurrence facts before reading the retained file itself. The vector
+route validates at most 1,024 destinations and a `uint32` aggregate length,
+acquires one owned aggregate result, and scatters into JavaScript buffers only
+after the Repeat and retained-identity postcheck succeed. Sequential reads
+advance that file's cursor; positional scalar and vector reads restore it
+before returning. The VFS checks the retained object identity before
+authorization and after I/O, and the armed engine cannot fall back to the
+pathname-based legacy read oracle.
 Armed write/create/truncate/append open flags and unsupported numeric flag bits
 return `EPERM` before virtual resolution, legacy authorization, or host file
 creation. Unarmed compatibility continues to use the existing host path.
 
-This is a bounded slice, not Windows filesystem promotion. The worker-backed
-`__exactFsReadFileAsync` route remains legacy: a single pre-worker repeat would
-not satisfy the required generation/revocation recheck between observable
-chunks. Vector/async descriptor reads, durability, mutation, write-capable
-open, and the other installed Windows filesystem routes also remain residual
-until their own retained-object contracts are implemented. Exact-target recipe generation now
+This is a bounded slice, not Windows filesystem promotion. Worker-backed
+`__exactFsReadFileAsync`, `__exactFsReadAsync`, and `__exactFsReadvAsync`
+remain legacy: a single pre-worker repeat would not satisfy the required
+generation/revocation recheck between observable chunks. Durability, mutation,
+write-capable open, and the other installed Windows filesystem routes also
+remain residual until their own retained-object contracts are implemented.
+Exact-target recipe generation now
 schedules the five `__exactReadFile`, five `__exactStat`, and five
 `__exactLstat`, five `__exactReaddir`, six read-only `__exactFsOpen`, and four
-`__exactFsRead` plus four `__exactFsFstatSync` scenarios on Windows and continues to
+`__exactFsRead`, four `__exactFsReadv`, plus four `__exactFsFstatSync`
+scenarios on Windows and continues to
 classify the remaining 156 callable filesystem
 recipes under
 `public-surface-filesystem-not-typed-on-target`; five `__exactAppendFile`
 recipes remain under the more exact
 `native-public-operation-not-installed-on-target` build-source boundary. The
-Windows catalog is 23,495 required / 2,416 fully executable / 3,122 internally
-verified / 17,957 unresolved. Apple retains its independently shaped typed
+Windows catalog is 23,499 required / 2,419 fully executable / 3,122 internally
+verified / 17,958 unresolved. Installing the Windows terminal replaces one
+previously executable target-absence row with five effect scenarios: four are
+executable and the deny row remains residual because its prerequisite
+descriptor cannot be created under the same denial. Apple retains its
+independently shaped typed
 recipes.
 
 The Windows TCP globals likewise still call the legacy string capability oracle

@@ -687,6 +687,10 @@ const harnessLoopbackClientHandleArgument = () => ({
 const harnessFsFileDescriptorArgument = () => ({
   kind: "harness-fs-file-descriptor",
 });
+const harnessUint8ArrayListArgument = (byteLengths) => ({
+  kind: "harness-uint8-array-list",
+  byteLengths,
+});
 const harnessSqliteDatabaseHandleArgument = () => ({
   kind: "harness-sqlite-database-handle",
 });
@@ -1593,6 +1597,16 @@ const nativeRetainedFsReadTemplate = () =>
     requiredSourceArity: 3,
     setup: fsReadFileSetup(),
   });
+const nativeRetainedFsReadvTemplate = () =>
+  Object.freeze({
+    ...nativeRetainedFsReadTemplate(),
+    arguments: [
+      harnessFsFileDescriptorArgument(),
+      harnessUint8ArrayListArgument([3, 5]),
+      literalArgument(0),
+    ],
+    requiredSourceArity: 4,
+  });
 const nativeRetainedFsFstatTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
@@ -2023,6 +2037,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     }),
   ],
   ["__exactFsRead", nativeRetainedFsReadTemplate()],
+  ["__exactFsReadv", nativeRetainedFsReadvTemplate()],
   ["__exactFsFstatSync", nativeRetainedFsFstatTemplate()],
   [
     "__exactFsFsyncSync",
@@ -4139,7 +4154,7 @@ function unsupportedWindowsTypedPublicEffectReason({
   ) {
     return null;
   }
-  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Synchronous whole-file read, stat, lstat, readdir, retained descriptor read/fstat, and the read-only open branch are the completed exceptions.
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces remain residual until their installed entry point supplies retained-object decisions. Synchronous whole-file read, stat, lstat, readdir, retained scalar/vector descriptor read/fstat, and the read-only open branch are the completed exceptions.
   if (plan.actionIds.some((actionId) => actionId.startsWith("fs:"))) {
     const globalName = publicSurfaceProbe?.invocation?.globalName;
     if (
@@ -4153,6 +4168,7 @@ function unsupportedWindowsTypedPublicEffectReason({
     if (
       [
         "__exactFsRead",
+        "__exactFsReadv",
         "__exactFsFstatSync",
         "__exactLstat",
         "__exactReadFile",

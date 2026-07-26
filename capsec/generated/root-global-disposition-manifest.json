@@ -2,7 +2,7 @@
   "rootGlobalDispositionManifestSchema": "ibex/root-global-disposition-manifest/1",
   "profile": "ibex/capsec/1",
   "status": "enforced-by-armed-live-sweep",
-  "sourceDigest": "sha256-GCLsWGLyRsDHx0W1g6e3kPHSfNb6ki1gsHY6y0NG2iU",
+  "sourceDigest": "sha256-i9y7HbPC48KYaCKcPrfURLzIB5Y5fkyYyPtiKyVg0cA",
   "sweep": {
     "roots": [
       "globalThis"
@@ -34602,6 +34602,37 @@
         "root": {
           "kind": "string",
           "value": "__exactFsReadFileAsync"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.exactfsreadv.0fbc6056c5a43515",
+      "observedKey": "native-op:__exactFsReadv",
+      "registryEdgeId": "surface.native.op.exactfsreadv.11moytw",
+      "branch": {
+        "id": "windows",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsReadv"
+        ],
+        "targetVariant": "windows",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactFsReadv"
         },
         "path": []
       },
@@ -106552,10 +106583,10 @@
     }
   ],
   "counts": {
-    "installBranches": 2841,
+    "installBranches": 2842,
     "logicalGlobals": 2613,
     "registryEdges": 2613,
     "sealedOrPrivate": 352,
-    "permittedReachable": 2489
+    "permittedReachable": 2490
   }
 }

@@ -17,6 +17,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -62,6 +63,11 @@ struct FileEntry {
   uint64_t owner = 0;
   bool canRead = false;
   bool canWrite = false;
+};
+
+struct WindowsReadIoVec {
+  uint8_t* destination = nullptr;
+  uint32_t length = 0;
 };
 
 // g_files_mutex only guards the fd -> FileEntry lookup/insert/erase below. Each
@@ -392,6 +398,25 @@ uint32_t readLengthFromValue(
     throw facebook::jsi::JSError(runtime, "read length must be a uint32");
   }
   return static_cast<uint32_t>(number);
+}
+
+bool readPositionFromValue(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value,
+    uint64_t& position) {
+  position = 0;
+  if (!value.isNumber() || value.asNumber() < 0) {
+    return false;
+  }
+  const double number = value.asNumber();
+  constexpr double MAX_SAFE_INTEGER = 9007199254740991.0;
+  if (!std::isfinite(number) || std::trunc(number) != number ||
+      number > MAX_SAFE_INTEGER) {
+    throw facebook::jsi::JSError(
+        runtime, "read position must be a nonnegative safe integer");
+  }
+  position = static_cast<uint64_t>(number);
+  return true;
 }
 
 void* fileHandle(const FileEntry& entry) {
@@ -1403,6 +1428,59 @@ bool parseWindowsIoVecArguments(
   return true;
 }
 
+bool parseWindowsReadIoVecArguments(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value,
+    std::vector<WindowsReadIoVec>& buffers,
+    uint32_t& totalLength) {
+  constexpr size_t kMaxWindowsIoVecCount = 1024;
+  totalLength = 0;
+  if (!value.isObject()) {
+    return false;
+  }
+  auto listObj = value.asObject(runtime);
+  if (!listObj.isArray(runtime)) {
+    return false;
+  }
+  size_t length = 0;
+  exactByteLengthFromValue(
+      runtime, listObj.getProperty(runtime, "length"), "readv buffer count", 0,
+      length);
+  if (length > kMaxWindowsIoVecCount) {
+    throw facebook::jsi::JSError(
+        runtime, "__exactFsReadv: too many buffers");
+  }
+  buffers.reserve(length);
+  uint64_t aggregateLength = 0;
+  for (size_t i = 0; i < length; i++) {
+    auto entry = listObj.getProperty(
+        runtime,
+        facebook::jsi::PropNameID::forAscii(runtime, std::to_string(i)));
+    if (!entry.isObject()) {
+      return false;
+    }
+    auto entryObj = entry.asObject(runtime);
+    size_t byteLength = 0;
+    const uint8_t* destination = nullptr;
+    if (!extractArrayBufferView(
+            runtime, entryObj, destination, byteLength, nullptr) ||
+        (byteLength != 0 && destination == nullptr)) {
+      return false;
+    }
+    aggregateLength += byteLength;
+    if (aggregateLength > std::numeric_limits<uint32_t>::max()) {
+      throw facebook::jsi::JSError(
+          runtime, "__exactFsReadv: aggregate buffer length exceeds uint32");
+    }
+    buffers.push_back({
+        const_cast<uint8_t*>(destination),
+        static_cast<uint32_t>(byteLength),
+    });
+  }
+  totalLength = static_cast<uint32_t>(aggregateLength);
+  return true;
+}
+
 } // namespace
 
 // This definition must have external linkage: the runtime-drive guard lives in
@@ -1892,19 +1970,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         // ex_host_fs_pread, which reads at the offset and restores the cursor.
         // position < 0 / null / undefined means "read at the current position"
         // and keeps the plain read path. Mirrors the POSIX pread fix in ENG-22982.
-        bool positioned = false;
         uint64_t position = 0;
-        if (count > 2 && args[2].isNumber() && args[2].asNumber() >= 0) {
-          const double value = args[2].asNumber();
-          constexpr double MAX_SAFE_INTEGER = 9007199254740991.0;
-          if (!std::isfinite(value) || std::trunc(value) != value ||
-              value > MAX_SAFE_INTEGER) {
-            throw facebook::jsi::JSError(
-                runtime, "read position must be a nonnegative safe integer");
-          }
-          positioned = true;
-          position = static_cast<uint64_t>(value);
-        }
+        bool positioned =
+            count > 2 && readPositionFromValue(runtime, args[2], position);
         auto file = entry.file;
         std::lock_guard<std::mutex> ioLock(file->ioMutex);
         if (ex_host_is_armed() == 1) {
@@ -1955,6 +2023,141 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         return makeUint8Array(runtime, std::move(bytes));
       });
   rt.global().setProperty(rt, "__exactFsRead", std::move(fsReadFn));
+
+  auto fsReadvFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactFsReadv"),
+      4,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactFsReadv: fd and buffers required");
+        }
+        auto fd = fdFromValue(runtime, args[0]);
+        bool sessionEof = sessionDescriptorReadIsEof(runtime, fd, "readv");
+        std::optional<FileEntry> retainedEntry;
+        if (!sessionEof) {
+          retainedEntry = getFileEntry(runtime, fd);
+          if (!retainedEntry->canRead) {
+            throw facebook::jsi::JSError(
+                runtime, "fd not opened for reading");
+          }
+        }
+        std::vector<WindowsReadIoVec> buffers;
+        uint32_t totalLength = 0;
+        if (!parseWindowsReadIoVecArguments(
+                runtime, args[1], buffers, totalLength)) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactFsReadv: buffers must be Uint8Array-like objects");
+        }
+        uint64_t position = 0;
+        bool positioned =
+            count > 2 && readPositionFromValue(runtime, args[2], position);
+        std::optional<facebook::jsi::Function> callback;
+        if (count > 3) {
+          if (!args[3].isObject() ||
+              !args[3].asObject(runtime).isFunction(runtime)) {
+            throw facebook::jsi::JSError(
+                runtime, "__exactFsReadv: callback must be a function");
+          }
+          callback = args[3].asObject(runtime).asFunction(runtime);
+        }
+        if (sessionEof) {
+          if (callback) {
+            callback->call(
+                runtime,
+                facebook::jsi::Value::undefined(),
+                facebook::jsi::Value(0),
+                args[1]);
+            return facebook::jsi::Value::undefined();
+          }
+          return facebook::jsi::Value(0);
+        }
+        auto entry = std::move(*retainedEntry);
+        auto file = entry.file;
+        size_t copied = 0;
+        {
+          std::lock_guard<std::mutex> ioLock(file->ioMutex);
+          if (ex_host_is_armed() == 1) {
+            auto principals = exactCollectTypedPrincipalStack();
+            uint8_t* data = nullptr;
+            uint64_t dataLength = 0;
+            int32_t hostError = 0;
+            // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — A synchronous descriptor vector read is one fs:read Repeat over the exact retained Windows handle; scattering occurs only after that decision and byte acquisition succeed.
+            uint32_t status = ibex_private_vfs_readv_typed(
+                exactCurrentRuntimeNonce(),
+                entry.owner,
+                principals.data(),
+                principals.size(),
+                file->handle,
+                totalLength,
+                positioned ? 1 : 0,
+                position,
+                &data,
+                &dataLength,
+                &hostError);
+            if (status != 0) {
+              if (data != nullptr) ex_host_free_buffer(data, dataLength);
+              exactThrowVfsError(
+                  runtime, status, hostError, "readv", entry.path);
+            }
+            if (dataLength > totalLength ||
+                (dataLength != 0 && data == nullptr)) {
+              if (data != nullptr) ex_host_free_buffer(data, dataLength);
+              throwStructuredFsError(runtime, "readv", entry.path, EIO);
+            }
+            size_t remaining = static_cast<size_t>(dataLength);
+            for (const auto& buffer : buffers) {
+              size_t copyLength =
+                  std::min<size_t>(buffer.length, remaining);
+              if (copyLength != 0) {
+                std::copy(
+                    data + copied,
+                    data + copied + copyLength,
+                    buffer.destination);
+              }
+              copied += copyLength;
+              remaining -= copyLength;
+              if (remaining == 0) break;
+            }
+            if (data != nullptr) ex_host_free_buffer(data, dataLength);
+          } else {
+            requireFileEntryRead(runtime, entry);
+            for (const auto& buffer : buffers) {
+              if (buffer.length == 0) continue;
+              uint64_t currentPosition = position + copied;
+              int32_t bytesRead = positioned
+                  ? ex_host_fs_pread(
+                        file->handle,
+                        buffer.destination,
+                        buffer.length,
+                        currentPosition)
+                  : ex_host_fs_read(
+                        file->handle, buffer.destination, buffer.length);
+              if (bytesRead < 0) {
+                throwFs(runtime, "readv", entry.path);
+              }
+              copied += static_cast<size_t>(bytesRead);
+              if (static_cast<uint32_t>(bytesRead) < buffer.length) break;
+            }
+          }
+        }
+        auto result = facebook::jsi::Value(static_cast<double>(copied));
+        if (callback) {
+          callback->call(
+              runtime,
+              facebook::jsi::Value::undefined(),
+              result,
+              args[1]);
+          return facebook::jsi::Value::undefined();
+        }
+        return result;
+      });
+  rt.global().setProperty(rt, "__exactFsReadv", std::move(fsReadvFn));
 
   auto fsWriteFn = facebook::jsi::Function::createFromHostFunction(
       rt,

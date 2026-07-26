@@ -1800,13 +1800,68 @@ ticket closes.
   enforcement mechanisms remain about 99% complete and the overall requested
   task remains about 90% complete.
 
+### 2026-07-25 — retained Windows synchronous descriptor-vector reads
+
+- Installed armed synchronous `__exactFsReadv` on Windows. The engine enforces
+  terminal-session policy plus the numeric table key's runtime, principal
+  owner, and readable-open state before inspecting vector destinations. It
+  accepts at most 1,024 destinations with a `uint32` aggregate length, then the
+  private Host ABI authorizes one `fs:read` Repeat against the open-time
+  namespace, parent/final identities, retained handle ID, optional bearer, and
+  current runtime generation.
+- The VFS acquires the aggregate bytes from the same retained file and
+  rechecks its identity after I/O. Positional vector reads restore the retained
+  cursor. The engine scatters the owned result only after success, so denial or
+  stale identity cannot partially modify caller buffers. Unarmed compatibility
+  uses the same serialized retained native handle; armed execution has no
+  pathname or legacy-capability fallback. The optional callback runs only
+  after the per-file I/O mutex is released, avoiding a same-fd reentrant
+  deadlock.
+- The public physical-Windows fixture performs retained open, positional scalar
+  read, positioned vector read into 3-byte and 5-byte destinations, sequential
+  scalar read, and fstat. It returns
+  `descriptor:8:retained:retained:19:true`, proving vector scatter and cursor
+  restoration against the same 19-byte object. The typed trace is Requested,
+  Discovery, Commit, four Repeats with exact open, scalar-read, vector-read,
+  scalar-read, and fstat coverage edges; the legacy observer remains empty.
+  The observer-feature library build and private ABI surface-binding test also
+  pass on the physical Windows host.
+- Added a source-owned `harness-uint8-array-list` public fixture. Four
+  `__exactFsReadv` scenarios are executable on both exact targets; deny remains
+  residual because the harness cannot create the required descriptor under the
+  same denial without weakening the proof. Installing the Windows global
+  replaces one executable target-absence row with five effect rows, so the
+  Windows catalog is 23,499 required / 2,419 fully executable / 3,122
+  internally verified / 17,958 unresolved. Apple is 23,840 / 2,768 / 3,136 /
+  17,936. The Windows catalog digest is
+  `sha256-F47b4gLEBDXTUfIqLbIQzV8wAWEz3t4bcJLa_qxWpEI`;
+  `public-surface-filesystem-not-typed-on-target` remains 156. The recipe suite
+  passes 90 tests with 110,192 assertions.
+- The new enforcement branch changes the registry digest but not the authority
+  vocabulary or any example grant. All four generated example policies were
+  reviewed: only `registryDigest` and the consequent `policyDigest` change.
+  The freed-space M4 verifier independently regenerates the registry and
+  vendored artifacts, reproduces all 90 recipe tests and 110,192 assertions,
+  passes the private ABI test and observer-feature library check, and then runs
+  the policy, drift, and `ref-check` gates against the exact synchronized
+  checkpoint.
+- Hard part: vector buffers are output objects, so authorizing each native
+  sub-read would both overcount effects and permit partial disclosure before a
+  later failure. One aggregate retained-object acquisition makes the
+  authorization boundary atomic from JavaScript's perspective, while the
+  destination-count/length bounds prevent a forged sparse array from becoming
+  an unbounded pre-authorization allocation. Important enforcement mechanisms
+  remain about 99% complete and the overall requested task is about 91%
+  complete.
+
 ## Next milestone
 
-Continue the installed Windows filesystem audit with synchronous retained
-descriptor vector reads that can reuse the scalar read's owner, generation,
-bearer, cursor, and retained-handle identity protocol. Keep write-capable opens
-and descriptor mutations closed until they have an object-bound mutation
-protocol, keep worker-backed reads residual until they can recheck authority
-generation between chunks, and do not advertise Windows while other installed
-filesystem routes and 17,957 exact-target public-evidence rows remain
-unresolved.
+Specify and implement the first retained Windows mutation slice: a
+write-capable open plus scalar write protocol that binds creation/existing
+object state, owner, generation, bearer, append/position semantics, and
+post-mutation identity without reopening by pathname. Keep every mutation
+entry point closed until that object-bound protocol and unchanged-on-denial
+evidence exist. Worker-backed reads and writes remain residual until operation
+leases can recheck authority generation between observable chunks; do not
+advertise Windows while other installed routes and 17,958 exact-target
+public-evidence rows remain unresolved.

@@ -1210,6 +1210,21 @@ extern "C" uint32_t ibex_private_vfs_read_typed(
     uint8_t** out_data,
     uint64_t* out_len,
     int32_t* out_errno);
+// Private retained-descriptor vector-read Repeat. The caller supplies the
+// aggregate destination length and scatters the explicit-length result only
+// after the object-bound decision succeeds.
+extern "C" uint32_t ibex_private_vfs_readv_typed(
+    uint64_t runtime_nonce,
+    uint64_t descriptor_owner,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    void* file,
+    uint32_t length,
+    uint8_t positioned,
+    uint64_t position,
+    uint8_t** out_data,
+    uint64_t* out_len,
+    int32_t* out_errno);
 // Private retained-object directory enumeration. Output is explicit-length
 // JSON; every member is authorized at Repeat before disclosure.
 extern "C" uint32_t ibex_private_vfs_readdir_typed(
