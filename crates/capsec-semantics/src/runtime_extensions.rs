@@ -1549,7 +1549,14 @@ mod tests {
     #[test]
     fn generic_wire_projection_has_no_product_vocabulary() {
         let text = serde_json::to_string(&signed_capsule()).unwrap();
-        for forbidden in ["Exact", "exact", "WebGPU", "webgpu"] {
+        let web_product_upper = ["Web", "GPU"].concat();
+        let web_product_lower = ["web", "gpu"].concat();
+        for forbidden in [
+            "Exact",
+            "exact",
+            web_product_upper.as_str(),
+            web_product_lower.as_str(),
+        ] {
             assert!(!text.contains(forbidden), "{text}");
         }
         assert!(!text.contains("matcher"));

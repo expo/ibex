@@ -5,7 +5,7 @@
 **Systems:** Engine, Runtime, Host ABI, Capability Security, Build, Verification
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-25
-**Revised:** 2026-07-25
+**Revised:** 2026-07-25; 2026-07-26 (registered conformance and shared-toolchain enforcement)
 **Related:** LLP 0000 (Ibex root), LLP 0002 (host embedding ABI), LLP 0003 (Hermes engine bridge), LLP 0006 (design principles), LLP 0012 (runtime identity), LLP 0013 / 0021 (capability security); Exact LLP 0405 (native runtime extensions)
 
 ## Summary
@@ -516,7 +516,13 @@ Ibex/Hermes toolchains.
 ## Verification
 
 Ibex ships a standalone conformance extension whose global, module, provider,
-callback, and lifecycle behavior is intentionally generic. Tests must cover:
+callback, and lifecycle behavior is intentionally generic. Exact’s registered
+`runtime-extension-ibex-conformance` gate runs the complete feature-gated
+engine module with default/insecure features disabled, requires a nonzero
+fixture floor, and separately requires the target-local production
+package-policy refusal. It selects the one compiler pinned by both Exact and
+Ibex; current-source Ibex workflows consume `scripts/install-rust-toolchain.sh`
+rather than carrying another literal toolchain pin. Tests must cover:
 
 1. canonical install and reverse close order;
 2. duplicate IDs, malformed digests, unsupported features, provider mismatch,
