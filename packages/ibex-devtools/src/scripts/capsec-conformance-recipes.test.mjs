@@ -341,12 +341,12 @@ describe("exact-target CapSec executable recipes", () => {
     // production graph deliberately uses deferred call-time links. The net-new
     // WebGPU obligations remain unresolved until their public-surface probes
     // are authored.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_666);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_742);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_114);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_956);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_880);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -447,9 +447,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(23_621);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while its effectful filesystem route remains ambiguous.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_240);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_316);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_102);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_279);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_203);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -689,7 +689,7 @@ describe("exact-target CapSec executable recipes", () => {
           "capsec_public_closed_recipe_batch",
         ),
       ),
-    ).toHaveLength(608);
+    ).toHaveLength(684);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -3349,6 +3349,103 @@ describe("exact-target CapSec executable recipes", () => {
         },
       },
     });
+  });
+
+  test("binds every wholly closed filesystem mutation to target-local unchanged-state evidence", () => {
+    const terminalsByTarget = [];
+    for (const catalog of [recipes, windowsRecipes]) {
+      const rows = catalog.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+          "filesystem-unbound-mutation",
+      );
+      expect(rows, catalog.target.triple).toHaveLength(76);
+      expect(
+        rows.filter(
+          (recipe) =>
+            recipe.publicSurfaceProbe.invocation.operation.surfaceForm ===
+            "builtin-export",
+        ),
+        catalog.target.triple,
+      ).toHaveLength(56);
+      expect(
+        rows.filter(
+          (recipe) =>
+            recipe.publicSurfaceProbe.invocation.operation.surfaceForm ===
+            "native-global",
+        ),
+        catalog.target.triple,
+      ).toHaveLength(20);
+      expect(
+        rows.every((recipe) => {
+          const invocation = recipe.publicSurfaceProbe.invocation;
+          return (
+            recipe.status === "fully-executable" &&
+            recipe.classification === "closed" &&
+            recipe.scenario === "closed" &&
+            recipe.actionIds.length === 0 &&
+            recipe.residualReasons.length === 0 &&
+            invocation.expectedTypedDecisionCount === 0 &&
+            invocation.expectedTypedStages.length === 0 &&
+            invocation.allowedCoverageEdgeIds.length === 0 &&
+            invocation.sourceDescriptor.kind ===
+              "closed-filesystem-unbound-mutation" &&
+            invocation.sourceDescriptor.targetTriple ===
+              catalog.target.triple &&
+            invocation.operation.targetTriple === catalog.target.triple &&
+            invocation.operation.expectedErrorFragment ===
+              "operation not permitted" &&
+            invocation.operation.expectedErrorCode === "EPERM" &&
+            (invocation.operation.surfaceForm !== "builtin-export" ||
+              ["node_fs", "node_fs_promises"].includes(
+                invocation.operation.sourceKey,
+              ))
+          );
+        }),
+        catalog.target.triple,
+      ).toBe(true);
+      terminalsByTarget.push(
+        rows.map((recipe) => recipe.terminalObservedKey).sort(),
+      );
+    }
+    expect(terminalsByTarget[0]).toEqual(terminalsByTarget[1]);
+    expect(
+      new Set(
+        recipes.recipes
+          .filter(
+            (recipe) =>
+              recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+              "filesystem-unbound-mutation",
+          )
+          .map(
+            (recipe) =>
+              recipe.publicSurfaceProbe.invocation.operation.guardOperation,
+          ),
+      ),
+    ).toEqual(
+      new Set([
+        "chmod",
+        "chown",
+        "copyfile",
+        "cp",
+        "fchmod",
+        "fchown",
+        "futimes",
+        "lchmod",
+        "lchown",
+        "link",
+        "lutimes",
+        "mkdtemp",
+        "rename",
+        "rm",
+        "rmdir",
+        "symlink",
+        "unlink",
+        "utime",
+        "watch",
+        "watchFile",
+      ]),
+    );
   });
 
   test("closes both public SQLite extension-loading exports in memory", () => {

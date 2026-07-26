@@ -38,3 +38,15 @@ closure.
 - Cover the corresponding Windows route explicitly rather than borrowing the
   Apple result, regenerate all derived artifacts, and update LLP 0021/0023/0036
   accounting.
+
+## Progress
+
+- The unconditional inventory is modeled as deny-only
+  `fs:unbound-mutation`: 56 public exports and 20 direct native terminals.
+- All 76 Apple spellings execute on the bound engine with exact `EPERM`, zero
+  decisions, and unchanged recursive filesystem state. The independent
+  promotion validator accepts the complete 684-fixture closed batch.
+- Both candidate targets have separate 76-row executable plans. Windows still
+  needs physical execution; Apple evidence is not borrowed.
+- The mixed `__exactFsPathAsync`, `__exactFsFdAsync`, and recursive-`mkdir`
+  dispatchers still need argument-selected branch-local closure modeling.

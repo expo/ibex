@@ -3842,11 +3842,13 @@ function residualReasons({
     publicSurfaceProbe.invocation.expectedTypedDecisionCount > 0 &&
     Array.isArray(publicSurfaceProbe.invocation.allowedCoverageEdgeIds) &&
     publicSurfaceProbe.invocation.allowedCoverageEdgeIds.length > 0;
-  const terminalBuiltinClosureProbe =
+  const sourceBoundClosureProbe =
     publicSurfaceProbe?.invocation?.invocationSchema ===
       "ibex/capsec-closed-surface-invocation/1" &&
-    publicSurfaceProbe?.invocation?.operation?.kind ===
-      "terminal-builtin-import";
+    new Set([
+      "filesystem-unbound-mutation",
+      "terminal-builtin-import",
+    ]).has(publicSurfaceProbe?.invocation?.operation?.kind);
   if (plan.expectedObservation.kind === "target-absence") {
     if (!publicSurfaceProbe) {
       reasons.push("target-absence-probe-not-authored");
@@ -3900,7 +3902,7 @@ function residualReasons({
     route.alternatives.length === 0 &&
     plan.expectedObservation.kind !== "target-absence" &&
     !callbackInvariantProbe &&
-    !terminalBuiltinClosureProbe
+    !sourceBoundClosureProbe
   ) {
     reasons.push("no-static-enforcement-terminal");
   }
@@ -3914,7 +3916,7 @@ function residualReasons({
     route.ambiguousCallees.length > 0 &&
     !callbackInvariantProbe &&
     !effectBuiltinProbe &&
-    !terminalBuiltinClosureProbe
+    !sourceBoundClosureProbe
   ) {
     reasons.push("ambiguous-static-enforcement-route");
   }

@@ -3489,6 +3489,8 @@ function validateRuntimeInvocation(observation, recipe) {
       }
     }
   } else if (authored.expectedResult === "closed") {
+    const filesystemMutation =
+      authored.operation?.kind === "filesystem-unbound-mutation";
     exactKeys(
       invocation.result,
       [
@@ -3497,6 +3499,14 @@ function validateRuntimeInvocation(observation, recipe) {
         "surfaceName",
         "mechanism",
         "errorName",
+        ...(filesystemMutation
+          ? [
+              "errorCode",
+              "callbackCalled",
+              "filesystemBeforeDigest",
+              "filesystemAfterDigest",
+            ]
+          : []),
         "errorMessage",
         ...(authored.operation?.kind === "loader-executable-file"
           ? ["errorCode"]
@@ -3511,7 +3521,8 @@ function validateRuntimeInvocation(observation, recipe) {
       invocation.result.surfaceKind !== authored.surfaceKind ||
       invocation.result.surfaceName !== authored.surfaceName ||
       invocation.result.mechanism !== authored.operation?.kind ||
-      invocation.result.errorName !== "ClosedSurface" ||
+      invocation.result.errorName !==
+        (filesystemMutation ? "Error" : "ClosedSurface") ||
       typeof invocation.result.errorMessage !== "string" ||
       invocation.result.errorMessage.length === 0 ||
       typeof invocation.result.engineExecuted !== "boolean" ||
@@ -3519,6 +3530,29 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: public closed surface did not fail closed`,
+      );
+    }
+    if (
+      filesystemMutation &&
+      (invocation.result.engineExecuted !== true ||
+        authored.operation.expectedErrorCode !== "EPERM" ||
+        invocation.result.errorCode !== authored.operation.expectedErrorCode ||
+        typeof authored.operation.guardOperation !== "string" ||
+        authored.operation.guardOperation.length === 0 ||
+        invocation.result.callbackCalled !==
+          (authored.operation.invocationStyle === "callback-deferred") ||
+        !invocation.result.errorMessage.includes(
+          authored.operation.expectedErrorFragment,
+        ) ||
+        !invocation.result.errorMessage.includes(
+          authored.operation.guardOperation,
+        ) ||
+        !isTaggedDigest(invocation.result.filesystemBeforeDigest) ||
+        invocation.result.filesystemBeforeDigest !==
+          invocation.result.filesystemAfterDigest)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: filesystem mutation did not prove pre-lookup EPERM closure with unchanged physical state`,
       );
     }
     if (
@@ -4648,9 +4682,19 @@ export function validatePublicFixtureRuntimeObservation(
     CLOSED_SQLITE_CARRIER_OPERATIONS.has(authored.operation?.kind) &&
     observation.typedDecisions.length === 0 &&
     terminalObservedKey === recipe.terminalObservedKey;
+  const directFilesystemMutationClosure =
+    recipe.classification === "closed" &&
+    recipe.scenario === "closed" &&
+    authored.operation?.kind === "filesystem-unbound-mutation" &&
+    observation.typedDecisions.length === 0 &&
+    terminalObservedKey === recipe.terminalObservedKey &&
+    canonicalJson(recipe.route?.surfaceObservedKeys) ===
+      canonicalJson([terminalObservedKey]);
   const allowed = runtimeAuxiliaryCarrier
     ? [recipe.publicSurfaceProbe.surfaceObservedKey]
-    : directTerminalBuiltinClosure || closedSqliteCarrierClosure
+    : directTerminalBuiltinClosure ||
+        closedSqliteCarrierClosure ||
+        directFilesystemMutationClosure
       ? [terminalObservedKey]
       : recipe.route?.alternatives?.map(
           (alternative) => alternative.terminalObservedKey,

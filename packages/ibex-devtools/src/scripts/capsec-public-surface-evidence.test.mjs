@@ -1612,6 +1612,72 @@ function completeClosedCatalog() {
   return catalog;
 }
 
+function completeClosedFilesystemCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const surfaceObservedKey = "builtin:export:node_fs:chmod";
+  const sourceDescriptor = {
+    kind: "closed-filesystem-unbound-mutation",
+    surfaceObservedKey,
+    targetTriple: target.triple,
+    surfaceForm: "builtin-export",
+    sourceKey: "node_fs",
+    exportName: "chmod",
+    moduleSpecifier: "node:fs",
+    sourceRefs: ["src/builtins/fs.js#exports:chmod"],
+    sourceMetadata: {
+      sourceKey: "node_fs",
+      exportName: "chmod",
+      surfaceType: "export",
+    },
+  };
+  recipe.fixtureId = "fixture.filesystem.chmod.closed";
+  recipe.terminalObservedKey = surfaceObservedKey;
+  recipe.route = {
+    surfaceObservedKeys: [surfaceObservedKey],
+    alternatives: [
+      {
+        terminalObservedKey: "native-op:__exactEnsureFs",
+        proofPaths: [
+          "export:chmod -> chmod -> _fsAsyncNative -> ensureExactFs -> __exactEnsureFs",
+        ],
+      },
+    ],
+    ambiguousCallees: ["unresolved-call:_exactFsMutationGuard"],
+  };
+  Object.assign(recipe.publicSurfaceProbe, {
+    surfaceObservedKey,
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "builtin",
+      surfaceName: "export:node_fs:chmod",
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "filesystem-unbound-mutation",
+        targetTriple: target.triple,
+        surfaceForm: "builtin-export",
+        sourceKey: "node_fs",
+        exportName: "chmod",
+        moduleSpecifier: "node:fs",
+        invocationStyle: "callback",
+        guardOperation: "chmod",
+        argumentShape: "path-mode",
+        expectedErrorCode: "EPERM",
+        expectedErrorFragment: "operation not permitted",
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
 function completeClosedCliCatalog() {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
@@ -2307,6 +2373,8 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
           ? invocation.operation.expectedError
         : invocation.operation.kind === "exact-unendowed-operation"
           ? invocation.operation.expectedError
+        : invocation.operation.kind === "filesystem-unbound-mutation"
+          ? `EPERM: ${invocation.operation.expectedErrorFragment}, ${invocation.operation.guardOperation}`
           : "production capability startup rejects closed environment controls: EX_SKIP_STARTUP_MODULE_LOADER";
   return {
     observationSchema: "ibex/capsec-runtime-public-observation/1",
@@ -2322,11 +2390,25 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
         surfaceKind: invocation.surfaceKind,
         surfaceName: invocation.surfaceName,
         mechanism: invocation.operation.kind,
-        errorName: "ClosedSurface",
+        errorName:
+          invocation.operation.kind === "filesystem-unbound-mutation"
+            ? "Error"
+            : "ClosedSurface",
         errorMessage,
         ...(invocation.operation.kind === "loader-executable-file"
           ? { errorCode: invocation.operation.publicErrorCode }
-          : {}),
+          : invocation.operation.kind === "filesystem-unbound-mutation"
+            ? {
+                errorCode: invocation.operation.expectedErrorCode,
+                callbackCalled:
+                  invocation.operation.invocationStyle ===
+                  "callback-deferred",
+                filesystemBeforeDigest:
+                  "sha256-FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+                filesystemAfterDigest:
+                  "sha256-FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+              }
+            : {}),
         engineExecuted:
           invocation.operation.kind === "loader-executable-file" ||
           invocation.operation.kind === "terminal-builtin-import" ||
@@ -2335,7 +2417,8 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
           invocation.operation.kind === "debugger-abi-disabled" ||
           invocation.operation.kind === "shared-runtime-global-absence" ||
           invocation.operation.kind === "armed-native-global-absence" ||
-          invocation.operation.kind === "exact-unendowed-operation",
+          invocation.operation.kind === "exact-unendowed-operation" ||
+          invocation.operation.kind === "filesystem-unbound-mutation",
         projectCodeExecuted,
       },
     },
@@ -4207,6 +4290,42 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/did not fail closed/);
+  });
+
+  test("accepts filesystem closure only for exact EPERM and unchanged physical state", () => {
+    const catalog = completeClosedFilesystemCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const mutated = closedRuntimeObservation(recipe);
+    mutated.invocation.result.filesystemAfterDigest =
+      "sha256-GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: mutated,
+        coverage,
+      }),
+    ).toThrow(/unchanged physical state/);
+
+    const wrongCode = closedRuntimeObservation(recipe);
+    wrongCode.invocation.result.errorCode = "EACCES";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongCode,
+        coverage,
+      }),
+    ).toThrow(/pre-lookup EPERM closure/);
   });
 
   test("accepts CLI closure only with the authored production rejection", () => {

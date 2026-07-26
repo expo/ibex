@@ -1228,8 +1228,39 @@ ticket closes.
   still need branch-local closure semantics. Important enforcement mechanisms
   remain about 96% complete and the overall requested task remains about 86%.
 
+### 2026-07-25 — executed wholly closed filesystem mutation evidence
+
+- Authored target-local closed-surface probes for all 76 reviewed mutation
+  rows: 56 public `node:fs`/`node:fs/promises` exports, including the three
+  `FileHandle` methods, and 20 direct native globals. Apple and Windows receive
+  separate recipe plans; no Apple execution is reused as Windows evidence.
+- The bound Apple Hermes batch passes all 684 closed-surface fixtures,
+  including all 76 new rows. Every mutation returns the production `EPERM`
+  refusal with the exact guard operation, emits zero typed and legacy
+  decisions, and preserves the recursively captured filesystem bytes,
+  directory entries, links, mode, owner, and timestamps.
+- The independent public-evidence validator accepts all 684 records and
+  rejects a changed filesystem digest or substituted error code. The recipe
+  and validator suites pass 137 tests with 109,496 assertions on the clean M4
+  mini worker. The full generated-drift chain is clean; the four checked
+  example policies and vendored-source fingerprint now carry the regenerated
+  vocabulary/registry identity without changing grants.
+- Apple is now 23,736 required / 2,742 fully executable / 3,114 internally
+  verified / 17,880 unresolved. Windows has an authored target-local plan at
+  23,621 / 2,316 / 3,102 / 18,203, but its 76 mutation rows still require a
+  Windows engine execution before they can count as physical target evidence.
+  Criterion 7's literal Apple denominator is now 5,856/23,736 (24.7%) proven.
+- Hard part: public `FileHandle.chmod/chown/utimes` have descriptor-style guard
+  identities but receiver-local argument lists; using path-style arguments
+  caused validation to reject before the guard. The producer and independent
+  validator now bind the exact per-surface call shape and require the
+  fail-before-lookup unchanged-state proof. The mixed `__exactFsPathAsync`,
+  `__exactFsFdAsync`, and recursive-`mkdir` dispatchers remain the next
+  branch-local modeling task. Important enforcement mechanisms remain about
+  96% complete and the overall requested task remains about 86%.
+
 ## Next milestone
 
-Execute the wholly closed filesystem spellings with zero-decision and
-unchanged-filesystem proof, then add branch-local closure for the mixed
-dispatchers before returning to the broader exact-target evidence gap.
+Add branch-local closure for the mixed filesystem dispatchers, execute the
+Windows target-local closure plan, and then return to the broader exact-target
+evidence gap.

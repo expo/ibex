@@ -169,6 +169,59 @@ const EXACT_RUNTIME_CANDIDATE_TRIPLES = new Set([
   "x86_64-pc-windows-msvc",
 ]);
 
+const CLOSED_FS_BUILTIN_INVOCATION_SHAPES = new Map([
+  ["chmod", ["chmod", "path-mode"]],
+  ["chown", ["chown", "path-owner"]],
+  ["copyfile", ["copyfile", "two-paths"]],
+  ["cp", ["cp", "two-paths"]],
+  ["fchmod", ["fchmod", "descriptor-mode"]],
+  ["fchown", ["fchown", "descriptor-owner"]],
+  ["futimes", ["futimes", "descriptor-times"]],
+  ["lchmod", ["lchmod", "path-mode"]],
+  ["lchown", ["lchown", "path-owner"]],
+  ["link", ["link", "two-paths"]],
+  ["lutimes", ["lutimes", "path-times"]],
+  ["mkdtemp", ["mkdtemp", "path-prefix"]],
+  ["mkdtempdisposable", ["mkdtemp", "path-prefix"]],
+  ["rename", ["rename", "two-paths"]],
+  ["rm", ["rm", "path"]],
+  ["rmdir", ["rmdir", "path"]],
+  ["symlink", ["symlink", "two-paths"]],
+  ["unlink", ["unlink", "path"]],
+  ["utimes", ["utime", "path-times"]],
+  ["watch", ["watch", "path"]],
+  ["watchfile", ["watchFile", "path"]],
+]);
+
+const CLOSED_FS_FILE_HANDLE_INVOCATION_SHAPES = new Map([
+  ["chmod", ["fchmod", "filehandle-mode"]],
+  ["chown", ["fchown", "filehandle-owner"]],
+  ["utimes", ["futimes", "filehandle-times"]],
+]);
+
+const CLOSED_FS_NATIVE_INVOCATION_SHAPES = new Map([
+  ["__exactChmod", ["chmod", "path-mode"]],
+  ["__exactChown", ["chown", "path-owner"]],
+  ["__exactCopyFile", ["copyfile", "two-paths"]],
+  ["__exactFsFchmod", ["fchmod", "descriptor-mode"]],
+  ["__exactFsFchmodSync", ["fchmod", "descriptor-mode"]],
+  ["__exactFsFchown", ["fchown", "descriptor-owner"]],
+  ["__exactFsFchownSync", ["fchown", "descriptor-owner"]],
+  ["__exactFsFutimesSync", ["futimes", "descriptor-times"]],
+  ["__exactLchmod", ["lchmod", "path-mode"]],
+  ["__exactLchmodSync", ["lchmod", "path-mode"]],
+  ["__exactLchown", ["lchown", "path-owner"]],
+  ["__exactLink", ["link", "two-paths"]],
+  ["__exactLutimes", ["lutimes", "path-times"]],
+  ["__exactLutimesSync", ["lutimes", "path-times"]],
+  ["__exactMkdtemp", ["mkdtemp", "path-prefix"]],
+  ["__exactRename", ["rename", "two-paths"]],
+  ["__exactRmdir", ["rmdir", "path"]],
+  ["__exactSymlink", ["symlink", "two-paths"]],
+  ["__exactUnlink", ["unlink", "path"]],
+  ["__exactUtimes", ["utime", "path-times"]],
+]);
+
 function reviewedSharedRuntimeAbsentSurface(surfaceName) {
   return (
     SHARED_RUNTIME_ABSENT_GLOBALS.has(surfaceName) ||
@@ -1308,6 +1361,146 @@ function armedNativeGlobalAbsenceProbe({
   };
 }
 
+function filesystemMutationProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+  target,
+}) {
+  if (
+    !EXACT_RUNTIME_CANDIDATE_TRIPLES.has(target?.triple) ||
+    route.surfaceObservedKeys.length !== 1
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  if (
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    edge.cap !== "fs:unbound-mutation" ||
+    !Array.isArray(live?.sourceRefs) ||
+    live.sourceRefs.length === 0
+  ) {
+    return null;
+  }
+
+  let surfaceForm;
+  let guardOperation;
+  let argumentShape;
+  let invocationStyle;
+  let sourceKey;
+  let exportName;
+  let moduleSpecifier;
+  let nativeName;
+  if (live.kind === "builtin") {
+    sourceKey = live.metadata?.sourceKey;
+    exportName = live.metadata?.exportName;
+    if (
+      live.metadata?.surfaceType !== "export" ||
+      !["node_fs", "node_fs_promises"].includes(sourceKey) ||
+      typeof exportName !== "string" ||
+      live.name !== `export:${sourceKey}:${exportName}`
+    ) {
+      return null;
+    }
+    const nestedExport = exportName.toLowerCase();
+    const normalizedExport = nestedExport
+      .replace(/^filehandle\./u, "")
+      .replace(/sync$/u, "");
+    const fileHandle = nestedExport.startsWith("filehandle.");
+    const shape = fileHandle
+      ? CLOSED_FS_FILE_HANDLE_INVOCATION_SHAPES.get(normalizedExport)
+      : CLOSED_FS_BUILTIN_INVOCATION_SHAPES.get(normalizedExport);
+    if (!shape) return null;
+    [guardOperation, argumentShape] = shape;
+    surfaceForm = "builtin-export";
+    moduleSpecifier =
+      sourceKey === "node_fs" ? "node:fs" : "node:fs/promises";
+    if (
+      !live.metadata.publicModuleSpecifiers?.includes(moduleSpecifier)
+    ) {
+      return null;
+    }
+    invocationStyle = fileHandle
+      ? "file-handle-promise"
+      : sourceKey === "node_fs_promises"
+        ? "promise"
+        : normalizedExport === "mkdtempdisposable" &&
+            !nestedExport.endsWith("sync")
+          ? "callback-deferred"
+        : ["watch", "watchfile"].includes(normalizedExport)
+          ? "sync-listener"
+          : nestedExport.endsWith("sync")
+            ? "sync"
+            : "callback";
+  } else if (live.kind === "native-op") {
+    const shape = CLOSED_FS_NATIVE_INVOCATION_SHAPES.get(live.name);
+    if (
+      !shape ||
+      route.alternatives.length !== 1 ||
+      route.ambiguousCallees.length !== 0 ||
+      route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+    ) {
+      return null;
+    }
+    [guardOperation, argumentShape] = shape;
+    surfaceForm = "native-global";
+    invocationStyle = "sync";
+    nativeName = live.name;
+  } else {
+    return null;
+  }
+
+  // @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified — closure evidence binds the public spelling while the production refusal remains before lookup and mutation.
+  const sourceDescriptor = {
+    kind: "closed-filesystem-unbound-mutation",
+    surfaceObservedKey,
+    targetTriple: target.triple,
+    surfaceForm,
+    ...(sourceKey === undefined ? {} : { sourceKey }),
+    ...(exportName === undefined ? {} : { exportName }),
+    ...(moduleSpecifier === undefined ? {} : { moduleSpecifier }),
+    ...(nativeName === undefined ? {} : { functionName: nativeName }),
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(live.metadata ?? {}),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: live.kind,
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "filesystem-unbound-mutation",
+        targetTriple: target.triple,
+        surfaceForm,
+        ...(sourceKey === undefined ? {} : { sourceKey }),
+        ...(exportName === undefined ? {} : { exportName }),
+        ...(moduleSpecifier === undefined ? {} : { moduleSpecifier }),
+        ...(nativeName === undefined ? {} : { nativeName }),
+        invocationStyle,
+        guardOperation,
+        argumentShape,
+        expectedErrorCode: "EPERM",
+        expectedErrorFragment: "operation not permitted",
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
 export function authoredClosedPublicProbe(options) {
   const { plan, scenario } = options;
   if (
@@ -1331,7 +1524,8 @@ export function authoredClosedPublicProbe(options) {
     terminalBuiltinImportProbe(options) ??
     debuggerAbiDisabledProbe(options) ??
     armedNativeGlobalAbsenceProbe(options) ??
-    sharedRuntimeGlobalAbsenceProbe(options)
+    sharedRuntimeGlobalAbsenceProbe(options) ??
+    filesystemMutationProbe(options)
   );
 }
 

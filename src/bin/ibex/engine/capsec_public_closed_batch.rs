@@ -107,6 +107,10 @@ struct ClosedSourceDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     function_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    module_specifier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    surface_form: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     selected_source_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     target_triple: Option<String>,
@@ -220,6 +224,34 @@ enum ClosedOperation {
         #[serde(rename = "expectedError")]
         expected_error: String,
     },
+    FilesystemUnboundMutation {
+        #[serde(rename = "targetTriple")]
+        target_triple: String,
+        #[serde(rename = "surfaceForm")]
+        surface_form: String,
+        #[serde(default, rename = "sourceKey", skip_serializing_if = "Option::is_none")]
+        source_key: Option<String>,
+        #[serde(default, rename = "exportName", skip_serializing_if = "Option::is_none")]
+        export_name: Option<String>,
+        #[serde(
+            default,
+            rename = "moduleSpecifier",
+            skip_serializing_if = "Option::is_none"
+        )]
+        module_specifier: Option<String>,
+        #[serde(default, rename = "nativeName", skip_serializing_if = "Option::is_none")]
+        native_name: Option<String>,
+        #[serde(rename = "invocationStyle")]
+        invocation_style: String,
+        #[serde(rename = "guardOperation")]
+        guard_operation: String,
+        #[serde(rename = "argumentShape")]
+        argument_shape: String,
+        #[serde(default, rename = "expectedErrorCode")]
+        expected_error_code: Option<String>,
+        #[serde(rename = "expectedErrorFragment")]
+        expected_error_fragment: String,
+    },
 }
 
 impl ClosedOperation {
@@ -237,6 +269,7 @@ impl ClosedOperation {
             Self::DebuggerAbiDisabled { .. } => "debugger-abi-disabled",
             Self::SharedRuntimeGlobalAbsence { .. } => "shared-runtime-global-absence",
             Self::ArmedNativeGlobalAbsence { .. } => "armed-native-global-absence",
+            Self::FilesystemUnboundMutation { .. } => "filesystem-unbound-mutation",
         }
     }
 
@@ -253,7 +286,8 @@ impl ClosedOperation {
             | Self::SqliteCrSqliteEnable { .. }
             | Self::DebuggerAbiDisabled { .. } => None,
             Self::SharedRuntimeGlobalAbsence { .. }
-            | Self::ArmedNativeGlobalAbsence { .. } => None,
+            | Self::ArmedNativeGlobalAbsence { .. }
+            | Self::FilesystemUnboundMutation { .. } => None,
         }
     }
 }
@@ -1266,6 +1300,559 @@ fn reviewed_terminal_builtin(source_key: &str) -> Option<(&'static str, &'static
         "node_wasi" => ("wasi", &["node:wasi", "wasi"]),
         "node_worker_threads" => ("worker_threads", &["node:worker_threads", "worker_threads"]),
         _ => return None,
+    })
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ReviewedFilesystemMutation {
+    guard_operation: &'static str,
+    argument_shape: &'static str,
+    invocation_style: &'static str,
+}
+
+#[cfg(test)]
+fn reviewed_builtin_filesystem_mutation(
+    source_key: &str,
+    export_name: &str,
+) -> Option<ReviewedFilesystemMutation> {
+    if !matches!(source_key, "node_fs" | "node_fs_promises") {
+        return None;
+    }
+    let lowered = export_name.to_ascii_lowercase();
+    let (file_handle, lowered) = lowered
+        .strip_prefix("filehandle.")
+        .map_or((false, lowered.as_str()), |member| (true, member));
+    let normalized = lowered.strip_suffix("sync").unwrap_or(lowered);
+    let (guard_operation, argument_shape) = if file_handle {
+        match normalized {
+            "chmod" => ("fchmod", "filehandle-mode"),
+            "chown" => ("fchown", "filehandle-owner"),
+            "utimes" => ("futimes", "filehandle-times"),
+            _ => return None,
+        }
+    } else {
+        match normalized {
+        "chmod" => ("chmod", "path-mode"),
+        "chown" => ("chown", "path-owner"),
+        "copyfile" => ("copyfile", "two-paths"),
+        "cp" => ("cp", "two-paths"),
+        "fchmod" => ("fchmod", "descriptor-mode"),
+        "fchown" => ("fchown", "descriptor-owner"),
+        "futimes" => ("futimes", "descriptor-times"),
+        "lchmod" => ("lchmod", "path-mode"),
+        "lchown" => ("lchown", "path-owner"),
+        "link" => ("link", "two-paths"),
+        "lutimes" => ("lutimes", "path-times"),
+        "mkdtemp" | "mkdtempdisposable" => ("mkdtemp", "path-prefix"),
+        "rename" => ("rename", "two-paths"),
+        "rm" => ("rm", "path"),
+        "rmdir" => ("rmdir", "path"),
+        "symlink" => ("symlink", "two-paths"),
+        "unlink" => ("unlink", "path"),
+        "utimes" => ("utime", "path-times"),
+        "watch" => ("watch", "path"),
+        "watchfile" => ("watchFile", "path"),
+        _ => return None,
+        }
+    };
+    let invocation_style = if file_handle {
+        "file-handle-promise"
+    } else if source_key == "node_fs_promises" {
+        "promise"
+    } else if normalized == "mkdtempdisposable"
+        && !export_name.to_ascii_lowercase().ends_with("sync")
+    {
+        "callback-deferred"
+    } else if matches!(normalized, "watch" | "watchfile") {
+        "sync-listener"
+    } else if export_name.to_ascii_lowercase().ends_with("sync") {
+        "sync"
+    } else {
+        "callback"
+    };
+    Some(ReviewedFilesystemMutation {
+        guard_operation,
+        argument_shape,
+        invocation_style,
+    })
+}
+
+#[cfg(test)]
+fn reviewed_native_filesystem_mutation(name: &str) -> Option<ReviewedFilesystemMutation> {
+    let (guard_operation, argument_shape) = match name {
+        "__exactChmod" => ("chmod", "path-mode"),
+        "__exactChown" => ("chown", "path-owner"),
+        "__exactCopyFile" => ("copyfile", "two-paths"),
+        "__exactFsFchmod" | "__exactFsFchmodSync" => ("fchmod", "descriptor-mode"),
+        "__exactFsFchown" | "__exactFsFchownSync" => ("fchown", "descriptor-owner"),
+        "__exactFsFutimesSync" => ("futimes", "descriptor-times"),
+        "__exactLchmod" | "__exactLchmodSync" => ("lchmod", "path-mode"),
+        "__exactLchown" => ("lchown", "path-owner"),
+        "__exactLink" => ("link", "two-paths"),
+        "__exactLutimes" | "__exactLutimesSync" => ("lutimes", "path-times"),
+        "__exactMkdtemp" => ("mkdtemp", "path-prefix"),
+        "__exactRename" => ("rename", "two-paths"),
+        "__exactRmdir" => ("rmdir", "path"),
+        "__exactSymlink" => ("symlink", "two-paths"),
+        "__exactUnlink" => ("unlink", "path"),
+        "__exactUtimes" => ("utime", "path-times"),
+        _ => return None,
+    };
+    Some(ReviewedFilesystemMutation {
+        guard_operation,
+        argument_shape,
+        invocation_style: "sync",
+    })
+}
+
+#[cfg(test)]
+fn filesystem_tree_state(path: &std::path::Path) -> serde_json::Value {
+    use std::time::UNIX_EPOCH;
+
+    let metadata = std::fs::symlink_metadata(path).expect("stat closed filesystem fixture");
+    let file_type = metadata.file_type();
+    let kind = if file_type.is_dir() {
+        "directory"
+    } else if file_type.is_file() {
+        "file"
+    } else if file_type.is_symlink() {
+        "symlink"
+    } else {
+        "other"
+    };
+    let modified_nanos = metadata
+        .modified()
+        .expect("closed filesystem fixture has no modification time")
+        .duration_since(UNIX_EPOCH)
+        .expect("closed filesystem fixture modification time predates epoch")
+        .as_nanos()
+        .to_string();
+    let mut state = serde_json::json!({
+        "kind": kind,
+        "length": metadata.len(),
+        "modifiedNanos": modified_nanos,
+        "readonly": metadata.permissions().readonly(),
+    });
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        let object = state
+            .as_object_mut()
+            .expect("closed filesystem state must be an object");
+        object.insert("mode".into(), serde_json::json!(metadata.mode()));
+        object.insert("uid".into(), serde_json::json!(metadata.uid()));
+        object.insert("gid".into(), serde_json::json!(metadata.gid()));
+    }
+    if file_type.is_file() {
+        state["contentsBase64"] = serde_json::Value::String(
+            base64::engine::general_purpose::STANDARD
+                .encode(std::fs::read(path).expect("read closed filesystem fixture")),
+        );
+    } else if file_type.is_symlink() {
+        state["linkTarget"] = serde_json::Value::String(
+            std::fs::read_link(path)
+                .expect("read closed filesystem fixture link")
+                .to_string_lossy()
+                .into_owned(),
+        );
+    } else if file_type.is_dir() {
+        let mut children = std::fs::read_dir(path)
+            .expect("read closed filesystem fixture directory")
+            .map(|entry| entry.expect("read closed filesystem fixture entry"))
+            .collect::<Vec<_>>();
+        children.sort_by_key(|entry| entry.file_name());
+        state["children"] = serde_json::Value::Array(
+            children
+                .into_iter()
+                .map(|entry| {
+                    serde_json::json!({
+                        "name": entry.file_name().to_string_lossy(),
+                        "state": filesystem_tree_state(&entry.path()),
+                    })
+                })
+                .collect(),
+        );
+    }
+    state
+}
+
+#[cfg(test)]
+fn filesystem_mutation_script(
+    operation: &ClosedOperation,
+    source_path: &str,
+    destination_path: &str,
+    directory_path: &str,
+    prefix_path: &str,
+) -> String {
+    let ClosedOperation::FilesystemUnboundMutation {
+        surface_form,
+        source_key: _,
+        export_name,
+        module_specifier,
+        native_name,
+        invocation_style,
+        guard_operation,
+        argument_shape,
+        ..
+    } = operation
+    else {
+        panic!("filesystem mutation script has the wrong operation")
+    };
+    format!(
+        r#"JSON.stringify(await (async function(operation, paths) {{
+  var callbackCalled = false;
+  function argumentsFor(shape) {{
+    if (shape === "path-mode") return [paths.source, 384];
+    if (shape === "path-owner") return [paths.source, 0, 0];
+    if (shape === "two-paths") return [paths.source, paths.destination];
+    if (shape === "descriptor-mode") return [0, 384];
+    if (shape === "descriptor-owner") return [0, 0, 0];
+    if (shape === "descriptor-times") return [0, 1, 2];
+    if (shape === "filehandle-mode") return [384];
+    if (shape === "filehandle-owner") return [0, 0];
+    if (shape === "filehandle-times") return [1, 2];
+    if (shape === "path-times") return [paths.source, 1, 2];
+    if (shape === "path-prefix") return [paths.prefix];
+    if (shape === "path") {{
+      return [operation.guardOperation === "rm" ||
+               operation.guardOperation === "rmdir"
+        ? paths.directory
+        : paths.source];
+    }}
+    throw new Error("unreviewed closed filesystem argument shape " + shape);
+  }}
+  try {{
+    var receiver;
+    var fn;
+    if (operation.surfaceForm === "builtin-export") {{
+      var api = require(operation.moduleSpecifier);
+      if (operation.invocationStyle === "file-handle-promise") {{
+        var member = operation.exportName.slice("FileHandle.".length);
+        receiver = {{}};
+        fn = api.FileHandle && api.FileHandle.prototype[member];
+      }} else {{
+        receiver = api;
+        fn = api[operation.exportName];
+      }}
+    }} else {{
+      receiver = globalThis;
+      fn = globalThis[operation.nativeName];
+    }}
+    if (typeof fn !== "function") {{
+      return {{kind: "missing", callbackCalled: callbackCalled}};
+    }}
+    var args = argumentsFor(operation.argumentShape);
+    if (operation.invocationStyle === "callback" ||
+        operation.invocationStyle === "callback-deferred") {{
+      var settleCallback;
+      var callbackResult = new Promise(function(resolve) {{
+        settleCallback = resolve;
+      }});
+      args.push(function(error, value) {{
+        callbackCalled = true;
+        settleCallback({{error: error, value: value}});
+      }});
+      Reflect.apply(fn, receiver, args);
+      var settled = await callbackResult;
+      if (settled.error) throw settled.error;
+      return {{
+        kind: "return",
+        callbackCalled: callbackCalled,
+        valueType: settled.value === null ? "null" : typeof settled.value
+      }};
+    }}
+    if (operation.invocationStyle === "sync-listener") {{
+      args.push(function() {{ callbackCalled = true; }});
+    }}
+    var value = Reflect.apply(fn, receiver, args);
+    if (operation.invocationStyle === "promise" ||
+        operation.invocationStyle === "file-handle-promise") {{
+      value = await value;
+    }}
+    return {{
+      kind: "return",
+      callbackCalled: callbackCalled,
+      valueType: value === null ? "null" : typeof value
+    }};
+  }} catch (error) {{
+    return {{
+      kind: "throw",
+      callbackCalled: callbackCalled,
+      errorName: String(error && error.name || "Error"),
+      errorCode: error && error.code == null ? null : String(error.code),
+      errorMessage: String(error && error.message || error)
+    }};
+  }}
+}})({operation}, {paths}))"#,
+        operation = serde_json::to_string(&serde_json::json!({
+            "surfaceForm": surface_form,
+            "exportName": export_name,
+            "moduleSpecifier": module_specifier,
+            "nativeName": native_name,
+            "invocationStyle": invocation_style,
+            "guardOperation": guard_operation,
+            "argumentShape": argument_shape,
+        }))
+        .expect("serialize closed filesystem operation"),
+        paths = serde_json::to_string(&serde_json::json!({
+            "source": source_path,
+            "destination": destination_path,
+            "directory": directory_path,
+            "prefix": prefix_path,
+        }))
+        .expect("serialize closed filesystem paths"),
+    )
+}
+
+#[cfg(test)]
+async fn execute_closed_filesystem_mutation(
+    engine: &mut AuthenticatedClosedEngine,
+    recipe: &Recipe,
+    probe: &ClosedSurfaceProbe,
+    coverage: &BTreeMap<String, (String, String)>,
+    engine_binary_digest: &str,
+    target_triple: &str,
+    project_root: &std::path::Path,
+) -> serde_json::Value {
+    let invocation = &probe.invocation;
+    let ClosedOperation::FilesystemUnboundMutation {
+        target_triple: operation_target,
+        surface_form,
+        source_key,
+        export_name,
+        module_specifier,
+        native_name,
+        invocation_style,
+        guard_operation,
+        argument_shape,
+        expected_error_code,
+        expected_error_fragment,
+    } = &invocation.operation
+    else {
+        panic!("filesystem mutation probe has the wrong operation")
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "closed");
+    assert_eq!(recipe.scenario, "closed");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
+    assert_eq!(invocation.kind, "closed-surface");
+    assert_eq!(invocation.expected_result, "closed");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert!(invocation.allowed_coverage_edge_ids.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(operation_target, target_triple);
+    assert_eq!(expected_error_fragment, "operation not permitted");
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+
+    let descriptor = &invocation.source_descriptor;
+    assert_eq!(descriptor.kind, "closed-filesystem-unbound-mutation");
+    assert_eq!(
+        descriptor.surface_observed_key.as_deref(),
+        Some(probe.surface_observed_key.as_str())
+    );
+    assert_eq!(descriptor.target_triple.as_deref(), Some(target_triple));
+    assert_eq!(descriptor.surface_form.as_ref(), Some(surface_form));
+    assert!(!descriptor.source_refs.is_empty());
+    let reviewed = if surface_form == "builtin-export" {
+        assert_eq!(invocation.surface_kind, "builtin");
+        let source_key = source_key
+            .as_deref()
+            .expect("filesystem builtin mutation has no source key");
+        let export_name = export_name
+            .as_deref()
+            .expect("filesystem builtin mutation has no export name");
+        let module_specifier = module_specifier
+            .as_deref()
+            .expect("filesystem builtin mutation has no module specifier");
+        assert!(native_name.is_none());
+        assert_eq!(descriptor.source_key.as_deref(), Some(source_key));
+        assert_eq!(descriptor.export_name.as_deref(), Some(export_name));
+        assert_eq!(
+            descriptor.module_specifier.as_deref(),
+            Some(module_specifier)
+        );
+        assert!(descriptor.function_name.is_none());
+        assert_eq!(descriptor.source_metadata["sourceKey"], source_key);
+        assert_eq!(descriptor.source_metadata["exportName"], export_name);
+        assert_eq!(descriptor.source_metadata["surfaceType"], "export");
+        assert_eq!(
+            invocation.surface_name,
+            format!("export:{source_key}:{export_name}")
+        );
+        assert_eq!(
+            expected_error_code.as_deref(),
+            Some("EPERM"),
+            "public fs wrapper must expose its typed EPERM code"
+        );
+        reviewed_builtin_filesystem_mutation(source_key, export_name)
+            .expect("unreviewed closed filesystem builtin")
+    } else {
+        assert_eq!(surface_form, "native-global");
+        assert_eq!(invocation.surface_kind, "native-op");
+        assert!(source_key.is_none());
+        assert!(export_name.is_none());
+        assert!(module_specifier.is_none());
+        assert_eq!(
+            expected_error_code.as_deref(),
+            Some("EPERM"),
+            "direct fs mutation must expose its typed EPERM code"
+        );
+        let native_name = native_name
+            .as_deref()
+            .expect("filesystem native mutation has no native name");
+        assert_eq!(descriptor.function_name.as_deref(), Some(native_name));
+        assert_eq!(invocation.surface_name, native_name);
+        reviewed_native_filesystem_mutation(native_name)
+            .expect("unreviewed closed filesystem native")
+    };
+    assert_eq!(reviewed.guard_operation, guard_operation);
+    assert_eq!(reviewed.argument_shape, argument_shape);
+    assert_eq!(reviewed.invocation_style, invocation_style);
+
+    let (surface_kind, surface_name) = coverage
+        .get(&recipe.edge_ids[0])
+        .expect("closed filesystem recipe names an unknown coverage edge");
+    assert_eq!(surface_kind, &invocation.surface_kind);
+    assert_eq!(surface_name, &invocation.surface_name);
+    let terminal_observed_key = format!("{surface_kind}:{surface_name}");
+    assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
+    assert_eq!(terminal_observed_key, probe.surface_observed_key);
+
+    let source_path = "/project/capsec-closed-source.txt";
+    let destination_path = "/project/capsec-closed-destination.txt";
+    let directory_path = "/project/capsec-closed-directory";
+    let prefix_path = "/project/capsec-closed-temp-";
+    let before = filesystem_tree_state(project_root);
+    let before_digest = tagged_jcs_digest(&before);
+    let session_id = format!("public-observation:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
+        &session_id
+    ));
+    let encoded = engine
+        .eval_immediate(&filesystem_mutation_script(
+            &invocation.operation,
+            source_path,
+            destination_path,
+            directory_path,
+            prefix_path,
+        ))
+        .await
+        .expect("execute closed filesystem mutation")
+        .expect("closed filesystem mutation returned no result");
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    let observed: serde_json::Value =
+        serde_json::from_str(&encoded).expect("closed filesystem result must be JSON");
+    assert_eq!(
+        observed["kind"], "throw",
+        "{} ({surface_form} {} / {guard_operation}) did not refuse: {observed}",
+        recipe.fixture_id, invocation.surface_name
+    );
+    assert_eq!(
+        observed["callbackCalled"],
+        invocation_style == "callback-deferred",
+        "{} delivered its refusal through the wrong callback channel",
+        recipe.fixture_id
+    );
+    assert_eq!(
+        observed["errorName"], "Error",
+        "{} ({surface_form} {} / {guard_operation}) returned the wrong error: {observed}",
+        recipe.fixture_id, invocation.surface_name
+    );
+    assert_eq!(
+        observed["errorCode"].as_str(),
+        expected_error_code.as_deref(),
+        "{} ({surface_form} {} / {guard_operation}) returned the wrong code: {observed}",
+        recipe.fixture_id,
+        invocation.surface_name
+    );
+    let error_message = observed["errorMessage"]
+        .as_str()
+        .expect("closed filesystem mutation has no error message");
+    assert!(
+        error_message.contains(expected_error_fragment)
+            && error_message.contains(guard_operation),
+        "closed filesystem mutation returned the wrong refusal: {error_message}"
+    );
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+    let after = filesystem_tree_state(project_root);
+    let after_digest = tagged_jcs_digest(&after);
+    assert_eq!(
+        after, before,
+        "closed filesystem mutation changed its physical fixture"
+    );
+
+    let result = serde_json::json!({
+        "kind": "closed",
+        "surfaceKind": surface_kind,
+        "surfaceName": surface_name,
+        "mechanism": invocation.operation.kind(),
+        "errorName": observed["errorName"],
+        "errorCode": observed["errorCode"],
+        "errorMessage": error_message,
+        "callbackCalled": observed["callbackCalled"],
+        "filesystemBeforeDigest": before_digest,
+        "filesystemAfterDigest": after_digest,
+        "engineExecuted": true,
+        "projectCodeExecuted": false,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": terminal_observed_key,
+            "surfaceKind": surface_kind,
+            "surfaceName": surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": 0,
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected closed filesystem observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .expect("closed filesystem evidence must be an object")
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-closed-public-surface-harness",
+        "evidence": evidence,
     })
 }
 
@@ -3534,6 +4121,18 @@ async fn capsec_public_closed_recipe_batch() {
             )
         })
         .count();
+    let filesystem_mutation_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::FilesystemUnboundMutation { .. }
+            )
+        })
+        .count();
     assert_eq!(
         recipe_indexes.len(),
         startup_count
@@ -3547,7 +4146,8 @@ async fn capsec_public_closed_recipe_batch() {
             + sqlite_crsqlite_enable_count
             + debugger_abi_count
             + shared_runtime_global_absence_count
-            + armed_native_global_absence_count,
+            + armed_native_global_absence_count
+            + filesystem_mutation_count,
         "every closed recipe must have an accounted execution family"
     );
     assert_eq!(
@@ -3602,6 +4202,10 @@ async fn capsec_public_closed_recipe_batch() {
     assert_eq!(
         armed_native_global_absence_count, expected_native_absence,
         "expected every target-applicable reviewed armed native global"
+    );
+    assert_eq!(
+        filesystem_mutation_count, 76,
+        "expected every wholly closed public and direct native filesystem mutation"
     );
     let _lock = hermes_engine_test_lock().lock().await;
     let _environment_restore = ClosedEnvironmentRestore::clear();
@@ -3838,6 +4442,86 @@ async fn capsec_public_closed_recipe_batch() {
             .finish()
             .expect("finish authenticated shared-runtime-closure publications");
     }
+    if filesystem_mutation_count > 0 {
+        let filesystem_indexes = recipe_indexes
+            .iter()
+            .copied()
+            .filter(|index| {
+                matches!(
+                    &closed_surface_probe(&catalog.recipes[*index])
+                        .unwrap()
+                        .invocation
+                        .operation,
+                    ClosedOperation::FilesystemUnboundMutation { .. }
+                )
+            })
+            .collect::<Vec<_>>();
+        let fixture_root =
+            tempfile::tempdir().expect("create closed filesystem mutation fixture root");
+        let project_root = std::fs::canonicalize(fixture_root.path())
+            .expect("canonicalize closed filesystem mutation fixture root");
+        std::fs::write(
+            project_root.join("capsec-closed-source.txt"),
+            b"ibex-capsec-closed-mutation-source\n",
+        )
+        .expect("write closed filesystem mutation source");
+        std::fs::create_dir(project_root.join("capsec-closed-directory"))
+            .expect("create closed filesystem mutation directory");
+        let (host, snapshot_digest) = build_armed_test_host_custom(
+            Some(&project_root),
+            false,
+            false,
+            false,
+            Vec::new(),
+            None,
+            |snapshot| {
+                snapshot["principals"][0]["imports"]["builtins"] =
+                    serde_json::json!(["node:fs", "node:fs/promises"]);
+            },
+        );
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+            .expect("create exact closed filesystem mutation engine");
+        engine
+            .load_runtime()
+            .await
+            .expect("load exact closed filesystem mutation runtime");
+        let mut engine = AuthenticatedClosedEngine {
+            host,
+            engine,
+            publications: AuthenticatedPublicationTracker::default(),
+        };
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "require('node:fs'); require('node:fs/promises'); 'loaded-closed-fs'"
+                )
+                .await
+                .expect("preload closed filesystem public modules")
+                .as_deref(),
+            Some("loaded-closed-fs")
+        );
+        for index in filesystem_indexes {
+            let recipe = &catalog.recipes[index];
+            let probe = closed_surface_probe(recipe).unwrap();
+            executions.push(
+                execute_closed_filesystem_mutation(
+                    &mut engine,
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                    &catalog.target.triple,
+                    &project_root,
+                )
+                .await,
+            );
+        }
+        engine
+            .finish()
+            .expect("finish authenticated closed-filesystem publications");
+    }
     for index in recipe_indexes {
         let recipe = &catalog.recipes[index];
         let probe = closed_surface_probe(recipe).unwrap();
@@ -3849,6 +4533,7 @@ async fn capsec_public_closed_recipe_batch() {
                 | ClosedOperation::DebuggerAbiDisabled { .. }
                 | ClosedOperation::SharedRuntimeGlobalAbsence { .. }
                 | ClosedOperation::ArmedNativeGlobalAbsence { .. }
+                | ClosedOperation::FilesystemUnboundMutation { .. }
         ) {
             continue;
         }
@@ -3907,6 +4592,7 @@ async fn capsec_public_closed_recipe_batch() {
             ClosedOperation::DebuggerAbiDisabled { .. } => unreachable!(),
             ClosedOperation::SharedRuntimeGlobalAbsence { .. } => unreachable!(),
             ClosedOperation::ArmedNativeGlobalAbsence { .. } => unreachable!(),
+            ClosedOperation::FilesystemUnboundMutation { .. } => unreachable!(),
         });
     }
     executions.sort_by(|left, right| left["fixtureId"].as_str().cmp(&right["fixtureId"].as_str()));
