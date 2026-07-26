@@ -442,12 +442,13 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_542);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_378);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
-    // proofs, while its effectful filesystem route remains ambiguous.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_341);
-    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_102);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_099);
+    // proofs, while registrations from build.rs-replaced default translation
+    // units remain target-absent instead of borrowing the POSIX branch.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_382);
+    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_100);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_896);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -627,30 +628,18 @@ describe("exact-target CapSec executable recipes", () => {
           "native-op:",
           "",
         );
-        return (
-          windowsExcludedDefaultGlobals.has(globalName) &&
-          (globalName === "__exactGetProcessRSS"
-            ? [
-                "allow",
-                "deny",
-                "malformed",
-                "missing-attribution",
-                "wrong-principal",
-              ].includes(recipe.scenario)
-            : recipe.scenario === "non-capability")
-        );
+        return windowsExcludedDefaultGlobals.has(globalName);
       },
     );
     expect(windowsExcludedDefaultGlobals.size).toBe(32);
-    expect(windowsExcludedDefaultRecipes).toHaveLength(35);
+    expect(windowsExcludedDefaultRecipes).toHaveLength(32);
     expect(
       windowsExcludedDefaultRecipes.every(
         (recipe) =>
-          recipe.status === "unresolved" &&
-          recipe.publicSurfaceProbe === null &&
-          recipe.residualReasons.includes(
-            "native-public-operation-not-installed-on-target",
-          ),
+          recipe.scenario === "absent" &&
+          recipe.status === "fully-executable" &&
+          recipe.publicSurfaceProbe?.kind === "target-absence-probe" &&
+          recipe.residualReasons.length === 0,
       ),
     ).toBe(true);
     const windowsBytesToUtf8 = windowsRecipes.recipes.find(
@@ -665,7 +654,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // The exact Windows plan includes the existing platform exclusions plus
     // every POSIX-only native global omitted by the Windows build.
-    expect(windowsAbsenceRecipes).toHaveLength(46);
+    expect(windowsAbsenceRecipes).toHaveLength(95);
     expect(
       windowsAbsenceRecipes.every(
         (recipe) =>
@@ -687,7 +676,7 @@ describe("exact-target CapSec executable recipes", () => {
           "capsec_public_closed_recipe_batch",
         ),
       ),
-    ).toHaveLength(685);
+    ).toHaveLength(680);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -708,7 +697,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
           "armed-native-global-absence",
       ),
-    ).toHaveLength(16);
+    ).toHaveLength(11);
   });
 
   test("authors every node:os effect scenario without hand-labeling a native terminal", () => {

@@ -3921,7 +3921,6 @@ impl HermesEngine {
     }
 
     async fn runtime_bundle_installed(&self) -> Result<bool> {
-        #[cfg(not(windows))]
         if self.armed_snapshot_digest.is_some() {
             let installed = self.ensure_runtime().await?.with_runtime(|raw| unsafe {
                 ibex_private_hermes_shared_runtime_bundle_installed_v1(raw)
@@ -4530,21 +4529,16 @@ impl Engine for HermesEngine {
         self.maybe_enable_debugger().await?;
         self.ensure_runtime().await?;
 
-        let already_installed = if cfg!(windows) {
-            false
-        } else {
-            if trace_startup {
-                eprintln!("[startup] runtime_bundle_installed_probe_start");
-            }
-            let already_installed = self.runtime_bundle_installed().await?;
-            if trace_startup {
-                eprintln!(
-                    "[startup] runtime_bundle_installed_probe_end installed={}",
-                    already_installed
-                );
-            }
-            already_installed
-        };
+        if trace_startup {
+            eprintln!("[startup] runtime_bundle_installed_probe_start");
+        }
+        let already_installed = self.runtime_bundle_installed().await?;
+        if trace_startup {
+            eprintln!(
+                "[startup] runtime_bundle_installed_probe_end installed={}",
+                already_installed
+            );
+        }
         if already_installed {
             let phase = std::time::Instant::now();
             self.seal_armed_shared_runtime_globals().await?;
@@ -4595,9 +4589,9 @@ impl Engine for HermesEngine {
 
         // Try embedded runtime first (compiled into binary by build.rs).
         // This eliminates ~2.3ms of disk I/O on every startup.
-        // Windows armed bootstrap remains fail-closed until its native shared
-        // runtime-bundle install path is implemented; do not make Rust's
-        // embedded bytes look reachable there.
+        // Windows armed startup consumes the native bundle installed during
+        // construction above. This fallback remains disabled there so a failed
+        // native install cannot select a second evaluation path.
         let use_embedded_runtime = !embedded_runtime::EMBEDDED_RUNTIME.is_empty() && !cfg!(windows);
         if use_embedded_runtime {
             match self
@@ -7952,14 +7946,12 @@ cp \"$input\" \"$out\"\n";
             value["protectedObjects"] = serde_json::Value::Array(protected_objects);
         }
         {
-            let components = project_root
-                .components()
-                .filter_map(|component| match component {
-                    std::path::Component::Normal(value) => Some(serde_json::json!({
-                        "encoding": "utf8",
-                        "value": value.to_str().expect("test path must be UTF-8"),
-                    })),
-                    _ => None,
+            let components = ibex_runtime::host::host_path_components(project_root)
+                .expect("encode default armed observer project fixture")
+                .into_iter()
+                .map(|component| {
+                    serde_json::to_value(component)
+                        .expect("serialize default armed observer project component")
                 })
                 .collect::<Vec<_>>();
             // The canonical armed fixture carries image-lib beneath its
@@ -7988,20 +7980,11 @@ cp \"$input\" \"$out\"\n";
                 "markerPath": value["rootBindings"][1]["hostPath"].clone(),
                 "markerSetVersion": capsec_semantics::arming::PROJECT_ROOT_MARKER_SET_VERSION,
             });
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::MetadataExt;
-                let metadata = std::fs::metadata(project_root).unwrap();
-                value["rootBindings"][1]["object"] = serde_json::json!({
-                    "platform": if cfg!(any(target_os = "macos", target_os = "ios")) {
-                        "apple"
-                    } else {
-                        "unix"
-                    },
-                    "volume": format!("dev:{}", metadata.dev()),
-                    "file": format!("ino:{}", metadata.ino()),
-                });
-            }
+            value["rootBindings"][1]["object"] = serde_json::to_value(
+                ibex_runtime::host::object_identity_for_host_path(project_root)
+                    .expect("identify default armed observer project fixture"),
+            )
+            .expect("serialize default armed observer project identity");
             let mut floor = Vec::new();
             let mut denials = Vec::new();
             if allow_list {

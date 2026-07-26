@@ -6,6 +6,8 @@
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
 **Revised:** 2026-07-26 (Linux source and prebuilt Hermes bundles now publish the matching Hermes VM CLI beside `hermesc`, allowing build.rs to prove the linked runtime's HBC version and precompile the core runtime bundle instead of reparsing its source during every embedded startup)
+**Revised:** 2026-07-25 (the managed source-built Windows `hermesc` compiles the authenticated shared-runtime bundle under the same version and generated-file validation gates as Apple/Linux, while per-file bootstrap HBC remains on the Windows source-header exception)
+**Revised:** 2026-07-25 (the Windows Hermes builder and installer derive identical lowercase SHA-256 identities and write BOM-free provenance JSON under the platform-default Windows PowerShell 5 host instead of requiring .NET Core-only conversion and encoding APIs)
 **Revised:** 2026-07-25 (splits the generated runtime into an always-startup core bundle and, under `webgpu-binding`, a separately vendored WebGPU activation bundle; build.rs embeds compatible source/HBC for both while startup evaluates only core and the owner-thread activation ABI evaluates WebGPU on demand)
 **Revised:** 2026-07-25 (the reviewed Windows Hermes import library keeps its full digest-bound verbatim filename in a short staging directory so `link.exe` can consume it without weakening artifact identity); 2026-07-17 (LLP 0029 adds static macOS Hermes bundle linkage and carrier v2's tagged loaded/static engine binding with inspected HBC metadata); 2026-07-17 (ENG-24933 adds patched Windows source/release bundles and a downloadable macOS no-debugger Release profile, each bound to exact build authority and binary identity)
 **Revised:** 2026-07-15 (ENG-25064 publishes directory-atomic prepared module graphs inside the existing deployment cache and admits them before execution); 2026-07-15 (ENG-25064 prepared module carriers bind HBC to loaded-engine identity and preserve the pre-execution-only fallback boundary); 2026-07-14 (ENG-24851: `hermesc -output-source-map` is a boolean and the compiler-derived `<-out>.map` is published to the caller's requested path); 2026-07-12 (ENG-24264: Windows Hermes DLL publication is content-digest checked, atomic per file, and bundle-serialized across build processes, with real Windows locked-file coverage); 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
@@ -189,7 +191,7 @@ than making the default runtime startup depend on the optional polyfill
 `[observed]` (`src/engine/hermes_bootstrap.cc:768-796`;
 `src/engine/hermes_runtime.cc:1442-1448`).
 
-Windows remains an exception to the strict bootstrap-HBC path. That exception
+Windows remains an exception to the strict per-file bootstrap-HBC path. That exception
 was introduced for `ReactNative.Hermes.Windows` 0.71.x, whose compiler could
 report a matching HBC version while rejecting modern optional syntax. The
 managed Windows toolchain now builds the same pinned patched Hermes source as
@@ -197,10 +199,12 @@ Apple/Linux. Native bootstrap installs the shared-runtime source before
 compartment sealing and structural lockdown, so the runtime never attempts to
 add required polyfills to already-frozen intrinsics. Required per-file stages,
 including console enhancement, likewise evaluate their generated source
-headers instead of being omitted. `build.rs` still skips shared-runtime and
-per-file bootstrap HBC generation on Windows until the compiler path separately
-proves the modern syntax; changing the runtime artifact does not silently
-remove that fallback boundary `[observed]`
+headers instead of being omitted. The managed compiler now successfully compiles
+the exact shared-runtime bundle, and `build.rs` accepts that HBC only after the
+same compiler/runtime version match and generated-bytecode validation used on
+Apple/Linux. It still skips per-file bootstrap HBC generation on Windows; proving
+the combined runtime bundle does not silently remove that distinct fallback
+boundary `[observed]`
 (`src/engine/hermes_bootstrap.cc`; `build.rs`;
 `scripts/build-hermes-windows.ps1`).
 

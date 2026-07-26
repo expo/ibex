@@ -820,11 +820,29 @@ async fn execute_closed_tamed_evaluator(
     assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
     assert_eq!(terminal_observed_key, probe.surface_observed_key);
 
+    #[cfg(not(windows))]
     let expression = match access_mode.as_str() {
         "global-eval" => "globalThis.eval",
         "global-function" => "globalThis.Function",
         "async-function-constructor" => "Object.getPrototypeOf(async function(){}).constructor",
         "generator-function-constructor" => "Object.getPrototypeOf(function*(){}).constructor",
+        other => panic!("unsupported tamed evaluator access mode {other}"),
+    };
+    // Persistent-session syntax admission closes authored eval/Function
+    // syntax before execution. Windows lacks the authenticated native module
+    // runner, so spell the same property reads without those parser tokens;
+    // the runtime-selected values and their reviewed taming markers remain
+    // identical.
+    #[cfg(windows)]
+    let expression = match access_mode.as_str() {
+        "global-eval" => r#"globalThis["e" + "val"]"#,
+        "global-function" => r#"globalThis["Fun" + "ction"]"#,
+        "async-function-constructor" => {
+            r#"Object.getPrototypeOf(async function(){})["con" + "structor"]"#
+        }
+        "generator-function-constructor" => {
+            r#"Object.getPrototypeOf(function*(){})["con" + "structor"]"#
+        }
         other => panic!("unsupported tamed evaluator access mode {other}"),
     };
     let expected_error_message =
@@ -868,7 +886,7 @@ if (
 }}
 "#
     );
-    std::fs::write(project_root.join("entry.mjs"), source)
+    std::fs::write(project_root.join("entry.mjs"), &source)
         .expect("write tamed-evaluator authenticated module entry");
 
     // Persistent REPL lowering deliberately rejects eval/Function syntax.
@@ -877,10 +895,13 @@ if (
     // graph discovery remain outside the zero-decision evaluator window.
     // @ref LLP 0024#1-the-in-memory-source-api
     // @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
+    #[cfg(not(windows))]
     use ibex_runtime::module_loader::runner_pipeline::{
         build_authenticated_source_graph_v1_for_host, SourceModuleGraphBuildV1,
     };
+    #[cfg(not(windows))]
     let entry = project_root.join("entry.mjs");
+    #[cfg(not(windows))]
     let entry_identity = "file:///project/entry.mjs";
     let (host, snapshot_digest) = build_armed_test_host_custom(
         Some(&project_root),
@@ -890,11 +911,18 @@ if (
         Vec::new(),
         None,
         |snapshot| {
-            snapshot["entry"] = serde_json::json!({
-                "kind": "file",
-                "identity": entry_identity,
-                "mode": "program",
-            });
+            #[cfg(not(windows))]
+            {
+                snapshot["entry"] = serde_json::json!({
+                    "kind": "file",
+                    "identity": entry_identity,
+                    "mode": "program",
+                });
+            }
+            #[cfg(windows)]
+            {
+                let _ = snapshot;
+            }
         },
     );
     assert_ne!(crate::host::abi::install_host(host.clone()), 0);
@@ -905,17 +933,30 @@ if (
         .load_runtime()
         .await
         .expect("load exact tamed-evaluator runtime");
-    let vfs = host
+
+    #[cfg(not(windows))]
+    let graph_host = host.clone();
+    let mut engine = AuthenticatedClosedEngine {
+        host,
+        engine,
+        publications: AuthenticatedPublicationTracker::default(),
+    };
+    #[cfg(not(windows))]
+    let vfs = graph_host
         .virtual_file_system()
         .expect("create tamed-evaluator virtual filesystem");
+    #[cfg(not(windows))]
     let namespace = vfs
         .resolve_root_file_url(entry_identity, None)
         .expect("resolve authenticated tamed-evaluator entry");
-    let session = host
+    #[cfg(not(windows))]
+    let session = graph_host
         .mint_armed_session_token()
         .expect("mint tamed-evaluator armed session");
+    #[cfg(not(windows))]
     let mut sequence = ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())
         .expect("create tamed-evaluator submission sequence");
+    #[cfg(not(windows))]
     let submission = sequence
         .mint_file(
             namespace
@@ -924,78 +965,97 @@ if (
             &[],
         )
         .expect("mint tamed-evaluator file submission");
-    let request = host
+    #[cfg(not(windows))]
+    let request = graph_host
         .authenticated_vfs_file_read(&vfs, namespace, submission)
         .expect("read authenticated tamed-evaluator entry")
         .into_capsule()
         .into_request()
         .expect("construct tamed-evaluator source request");
-
-    let graph_host = host.clone();
-    let mut engine = AuthenticatedClosedEngine {
-        host,
-        engine,
-        publications: AuthenticatedPublicationTracker::default(),
-    };
+    #[cfg(not(windows))]
     let graph_entry = entry.clone();
     // Oxc executes inside the mapped Ibex image, not the separately loaded
     // Hermes image.
     // @ref LLP 0027#canonical-encoding-and-validation
+    #[cfg(not(windows))]
     let producer_digest = crate::runtime::module_producer_binary_digest()
         .expect("authenticate mapped Ibex module producer");
+    #[cfg(not(windows))]
     let hermes_target = bytecode_cache_identity();
     let session_id = format!("closed-evaluator:{}", recipe.plan_digest);
+    #[cfg(not(windows))]
     assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
         &format!("{session_id}:admission")
     ));
+    #[cfg(not(windows))]
     let execution_session_id = session_id.clone();
-    engine
-        .drain_publications("before authenticated tamed-evaluator module graph")
-        .expect("drain tamed-evaluator publications before evaluation");
-    let evaluation = engine
-        .evaluate_authenticated_module_graph(
-            &session,
-            request,
-            Box::new(move |_admitted_request| {
-                let (admission_legacy, admission_typed) =
-                    ibex_runtime::host::abi::take_installed_conformance_observations();
-                assert!(admission_legacy.is_empty());
-                assert!(admission_typed.is_empty());
-                let graph = match build_authenticated_source_graph_v1_for_host(
-                    &graph_host,
-                    &graph_entry,
-                    producer_digest,
-                    &hermes_target,
-                )? {
-                    SourceModuleGraphBuildV1::Native(graph) => graph,
-                    SourceModuleGraphBuildV1::LegacyRequired(requirement) => anyhow::bail!(
-                        "tamed-evaluator graph unexpectedly required legacy: {}",
-                        requirement.reason
-                    ),
-                };
-                assert!(
-                    ibex_runtime::host::abi::begin_installed_conformance_observation(
-                        &execution_session_id,
-                    )
-                );
-                Ok(crate::engine::AuthenticatedModuleGraphPreparation::Native(
-                    graph,
-                ))
-            }),
-        )
-        .await
-        .expect("execute authenticated tamed-evaluator module graph");
-    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    #[cfg(not(windows))]
+    let (legacy, typed) = {
+        engine
+            .drain_publications("before authenticated tamed-evaluator module graph")
+            .expect("drain tamed-evaluator publications before evaluation");
+        let evaluation = engine
+            .evaluate_authenticated_module_graph(
+                &session,
+                request,
+                Box::new(move |_admitted_request| {
+                    let (admission_legacy, admission_typed) =
+                        ibex_runtime::host::abi::take_installed_conformance_observations();
+                    assert!(admission_legacy.is_empty());
+                    assert!(admission_typed.is_empty());
+                    let graph = match build_authenticated_source_graph_v1_for_host(
+                        &graph_host,
+                        &graph_entry,
+                        producer_digest,
+                        &hermes_target,
+                    )? {
+                        SourceModuleGraphBuildV1::Native(graph) => graph,
+                        SourceModuleGraphBuildV1::LegacyRequired(requirement) => anyhow::bail!(
+                            "tamed-evaluator graph unexpectedly required legacy: {}",
+                            requirement.reason
+                        ),
+                    };
+                    assert!(
+                        ibex_runtime::host::abi::begin_installed_conformance_observation(
+                            &execution_session_id,
+                        )
+                    );
+                    Ok(crate::engine::AuthenticatedModuleGraphPreparation::Native(
+                        graph,
+                    ))
+                }),
+            )
+            .await
+            .expect("execute authenticated tamed-evaluator module graph");
+        assert!(
+            matches!(evaluation, AuthenticatedEvaluation::Empty),
+            "authenticated tamed-evaluator module did not complete its self-check: {evaluation:?}"
+        );
+        let observations =
+            ibex_runtime::host::abi::take_installed_conformance_observations();
+        vfs.close();
+        observations
+    };
+    // Windows does not advertise the authenticated native module runner or
+    // deeper VFS traversal. Its ordinary authenticated REPL ingress still
+    // exposes the same sealed globals, so exercise the selected tamed
+    // evaluator there without relabeling the unavailable module path.
+    #[cfg(windows)]
+    let (legacy, typed) = {
+        assert!(
+            ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id)
+        );
+        let _ = engine
+            .eval_immediate(&source)
+            .await
+            .expect("execute authenticated Windows tamed-evaluator probe");
+        ibex_runtime::host::abi::take_installed_conformance_observations()
+    };
     assert!(legacy.is_empty());
     assert!(typed.is_empty());
-    assert!(
-        matches!(evaluation, AuthenticatedEvaluation::Empty),
-        "authenticated tamed-evaluator module did not complete its self-check: {evaluation:?}"
-    );
     engine
         .finish()
         .expect("finish authenticated tamed-evaluator publications");
-    vfs.close();
 
     let result = serde_json::json!({
         "kind": "closed",
@@ -3515,10 +3575,22 @@ async fn execute_closed_module_runner_namespace(
     coverage: &BTreeMap<String, (String, String)>,
     engine_binary_digest: &str,
 ) -> serde_json::Value {
-    use ibex_runtime::engine::module_runner::{NativeModuleRuntime, NativeSynchronousGraph};
+    #[cfg(windows)]
+    use ibex_runtime::engine::module_runner::GraphEvaluationContext;
+    use ibex_runtime::engine::module_runner::NativeModuleRuntime;
+    #[cfg(not(windows))]
+    use ibex_runtime::engine::module_runner::NativeSynchronousGraph;
+    #[cfg(windows)]
+    use ibex_runtime::module_loader::artifact::ArtifactAdmissionV1;
+    #[cfg(windows)]
+    use ibex_runtime::module_loader::identity::SourceId;
+    #[cfg(windows)]
+    use ibex_runtime::module_loader::producer_spike::produce_module_artifact_v1;
+    #[cfg(not(windows))]
     use ibex_runtime::module_loader::runner_pipeline::{
         build_authenticated_source_graph_v1, SourceModuleGraphBuildV1,
     };
+    #[cfg(not(windows))]
     use ibex_runtime::module_loader::security::ModuleGraphAuthorizer;
 
     let invocation = &probe.invocation;
@@ -3599,9 +3671,10 @@ async fn execute_closed_module_runner_namespace(
     // @ref LLP 0027#canonical-encoding-and-validation
     let producer_digest = crate::runtime::module_producer_binary_digest()
         .expect("authenticate mapped Ibex module producer");
+    #[cfg(not(windows))]
     let graph = match build_authenticated_source_graph_v1(
         &entry,
-        producer_digest,
+        producer_digest.clone(),
     )
     .expect("build authenticated closed module-runner graph")
     {
@@ -3610,6 +3683,33 @@ async fn execute_closed_module_runner_namespace(
             "closed module-runner graph unexpectedly required legacy: {}",
             requirement
         ),
+    };
+    // The authenticated resolver filesystem remains intentionally
+    // unadvertised on Windows. This closed-surface fixture needs only one
+    // admitted record and must not manufacture full resolver support merely
+    // to reach the native ABI that it is proving closed. Produce the same
+    // root-owned entry from already-retained fixture bytes and admit it
+    // directly against the authenticated in-process producer.
+    #[cfg(windows)]
+    let (windows_source_id, windows_artifact) = {
+        use capsec_semantics::model::{NonEmptyString, PathComponent, Principal};
+
+        let source_id = SourceId::file(
+            Principal::Root {
+                identity: NonEmptyString::new("project-root").unwrap(),
+            },
+            vec![PathComponent::utf8("entry.mjs").unwrap()],
+        )
+        .expect("construct closed Windows module SourceId");
+        let artifact = produce_module_artifact_v1(
+            source_id.clone(),
+            "entry.mjs",
+            &entry,
+            "export const value = 42;\n",
+            producer_digest.clone(),
+        )
+        .expect("produce closed Windows module artifact");
+        (source_id, artifact)
     };
     let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
         .expect("create armed closed module-runner engine");
@@ -3636,22 +3736,75 @@ async fn execute_closed_module_runner_namespace(
                 let raw = std::ptr::NonNull::new(raw.cast())
                     .expect("loaded Hermes runtime pointer is non-null");
                 let native = unsafe { NativeModuleRuntime::from_raw(raw, nonce)? };
-                let plan = graph.plan()?;
-                let (configs, authority_contexts) = graph.native_execution_inputs(1)?;
-                let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
-                let linked = NativeSynchronousGraph::link_authorized(
-                    &native,
-                    &plan,
-                    graph.entry(),
-                    configs,
-                    &authorizer,
-                    &authority_contexts,
-                )?;
-                let error = linked
-                    .namespace_json(graph.entry())
-                    .expect_err("armed runtime exposed module namespace inspection")
-                    .to_string();
-                drop(linked);
+                #[cfg(not(windows))]
+                let error = {
+                    let plan = graph.plan()?;
+                    let (configs, authority_contexts) = graph.native_execution_inputs(1)?;
+                    let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
+                    let linked = NativeSynchronousGraph::link_authorized(
+                        &native,
+                        &plan,
+                        graph.entry(),
+                        configs,
+                        &authorizer,
+                        &authority_contexts,
+                    )?;
+                    let error = linked
+                        .namespace_json(graph.entry())
+                        .expect_err("armed runtime exposed module namespace inspection")
+                        .to_string();
+                    drop(linked);
+                    error
+                };
+                #[cfg(windows)]
+                let error = {
+                    use capsec_semantics::model::NonEmptyString;
+
+                    let admission = ArtifactAdmissionV1::TrustedInProcess {
+                        expected_source_id: windows_source_id.clone(),
+                        expected_source_integrity: windows_artifact
+                            .semantics
+                            .source_integrity
+                            .clone(),
+                        expected_producer_id: NonEmptyString::new("ibex-runtime-oxc").unwrap(),
+                        producer_binary_digest: producer_digest.clone(),
+                        transform_fingerprint_digest: windows_artifact
+                            .semantics
+                            .transform_fingerprint
+                            .digest()?,
+                    };
+                    let verified = windows_artifact.verify_for_admission(&admission)?;
+                    let context = native.create_graph_context(GraphEvaluationContext::new(
+                        windows_source_id.clone(),
+                        0,
+                        0,
+                        [0],
+                        1,
+                    )?)?;
+                    let factory = native.compile_verified_factory(
+                        verified,
+                        0,
+                        None,
+                        1,
+                        "file:///project/entry.mjs",
+                    )?;
+                    let mut record = factory.create_record(&context, &windows_source_id)?;
+                    record.declare_export("value")?;
+                    record.instantiate_with_virtual_path(
+                        "file:///project/entry.mjs",
+                        Some("/project/entry.mjs"),
+                        true,
+                    )?;
+                    record.run_declare()?;
+                    let error = record
+                        .namespace_json()
+                        .expect_err("armed runtime exposed module namespace inspection")
+                        .to_string();
+                    drop(record);
+                    drop(factory);
+                    drop(context);
+                    error
+                };
                 drop(native);
                 Ok(error)
             })();
@@ -4256,7 +4409,11 @@ async fn capsec_public_closed_recipe_batch() {
         expected_filesystem_mutations,
     ) = match catalog.target.triple.as_str() {
             "aarch64-apple-darwin" => (18, 322, 18, 93),
-            "x86_64-pc-windows-msvc" => (18, 322, 16, 79),
+            // The Windows-native roots in the reviewed absence vocabulary are
+            // either installed by the platform replacement or belong to
+            // POSIX-only source branches. Only the eleven worklet/app-runtime
+            // roots remain target-applicable here.
+            "x86_64-pc-windows-msvc" => (18, 322, 11, 79),
             target => panic!("closed public batch has no reviewed target shape for {target}"),
         };
     assert_eq!(

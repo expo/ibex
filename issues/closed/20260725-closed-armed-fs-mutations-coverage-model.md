@@ -57,10 +57,16 @@ closure.
   than treated as a cross-target default. The Windows plan therefore uses
   target-absence evidence for globals not compiled into that target and never
   borrows Apple execution.
+- A physical Windows engine now passes the exact 680-fixture closed batch,
+  including all 79 Windows filesystem-unbound mutation rows, with zero typed
+  decisions and unchanged before/after filesystem digests. The independent
+  validator re-derived the batch membership from the target recipe catalog and
+  accepted all 680 records.
 
 ## Resolution
 
 Closed by the branch-local conditional-disposition model, exact compiled-source
-target applicability, regenerated target plans, and bound Apple unchanged-state
-execution. Physical Windows execution remains a target-promotion task rather
-than a contradiction in this closure model.
+target applicability, regenerated target plans, and separate bound Apple and
+physical Windows unchanged-state execution. The wider Windows target remains
+incomplete and unadvertised; that broader promotion gap is not a contradiction
+in this closure model.

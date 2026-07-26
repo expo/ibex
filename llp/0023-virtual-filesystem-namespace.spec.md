@@ -5,6 +5,7 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-25 (Windows armed startup now retains and authenticates the exact `/project` directory object, rejects reparse roots, and reopens/revalidates the root identity before relative-cwd use while deeper descriptor-relative Windows traversal remains explicitly unsupported)
 **Revised:** 2026-07-25 (corrects armed sync/async `readlink` so stored link bytes require an `fs:read` commit before the first `readlinkat` and a repeat before every buffer-growth retry; ambient `fs:list` remains limited to link/target traversal and cannot disclose the stored value)
 **Revised:** 2026-07-17 (LLP 0029 compiled mount profile adds typed `app`/`work` roots, metadata-only `/app`, optional authenticated `/work`, the `ibex:cwd:unset` sentinel, and stable compiled path errors in §1.3); 2026-07-17 (LLP 0029 carrier v2 changes only physical engine binding and preserves original-module SourceId provenance); 2026-07-15 (ENG-25064 landed runtime publication and admission of digest-bound per-original-module prepared graphs); 2026-07-15 (ENG-25065 scoped development module incarnations by execution generation without changing SourceId); 2026-07-15 (ENG-25064 landed the digest-bound per-original-module carrier manifest); 2026-07-15 (ENG-25058 obligation-ledger reconciliation); 2026-07-12
 (round-8 dual-model review, **terminal** — both NOT READY,
@@ -1987,6 +1988,18 @@ pre-admission failure, typed preparation error, and teardown-drain fixtures exer
 these distinct edges. The Windows bridge mirrors the same generation/state lease
 contract; target promotion still depends on its independently required target
 evidence rather than this source-level parity check.
+
+Windows armed startup currently implements the retained root boundary without
+claiming deeper descriptor-relative traversal. It opens the final `/project`
+directory object with backup semantics and `OPEN_REPARSE_POINT`, rejects a
+non-directory, reparse point, or object-identity mismatch, and retains that
+handle as the runtime cwd. Before a relative-cwd use, it revalidates the retained
+handle and reopens the authenticated root pathname with the same no-reparse
+rules; both handles must identify the armed root object. A junction root or
+post-startup pathname replacement therefore fails as stale identity without
+disclosing the host path. Retaining any namespace below `/project` remains
+`ERR_IBEX_UNSUPPORTED_TARGET` on Windows until complete contained traversal and
+target evidence exist.
 
 The contract this document requires:
 

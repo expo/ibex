@@ -22,6 +22,10 @@ import {
 import { normalizeComposedInstallationBranches } from "./capsec-installation-branches.mjs";
 import { discoverNativeNetworkingBackendSurfaces } from "./capsec-native-network-backend-inventory.mjs";
 import {
+  legacyBootstrapTargetVariant,
+  nativeImplementationSourceIsReplacedOnWindows,
+} from "./capsec-native-target-sources.mjs";
+import {
   buildWebGpuOperationSurfaces,
   loadAuthenticatedWebGpuProductionPlan,
 } from "./capsec-webgpu-operation-registry.mjs";
@@ -9279,7 +9283,7 @@ export function scanStaticGlobalApiSurfaces(
         ? "conditional:EXACT_IPC_FD"
         : harnessConditional
           ? "conditional:EXACT_COMPAT_TEST"
-          : "default",
+          : legacyBootstrapTargetVariant(sourcePath),
     ];
     const branches = normalizeInstallationBranches(
       targetVariants.map((targetVariant) =>
@@ -14511,11 +14515,11 @@ export function scanCppGlobalPropertySurfaces(
   }
 
   // @ref LLP 0021#generated-semantic-datasets — target cells bind the exact
-  // compiled implementation. build.rs selects hermes_runtime_fs_windows.cc
-  // instead of hermes_runtime_fs.cc on Windows, so the latter is a POSIX
-  // family branch rather than a universal fallback.
+  // compiled implementation. build.rs replaces a reviewed set of backend
+  // translation units on Windows, so their registrations are POSIX-family
+  // branches rather than universal fallbacks.
   const targetVariant =
-    sourcePath === "src/engine/hermes_runtime_fs.cc"
+    nativeImplementationSourceIsReplacedOnWindows(sourcePath)
       ? "posix"
       : sourcePath.includes("windows")
         ? "windows"
@@ -14697,12 +14701,12 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       patchStackDigest:
         "sha256-cd3dd1da3755030de039f6c08d4b9116fd85da6a46aace96706e0fa1f1aa0329",
       sourceBuildAuthorityDigest:
-        "sha256-a0241603b740cdd9b2747a53f6c97803192b60c7f8579b8b2f661dd048c7b1e4",
+        "sha256-30c0eeff42c9da8c18d9190ab8ce4a9aaa1d6c6597865e5b9ef7eddbe18504ea",
       sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
       sourceRef: "260318099.0.0-stable",
       sourceVersion: "260318099.0.0",
       sourceInstallerAuthorityDigest:
-        "sha256-4cf557aa1fa758c170df224a91f61d3200a129b67cd6f7e8fab2d8cdd185ccbe",
+        "sha256-f91597b52275939871ce6db2ea0bbaa38609de111454a6b698c84b739346b513",
     },
     reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
     sourceRefs: [

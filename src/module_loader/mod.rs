@@ -5165,7 +5165,20 @@ pub(crate) fn strip_file_module_decorations(specifier: &str) -> &str {
     if !file_backed {
         return specifier;
     }
-    let end = specifier.find(['?', '#']).unwrap_or(specifier.len());
+    // `std::fs::canonicalize` returns verbatim (`\\?\`) paths on Windows.
+    // That namespace marker is part of the path, not a URL query delimiter.
+    // Search for decorations only after the complete marker so an
+    // authenticated entry does not collapse to the root-relative spelling
+    // `\\` and get misclassified as a bare package request.
+    let decoration_start = if specifier.starts_with(r"\\?\") || specifier.starts_with("//?/") {
+        4
+    } else {
+        0
+    };
+    let end = specifier[decoration_start..]
+        .find(['?', '#'])
+        .map(|offset| decoration_start + offset)
+        .unwrap_or(specifier.len());
     &specifier[..end]
 }
 
@@ -7239,6 +7252,12 @@ for (let i = 0; i < 3; i++) {
             ("file:///project/x.js#fragment", "file:///project/x.js"),
             (r"C:\project\x.js?v=1", r"C:\project\x.js"),
             (r"\\server\share\x.js#fragment", r"\\server\share\x.js"),
+            (r"\\?\C:\project\x.js?v=1", r"\\?\C:\project\x.js"),
+            (
+                r"\\?\UNC\server\share\x.js#fragment",
+                r"\\?\UNC\server\share\x.js",
+            ),
+            ("//?/C:/project/x.js?v=1", "//?/C:/project/x.js"),
         ] {
             assert_eq!(strip_file_module_decorations(decorated), expected);
         }

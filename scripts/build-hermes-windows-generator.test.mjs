@@ -4,6 +4,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -13,6 +14,11 @@ const repoRoot = path.resolve(
   "..",
 );
 const script = path.join(repoRoot, "scripts", "build-hermes-windows.ps1");
+const installer = path.join(
+  repoRoot,
+  "scripts",
+  "install-windows-hermes.ps1",
+);
 
 function selectGenerator(version) {
   const env = { ...process.env };
@@ -62,3 +68,20 @@ test(
     }
   },
 );
+
+test("keeps Windows authority digests compatible with Windows PowerShell 5", () => {
+  for (const authority of [script, installer]) {
+    const source = fs.readFileSync(authority, "utf8");
+    assert.doesNotMatch(source, /\[Convert\]::ToHexString/u);
+    assert.match(
+      source,
+      /\[System\.BitConverter\]::ToString\(\$Bytes\)\.Replace\("-", ""\)/u,
+    );
+  }
+  const builderSource = fs.readFileSync(script, "utf8");
+  assert.doesNotMatch(builderSource, /-Encoding utf8NoBOM/u);
+  assert.match(
+    builderSource,
+    /New-Object System\.Text\.UTF8Encoding\(\$false\)/u,
+  );
+});

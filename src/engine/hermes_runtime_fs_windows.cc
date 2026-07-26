@@ -199,8 +199,39 @@ std::string fsErrorMessage(
   return message;
 }
 
-void throwFs(facebook::jsi::Runtime& runtime, const std::string& syscall, const std::string& path) {
-  throw facebook::jsi::JSError(runtime, fsErrorMessage(syscall, path));
+[[noreturn]] void throwStructuredFsError(
+    facebook::jsi::Runtime& runtime,
+    const std::string& syscall,
+    const std::string& path,
+    int32_t error) {
+  facebook::jsi::JSError base(
+      runtime, fsErrorMessage(syscall, path, error));
+  facebook::jsi::Value value(runtime, base.value());
+  auto object = value.asObject(runtime);
+  object.setProperty(
+      runtime,
+      "code",
+      facebook::jsi::String::createFromUtf8(runtime, fsErrorCode(error)));
+  object.setProperty(runtime, "errno", facebook::jsi::Value(error));
+  object.setProperty(
+      runtime,
+      "syscall",
+      facebook::jsi::String::createFromUtf8(runtime, syscall));
+  if (!path.empty()) {
+    object.setProperty(
+        runtime,
+        "path",
+        facebook::jsi::String::createFromUtf8(runtime, path));
+  }
+  throw facebook::jsi::JSError(runtime, std::move(value));
+}
+
+void throwFs(
+    facebook::jsi::Runtime& runtime,
+    const std::string& syscall,
+    const std::string& path) {
+  throwStructuredFsError(
+      runtime, syscall, path, ex_host_fs_last_error());
 }
 
 void refuseClosedArmedFsMutation(
@@ -209,8 +240,7 @@ void refuseClosedArmedFsMutation(
     return;
   }
   // @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified — Closed mutations fail with typed EPERM before path conversion, lookup, or capability probing.
-  throw facebook::jsi::JSError(
-      runtime, fsErrorMessage(syscall, std::string(), EPERM));
+  throwStructuredFsError(runtime, syscall, std::string(), EPERM);
 }
 
 void throwSessionDescriptorRefused(

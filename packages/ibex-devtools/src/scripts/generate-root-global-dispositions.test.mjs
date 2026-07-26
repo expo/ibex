@@ -111,9 +111,9 @@ describe("generated root-global disposition artifacts", () => {
       ).toBe(true);
     }
     expect(manifest.counts).toMatchObject({
-      installBranches: 2_761,
-      sealedOrPrivate: 351,
-      permittedReachable: 2_410,
+      installBranches: 2_841,
+      sealedOrPrivate: 352,
+      permittedReachable: 2_489,
     });
   }, 30_000);
 

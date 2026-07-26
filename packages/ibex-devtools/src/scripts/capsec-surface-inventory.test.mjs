@@ -2351,6 +2351,15 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "global:localStorage.length": [true, "accessor"],
       "global:localStorage.setItem": [true, "callable"],
     });
+
+    const [streamEnhanceRoot] = scanStaticGlobalApiSurfaces(
+      "globalThis.__exactDispatchPendingSignals = function() {};",
+      "src/engine/bootstrap/stream-enhance.js",
+    );
+    expect(streamEnhanceRoot.metadata.installationBranches[0]).toMatchObject({
+      route: "legacy-bootstrap",
+      targetVariant: "posix",
+    });
   });
 
   test("concrete IPC channel handles retain their parent and callable descendants", () => {
@@ -3249,17 +3258,27 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       route: "native-jsi-global",
       targetVariant: "windows",
     });
-    const posixRows = scanCppGlobalPropertySurfaces(
-      source,
+    for (const sourcePath of [
+      "src/engine/hermes_runtime_crypto.cc",
+      "src/engine/hermes_runtime_debugger.cc",
+      "src/engine/hermes_runtime_dns.cc",
       "src/engine/hermes_runtime_fs.cc",
-    );
-    expect(
-      posixRows.find((row) => row.name === "global:print").metadata.branches[0],
-    ).toMatchObject({
-      branchKind: "single",
-      route: "native-jsi-global",
-      targetVariant: "posix",
-    });
+      "src/engine/hermes_runtime_net.cc",
+      "src/engine/hermes_runtime_osinfo.cc",
+      "src/engine/hermes_runtime_process.cc",
+      "src/engine/hermes_runtime_process_setup.cc",
+    ]) {
+      const posixRows = scanCppGlobalPropertySurfaces(source, sourcePath);
+      expect(
+        posixRows.find((row) => row.name === "global:print").metadata
+          .branches[0],
+        sourcePath,
+      ).toMatchObject({
+        branchKind: "single",
+        route: "native-jsi-global",
+        targetVariant: "posix",
+      });
+    }
     expect(
       rows
         .filter((row) => !row.name.includes("[[dynamic-table:"))
@@ -8534,7 +8553,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
         ])
         .sort((left, right) => left[1].localeCompare(right[1])),
     ).toEqual([
-      ["native-jsi-global", "default", "alternative"],
+      ["native-jsi-global", "posix", "alternative"],
       ["native-jsi-global", "windows", "alternative"],
     ]);
     const unixConnectBranches = first.nativeOps.find(
@@ -8547,7 +8566,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
         .sort((left, right) => left[0].localeCompare(right[0])),
     ).toEqual([
       [
-        "default",
+        "posix",
         [
           "src/engine/hermes_runtime_net.cc#__exactUnixConnect",
           "src/engine/hermes_runtime_net.cc#jsi-global:__exactUnixConnect",
@@ -8640,8 +8659,13 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       expect.arrayContaining([
         expect.objectContaining({
           branchKind: "alternative",
-          routes: ["native-jsi-global", "shared-runtime"],
+          routes: ["shared-runtime"],
           targetVariant: "default",
+        }),
+        expect.objectContaining({
+          branchKind: "alternative",
+          routes: ["native-jsi-global"],
+          targetVariant: "posix",
         }),
         expect.objectContaining({
           branchKind: "alternative",

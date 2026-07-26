@@ -3318,7 +3318,6 @@ fn generate_runtime_bundle_bytecode_header(
     symbol: &str,
     artifact_label: &str,
 ) {
-    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let bundled_runtime_hbc = out_dir.join(format!("{output_stem}.hbc"));
     let header_path = out_dir.join(header_file_name);
 
@@ -3341,14 +3340,6 @@ fn generate_runtime_bundle_bytecode_header(
 
     safe_remove_file(&bundled_runtime_hbc);
     safe_remove_file(&header_path);
-
-    // @ref LLP 0005#bytecode-precompilation-hermesc — Windows uses generated
-    // runtime sources because its compiler has not yet proven the modern bundle
-    // syntax needed to make HBC generation trustworthy.
-    if target_os == "windows" {
-        println!("cargo:warning=Skipping {artifact_label} HBC generation on Windows");
-        return;
-    }
 
     if !hermesc.exists() {
         println!(

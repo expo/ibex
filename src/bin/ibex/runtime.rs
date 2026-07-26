@@ -243,7 +243,7 @@ fn mapped_module_producer_object() -> Result<ModuleProducerObject> {
 #[cfg(all(
     feature = "module-runner",
     not(feature = "insecure"),
-    not(any(target_os = "macos", target_os = "linux"))
+    not(any(target_os = "macos", target_os = "linux", windows))
 ))]
 fn capture_module_producer_binary_digest() -> Result<capsec_semantics::model::Digest> {
     anyhow::bail!("this target cannot authenticate its mapped module producer image")
@@ -252,10 +252,165 @@ fn capture_module_producer_binary_digest() -> Result<capsec_semantics::model::Di
 #[cfg(all(
     feature = "module-runner",
     not(feature = "insecure"),
-    any(target_os = "macos", target_os = "linux")
+    any(target_os = "macos", target_os = "linux", windows)
 ))]
 #[inline(never)]
 fn module_producer_mapping_anchor() {}
+
+#[cfg(all(feature = "module-runner", windows))]
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct WindowsModuleProducerFileState {
+    object: capsec_semantics::model::ObjectIdentity,
+    length: u64,
+    creation_time: u64,
+    last_write_time: u64,
+}
+
+#[cfg(all(feature = "module-runner", windows))]
+fn windows_module_producer_file_state(
+    file: &std::fs::File,
+) -> Result<WindowsModuleProducerFileState> {
+    use std::os::windows::fs::MetadataExt as _;
+    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+
+    let metadata = file.metadata().context("inspect mapped module producer")?;
+    anyhow::ensure!(
+        metadata.is_file(),
+        "mapped module producer is not a regular file"
+    );
+    anyhow::ensure!(
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0,
+        "mapped module producer is a reparse point"
+    );
+    Ok(WindowsModuleProducerFileState {
+        object: ibex_runtime::host::object_identity_for_open_file(file)
+            .map_err(|error| anyhow::anyhow!(error.to_string()))
+            .context("identify mapped Windows module producer")?,
+        length: metadata.len(),
+        creation_time: metadata.creation_time(),
+        last_write_time: metadata.last_write_time(),
+    })
+}
+
+#[cfg(all(feature = "module-runner", windows))]
+fn open_windows_module_producer(path: &Path) -> Result<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt as _;
+    use windows_sys::Win32::Storage::FileSystem::{FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ};
+
+    let mut options = std::fs::OpenOptions::new();
+    options
+        .read(true)
+        // Retain the exact object while hashing and deny a later writer,
+        // rename, or delete from invalidating the loader-path observation.
+        .share_mode(FILE_SHARE_READ)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    options
+        .open(path)
+        .with_context(|| format!("pin mapped module producer {}", path.display()))
+}
+
+#[cfg(all(feature = "module-runner", windows))]
+fn mapped_windows_module_producer() -> Result<(windows_sys::Win32::Foundation::HMODULE, PathBuf)> {
+    use std::os::windows::ffi::OsStringExt as _;
+    use windows_sys::Win32::System::LibraryLoader::{
+        GetModuleFileNameW, GetModuleHandleExW, GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+    };
+
+    let mut module = std::ptr::null_mut();
+    let anchor = module_producer_mapping_anchor as *const () as *const u16;
+    let located = unsafe {
+        GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            anchor,
+            &mut module,
+        )
+    };
+    anyhow::ensure!(
+        located != 0 && !module.is_null(),
+        "identify the Windows module containing the producer"
+    );
+
+    // Windows' extended-length pathname ceiling is 32,767 UTF-16 code units.
+    // A fixed ceiling avoids accepting a silently truncated loader report.
+    let mut path = vec![0u16; 32_768];
+    let written = unsafe { GetModuleFileNameW(module, path.as_mut_ptr(), path.len() as u32) };
+    anyhow::ensure!(
+        written > 0 && (written as usize) < path.len(),
+        "locate the mapped Windows module producer"
+    );
+    path.truncate(written as usize);
+    let path = PathBuf::from(std::ffi::OsString::from_wide(&path));
+    anyhow::ensure!(
+        path.is_absolute(),
+        "mapped Windows module producer path is not absolute"
+    );
+    Ok((module, path))
+}
+
+#[cfg(all(feature = "module-runner", windows))]
+fn capture_windows_module_producer_digest_from_path(
+    path: &Path,
+    expected_object: &capsec_semantics::model::ObjectIdentity,
+) -> Result<capsec_semantics::model::Digest> {
+    let mut file = open_windows_module_producer(path)?;
+    let before = windows_module_producer_file_state(&file)?;
+    anyhow::ensure!(
+        &before.object == expected_object,
+        "module producer path names a different object than the running image"
+    );
+    let digest = ibex_runtime::module_loader::artifact::digest_reader(
+        "ibex/module-producer-binary/1",
+        &mut file,
+    )?;
+    let after = windows_module_producer_file_state(&file)?;
+    anyhow::ensure!(
+        after == before,
+        "mapped module producer changed while it was authenticated"
+    );
+
+    // Reopen while the retained handle still denies writes and replacement.
+    // This detects a parent reparse/pathname race without releasing the bytes
+    // that supplied the accepted digest.
+    let reopened = open_windows_module_producer(path)?;
+    anyhow::ensure!(
+        windows_module_producer_file_state(&reopened)?.object == before.object,
+        "module producer path changed object while it was authenticated"
+    );
+    Ok(digest)
+}
+
+#[cfg(all(feature = "module-runner", windows))]
+fn capture_module_producer_binary_digest() -> Result<capsec_semantics::model::Digest> {
+    let (module, path) = mapped_windows_module_producer()?;
+    let file = open_windows_module_producer(&path)?;
+    let expected = windows_module_producer_file_state(&file)?.object;
+
+    // GetModuleHandleEx(FROM_ADDRESS) attributes a code address in this Rust
+    // module to the loader's exact executable mapping. Windows retains loaded
+    // image names against replacement; our no-reparse, non-write-sharing
+    // handle then pins that named file object while its exact bytes are hashed.
+    // Re-query before and after capture so a loader/path transition cannot be
+    // relabeled as the in-process Oxc producer.
+    let (confirmed_module, confirmed_path) = mapped_windows_module_producer()?;
+    anyhow::ensure!(
+        confirmed_module == module && confirmed_path == path,
+        "mapped Windows module producer changed before authentication"
+    );
+    let digest = capture_windows_module_producer_digest_from_path(&path, &expected)?;
+    let (revalidated_module, revalidated_path) = mapped_windows_module_producer()?;
+    anyhow::ensure!(
+        revalidated_module == module && revalidated_path == path,
+        "mapped Windows module producer changed during authentication"
+    );
+    let revalidated = open_windows_module_producer(&revalidated_path)?;
+    anyhow::ensure!(
+        windows_module_producer_file_state(&revalidated)?.object == expected,
+        "mapped Windows module producer path changed object after authentication"
+    );
+    drop(file);
+    Ok(digest)
+}
 
 #[cfg(all(
     feature = "module-runner",
@@ -10936,6 +11091,40 @@ pub(crate) mod tests {
 
         assert_eq!(
             capture_module_producer_binary_digest_from_path(&mapped_path, expected, true).unwrap(),
+            ibex_runtime::module_loader::artifact::digest_bytes(
+                "ibex/module-producer-binary/1",
+                b"mapped producer A",
+            )
+            .unwrap()
+        );
+    }
+
+    #[cfg(all(feature = "module-runner", windows))]
+    #[test]
+    fn windows_module_producer_digest_refuses_a_replaced_executable_path() {
+        let directory = tempdir().unwrap();
+        let executable_path = directory.path().join("producer.exe");
+        let mapped_path = directory.path().join("producer.mapped.exe");
+        std::fs::write(&executable_path, b"mapped producer A").unwrap();
+        let original = open_windows_module_producer(&executable_path).unwrap();
+        let expected = windows_module_producer_file_state(&original)
+            .unwrap()
+            .object;
+        drop(original);
+
+        std::fs::rename(&executable_path, &mapped_path).unwrap();
+        std::fs::write(&executable_path, b"replacement producer B").unwrap();
+        let error = capture_windows_module_producer_digest_from_path(&executable_path, &expected)
+            .expect_err("a replacement pathname must not relabel the mapped producer");
+        assert!(
+            error
+                .to_string()
+                .contains("different object than the running image"),
+            "unexpected replacement error: {error:#}"
+        );
+
+        assert_eq!(
+            capture_windows_module_producer_digest_from_path(&mapped_path, &expected).unwrap(),
             ibex_runtime::module_loader::artifact::digest_bytes(
                 "ibex/module-producer-binary/1",
                 b"mapped producer A",

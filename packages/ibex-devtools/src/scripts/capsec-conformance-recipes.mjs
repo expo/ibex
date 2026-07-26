@@ -40,6 +40,7 @@ import {
   applicableImplementationBranchIds,
   targetApplicabilityForVariant,
 } from "./capsec-target-branches.mjs";
+import { nativeImplementationSourceIsReplacedOnWindows } from "./capsec-native-target-sources.mjs";
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 const canonicalSet = (values) => [...new Set(values)].sort(compareText);
@@ -65,18 +66,6 @@ const nativeBatchCommand = (fixtureId) => {
   return clone(NATIVE_BATCH_COMMANDS[shard]);
 };
 
-// @ref LLP 0001#current-buildrs-support-honest-status — Windows replaces these default backend translation units with target-specialized implementations, so a default-only registration is not installed on that target.
-const WINDOWS_EXCLUDED_NATIVE_IMPLEMENTATION_SOURCES = new Set([
-  "src/engine/hermes_runtime_crypto.cc",
-  "src/engine/hermes_runtime_debugger.cc",
-  "src/engine/hermes_runtime_dns.cc",
-  "src/engine/hermes_runtime_fs.cc",
-  "src/engine/hermes_runtime_net.cc",
-  "src/engine/hermes_runtime_osinfo.cc",
-  "src/engine/hermes_runtime_process.cc",
-  "src/engine/hermes_runtime_process_setup.cc",
-]);
-
 function nativePublicOperationIsExcludedOnWindows({ live, target }) {
   if (target.triple !== "x86_64-pc-windows-msvc") return false;
   if (live?.metadata?.publicInvocation?.kind !== "native-global-function") {
@@ -90,10 +79,8 @@ function nativePublicOperationIsExcludedOnWindows({ live, target }) {
       (branch) =>
         Array.isArray(branch.sourceRefs) &&
         branch.sourceRefs.length > 0 &&
-        branch.sourceRefs.every((sourceRef) =>
-          WINDOWS_EXCLUDED_NATIVE_IMPLEMENTATION_SOURCES.has(
-            sourceRef.split("#", 1)[0],
-          ),
+        branch.sourceRefs.every(
+          nativeImplementationSourceIsReplacedOnWindows,
         ),
     )
   );

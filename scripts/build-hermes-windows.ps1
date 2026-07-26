@@ -34,6 +34,28 @@ if (-not $Ref) {
   $Ref = $reviewedSourceCommit
 }
 
+function ConvertTo-LowerHex {
+  param([byte[]]$Bytes)
+
+  # @ref LLP 0001#4-what-ci-must-handle-per-cell — the reviewed Windows
+  # artifact path must run in the platform's default PowerShell 5 host.
+  return [System.BitConverter]::ToString($Bytes).Replace("-", "").ToLowerInvariant()
+}
+
+function Set-Utf8NoBomContent {
+  param(
+    [string]$Path,
+    [string]$Content
+  )
+
+  $encoding = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText(
+    $Path,
+    $Content + [System.Environment]::NewLine,
+    $encoding
+  )
+}
+
 function Get-PatchStackDigestHex {
   $lines = @()
   $patches = Get-ChildItem -LiteralPath (Join-Path $repoRoot "patches\hermes") -Filter "*.patch" |
@@ -50,7 +72,7 @@ function Get-PatchStackDigestHex {
   finally {
     $sha.Dispose()
   }
-  return [Convert]::ToHexString($digest).ToLowerInvariant()
+  return (ConvertTo-LowerHex -Bytes $digest)
 }
 
 function Get-FileSuffixDigestHex {
@@ -86,7 +108,7 @@ function Get-FileSuffixDigestHex {
   finally {
     $sha.Dispose()
   }
-  return [Convert]::ToHexString($digest).ToLowerInvariant()
+  return (ConvertTo-LowerHex -Bytes $digest)
 }
 
 function Find-OneFile {
@@ -341,7 +363,9 @@ try {
     debugger = [bool]$Debug
     binarySha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $binDir "hermesvm.dll")).Hash.ToLowerInvariant()
   }
-  $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $installDir "artifact.json") -Encoding utf8NoBOM
+  Set-Utf8NoBomContent `
+    -Path (Join-Path $installDir "artifact.json") `
+    -Content ($manifest | ConvertTo-Json)
 
   # Only the exact reviewed no-debugger source build may carry an authenticated
   # profile receipt. Custom refs and debugger-enabled builds remain usable local
@@ -395,8 +419,9 @@ try {
         reviewedProfileIdentity = $reviewedProfileIdentity
       }
     }
-    $receipt | ConvertTo-Json -Depth 8 |
-      Set-Content -LiteralPath (Join-Path $binDir "hermes-profile-provenance.json") -Encoding utf8NoBOM
+    Set-Utf8NoBomContent `
+      -Path (Join-Path $binDir "hermes-profile-provenance.json") `
+      -Content ($receipt | ConvertTo-Json -Depth 8)
   }
 
   Remove-Item -LiteralPath $targetRoot -Recurse -Force -ErrorAction SilentlyContinue

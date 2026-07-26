@@ -3958,6 +3958,7 @@ mod tests {
             .contains("./target-that-must-not-be-probed.cjs"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn reached_dynamic_import_receipt_gates_only_its_target_static_closure() {
         let project = tempfile::tempdir().unwrap();
@@ -4014,6 +4015,7 @@ mod tests {
         assert_eq!(graph.activation_receipt_count(), 1);
     }
 
+    #[cfg(unix)]
     #[test]
     fn reached_commonjs_require_receipt_gates_only_its_target_static_closure() {
         let project = tempfile::tempdir().unwrap();
@@ -4090,6 +4092,7 @@ mod tests {
         assert_eq!(graph.activation_receipt_count(), 1);
     }
 
+    #[cfg(unix)]
     #[test]
     fn invocation_time_prepared_carrier_is_discovered_only_after_exact_reached_edge() {
         let project = tempfile::tempdir().unwrap();
@@ -4212,6 +4215,7 @@ mod tests {
         assert_eq!(graph.prepared_access_receipt_count(), 1);
     }
 
+    #[cfg(unix)]
     #[test]
     fn invocation_time_prepared_dynamic_import_uses_the_same_receipt_boundary() {
         let project = tempfile::tempdir().unwrap();
@@ -4316,6 +4320,7 @@ mod tests {
         assert_eq!(graph.prepared_access_receipt_count(), 1);
     }
 
+    #[cfg(unix)]
     #[test]
     fn invalid_invocation_time_prepared_closure_falls_back_atomically_to_inline() {
         let project = tempfile::tempdir().unwrap();

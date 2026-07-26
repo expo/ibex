@@ -5,6 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
+**Revised:** 2026-07-25 (Windows inline-producer admission authenticates the mapped image from a producer code address, retains and hashes its no-reparse file object under restrictive sharing, and revalidates loader/path/object identity before accepting the producer digest)
 **Revised:** 2026-07-20 (native graph planning keeps literal CommonJS `require` targets in the authenticated materialization closure but outside eager evaluation/SCC/TLA traversal; computed-import authority retains exact `(site, spelling, runtime attributes, target)` identity through sidecar admission, policy authorization, and native linking)
 **Revised:** 2026-07-20 (prepared graph v2 keeps resolver paths and authenticated SourceLabel/virtual-path display metadata in the consuming runtime's local diagnostic envelope, never in the writable cache index; reload derives them from the independently authenticated inline graph and requires every cached byte to equal its deterministic publication)
 **Revised:** 2026-07-18 (computed-import candidate tables use strict `ibex/computed-candidates/1` sidecars, prepared graph v2 digest references, original-source correspondence, and the site-bearing module-runner ABI; the ABI also guards computed CommonJS `require` until invocation and reports the producer-owned original span; ModuleArtifact v1 remains unchanged)
@@ -97,6 +98,17 @@ integrity, expected producer identity, and transform-fingerprint digest.
 Successful verification yields a `VerifiedModuleArtifactV1` token; cache
 publication and factory compilation consume that token rather than raw
 deserialization.
+
+On Windows, the in-process producer binary is the loader image containing a
+known producer code address, not an unauthenticated `current_exe` pathname.
+Admission obtains that image and its full loader pathname from the address,
+opens the named file without following a final reparse point and with sharing
+restricted to reads, and retains the handle while hashing. The authenticated
+state binds file object identity, length, creation time, and last-write time;
+the loader module/path and a pathname reopen must still identify the same
+object before the digest is accepted. A replaced, reparsed, truncated, or
+changing pathname therefore cannot relabel different bytes as the mapped
+in-process producer.
 
 ## Digest domains
 

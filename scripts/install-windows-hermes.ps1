@@ -13,6 +13,14 @@ $repoRoot = Resolve-Path (Join-Path $scriptDir "..")
 $builder = Join-Path $scriptDir "build-hermes-windows.ps1"
 $versionScript = Join-Path $scriptDir "hermes-version.sh"
 
+function ConvertTo-LowerHex {
+  param([byte[]]$Bytes)
+
+  # @ref LLP 0001#4-what-ci-must-handle-per-cell — the reviewed Windows
+  # artifact path must run in the platform's default PowerShell 5 host.
+  return [System.BitConverter]::ToString($Bytes).Replace("-", "").ToLowerInvariant()
+}
+
 function Get-PatchStackDigestHex {
   $lines = @()
   $patches = Get-ChildItem -LiteralPath (Join-Path $repoRoot "patches\hermes") -Filter "*.patch" |
@@ -29,7 +37,7 @@ function Get-PatchStackDigestHex {
   finally {
     $sha.Dispose()
   }
-  return [Convert]::ToHexString($digest).ToLowerInvariant()
+  return (ConvertTo-LowerHex -Bytes $digest)
 }
 
 function Get-FileSuffixDigestHex {
@@ -65,7 +73,7 @@ function Get-FileSuffixDigestHex {
   finally {
     $sha.Dispose()
   }
-  return [Convert]::ToHexString($digest).ToLowerInvariant()
+  return (ConvertTo-LowerHex -Bytes $digest)
 }
 
 $builderDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $builder).Hash.ToLowerInvariant()

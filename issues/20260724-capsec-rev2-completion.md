@@ -1295,7 +1295,66 @@ ticket closes.
   enforcement mechanisms remain about 96% complete and the overall requested
   task remains about 87%.
 
+### 2026-07-25 — physical Windows closed-surface execution
+
+- Built the pinned physical Windows Hermes runtime from source and executed
+  the target-local closed batch against the exact loaded `hermesvm.dll`.
+  Windows now has 23,378 required / 2,382 fully executable / 3,100 internally
+  verified / 17,896 unresolved obligations. This remains an incomplete,
+  unadvertised target rather than a promotion claim.
+- Implemented Windows inline-producer authentication against the mapped Ibex
+  image: a known producer code address identifies the loader module, the
+  loader pathname is opened without following a final reparse point and with
+  write/delete/rename sharing denied, its object identity and file state are
+  retained across hashing, and both the loader mapping and pathname identity
+  are revalidated. A physical Windows regression proves a replacement
+  pathname cannot relabel the mapped producer.
+- Corrected Windows verbatim-path parsing so `\\?\C:\...`, `\\?\UNC\...`,
+  and slash-form verbatim prefixes are not truncated at the prefix `?` as
+  though it were a URL query. The physical module-runner closure fixture now
+  admits already-retained root-owned bytes directly against that authenticated
+  producer, without pretending the still-unadvertised Windows resolver
+  filesystem is available.
+- The physical Windows closed batch passes all 680 catalog-derived fixtures.
+  Its raw evidence SHA-256 is
+  `d8934cdb21f24c0c190ecac28cc49915ba3900008dd66d7a2c0ca695c4cc4c89`
+  and its recipe catalog digest is
+  `sha256-msFhXZwfvhyKqXeH6Kl6N3xUQ2y95_hWeBLGAvlmP9w`.
+  The independent public-evidence validator re-derived the exact 680-fixture
+  command group, accepted every record, and produced
+  `sha256-S0RZxMejzOrR_J4GERhyYDRuQr0M2-yYOJxau-rHPeA`. This final evidence
+  rerun followed the last Windows-only source cleanup; the copied 4,123,880
+  bytes match the physical Windows producer's SHA-256 exactly.
+- All 680 executions passed with zero typed decisions. The batch includes 79
+  filesystem-unbound mutation probes (42 sync, 18 callback, one deferred
+  callback, 14 promise, two file-handle promise, and two sync-listener);
+  every one returns the authored `EPERM` refusal, preserves the exact
+  before/after filesystem digest, executes the engine, and executes no project
+  code. It also physically covers 322 shared-runtime absences, 18 disabled
+  debugger ABI rows, and 11 armed-native absences.
+- Added and physically ran Windows VFS root-retention negatives. Armed session
+  startup rejects a junction/reparse `/project` even when supplied that reparse
+  object's identity, and a retained root detects a pathname replacement on
+  its next cwd verification without leaking the backing path. The exact
+  Windows VFS filter passes three tests. Five source-graph tests that require
+  the still-unsupported deeper resolver are now honestly Unix-scoped, allowing
+  the Windows library-test target to compile instead of referencing a
+  Unix-only host helper.
+- A fresh detached M4 worktree received a byte-for-byte verified copy of the
+  complete patch. Its pinned Bun 1.3.14 drift replay is clean; the combined
+  model, inventory, recipe, public-evidence, and root-global suites pass 409
+  tests with 125,317 assertions. A native macOS `cargo check` of the secure
+  conformance-observer profile passes against the explicitly bound legacy
+  Hermes framework/compiler/header profile.
+- Hard part: Windows startup must authenticate the image that actually
+  contains the in-process producer; hashing `current_exe()` by pathname alone
+  would permit a replacement path to be mistaken for the mapped image.
+  Separately, reaching a closed native ABI must not smuggle in support for the
+  unresolved Windows resolver. Important enforcement mechanisms remain about
+  97% complete and the overall requested task remains about 88%.
+
 ## Next milestone
 
-Execute the Windows target-local closure plan when a suitable Windows engine is
-available, and continue reducing the broader exact-target public-evidence gap.
+Checkpoint the now-verified Windows startup work, then continue reducing the
+17,896-row exact-target public-evidence gap without advertising Windows before
+its resolver and complete target evidence are genuinely ready.

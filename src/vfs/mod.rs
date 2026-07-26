@@ -21,7 +21,7 @@ use capsec_semantics::model::{
 use sha2::{Digest as _, Sha256};
 
 use crate::host::object_identity_for_host_path;
-#[cfg(test)]
+#[cfg(any(test, windows))]
 use crate::host::object_identity_for_open_file;
 
 const PROJECT_MOUNT: &str = "project";
@@ -543,7 +543,7 @@ impl fmt::Debug for VirtualFileSystem {
 struct RetainedDirectory {
     namespace: NamespacePath,
     object: ObjectIdentity,
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     retained: std::fs::File,
 }
 
@@ -1096,7 +1096,28 @@ impl VirtualFileSystem {
             self.open_contained_directory(namespace, operation, true, authorize_target)
         }
 
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            let _ = authorize_target;
+            if namespace.virtual_components.len() != 1 {
+                return Err(VfsError::host_code(
+                    operation,
+                    namespace.virtual_path.clone(),
+                    "ERR_IBEX_UNSUPPORTED_TARGET",
+                ));
+            }
+            let retained =
+                self.open_authenticated_project_root(operation, namespace.virtual_path.clone())?;
+            let object = object_identity_for_open_file(&retained)
+                .map_err(|_| VfsError::stale_identity(operation, namespace.virtual_path.clone()))?;
+            Ok(RetainedDirectory {
+                namespace,
+                object,
+                retained,
+            })
+        }
+
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = authorize_target;
             Err(VfsError::host_code(
@@ -1146,7 +1167,33 @@ impl VirtualFileSystem {
             Ok(())
         }
 
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt as _;
+            use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+
+            let metadata = retained
+                .retained
+                .metadata()
+                .map_err(|_| VfsError::stale_identity(operation, safe_path.clone()))?;
+            let object = object_identity_for_open_file(&retained.retained)
+                .map_err(|_| VfsError::stale_identity(operation, safe_path.clone()))?;
+            if !metadata.is_dir()
+                || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+                || object != retained.object
+            {
+                return Err(VfsError::stale_identity(operation, safe_path));
+            }
+            let reopened = self.open_authenticated_project_root(operation, safe_path.clone())?;
+            let reopened_object = object_identity_for_open_file(&reopened)
+                .map_err(|_| VfsError::stale_identity(operation, safe_path.clone()))?;
+            if reopened_object != retained.object {
+                return Err(VfsError::stale_identity(operation, safe_path));
+            }
+            Ok(())
+        }
+
+        #[cfg(not(any(unix, windows)))]
         {
             Err(VfsError::host_code(
                 operation,
@@ -1185,6 +1232,43 @@ impl VirtualFileSystem {
         let object = object_identity_for_metadata(&metadata)
             .map_err(|_| VfsError::stale_identity(operation, safe_path.clone()))?;
         if !metadata.is_dir() || object != self.mount.root_object {
+            return Err(VfsError::stale_identity(operation, safe_path));
+        }
+        Ok(root)
+    }
+
+    /// Windows startup retains the authenticated `/project` object even while
+    /// deeper descriptor-relative traversal remains fail-closed. Opening the
+    /// reparse point itself and rejecting its attribute prevents a junction or
+    /// symlink from being mistaken for the armed root.
+    /// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+    #[cfg(windows)]
+    fn open_authenticated_project_root(
+        &self,
+        operation: &str,
+        safe_path: Arc<str>,
+    ) -> Result<std::fs::File, VfsError> {
+        use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        };
+
+        let mut options = std::fs::OpenOptions::new();
+        options
+            .read(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+        let root = options
+            .open(&self.mount.host_root)
+            .map_err(|error| VfsError::host(operation, safe_path.clone(), &error))?;
+        let metadata = root
+            .metadata()
+            .map_err(|error| VfsError::host(operation, safe_path.clone(), &error))?;
+        let object = object_identity_for_open_file(&root)
+            .map_err(|_| VfsError::stale_identity(operation, safe_path.clone()))?;
+        if !metadata.is_dir()
+            || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            || object != self.mount.root_object
+        {
             return Err(VfsError::stale_identity(operation, safe_path));
         }
         Ok(root)
@@ -3284,21 +3368,42 @@ fn host_path_from_binding(binding: &ArmedRootBinding) -> Result<PathBuf, VfsErro
     {
         return Err(VfsError::malformed("mount"));
     }
-    let mut path = PathBuf::from(std::path::MAIN_SEPARATOR.to_string());
-    for component in &binding.host_path.components {
-        #[cfg(unix)]
-        {
-            use std::os::unix::ffi::OsStrExt;
-            path.push(std::ffi::OsStr::from_bytes(component.bytes()));
-        }
-        #[cfg(not(unix))]
-        {
+
+    #[cfg(windows)]
+    {
+        let mut components = binding.host_path.components.iter();
+        let prefix = components
+            .next()
+            .ok_or_else(|| VfsError::malformed("mount"))?;
+        let prefix =
+            std::str::from_utf8(prefix.bytes()).map_err(|_| VfsError::malformed("mount"))?;
+        let mut path = PathBuf::from(format!("{prefix}{}", std::path::MAIN_SEPARATOR));
+        for component in components {
             let component =
                 std::str::from_utf8(component.bytes()).map_err(|_| VfsError::malformed("mount"))?;
             path.push(component);
         }
+        return Ok(path);
     }
-    Ok(path)
+
+    #[cfg(unix)]
+    {
+        let mut path = PathBuf::from(std::path::MAIN_SEPARATOR.to_string());
+        for component in &binding.host_path.components {
+            use std::os::unix::ffi::OsStrExt;
+            path.push(std::ffi::OsStr::from_bytes(component.bytes()));
+        }
+        Ok(path)
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        Err(VfsError::host_code(
+            "mount",
+            Arc::from("/project"),
+            "ERR_IBEX_UNSUPPORTED_TARGET",
+        ))
+    }
 }
 
 #[cfg(unix)]
@@ -4579,6 +4684,60 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.reason(), VfsReason::StaleIdentity);
         assert_eq!(error.virtual_path(), Some("/project/x"));
+        assert!(!error.to_string().contains(outer.path().to_str().unwrap()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_runtime_session_refuses_a_reparse_project_root() {
+        let outer = tempfile::tempdir().unwrap();
+        let target = outer.path().join("target");
+        let junction = outer.path().join("junction");
+        fs::create_dir(&target).unwrap();
+        let output = std::process::Command::new("cmd.exe")
+            .args(["/D", "/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&target)
+            .output()
+            .expect("invoke Windows junction creation");
+        assert!(
+            output.status.success(),
+            "create Windows project-root junction: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let object = object_identity_for_host_path(&junction).unwrap();
+        let vfs = VirtualFileSystem::from_bindings(
+            junction.clone(),
+            object,
+            root_principal("test-project"),
+            &[],
+            None,
+        )
+        .unwrap();
+        let error = RuntimeVfsSession::new(NonZeroU64::new(303).unwrap(), vfs).unwrap_err();
+        assert_eq!(error.reason(), VfsReason::StaleIdentity);
+        assert_eq!(error.virtual_path(), Some("/project"));
+        assert!(!error.to_string().contains(outer.path().to_str().unwrap()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_retained_project_root_refuses_a_path_replacement() {
+        let outer = tempfile::tempdir().unwrap();
+        let root = outer.path().join("root");
+        let replacement = outer.path().join("replacement");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&replacement).unwrap();
+        let session =
+            RuntimeVfsSession::new(NonZeroU64::new(404).unwrap(), test_vfs(&root)).unwrap();
+
+        fs::rename(&root, outer.path().join("old-root")).unwrap();
+        fs::rename(&replacement, &root).unwrap();
+
+        let error = session.current_cwd().unwrap_err();
+        assert_eq!(error.reason(), VfsReason::StaleIdentity);
+        assert_eq!(error.virtual_path(), Some("/project"));
         assert!(!error.to_string().contains(outer.path().to_str().unwrap()));
     }
 
