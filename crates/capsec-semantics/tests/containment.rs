@@ -87,7 +87,7 @@ fn every_committed_selector_and_occurrence_deserializes_and_validates() {
         serde_json::from_slice(&read("examples/authority-selectors.canonical.json"))
             .expect("deserialize selector examples");
     assert_eq!(selectors.example_schema, "ibex/capsec-selector-examples/1");
-    assert_eq!(selectors.selectors.len(), 20);
+    assert_eq!(selectors.selectors.len(), 19);
     for selector in &selectors.selectors {
         validate_authority_selector(selector).expect("valid committed selector");
     }
@@ -99,7 +99,7 @@ fn every_committed_selector_and_occurrence_deserializes_and_validates() {
         occurrences.example_schema,
         "ibex/capsec-occurrence-examples/1"
     );
-    assert_eq!(occurrences.occurrences.len(), 20);
+    assert_eq!(occurrences.occurrences.len(), 19);
     for occurrence in &occurrences.occurrences {
         validate_occurrence_stage_facts(occurrence).unwrap_or_else(|error| {
             panic!(
@@ -157,81 +157,6 @@ fn lifecycle_dispositions_are_exact_and_stage_closed() {
     .unwrap();
     validate_occurrence_stage_facts(&occurrence).unwrap();
     occurrence.stage = Stage::Cleanup;
-    assert!(validate_occurrence_stage_facts(&occurrence).is_err());
-}
-
-#[test]
-fn gpu_operation_identity_is_exact_and_stage_closed() {
-    let requested = json!({
-        "kind": "gpu-operation",
-        "profileId": "exact-webgpu-v1-draft",
-        "profileDigest": "sha256-7tqDeE_0KXdgYZy331Tw4vInpwViVhkJxH7MncMjLZU",
-        "webgpuCVocabularyDigest": "sha256-LQX5IbUTGfNs4TdV4mCH0cPfdvS-ozh0Y9pAW82rmD8",
-        "operationSetDigest": "sha256--xIQesQthJUGflDwlrTWxK7Z4_KvZNbRR_nJnvyqZoc",
-        "semanticProgramDigest": "sha256-qblwPVmzuQa6iI_zP6yFMT-vwnhfDdNk5rVkim70atY",
-        "runtimeRoutingDigest": "sha256-189MIB-1igoFzWXNULDrPrKmTMF8RyTgB56DWbPmO_c",
-        "operationId": "GPUDevice.createComputePipeline"
-    });
-    let selector: AuthoritySelector = serde_json::from_value(json!({
-        "cap": "gpu:operation",
-        "resource": requested.clone()
-    }))
-    .unwrap();
-    validate_authority_selector(&selector).unwrap();
-
-    let mut changed = selector.clone();
-    let SelectorResource::GpuOperation { operation_id, .. } = &mut changed.resource else {
-        unreachable!()
-    };
-    *operation_id =
-        capsec_semantics::model::NonEmptyString::new("GPUDevice.createRenderPipeline").unwrap();
-    assert_eq!(
-        compare_authority_containment(
-            &selector,
-            &changed,
-            &ContainmentContext::SAME_AUTHORITY_DOMAIN,
-        ),
-        Containment::Incomparable,
-    );
-
-    let mut occurrence: EffectOccurrence = serde_json::from_value(json!({
-        "cap": "gpu:operation",
-        "stage": "requested",
-        "actor": {"kind": "root", "identity": "project-root"},
-        "effectOwner": {"kind": "root", "identity": "project-root"},
-        "constrainedPrincipals": [
-            {"kind": "root", "identity": "project-root"}
-        ],
-        "resource": {
-            "kind": "gpu-operation-occurrence",
-            "requested": requested,
-            "realmIdentity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-            "accountIdentity": "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA",
-            "receiverIdentity": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
-            "presentedHandleIdentities": [
-                "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA",
-                "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA"
-            ]
-        }
-    }))
-    .unwrap();
-    validate_occurrence_stage_facts(&occurrence).unwrap();
-    occurrence.stage = Stage::Commit;
-    validate_occurrence_stage_facts(&occurrence).unwrap();
-    occurrence.stage = Stage::Repeat;
-    validate_occurrence_stage_facts(&occurrence).unwrap();
-    occurrence.stage = Stage::Cleanup;
-    assert!(validate_occurrence_stage_facts(&occurrence).is_err());
-
-    occurrence.stage = Stage::Requested;
-    let OccurrenceResource::GpuOperationOccurrence {
-        presented_handle_identities,
-        ..
-    } = &mut occurrence.resource
-    else {
-        unreachable!()
-    };
-    presented_handle_identities.reverse();
     assert!(validate_occurrence_stage_facts(&occurrence).is_err());
 }
 

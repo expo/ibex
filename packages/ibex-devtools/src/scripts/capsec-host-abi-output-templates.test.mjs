@@ -183,8 +183,6 @@ describe("source-bound Host ABI output templates", () => {
       "rust-host-terminal-inert": 8,
       "native-hermes-diagnostic-runtime": 32,
       "native-hermes-app-bundle-transaction": 10,
-      "rust-host-gpu-authority-refusal": 6,
-      "rust-host-gpu-authority-success": 1,
       "native-hermes-bounded-dispatch-runtime": 3,
       "native-hermes-module-runner-runtime": 27,
       "native-hermes-owned-runtime-teardown": 1,

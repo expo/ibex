@@ -84,9 +84,8 @@ fn committed_definition_registry_is_complete_and_valid() {
 
     let definitions = DefinitionSet::validate(definitions, &profiles)
         .expect("committed capability definitions satisfy the semantic core");
-    assert_eq!(definitions.len(), 41);
+    assert_eq!(definitions.len(), 40);
     assert!(definitions.contains("fs:read"));
-    assert!(definitions.contains("gpu:operation"));
     assert!(definitions.contains("network:fetch"));
     let lifecycle = definitions.get("lifecycle:exit").unwrap();
     assert_eq!(
@@ -126,8 +125,8 @@ fn committed_profile_jointly_validates_through_strict_json() {
         )),
     )
     .expect("committed profile satisfies the neutral semantic core");
-    assert_eq!(profile.definitions.len(), 41);
-    assert_eq!(profile.normalization_profiles.len(), 18);
+    assert_eq!(profile.definitions.len(), 40);
+    assert_eq!(profile.normalization_profiles.len(), 17);
 }
 
 #[test]

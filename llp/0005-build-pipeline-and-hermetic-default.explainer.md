@@ -5,7 +5,8 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-25 (splits the generated runtime into an always-startup core bundle and, under `webgpu-binding`, a separately vendored WebGPU activation bundle; build.rs embeds compatible source/HBC for both while startup evaluates only core and the owner-thread activation ABI evaluates WebGPU on demand)
+**Revised:** 2026-07-25 (LLP 0040 removes the Ibex-owned `webgpu-binding` bundle path; Ibex vendors one core runtime bundle while selected extensions supply package-owned authenticated source/HBC bootstrap bytes through the generic registry)
+**Revised:** 2026-07-25 (historical: split core and WebGPU activation bundles; superseded by LLP 0040)
 **Revised:** 2026-07-17 (LLP 0029 adds static macOS Hermes bundle linkage and carrier v2's tagged loaded/static engine binding with inspected HBC metadata); 2026-07-17 (ENG-24933 adds patched Windows source/release bundles and a downloadable macOS no-debugger Release profile, each bound to exact build authority and binary identity)
 **Revised:** 2026-07-15 (ENG-25064 publishes directory-atomic prepared module graphs inside the existing deployment cache and admits them before execution); 2026-07-15 (ENG-25064 prepared module carriers bind HBC to loaded-engine identity and preserve the pre-execution-only fallback boundary); 2026-07-14 (ENG-24851: `hermesc -output-source-map` is a boolean and the compiler-derived `<-out>.map` is published to the caller's requested path); 2026-07-12 (ENG-24264: Windows Hermes DLL publication is content-digest checked, atomic per file, and bundle-serialized across build processes, with real Windows locked-file coverage); 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
 **Related:** LLP 0000; LLP 0001 (platforms); LLP 0003 (engine bridge); LLP 0004 (module loading)
@@ -87,19 +88,16 @@ generator `[observed]` (`build.rs:1123-1179`). The Rust loader `include!`s it
 Rust `embedded_runtime.rs` module used by `src/bin/ibex/engine/hermes.rs`
 `[observed]`. In standalone mode the source is the vendored bundle;
 otherwise it is rebuilt by `rolldown-bundle.mjs` from
-`packages/ibex-runtime-js/src/runtime-entry-no-webgpu.ts` (`build.rs`;
+`packages/ibex-runtime-js/src/runtime-entry.ts` (`build.rs`;
 `vendored-generated/README.md:23-27`). The engine installs this bundle at startup
 ([LLP 0003 §The bootstrap sequence](./0003-hermes-engine-bridge.explainer.md#the-bootstrap-sequence)).
 
-When `webgpu-binding` is compiled, the same generator also consumes the
-committed `embedded_runtime_webgpu_bundle.js` or regenerates it from
-`runtime-entry-webgpu.ts`. It emits independent
-`webgpu_runtime_bundle_source.h` and optional
-`webgpu_runtime_bundle_bytecode.h` symbols. These bytes are authenticated build
-inputs embedded in the engine but are not part of ordinary bootstrap
-evaluation; LLP 0002's explicit owner-thread activation transition is their
-only evaluator. The maximal `runtime-entry.ts` remains a tooling input for
-CapSec union-surface discovery and is not a startup artifact.
+Ibex generates and vendors no feature-specific secondary bundle. A selected
+runtime extension may instead declare package-owned source or HBC bootstrap
+bytes. Exact's generator authenticates those bytes in the immutable registry,
+and LLP 0040's generic installer evaluates them during the fixed pre-user-code
+window. They are not Ibex runtime-bundle artifacts and never enter
+`vendored-generated/`.
 
 ## Bytecode precompilation (hermesc)
 
@@ -112,11 +110,9 @@ bytecode header and the engine uses source `[observed]` (`build.rs:522-574,
 `[observed]` (`build.rs:1288-1400`). Runtime-bundle bytecode generation also
 checks `hermesc`, but skips with warnings on unavailable/mismatched compilers
 instead of using the bootstrap panic path `[observed]` (`build.rs:1676-1735`).
-The engine prefers bytecode and falls back to source for core startup. Deferred
-WebGPU activation accepts source fallback only when native bytecode sanity
-proves that no HBC instruction executed
-([LLP 0003](./0003-hermes-engine-bridge.explainer.md),
-`src/engine/hermes_bootstrap.cc:44-69`).
+The engine prefers bytecode and falls back to source for core startup. Selected
+runtime-extension bootstrap evaluation follows the declaration's authenticated
+source/HBC mode and the fail-closed rules in LLP 0040.
 
 Every Ibex-owned `hermesc` invocation passes `-Xes6-block-scoping` by default,
 matching the main and worklet `RuntimeConfig` used for source compilation.
@@ -210,13 +206,12 @@ local Hermes version `[observed]` (`vendored-generated/README.md:29-35`).
 From `vendored-generated/README.md` `[observed]` (`vendored-generated/README.md:11-35`):
 
 - **Vendored** (committed): `builtin_manifest.generated.rs`,
-  `builtins/*.js` (47 transformed modules), the core
-  `embedded_runtime_bundle.js`, and the deferred
-  `embedded_runtime_webgpu_bundle.js`.
+  `builtins/*.js` (47 transformed modules), and the core
+  `embedded_runtime_bundle.js`.
 - **Regenerated each build** from in-repo sources or platform toolchains:
   `bootstrap_source.h`, `bootstrap_bytecode.h`, the per-file `*.hbc`,
-  `runtime_bundle_bytecode.h`, `webgpu_runtime_bundle_bytecode.h`, and platform
-  object/archive products (`*.o`, `*.a`).
+  `runtime_bundle_bytecode.h`, and platform object/archive products
+  (`*.o`, `*.a`).
 
 ## Refreshing the snapshot
 

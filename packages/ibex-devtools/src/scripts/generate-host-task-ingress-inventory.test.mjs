@@ -1,6 +1,5 @@
-// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam — every
-// runtime-owner app-code ingress is either host-task scoped or carries a
-// reviewed structural no-GPU/internal/terminal disposition.
+// @ref LLP 0040 — every runtime-owner app-code ingress is either host-task
+// scoped or carries a reviewed structural/internal disposition.
 
 import { afterEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
@@ -53,16 +52,6 @@ describe("LLP 0002 host-task ingress inventory", () => {
     ).toBe(216);
     expect(artifact.ingressRows).toHaveLength(43);
     expect(
-      artifact.ingressRows.find(
-        (row) =>
-          row.id ===
-          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1",
-      ),
-    ).toMatchObject({
-      disposition: "outer-host-task",
-      discoveredSiteCount: 0,
-    });
-    expect(
       artifact.rows.find(
         (row) =>
           row.id ===
@@ -75,7 +64,7 @@ describe("LLP 0002 host-task ingress inventory", () => {
           row.id ===
           "src/engine/hermes_runtime_worklet.cc#ex_worklet_invoke",
       )?.disposition,
-    ).toBe("restricted-no-app-webgpu");
+    ).toBe("restricted-no-app-code");
     expect(fs.existsSync(hostTaskIngressInventoryPath)).toBe(true);
   });
 

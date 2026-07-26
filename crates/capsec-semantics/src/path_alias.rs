@@ -385,7 +385,7 @@ impl PathAliasCanonicalizers {
             | OccurrenceResource::StorageOccurrence { requested, .. }
             | OccurrenceResource::LifecycleOccurrence { requested }
             | OccurrenceResource::SessionStateOccurrence { requested }
-            | OccurrenceResource::GpuOperationOccurrence { requested, .. }
+            | OccurrenceResource::RuntimeExtensionOccurrence { requested, .. }
             | OccurrenceResource::ClosedOccurrence { requested, .. } => {
                 **requested = self.canonicalize_selector(requested, package_owner)?;
             }

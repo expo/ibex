@@ -154,8 +154,6 @@
             "always",
             "android-platform-state",
             "authenticated-exact-host-ingress",
-            "authenticated-webgpu-decoded-image",
-            "authenticated-webgpu-provider",
             "baseline-input",
             "bun-compat-shared-or-legacy-fallback",
             "bun-compat-shared-runtime",

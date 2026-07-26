@@ -39,7 +39,12 @@ const bootstrapCompatibilityControl: BootstrapCompatibilityControl = (() => {
       .__exactCompatModes;
     if (!Array.isArray(value)) return disabled;
 
-    const supported = new Set(["bun", "fixture", "fixture:bun"]);
+    const supported = new Set([
+      "bun",
+      "fixture",
+      "fixture:bun",
+      "native-storage:closed",
+    ]);
     const modes = new Set<string>();
     for (const mode of value) {
       if (typeof mode !== "string" || !supported.has(mode) || modes.has(mode)) {

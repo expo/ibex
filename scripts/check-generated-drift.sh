@@ -6,7 +6,7 @@
 # Two non-mutating strategies, both driven off the package.json scripts (one
 # source of truth, shared with regenerate:vendored):
 #   * generators that support --check verify in place and write nothing;
-#   * the two bundle builders are pointed at a scratch out-dir (last --out wins)
+#   * the bundle builder is pointed at a scratch output (last --out wins)
 #     and their output is diffed against the committed copy.
 # Exits nonzero listing the stale paths and the command to refresh them.
 set -euo pipefail
@@ -57,21 +57,7 @@ fi
 if ! bun run generate:vendored-fingerprint --check >/dev/null 2>&1; then
   stale+=("vendored-generated/source-fingerprint.generated.txt")
 fi
-if ! bun run generate:webgpu-test-wrapper --check >/dev/null 2>&1; then
-  stale+=("tests/fixtures/webgpu-test-wrapper.generated.js")
-fi
-if ! bun run generate:webgpu-production-plan --check >/dev/null 2>&1; then
-  stale+=(
-    "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts"
-    "packages/ibex-runtime-js/src/webgpu/production-codecs.generated.ts"
-    "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json"
-  )
-fi
-if ! bun run generate:webgpu-production-codec-corpus --check >/dev/null 2>&1; then
-  stale+=("tests/fixtures/webgpu-production-codec-corpus-v1.generated.json")
-fi
-
-# --- bundle builders (write to scratch, diff against committed) -------------
+# --- bundle builder (write to scratch, diff against committed) --------------
 bun run build:builtins --out-dir "$scratch/builtins" >/dev/null 2>&1
 if ! diff -r "vendored-generated/builtins" "$scratch/builtins" >/dev/null 2>&1; then
   stale+=("vendored-generated/builtins/*.js")
@@ -80,10 +66,6 @@ fi
 bun run build:runtime:core --out "$scratch/embedded_runtime_bundle.js" >/dev/null 2>&1
 if ! diff "vendored-generated/embedded_runtime_bundle.js" "$scratch/embedded_runtime_bundle.js" >/dev/null 2>&1; then
   stale+=("vendored-generated/embedded_runtime_bundle.js")
-fi
-bun run build:runtime:webgpu --out "$scratch/embedded_runtime_webgpu_bundle.js" >/dev/null 2>&1
-if ! diff "vendored-generated/embedded_runtime_webgpu_bundle.js" "$scratch/embedded_runtime_webgpu_bundle.js" >/dev/null 2>&1; then
-  stale+=("vendored-generated/embedded_runtime_webgpu_bundle.js")
 fi
 
 if [ "${#stale[@]}" -eq 0 ]; then

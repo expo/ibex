@@ -259,14 +259,11 @@ describe("exact-target CapSec executable recipes", () => {
     // Thirty reviewed roots gain exact fresh-engine receipts while the
     // formerly source-misattributed stream/promises export probe is retracted.
     // +10 for the fs:read readFileSync and fs:write writeFileSync export
-    // families (LLP 0037), 5 scenario rows each. The 69 net-new WebGPU
-    // obligations remain unresolved until their public-surface probes are
-    // authored; four overlap the newly reviewed advertisement set.
+    // families (LLP 0037), 5 scenario rows each.
     expect(recipes.summary.fullyExecutableFixtures).toBe(2_602);
     // The seven internal callback-security invariant scenarios are attested by
     // internal Rust proofs, not public-surface probes (LLP 0036), so they leave
-    // the unresolved count and form their own classification. WebGPU adds 20
-    // fixtures across those already-reviewed scenario kinds.
+    // the unresolved count and form their own classification.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_747);
     expect(recipes.summary.unresolvedFixtures).toBe(18_305);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);

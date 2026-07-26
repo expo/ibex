@@ -633,7 +633,7 @@ static int emit_module_event_impl(
     size_t payload_len) {
   if (!exactRuntimeEnterUserExecution(runtime)) return -1;
 
-  ScopedGpuHostTask hostTask(runtime);
+  ScopedRuntimeExtensionHostTask hostTask(runtime);
   if (!hostTask) return -1;
 
   auto& rt = *runtime->runtime;
@@ -732,7 +732,7 @@ extern "C" int ex_hermes_dispatch_event(
     const char* payload_json) {
   if (!exactRuntimeEnterUserExecution(runtime)) return -1;
 
-  ScopedGpuHostTask hostTask(runtime);
+  ScopedRuntimeExtensionHostTask hostTask(runtime);
   if (!hostTask) return -1;
 
   auto& rt = *runtime->runtime;

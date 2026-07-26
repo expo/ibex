@@ -1,8 +1,8 @@
-# LLP 0002 Hermes patch 0012 — keyed WebGPU mapped ArrayBuffer aliases
+# LLP 0002 Hermes patch 0012 — keyed external ArrayBuffer aliases
 # Class: B (an optional JSI interface, one POD detach-key field, exception-safe
 #         in-place internal ownership promotion, and bounded insertion points
 #         in ArrayBuffer transfer/detach paths)
-# @ref LLP 0002#webgpu-production-runtime
+# @ref LLP 0040
 #
 diff --git a/API/hermes/hermes.cpp b/API/hermes/hermes.cpp
 index 1e6e6340281be5d055ae6e8b6cc2c2a6aa062ef6..d727d5ac700ff51bc6bb9d66880428877c93e293 100644
@@ -12,7 +12,7 @@ index 1e6e6340281be5d055ae6e8b6cc2c2a6aa062ef6..d727d5ac700ff51bc6bb9d6688042887
  namespace {
  class HermesRuntimeImpl final : public HermesRuntime,
                                  private IHermesTestHelpers,
-+                                private IExactWebGpuArrayBuffer,
++                                private IKeyedExternalArrayBuffer,
                                  private InstallHermesFatalErrorHandler,
                                  private jsi::Instrumentation
  #ifdef JSI_UNSTABLE
@@ -20,11 +20,11 @@ index 1e6e6340281be5d055ae6e8b6cc2c2a6aa062ef6..d727d5ac700ff51bc6bb9d6688042887
    jsi::Array createArray(size_t length) override;
    jsi::ArrayBuffer createArrayBuffer(
        std::shared_ptr<jsi::MutableBuffer> buffer) override;
-+  jsi::ArrayBuffer createWebGpuMappedRangeAlias(
++  jsi::ArrayBuffer createKeyedExternalRangeAlias(
 +      const jsi::ArrayBuffer &source,
 +      size_t byteOffset,
 +      size_t byteLength) override;
-+  bool detachWebGpuMappedRange(
++  bool detachKeyedExternalRange(
 +      const jsi::ArrayBuffer &buffer) override;
    size_t size(const jsi::Array &) override;
    size_t size(const jsi::ArrayBuffer &) override;
@@ -33,8 +33,8 @@ index 1e6e6340281be5d055ae6e8b6cc2c2a6aa062ef6..d727d5ac700ff51bc6bb9d6688042887
  jsi::ICast *HermesRuntimeImpl::castInterface(const jsi::UUID &interfaceUUID) {
    if (interfaceUUID == IHermesTestHelpers::uuid) {
      return static_cast<IHermesTestHelpers *>(this);
-+  } else if (interfaceUUID == IExactWebGpuArrayBuffer::uuid) {
-+    return static_cast<IExactWebGpuArrayBuffer *>(this);
++  } else if (interfaceUUID == IKeyedExternalArrayBuffer::uuid) {
++    return static_cast<IKeyedExternalArrayBuffer *>(this);
    } else if (interfaceUUID == IHermes::uuid) {
      return static_cast<IHermes *>(this);
    } else if (interfaceUUID == IHermesSHUnit::uuid) {
@@ -42,7 +42,7 @@ index 1e6e6340281be5d055ae6e8b6cc2c2a6aa062ef6..d727d5ac700ff51bc6bb9d6688042887
    return add<jsi::ArrayBuffer>(lv.buf.getHermesValue());
  }
  
-+jsi::ArrayBuffer HermesRuntimeImpl::createWebGpuMappedRangeAlias(
++jsi::ArrayBuffer HermesRuntimeImpl::createKeyedExternalRangeAlias(
 +    const jsi::ArrayBuffer &source,
 +    size_t byteOffset,
 +    size_t byteLength) {
@@ -56,14 +56,14 @@ index 1e6e6340281be5d055ae6e8b6cc2c2a6aa062ef6..d727d5ac700ff51bc6bb9d6688042887
 +  if (LLVM_UNLIKELY(!sourceBuffer->attached())) {
 +    throw jsi::JSINativeException("Cannot alias a detached ArrayBuffer.");
 +  }
-+  if (LLVM_UNLIKELY(sourceBuffer->hasWebGpuMappingDetachKey())) {
++  if (LLVM_UNLIKELY(sourceBuffer->hasKeyedExternalDetachKey())) {
 +    throw jsi::JSINativeException(
-+        "A WebGPU mapped alias cannot be used as an alias source.");
++        "A keyed external alias cannot be used as an alias source.");
 +  }
 +  const size_t sourceSize = sourceBuffer->size();
 +  if (LLVM_UNLIKELY(
 +          byteOffset > sourceSize || byteLength > sourceSize - byteOffset)) {
-+    throw jsi::JSINativeException("WebGPU mapped alias is out of bounds.");
++    throw jsi::JSINativeException("Keyed external alias is out of bounds.");
 +  }
 +
 +  auto context = vm::JSArrayBuffer::getOrPromoteExternalDataContext(
@@ -78,14 +78,14 @@ index 1e6e6340281be5d055ae6e8b6cc2c2a6aa062ef6..d727d5ac700ff51bc6bb9d6688042887
 +      data == nullptr ? nullptr : data + byteOffset,
 +      byteLength,
 +      context);
-+  lv.alias->setWebGpuMappingDetachKey();
++  lv.alias->setKeyedExternalDetachKey();
 +  return add<jsi::ArrayBuffer>(lv.alias.getHermesValue());
 +}
 +
-+bool HermesRuntimeImpl::detachWebGpuMappedRange(
++bool HermesRuntimeImpl::detachKeyedExternalRange(
 +    const jsi::ArrayBuffer &buffer) {
 +  vm::GCScope gcScope(runtime_);
-+  return vm::JSArrayBuffer::detachWithWebGpuMappingKey(
++  return vm::JSArrayBuffer::detachWithKeyedExternalKey(
 +      runtime_, arrayBufferHandle(buffer));
 +}
 +
@@ -100,15 +100,15 @@ index 4655aa8ce0cde4cf4d81e360286e4a08ffa852bb..34eb5b24a9f023383f454a4ef6d5081a
    ~IHermes() = default;
  };
  
-+/// Optional Hermes-specific support for WebGPU mapped ArrayBuffer aliases.
++/// Optional Hermes-specific support for keyed external ArrayBuffer aliases.
 +///
 +/// The embedder owns publication of this capability. It is intentionally a
 +/// native interface instead of a JavaScript intrinsic: ordinary JavaScript
-+/// must not be able to detach a buffer carrying WebGPUBufferMapping's detach
++/// must not be able to detach a buffer carrying an embedder-owned detach
 +/// key. Implementations return aliases over one existing backing store,
 +/// privately promoting internal ownership when required, and detach only
 +/// aliases minted by this interface.
-+class JSI_EXPORT IExactWebGpuArrayBuffer : public jsi::ICast {
++class JSI_EXPORT IKeyedExternalArrayBuffer : public jsi::ICast {
 + public:
 +  static constexpr jsi::UUID uuid{
 +      0x7ae10e78,
@@ -117,18 +117,18 @@ index 4655aa8ce0cde4cf4d81e360286e4a08ffa852bb..34eb5b24a9f023383f454a4ef6d5081a
 +      0xa9d2,
 +      0x5139c72b23e7};
 +
-+  virtual jsi::ArrayBuffer createWebGpuMappedRangeAlias(
++  virtual jsi::ArrayBuffer createKeyedExternalRangeAlias(
 +      const jsi::ArrayBuffer& source,
 +      size_t byteOffset,
 +      size_t byteLength) = 0;
 +
 +  /// Returns false without mutation unless \p buffer is an attached alias
-+  /// minted by createWebGpuMappedRangeAlias().
-+  virtual bool detachWebGpuMappedRange(
++  /// minted by createKeyedExternalRangeAlias().
++  virtual bool detachKeyedExternalRange(
 +      const jsi::ArrayBuffer& buffer) = 0;
 +
 + protected:
-+  ~IExactWebGpuArrayBuffer() = default;
++  ~IKeyedExternalArrayBuffer() = default;
 +};
 +
  /// Interface for provide Hermes backend specific methods.
@@ -150,22 +150,22 @@ index 0b30b18579cf7578ebede0d1bdade7036092a7ee..52514979394efe58218caa3a4f87084b
 +      Runtime &runtime,
 +      Handle<JSArrayBuffer> self);
 +
-+  /// Mark an attached external ArrayBuffer with WebGPUBufferMapping's detach
++  /// Mark an attached external ArrayBuffer with an embedder-owned detach
 +  /// key. Only the embedder-facing mapped-range helper mints these aliases.
-+  void setWebGpuMappingDetachKey() {
++  void setKeyedExternalDetachKey() {
 +    assert(
 +        attached() && external() &&
 +        "Mapped aliases must be attached external buffers");
-+    webGpuMappingDetachKey_ = true;
++    keyedExternalDetachKey_ = true;
 +  }
 +
-+  bool hasWebGpuMappingDetachKey() const {
-+    return webGpuMappingDetachKey_;
++  bool hasKeyedExternalDetachKey() const {
++    return keyedExternalDetachKey_;
 +  }
 +
-+  /// Detach only when WebGPUBufferMapping is the matching detach key.
++  /// Detach only when the keyed-external capability is the matching key.
 +  /// Returns false without mutation for an unkeyed or already-detached buffer.
-+  static bool detachWithWebGpuMappingKey(
++  static bool detachWithKeyedExternalKey(
 +      Runtime &runtime,
 +      Handle<JSArrayBuffer> self);
 +
@@ -190,7 +190,7 @@ index 0b30b18579cf7578ebede0d1bdade7036092a7ee..52514979394efe58218caa3a4f87084b
    size_type size_;
    bool external_;
    bool attached_;
-+  bool webGpuMappingDetachKey_;
++  bool keyedExternalDetachKey_;
  
   public:
    JSArrayBuffer(
@@ -205,7 +205,7 @@ index 7378a35aa0f5e5d6abae21fef53c2c879759ac93..887705f67ec08a88963d95f153b206b4
 -    : JSObject(runtime, *parent, *clazz), attached_(false) {}
 +    : JSObject(runtime, *parent, *clazz),
 +      attached_(false),
-+      webGpuMappingDetachKey_(false) {}
++      keyedExternalDetachKey_(false) {}
  
  void JSArrayBuffer::_finalizeImpl(GCCell *cell, GC &gc) {
    auto *self = vmcast<JSArrayBuffer>(cell);
@@ -224,21 +224,21 @@ index 7378a35aa0f5e5d6abae21fef53c2c879759ac93..887705f67ec08a88963d95f153b206b4
    self->size_ = 0;
    self->external_ = false;
    self->attached_ = false;
-+  self->webGpuMappingDetachKey_ = false;
++  self->keyedExternalDetachKey_ = false;
 +}
 +
 +void JSArrayBuffer::detach(Runtime &runtime, Handle<JSArrayBuffer> self) {
-+  // WebGPU mapped aliases have a non-undefined detach key. Generic detach
++  // Keyed external aliases have a non-undefined detach key. Generic detach
 +  // operations therefore cannot consume their backing store.
-+  if (self->hasWebGpuMappingDetachKey())
++  if (self->hasKeyedExternalDetachKey())
 +    return;
 +  detachDataBlock(runtime, self);
 +}
 +
-+bool JSArrayBuffer::detachWithWebGpuMappingKey(
++bool JSArrayBuffer::detachWithKeyedExternalKey(
 +    Runtime &runtime,
 +    Handle<JSArrayBuffer> self) {
-+  if (!self->attached() || !self->hasWebGpuMappingDetachKey())
++  if (!self->attached() || !self->hasKeyedExternalDetachKey())
 +    return false;
 +  detachDataBlock(runtime, self);
 +  return true;
@@ -249,8 +249,8 @@ index 7378a35aa0f5e5d6abae21fef53c2c879759ac93..887705f67ec08a88963d95f153b206b4
      Handle<JSArrayBuffer> self) {
    assert(self->attached() && "Buffer must be attached");
 +  assert(
-+      !self->hasWebGpuMappingDetachKey() &&
-+      "A keyed WebGPU mapped alias cannot be transferred without its key");
++      !self->hasKeyedExternalDetachKey() &&
++      "A keyed external alias cannot be transferred without its key");
    // Untrack the memory if the attached data block is internal.
    if (!self->external_) {
      self->untrackInternalBuffer(runtime.getHeap());
@@ -258,7 +258,7 @@ index 7378a35aa0f5e5d6abae21fef53c2c879759ac93..887705f67ec08a88963d95f153b206b4
    self->size_ = 0;
    self->external_ = false;
    self->attached_ = false;
-+  self->webGpuMappingDetachKey_ = false;
++  self->keyedExternalDetachKey_ = false;
  }
  
  ExecutionStatus JSArrayBuffer::createDataBlock(
@@ -267,8 +267,8 @@ index 7378a35aa0f5e5d6abae21fef53c2c879759ac93..887705f67ec08a88963d95f153b206b4
      size_type size,
      bool zero) {
 +  assert(
-+      !self->hasWebGpuMappingDetachKey() &&
-+      "Cannot replace a data block without its WebGPU mapping detach key");
++      !self->hasKeyedExternalDetachKey() &&
++      "Cannot replace a data block without its keyed external detach key");
    detach(runtime, self);
    uint8_t *data = nullptr;
    if (size > 0) {
@@ -276,7 +276,7 @@ index 7378a35aa0f5e5d6abae21fef53c2c879759ac93..887705f67ec08a88963d95f153b206b4
    self->data_ = data;
    self->size_ = size;
    self->external_ = false;
-+  self->webGpuMappingDetachKey_ = false;
++  self->keyedExternalDetachKey_ = false;
    runtime.getHeap().creditExternalMemory(*self, size);
    return ExecutionStatus::RETURNED;
  }
@@ -285,8 +285,8 @@ index 7378a35aa0f5e5d6abae21fef53c2c879759ac93..887705f67ec08a88963d95f153b206b4
    LocalsRAII lraii(runtime, &lv);
  
 +  assert(
-+      !self->hasWebGpuMappingDetachKey() &&
-+      "Cannot replace a data block without its WebGPU mapping detach key");
++      !self->hasKeyedExternalDetachKey() &&
++      "Cannot replace a data block without its keyed external detach key");
    detach(runtime, self);
  
    auto contextPtr = new std::shared_ptr<void>(context);
@@ -294,7 +294,7 @@ index 7378a35aa0f5e5d6abae21fef53c2c879759ac93..887705f67ec08a88963d95f153b206b4
    self->size_ = size;
    self->external_ = true;
    self->data_ = data;
-+  self->webGpuMappingDetachKey_ = false;
++  self->keyedExternalDetachKey_ = false;
  }
  
  PseudoHandle<NativeState> JSArrayBuffer::getExternalFinalizerNativeState(
@@ -355,9 +355,9 @@ index 1003afad594e006587935db5e97774bf231162bd..4c0dceaee1c6fd8794c33317ce068f50
      if (!lv.arrayBuffer->attached()) {
        return runtime.raiseError("Detached ArrayBuffers are not serializable");
      }
-+    if (lv.arrayBuffer->hasWebGpuMappingDetachKey()) {
++    if (lv.arrayBuffer->hasKeyedExternalDetachKey()) {
 +      return runtime.raiseError(
-+          "ArrayBuffer has a non-transferable WebGPU mapping detach key");
++          "ArrayBuffer has a non-transferable keyed external detach key");
 +    }
      // 3. Let dataHolder be memory[transferable].
      auto hash = runtime.gcStableHashJSObject(*lv.arrayBuffer);
@@ -370,7 +370,7 @@ index 4cfbbfe6bf9071278fcab78ee8b05ed677922ae6..16ba1fcc650d329a99273e1080b32e9d
    }
  }
  
-+TEST(HermesWebGpuArrayBufferTest, AliasesShareBackingAndRequireMatchingKey) {
++TEST(HermesKeyedExternalArrayBufferTest, AliasesShareBackingAndRequireMatchingKey) {
 +  struct FixedBuffer final : MutableBuffer {
 +    size_t size() const override {
 +      return bytes.size();
@@ -383,15 +383,15 @@ index 4cfbbfe6bf9071278fcab78ee8b05ed677922ae6..16ba1fcc650d329a99273e1080b32e9d
 +  };
 +
 +  auto rt = makeHermesRuntime();
-+  auto *mappedBuffers = castInterface<IExactWebGpuArrayBuffer>(rt.get());
++  auto *mappedBuffers = castInterface<IKeyedExternalArrayBuffer>(rt.get());
 +  ASSERT_NE(mappedBuffers, nullptr);
 +
 +  auto backing = std::make_shared<FixedBuffer>();
 +  backing->bytes[5] = 17;
 +  ArrayBuffer source(*rt, backing);
-+  auto alias = mappedBuffers->createWebGpuMappedRangeAlias(source, 4, 6);
++  auto alias = mappedBuffers->createKeyedExternalRangeAlias(source, 4, 6);
 +  auto overlappingAlias =
-+      mappedBuffers->createWebGpuMappedRangeAlias(source, 5, 3);
++      mappedBuffers->createKeyedExternalRangeAlias(source, 5, 3);
 +  ASSERT_EQ(alias.size(*rt), 6);
 +  EXPECT_EQ(alias.data(*rt)[1], 17);
 +  alias.data(*rt)[2] = 29;
@@ -410,16 +410,16 @@ index 4cfbbfe6bf9071278fcab78ee8b05ed677922ae6..16ba1fcc650d329a99273e1080b32e9d
 +#endif
 +
 +  EXPECT_THROW(
-+      mappedBuffers->createWebGpuMappedRangeAlias(alias, 0, 1),
++      mappedBuffers->createKeyedExternalRangeAlias(alias, 0, 1),
 +      JSINativeException);
-+  EXPECT_FALSE(mappedBuffers->detachWebGpuMappedRange(source));
++  EXPECT_FALSE(mappedBuffers->detachKeyedExternalRange(source));
 +  EXPECT_EQ(source.size(*rt), backing->bytes.size());
 +
-+  EXPECT_TRUE(mappedBuffers->detachWebGpuMappedRange(alias));
++  EXPECT_TRUE(mappedBuffers->detachKeyedExternalRange(alias));
 +  EXPECT_THROW(alias.size(*rt), JSINativeException);
-+  EXPECT_FALSE(mappedBuffers->detachWebGpuMappedRange(alias));
++  EXPECT_FALSE(mappedBuffers->detachKeyedExternalRange(alias));
 +  EXPECT_EQ(overlappingAlias.size(*rt), 3);
-+  EXPECT_TRUE(mappedBuffers->detachWebGpuMappedRange(overlappingAlias));
++  EXPECT_TRUE(mappedBuffers->detachKeyedExternalRange(overlappingAlias));
 +  EXPECT_EQ(source.data(*rt)[6], 29);
 +
 +  auto internalValue = rt->evaluateJavaScript(
@@ -427,15 +427,15 @@ index 4cfbbfe6bf9071278fcab78ee8b05ed677922ae6..16ba1fcc650d329a99273e1080b32e9d
 +          "var internalMappedSource = new ArrayBuffer(16);"
 +          "new Uint8Array(internalMappedSource)[7] = 41;"
 +          "internalMappedSource;"),
-+      "webgpu-mapped-internal-source.js");
++      "keyed-external-internal-source.js");
 +  auto internalSource =
 +      internalValue.asObject(*rt).getArrayBuffer(*rt);
 +  auto internalAlias =
-+      mappedBuffers->createWebGpuMappedRangeAlias(internalSource, 6, 4);
++      mappedBuffers->createKeyedExternalRangeAlias(internalSource, 6, 4);
 +  EXPECT_EQ(internalAlias.data(*rt)[1], 41);
 +  internalAlias.data(*rt)[2] = 53;
 +  EXPECT_EQ(internalSource.data(*rt)[8], 53);
-+  EXPECT_TRUE(mappedBuffers->detachWebGpuMappedRange(internalAlias));
++  EXPECT_TRUE(mappedBuffers->detachKeyedExternalRange(internalAlias));
 +  EXPECT_EQ(internalSource.size(*rt), 16);
 +  EXPECT_EQ(internalSource.data(*rt)[8], 53);
 +}
@@ -443,4 +443,3 @@ index 4cfbbfe6bf9071278fcab78ee8b05ed677922ae6..16ba1fcc650d329a99273e1080b32e9d
  class HermesRuntimeTestMethodsTest : public HermesRuntimeCustomConfigTest {
   public:
    HermesRuntimeTestMethodsTest()
-

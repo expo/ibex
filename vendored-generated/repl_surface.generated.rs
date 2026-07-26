@@ -93,9 +93,9 @@ pub const REPL_SURFACE_SCHEMA_SHA256: &str =
 pub const REPL_SURFACE_GENERATOR_SHA256: &str =
     "773b6ecacbb2e134e23249aae4be8ef296600f5da0d7a0ef88b796e8c15ca84e";
 pub const CAPABILITY_DEFINITIONS_SHA256: &str =
-    "675bca399442b7dba92572d0d2110b79494fa4d9a990443a4c6781c37f518753";
+    "2b6ef4accd56e54f3b0a76dfd1df6ce9674f14a986915fed16eb7365db811025";
 pub const POLICY_RULES_SHA256: &str =
-    "c35dfa2cb7c8634c4d24e9ba5639ee795eba207b71ff8990e19b67541ce00751";
+    "e5ec3f0556b813c0eaf059da9783175be18b52d1fe805e4a6521796a99a4e5e7";
 pub const REPL_SURFACE_VERSION: u32 = 1;
 pub const KEYBINDING_SURFACE_VERSION: u32 = 1;
 pub const REPL_HELP_TEXT: &str = "REPL Commands:\n  .help (.h)         Show every command, alias, and published keybinding\n  .exit (.quit, .q)  End the session through orderly shutdown\n  .clear (.cls)      Clear an interactive display without resetting session state\n  .load <path>       Read a virtual path through typed authority and evaluate its supported contents\n  .time <input>      Evaluate input with prompt semantics and report elapsed time\n  .break             Abandon a pending multiline continuation\n  .mounts            Show the virtual mount table and virtual current directory\n\nKeybindings:\n  Tab     Complete without authorizing effects or evaluating user code\n  Ctrl+C  Cancel, discard, or escalate according to session state\n  Ctrl+D  Exit at an empty prompt; otherwise delete forward\n  Ctrl+R  Search session history in reverse\n  Ctrl+Z  Restore the terminal, suspend, and recapture on resume\n";

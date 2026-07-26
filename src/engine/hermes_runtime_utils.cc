@@ -249,7 +249,7 @@ bool exactRuntimeDebuggerIngressAllowed(
     const ExactHermesRuntime* runtime) noexcept {
   return runtime &&
       !runtime->runtime_quarantined.load(std::memory_order_acquire) &&
-      !runtime->gpu_canvas_app_bundle_debugger_blocked.load(
+      !runtime->extension_app_bundle_debugger_blocked.load(
           std::memory_order_acquire);
 }
 
@@ -273,7 +273,7 @@ void cancelPendingDebuggerCommandsLocked(
 }  // namespace
 #endif
 
-bool exactRuntimeBeginGpuCanvasDebuggerExclusion(
+bool exactRuntimeBeginExtensionAppBundleDebuggerExclusion(
     ExactHermesRuntime* runtime) noexcept {
   if (!runtime || !runtime->runtime ||
       runtime->runtime_thread != std::this_thread::get_id() ||
@@ -284,13 +284,13 @@ bool exactRuntimeBeginGpuCanvasDebuggerExclusion(
   bool wasAttached = false;
   {
     std::lock_guard<std::mutex> lock(runtime->debug_mutex);
-    if (runtime->gpu_canvas_app_bundle_debugger_blocked.load(
+    if (runtime->extension_app_bundle_debugger_blocked.load(
             std::memory_order_relaxed)) {
       return false;
     }
     wasAttached = runtime->debugger_attached.load(std::memory_order_acquire);
-    runtime->gpu_canvas_app_bundle_debugger_was_attached = wasAttached;
-    runtime->gpu_canvas_app_bundle_debugger_blocked.store(
+    runtime->extension_app_bundle_debugger_was_attached = wasAttached;
+    runtime->extension_app_bundle_debugger_blocked.store(
         true, std::memory_order_release);
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
     // Linearize gate closure with command admission. Every command that won
@@ -306,8 +306,8 @@ bool exactRuntimeBeginGpuCanvasDebuggerExclusion(
       runtime->runtime->getDebugger().setIsDebuggerAttached(false);
     } catch (...) {
       std::lock_guard<std::mutex> lock(runtime->debug_mutex);
-      runtime->gpu_canvas_app_bundle_debugger_was_attached = false;
-      runtime->gpu_canvas_app_bundle_debugger_blocked.store(
+      runtime->extension_app_bundle_debugger_was_attached = false;
+      runtime->extension_app_bundle_debugger_blocked.store(
           false, std::memory_order_release);
       return false;
     }
@@ -315,8 +315,8 @@ bool exactRuntimeBeginGpuCanvasDebuggerExclusion(
 #else
   if (wasAttached) {
     std::lock_guard<std::mutex> lock(runtime->debug_mutex);
-    runtime->gpu_canvas_app_bundle_debugger_was_attached = false;
-    runtime->gpu_canvas_app_bundle_debugger_blocked.store(
+    runtime->extension_app_bundle_debugger_was_attached = false;
+    runtime->extension_app_bundle_debugger_blocked.store(
         false, std::memory_order_release);
     return false;
   }
@@ -324,7 +324,7 @@ bool exactRuntimeBeginGpuCanvasDebuggerExclusion(
   return true;
 }
 
-bool exactRuntimeFinishGpuCanvasDebuggerExclusion(
+bool exactRuntimeFinishExtensionAppBundleDebuggerExclusion(
     ExactHermesRuntime* runtime) noexcept {
   if (!runtime || !runtime->runtime ||
       runtime->runtime_thread != std::this_thread::get_id()) {
@@ -334,13 +334,13 @@ bool exactRuntimeFinishGpuCanvasDebuggerExclusion(
   bool restoreAttached = false;
   {
     std::lock_guard<std::mutex> lock(runtime->debug_mutex);
-    if (!runtime->gpu_canvas_app_bundle_debugger_blocked.load(
+    if (!runtime->extension_app_bundle_debugger_blocked.load(
             std::memory_order_relaxed)) {
       return false;
     }
     restoreAttached =
         !runtime->runtime_quarantined.load(std::memory_order_acquire) &&
-        runtime->gpu_canvas_app_bundle_debugger_was_attached;
+        runtime->extension_app_bundle_debugger_was_attached;
   }
 
 #if defined(HERMES_ENABLE_DEBUGGER) && EXACT_HAS_HERMES_ASYNC_DEBUGGER
@@ -361,8 +361,8 @@ bool exactRuntimeFinishGpuCanvasDebuggerExclusion(
 
   {
     std::lock_guard<std::mutex> lock(runtime->debug_mutex);
-    runtime->gpu_canvas_app_bundle_debugger_was_attached = false;
-    runtime->gpu_canvas_app_bundle_debugger_blocked.store(
+    runtime->extension_app_bundle_debugger_was_attached = false;
+    runtime->extension_app_bundle_debugger_blocked.store(
         false, std::memory_order_release);
   }
   return true;
@@ -374,7 +374,7 @@ void pushDebugEvent(ExactHermesRuntime* runtime, const std::string& event) {
   }
   std::lock_guard<std::mutex> lock(runtime->debug_mutex);
   if (runtime->runtime_quarantined.load(std::memory_order_relaxed) ||
-      runtime->gpu_canvas_app_bundle_debugger_blocked.load(
+      runtime->extension_app_bundle_debugger_blocked.load(
           std::memory_order_relaxed)) {
     return;
   }
@@ -392,7 +392,7 @@ std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> snapshotDebugger(
   std::lock_guard<std::mutex> lock(runtime->debug_mutex);
   if (!runtime->debugger || !runtime->debugger_available.load() ||
       runtime->runtime_quarantined.load(std::memory_order_relaxed) ||
-      runtime->gpu_canvas_app_bundle_debugger_blocked.load(
+      runtime->extension_app_bundle_debugger_blocked.load(
           std::memory_order_relaxed)) {
     return nullptr;
   }
@@ -407,7 +407,7 @@ std::shared_ptr<ExactPendingDebuggerCommand> exactRuntimeAdmitDebuggerCommand(
   std::lock_guard<std::mutex> lock(runtime->debug_mutex);
   if (!runtime->debugger || !runtime->debugger_available.load() ||
       runtime->runtime_quarantined.load(std::memory_order_relaxed) ||
-      runtime->gpu_canvas_app_bundle_debugger_blocked.load(
+      runtime->extension_app_bundle_debugger_blocked.load(
           std::memory_order_relaxed)) {
     return nullptr;
   }
@@ -481,7 +481,7 @@ std::string exactRuntimeWaitDebuggerCommand(
 void exactRuntimeDebuggerInterruptQueuedTestPause(
     ExactHermesRuntime* runtime,
     const std::shared_ptr<ExactPendingDebuggerCommand>& command) noexcept {
-#ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
+#ifdef IBEX_RUNTIME_EXTENSION_TEST_HOOKS
   if (!runtime ||
       !runtime->test_pause_debugger_after_interrupt_enqueue.exchange(
           false, std::memory_order_acq_rel)) {

@@ -13,10 +13,6 @@
 
 import { fixtureObligationsForBranch } from "./capsec-fixture-obligations.mjs";
 import { targetApplicabilityForVariant } from "./capsec-target-branches.mjs";
-import {
-  webGpuOperationSemantics,
-  webGpuPresentationAuthoritySemantics,
-} from "./capsec-webgpu-operation-registry.mjs";
 
 const PROFILE = "ibex/capsec/1";
 const COVERAGE_SCHEMA = "ibex/capsec-coverage/1";
@@ -349,19 +345,13 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__hostCallAsync",
   "__ibex",
   "__ibexBarePackageName",
-  "__ibexCaptureGpuCanvasRuntimeIntegration",
-  "__ibexCaptureGpuNativeBridge",
   "__ibexCompartmentBaselineFinalized",
   "__ibexCompartmentRegistryReady",
   "__ibexEndowRaw",
-  "__ibexImmediateHandlerCalled",
-  "__ibexImmediateMicrotaskRan",
-  "__ibexImmediateNextTickRan",
-  "__ibexImmediateResultCoerced",
-  "__ibexImmediateThenInspected",
   "__ibexLockedDown",
   "__ibexNativeLockdown",
   "__ibexRefreshCompartmentBaseline",
+  "__ibexRegisterRuntimeExtensionModule",
   "__ibexTamed",
   "__nativeFetch",
   "__nativeFetchSync",
@@ -372,20 +362,6 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__workletCaptureSet",
   "__workletOutput",
   "__workletRunOnJS",
-  "construction-private:gpuNativeBridge.cancel",
-  "construction-private:gpuNativeBridge.retire",
-  "construction-private:gpuNativeBridge.submit",
-  "construction-private:gpuNativeBridgeV2.cancel",
-  "construction-private:gpuNativeBridgeV2.capturePresentationAuthority",
-  "construction-private:gpuNativeBridgeV2.createMappedRangeAlias",
-  "construction-private:gpuNativeBridgeV2.detachMappedRange",
-  "construction-private:gpuNativeBridgeV2.recheckPresentationAuthority",
-  "construction-private:gpuNativeBridgeV2.retire",
-  "construction-private:gpuNativeBridgeV2.retirePresentationAuthority",
-  "construction-private:gpuNativeBridgeV2.setEventSink",
-  "construction-private:gpuNativeBridgeV2.submit",
-  "construction-private:webgpu-presentation:navigator.gpu.canvas.acquire",
-  "construction-private:webgpu-presentation:navigator.gpu.canvas.present",
   "native_fetch_cancel",
   "native_fetch_perform",
   "native_ws_close",
@@ -409,17 +385,12 @@ const REVIEWED_CALLBACK_PRODUCER_NAMES = new Set([
   "producer:src/engine/hermes_runtime_fetch.cc:installFetchGlobals:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_fs.cc:startFsAsync:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_fs_windows.cc:startFsAsync:pushRuntimeCallback",
-  "producer:src/engine/hermes_runtime_gpu.cc:scheduleGpuMailboxDrain:pushRuntimeCallback",
-  "producer:src/engine/hermes_runtime_gpu_v2.cc:ex_hermes_complete_gpu_decoded_image_v1:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_http.cc:WaitWorkerPool::spawnWorkerIfNeededLocked:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_http.cc:WritableWorkerPool::spawnWorkerIfNeededLocked:pushRuntimeCallback",
+  "producer:src/engine/hermes_runtime_extension.cc:CompletionTokenV1::post:1s0aeaw:tryPushRuntimeExtensionCallback",
   "producer:src/engine/hermes_runtime_websocket.cc:installWebSocketGlobals:pushRuntimeCallback",
 ]);
-
-const REVIEWED_CALLBACK_INGRESS_NAMES = new Set([
-  "ingress:src/engine/hermes_runtime_gpu.cc:ExactGpuClientSinkV1.on_event:receiveGpuEvent",
-  "ingress:src/engine/hermes_runtime_gpu_v2.cc:ExactGpuClientSinkV2.on_event:receiveGpuEvent",
-]);
+const REVIEWED_CALLBACK_INGRESS_NAMES = new Set();
 
 // Authored builtin specifier roots are reviewed independently from their
 // exported methods because module initialization may itself have effects.
@@ -2935,27 +2906,8 @@ const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
   "__exactSetCompartmentFor",
   "__ibex",
   "__ibexCapsecContextObserver_",
-  "__ibexImmediateHandlerCalled",
-  "__ibexImmediateMicrotaskRan",
-  "__ibexImmediateNextTickRan",
-  "__ibexImmediateResultCoerced",
-  "__ibexImmediateThenInspected",
   "__ibexLockedDown",
   "__ibexTamed",
-  "construction-private:gpuNativeBridge.cancel",
-  "construction-private:gpuNativeBridge.retire",
-  "construction-private:gpuNativeBridge.submit",
-  "construction-private:gpuNativeBridgeV2.cancel",
-  "construction-private:gpuNativeBridgeV2.capturePresentationAuthority",
-  "construction-private:gpuNativeBridgeV2.createMappedRangeAlias",
-  "construction-private:gpuNativeBridgeV2.detachMappedRange",
-  "construction-private:gpuNativeBridgeV2.recheckPresentationAuthority",
-  "construction-private:gpuNativeBridgeV2.retire",
-  "construction-private:gpuNativeBridgeV2.retirePresentationAuthority",
-  "construction-private:gpuNativeBridgeV2.setEventSink",
-  "construction-private:gpuNativeBridgeV2.submit",
-  "construction-private:webgpu-presentation:navigator.gpu.canvas.acquire",
-  "construction-private:webgpu-presentation:navigator.gpu.canvas.present",
   "native_fetch_cancel",
   "native_fetch_perform",
   "native_ws_close",
@@ -2984,7 +2936,7 @@ const REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES = Object.freeze([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.6de2df65a0f3aa3e422641bd925951a02b124b2c7449b6d95995267c23dc2d8d";
+  "hermes-evaluators.d806d778df43d42e2cd178609524f5a346e4d707cdcaabf37359c77dd3f1fec8";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
@@ -3718,38 +3670,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "values",
   ],
   Function: [""],
-  GPU: [""],
-  GPUAdapter: [""],
-  GPUBindGroupLayout: [""],
-  GPUBuffer: [""],
-  GPUBufferUsage: [""],
-  GPUCanvasContext: [""],
-  GPUColorWrite: [""],
-  GPUCommandBuffer: [""],
-  GPUCommandEncoder: [""],
-  GPUComputePassEncoder: [""],
-  GPUComputePipeline: [""],
-  GPUDevice: [""],
-  GPUDeviceLostInfo: [""],
-  GPUError: [""],
-  GPUInternalError: [""],
-  GPUMapMode: [""],
-  GPUOutOfMemoryError: [""],
-  GPUPipelineLayout: [""],
-  GPUQuerySet: [""],
-  GPUQueue: [""],
-  GPURenderPassEncoder: [""],
-  GPURenderPipeline: [""],
-  GPUSampler: [""],
-  GPUShaderModule: [""],
-  GPUShaderStage: [""],
-  GPUSupportedFeatures: [""],
-  GPUSupportedLimits: [""],
-  GPUTexture: [""],
-  GPUTextureUsage: [""],
-  GPUTextureView: [""],
-  GPUUncapturedErrorEvent: [""],
-  GPUValidationError: [""],
   GeneratorFunction: [""],
   Headers: [
     "",
@@ -4802,7 +4722,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   console: ["", "debug", "dir", "error", "info", "log", "trace", "warn"],
   createExternalizableString: [""],
   createExternalizableTwoByteString: [""],
-  createImageBitmap: [""],
   crypto: [
     "",
     "getRandomValues",
@@ -4874,7 +4793,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   log: [""],
   matchMedia: [""],
   measure: [""],
-  navigator: ["", "gpu"],
+  navigator: [""],
   ok: [""],
   performance: [
     "",
@@ -5199,10 +5118,8 @@ function reviewedNameSet(names, label) {
 const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
   [
     "ex_android_initialize",
-    "ex_hermes_activate_webgpu_runtime_v1",
     "ex_hermes_begin_app_bundle_evaluation_v1",
     "ex_hermes_begin_embedder_capabilities_v1",
-    "ex_hermes_begin_gpu_canvas_app_bundle_v1",
     "ex_hermes_bytecode_version",
     "ex_hermes_callback_backlog",
     "ex_hermes_cancel_structured_work_target",
@@ -5215,7 +5132,6 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_commonjs_record_link_dynamic_import",
     "ex_hermes_commonjs_record_link_require",
     "ex_hermes_commonjs_record_link_require_esm",
-    "ex_hermes_complete_gpu_decoded_image_v1",
     "ex_hermes_create",
     "ex_hermes_create_armed",
     "ex_hermes_create_diagnostic",
@@ -5230,7 +5146,6 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_debugger_remove_breakpoint",
     "ex_hermes_debugger_resume",
     "ex_hermes_debugger_set_breakpoint",
-    "ex_hermes_deliver_gpu_canvas_attachment_receipt_v1",
     "ex_hermes_destroy",
     "ex_hermes_dispatch_event",
     "ex_hermes_dispatch_motion_rated_publish",
@@ -5241,8 +5156,6 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_engine_binary_path",
     "ex_hermes_engine_mapped_object",
     "ex_hermes_eval",
-    "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1",
-    "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1",
     "ex_hermes_eval_lowered_session",
     "ex_hermes_eval_structured_diagnostic",
     "ex_hermes_eval_structured_session",
@@ -5251,17 +5164,10 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_finalize_embedder_capabilities_v1",
     "ex_hermes_finish_app_bundle_evaluation_v1",
     "ex_hermes_finish_bootstrap",
-    "ex_hermes_finish_gpu_canvas_app_bundle_v1",
     "ex_hermes_free_string",
     "ex_hermes_gc",
     "ex_hermes_get_gc_stats",
     "ex_hermes_get_heap_info",
-    "ex_hermes_gpu_decoded_image_abi_version_v1",
-    "ex_hermes_gpu_decoded_image_descriptor_size_v1",
-    "ex_hermes_gpu_provider_abi_version",
-    "ex_hermes_gpu_provider_abi_version_v2",
-    "ex_hermes_gpu_provider_descriptor_size_v1",
-    "ex_hermes_gpu_provider_descriptor_size_v2",
     "ex_hermes_graph_context_create",
     "ex_hermes_graph_context_retain",
     "ex_hermes_has_pending_tasks",
@@ -5302,9 +5208,6 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_set_dispatch_callback",
     "ex_hermes_set_dispatch_with_debug_context_callback",
     "ex_hermes_set_exact_host_call_async",
-    "ex_hermes_set_gpu_decoded_image_provider_v1",
-    "ex_hermes_set_gpu_provider_v1",
-    "ex_hermes_set_gpu_provider_v2",
     "ex_hermes_set_host_call",
     "ex_hermes_set_host_call_async",
     "ex_hermes_set_host_wake_hook",
@@ -5334,8 +5237,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_armed_endowments",
     "ex_host_authorize_embedder_capability_set",
     "ex_host_authorize_exact_endowment",
-    "ex_host_authorize_exact_gpu_provider",
-    "ex_host_authorize_exact_gpu_provider_v2",
+    "ex_host_authorize_runtime_extension_operation_v1",
     "ex_host_authorize_typed_environment_read_stack",
     "ex_host_authorize_typed_environment_write_stack",
     "ex_host_authorize_typed_fs_stack",
@@ -5346,17 +5248,17 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_authorize_typed_system_info_stack",
     "ex_host_authorize_typed_udp_datagram_stack",
     "ex_host_build_exact_armed_embedder_artifacts",
-    "ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts",
-    "ex_host_build_exact_gpu_armed_embedder_artifacts",
-    "ex_host_capture_exact_gpu_authority_context_v2",
-    "ex_host_capture_exact_gpu_presentation_authority_v2",
+    "ex_host_build_exact_runtime_extension_armed_embedder_artifacts",
     "ex_host_check_capability",
     "ex_host_check_capability_no_follow_final",
     "ex_host_check_capability_stack",
     "ex_host_check_capability_stack_no_follow_final",
     "ex_host_check_handle_mint",
     "ex_host_check_import",
+    "ex_host_check_runtime_extension_lease_binding_owner_v1",
+    "ex_host_check_runtime_extension_lease_binding_v1",
     "ex_host_claim_armed_context",
+    "ex_host_claim_armed_context_with_runtime_extensions",
     "ex_host_claim_diagnostic_context",
     "ex_host_console_flush",
     "ex_host_console_log",
@@ -5371,9 +5273,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_env_compiled_key_count",
     "ex_host_env_get",
     "ex_host_evaluate_typed_decision",
-    "ex_host_exact_gpu_authority_session_api_v2",
-    "ex_host_exact_gpu_authority_session_requested_v2",
-    "ex_host_force_retire_exact_gpu_authority_session_v2",
+    "ex_host_finalize_runtime_extension_authority_v1",
     "ex_host_free_buffer",
     "ex_host_free_string",
     "ex_host_fs_access",
@@ -5439,7 +5339,6 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_init",
     "ex_host_install",
     "ex_host_install_armed",
-    "ex_host_install_armed_experimental_webgpu_pre1a",
     "ex_host_is_allow_all",
     "ex_host_is_armed",
     "ex_host_legacy_authorization_cacheable",
@@ -5448,6 +5347,8 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_lifecycle_exit_code_set_stack",
     "ex_host_log_event",
     "ex_host_matches_armed_snapshot_digest",
+    "ex_host_matches_runtime_extension_authority_digest",
+    "ex_host_matches_runtime_extension_registry_projection_v1",
     "ex_host_module_resolve",
     "ex_host_module_resolve_meta",
     "ex_host_permission_request",
@@ -5456,12 +5357,12 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_prepare_armed_embedder_artifacts",
     "ex_host_prepare_exact_armed_embedder_artifacts",
     "ex_host_random_fill",
-    "ex_host_recheck_exact_gpu_presentation_authority_v2",
     "ex_host_register_module_package",
     "ex_host_release_context",
     "ex_host_resolve_manifest_builtin_internal",
     "ex_host_restore_context",
-    "ex_host_retire_exact_gpu_presentation_authority_v2",
+    "ex_host_revoke_runtime_extension_lease_v1",
+    "ex_host_runtime_extension_bootstrap_digest_matches_v1",
     "ex_host_seal_bootstrap_phase",
     "ex_host_session_descriptor_alias_source_route",
     "ex_host_session_descriptor_alias_target_route",
@@ -6270,6 +6171,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:javascript:resolverVirtualPath",
     "function:javascript:restoreModuleId",
     "function:javascript:runFallbackModule",
+    "function:javascript:runtimeExtensionModuleRegistrar",
     "function:javascript:splitInlineModuleStatements",
     "function:javascript:stableModuleResolutionErrorCode",
     "function:javascript:stripModuleStatementComments",
@@ -6565,11 +6467,9 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:load:rust:contains_using_keyword",
     "route:load:rust:directory_size",
     "route:load:rust:enforce_transpile_cache_quota",
-    "route:load:rust:ensure_public_runtime_source",
     "route:load:rust:ensure_transpile_cache_dir",
     "route:load:rust:format_oxc_errors",
     "route:load:rust:from_value",
-    "route:load:rust:is_private_runtime_source",
     "route:load:rust:legacy_runtime_transform",
     "route:load:rust:load_module_source",
     "route:load:rust:load_source",
@@ -6630,14 +6530,12 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:directory_size",
     "route:resolution:rust:duplicate_resolver_fd",
     "route:resolution:rust:enforce_transpile_cache_quota",
-    "route:resolution:rust:ensure_public_runtime_source",
     "route:resolution:rust:ensure_transpile_cache_dir",
     "route:resolution:rust:file_system",
     "route:resolution:rust:find_package_root",
     "route:resolution:rust:format_oxc_errors",
     "route:resolution:rust:from_value",
     "route:resolution:rust:inputs",
-    "route:resolution:rust:is_private_runtime_source",
     "route:resolution:rust:legacy_runtime_transform",
     "route:resolution:rust:lexical_absolute_path_for_resolver",
     "route:resolution:rust:load_module_source",
@@ -7061,7 +6959,6 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "script:compartment-registry",
     "script:compat-polyfills",
     "script:console",
-    "script:deferred-webgpu-runtime",
     "script:eager-install-seal",
     "script:eval",
     "script:exact-global",
@@ -9941,90 +9838,6 @@ function builtinClassification(surface) {
 }
 
 function callbackClassification(surface) {
-  if (REVIEWED_CALLBACK_INGRESS_NAMES.has(surface.name)) {
-    const metadata = surface.metadata ?? {};
-    const expected =
-      surface.name ===
-      "ingress:src/engine/hermes_runtime_gpu.cc:ExactGpuClientSinkV1.on_event:receiveGpuEvent"
-        ? {
-            abiVersionExpression: "EXACT_GPU_SERVICE_ABI_VERSION_V1",
-            initializerVariable: "kGpuClientSink",
-            releaseCallback: "releaseGpuClient",
-            retainCallback: "retainGpuClient",
-            structSizeExpression: "sizeof(ExactGpuClientSinkV1)",
-            tableType: "ExactGpuClientSinkV1",
-          }
-        : surface.name ===
-            "ingress:src/engine/hermes_runtime_gpu_v2.cc:ExactGpuClientSinkV2.on_event:receiveGpuEvent"
-          ? {
-              abiVersionExpression: "EXACT_GPU_SERVICE_ABI_VERSION_V2",
-              initializerVariable: "kGpuClientSinkV2",
-              releaseCallback: "releaseGpuClientV2",
-              retainCallback: "retainGpuClientV2",
-              structSizeExpression: "sizeof(ExactGpuClientSinkV2)",
-              tableType: "ExactGpuClientSinkV2",
-            }
-          : null;
-    if (
-      expected === null ||
-      metadata.evidenceType !== "versioned-callback-table-ingress" ||
-      metadata.tableType !== expected.tableType ||
-      metadata.fieldName !== "on_event" ||
-      metadata.callback !== "receiveGpuEvent" ||
-      metadata.callbackDefinitionCount !== 1 ||
-      metadata.conditionalContext !== "webgpu-enabled-if" ||
-      metadata.conditionalStackAuthenticated !== true ||
-      metadata.externalFeatureGate !== "IBEX_ENABLE_WEBGPU_BINDING" ||
-      metadata.externalFeatureGateSourceMutationCount !== 0 ||
-      metadata.effectiveCallbackExpression !== "receiveGpuEvent" ||
-      metadata.initializerVariable !== expected.initializerVariable ||
-      metadata.identityGuardCount !== 1 ||
-      metadata.identityGuardError !==
-        "Ibex CapSec GPU callback identifiers must not be preprocessor macros" ||
-      JSON.stringify(metadata.identityGuardIdentifiers) !==
-        JSON.stringify([
-          "IBEX_CAPSEC_CALLBACK_TABLE_INGRESS",
-          "receiveGpuEvent",
-        ]) ||
-      metadata.identityGuardLifetime !==
-        "guard-callback-definition-table-undef" ||
-      metadata.interveningDirectiveCount !== 0 ||
-      metadata.includeDirectiveCount !== 20 ||
-      metadata.includeInventory !== "hermes-runtime-gpu-exact-v1" ||
-      metadata.macroConditionalDirectiveCount !== 0 ||
-      metadata.macroDefinitionCount !== 1 ||
-      metadata.macroInvocationCount !== 1 ||
-      metadata.macroLifetimeOrder !== "define-invocation-undef" ||
-      metadata.macroName !== "IBEX_CAPSEC_CALLBACK_TABLE_INGRESS" ||
-      JSON.stringify(metadata.macroParameters) !==
-        JSON.stringify(["table_type", "field_name", "callback"]) ||
-      metadata.macroReplacement !== "callback" ||
-      metadata.macroUndefCount !== 1 ||
-      metadata.physicalGuardFormat !== "exact-lf-physical-lines" ||
-      metadata.callbackFieldIndex !== 4 ||
-      metadata.callbackFieldCount !== 5 ||
-      metadata.structSizeExpression !== expected.structSizeExpression ||
-      metadata.abiVersionExpression !== expected.abiVersionExpression ||
-      metadata.retainCallback !== expected.retainCallback ||
-      metadata.releaseCallback !== expected.releaseCallback ||
-      JSON.stringify(metadata.protectedIdentifierTokenCounts) !==
-        JSON.stringify({
-          IBEX_CAPSEC_CALLBACK_TABLE_INGRESS: 4,
-          receiveGpuEvent: 3,
-        }) ||
-      metadata.sourceAliasCount !== 0 ||
-      metadata.translationPhaseAuthenticated !== true ||
-      metadata.occurrenceCount !== 1
-    ) {
-      return null;
-    }
-    return closedSpec(
-      "ipc:channel",
-      "WP4",
-      "The versioned GPU client callback table is a provider-to-runtime data channel and remains closed until its event attribution and lifecycle checks authorize delivery.",
-    );
-  }
-
   const name = surface.name.toLowerCase();
 
   if (
@@ -10086,14 +9899,14 @@ function callbackClassification(surface) {
   }
 
   const producerMatch =
-    /^producer:src\/engine\/hermes_runtime(?:_(?:android|crypto|dns|fetch|fs|fs_windows|gpu|gpu_v2|http|websocket))?\.cc:(.+):pushruntimecallback$/u.exec(
+    /^producer:src\/engine\/hermes_runtime(?:_(?:android|crypto|dns|extension|fetch|fs|fs_windows|http|websocket))?\.cc:(.+):(pushruntimecallback|trypushruntimeextensioncallback)$/u.exec(
       name,
     );
   if (
     producerMatch &&
     REVIEWED_CALLBACK_PRODUCER_NAMES.has(surface.name) &&
     surface.metadata?.evidenceType === "push-runtime-callback-producer" &&
-    surface.metadata?.producer === "pushRuntimeCallback" &&
+    String(surface.metadata?.producer ?? "").toLowerCase() === producerMatch[2] &&
     Number.isInteger(surface.metadata?.occurrenceCount) &&
     surface.metadata.occurrenceCount > 0 &&
     String(surface.metadata?.enclosingDefinition ?? "").toLowerCase() ===
@@ -10255,7 +10068,7 @@ function loaderClassification(surface) {
       return nonCapabilitySpec("authority-control-plane", "WP7");
     }
     if (
-      /^(?:is_private_runtime_source|resolver_boundary_refusal|resolver_canonical_path|resolver_manifest_not_found|resolver_metadata_from_stat|resolver_stat_is_dir|resolver_stat_is_symlink)$/u.test(
+      /^(?:resolver_boundary_refusal|resolver_canonical_path|resolver_manifest_not_found|resolver_metadata_from_stat|resolver_stat_is_dir|resolver_stat_is_symlink)$/u.test(
         functionName,
       )
     ) {
@@ -10362,7 +10175,7 @@ function loaderClassification(surface) {
       return loaderSourceSelectionEffectSpec(loaderOptions);
     }
     if (
-      /^(?:ensure_public_runtime_source|read_package_manifest|package_version_for|resolve_meta|resolve_meta_from_bound_package|resolve_meta_from_bound_package_typed|resolve_meta_typed|resolve_package_import|resolve_package_import_target|resolve_with_oxc|resolve_with_oxc_at|resolve_with_resolver_at)$/u.test(
+      /^(?:read_package_manifest|package_version_for|resolve_meta|resolve_meta_from_bound_package|resolve_meta_from_bound_package_typed|resolve_meta_typed|resolve_package_import|resolve_package_import_target|resolve_with_oxc|resolve_with_oxc_at|resolve_with_resolver_at)$/u.test(
         functionName,
       )
     ) {
@@ -10514,9 +10327,6 @@ function loaderClassification(surface) {
     if (name === "function:rust:is_builtin_specifier") {
       return nonCapabilitySpec("module-reachability-only", "WP7");
     }
-    if (name === "function:rust:is_private_runtime_source") {
-      return nonCapabilitySpec("internal-data-transform", "WP1");
-    }
     if (
       new Set([
         "function:rust:normalize_windows_verbatim_path_text",
@@ -10562,6 +10372,7 @@ function loaderClassification(surface) {
         "function:javascript:rejectruntimeloaderoptions",
         "function:javascript:resolverreferrer",
         "function:javascript:resolvervirtualpath",
+        "function:javascript:runtimeextensionmoduleregistrar",
         "function:javascript:typedlogicalpath",
         "function:rust:private_resolver_handle_is_canonical",
         "function:rust:resolver_session_handle_is_canonical",
@@ -10571,7 +10382,6 @@ function loaderClassification(surface) {
     }
     if (
       new Set([
-        "function:rust:ensure_public_runtime_source",
         "function:javascript:__exactresolvepath",
         "function:javascript:resolvemodulepath",
         "function:rust:package_name_and_root_in_node_modules",
@@ -11550,7 +11360,6 @@ function startupClassification(surface) {
       new Set([
         "script:capability-hardening",
         "script:compartment-registry",
-        "script:deferred-webgpu-runtime",
         "script:eager-install-seal",
         "script:exact-global",
         "script:freeze-seal",
@@ -11864,9 +11673,6 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
 
   if (/^(?:__dirname|__filename)$/u.test(globalName)) {
     return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
-  }
-  if (/^__ibexcapturegpunativebridge$/u.test(globalName) && member === "") {
-    return nonCapabilitySpec("authority-control-plane", "WP4");
   }
   if (globalName === "__exactloadtimings") {
     return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
@@ -12968,20 +12774,6 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
     return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
   }
 
-  // These roots are wrapper identity and authority-routing objects. The
-  // source-derived private operation registry classifies every effectful
-  // method separately; merely publishing the authenticated wrapper set does
-  // not itself execute a GPU operation or create a support claim.
-  if (
-    (globalName.startsWith("gpu") && member === "") ||
-    (globalName === "navigator" && member === "gpu")
-  ) {
-    return nonCapabilitySpec("authority-control-plane", "WP4");
-  }
-  if (globalName === "createimagebitmap" && member === "") {
-    return nonCapabilitySpec("pure-in-memory-compute", "WP1");
-  }
-
   if (
     /^(?:abortcontroller|abortsignal|customevent|event|eventtarget)$/u.test(
       globalName,
@@ -13177,43 +12969,19 @@ function embedderAbiClassification(name) {
   if (/^exhermes/u.test(name)) {
     if (
       new Set([
-        "exhermesactivatewebgpuruntimev1",
         "exhermesbeginembeddercapabilitiesv1",
         "exhermesbeginappbundleevaluationv1",
-        "exhermesbegingpucanvasappbundlev1",
         "exhermesclassifypreparednativestartupv1",
         "exhermesfinalizeembeddercapabilitiesv1",
-        "exhermesfinishgpucanvasappbundlev1",
         "exhermesfinishappbundleevaluationv1",
         "exhermesquarantineruntimev1",
         "exhermessetexacthostcallasync",
-        "exhermessetgpudecodedimageproviderv1",
-        "exhermessetgpuproviderv1",
-        "exhermessetgpuproviderv2",
         "exhermesverifypreparednativestartupabsentv1",
       ]).has(name)
     ) {
       return nonCapabilitySpec("authority-control-plane", "WP4");
     }
-    if (
-      new Set([
-        "exhermesgpudecodedimageabiversionv1",
-        "exhermesgpudecodedimagedescriptorsizev1",
-        "exhermesgpuproviderabiversion",
-        "exhermesgpuproviderabiversionv2",
-        "exhermesgpuproviderdescriptorsizev1",
-        "exhermesgpuproviderdescriptorsizev2",
-      ]).has(name)
-    ) {
-      return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
-    }
     if (name === "exhermesresolveexacthostcall") {
-      return nonCapabilitySpec("callback-attribution-carrier", "WP8");
-    }
-    if (name === "exhermescompletegpudecodedimagev1") {
-      return nonCapabilitySpec("callback-attribution-carrier", "WP8");
-    }
-    if (name === "exhermesdelivergpucanvasattachmentreceiptv1") {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
     }
     if (
@@ -13391,41 +13159,24 @@ function hostAbiClassification(name) {
       "exhostarmedendowments",
       "exhostauthorizeembeddercapabilityset",
       "exhostauthorizeexactendowment",
-      "exhostauthorizeexactgpuprovider",
-      "exhostauthorizeexactgpuproviderv2",
+      "exhostauthorizeruntimeextensionoperationv1",
       "exhostbuildexactarmedembedderartifacts",
-      "exhostbuildexactexperimentalwebgpupre1aarmedembedderartifacts",
-      "exhostbuildexactgpuarmedembedderartifacts",
+      "exhostbuildexactruntimeextensionarmedembedderartifacts",
+      "exhostcheckruntimeextensionleasebindingv1",
+      "exhostclaimarmedcontextwithruntimeextensions",
+      "exhostfinalizeruntimeextensionauthorityv1",
       "exhostinstallarmed",
-      "exhostinstallarmedexperimentalwebgpupre1a",
       "exhostmatchesarmedsnapshotdigest",
+      "exhostmatchesruntimeextensionauthoritydigest",
+      "exhostmatchesruntimeextensionregistryprojectionv1",
       "exhostpreparearmedembedderartifacts",
       "exhostprepareexactarmedembedderartifacts",
+      "exhostruntimeextensionbootstrapdigestmatchesv1",
     ]).has(name)
   ) {
     return nonCapabilitySpec("authority-control-plane", "WP4");
   }
-  if (
-    new Set([
-      "exhostcaptureexactgpuauthoritycontextv2",
-      "exhostcaptureexactgpupresentationauthorityv2",
-      "exhostrecheckexactgpupresentationauthorityv2",
-    ]).has(name)
-  ) {
-    return nonCapabilitySpec("callback-attribution-carrier", "WP8");
-  }
-  if (
-    new Set([
-      "exhostexactgpuauthoritysessionapiv2",
-      "exhostexactgpuauthoritysessionrequestedv2",
-    ]).has(name)
-  ) {
-    return nonCapabilitySpec("authority-control-plane", "WP4");
-  }
-  if (name === "exhostforceretireexactgpuauthoritysessionv2") {
-    return nonCapabilitySpec("authority-release", "WP8");
-  }
-  if (name === "exhostretireexactgpupresentationauthorityv2") {
+  if (name === "exhostrevokeruntimeextensionleasev1") {
     return nonCapabilitySpec("authority-release", "WP8");
   }
   if (new Set(["exhostconsolelog", "exhostconsolelogbytes"]).has(name)) {
@@ -13729,94 +13480,6 @@ function classifyConcreteSurface(surface) {
       `${surface.observedKey}: source metadata cannot override semantic coverage classification`,
     );
   }
-  if (
-    surface.kind === "native-op" &&
-    surface.metadata?.evidenceType ===
-      "authenticated-webgpu-production-route"
-  ) {
-    const metadata = surface.metadata;
-    const route = metadata.routeIdentity;
-    const semantics = webGpuOperationSemantics(route);
-    const authenticatedDigestKeys = Object.keys(
-      metadata.authenticatedDigests ?? {},
-    ).sort(utf8Compare);
-    if (
-      metadata.surfaceType !== "webgpu-production-operation" ||
-      metadata.operationId !== route.operationId ||
-      metadata.wireId !== route.wireId ||
-      surface.name !==
-        `construction-private:webgpu:${route.operationId}` ||
-      metadata.publicInstallDisposition !== "absent" ||
-      metadata.embeddedExecutableCodecDisposition !== "absent" ||
-      metadata.platformSupportClaim !== "none" ||
-      metadata.positiveAuthority !== semantics.positiveAuthority ||
-      metadata.providerBridge !== semantics.providerBridge ||
-      JSON.stringify(authenticatedDigestKeys) !==
-        JSON.stringify([
-          "operationSet",
-          "projection",
-          "runtimeRouting",
-          "semanticProgramSet",
-          "webgpuCVocabulary",
-        ]) ||
-      Object.values(metadata.authenticatedDigests).some(
-        (digest) => !/^[a-f0-9]{64}$/u.test(digest),
-      )
-    ) {
-      return null;
-    }
-    if (semantics.classification === "closed") {
-      return closedSpec(
-        semantics.cap,
-        "WP4",
-        "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed.",
-      );
-    }
-    return nonCapabilitySpec(semantics.rationaleId, "WP4");
-  }
-  if (
-    surface.kind === "native-op" &&
-    surface.metadata?.evidenceType ===
-      "authenticated-webgpu-presentation-authority"
-  ) {
-    const metadata = surface.metadata;
-    const semantics = webGpuPresentationAuthoritySemantics(
-      metadata.operationId,
-    );
-    const authenticatedDigestKeys = Object.keys(
-      metadata.authenticatedDigests ?? {},
-    ).sort(utf8Compare);
-    if (
-      !semantics ||
-      metadata.surfaceType !==
-        "webgpu-presentation-authority-operation" ||
-      metadata.presentationBranchId !== semantics.id ||
-      surface.name !==
-        `construction-private:webgpu-presentation:${semantics.operationId}` ||
-      metadata.publicInstallDisposition !== "absent" ||
-      metadata.platformSupportClaim !== "none" ||
-      metadata.positiveAuthority !== semantics.positiveAuthority ||
-      metadata.providerBridge !== semantics.providerBridge ||
-      JSON.stringify(authenticatedDigestKeys) !==
-        JSON.stringify([
-          "operationSet",
-          "projection",
-          "runtimeRouting",
-          "semanticProgramSet",
-          "webgpuCVocabulary",
-        ]) ||
-      Object.values(metadata.authenticatedDigests).some(
-        (digest) => !/^[a-f0-9]{64}$/u.test(digest),
-      )
-    ) {
-      return null;
-    }
-    return closedSpec(
-      semantics.cap,
-      "WP4",
-      "This generated construction-private presentation-authority key is independently receipt-gated while public installation and positive grant issuance remain closed.",
-    );
-  }
   if (surface.kind === "builtin") return builtinClassification(surface);
   if (surface.kind === "callback") {
     return callbackClassification(surface);
@@ -14036,6 +13699,24 @@ function classifyConcreteSurface(surface) {
     if (surface.name === "ex_host_seal_bootstrap_phase") {
       return nonCapabilitySpec("authority-control-plane", "WP4");
     }
+    if (
+      new Set([
+        "ex_host_authorize_runtime_extension_operation_v1",
+        "ex_host_build_exact_runtime_extension_armed_embedder_artifacts",
+        "ex_host_check_runtime_extension_lease_binding_owner_v1",
+        "ex_host_check_runtime_extension_lease_binding_v1",
+        "ex_host_claim_armed_context_with_runtime_extensions",
+        "ex_host_finalize_runtime_extension_authority_v1",
+        "ex_host_matches_runtime_extension_authority_digest",
+        "ex_host_matches_runtime_extension_registry_projection_v1",
+        "ex_host_runtime_extension_bootstrap_digest_matches_v1",
+      ]).has(surface.name)
+    ) {
+      return nonCapabilitySpec("authority-control-plane", "WP4");
+    }
+    if (surface.name === "ex_host_revoke_runtime_extension_lease_v1") {
+      return nonCapabilitySpec("authority-release", "WP8");
+    }
     const android = androidHostAbiClassification(surface.name);
     if (android) return android;
     const escape = abiEscapeClassification(surface.name);
@@ -14050,240 +13731,11 @@ function classifyConcreteSurface(surface) {
       return nativeEscapeClassification(text);
     }
     if (!REVIEWED_NATIVE_OPERATION_NAMES.has(surface.name)) return null;
-    const gpuV2GuardIdentifiers = [
-      "captureGpuPresentationAuthorityBridgeCall",
-      "recheckGpuPresentationAuthorityBridgeCall",
-      "retireGpuPresentationAuthorityBridgeCall",
-      "submitGpuV2BridgeCall",
-      "cancelGpuV2BridgeCall",
-      "retireGpuV2BridgeCall",
-      "setGpuV2EventSinkBridgeCall",
-      "createGpuV2MappedRangeAliasBridgeCall",
-      "detachGpuV2MappedRangeBridgeCall",
-    ];
-    const constructionPrivateGpuMembers = new Map([
-      [
-        "construction-private:gpuNativeBridge.cancel",
-        {
-          arity: 1,
-          bridgeOwner: "gpuNativeBridge",
-          guardError:
-            "Ibex CapSec GPU terminal handlers must not be preprocessor macros",
-          guardIdentifiers: [
-            "submitGpuBridgeCall",
-            "cancelGpuBridgeCall",
-            "retireGpuBridgeCall",
-          ],
-          terminalHandler: "cancelGpuBridgeCall",
-          tokenCount: 6,
-        },
-      ],
-      [
-        "construction-private:gpuNativeBridge.retire",
-        {
-          arity: 1,
-          bridgeOwner: "gpuNativeBridge",
-          guardError:
-            "Ibex CapSec GPU terminal handlers must not be preprocessor macros",
-          guardIdentifiers: [
-            "submitGpuBridgeCall",
-            "cancelGpuBridgeCall",
-            "retireGpuBridgeCall",
-          ],
-          terminalHandler: "retireGpuBridgeCall",
-          tokenCount: 6,
-        },
-      ],
-      [
-        "construction-private:gpuNativeBridge.submit",
-        {
-          arity: 5,
-          bridgeOwner: "gpuNativeBridge",
-          guardError:
-            "Ibex CapSec GPU terminal handlers must not be preprocessor macros",
-          guardIdentifiers: [
-            "submitGpuBridgeCall",
-            "cancelGpuBridgeCall",
-            "retireGpuBridgeCall",
-          ],
-          terminalHandler: "submitGpuBridgeCall",
-          tokenCount: 6,
-        },
-      ],
-      [
-        "construction-private:gpuNativeBridgeV2.cancel",
-        {
-          arity: 2,
-          bridgeOwner: "gpuNativeBridgeV2",
-          guardError:
-            "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
-          guardIdentifiers: gpuV2GuardIdentifiers,
-          terminalHandler: "cancelGpuV2BridgeCall",
-          tokenCount: 12,
-        },
-      ],
-      [
-        "construction-private:gpuNativeBridgeV2.capturePresentationAuthority",
-        {
-          arity: 2,
-          bridgeOwner: "gpuNativeBridgeV2",
-          guardError:
-            "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
-          guardIdentifiers: gpuV2GuardIdentifiers,
-          terminalHandler: "captureGpuPresentationAuthorityBridgeCall",
-          tokenCount: 12,
-        },
-      ],
-      [
-        "construction-private:gpuNativeBridgeV2.createMappedRangeAlias",
-        {
-          arity: 3,
-          bridgeOwner: "gpuNativeBridgeV2",
-          guardError:
-            "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
-          guardIdentifiers: gpuV2GuardIdentifiers,
-          terminalHandler: "createGpuV2MappedRangeAliasBridgeCall",
-          tokenCount: 12,
-        },
-      ],
-      [
-        "construction-private:gpuNativeBridgeV2.detachMappedRange",
-        {
-          arity: 1,
-          bridgeOwner: "gpuNativeBridgeV2",
-          guardError:
-            "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
-          guardIdentifiers: gpuV2GuardIdentifiers,
-          terminalHandler: "detachGpuV2MappedRangeBridgeCall",
-          tokenCount: 12,
-        },
-      ],
-      [
-        "construction-private:gpuNativeBridgeV2.recheckPresentationAuthority",
-        {
-          arity: 3,
-          bridgeOwner: "gpuNativeBridgeV2",
-          guardError:
-            "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
-          guardIdentifiers: gpuV2GuardIdentifiers,
-          terminalHandler: "recheckGpuPresentationAuthorityBridgeCall",
-          tokenCount: 12,
-        },
-      ],
-      [
-        "construction-private:gpuNativeBridgeV2.retire",
-        {
-          arity: 1,
-          bridgeOwner: "gpuNativeBridgeV2",
-          guardError:
-            "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
-          guardIdentifiers: gpuV2GuardIdentifiers,
-          terminalHandler: "retireGpuV2BridgeCall",
-          tokenCount: 12,
-        },
-      ],
-      [
-        "construction-private:gpuNativeBridgeV2.retirePresentationAuthority",
-        {
-          arity: 1,
-          bridgeOwner: "gpuNativeBridgeV2",
-          guardError:
-            "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
-          guardIdentifiers: gpuV2GuardIdentifiers,
-          terminalHandler: "retireGpuPresentationAuthorityBridgeCall",
-          tokenCount: 12,
-        },
-      ],
-      [
-        "construction-private:gpuNativeBridgeV2.setEventSink",
-        {
-          arity: 1,
-          bridgeOwner: "gpuNativeBridgeV2",
-          guardError:
-            "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
-          guardIdentifiers: gpuV2GuardIdentifiers,
-          terminalHandler: "setGpuV2EventSinkBridgeCall",
-          tokenCount: 12,
-        },
-      ],
-      [
-        "construction-private:gpuNativeBridgeV2.submit",
-        {
-          arity: 4,
-          bridgeOwner: "gpuNativeBridgeV2",
-          guardError:
-            "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
-          guardIdentifiers: gpuV2GuardIdentifiers,
-          terminalHandler: "submitGpuV2BridgeCall",
-          tokenCount: 12,
-        },
-      ],
-    ]);
-    if (constructionPrivateGpuMembers.has(surface.name)) {
-      const metadata = surface.metadata ?? {};
-      const expected = constructionPrivateGpuMembers.get(surface.name);
-      const memberName = surface.name.slice(
-        `construction-private:${expected.bridgeOwner}.`.length,
-      );
-      if (
-        metadata.evidenceType !== "construction-private-host-function" ||
-        metadata.surfaceType !== "construction-private-bridge" ||
-        metadata.bridgeOwner !== expected.bridgeOwner ||
-        metadata.memberName !== memberName ||
-        metadata.functionVariable !== memberName ||
-        metadata.arity !== expected.arity ||
-        metadata.bindingConditionalContext !== "webgpu-enabled-else" ||
-        metadata.conditionalStackAuthenticated !== true ||
-        metadata.definitionConditionalContext !== "webgpu-enabled-if" ||
-        metadata.externalFeatureGate !== "IBEX_ENABLE_WEBGPU_BINDING" ||
-        metadata.externalFeatureGateSourceMutationCount !== 0 ||
-        metadata.identityGuardCount !== expected.guardIdentifiers.length + 1 ||
-        metadata.identityGuardError !== expected.guardError ||
-        JSON.stringify(metadata.identityGuardIdentifiers) !==
-          JSON.stringify(expected.guardIdentifiers) ||
-        metadata.identityGuardLifetime !== "guard-definitions-and-bindings" ||
-        metadata.interveningDirectiveCount !== 0 ||
-        metadata.includeDirectiveCount !== 20 ||
-        metadata.includeInventory !== "hermes-runtime-gpu-exact-v1" ||
-        metadata.physicalGuardFormat !== "exact-lf-physical-lines" ||
-        JSON.stringify(metadata.protectedIdentifierTokenCounts) !==
-          JSON.stringify(
-            Object.fromEntries(
-              expected.guardIdentifiers.map((identifier) => [
-                identifier,
-                expected.tokenCount,
-              ]),
-            ),
-          ) ||
-        metadata.sourceAliasCount !== 0 ||
-        metadata.translationPhaseAuthenticated !== true ||
-        metadata.terminalHandlerBindingCount !== 1 ||
-        metadata.terminalHandlerDefinitionCount !== 1 ||
-        metadata.terminalHandler !== expected.terminalHandler ||
-        metadata.occurrenceCount !== 1 ||
-        !metadata.semanticRoles?.includes(
-          "construction-private-native-operation",
-        )
-      ) {
-        return null;
-      }
-      return closedSpec(
-        "ipc:channel",
-        "WP4",
-        "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol.",
-      );
-    }
     if (surface.name === "__esModule") {
       return nonCapabilitySpec("module-reachability-only", "WP8");
     }
     if (surface.name === "__ibexCapsecContextObserver_") {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
-    }
-    if (surface.name === "__ibexCaptureGpuNativeBridge") {
-      return nonCapabilitySpec("authority-control-plane", "WP4");
-    }
-    if (surface.name === "__ibexCaptureGpuCanvasRuntimeIntegration") {
-      return nonCapabilitySpec("authority-control-plane", "WP4");
     }
     if (surface.name === "__exactCaptureDevServedModuleTableLifecycle") {
       return nonCapabilitySpec("authority-control-plane", "WP4");
@@ -14298,16 +13750,8 @@ function classifyConcreteSurface(surface) {
         "The exact-shape prepared startup carrier is temporary authenticated app-bundle code ingress and remains closed outside its native outer-transaction protocol.",
       );
     }
-    if (
-      new Set([
-        "__ibexImmediateHandlerCalled",
-        "__ibexImmediateMicrotaskRan",
-        "__ibexImmediateNextTickRan",
-        "__ibexImmediateResultCoerced",
-        "__ibexImmediateThenInspected",
-      ]).has(surface.name)
-    ) {
-      return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
+    if (surface.name === "__ibexRegisterRuntimeExtensionModule") {
+      return nonCapabilitySpec("authority-control-plane", "WP4");
     }
     if (surface.name === "__exactFsMutationGuard") {
       return nonCapabilitySpec("authority-control-plane", "WP5");

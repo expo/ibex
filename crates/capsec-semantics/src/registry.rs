@@ -117,12 +117,12 @@ pub enum ResourceKind {
     EnvironmentName,
     Executable,
     FetchEndpoint,
-    GpuOperation,
     ListenInet,
     ListenUnix,
     Microphone,
     PathExact,
     PathTree,
+    RuntimeExtension,
     SessionState,
     SessionLifecycle,
     Stdio,
@@ -143,12 +143,12 @@ impl ResourceKind {
             Self::EnvironmentName => "environment-name",
             Self::Executable => "executable",
             Self::FetchEndpoint => "fetch-endpoint",
-            Self::GpuOperation => "gpu-operation",
             Self::ListenInet => "listen-inet",
             Self::ListenUnix => "listen-unix",
             Self::Microphone => "microphone",
             Self::PathExact => "path-exact",
             Self::PathTree => "path-tree",
+            Self::RuntimeExtension => "runtime-extension",
             Self::SessionState => "session-state",
             Self::SessionLifecycle => "session-lifecycle",
             Self::Stdio => "stdio",
@@ -316,13 +316,31 @@ impl ValidatedProfile {
     /// registry documents. Duplicate keys and unsafe numbers fail before typed
     /// deserialization.
     pub fn from_json(definitions: &[u8], rules: &[u8]) -> Result<Self> {
+        Self::from_json_with_runtime_extensions(definitions, rules, false)
+    }
+
+    /// Validate the frozen base profile and, only when an authenticated armed
+    /// capsule exists, merge the semantic core's single fixed extension
+    /// definition. The capsule contributes operation/class data only; it
+    /// cannot supply this definition or its normalization behavior.
+    pub fn from_json_with_runtime_extensions(
+        definitions: &[u8],
+        rules: &[u8],
+        runtime_extensions_armed: bool,
+    ) -> Result<Self> {
         let definitions: CapabilityDefinitionsDocument =
             serde_json::from_value(parse_slice_strict(definitions)?)
                 .map_err(|error| Error::InvalidRegistry(error.to_string()))?;
         let rules: PolicyRulesDocument = serde_json::from_value(parse_slice_strict(rules)?)
             .map_err(|error| Error::InvalidRegistry(error.to_string()))?;
-        let (digest_contract, normalization_profiles) = validate_policy_rules(&rules)?;
-        let definitions = DefinitionSet::validate(definitions, &normalization_profiles)?;
+        let (digest_contract, mut normalization_profiles) = validate_policy_rules(&rules)?;
+        if runtime_extensions_armed {
+            normalization_profiles.insert("runtime-extension.identity.v1".into());
+        }
+        let mut definitions = DefinitionSet::validate(definitions, &normalization_profiles)?;
+        if runtime_extensions_armed {
+            definitions.install_runtime_extension_definition(&normalization_profiles)?;
+        }
         Ok(Self {
             definitions,
             digest_contract,
@@ -332,6 +350,46 @@ impl ValidatedProfile {
 }
 
 impl DefinitionSet {
+    fn install_runtime_extension_definition(
+        &mut self,
+        normalization_profiles: &BTreeSet<String>,
+    ) -> Result<()> {
+        let definition = CapabilityDefinition {
+            id: ActionId::new("runtime-extension:invoke").map_err(Error::InvalidRegistry)?,
+            lifecycle: Lifecycle::Authorable,
+            stability: Stability::Provisional,
+            globality: Globality::Resource,
+            resource_kinds: vec![ResourceKind::RuntimeExtension],
+            selector_schema: SELECTOR_SCHEMA.into(),
+            occurrence_schema: OCCURRENCE_SCHEMA.into(),
+            normalization_profile: "runtime-extension.identity.v1".into(),
+            channels: AuthorityChannels {
+                dynamic: false,
+                handle: true,
+                synthesis: false,
+            },
+            static_only: false,
+            principal_constraint: None,
+            selector_constraints: None,
+            risk: Risk {
+                base_tier: 4,
+                reasons: vec!["native-code-extension".into()],
+            },
+            description:
+                "Invoke an exact operation class from an authenticated native runtime extension."
+                    .into(),
+        };
+        validate_definition(&definition, normalization_profiles)?;
+        if self
+            .definitions
+            .insert(definition.id.to_string(), definition)
+            .is_some()
+        {
+            return invalid("base capability registry may not define runtime-extension:invoke");
+        }
+        Ok(())
+    }
+
     pub fn validate(
         document: CapabilityDefinitionsDocument,
         normalization_profiles: &BTreeSet<String>,
@@ -1083,5 +1141,60 @@ mod tests {
         let mut denied = definition("ffi:load");
         denied.lifecycle = Lifecycle::DenyOnly;
         assert!(DefinitionSet::validate(document(vec![denied]), &profiles()).is_err());
+    }
+
+    #[test]
+    fn authenticated_extension_projection_installs_one_fixed_exact_definition() {
+        let definitions = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../capsec/registry/capability-definitions.json"
+        ));
+        let rules = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../capsec/registry/policy-rules.json"
+        ));
+        let base = ValidatedProfile::from_json(definitions, rules).unwrap();
+        let extended =
+            ValidatedProfile::from_json_with_runtime_extensions(definitions, rules, true).unwrap();
+        assert!(!base.definitions.contains("runtime-extension:invoke"));
+        let definition = extended
+            .definitions
+            .get("runtime-extension:invoke")
+            .unwrap();
+        assert_eq!(
+            definition.resource_kinds,
+            vec![ResourceKind::RuntimeExtension]
+        );
+        assert_eq!(
+            definition.normalization_profile,
+            "runtime-extension.identity.v1"
+        );
+        assert!(definition.channels.handle);
+        assert!(!definition.channels.dynamic);
+        assert!(!definition.channels.synthesis);
+
+        let selector = |authority_class: &str| AuthoritySelector {
+            action: ActionId::new("runtime-extension:invoke").unwrap(),
+            resource: SelectorResource::RuntimeExtension {
+                extension_id: crate::model::StableId::new("acme.echo").unwrap(),
+                authority_class: crate::model::StableId::new(authority_class).unwrap(),
+            },
+        };
+        assert_eq!(
+            crate::containment::compare_authority_containment(
+                &selector("local.transform"),
+                &selector("local.transform"),
+                &crate::containment::ContainmentContext::SAME_AUTHORITY_DOMAIN,
+            ),
+            crate::containment::Containment::Equal
+        );
+        assert_eq!(
+            crate::containment::compare_authority_containment(
+                &selector("local.transform"),
+                &selector("network"),
+                &crate::containment::ContainmentContext::SAME_AUTHORITY_DOMAIN,
+            ),
+            crate::containment::Containment::Incomparable
+        );
     }
 }

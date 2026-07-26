@@ -4,9 +4,9 @@
 
 Evidence status: **unpromotable**.
 
-Reason: The output corpus remains unpromotable: one native module-marker surface account and three inherited-intrinsic alias surface accounts are unresolved; the construction-private WebGPU program contributes 54 additional unresolved accounts (two callback ingresses, seven private bridge methods, and 45 operation routes) while public installation and platform support remain absent; and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes these account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations.
+Reason: The output corpus remains unpromotable: thirteen native surface accounts lack output contracts (one module marker, one prepared-startup carrier, and eleven conformance-only runtime-extension fixture globals or operations); three inherited-intrinsic alias surface accounts lack exact native reachability contracts; and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes these account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations.
 
-The machine dataset contains 6533 canonical rows; 6205 are explicit `non-path` decisions pinned by catalog digest `sha256-rWwfIsorazR219OL2R1VEBf16hyc1jGc8HoxkZ129RI`.
+The machine dataset contains 6476 canonical rows; 6148 are explicit `non-path` decisions pinned by catalog digest `sha256-xK1iCy2spfZ1MR2YoZmXaXh-WOSaiI6Z_hPQRJmG5NQ`.
 
 The table below projects every material (non-`non-path`) decision. The JSON artifact is normative and total.
 

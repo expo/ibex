@@ -1106,8 +1106,11 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
     println!("cargo:rerun-if-changed=src/engine/hermes_module_runner.cc");
-    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_gpu.cc");
-    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_gpu_v2.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_extension.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_extension_internal.h");
+    println!("cargo:rerun-if-changed=tests/native/hermes_runtime_extension_conformance.cc");
+    println!("cargo:rerun-if-changed=include/ibex_runtime_extension.h");
+    println!("cargo:rerun-if-changed=include/ibex/runtime_extension.hpp");
     println!("cargo:rerun-if-changed=src/engine/self_image.cc");
     // @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory —
     // native registry IDs are committed generated input to the C++ archive.
@@ -1140,6 +1143,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_templates.inl");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
     println!("cargo:rerun-if-changed=src/engine/exact_runtime_c_abi_check.c");
+    println!("cargo:rerun-if-changed=src/engine/ibex_runtime_extension_c_abi_check.c");
     println!("cargo:rerun-if-changed=include/exact_runtime.h");
     println!("cargo:rerun-if-changed=src/host/mod.rs");
     println!("cargo:rerun-if-changed=src/sync.rs");
@@ -1497,11 +1501,7 @@ fn main() {
                 "IBEX_UPDATE_VENDORED_GENERATED=1 requires IBEX_REGENERATE_RUNTIME=1 so vendored artifacts come from a real regeneration"
             );
         }
-        refresh_vendored_generated(
-            &out_dir,
-            &vendored_generated_dir,
-            std::env::var_os("CARGO_FEATURE_WEBGPU_BINDING").is_some(),
-        );
+        refresh_vendored_generated(&out_dir, &vendored_generated_dir);
     }
 
     // --- Precompile bootstrap JS to Hermes bytecode (HBC) ---
@@ -1815,6 +1815,7 @@ fn main() {
     let mut c_abi_consumer = cc::Build::new();
     c_abi_consumer
         .file("src/engine/exact_runtime_c_abi_check.c")
+        .file("src/engine/ibex_runtime_extension_c_abi_check.c")
         .include("include")
         .std("c11")
         .warnings(true)
@@ -1824,6 +1825,9 @@ fn main() {
         // ordinary artifacts; the always-built declaration/layout half stays.
         c_abi_consumer.define("IBEX_CAPSEC_CONFORMANCE_OBSERVER", None);
     }
+    if std::env::var_os("CARGO_FEATURE_RUNTIME_EXTENSION_CONFORMANCE").is_some() {
+        c_abi_consumer.define("IBEX_RUNTIME_EXTENSION_CONFORMANCE", None);
+    }
     c_abi_consumer.compile("exact_runtime_c_abi_check");
 
     // Compile Hermes runtime adapter sources.
@@ -1832,8 +1836,7 @@ fn main() {
         .cpp(true)
         .file("src/engine/hermes_runtime.cc")
         .file("src/engine/hermes_module_runner.cc")
-        .file("src/engine/hermes_runtime_gpu.cc")
-        .file("src/engine/hermes_runtime_gpu_v2.cc")
+        .file("src/engine/hermes_runtime_extension.cc")
         .file("src/engine/self_image.cc")
         .file("src/engine/hermes_bootstrap.cc")
         .file("src/engine/hermes_runtime_utils.cc")
@@ -1846,6 +1849,7 @@ fn main() {
         .file("src/engine/hermes_runtime_worklet.cc")
         .include(&hermes_include_dir)
         .include(&jsi_include_dir)
+        .include("include")
         .include(&out_dir); // For bootstrap_bytecode.h
 
     if let Some(public_include_dir) = hermes_source_public_include_dir.as_ref() {
@@ -1858,19 +1862,12 @@ fn main() {
         build.define("IBEX_CAPSEC_CONFORMANCE_OBSERVER", None);
         build.file("src/engine/hermes_session_conformance.cc");
     }
-    if std::env::var_os("CARGO_FEATURE_WEBGPU_BINDING").is_some() {
-        build.define("IBEX_ENABLE_WEBGPU_BINDING", None);
+    if std::env::var_os("CARGO_FEATURE_RUNTIME_EXTENSION_CONFORMANCE").is_some() {
+        build.define("IBEX_RUNTIME_EXTENSION_CONFORMANCE", None);
+        build.file("tests/native/hermes_runtime_extension_conformance.cc");
     }
     if std::env::var_os("CARGO_FEATURE_INSECURE").is_some() {
         build.define("IBEX_INSECURE_BUILD", None);
-    }
-    if std::env::var_os("CARGO_FEATURE_GPU_BRIDGE_TEST_HOOKS").is_some() {
-        build.define("IBEX_GPU_BRIDGE_TEST_HOOKS", None);
-        // The mapped-range composition probe verifies that aliases minted by
-        // the private HostFunction are rejected by Hermes' transfer path.
-        // ISerialization is intentionally behind JSI_UNSTABLE; expose that
-        // interface only in test-hook artifacts, never ordinary binaries.
-        build.define("JSI_UNSTABLE", None);
     }
 
     if target_os == "windows" {
@@ -2067,12 +2064,12 @@ fn main() {
     if file_contains_all(
         &hermes_interfaces_header,
         &[
-            "class JSI_EXPORT IExactWebGpuArrayBuffer",
-            "createWebGpuMappedRangeAlias(",
-            "detachWebGpuMappedRange(",
+            "class JSI_EXPORT IKeyedExternalArrayBuffer",
+            "createKeyedExternalRangeAlias(",
+            "detachKeyedExternalRange(",
         ],
     ) {
-        build.define("EXACT_HAVE_WEBGPU_MAPPED_ARRAY_BUFFER", None);
+        build.define("IBEX_HAVE_KEYED_EXTERNAL_ARRAY_BUFFER", None);
     }
     if file_contains_all(&jsi_header, &["queueMicrotask("]) {
         build.define("EXACT_HAVE_JSI_QUEUE_MICROTASK", None);
@@ -2862,11 +2859,10 @@ fn generate_runtime_bundle_source_header(
     portable_hermesc_runner: Option<&portable_host_tool_runner::PortableHostToolRunner>,
 ) {
     let devtools_dir = exact_devtools_dir(repo_root);
-    let webgpu_binding_enabled = std::env::var_os("CARGO_FEATURE_WEBGPU_BINDING").is_some();
-    // @ref LLP 0005#3-the-runtime-bundles — every profile starts from the
-    // core graph; feature-on builds embed the production WebGPU graph as an
-    // independently evaluated activation artifact below.
-    let runtime_entry_name = "runtime-entry-no-webgpu.ts";
+    // @ref LLP 0005#3-the-runtime-bundles — standalone Ibex embeds only its
+    // core runtime graph. Realm extensions own and authenticate their own
+    // optional bootstrap payloads through the runtime-extension registry.
+    let runtime_entry_name = "runtime-entry.ts";
     let runtime_entry = ibex_runtime_js_dir(repo_root)
         .join("src")
         .join(runtime_entry_name);
@@ -2914,17 +2910,6 @@ fn generate_runtime_bundle_source_header(
             "runtime_bundle_bytecode.h",
             "SHARED_RUNTIME_BUNDLE_HBC",
             "shared runtime bundle",
-        );
-        generate_webgpu_runtime_bundle_headers(
-            repo_root,
-            out_dir,
-            allow_fallback,
-            standalone,
-            vendored_generated_dir,
-            hermesc,
-            runtime_hbc_version,
-            portable_hermesc_runner,
-            webgpu_binding_enabled,
         );
         return;
     }
@@ -3011,111 +2996,6 @@ fn generate_runtime_bundle_source_header(
         "runtime_bundle_bytecode.h",
         "SHARED_RUNTIME_BUNDLE_HBC",
         "shared runtime bundle",
-    );
-    generate_webgpu_runtime_bundle_headers(
-        repo_root,
-        out_dir,
-        allow_fallback,
-        standalone,
-        vendored_generated_dir,
-        hermesc,
-        runtime_hbc_version,
-        portable_hermesc_runner,
-        webgpu_binding_enabled,
-    );
-}
-
-#[allow(clippy::too_many_arguments)]
-fn generate_webgpu_runtime_bundle_headers(
-    repo_root: &Path,
-    out_dir: &Path,
-    allow_fallback: bool,
-    standalone: bool,
-    vendored_generated_dir: &Path,
-    hermesc: &Path,
-    runtime_hbc_version: Option<u32>,
-    portable_hermesc_runner: Option<&portable_host_tool_runner::PortableHostToolRunner>,
-    webgpu_binding_enabled: bool,
-) {
-    let bundled_runtime = out_dir.join("embedded_runtime_webgpu_bundle.js");
-    let source_header = out_dir.join("webgpu_runtime_bundle_source.h");
-    let bytecode_header = out_dir.join("webgpu_runtime_bundle_bytecode.h");
-    safe_remove_file(&bundled_runtime);
-    safe_remove_file(&source_header);
-    safe_remove_file(&bytecode_header);
-    safe_remove_file(&out_dir.join("embedded_runtime_webgpu_bundle.hbc"));
-    if !webgpu_binding_enabled {
-        return;
-    }
-
-    let source = if standalone {
-        read_text_or_panic(
-            &vendored_generated_dir.join("embedded_runtime_webgpu_bundle.js"),
-            "embedded_runtime_webgpu_bundle.js",
-        )
-    } else {
-        let runtime_entry_name = "runtime-entry-webgpu.ts";
-        let runtime_entry = ibex_runtime_js_dir(repo_root)
-            .join("src")
-            .join(runtime_entry_name);
-        let build_script = exact_devtools_script(repo_root, "rolldown-bundle.mjs");
-        if !runtime_entry.exists() || !build_script.exists() {
-            if !allow_fallback {
-                panic!(
-                    "Deferred WebGPU runtime source files are missing (expected {} and {}) and EXACT_ALLOW_FALLBACK is not set",
-                    runtime_entry.display(),
-                    build_script.display()
-                );
-            }
-            println!(
-                "cargo:warning=Deferred WebGPU runtime source files are missing; activation will be unavailable"
-            );
-            return;
-        }
-        if !build_runtime_bundle_source(
-            repo_root,
-            &exact_devtools_dir(repo_root),
-            &runtime_entry,
-            &bundled_runtime,
-        ) {
-            if !allow_fallback {
-                panic!(
-                    "Failed to build the deferred WebGPU runtime bundle and EXACT_ALLOW_FALLBACK is not set{}",
-                    missing_js_build_deps_hint(repo_root)
-                );
-            }
-            println!(
-                "cargo:warning=Failed to build the deferred WebGPU runtime bundle; activation will be unavailable"
-            );
-            return;
-        }
-        read_text_or_panic(&bundled_runtime, "embedded_runtime_webgpu_bundle.js")
-    };
-
-    if !source.contains("__ibexCaptureGpuNativeBridge") {
-        panic!("Deferred WebGPU runtime bundle does not contain its private activation capture");
-    }
-    write_file_or_panic(
-        &bundled_runtime,
-        &source,
-        "embedded_runtime_webgpu_bundle.js",
-    );
-    let mut header = String::from(
-        "// Generated by build.rs from the deferred WebGPU runtime entry\n\
-         // Do not edit by hand.\n",
-    );
-    push_cpp_raw_string_literal(&mut header, "WEBGPU_RUNTIME_BUNDLE_SRC", &source);
-    write_file_or_panic(&source_header, header, "webgpu_runtime_bundle_source.h");
-    generate_runtime_bundle_bytecode_header(
-        out_dir,
-        &bundled_runtime,
-        hermesc,
-        runtime_hbc_version,
-        portable_hermesc_runner,
-        "embedded_runtime_webgpu_bundle",
-        "webgpu_runtime_bundle_bytecode.h",
-        "WEBGPU_RUNTIME_BUNDLE_HBC",
-        "deferred WebGPU runtime bundle",
     );
 }
 
@@ -3649,11 +3529,7 @@ fn clear_dir_if_exists(path: &Path, context: &str) {
     });
 }
 
-fn refresh_vendored_generated(
-    out_dir: &Path,
-    vendored_generated_dir: &Path,
-    webgpu_binding_enabled: bool,
-) {
+fn refresh_vendored_generated(out_dir: &Path, vendored_generated_dir: &Path) {
     if let Err(error) = std::fs::create_dir_all(vendored_generated_dir) {
         panic!(
             "Failed to create vendored generated dir {}: {error}",
@@ -3676,17 +3552,6 @@ fn refresh_vendored_generated(
         "ibex build: refreshed vendored artifact {}",
         runtime_dst.display()
     );
-    if webgpu_binding_enabled {
-        let webgpu_src = out_dir.join("embedded_runtime_webgpu_bundle.js");
-        let webgpu_dst = vendored_generated_dir.join("embedded_runtime_webgpu_bundle.js");
-        let contents = read_bytes_or_panic(&webgpu_src, "embedded_runtime_webgpu_bundle.js");
-        write_file_or_panic(&webgpu_dst, contents, "embedded_runtime_webgpu_bundle.js");
-        eprintln!(
-            "ibex build: refreshed vendored artifact {}",
-            webgpu_dst.display()
-        );
-    }
-
     let src_builtins = out_dir.join("builtins");
     let dst_builtins = vendored_generated_dir.join("builtins");
     clear_dir_if_exists(&dst_builtins, "vendored builtins");
