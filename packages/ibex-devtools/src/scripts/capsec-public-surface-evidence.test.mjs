@@ -139,6 +139,10 @@ const coverage = {
       surface: { kind: "native-op", name: "__exactReadlink" },
     },
     {
+      id: "edge.readdir-worker",
+      surface: { kind: "native-op", name: "__exactReaddir" },
+    },
+    {
       id: "edge.fsopen-worker",
       surface: { kind: "native-op", name: "__exactFsOpen" },
     },
@@ -564,6 +568,42 @@ function openSyncFixture() {
     cap: "fs:write",
   });
   commit.gates.push(structuredClone(commit.gates[0]));
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return fixture;
+}
+
+function opendirSyncFixture() {
+  const fixture = openThenActFixture("allow", "opendirSync");
+  const { catalog, recipe, observation } = fixture;
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  recipe.actionIds = ["fs:list"];
+  recipe.route.alternatives = [
+    {
+      terminalObservedKey: "native-op:__exactReaddir",
+      proofPaths: ["export:opendirSync -> readdirSync -> __exactReaddir"],
+    },
+  ];
+  invocation.expectedActionIds = ["fs:list"];
+  invocation.expectedCleanup = "closed-fs-directory";
+  invocation.allowedCoverageEdgeIds = ["edge.readdir-worker"];
+  observation.invocation.result = {
+    kind: "return",
+    moduleSpecifier: "node:fs",
+    exportName: "opendirSync",
+    valueType: "object",
+    cleanup: "closed-fs-directory",
+    path: "/project/capsec-directory-fixture",
+  };
+  for (const decision of observation.typedDecisions) {
+    decision.decisionSet.operationId = "fs-readdir:0:fixture";
+    decision.decisionSet.atomicityGroup = "edge.readdir-worker.decision";
+    for (const effect of decision.decisionSet.effects) {
+      effect.cap = "fs:list";
+    }
+    for (const gate of decision.gates) {
+      gate.coverageEdgeId = "edge.readdir-worker";
+    }
+  }
   catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
   return fixture;
 }
@@ -3214,6 +3254,53 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/cleanup result has unknown or missing fields/);
 
     const unauthoredCleanup = openSyncFixture();
+    delete unauthoredCleanup.recipe.publicSurfaceProbe.invocation
+      .expectedCleanup;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: unauthoredCleanup.recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: unauthoredCleanup.observation,
+        coverage,
+      }),
+    ).toThrow(/malformed builtin descriptor cleanup expectation/);
+  });
+
+  test("binds opendirSync success to an exact path and closed directory object", () => {
+    const accepted = opendirSyncFixture();
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: accepted.recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: accepted.observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const substitutedPath = opendirSyncFixture();
+    substitutedPath.observation.invocation.result.path =
+      "/project/substituted-directory";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: substitutedPath.recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: substitutedPath.observation,
+        coverage,
+      }),
+    ).toThrow(/descriptor cleanup did not match/);
+
+    const missingCleanup = opendirSyncFixture();
+    delete missingCleanup.observation.invocation.result.cleanup;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: missingCleanup.recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: missingCleanup.observation,
+        coverage,
+      }),
+    ).toThrow(/cleanup result has unknown or missing fields/);
+
+    const unauthoredCleanup = opendirSyncFixture();
     delete unauthoredCleanup.recipe.publicSurfaceProbe.invocation
       .expectedCleanup;
     expect(() =>

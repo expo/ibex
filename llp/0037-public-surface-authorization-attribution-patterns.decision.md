@@ -5,6 +5,7 @@
 **Systems:** Security, Runtime, Devtools, Verification
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-23
+**Revised:** 2026-07-25 (`node:fs.opendirSync` binds an empty-directory invocation to exact `__exactReaddir` authority, exact returned path, and mandatory `Dir.closeSync`; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.openSync` binds the exact `r`, `a`, and `r+` branches to read, write, and conjunctive read-write authority; every successful numeric descriptor is closed, file bytes remain unchanged, and fifteen Apple rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.readlinkSync` binds ambient link/target traversal separately from the corrected stored-byte `fs:read` commit and exact translated string; five Apple fixture rows move from residual to executable)
 **Revised:** 2026-07-25 (`node:fs.mkdirSync` binds absolute non-recursive creation to the reviewed `fs-mkdir:` absent-create chain and exact creation/no-creation postconditions; five Apple fixture rows move from residual to executable)
@@ -253,6 +254,32 @@ allowed and denied scenario. Fifteen real effect rows (five scenarios for each
 flag branch) are executable in the complete 200-recipe batch; the three
 synthetic `branch-selection` rows remain honestly unresolved because no public
 runtime input supplies registry branch facts.
+
+### Materialized directory-object evidence: `opendirSync`
+
+`node:fs.opendirSync` builds its `Dir` object by calling `readdirSync` and then
+`lstatSync` once per returned entry. The authored fixture is an exact empty
+directory. That input physically selects the `__exactReaddir` terminal and
+excludes the conservative per-entry `__exactLstat` alternative without erasing
+it from the source-derived route.
+
+On the bound Apple engine, allow emits the same seven-stage direct-list
+sequence as the existing directory-enumeration fixture:
+`requested, discovery, requested, repeat, repeat, repeat, repeat`. Denial stops
+at the first requested-stage `fs:list` decision. Because directory listing is
+the operation itself rather than incidental traversal, the requested/repeat
+checks resolve through the authored static floor; only mount discovery is
+ambient.
+
+A successful public result is accepted only when it is an object whose
+source-owned `path` is exactly `/project/capsec-directory-fixture` and the
+harness calls its `closeSync` method before recording
+`cleanup: "closed-fs-directory"`. The aggregate independently requires that
+cleanup contract and rejects a missing marker, substituted marker, substituted
+path, or an authored recipe that omits cleanup. The native harness also proves
+that the directory remains present and empty. The complete 205-recipe batch and
+the independent aggregate accept all five real scenario observations, each
+deriving `native-op:__exactReaddir`.
 
 ### Additional multi-edge metadata evidence: `realpathSync`
 

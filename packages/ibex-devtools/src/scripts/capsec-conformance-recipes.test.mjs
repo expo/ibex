@@ -341,12 +341,12 @@ describe("exact-target CapSec executable recipes", () => {
     // production graph deliberately uses deferred call-time links. The net-new
     // WebGPU obligations remain unresolved until their public-surface probes
     // are authored.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_661);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_666);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_114);
-    expect(recipes.summary.unresolvedFixtures).toBe(18_265);
+    expect(recipes.summary.unresolvedFixtures).toBe(18_260);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -511,13 +511,14 @@ describe("exact-target CapSec executable recipes", () => {
           "public-surface-filesystem-not-typed-on-target",
         ),
     );
-    // 188 = 123 + the 65 fs:list accessSync/existsSync/realpathSync/statfsSync,
+    // 193 = 123 + the 70 fs:list accessSync/existsSync/opendirSync/
+    // realpathSync/statfsSync,
     // fs:read readFileSync/readlinkSync, and fs:write appendFileSync/
     // mkdirSync/truncateSync/writeFileSync rows plus openSync's read, write,
     // and read-write branches now Apple-authored
     // (LLP 0037), and therefore "not typed on target" for the ambiguous
     // Windows route.
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(188);
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(193);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
@@ -1391,6 +1392,85 @@ describe("exact-target CapSec executable recipes", () => {
       expect(
         recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
       ).toBe(denial ? 1 : 7);
+    }
+  });
+
+  test("materializes and closes an exact empty directory object", () => {
+    const surface = "builtin:export:node_fs:opendirSync";
+    const directoryRecipes = recipes.recipes.filter(
+      (recipe) =>
+        recipe.route.surfaceObservedKeys.includes(surface) &&
+        [
+          "allow",
+          "deny",
+          "malformed",
+          "missing-attribution",
+          "wrong-principal",
+        ].includes(recipe.scenario),
+    );
+    expect(directoryRecipes).toHaveLength(5);
+    for (const recipe of directoryRecipes) {
+      const denial = recipe.scenario === "deny";
+      expect(recipe).toMatchObject({
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          surfaceObservedKey: surface,
+          invocation: {
+            moduleSpecifier: "node:fs",
+            exportName: "opendirSync",
+            arguments: [
+              {
+                kind: "filesystem-fixture-path",
+                logicalPath: {
+                  root: "project",
+                  components: [
+                    { encoding: "utf8", value: "capsec-directory-fixture" },
+                  ],
+                },
+              },
+            ],
+            setup: {
+              kind: "filesystem-directory",
+              entries: [],
+            },
+            requiredAuthority: [
+              {
+                cap: "fs:list",
+                resource: { kind: "path-exact" },
+              },
+            ],
+            expectedResult: denial ? "permission-denied" : "return",
+            expectedTypedDecisionCount: denial ? 1 : 7,
+            expectedTypedStages: denial
+              ? ["requested"]
+              : [
+                  "requested",
+                  "discovery",
+                  "requested",
+                  "repeat",
+                  "repeat",
+                  "repeat",
+                  "repeat",
+                ],
+            allowedCoverageEdgeIds: [
+              "surface.native.op.exactensurefs.1dih7no",
+              "surface.native.op.exactlstat.1c98s6l",
+              "surface.native.op.exactreaddir.0tg30vk",
+            ],
+            expectedActionIds: ["fs:list"],
+          },
+        },
+      });
+      if (denial) {
+        expect(recipe.publicSurfaceProbe.invocation).not.toHaveProperty(
+          "expectedCleanup",
+        );
+      } else {
+        expect(
+          recipe.publicSurfaceProbe.invocation.expectedCleanup,
+        ).toBe("closed-fs-directory");
+      }
     }
   });
 

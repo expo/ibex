@@ -1175,6 +1175,35 @@ ticket closes.
   under-validate the conjunction. Important enforcement mechanisms remain
   about 96% complete and the overall requested task remains about 86%.
 
+### 2026-07-25 — `opendirSync` materialization and close evidence
+
+- Added all five Apple `node:fs.opendirSync` scenarios against an exact empty
+  directory. The empty input physically selects the source-derived
+  `__exactReaddir` terminal and excludes the conservative per-entry
+  `__exactLstat` alternative.
+- Allow emits `requested, discovery, requested, repeat, repeat, repeat,
+  repeat`; denial stops at the first requested-stage `fs:list` decision. The
+  successful result binds the exact virtual path and calls `Dir.closeSync`
+  before recording `closed-fs-directory`; the harness also proves the
+  directory remains present and empty.
+- The complete 205-recipe bound-Hermes batch passes, and the independent
+  aggregate accepts all 205 observations while rejecting substituted paths,
+  missing cleanup, and recipes that omit the cleanup contract. The combined
+  focused suite passes 158 tests with 112,780 assertions on the M4 mini worker.
+- Apple is now 24,040 required / 2,666 fully executable / 3,114 internally
+  verified / 18,260 unresolved. Windows remains 23,925 / 2,240 / 3,102 /
+  18,583. Criterion 7's literal Apple denominator is 5,780/24,040 (24.0%)
+  proven.
+- Auditing the adjacent mutation exports found that `unlinkSync`,
+  `renameSync`, `chmodSync`, `copyFileSync`, `symlinkSync`, `linkSync`, and
+  related paths are deliberately refused by `refuseClosedArmedFsMutation`
+  before lookup or capability probing, while the current catalog still emits
+  ordinary effect-allow obligations. Filed
+  `issues/20260725-closed-armed-fs-mutations-coverage-model.md`; the runtime
+  boundary must remain closed while coverage/recipe modeling is reconciled.
+  Important enforcement mechanisms remain about 96% complete and the overall
+  requested task remains about 86%.
+
 ## Next milestone
 
 Attack criterion 7's exact-target evidence gap through real public-surface

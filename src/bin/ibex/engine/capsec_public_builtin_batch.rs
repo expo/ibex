@@ -423,12 +423,12 @@ fn expected_authored_builtin_recipe_count(target: &str) -> usize {
         // @ref LLP 0037#d1--ambient-mount-authority-for-traversal-decisions
         // +5 each on Apple for fs:list accessSync/existsSync/realpathSync/
         // statfsSync, fs:read readFileSync/readlinkSync, fs:write
-        // appendFileSync/mkdirSync/truncateSync/writeFileSync, and each of
-        // openSync's read/write/read-write branches (their allow/deny/
-        // malformed/missing-attribution/wrong-principal matrices).
+        // appendFileSync/mkdirSync/truncateSync/writeFileSync, each of
+        // openSync's read/write/read-write branches, and opendirSync (their
+        // allow/deny/malformed/missing-attribution/wrong-principal matrices).
         // Windows keeps 120: its node_fs enforcement route is ambiguous, so
         // these public probes are not authored there.
-        "aarch64-apple-darwin" => 200,
+        "aarch64-apple-darwin" => 205,
         "x86_64-pc-windows-msvc" => 120,
         target => panic!("builtin public recipe batch has no reviewed target shape for {target}"),
     }
@@ -438,7 +438,7 @@ fn expected_authored_builtin_recipe_count(target: &str) -> usize {
 fn capsec_public_builtin_recipe_counts_are_target_specific() {
     assert_eq!(
         expected_authored_builtin_recipe_count("aarch64-apple-darwin"),
-        200
+        205
     );
     assert_eq!(
         expected_authored_builtin_recipe_count("x86_64-pc-windows-msvc"),
@@ -454,7 +454,7 @@ fn invocation_script(invocation: &BuiltinInvocation, arguments: &[serde_json::Va
                 .expect("serialize imported builtin module")
         ),
         "ibex/capsec-builtin-export-invocation/1" => format!(
-            "JSON.stringify((function(){{var m={};var e={};var b={};var s={};var c={};try{{var api=require(m);var f=api[e];if(typeof f!==\"function\")return {{kind:\"missing\",moduleSpecifier:m,exportName:e}};var value=Reflect.apply(f,api,{});var result={{kind:\"return\",moduleSpecifier:m,exportName:e,valueType:value===null?\"null\":typeof value}};if(b)result.booleanValue=value;if(s)result.stringValue=String(value);if(c){{if(typeof value!==\"number\"||typeof api.closeSync!==\"function\")throw new Error(\"descriptor cleanup unavailable\");api.closeSync(value);result.cleanup=c;}}return result;}}catch(error){{return {{kind:\"throw\",moduleSpecifier:m,exportName:e,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}};}}}})())",
+            "JSON.stringify((function(){{var m={};var e={};var b={};var s={};var c={};try{{var api=require(m);var f=api[e];if(typeof f!==\"function\")return {{kind:\"missing\",moduleSpecifier:m,exportName:e}};var value=Reflect.apply(f,api,{});var result={{kind:\"return\",moduleSpecifier:m,exportName:e,valueType:value===null?\"null\":typeof value}};if(b)result.booleanValue=value;if(s)result.stringValue=String(value);if(c===\"closed-fs-file-descriptor\"){{if(typeof value!==\"number\"||typeof api.closeSync!==\"function\")throw new Error(\"descriptor cleanup unavailable\");api.closeSync(value);result.cleanup=c;}}else if(c===\"closed-fs-directory\"){{if(!value||typeof value!==\"object\"||typeof value.closeSync!==\"function\")throw new Error(\"directory cleanup unavailable\");var directoryPath=String(value.path);value.closeSync();result.cleanup=c;result.path=directoryPath;}}else if(c){{throw new Error(\"unsupported builtin cleanup\");}}return result;}}catch(error){{return {{kind:\"throw\",moduleSpecifier:m,exportName:e,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}};}}}})())",
             serde_json::to_string(&invocation.module_specifier)
                 .expect("serialize builtin module"),
             serde_json::to_string(
@@ -517,6 +517,22 @@ impl PreparedInvocation {
                 std::fs::read(project_root.join("capsec-readlink-target.txt"))
                     .expect("read readlinkSync target postcondition"),
                 b"ibex-capsec-readlink-target\n"
+            );
+            return;
+        }
+        if export_name == "opendirSync" {
+            let directory = self
+                .project_root
+                .as_ref()
+                .expect("filesystem directory fixture has no project root")
+                .join("capsec-directory-fixture");
+            assert!(
+                directory.is_dir()
+                    && std::fs::read_dir(directory)
+                        .expect("read opendirSync postcondition")
+                        .next()
+                        .is_none(),
+                "opendirSync {scenario} postcondition drifted"
             );
             return;
         }
@@ -744,7 +760,8 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
         Some("filesystem-directory") => {
             assert_eq!(invocation.module_specifier, "node:fs");
             assert_eq!(invocation.source_descriptor["sourceKey"], "node_fs");
-            assert_eq!(export_name, "readdirSync");
+            assert!(matches!(export_name, "opendirSync" | "readdirSync"));
+            let directory_object_probe = export_name == "opendirSync";
             let logical_path = serde_json::json!({
                 "root": "project",
                 "components": [
@@ -754,11 +771,15 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
             assert_eq!(invocation.setup["logicalPath"], logical_path);
             assert_eq!(
                 invocation.setup["entries"],
-                serde_json::json!([{
-                    "kind": "file",
-                    "name": "entry.txt",
-                    "contents": "ibex-capsec-directory-entry\n",
-                }])
+                if directory_object_probe {
+                    serde_json::json!([])
+                } else {
+                    serde_json::json!([{
+                        "kind": "file",
+                        "name": "entry.txt",
+                        "contents": "ibex-capsec-directory-entry\n",
+                    }])
+                }
             );
             assert_eq!(
                 invocation.required_authority,
@@ -774,16 +795,25 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
                     "logicalPath": logical_path,
                 })]
             );
+            if directory_object_probe {
+                // @ref LLP 0037#materialized-directory-object-evidence-opendirsync — Successful Dir materialization is evidence only after exact close.
+                assert_eq!(
+                    invocation.expected_cleanup.as_deref(),
+                    (invocation.expected_result == "return").then_some("closed-fs-directory")
+                );
+            }
             let fixture_root = tempfile::tempdir().expect("create builtin directory fixture");
             let project_root = std::fs::canonicalize(fixture_root.path())
                 .expect("canonicalize builtin directory fixture root");
             let fixture_path = project_root.join("capsec-directory-fixture");
             std::fs::create_dir(&fixture_path).expect("create builtin directory fixture");
-            std::fs::write(
-                fixture_path.join("entry.txt"),
-                "ibex-capsec-directory-entry\n",
-            )
-            .expect("write builtin directory entry");
+            if !directory_object_probe {
+                std::fs::write(
+                    fixture_path.join("entry.txt"),
+                    "ibex-capsec-directory-entry\n",
+                )
+                .expect("write builtin directory entry");
+            }
             PreparedInvocation {
                 _fixture_root: Some(fixture_root),
                 project_root: Some(project_root),
@@ -1048,16 +1078,28 @@ fn validate_observation(
                 );
             }
             if let Some(expected) = &invocation.expected_cleanup {
-                assert_eq!(
-                    *invocation_result,
-                    serde_json::json!({
+                let expected_result = match expected.as_str() {
+                    "closed-fs-file-descriptor" => serde_json::json!({
                         "kind": "return",
                         "moduleSpecifier": invocation.module_specifier,
                         "exportName": invocation.export_name,
                         "valueType": "number",
                         "cleanup": expected,
                     }),
-                    "{}: descriptor-cleanup builtin result drifted",
+                    "closed-fs-directory" => serde_json::json!({
+                        "kind": "return",
+                        "moduleSpecifier": invocation.module_specifier,
+                        "exportName": invocation.export_name,
+                        "valueType": "object",
+                        "cleanup": expected,
+                        "path": "/project/capsec-directory-fixture",
+                    }),
+                    cleanup => panic!("unsupported builtin cleanup {cleanup}"),
+                };
+                assert_eq!(
+                    *invocation_result,
+                    expected_result,
+                    "{}: cleanup-bound builtin result drifted",
                     recipe.fixture_id
                 );
             }

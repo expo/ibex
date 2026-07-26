@@ -2888,18 +2888,36 @@ function validateRuntimeInvocation(observation, recipe) {
     authored.invocationSchema ===
       "ibex/capsec-builtin-export-invocation/1" &&
     authored.kind === "builtin-export-call";
-  const builtinOpenSync =
-    builtinExportInvocation &&
-    authored.moduleSpecifier === "node:fs" &&
-    authored.exportName === "openSync";
+  const builtinCleanupExpectation =
+    builtinExportInvocation && authored.moduleSpecifier === "node:fs"
+      ? new Map([
+          [
+            "openSync",
+            {
+              cleanup: "closed-fs-file-descriptor",
+              valueType: "number",
+              path: null,
+            },
+          ],
+          [
+            "opendirSync",
+            {
+              cleanup: "closed-fs-directory",
+              valueType: "object",
+              path: "/project/capsec-directory-fixture",
+            },
+          ],
+        ]).get(authored.exportName)
+      : undefined;
+  // @ref LLP 0037#materialized-directory-object-evidence-opendirsync — The aggregate independently binds the returned directory path and close lifecycle.
   // @ref LLP 0037#flag-selected-descriptor-evidence-opensync — A successful descriptor claim is incomplete unless the public harness closed it.
   if (
-    (builtinOpenSync &&
+    (builtinCleanupExpectation &&
       ((authored.expectedResult === "return" &&
-        authored.expectedCleanup !== "closed-fs-file-descriptor") ||
+        authored.expectedCleanup !== builtinCleanupExpectation.cleanup) ||
         (authored.expectedResult !== "return" &&
           authored.expectedCleanup !== undefined))) ||
-    (!builtinOpenSync &&
+    (!builtinCleanupExpectation &&
       builtinExportInvocation &&
       authored.expectedCleanup !== undefined)
   ) {
@@ -2998,7 +3016,7 @@ function validateRuntimeInvocation(observation, recipe) {
         );
       }
     }
-    if (builtinOpenSync) {
+    if (builtinCleanupExpectation) {
       exactKeys(
         invocation.result,
         [
@@ -3007,14 +3025,17 @@ function validateRuntimeInvocation(observation, recipe) {
           "exportName",
           "valueType",
           "cleanup",
+          ...(builtinCleanupExpectation.path === null ? [] : ["path"]),
         ],
         `${recipe.fixtureId}: builtin cleanup result`,
       );
       if (
         invocation.result.moduleSpecifier !== authored.moduleSpecifier ||
         invocation.result.exportName !== authored.exportName ||
-        invocation.result.valueType !== "number" ||
-        invocation.result.cleanup !== authored.expectedCleanup
+        invocation.result.valueType !== builtinCleanupExpectation.valueType ||
+        invocation.result.cleanup !== authored.expectedCleanup ||
+        (builtinCleanupExpectation.path !== null &&
+          invocation.result.path !== builtinCleanupExpectation.path)
       ) {
         throw new Error(
           `${recipe.fixtureId}: builtin descriptor cleanup did not match its authored result`,

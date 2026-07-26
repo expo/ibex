@@ -57,6 +57,7 @@ const FS_LIST_EXPORTS = new Set([
   "accessSync",
   "existsSync",
   "lstatSync",
+  "opendirSync",
   "readdirSync",
   "realpathSync",
   "statfsSync",
@@ -833,7 +834,11 @@ export function authoredBuiltinPublicProbe({
     "node:fs",
   );
   if (!descriptor) return null;
-  const directoryProbe = exportName === "readdirSync";
+  const directoryProbe = new Set(["opendirSync", "readdirSync"]).has(
+    exportName,
+  );
+  // @ref LLP 0037#materialized-directory-object-evidence-opendirsync — An empty directory selects readdir without per-entry lstat and must be closed after materialization.
+  const directoryObjectProbe = exportName === "opendirSync";
   const accessMetadataProbe = new Set(["accessSync", "existsSync"]).has(
     exportName,
   );
@@ -879,13 +884,15 @@ export function authoredBuiltinPublicProbe({
         ? {
             kind: "filesystem-directory",
             logicalPath,
-            entries: [
-              {
-                kind: "file",
-                name: "entry.txt",
-                contents: "ibex-capsec-directory-entry\n",
-              },
-            ],
+            entries: directoryObjectProbe
+              ? []
+              : [
+                  {
+                    kind: "file",
+                    name: "entry.txt",
+                    contents: "ibex-capsec-directory-entry\n",
+                  },
+                ],
           }
         : {
             kind: "filesystem-file",
@@ -905,6 +912,9 @@ export function authoredBuiltinPublicProbe({
           : "return",
       ...(booleanReturnProbe
         ? { expectedBooleanValue: !publicDenial }
+        : {}),
+      ...(directoryObjectProbe && !publicDenial
+        ? { expectedCleanup: "closed-fs-directory" }
         : {}),
       // The authenticated VFS first binds the selected project mount object,
       // then re-authorizes the exact target before its retained repeats. Stat
