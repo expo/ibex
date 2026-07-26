@@ -290,5 +290,9 @@ name = "runtime_compare"
 harness = false
 
 [[bench]]
+name = "startup_performance"
+harness = false
+
+[[bench]]
 name = "capsec_descriptor_authorization"
 harness = false

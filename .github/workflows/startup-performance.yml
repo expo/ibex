@@ -1,0 +1,135 @@
+name: Startup performance
+
+# Wall-clock distributions belong on a periodic lane, not as a pull-request
+# timeout. The checked p95 budgets still make a sustained regression fail
+# loudly, while the JSON artifact preserves every platform/profile result.
+# @ref LLP 0001#3-proposed-v1-matrix
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 10 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: startup-performance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  distributions:
+    name: ${{ matrix.platform }}-${{ matrix.profile }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: darwin-arm64
+            profile: insecure
+          - os: macos-14
+            platform: darwin-arm64
+            profile: secure
+          - os: ubuntu-latest
+            platform: linux-x64
+            profile: insecure
+          - os: ubuntu-latest
+            platform: linux-x64
+            profile: secure
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out current repository
+        uses: actions/checkout@v4
+        with:
+          path: current
+
+      - name: Install Rust toolchain
+        working-directory: current
+        run: scripts/install-rust-toolchain.sh
+
+      - name: Install Linux native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev pkg-config util-linux
+
+      - name: Install matching patched Hermes toolchain
+        working-directory: current
+        run: ./scripts/download-hermes.sh
+
+      - name: Build current insecure runtime
+        if: matrix.profile == 'insecure'
+        working-directory: current
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/current-${{ matrix.profile }}
+        run: cargo build --release --bin ibex
+
+      - name: Build current secure-development runtime
+        if: matrix.profile == 'secure'
+        working-directory: current
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/current-${{ matrix.profile }}
+        run: >-
+          cargo build --release --bin ibex --no-default-features
+          --features standard,unadvertised-dev-arming
+
+      - name: Read precommitted baseline revision
+        if: matrix.profile == 'insecure'
+        id: startup-budgets
+        working-directory: current
+        run: echo "baseline=$(jq -r .baselineRevision benches/startup-budgets-v1.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Check out named pre-CapSec baseline
+        if: matrix.profile == 'insecure'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.startup-budgets.outputs.baseline }}
+          path: baseline
+
+      - name: Install baseline-matched Hermes toolchain
+        if: matrix.profile == 'insecure'
+        working-directory: baseline
+        run: ./scripts/download-hermes.sh
+
+      - name: Build named pre-CapSec baseline
+        if: matrix.profile == 'insecure'
+        working-directory: baseline
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/baseline
+        run: cargo build --release --bin ibex
+
+      - name: Measure and enforce insecure distributions
+        if: matrix.profile == 'insecure'
+        working-directory: current
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/current-${{ matrix.profile }}
+          IBEX_BENCH_BIN: ${{ runner.temp }}/current-${{ matrix.profile }}/release/ibex
+          IBEX_BENCH_BASELINE_BIN: ${{ runner.temp }}/baseline/release/ibex
+          STARTUP_BENCH_PROFILE: ${{ matrix.profile }}
+          STARTUP_BENCH_ENFORCE: "1"
+          STARTUP_BENCH_OUTPUT: ${{ runner.temp }}/startup-${{ matrix.platform }}-${{ matrix.profile }}.json
+        run: cargo bench --bench startup_performance
+
+      - name: Measure and enforce secure distributions
+        if: matrix.profile == 'secure'
+        working-directory: current
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/current-${{ matrix.profile }}
+          IBEX_BENCH_BIN: ${{ runner.temp }}/current-${{ matrix.profile }}/release/ibex
+          STARTUP_BENCH_PROFILE: ${{ matrix.profile }}
+          STARTUP_BENCH_ENFORCE: "1"
+          STARTUP_BENCH_OUTPUT: ${{ runner.temp }}/startup-${{ matrix.platform }}-${{ matrix.profile }}.json
+        run: >-
+          cargo bench --bench startup_performance --no-default-features
+          --features standard,unadvertised-dev-arming
+
+      - name: Upload startup distribution
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-${{ matrix.platform }}-${{ matrix.profile }}
+          path: ${{ runner.temp }}/startup-${{ matrix.platform }}-${{ matrix.profile }}.json
+          if-no-files-found: error
+          retention-days: 90

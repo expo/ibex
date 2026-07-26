@@ -1,0 +1,7 @@
+{
+  "name": "ibex-startup-package-script-fixture",
+  "private": true,
+  "scripts": {
+    "startup-noop": ":"
+  }
+}

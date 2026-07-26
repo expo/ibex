@@ -1,5 +1,58 @@
 # Runtime benchmarks
 
+## `startup_performance` — cold/warm CLI and embedded readiness
+
+This harness owns the completion criteria for
+`issues/20260724-insecure-startup-performance.md`. It measures distributions,
+not one best launch, for:
+
+- process start to the first REPL prompt observed through a real pseudoterminal;
+- trivial `eval` and `run`;
+- package-script dispatch;
+- repeated same-process embedder Host/runtime creation, core-bundle bootstrap,
+  and first evaluation.
+
+The diagnostic C constructor installs the core bundle atomically before it
+returns, so `runtimeCreateMs` and cumulative `bootstrapCompleteMs` describe the
+same readiness boundary. They are both reported to keep the embedding contract
+explicit; they are not additive phases.
+
+The p95 budgets, cache definitions, sample count, and named pre-CapSec baseline
+revision were committed before the harness was run in
+`startup-budgets-v1.json`. A cold sample gets a fresh `HOME` and application
+cache but retains the operating-system page cache. A warm distribution uses
+five discarded launches and forty measured launches sharing one application
+cache. Every distribution reports min, median, MAD, p95, and max.
+
+Build and run the default/insecure profile:
+
+```sh
+cargo build --release --bin ibex
+IBEX_BENCH_BIN=target/release/ibex \
+  STARTUP_BENCH_PROFILE=insecure \
+  STARTUP_BENCH_OUTPUT=target/startup-insecure.json \
+  cargo bench --bench startup_performance
+```
+
+Build and run secure development in a separate target directory:
+
+```sh
+CARGO_TARGET_DIR=target/startup-secure \
+  cargo build --release --bin ibex --no-default-features \
+    --features standard,unadvertised-dev-arming
+CARGO_TARGET_DIR=target/startup-secure \
+  IBEX_BENCH_BIN=target/startup-secure/release/ibex \
+  STARTUP_BENCH_PROFILE=secure \
+  STARTUP_BENCH_OUTPUT=target/startup-secure.json \
+  cargo bench --bench startup_performance --no-default-features \
+    --features standard,unadvertised-dev-arming
+```
+
+`STARTUP_BENCH_ENFORCE=1` turns p95 misses into a nonzero result. Ordinary
+`cargo test --benches` runs one correctness sample and never enforces
+wall-clock budgets. `IBEX_BENCH_BASELINE_BIN` adds the named pre-CapSec
+trivial-eval/run comparison.
+
 ## `runtime_compare` — local Hermes shell vs production Ibex
 
 This broad harness runs plain JavaScript fixtures through:
