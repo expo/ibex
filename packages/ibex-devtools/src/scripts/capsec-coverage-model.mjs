@@ -15175,6 +15175,12 @@ function classifyConcreteSurface(surface) {
           lifetimeContract: "file-handle",
         }
       : {};
+    if (/^exactfs(?:read|readv)async$/u.test(name)) {
+      return effectSpec(["fs:read"], "filesystem", "WP5", {
+        ...descriptorOptions,
+        stagesByAction: { "fs:read": ["repeat"] },
+      });
+    }
     if (/watch/u.test(name))
       return effectSpec(["fs:list", "fs:watch"], "filesystem", "WP5", {
         lifetimeContract: "watch",

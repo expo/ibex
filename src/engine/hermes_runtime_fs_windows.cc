@@ -1042,6 +1042,59 @@ FsAsyncResult fsReadWholeTypedHandleWork(
   return result;
 }
 
+using TypedDescriptorReadBridge =
+    decltype(&ibex_private_vfs_read_async_typed);
+
+FsAsyncResult fsReadTypedHandleWork(
+    uint64_t runtimeNonce,
+    uint64_t descriptorOwner,
+    const std::shared_ptr<std::vector<uint64_t>>& principals,
+    const std::shared_ptr<WindowsFileHandle>& file,
+    const std::string& pathForError,
+    uint32_t length,
+    bool positioned,
+    uint64_t position,
+    const std::string& syscall,
+    TypedDescriptorReadBridge bridge) {
+  if (!file || !file->handle) {
+    return fsAsyncBadFd(syscall);
+  }
+  if (length == 0) {
+    return fsAsyncOk(FsAsyncResult::Kind::Bytes);
+  }
+  uint8_t* data = nullptr;
+  uint64_t dataLength = 0;
+  int32_t hostError = 0;
+  std::lock_guard<std::mutex> ioLock(file->ioMutex);
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Async scalar/vector reads place their exact-object Repeat on the worker immediately before retained-handle acquisition and publish no caller bytes on refusal.
+  uint32_t status = bridge(
+      runtimeNonce,
+      descriptorOwner,
+      principals->data(),
+      principals->size(),
+      file->handle,
+      length,
+      positioned ? 1 : 0,
+      position,
+      &data,
+      &dataLength,
+      &hostError);
+  if (status != 0) {
+    if (data != nullptr) ex_host_free_buffer(data, dataLength);
+    return fsAsyncVfsError(status, hostError, syscall, pathForError);
+  }
+  if (dataLength > length || (dataLength != 0 && data == nullptr)) {
+    if (data != nullptr) ex_host_free_buffer(data, dataLength);
+    return fsAsyncSyscallError(syscall, pathForError, EIO);
+  }
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Bytes);
+  if (dataLength != 0) {
+    result.bytes.assign(data, data + dataLength);
+  }
+  if (data != nullptr) ex_host_free_buffer(data, dataLength);
+  return result;
+}
+
 FsAsyncResult fsReadWholeHandleWork(
     std::shared_ptr<WindowsFileHandle> file,
     const std::string& pathForError) {
@@ -1593,6 +1646,56 @@ bool parseWindowsIoVecArguments(
     }
     buffers.push_back(std::move(bytes));
   }
+  return true;
+}
+
+bool parseWindowsReadIoVecTotalLength(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value,
+    uint32_t& totalLength,
+    const char* operation) {
+  constexpr size_t kMaxWindowsIoVecCount = 1024;
+  totalLength = 0;
+  if (!value.isObject()) {
+    return false;
+  }
+  auto listObj = value.asObject(runtime);
+  if (!listObj.isArray(runtime)) {
+    return false;
+  }
+  size_t length = 0;
+  exactByteLengthFromValue(
+      runtime, listObj.getProperty(runtime, "length"), "readv buffer count", 0,
+      length);
+  if (length > kMaxWindowsIoVecCount) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(operation) + ": too many buffers");
+  }
+  uint64_t aggregateLength = 0;
+  for (size_t i = 0; i < length; i++) {
+    auto entry = listObj.getProperty(
+        runtime,
+        facebook::jsi::PropNameID::forAscii(runtime, std::to_string(i)));
+    if (!entry.isObject()) {
+      return false;
+    }
+    auto entryObj = entry.asObject(runtime);
+    size_t byteLength = 0;
+    const uint8_t* destination = nullptr;
+    if (!extractArrayBufferView(
+            runtime, entryObj, destination, byteLength, nullptr) ||
+        (byteLength != 0 && destination == nullptr)) {
+      return false;
+    }
+    aggregateLength += byteLength;
+    if (aggregateLength > std::numeric_limits<uint32_t>::max()) {
+      throw facebook::jsi::JSError(
+          runtime,
+          std::string(operation) +
+              ": aggregate buffer length exceeds uint32");
+    }
+  }
+  totalLength = static_cast<uint32_t>(aggregateLength);
   return true;
 }
 
@@ -3117,17 +3220,55 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           });
         }
         auto entry = getFileEntry(runtime, fd);
-        requireFileEntryRead(runtime, entry);
-        auto length = std::min(
-            static_cast<size_t>(args[1].asNumber()),
-            static_cast<size_t>(kMaxHostIoChunk));
-        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
-        int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
+        if (!entry.canRead) {
+          throw facebook::jsi::JSError(
+              runtime, "fd not opened for reading");
+        }
+        size_t requestedLength = 0;
+        exactByteLengthFromValue(
+            runtime, args[1], "read length", 0, requestedLength);
+        uint32_t length = static_cast<uint32_t>(std::min(
+            requestedLength, static_cast<size_t>(kMaxHostIoChunk)));
+        uint64_t position = 0;
+        bool positioned =
+            count > 2 && readPositionFromValue(runtime, args[2], position);
         auto file = entry.file;
         auto path = entry.path;
+        if (ex_host_is_armed() == 1) {
+          auto principals = std::make_shared<std::vector<uint64_t>>(
+              exactCollectTypedPrincipalStack());
+          return startFsAsync(
+              handle,
+              runtime,
+              [runtimeNonce = handle->runtime_nonce,
+               descriptorOwner = entry.owner,
+               principals,
+               file,
+               path,
+               length,
+               positioned,
+               position]() -> FsAsyncResult {
+                return fsReadTypedHandleWork(
+                    runtimeNonce,
+                    descriptorOwner,
+                    principals,
+                    file,
+                    path,
+                    length,
+                    positioned,
+                    position,
+                    "read",
+                    ibex_private_vfs_read_async_typed);
+              },
+              principals);
+        }
+        requireFileEntryRead(runtime, entry);
         return startFsAsync(
-            handle, runtime, [file, path, length, positioned, position]() -> FsAsyncResult {
-              return fsReadChunkWork(file, path, length, positioned, position);
+            handle, runtime,
+            [file, path, length, positioned, position]() -> FsAsyncResult {
+              return fsReadChunkWork(
+                  file, path, length, positioned,
+                  positioned ? static_cast<int64_t>(position) : -1);
             });
       });
   rt.global().setProperty(rt, "__exactFsReadAsync", std::move(fsReadAsyncFn));
@@ -3174,26 +3315,82 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         int fd = fdFromValue(runtime, args[0]);
         bool sessionEof = sessionDescriptorReadIsEof(runtime, fd, "readv");
-        std::vector<std::vector<uint8_t>> buffers;
-        if (!parseWindowsIoVecArguments(runtime, args[1], buffers, false)) {
-          throw facebook::jsi::JSError(
-              runtime, "__exactFsReadvAsync: buffers must be Uint8Array-like objects");
+        std::optional<FileEntry> retainedEntry;
+        if (!sessionEof) {
+          retainedEntry = getFileEntry(runtime, fd);
+          if (!retainedEntry->canRead) {
+            throw facebook::jsi::JSError(
+                runtime, "fd not opened for reading");
+          }
         }
+        const bool armed = ex_host_is_armed() == 1;
+        uint32_t totalLength = 0;
+        std::vector<std::vector<uint8_t>> buffers;
+        if (armed) {
+          if (!parseWindowsReadIoVecTotalLength(
+                  runtime,
+                  args[1],
+                  totalLength,
+                  "__exactFsReadvAsync")) {
+            throw facebook::jsi::JSError(
+                runtime,
+                "__exactFsReadvAsync: buffers must be Uint8Array-like objects");
+          }
+        } else if (!parseWindowsIoVecArguments(
+                       runtime, args[1], buffers, false)) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactFsReadvAsync: buffers must be Uint8Array-like objects");
+        }
+        uint64_t position = 0;
+        bool positioned =
+            count > 2 && readPositionFromValue(runtime, args[2], position);
         if (sessionEof) {
           return startFsAsync(handle, runtime, []() {
             return fsAsyncOk(FsAsyncResult::Kind::Bytes);
           });
         }
-        auto entry = getFileEntry(runtime, fd);
+        auto entry = std::move(*retainedEntry);
+        if (armed) {
+          auto principals = std::make_shared<std::vector<uint64_t>>(
+              exactCollectTypedPrincipalStack());
+          return startFsAsync(
+              handle,
+              runtime,
+              [runtimeNonce = handle->runtime_nonce,
+               descriptorOwner = entry.owner,
+               principals,
+               file = entry.file,
+               path = entry.path,
+               totalLength,
+               positioned,
+               position]() -> FsAsyncResult {
+                return fsReadTypedHandleWork(
+                    runtimeNonce,
+                    descriptorOwner,
+                    principals,
+                    file,
+                    path,
+                    totalLength,
+                    positioned,
+                    position,
+                    "readv",
+                    ibex_private_vfs_readv_async_typed);
+              },
+              principals);
+        }
         requireFileEntryRead(runtime, entry);
-        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
-        int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
         auto buffersPtr = std::make_shared<std::vector<std::vector<uint8_t>>>(std::move(buffers));
         auto file = entry.file;
         auto path = entry.path;
         return startFsAsync(
             handle, runtime, [file, path, buffersPtr, positioned, position]() -> FsAsyncResult {
-              return fsReadvWork(file, path, *buffersPtr, positioned, position);
+              return fsReadvWork(
+                  file,
+                  path,
+                  *buffersPtr,
+                  positioned,
+                  positioned ? static_cast<int64_t>(position) : -1);
             });
       });
   rt.global().setProperty(rt, "__exactFsReadvAsync", std::move(fsReadvAsyncFn));

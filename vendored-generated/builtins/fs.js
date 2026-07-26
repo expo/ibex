@@ -800,20 +800,34 @@ function _bufferLikeByteLength(value) {
 	return _bufferLikeLength(value);
 }
 function _copyReadvBytesIntoBuffers(data, buffers) {
-	var copied = 0;
-	for (var i = 0; i < buffers.length && copied < data.length; i++) {
+	var prepared = [];
+	var capacity = 0;
+	for (var i = 0; i < buffers.length; i++) {
 		var target = buffers[i];
-		var length = Math.min(_bufferLikeByteLength(target), data.length - copied);
-		if (length <= 0) continue;
+		var length = _bufferLikeByteLength(target);
 		var raw = _rawByteViewForBufferLike(target);
-		if (raw && typeof raw.set === "function" && typeof data.subarray === "function") raw.set(data.subarray(copied, copied + length));
-		else for (var k = 0; k < length; k++) target[k] = data[copied + k];
+		if (length > 0 && (!raw || typeof raw.set !== "function")) throw _fsInvalidArgType("buffers[" + i + "]", "an attached Buffer, TypedArray, or DataView", target);
+		prepared.push({
+			raw,
+			length
+		});
+		capacity += length;
+	}
+	if (data.length > capacity) throw _fsInvalidArgValue("buffers", buffers, "changed while the asynchronous read was pending");
+	var copied = 0;
+	for (var j = 0; j < prepared.length && copied < data.length; j++) {
+		var destination = prepared[j];
+		var length = Math.min(destination.length, data.length - copied);
+		if (length <= 0) continue;
+		destination.raw.set(data.subarray(copied, copied + length));
 		copied += length;
 	}
 }
 function _asyncReadvIntoBuffers(native, fd, buffers, position) {
-	return native(fd, buffers, _validateVectoredIoArgs(fd, buffers, position)).then(function(data) {
-		if (data.length > 0) _copyReadvBytesIntoBuffers(data, buffers);
+	var pos = _validateVectoredIoArgs(fd, buffers, position);
+	var destinations = buffers.slice();
+	return native(fd, destinations, pos).then(function(data) {
+		if (data.length > 0) _copyReadvBytesIntoBuffers(data, destinations);
 		return data.length;
 	}, function(err) {
 		throw _asyncFsError(err, "readv");

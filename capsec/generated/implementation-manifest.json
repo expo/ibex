@@ -170138,7 +170138,7 @@
       "edgeId": "surface.native.op.exactfsreadasync.0l952a6",
       "observedKey": "native-op:__exactFsReadAsync",
       "branchId": "surface.native.op.exactfsreadasync.0l952a6.posix",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1mg62ny",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1e989p1",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -170166,18 +170166,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1mg62ny.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1mg62ny.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1mg62ny.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1mg62ny.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1mg62ny.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1e989p1.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1e989p1.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1e989p1.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1e989p1.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadasync.1e989p1.wrong-principal"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfsreadasync.0l952a6",
       "observedKey": "native-op:__exactFsReadAsync",
       "branchId": "surface.native.op.exactfsreadasync.0l952a6.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadasync.14614g5",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadasync.0q775os",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -170205,11 +170205,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadasync.14614g5.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadasync.14614g5.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadasync.14614g5.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadasync.14614g5.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadasync.14614g5.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadasync.0q775os.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadasync.0q775os.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadasync.0q775os.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadasync.0q775os.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadasync.0q775os.wrong-principal"
       ]
     },
     {
@@ -170386,7 +170386,7 @@
       "edgeId": "surface.native.op.exactfsreadvasync.0bn4x60",
       "observedKey": "native-op:__exactFsReadvAsync",
       "branchId": "surface.native.op.exactfsreadvasync.0bn4x60.posix",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.0po4ksk",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.1jt3bpz",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -170414,18 +170414,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.0po4ksk.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.0po4ksk.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.0po4ksk.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.0po4ksk.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.0po4ksk.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.1jt3bpz.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.1jt3bpz.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.1jt3bpz.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.1jt3bpz.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsreadvasync.1jt3bpz.wrong-principal"
       ]
     },
     {
       "edgeId": "surface.native.op.exactfsreadvasync.0bn4x60",
       "observedKey": "native-op:__exactFsReadvAsync",
       "branchId": "surface.native.op.exactfsreadvasync.0bn4x60.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadvasync.0308s83",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadvasync.132pvye",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -170453,11 +170453,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadvasync.0308s83.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadvasync.0308s83.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadvasync.0308s83.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadvasync.0308s83.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadvasync.0308s83.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadvasync.132pvye.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadvasync.132pvye.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadvasync.132pvye.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadvasync.132pvye.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactfsreadvasync.132pvye.wrong-principal"
       ]
     },
     {
@@ -286568,7 +286568,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-G1_RIA9N42JF2k2kQb0vz-q2W2FoaTuf1eUUcZydAzY"
+      "rawContentDigest": "sha256-Crlwg2tCTaRGvMjOLTQISJ6MlYWwlvjEWiYjWheDqWs"
     },
     {
       "kind": "output-disposition-dataset",
@@ -286588,32 +286588,32 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-FHZmgZsDWaiPo7dHbDhs3-oS4cjvns-ugH4EzIhq_Q8"
+      "rawContentDigest": "sha256-BjtHceomq8e49qcsg0d07y9XGEEut06C0XU9FbopUw0"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-FJavArG2I3DoXBtGMqCQ93PeG6Rp09py-oIOJgnQUgw"
+      "rawContentDigest": "sha256-1l2-ECxtlns4Tbv4NgbZy4i4nQMf1_mfP_iEedlpv1M"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-qGEBrhqckL-v-G8JszNPSczUyuCEDV-gCu78BxHf_hU"
+      "rawContentDigest": "sha256-Ao1oWKxQaRcwK3ww4N6GrxZKHYK5TOlsVDUIf3zEAGc"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-3BFyzOXUGSCVjEBFqAZa39M4ZofA7gFD3e00FYd_f3k"
+      "rawContentDigest": "sha256-sbGrnqMuhURyhjD1VybGK8B404JRn-kCFQWWr8vKsu4"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-_i8DAvW8hbBM0dKXbHAcHtRy-8DvZs3OHnd3ut5ykZ0"
+      "rawContentDigest": "sha256-L0vJd_1f1wyCv2oDHTNtvynOrkuZSeSgS1BNiRqztbs"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-UCgqx1kre__ERtMzNQNVhF9HcRjlQ9WahvdI7eEWxQY"
+      "rawContentDigest": "sha256-sfVcNoRC0EFLoFcC44w-CR11FLB2BZnZltCCUXY-Ikc"
     }
   ],
   "counts": {

@@ -1653,6 +1653,23 @@ const nativeRetainedFsReadvTemplate = () =>
     ],
     requiredSourceArity: 4,
   });
+const nativeRetainedFsReadAsyncTemplate = () =>
+  Object.freeze({
+    ...nativeRetainedFsReadTemplate(),
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+  });
+const nativeRetainedFsReadvAsyncTemplate = () =>
+  Object.freeze({
+    ...nativeRetainedFsReadvTemplate(),
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+    requiredSourceArity: 3,
+  });
 const nativeRetainedFsReadFileAsyncTemplate = () => {
   const retained = nativeRetainedFsReadTemplate();
   const repeatStages = ["repeat", "repeat"];
@@ -2178,7 +2195,9 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     }),
   ],
   ["__exactFsRead", nativeRetainedFsReadTemplate()],
+  ["__exactFsReadAsync", nativeRetainedFsReadAsyncTemplate()],
   ["__exactFsReadv", nativeRetainedFsReadvTemplate()],
+  ["__exactFsReadvAsync", nativeRetainedFsReadvAsyncTemplate()],
   [
     "__exactFsWrite",
     nativeRetainedFsWriteTemplate({
@@ -4325,7 +4344,9 @@ function unsupportedWindowsTypedPublicEffectReason({
     if (
       [
         "__exactFsRead",
+        "__exactFsReadAsync",
         "__exactFsReadv",
+        "__exactFsReadvAsync",
         "__exactFsWrite",
         "__exactFsFstatSync",
         "__exactFsReadFileAsync",

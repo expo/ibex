@@ -674,6 +674,28 @@ describe('vectored async fs natives (ENG-23541)', () => {
     }
   });
 
+  test('async readv publishes only into its validated destination snapshot', async () => {
+    const p = nodePath.join(dir, 'vec-async-destination-snapshot.txt');
+    nodeFs.writeFileSync(p, 'ABCD');
+    const fd = nodeFs.openSync(p, 'r');
+    try {
+      const first = Buffer.alloc(2);
+      const second = Buffer.alloc(2);
+      const redirected = Buffer.alloc(2, 0x7a);
+      const buffers = [first, second];
+      const pending = fs.promises.readv(fd, buffers, 0);
+      buffers[0] = redirected;
+      buffers.length = 1;
+
+      const read = await pending;
+      expect(read.bytesRead).toBe(4);
+      expect(Buffer.concat([first, second]).toString('utf8')).toBe('ABCD');
+      expect(redirected.toString('utf8')).toBe('zz');
+    } finally {
+      nodeFs.closeSync(fd);
+    }
+  });
+
   test('promises and FileHandle readv/writev route through async natives', async () => {
     const p = nodePath.join(dir, 'vec-async-promises.txt');
     nodeFs.writeFileSync(p, '0123456789');

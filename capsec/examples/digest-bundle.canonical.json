@@ -212225,7 +212225,6 @@
                 "selectorNormalizer": "fs.path.selector.v1",
                 "occurrenceNormalizer": "fs.path.occurrence.v1",
                 "stages": [
-                  "commit",
                   "repeat"
                 ],
                 "positiveSources": [
@@ -212502,7 +212501,6 @@
                 "selectorNormalizer": "fs.path.selector.v1",
                 "occurrenceNormalizer": "fs.path.occurrence.v1",
                 "stages": [
-                  "commit",
                   "repeat"
                 ],
                 "positiveSources": [

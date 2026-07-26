@@ -93,6 +93,8 @@ constexpr uint32_t kFsSurfaceTruncate = 16;
 constexpr uint32_t kFsSurfaceStatfs = 17;
 constexpr uint32_t kFsSurfaceSqliteOpen = 18;
 constexpr uint32_t kFsSurfacePathAsync = 25;
+constexpr uint32_t kFsSurfaceReadAsync = 26;
+constexpr uint32_t kFsSurfaceReadvAsync = 27;
 constexpr size_t kMaxArmedSymlinkHops = 32;
 
 struct IoVecMetadata {
@@ -942,6 +944,75 @@ void exactRequireFdReadable(facebook::jsi::Runtime& runtime, int fd, const char*
 
 void exactRequireFdWritable(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
   requireFdWrite(runtime, fd, syscall);
+}
+
+static bool readAsyncPositionFromValue(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value,
+    uint64_t& position) {
+  position = 0;
+  if (!value.isNumber() || value.asNumber() < 0) {
+    return false;
+  }
+  const double number = value.asNumber();
+  constexpr double kMaxSafeInteger = 9007199254740991.0;
+  if (!std::isfinite(number) || std::trunc(number) != number ||
+      number > kMaxSafeInteger) {
+    throw facebook::jsi::JSError(
+        runtime, "read position must be a nonnegative safe integer");
+  }
+  position = static_cast<uint64_t>(number);
+  return true;
+}
+
+static bool parseAsyncReadIoVecLengths(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value,
+    std::vector<size_t>& lengths,
+    const char* operation) {
+  constexpr size_t kMaxIoVecCount = 1024;
+  if (!value.isObject()) {
+    return false;
+  }
+  auto listObj = value.asObject(runtime);
+  if (!listObj.isArray(runtime)) {
+    return false;
+  }
+  size_t length = 0;
+  exactByteLengthFromValue(
+      runtime, listObj.getProperty(runtime, "length"), "readv buffer count", 0,
+      length);
+  if (length > kMaxIoVecCount) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(operation) + ": too many buffers");
+  }
+  lengths.reserve(length);
+  uint64_t aggregateLength = 0;
+  for (size_t i = 0; i < length; ++i) {
+    auto entry = listObj.getProperty(
+        runtime,
+        facebook::jsi::PropNameID::forAscii(runtime, std::to_string(i)));
+    if (!entry.isObject()) {
+      return false;
+    }
+    auto entryObj = entry.asObject(runtime);
+    const uint8_t* destination = nullptr;
+    size_t byteLength = 0;
+    if (!extractArrayBufferView(
+            runtime, entryObj, destination, byteLength, nullptr) ||
+        (byteLength != 0 && destination == nullptr)) {
+      return false;
+    }
+    aggregateLength += byteLength;
+    if (aggregateLength > kMaxHostWriteChunk) {
+      throw facebook::jsi::JSError(
+          runtime,
+          std::string(operation) +
+              ": aggregate buffer length exceeds the host I/O limit");
+    }
+    lengths.push_back(byteLength);
+  }
+  return true;
 }
 
 static bool parseIoVecArguments(
@@ -3019,9 +3090,10 @@ static facebook::jsi::Value makeFsWorkerQueueErrorValue(
 
 // Build a Promise whose `work` runs on an fs worker thread and whose
 // resolution runs on the JS thread via pushRuntimeCallback. The caller must
-// have already validated arguments and enforced capabilities on the JS
-// thread. pending_fs_ops keeps the event loop alive while the op is in
-// flight (same keepalive discipline as pending_dns_lookups).
+// have validated arguments; operations that can race policy changes perform
+// their final typed decision inside `work` immediately before the effect.
+// pending_fs_ops keeps the event loop alive while the op is in flight (same
+// keepalive discipline as pending_dns_lookups).
 static facebook::jsi::Value startFsAsync(
     ExactHermesRuntime* handle,
     facebook::jsi::Runtime& runtime,
@@ -3573,6 +3645,70 @@ static FsAsyncResult fsReadvWork(
   auto result = fsAsyncOk(FsAsyncResult::Kind::Bytes);
   result.bytes = std::move(data);
   return result;
+}
+
+static FsAsyncResult fsReadChunkArmedWork(
+    uint64_t principal,
+    const std::string& backingPath,
+    const std::string& virtualPath,
+    const std::string& presentedHandle,
+    const std::shared_ptr<int>& parent,
+    int fd,
+    size_t length,
+    bool positioned,
+    int64_t position) {
+  if (length == 0) {
+    return fsAsyncOk(FsAsyncResult::Kind::Bytes);
+  }
+  if (!parent) {
+    return fsAsyncAuthorizationError("read", virtualPath);
+  }
+  RepeatedFsAuthorizationLease authorizationLease;
+  const char* presented =
+      presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — The async scalar Repeat runs on the worker against the duplicated retained object immediately before its only byte-acquisition syscall.
+  if (authorizeRepeatedFsWithLease(
+          authorizationLease, principal, backingPath.c_str(),
+          kFsSurfaceReadAsync, 2, *parent, fd, 1, 0, presented) != 1) {
+    return fsAsyncAuthorizationError("read", virtualPath);
+  }
+  return fsReadChunkWork(fd, length, positioned, position);
+}
+
+static FsAsyncResult fsReadvArmedWork(
+    uint64_t principal,
+    const std::string& backingPath,
+    const std::string& virtualPath,
+    const std::string& presentedHandle,
+    const std::shared_ptr<int>& parent,
+    int fd,
+    const std::vector<size_t>& lengths,
+    bool positioned,
+    int64_t position) {
+  if (lengths.empty() ||
+      std::all_of(
+          lengths.begin(), lengths.end(),
+          [](size_t length) { return length == 0; })) {
+    return fsAsyncOk(FsAsyncResult::Kind::Bytes);
+  }
+  if (!parent) {
+    return fsAsyncAuthorizationError("readv", virtualPath);
+  }
+  RepeatedFsAuthorizationLease authorizationLease;
+  const char* presented =
+      presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Async readv authorizes one aggregate exact-object Repeat on the worker before allocating native destinations or acquiring bytes; JS scatters only the successful owned result.
+  if (authorizeRepeatedFsWithLease(
+          authorizationLease, principal, backingPath.c_str(),
+          kFsSurfaceReadvAsync, 2, *parent, fd, 1, 0, presented) != 1) {
+    return fsAsyncAuthorizationError("readv", virtualPath);
+  }
+  std::vector<std::vector<uint8_t>> buffers;
+  buffers.reserve(lengths.size());
+  for (size_t length : lengths) {
+    buffers.emplace_back(length);
+  }
+  return fsReadvWork(fd, buffers, positioned, position);
 }
 
 static FsAsyncResult fsWritevWork(
@@ -6942,15 +7078,50 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
               runtime, "__exactFsReadAsync: fd and length required");
         }
         int fd = static_cast<int>(args[0].asNumber());
-        size_t length = static_cast<size_t>(args[1].asNumber());
-        if (requireFdRead(runtime, fd, "read")) {
+        if (sessionDescriptorReadIsEof(runtime, fd, "read")) {
           return startFsAsync(handle, runtime, []() {
             return fsAsyncOk(FsAsyncResult::Kind::Bytes);
           });
         }
+        auto entry = requireOwnedFd(runtime, fd, "read");
+        if (!entry.canRead) {
+          throw facebook::jsi::JSError(
+              runtime, "read: fd not opened for reading");
+        }
+        size_t requestedLength = 0;
+        exactByteLengthFromValue(
+            runtime, args[1], "read length", 0, requestedLength);
+        size_t length = std::min(
+            requestedLength, static_cast<size_t>(kMaxHostWriteChunk));
+        uint64_t unsignedPosition = 0;
+        bool positioned =
+            count > 2 &&
+            readAsyncPositionFromValue(runtime, args[2], unsignedPosition);
+        int64_t position =
+            positioned ? static_cast<int64_t>(unsignedPosition) : -1;
+        const bool armed = ex_host_is_armed() == 1;
+        if (!armed) {
+          (void)requireFdRead(runtime, fd, "read");
+        }
         auto workerFd = duplicateFdForAsync(runtime, fd, "read");
-        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
-        int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
+        if (armed) {
+          return startFsAsync(
+              handle,
+              runtime,
+              [workerFd,
+               principal = entry.owner,
+               backingPath = entry.backingPath,
+               virtualPath = entry.virtualPath,
+               presentedHandle = entry.presentedHandleId,
+               parent = entry.retainedParent,
+               length,
+               positioned,
+               position]() -> FsAsyncResult {
+                return fsReadChunkArmedWork(
+                    principal, backingPath, virtualPath, presentedHandle,
+                    parent, workerFd->get(), length, positioned, position);
+              });
+        }
         return startFsAsync(
             handle, runtime, [workerFd, length, positioned, position]() -> FsAsyncResult {
               return fsRunOwnedFd(workerFd, [length, positioned, position](int owned) { return fsReadChunkWork(owned, length, positioned, position); });
@@ -6996,21 +7167,73 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
               runtime, "__exactFsReadvAsync: fd and buffers required");
         }
         int fd = static_cast<int>(args[0].asNumber());
-        bool sessionEof = requireFdRead(runtime, fd, "readv");
+        bool sessionEof = sessionDescriptorReadIsEof(runtime, fd, "readv");
+        std::optional<FdEntry> retainedEntry;
+        if (!sessionEof) {
+          retainedEntry = requireOwnedFd(runtime, fd, "readv");
+          if (!retainedEntry->canRead) {
+            throw facebook::jsi::JSError(
+                runtime, "readv: fd not opened for reading");
+          }
+        }
+        const bool armed = ex_host_is_armed() == 1;
+        std::vector<size_t> lengths;
         std::vector<std::vector<uint8_t>> buffers;
         std::vector<struct iovec> iovecs;
-        if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, nullptr, false)) {
+        if (armed) {
+          if (!parseAsyncReadIoVecLengths(
+                  runtime, args[1], lengths, "__exactFsReadvAsync")) {
+            throw facebook::jsi::JSError(
+                runtime,
+                "__exactFsReadvAsync: buffers must be Uint8Array-like objects");
+          }
+        } else if (!parseIoVecArguments(
+                       runtime,
+                       args[1],
+                       buffers,
+                       iovecs,
+                       nullptr,
+                       false)) {
           throw facebook::jsi::JSError(
-              runtime, "__exactFsReadvAsync: buffers must be Uint8Array-like objects");
+              runtime,
+              "__exactFsReadvAsync: buffers must be Uint8Array-like objects");
         }
+        uint64_t unsignedPosition = 0;
+        bool positioned =
+            count > 2 &&
+            readAsyncPositionFromValue(runtime, args[2], unsignedPosition);
+        int64_t position =
+            positioned ? static_cast<int64_t>(unsignedPosition) : -1;
         if (sessionEof) {
           return startFsAsync(handle, runtime, []() {
             return fsAsyncOk(FsAsyncResult::Kind::Bytes);
           });
         }
+        if (!armed) {
+          (void)requireFdRead(runtime, fd, "readv");
+        }
         auto workerFd = duplicateFdForAsync(runtime, fd, "readv");
-        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
-        int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
+        auto entry = std::move(*retainedEntry);
+        if (armed) {
+          auto lengthsPtr =
+              std::make_shared<std::vector<size_t>>(std::move(lengths));
+          return startFsAsync(
+              handle,
+              runtime,
+              [workerFd,
+               principal = entry.owner,
+               backingPath = entry.backingPath,
+               virtualPath = entry.virtualPath,
+               presentedHandle = entry.presentedHandleId,
+               parent = entry.retainedParent,
+               lengthsPtr,
+               positioned,
+               position]() -> FsAsyncResult {
+                return fsReadvArmedWork(
+                    principal, backingPath, virtualPath, presentedHandle,
+                    parent, workerFd->get(), *lengthsPtr, positioned, position);
+              });
+        }
         auto buffersPtr = std::make_shared<std::vector<std::vector<uint8_t>>>(
             std::move(buffers));
         return startFsAsync(

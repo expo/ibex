@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-26 (armed POSIX and Windows `__exactFsReadAsync` / `__exactFsReadvAsync` now carry the runtime/owner/principal/retained-object operation lease to the filesystem worker and submit one exact-object `fs:read` Repeat immediately before their sole scalar or aggregate acquisition; vector destinations are bounded without caller-sized preauthorization allocation and receive bytes only from the successful owned result, positioned reads preserve the cursor, eight recipes become executable on each exact target, and worker-backed writes plus Windows TCP remain residual)
 **Revised:** 2026-07-26 (armed Windows `__exactFsReadFileAsync` now captures one schedule-time runtime/principal operation lease and performs both path and retained-descriptor reads on the filesystem worker through typed VFS ABIs: path reads authorize requested/discovery `fs:list` plus commit/per-chunk `fs:read`, descriptor reads serialize the retained cursor and reauthorize every 64 KiB chunk plus EOF, denial precedes lookup or disclosure, eleven Windows recipes are newly executable, and worker-backed scalar/vector reads plus other installed Windows effects remain residual)
 **Revised:** 2026-07-25 (armed Windows exact-string `"a"` open now admits only an existing regular file through an append-only retained handle: `fs:write` Requested precedes lookup, `fs:list` Requested/Discovery authenticates the existing object, `fs:write` Commit binds its identity/generation, and scalar `__exactFsWrite` performs one exact-object Repeat immediately before a short-write append; absence never creates, denial never mutates, package-source hard-link aliases refuse at Commit, ten Windows recipes are newly executable, and all other writable/async/durability modes remain residual)
 **Revised:** 2026-07-25 (armed Windows synchronous `__exactFsReadv` now validates the runtime/owner-bound retained descriptor before inspecting a bounded vector, authorizes one exact-object `fs:read` Repeat, acquires bytes through the same retained file with positional-cursor restoration, and scatters only after success; four public scenarios are executable on each exact target while worker-backed vector reads remain residual)
@@ -1407,12 +1408,28 @@ submits a fresh exact-object `fs:read` Repeat and advances the cursor only after
 that decision succeeds. Neither branch can reopen the legacy pathname oracle,
 and Promise settlement still occurs on the attributed runtime thread.
 
+Armed scalar `__exactFsReadAsync` and aggregate `__exactFsReadvAsync` use a
+separate single-acquisition protocol on both installed filesystem backends.
+The runtime thread first validates the owner/runtime-bound readable descriptor,
+safe position, and bounded byte count; vector validation inspects at most 1,024
+actual ArrayBuffer views and records only their lengths before authorization.
+The worker operation lease installs the exact captured principal stack. On
+POSIX, one `fs:read` Repeat against the retained parent, duplicated file object,
+stored path, owner, and bearer executes immediately before the single
+`read`/`pread` or `readv`/`preadv`; vector destination storage is allocated only
+after that decision. On Windows, the worker holds the retained file's I/O mutex
+and invokes an async-surface-specific typed VFS bridge, which performs the same
+exact-object Repeat immediately before acquisition. Both backends return owned
+bytes and publish them to JavaScript only after success; the vector facade
+validates all destinations before scattering that aggregate. Empty requests
+perform no acquisition and emit no decision. Positioned requests preserve the
+retained cursor, while a sequential request advances it.
+
 This is a bounded slice, not Windows filesystem promotion. Worker-backed
-`__exactFsReadAsync` and `__exactFsReadvAsync` remain legacy: a single
-pre-worker repeat would not satisfy the required generation/revocation recheck
-between observable chunks. Durability, mutation, write-capable open, and the
-other installed Windows filesystem routes also remain residual until their own
-retained-object contracts are implemented.
+durability, mutation, write-capable open, and the other installed Windows
+filesystem routes remain residual until their own retained-object contracts are
+implemented. The typed Windows TCP boundary also remains a separate criterion-4
+gap.
 Exact-target recipe generation now
 schedules the five `__exactReadFile`, five `__exactStat`, and five
 `__exactLstat`, five `__exactReaddir`, six read-only `__exactFsOpen`, and four
@@ -1420,15 +1437,20 @@ schedules the five `__exactReadFile`, five `__exactStat`, and five
 scenarios on Windows. It also schedules eleven executable
 `__exactFsReadFileAsync` rows: all six path scenarios and five descriptor
 scenarios; descriptor denial remains residual because the same denied floor
-cannot create its required retained setup handle. The generator continues to
+cannot create its required retained setup handle. It additionally schedules
+four executable retained-descriptor rows apiece for `__exactFsReadAsync` and
+`__exactFsReadvAsync` on both targets; each deny row remains residual for the
+same source-setup reason. The generator continues to
 classify the remaining 150 callable filesystem
 recipes under
 `public-surface-filesystem-not-typed-on-target`; five `__exactAppendFile`
 recipes remain under the more exact
 `native-public-operation-not-installed-on-target` build-source boundary. The
-Windows catalog is 23,499 required / 2,440 fully executable / 3,122 internally
-verified / 17,937 unresolved. Apple remains independently shaped at 23,840 /
-2,783 / 3,136 / 17,921.
+Windows catalog is 23,499 required / 2,448 fully executable / 3,122 internally
+verified / 17,929 unresolved with digest
+`sha256-TVTCHgieqODqskNM6gJE3fP_pPmZMgWm6FUJSRE31Wg`. Apple remains
+independently shaped at 23,840 / 2,791 / 3,136 / 17,913 with digest
+`sha256-cLdrtBVpSCzVbV30d8N61SHMgE5llN4NflhHLY53StA`.
 
 The Windows TCP globals likewise still call the legacy string capability oracle
 rather than the typed network adapter used by the Apple implementation. The

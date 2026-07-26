@@ -1968,13 +1968,64 @@ ticket closes.
   prevents that estimate from hiding the remaining Windows scalar/vector
   worker and TCP boundaries.
 
+### 2026-07-26 — worker-bound async scalar/vector descriptor reads
+
+- Audited `__exactFsReadAsync` and `__exactFsReadvAsync` on both installed
+  backends. Windows still used the legacy worker I/O path. POSIX emitted a
+  typed-looking `Repeat` on the runtime thread and then performed the actual
+  read later on a worker, so the observer trace alone had hidden the same
+  timing gap.
+- Both backends now validate the runtime/owner-bound readable descriptor, safe
+  position, and bounded request shape before dispatch, then carry the exact
+  captured principal stack in the worker operation lease. Scalar and vector
+  reads each submit one exact-object `fs:read` Repeat immediately before their
+  sole native acquisition. Empty requests acquire nothing and emit no
+  decision.
+- POSIX authorizes the retained parent plus duplicated descriptor on the
+  worker immediately before `read`/`pread` or `readv`/`preadv`. Vector setup
+  records at most 1,024 actual view lengths on the runtime thread and allocates
+  the aggregate native destinations only after authorization.
+- Windows holds the retained file's I/O mutex and calls async-surface-specific
+  typed VFS bridges for scalar and aggregate vector acquisition. Both return
+  owned bytes; Promise delivery and vector scatter happen only after success,
+  so refusal cannot partially publish caller-visible output. Positioned reads
+  restore the cursor.
+- The cross-platform observer regression performs a positioned scalar read, a
+  positioned vector read, and then a sequential scalar read. M4 macOS and
+  physical Windows both return `descriptor:retained:retained`, emit exactly
+  three `fs:read` Repeats on the two new surface edges, and never consult the
+  legacy capability oracle. The physical Windows run also passes with
+  `IBEX_FAIL_ON_STALE_VENDORED=1`; the copied tree contains zero `._*`
+  sidecars. The JS regression mutates the caller's vector array while the
+  Promise is pending and proves that all four bytes still publish into the
+  prevalidated destination snapshot while the redirected buffer remains
+  unchanged; its suite passes 37 tests and 425 assertions.
+- Four scalar and four vector scenarios become executable on each exact
+  target. Windows is now 23,499 required / 2,448 fully executable / 3,122
+  internally verified / 17,929 unresolved with digest
+  `sha256-TVTCHgieqODqskNM6gJE3fP_pPmZMgWm6FUJSRE31Wg`. Apple is 23,840 /
+  2,791 / 3,136 / 17,913 with digest
+  `sha256-cLdrtBVpSCzVbV30d8N61SHMgE5llN4NflhHLY53StA`. The recipe suite passes
+  93 tests with 110,661 assertions; descriptor denial remains honestly
+  residual because its denied floor cannot construct the prerequisite source
+  descriptor.
+- The M4 verifier independently regenerates the registry, contract, example
+  policies, vendored builtins, and source fingerprint, then passes generated
+  drift, `ref-check`, the 37-test JS suite, and the strict observer-feature
+  native test. Checksum-mode comparison reports only timestamp differences
+  across the local changed-file set and no content differences.
+- Hard part: a correct typed trace does not prove that authorization happened
+  on the effect side of an async boundary. The final decision must live in the
+  worker closure immediately before the syscall, and vector code must not
+  allocate or mutate caller-sized outputs before that decision. Important
+  enforcement mechanisms remain about **99% complete** and the overall
+  requested task remains about **92% complete**.
+
 ## Next milestone
 
-Continue criterion 4 with the next installed Windows worker boundary. The
-leading candidate is scalar/vector `__exactFsReadAsync` /
-`__exactFsReadvAsync`: each must retain owner/principals/object/bearer, define
-atomic caller-buffer publication, and recheck the current generation at the
-actual worker acquisition boundary. The Windows typed TCP peer path remains
-the other named criterion-4 gap. Do not advertise Windows while installed
-legacy routes or 17,937 exact-target public-evidence rows remain unresolved,
-and do not convert catalog labels into completion evidence.
+Continue criterion 4 with the next installed Windows boundary. The leading
+candidate is the typed TCP connect/peer path; worker-backed descriptor writes
+and durability are the next filesystem family and need their own
+mutation-before-publication contracts. Do not advertise Windows while
+installed legacy routes or 17,929 exact-target public-evidence rows remain
+unresolved, and do not convert catalog labels into completion evidence.

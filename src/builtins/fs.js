@@ -1150,28 +1150,46 @@ function _bufferLikeByteLength(value) {
 }
 
 function _copyReadvBytesIntoBuffers(data, buffers) {
-  var copied = 0;
-  for (var i = 0; i < buffers.length && copied < data.length; i++) {
+  var prepared = [];
+  var capacity = 0;
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Revalidate and capture every async readv destination before the first caller-visible write, so detachment or shape drift cannot turn successful owned bytes into partial publication.
+  for (var i = 0; i < buffers.length; i++) {
     var target = buffers[i];
-    var length = Math.min(_bufferLikeByteLength(target), data.length - copied);
-    if (length <= 0) continue;
+    var length = _bufferLikeByteLength(target);
     var raw = _rawByteViewForBufferLike(target);
-    if (raw && typeof raw.set === 'function' && typeof data.subarray === 'function') {
-      raw.set(data.subarray(copied, copied + length));
-    } else {
-      for (var k = 0; k < length; k++) {
-        target[k] = data[copied + k];
-      }
+    if (length > 0 && (!raw || typeof raw.set !== 'function')) {
+      throw _fsInvalidArgType(
+        'buffers[' + i + ']',
+        'an attached Buffer, TypedArray, or DataView',
+        target
+      );
     }
+    prepared.push({ raw: raw, length: length });
+    capacity += length;
+  }
+  if (data.length > capacity) {
+    throw _fsInvalidArgValue(
+      'buffers',
+      buffers,
+      'changed while the asynchronous read was pending'
+    );
+  }
+  var copied = 0;
+  for (var j = 0; j < prepared.length && copied < data.length; j++) {
+    var destination = prepared[j];
+    var length = Math.min(destination.length, data.length - copied);
+    if (length <= 0) continue;
+    destination.raw.set(data.subarray(copied, copied + length));
     copied += length;
   }
 }
 
 function _asyncReadvIntoBuffers(native, fd, buffers, position) {
   var pos = _validateVectoredIoArgs(fd, buffers, position);
-  return native(fd, buffers, pos).then(function(data) {
+  var destinations = buffers.slice();
+  return native(fd, destinations, pos).then(function(data) {
     if (data.length > 0) {
-      _copyReadvBytesIntoBuffers(data, buffers);
+      _copyReadvBytesIntoBuffers(data, destinations);
     }
     return data.length;
   }, function(err) {

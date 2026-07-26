@@ -341,16 +341,17 @@ describe("exact-target CapSec executable recipes", () => {
     // production graph deliberately uses deferred call-time links. The net-new
     // WebGPU obligations remain unresolved until their public-surface probes
     // are authored.
-    // Async whole-file read now contributes six exact-path scenarios and five
-    // retained-descriptor scenarios. Descriptor denial remains residual
+    // Async whole-file read contributes six exact-path scenarios and five
+    // retained-descriptor scenarios. Async scalar/vector reads contribute four
+    // retained-descriptor scenarios apiece. Descriptor denial remains residual
     // because the harness cannot prepare its source descriptor under a denied
     // fs:read floor.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_783);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_791);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_921);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_913);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -373,9 +374,10 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally. The three
-    // Branch-local filesystem closures use the closed-surface harness, while
-    // the direct non-recursive mkdir branch adds one native selection proof.
-    expect(nativePublicFixtures).toHaveLength(541);
+    // branch-local filesystem closures use the closed-surface harness, while
+    // the direct non-recursive mkdir branch and retained async reads add native
+    // selection proofs.
+    expect(nativePublicFixtures).toHaveLength(549);
     expect(
       nativePublicFixtures
         .filter(
@@ -452,12 +454,13 @@ describe("exact-target CapSec executable recipes", () => {
     // units remain target-absent instead of borrowing the POSIX branch. The
     // Existing-file append open and scalar write add six branch-local open
     // scenarios plus four executable retained-write scenarios. Worker-backed
-    // whole-file read adds six path and five descriptor scenarios; each
+    // whole-file read adds six path and five descriptor scenarios; async
+    // scalar/vector reads add four retained-descriptor scenarios apiece. Each
     // retained descriptor denial remains residual because its prerequisite
     // handle needs the same floor that the scenario denies.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_440);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_448);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_937);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_929);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -2611,6 +2614,99 @@ describe("exact-target CapSec executable recipes", () => {
       const denied = catalog.recipes.find(
         (recipe) =>
           recipe.terminalObservedKey === "native-op:__exactFsReadv" &&
+          recipe.scenario === "deny",
+      );
+      expect(denied.publicSurfaceProbe).toBeNull();
+      expect(denied.residualReasons).toContain(
+        "native-public-deny-scenario-not-authored",
+      );
+    }
+  });
+
+  test("reads async retained descriptor bytes only after one worker repeat", () => {
+    for (const catalog of [recipes, windowsRecipes]) {
+      const rows = catalog.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsReadAsync",
+      );
+      expect(rows).toHaveLength(4);
+      for (const recipe of rows) {
+        const invocation = recipe.publicSurfaceProbe.invocation;
+        expect(invocation.arguments).toEqual([
+          { kind: "harness-fs-file-descriptor" },
+          { kind: "json-literal", value: 8 },
+          { kind: "json-literal", value: -1 },
+        ]);
+        expect(invocation.setup).toHaveLength(1);
+        expect(invocation.setup[0].globalName).toBe("__exactFsOpen");
+        expect(invocation.completion).toEqual({
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        });
+        expect(invocation.allowedCoverageEdgeIds).toHaveLength(2);
+        expect(
+          invocation.requiredFloor.map((selector) => selector.cap),
+        ).toEqual(["fs:list", "fs:read"]);
+        expect(invocation.expectedTypedStages).toEqual(["repeat"]);
+        expect(invocation.expectedTypedDecisionCount).toBe(1);
+        expect(invocation.expectedCleanup).toBe(
+          "closed-fs-file-descriptor",
+        );
+        expect(recipe.residualReasons).toEqual([]);
+        expect(recipe.status).toBe("fully-executable");
+      }
+      const denied = catalog.recipes.find(
+        (recipe) =>
+          recipe.terminalObservedKey === "native-op:__exactFsReadAsync" &&
+          recipe.scenario === "deny",
+      );
+      expect(denied.publicSurfaceProbe).toBeNull();
+      expect(denied.residualReasons).toContain(
+        "native-public-deny-scenario-not-authored",
+      );
+    }
+  });
+
+  test("reads async retained descriptor vectors through one worker repeat", () => {
+    for (const catalog of [recipes, windowsRecipes]) {
+      const rows = catalog.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsReadvAsync",
+      );
+      expect(rows).toHaveLength(4);
+      for (const recipe of rows) {
+        const invocation = recipe.publicSurfaceProbe.invocation;
+        expect(invocation.arguments).toEqual([
+          { kind: "harness-fs-file-descriptor" },
+          {
+            kind: "harness-uint8-array-list",
+            byteLengths: [3, 5],
+          },
+          { kind: "json-literal", value: 0 },
+        ]);
+        expect(invocation.setup).toHaveLength(1);
+        expect(invocation.setup[0].globalName).toBe("__exactFsOpen");
+        expect(invocation.completion).toEqual({
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        });
+        expect(invocation.allowedCoverageEdgeIds).toHaveLength(2);
+        expect(
+          invocation.requiredFloor.map((selector) => selector.cap),
+        ).toEqual(["fs:list", "fs:read"]);
+        expect(invocation.expectedTypedStages).toEqual(["repeat"]);
+        expect(invocation.expectedTypedDecisionCount).toBe(1);
+        expect(invocation.expectedCleanup).toBe(
+          "closed-fs-file-descriptor",
+        );
+        expect(recipe.residualReasons).toEqual([]);
+        expect(recipe.status).toBe("fully-executable");
+      }
+      const denied = catalog.recipes.find(
+        (recipe) =>
+          recipe.terminalObservedKey === "native-op:__exactFsReadvAsync" &&
           recipe.scenario === "deny",
       );
       expect(denied.publicSurfaceProbe).toBeNull();

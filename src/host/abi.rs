@@ -3307,6 +3307,46 @@ pub(crate) unsafe extern "C" fn private_vfs_read_typed(
     }
 }
 
+/// Worker-backed scalar read from one authenticated retained descriptor.
+/// Authorization and acquisition execute together on the filesystem worker.
+///
+/// # Safety
+///
+/// The safety contract is identical to [`private_vfs_read_typed`].
+#[export_name = "ibex_private_vfs_read_async_typed"]
+pub(crate) unsafe extern "C" fn private_vfs_read_async_typed(
+    runtime_nonce: u64,
+    descriptor_owner: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    file: *mut ExactFileHandle,
+    length: u32,
+    positioned: u8,
+    position: u64,
+    out_data: *mut *mut u8,
+    out_len: *mut u64,
+    out_errno: *mut i32,
+) -> u32 {
+    unsafe {
+        private_vfs_read_typed_for_surface(
+            runtime_nonce,
+            descriptor_owner,
+            module_ids,
+            module_ids_len,
+            file,
+            length,
+            positioned,
+            position,
+            out_data,
+            out_len,
+            out_errno,
+            "read",
+            "fs-read-async",
+            "surface.native.op.exactfsreadasync.0l952a6",
+        )
+    }
+}
+
 /// Read the next chunk of one authenticated retained descriptor for a
 /// whole-file read. The descriptor cursor advances only after a fresh
 /// `fs:read` Repeat over its original object identity and bearer.
@@ -3389,6 +3429,47 @@ pub(crate) unsafe extern "C" fn private_vfs_readv_typed(
             "readv",
             "fs-readv",
             "surface.native.op.exactfsreadv.11moytw",
+        )
+    }
+}
+
+/// Worker-backed vector read from one authenticated retained descriptor. The
+/// returned aggregate remains private until the runtime thread publishes it
+/// into the caller's validated destinations.
+///
+/// # Safety
+///
+/// The safety contract is identical to [`private_vfs_read_typed`].
+#[export_name = "ibex_private_vfs_readv_async_typed"]
+pub(crate) unsafe extern "C" fn private_vfs_readv_async_typed(
+    runtime_nonce: u64,
+    descriptor_owner: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    file: *mut ExactFileHandle,
+    length: u32,
+    positioned: u8,
+    position: u64,
+    out_data: *mut *mut u8,
+    out_len: *mut u64,
+    out_errno: *mut i32,
+) -> u32 {
+    unsafe {
+        private_vfs_read_typed_for_surface(
+            runtime_nonce,
+            descriptor_owner,
+            module_ids,
+            module_ids_len,
+            file,
+            length,
+            positioned,
+            position,
+            out_data,
+            out_len,
+            out_errno,
+            "readv",
+            "fs-readv-async",
+            "surface.native.op.exactfsreadvasync.0bn4x60",
         )
     }
 }
@@ -6039,6 +6120,14 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
         25 => (
             "fs-path-async",
             "surface.native.op.exactfspathasync.10cb78b",
+        ),
+        26 => (
+            "fs-read-async",
+            "surface.native.op.exactfsreadasync.0l952a6",
+        ),
+        27 => (
+            "fs-readv-async",
+            "surface.native.op.exactfsreadvasync.0bn4x60",
         ),
         _ => return EX_HOST_VFS_RESULT_MALFORMED_INPUT,
     };

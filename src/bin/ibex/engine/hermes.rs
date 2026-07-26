@@ -21690,6 +21690,106 @@ navigator.gpu.requestAdapter()
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_async_descriptor_reads_authorize_on_worker_and_publish_owned_bytes() {
+        use capsec_semantics::model::Stage;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-typed-async-descriptor-read-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("descriptor.txt"), b"retained-descriptor").unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, true, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  globalThis.__asyncDescriptorReadFd =
+                    __exactFsOpen('/project/descriptor.txt', 'r', 438, null);
+                  return 'opened';
+                })()"#,
+            )
+            .await
+            .unwrap();
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "enforcement.src.engine.hermes.runtime.fs.async.descriptor.worker"
+        ));
+        engine
+            .eval_immediate(
+                r#"(function() {
+                  globalThis.__asyncDescriptorReadResult = 'pending';
+                  var fd = globalThis.__asyncDescriptorReadFd;
+                  __exactFsReadAsync(fd, 10, 9).then(function(positioned) {
+                    return __exactFsReadvAsync(
+                      fd, [new Uint8Array(3), new Uint8Array(5)], 0
+                    ).then(function(vector) {
+                      return __exactFsReadAsync(fd, 8, -1).then(
+                        function(sequential) {
+                          globalThis.__asyncDescriptorReadResult =
+                            String.fromCharCode.apply(null, positioned) + ':' +
+                            String.fromCharCode.apply(null, vector) + ':' +
+                            String.fromCharCode.apply(null, sequential);
+                          __exactFsClose(fd);
+                        });
+                    });
+                  }, function(error) {
+                    globalThis.__asyncDescriptorReadResult =
+                      'error:' + String(error.code);
+                  });
+                  return 'queued';
+                })()"#,
+            )
+            .await
+            .unwrap();
+        engine.drive_event_loop().await.unwrap();
+        let outcome = engine
+            .eval_immediate("globalThis.__asyncDescriptorReadResult")
+            .await
+            .unwrap();
+        assert_eq!(
+            outcome.as_deref(),
+            Some("descriptor:retained:retained"),
+            "positioned reads must not advance the retained descriptor cursor"
+        );
+
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            legacy.is_empty(),
+            "armed async descriptor reads crossed the legacy capability oracle"
+        );
+        assert_eq!(
+            typed
+                .iter()
+                .map(|row| row.decision_set.context.stage)
+                .collect::<Vec<_>>(),
+            vec![Stage::Repeat, Stage::Repeat, Stage::Repeat]
+        );
+        assert!(typed
+            .iter()
+            .all(|row| row.decision_set.effects[0].action.as_str() == "fs:read"));
+        assert!(typed[0].gates.iter().all(|gate| {
+            gate.coverage_edge_id.as_str() == "surface.native.op.exactfsreadasync.0l952a6"
+        }));
+        assert!(typed[1].gates.iter().all(|gate| {
+            gate.coverage_edge_id.as_str() == "surface.native.op.exactfsreadvasync.0bn4x60"
+        }));
+        assert!(typed[2].gates.iter().all(|gate| {
+            gate.coverage_edge_id.as_str() == "surface.native.op.exactfsreadasync.0l952a6"
+        }));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(all(windows, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_windows_public_existing_append_uses_retained_write_repeat() {
