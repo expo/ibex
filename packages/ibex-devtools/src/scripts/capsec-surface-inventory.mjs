@@ -72,6 +72,10 @@ export const PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME = `global:process.env.${
 const PRIVATE_NATIVE_IDENTIFIER =
   /^__[A-Za-z_$][A-Za-z0-9_$]*(?:[.:/-][A-Za-z0-9_$]+)*$/u;
 
+// Mach-O segment/section labels share the private-JavaScript identifier shape,
+// but describe bytes in the loaded image rather than a runtime operation.
+const PLATFORM_METADATA_IDENTIFIERS = new Set(["__TEXT", "__text"]);
+
 const COMMAND_CLASSES = [
   ["visibleCommands", "visible"],
   ["hiddenHarnessCommands", "hidden-harness"],
@@ -482,7 +486,12 @@ export function scanPrivateNativeIdentifiers(
 ) {
   const counts = new Map();
   for (const value of collectCppStringValues(text, sourcePath)) {
-    if (!PRIVATE_NATIVE_IDENTIFIER.test(value)) continue;
+    if (
+      !PRIVATE_NATIVE_IDENTIFIER.test(value) ||
+      PLATFORM_METADATA_IDENTIFIERS.has(value)
+    ) {
+      continue;
+    }
     counts.set(value, (counts.get(value) ?? 0) + 1);
   }
   return sortSurfaces(

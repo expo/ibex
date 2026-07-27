@@ -379,6 +379,20 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ).toEqual(["__exactLive", "__exactRawLive"]);
   });
 
+  test("Mach-O image labels are not private native operations", () => {
+    const source = `
+      const char* segment = "__TEXT";
+      const char* section = "__text";
+      const char* live = "__exactMappedImageProbe";
+    `;
+
+    expect(
+      scanPrivateNativeIdentifiers(source, "synthetic.cc").map(
+        (row) => row.name,
+      ),
+    ).toEqual(["__exactMappedImageProbe"]);
+  });
+
   test("multiline registrations are discovered and duplicate literals group", () => {
     const source = `
       rt.global().setProperty(

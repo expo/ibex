@@ -47,7 +47,7 @@
             "summary": "The process-environment enumeration helper is called only by __exactGetAllEnv after its armed branch has returned the current principal overlay without consulting ambient host state."
           },
           "scope": "populateDiagnosticProcessEnvironment",
-          "sourceOffset": 170823,
+          "sourceOffset": 170972,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#::environ:dynamic:read",
           "stage": "post-arm-host-read"
@@ -94,7 +94,7 @@
             "summary": "The process-environment enumeration helper is called only by __exactGetAllEnv after its armed branch has returned the current principal overlay without consulting ambient host state."
           },
           "scope": "populateDiagnosticProcessEnvironment",
-          "sourceOffset": 169461,
+          "sourceOffset": 169610,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#GetEnvironmentStringsW:dynamic:read",
           "stage": "post-arm-host-read"
@@ -120,7 +120,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "env_flag_enabled",
-          "sourceOffset": 8402,
+          "sourceOffset": 8551,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#GetEnvironmentVariableA:dynamic:read",
           "stage": "armed-bootstrap-host-read"
@@ -135,7 +135,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "env_flag_enabled",
-          "sourceOffset": 8538,
+          "sourceOffset": 8687,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#GetEnvironmentVariableA:dynamic:read",
           "stage": "armed-bootstrap-host-read"
@@ -168,7 +168,7 @@
             "summary": "The process-environment enumeration helper is called only by __exactGetAllEnv after its armed branch has returned the current principal overlay without consulting ambient host state."
           },
           "scope": "populateDiagnosticProcessEnvironment",
-          "sourceOffset": 170782,
+          "sourceOffset": 170931,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#_NSGetEnviron:dynamic:read",
           "stage": "post-arm-host-read"
@@ -296,7 +296,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "env_flag_enabled",
-          "sourceOffset": 8707,
+          "sourceOffset": 8856,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#getenv:dynamic:read",
           "stage": "armed-bootstrap-host-read"
@@ -1658,7 +1658,7 @@
             "summary": "The sole runtime caller returns an armed principal-overlay value or undefined before getEnvValue can call this unarmed Host ABI fallback."
           },
           "scope": "ex_host_env_get",
-          "sourceOffset": 365881,
+          "sourceOffset": 367189,
           "sourcePath": "src/host/abi.rs",
           "sourceRef": "src/host/abi.rs#env::var_os:dynamic:read",
           "stage": "post-arm-host-read"
@@ -2007,7 +2007,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "runtime_cache_dir",
-          "sourceOffset": 2361,
+          "sourceOffset": 2940,
           "sourcePath": "src/lib.rs",
           "sourceRef": "src/lib.rs#env::var:EXACT_ANDROID_CACHE_DIR:read",
           "stage": "armed-bootstrap-host-read"
@@ -3190,7 +3190,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "security_log_enabled",
-          "sourceOffset": 186869,
+          "sourceOffset": 187265,
           "sourcePath": "src/host/abi.rs",
           "sourceRef": "src/host/abi.rs#env::var:EXACT_SECURITY_LOG:read",
           "stage": "armed-bootstrap-host-read"
@@ -4271,7 +4271,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "installGlobals",
-          "sourceOffset": 172201,
+          "sourceOffset": 172350,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:EX_SKIP_STARTUP_HOST_FUNCTIONS:read",
           "stage": "armed-bootstrap-host-read"
@@ -4457,7 +4457,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "startup_trace_enabled",
-          "sourceOffset": 7618,
+          "sourceOffset": 7767,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#getenv:EX_STARTUP_TRACE:read",
           "stage": "armed-bootstrap-host-read"
@@ -4653,7 +4653,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "ex_hermes_create_impl",
-          "sourceOffset": 373054,
+          "sourceOffset": 382097,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:EX_WEB_STREAMS_POLYFILL:read",
           "stage": "armed-bootstrap-host-read"
@@ -4668,7 +4668,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "rootGlobalActivationApplies",
-          "sourceOffset": 303047,
+          "sourceOffset": 312090,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:EX_WEB_STREAMS_POLYFILL:read",
           "stage": "armed-bootstrap-host-read"
@@ -5471,7 +5471,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "installCompartmentRegistry",
-          "sourceOffset": 139043,
+          "sourceOffset": 139192,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:IBEX_COMPARTMENTS:read",
           "stage": "armed-bootstrap-host-read"
@@ -5707,7 +5707,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "installCompartmentRegistry",
-          "sourceOffset": 138998,
+          "sourceOffset": 139147,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:IBEX_LOCKDOWN:read",
           "stage": "armed-bootstrap-host-read"
@@ -6077,7 +6077,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "console_mirror_enabled",
-          "sourceOffset": 187391,
+          "sourceOffset": 187787,
           "sourcePath": "src/host/abi.rs",
           "sourceRef": "src/host/abi.rs#env::var:IBEX_SUPPRESS_CONSOLE_MIRROR:read",
           "stage": "armed-bootstrap-host-read"

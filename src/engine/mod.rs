@@ -32,9 +32,16 @@ extern "C" {
         target_os = "linux",
         target_os = "android",
         target_os = "macos",
+        all(target_os = "ios", feature = "capsec-simulator-performance-observer"),
         windows
     ))]
     fn ex_hermes_engine_mapped_object(out_device: *mut u64, out_inode: *mut u64) -> i32;
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    fn ibex_private_apple_sha256_fd_v1(
+        fd: std::os::fd::RawFd,
+        expected_size: u64,
+        output: *mut u8,
+    ) -> i32;
 }
 
 /// Open the running executable once and prove that the descriptor names the
@@ -140,8 +147,6 @@ fn capture_engine_artifact_identity(
 ) -> Result<LoadedEngineBinaryIdentity, String> {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine as _;
-    use sha2::{Digest as _, Sha256};
-    use std::io::Read as _;
 
     let path = std::fs::canonicalize(candidate_path).map_err(|error| {
         format!(
@@ -175,17 +180,7 @@ fn capture_engine_artifact_identity(
     }
     let object = engine_object_identity(&file, &metadata)?;
     verify_mapping(&metadata, &object)?;
-    let mut hash = Sha256::new();
-    let mut chunk = [0u8; 64 * 1024];
-    loop {
-        let read = file
-            .read(&mut chunk)
-            .map_err(|error| format!("failed to hash loaded Hermes artifact: {error}"))?;
-        if read == 0 {
-            break;
-        }
-        hash.update(&chunk[..read]);
-    }
+    let hash = hash_open_file_sha256(&mut file, metadata.len())?;
     let after = file
         .metadata()
         .map_err(|error| format!("failed to revalidate loaded Hermes artifact: {error}"))?;
@@ -202,7 +197,7 @@ fn capture_engine_artifact_identity(
     if changed {
         return Err("loaded Hermes artifact changed while it was authenticated".into());
     }
-    let digest = format!("sha256-{}", URL_SAFE_NO_PAD.encode(hash.finalize()));
+    let digest = format!("sha256-{}", URL_SAFE_NO_PAD.encode(hash));
     Ok(LoadedEngineBinaryIdentity {
         engine_artifact_path: path,
         kind: "hermes".into(),
@@ -211,6 +206,45 @@ fn capture_engine_artifact_identity(
         target_architecture: std::env::consts::ARCH.to_owned(),
         structural_features: loaded_engine_structural_features(),
     })
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub(crate) fn hash_open_file_sha256(
+    file: &mut std::fs::File,
+    expected_size: u64,
+) -> Result<[u8; 32], String> {
+    use std::os::fd::AsRawFd as _;
+
+    let mut digest = [0u8; 32];
+    if unsafe {
+        ibex_private_apple_sha256_fd_v1(file.as_raw_fd(), expected_size, digest.as_mut_ptr())
+    } != 1
+    {
+        return Err("failed to hash the complete pinned file".into());
+    }
+    Ok(digest)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+pub(crate) fn hash_open_file_sha256(
+    file: &mut std::fs::File,
+    _expected_size: u64,
+) -> Result<[u8; 32], String> {
+    use sha2::{Digest as _, Sha256};
+    use std::io::Read as _;
+
+    let mut hash = Sha256::new();
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut chunk)
+            .map_err(|error| format!("failed to hash loaded Hermes artifact: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        hash.update(&chunk[..read]);
+    }
+    Ok(hash.finalize().into())
 }
 
 pub fn loaded_engine_structural_features() -> Vec<String> {
@@ -294,6 +328,27 @@ fn verify_loaded_mapping_object(
     Ok(())
 }
 
+#[cfg(all(target_os = "ios", feature = "capsec-simulator-performance-observer"))]
+fn verify_loaded_mapping_object(
+    metadata: &std::fs::Metadata,
+    _object: &capsec_semantics::model::ObjectIdentity,
+) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let mut device = 0u64;
+    let mut inode = 0u64;
+    if unsafe { ex_hermes_engine_mapped_object(&mut device, &mut inode) } != 1 {
+        return Err("failed to authenticate the mapped Hermes simulator __text image".into());
+    }
+    if device != metadata.dev() || inode != metadata.ino() {
+        return Err(
+            "loaded Hermes path names a different object than the authenticated simulator image"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 #[cfg(windows)]
 fn verify_loaded_mapping_object(
     _metadata: &std::fs::Metadata,
@@ -324,6 +379,7 @@ fn verify_loaded_mapping_object(
     target_os = "linux",
     target_os = "android",
     target_os = "macos",
+    all(target_os = "ios", feature = "capsec-simulator-performance-observer"),
     windows
 )))]
 fn verify_loaded_mapping_object(
@@ -575,6 +631,24 @@ pub fn take_callback_pending() -> bool {
 mod tests {
     use std::ffi::{c_void, CStr, CString};
     use std::os::raw::c_char;
+
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[test]
+    fn apple_open_file_sha256_matches_portable_digest() {
+        use sha2::{Digest as _, Sha256};
+        use std::io::Write as _;
+
+        for bytes in [
+            Vec::new(),
+            (0u8..=255).cycle().take(1_000_123).collect::<Vec<_>>(),
+        ] {
+            let mut file = tempfile::tempfile().expect("digest fixture");
+            file.write_all(&bytes).expect("write digest fixture");
+            let observed = super::hash_open_file_sha256(&mut file, bytes.len() as u64)
+                .expect("hash open file");
+            assert_eq!(observed.as_slice(), Sha256::digest(&bytes).as_slice());
+        }
+    }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]

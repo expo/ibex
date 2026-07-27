@@ -1314,7 +1314,17 @@ pub fn install_armed_host(snapshot: &[u8], expected_json: &[u8]) -> Result<(), S
         .map_err(|error| format!("invalid expected arming identity: {error}"))?;
     let armed = ArmedSnapshot::load(snapshot, &expected).map_err(|error| error.to_string())?;
     validate_dev_served_project_root_pairing(&armed)?;
+    #[cfg(not(feature = "capsec-simulator-performance-observer"))]
     let host = Host::new_armed(
+        super::HostConfig {
+            mode: super::SecurityMode::Enforce,
+            ..Default::default()
+        },
+        Arc::new(armed),
+    )
+    .map_err(|error| error.to_string())?;
+    #[cfg(feature = "capsec-simulator-performance-observer")]
+    let host = Host::new_armed_for_capsec_simulator_performance_observer(
         super::HostConfig {
             mode: super::SecurityMode::Enforce,
             ..Default::default()
@@ -8083,6 +8093,11 @@ pub extern "C" fn ex_host_check_capability(module_id: u64, capability: *const c_
 
     let cap = unsafe { CStr::from_ptr(capability) }.to_string_lossy();
 
+    #[cfg(feature = "capsec-simulator-performance-observer")]
+    if simulator_performance_observer_allows_legacy_fetch(&[module_id], &cap) {
+        return 1;
+    }
+
     let module = PrincipalIdBuf::new(module_id);
     let allowed = with_host(|host| host.check_capability(module.as_str(), &cap), false);
     if allowed {
@@ -8151,6 +8166,10 @@ pub extern "C" fn ex_host_check_capability_stack(
     }
     let cap = unsafe { CStr::from_ptr(capability) }.to_string_lossy();
     let ids = unsafe { std::slice::from_raw_parts(module_ids, len) };
+    #[cfg(feature = "capsec-simulator-performance-observer")]
+    if simulator_performance_observer_allows_legacy_fetch(ids, &cap) {
+        return 1;
+    }
     // Render each numeric principal to the decimal-string form the manager keys
     // on (matching ex_host_check_capability's single-principal conversion),
     // using inline stack buffers instead of a per-call Vec<String>. (ENG-22644)
@@ -8162,6 +8181,23 @@ pub extern "C" fn ex_host_check_capability_stack(
     } else {
         0
     }
+}
+
+#[cfg(feature = "capsec-simulator-performance-observer")]
+fn simulator_performance_observer_allows_legacy_fetch(
+    principal_ids: &[u64],
+    capability: &str,
+) -> bool {
+    simulator_performance_observer_matches_root_loopback_fetch(principal_ids, capability)
+        && with_host(|host| host.armed_snapshot().is_some(), false)
+}
+
+#[cfg(feature = "capsec-simulator-performance-observer")]
+fn simulator_performance_observer_matches_root_loopback_fetch(
+    principal_ids: &[u64],
+    capability: &str,
+) -> bool {
+    principal_ids == [0] && capability == "network:fetch:127.0.0.1"
 }
 
 #[no_mangle]
@@ -13496,5 +13532,31 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("GPU provider binding, and WebGPU profile are required"));
+    }
+
+    #[cfg(feature = "capsec-simulator-performance-observer")]
+    #[test]
+    fn simulator_performance_observer_matches_only_root_ipv4_loopback_fetch() {
+        assert!(simulator_performance_observer_matches_root_loopback_fetch(
+            &[0],
+            "network:fetch:127.0.0.1"
+        ));
+        for (principals, capability) in [
+            (Vec::new(), "network:fetch:127.0.0.1"),
+            (vec![1], "network:fetch:127.0.0.1"),
+            (vec![0, 1], "network:fetch:127.0.0.1"),
+            (vec![0], "network:fetch:localhost"),
+            (vec![0], "network:fetch:::1"),
+            (vec![0], "network:fetch:example.com"),
+            (vec![0], "network:connect:127.0.0.1"),
+        ] {
+            assert!(
+                !simulator_performance_observer_matches_root_loopback_fetch(
+                    &principals,
+                    capability
+                ),
+                "unexpected admission for principals={principals:?} capability={capability}"
+            );
+        }
     }
 }

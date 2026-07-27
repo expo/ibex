@@ -30,6 +30,10 @@
 #if defined(__APPLE__)
 #include <crt_externs.h>
 #include <TargetConditionals.h>
+#include <libkern/OSByteOrder.h>
+#include <mach-o/dyld.h>
+#include <mach-o/fat.h>
+#include <mach-o/loader.h>
 #if TARGET_OS_OSX
 #include <libproc.h>
 #include <sys/proc_info.h>
@@ -47,6 +51,7 @@
 #include <mutex>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -86,6 +91,7 @@
 #endif
 #include <sys/ioctl.h>
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/uio.h>
@@ -7065,6 +7071,61 @@ struct IbexPrivateHermesMacOsMappingObservationV1 {
 static_assert(sizeof(IbexPrivateHermesMacOsMappingObservationV1) == 40,
               "macOS mapping observation ABI layout changed");
 
+#if defined(__APPLE__)
+// Hash the already pinned file descriptor with CommonCrypto's platform-
+// accelerated SHA-256 implementation. The caller retains the descriptor and
+// revalidates its required object metadata after this returns.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+// engine authentication still covers every byte of the linked artifact; this
+// helper changes only the implementation of that exact digest.
+#if defined(__GNUC__)
+__attribute__((visibility("hidden")))
+#endif
+extern "C" int32_t ibex_private_apple_sha256_fd_v1(
+    int fd, uint64_t expected_size, uint8_t* output) {
+  if (fd < 0 || output == nullptr || expected_size > SIZE_MAX) {
+    return -1;
+  }
+  struct stat before = {};
+  if (fstat(fd, &before) != 0 || !S_ISREG(before.st_mode) ||
+      before.st_size < 0 ||
+      static_cast<uint64_t>(before.st_size) != expected_size) {
+    return -1;
+  }
+  void* mapped = nullptr;
+  if (expected_size != 0) {
+    mapped = mmap(
+        nullptr, static_cast<size_t>(expected_size), PROT_READ, MAP_PRIVATE,
+        fd, 0);
+    if (mapped == MAP_FAILED) return -1;
+  }
+
+  CC_SHA256_CTX context = {};
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
+  bool hashed = CC_SHA256_Init(&context) == 1;
+  const auto* bytes = static_cast<const uint8_t*>(mapped);
+  uint64_t consumed = 0;
+  while (hashed && consumed < expected_size) {
+    const CC_LONG chunk = static_cast<CC_LONG>(std::min<uint64_t>(
+        expected_size - consumed,
+        static_cast<uint64_t>(std::numeric_limits<CC_LONG>::max())));
+    hashed = chunk > 0 &&
+        CC_SHA256_Update(&context, bytes + consumed, chunk) == 1;
+    consumed += chunk;
+  }
+  hashed = hashed && CC_SHA256_Final(output, &context) == 1;
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
+  const bool unmapped = expected_size == 0 ||
+      munmap(mapped, static_cast<size_t>(expected_size)) == 0;
+  return hashed && unmapped ? 1 : -1;
+}
+#endif
+
 #if defined(__GNUC__)
 __attribute__((visibility("hidden")))
 #endif
@@ -7104,6 +7165,186 @@ extern "C" int32_t ibex_private_hermes_macos_mapping_observation_v1(
   return -1;
 #endif
 }
+
+#if defined(IBEX_CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER) && \
+    defined(__APPLE__) && TARGET_OS_SIMULATOR
+namespace {
+
+bool simulatorHermesMappedObject(uint64_t* outDevice, uint64_t* outInode) {
+  const auto fail = [](const char* stage) {
+    std::fprintf(
+        stderr,
+        "[Ibex] CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER_V1 "
+        "stage=hermes-image-auth-failed detail=%s\n",
+        stage);
+    return false;
+  };
+  using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
+      const ::hermes::vm::RuntimeConfig&);
+  auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
+  Dl_info info = {};
+  if (dladdr(reinterpret_cast<void*>(factory), &info) == 0 ||
+      info.dli_fname == nullptr || info.dli_fbase == nullptr) {
+    return fail("dladdr");
+  }
+
+  const auto* header =
+      reinterpret_cast<const mach_header_64*>(info.dli_fbase);
+  if (header->magic != MH_MAGIC_64 ||
+      header->sizeofcmds > 16 * 1024 * 1024) {
+    return fail("mapped-header");
+  }
+
+  intptr_t slide = 0;
+  bool loaderImageMatched = false;
+  for (uint32_t index = 0; index < _dyld_image_count(); ++index) {
+    if (_dyld_get_image_header(index) ==
+        reinterpret_cast<const mach_header*>(header)) {
+      slide = _dyld_get_image_vmaddr_slide(index);
+      loaderImageMatched = true;
+      break;
+    }
+  }
+  if (!loaderImageMatched) return fail("dyld-image");
+
+  const section_64* textCode = nullptr;
+  const uint8_t* commandBytes =
+      reinterpret_cast<const uint8_t*>(header + 1);
+  const uint8_t* commandLimit = commandBytes + header->sizeofcmds;
+  for (uint32_t index = 0; index < header->ncmds; ++index) {
+    if (commandBytes + sizeof(load_command) > commandLimit) {
+      return fail("load-command-header");
+    }
+    const auto* command =
+        reinterpret_cast<const load_command*>(commandBytes);
+    if (command->cmdsize < sizeof(load_command) ||
+        commandBytes + command->cmdsize > commandLimit) {
+      return fail("load-command-size");
+    }
+    if (command->cmd == LC_SEGMENT_64 &&
+        command->cmdsize >= sizeof(segment_command_64)) {
+      const auto* segment =
+          reinterpret_cast<const segment_command_64*>(command);
+      const uint64_t sectionBytes =
+          static_cast<uint64_t>(segment->nsects) * sizeof(section_64);
+      if (sectionBytes > command->cmdsize - sizeof(segment_command_64)) {
+        return fail("section-table");
+      }
+      const auto* sections =
+          reinterpret_cast<const section_64*>(segment + 1);
+      for (uint32_t sectionIndex = 0;
+           sectionIndex < segment->nsects;
+           ++sectionIndex) {
+        if (std::strncmp(sections[sectionIndex].segname, "__TEXT", 16) == 0 &&
+            std::strncmp(sections[sectionIndex].sectname, "__text", 16) == 0) {
+          textCode = &sections[sectionIndex];
+        }
+      }
+    }
+    commandBytes += command->cmdsize;
+  }
+  const uintptr_t factoryAddress =
+      reinterpret_cast<uintptr_t>(reinterpret_cast<void*>(factory));
+  if (textCode == nullptr || textCode->size == 0 ||
+      textCode->size > SIZE_MAX) {
+    return fail("text-section");
+  }
+  const uintptr_t mappedTextAddress =
+      static_cast<uintptr_t>(textCode->addr) + slide;
+  if (factoryAddress < mappedTextAddress ||
+      factoryAddress - mappedTextAddress >= textCode->size) {
+    return fail("factory-address");
+  }
+
+  const int fd = open(info.dli_fname, O_RDONLY | O_CLOEXEC);
+  if (fd < 0) return fail("image-open");
+  struct stat opened = {};
+  const bool openedValid =
+      fstat(fd, &opened) == 0 && S_ISREG(opened.st_mode) &&
+      opened.st_size >= 0 &&
+      static_cast<uint64_t>(opened.st_size) <= SIZE_MAX;
+  uint64_t sliceOffset = 0;
+  uint64_t sliceSize = 0;
+  uint32_t fileMagic = 0;
+  bool sliceMatched = openedValid &&
+      pread(fd, &fileMagic, sizeof(fileMagic), 0) == sizeof(fileMagic);
+  if (sliceMatched && fileMagic == FAT_CIGAM) {
+    fat_header fat = {};
+    sliceMatched =
+        pread(fd, &fat, sizeof(fat), 0) == sizeof(fat);
+    const uint32_t count = OSSwapBigToHostInt32(fat.nfat_arch);
+    sliceMatched = sliceMatched && count > 0 && count <= 64;
+    for (uint32_t index = 0; sliceMatched && index < count; ++index) {
+      fat_arch arch = {};
+      const off_t offset =
+          sizeof(fat_header) + static_cast<off_t>(index * sizeof(fat_arch));
+      if (pread(fd, &arch, sizeof(arch), offset) != sizeof(arch)) {
+        sliceMatched = false;
+        break;
+      }
+      const cpu_type_t cpuType =
+          static_cast<cpu_type_t>(OSSwapBigToHostInt32(arch.cputype));
+      const cpu_subtype_t cpuSubtype =
+          static_cast<cpu_subtype_t>(OSSwapBigToHostInt32(arch.cpusubtype));
+      if (cpuType == header->cputype &&
+          cpuSubtype == header->cpusubtype) {
+        sliceOffset = OSSwapBigToHostInt32(arch.offset);
+        sliceSize = OSSwapBigToHostInt32(arch.size);
+        break;
+      }
+    }
+    sliceMatched = sliceMatched && sliceSize != 0;
+  } else if (sliceMatched && fileMagic == MH_MAGIC_64) {
+    sliceSize = static_cast<uint64_t>(opened.st_size);
+  } else {
+    sliceMatched = false;
+  }
+  const uint64_t textFileOffset = sliceOffset + textCode->offset;
+  bool matched =
+      openedValid && sliceMatched &&
+      sliceOffset <= static_cast<uint64_t>(opened.st_size) &&
+      sliceSize <= static_cast<uint64_t>(opened.st_size) - sliceOffset &&
+      textCode->offset <= sliceSize &&
+      textCode->size <= sliceSize - textCode->offset &&
+      textFileOffset <= static_cast<uint64_t>(opened.st_size) &&
+      textCode->size <=
+          static_cast<uint64_t>(opened.st_size) - textFileOffset;
+  const auto* mappedBytes =
+      reinterpret_cast<const uint8_t*>(mappedTextAddress);
+  void* fileMapping = MAP_FAILED;
+  if (matched) {
+    fileMapping = mmap(
+        nullptr, static_cast<size_t>(opened.st_size), PROT_READ, MAP_PRIVATE,
+        fd, 0);
+    matched = fileMapping != MAP_FAILED;
+  }
+  if (matched) {
+    const auto* fileBytes = static_cast<const uint8_t*>(fileMapping);
+    matched = std::memcmp(
+        fileBytes + textFileOffset,
+        mappedBytes,
+        static_cast<size_t>(textCode->size)) == 0;
+    if (!matched) {
+      std::fprintf(
+          stderr,
+          "[Ibex] CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER_V1 "
+          "stage=hermes-image-auth-failed detail=text-bytes\n");
+    }
+  }
+  if (fileMapping != MAP_FAILED &&
+      munmap(fileMapping, static_cast<size_t>(opened.st_size)) != 0) {
+    matched = false;
+  }
+  close(fd);
+  if (!matched) return fail("file-slice");
+  if (opened.st_ino == 0) return fail("file-identity");
+  *outDevice = static_cast<uint64_t>(opened.st_dev);
+  *outInode = static_cast<uint64_t>(opened.st_ino);
+  return true;
+}
+
+}  // namespace
+#endif
 
 extern "C" int32_t ex_hermes_engine_mapped_object(
     uint64_t* out_device, uint64_t* out_inode) {
@@ -7147,6 +7388,9 @@ extern "C" int32_t ex_hermes_engine_mapped_object(
   *out_device = observation.device;
   *out_inode = observation.inode;
   return 1;
+#elif defined(IBEX_CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER) && \
+    defined(__APPLE__) && TARGET_OS_SIMULATOR
+  return simulatorHermesMappedObject(out_device, out_inode) ? 1 : -1;
 #elif defined(__linux__) || defined(__ANDROID__)
   // Identify the file object backing the mapping that contains Hermes' runtime
   // factory. This binds device/inode identity only; it does not hash the

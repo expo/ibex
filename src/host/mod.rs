@@ -816,6 +816,43 @@ impl Host {
         )
     }
 
+    /// Ratified iOS-Simulator carrier-cost observer. This preserves every
+    /// production authenticator and substitutes only the report-derived target
+    /// cell join. It is absent from ordinary artifacts and cannot compile for
+    /// devices, desktop, or Debug.
+    #[cfg(feature = "capsec-simulator-performance-observer")]
+    #[doc(hidden)]
+    pub fn new_armed_for_capsec_simulator_performance_observer(
+        config: HostConfig,
+        armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
+    ) -> capsec_semantics::Result<Self> {
+        validate_loaded_engine_identity(&armed_snapshot)?;
+        validate_snapshot_protected_artifacts(&armed_snapshot)?;
+        let authenticated_package_sources = validate_snapshot_root_bindings(&armed_snapshot)?;
+        let target_cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
+            .iter()
+            .map(|edge| {
+                (
+                    (*edge).to_owned(),
+                    capsec_semantics::decision::TargetCellDisposition::Complete,
+                )
+            })
+            .collect();
+        let host = Self::new_armed_with_target_cells(
+            config,
+            armed_snapshot,
+            target_cells,
+            authenticated_package_sources,
+            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
+            BTreeMap::new(),
+        )?;
+        eprintln!(
+            "[Ibex] CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER_V1: authenticated artifacts; report target cells substituted"
+        );
+        eprintln!("[Ibex] CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER_V1 stage=posture-verified");
+        Ok(host)
+    }
+
     /// Construct the closed-world Exact WebGPU Pre-1A product profile. This
     /// is deliberately separate from canonical public arming: the checked
     /// private registry supplies every admitted selector/cell, all other
@@ -6879,8 +6916,6 @@ fn validate_snapshot_protected_artifacts(
 ) -> capsec_semantics::Result<()> {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine as _;
-    use sha2::{Digest as _, Sha256};
-    use std::io::Read as _;
 
     for artifact in snapshot.protected_artifacts() {
         let path = host_path_from_logical_path(&artifact.host_path, "protected artifact path")?;
@@ -6934,21 +6969,18 @@ fn validate_snapshot_protected_artifacts(
             )));
         }
 
-        let mut hash = Sha256::new();
-        let mut buffer = [0u8; 64 * 1024];
-        loop {
-            let read = file.read(&mut buffer).map_err(|error| {
+        // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+        // — re-authenticate every byte at each boundary. Apple uses the
+        // platform SHA-256 implementation; other targets retain the same Rust
+        // digest implementation.
+        let hash =
+            crate::engine::hash_open_file_sha256(&mut file, before.len()).map_err(|error| {
                 capsec_semantics::Error::ArmRefused(format!(
                     "cannot hash protected artifact {}: {error}",
                     path.display()
                 ))
             })?;
-            if read == 0 {
-                break;
-            }
-            hash.update(&buffer[..read]);
-        }
-        let observed = format!("sha256-{}", URL_SAFE_NO_PAD.encode(hash.finalize()));
+        let observed = format!("sha256-{}", URL_SAFE_NO_PAD.encode(hash));
         if observed != artifact.content_digest.as_str() {
             return Err(capsec_semantics::Error::ArmRefused(format!(
                 "protected artifact content digest changed: {}",

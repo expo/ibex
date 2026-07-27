@@ -5,6 +5,8 @@
 **Systems:** Runtime, CapSec, Build, Product
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-24
+**Revised:** 2026-07-27 (document the authenticated, release-only iOS
+Simulator performance observer and its non-product boundary)
 **Revised:** 2026-07-25 (the default feature set is secure and fail-closed; unadvertised development arming and no-sandbox execution are explicit compile-time choices; invocation-time ESM import and CommonJS require now cover source and prepared targets)
 **Revised:** 2026-07-24 (the secure prepared/live-graph path now defers ESM and CommonJS `import()` discovery until an exact reached site; synchronous authored CommonJS `require()` retains the no-probe refusal)
 **Revised:** 2026-07-24 (ENG-25424 closes prepared-graph backing-path disclosure and removes the secure-gate test exclusion; promotion-facing CapSec executors now explicitly disable Cargo defaults so conformance cannot inherit the insecure mode)
@@ -177,6 +179,28 @@ all-target executable-set vector includes `--no-default-features`, and the
 source-derived active feature closure rejects both `default` and `insecure`.
 The workflow must byte-for-byte spell that checked vector before any selected
 test executable can produce promotion evidence.
+
+## Simulator-only performance observer
+
+The `capsec-simulator-performance-observer` Cargo feature is a narrow
+measurement carrier for a consumer-owned native performance lane. It is not a
+third product mode and is never a default feature. The crate refuses to compile
+it in debug builds or for anything except an iOS Simulator target.
+
+The carrier preserves ordinary ABI behavior while substituting only the
+ratified report target cells and root-loopback fetch used by the measurement
+fixture. Before either substitution is accepted, the armed runtime authenticates
+the loaded Hermes image and verifies the secure posture. It emits explicit
+markers for authenticated substitution, loopback substitution, posture
+verification, runtime creation, and carrier dispatch so the consumer receipt
+can fail closed if any stage is absent. The observer does not advertise an
+ordinary target complete, weaken the default runtime, or authorize a production
+artifact.
+
+Consumer evidence may use this feature only in an explicitly feature-bound
+Release simulator build governed by that consumer's own ratified observer and
+invalidation amendments. Ordinary iOS products retain the normal build surface,
+and publication pipelines must not enable the feature.
 
 ## Preventing an accidental ship
 

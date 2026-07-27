@@ -615,6 +615,8 @@ fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     let target_triple = std::env::var("TARGET").unwrap_or_default();
+    let capsec_simulator_performance_observer_enabled =
+        std::env::var_os("CARGO_FEATURE_CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER").is_some();
     for variable in [
         portable_engine_build_consumption::ARTIFACT_ID_ENV,
         portable_engine_build_consumption::STORE_ROOT_ENV,
@@ -1253,8 +1255,28 @@ fn main() {
     } else {
         None
     };
+    // @ref LLP 0039#simulator-only-performance-observer — ordinary products
+    // retain their existing build surface; the explicitly feature-bound
+    // Simulator lane must prove that the exact framework Xcode will link
+    // carries the reviewed bridge symbols.
+    let hermes_ios_observer_binary = if capsec_simulator_performance_observer_enabled {
+        if target_os != "ios" || !(target_triple.ends_with("-ios-sim") || target_arch == "x86_64") {
+            panic!("capsec-simulator-performance-observer requires an iOS Simulator target");
+        }
+        let binary = resolve_ios_simulator_hermes_binary(&hermes_lib_dir).unwrap_or_else(|| {
+            panic!(
+                "iOS Simulator observer Hermes framework not found under {}; install the pinned patched hermesvm.framework before building",
+                hermes_lib_dir.display()
+            )
+        });
+        println!("cargo:rerun-if-changed={}", binary.display());
+        Some(binary)
+    } else {
+        None
+    };
     let hermes_frame_attribution_binary = match target_os.as_str() {
         "macos" => hermes_macos_binary.clone(),
+        "ios" => hermes_ios_observer_binary.clone(),
         "linux" => {
             if hermes_link_static {
                 [
@@ -1869,6 +1891,9 @@ fn main() {
         build.define("IBEX_CAPSEC_CONFORMANCE_OBSERVER", None);
         build.file("src/engine/hermes_session_conformance.cc");
     }
+    if std::env::var_os("CARGO_FEATURE_CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER").is_some() {
+        build.define("IBEX_CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER", None);
+    }
     if std::env::var_os("CARGO_FEATURE_WEBGPU_BINDING").is_some() {
         build.define("IBEX_ENABLE_WEBGPU_BINDING", None);
     }
@@ -2131,9 +2156,10 @@ fn main() {
     // @ref LLP 0013#mechanism-3 — frame-derived capability attribution is only
     // available when the linked Hermes library carries the bridge exports from
     // the carried patch stack (patches/hermes/0003). Probe the exact macOS,
-    // Linux, or Windows link artifact for the exported symbol. Android/iOS and
-    // an explicitly supplied legacy desktop engine retain the compatibility
-    // fallback; the managed Windows artifact must be patched and fails loud.
+    // feature-bound iOS Simulator, Linux, or Windows link artifact for the
+    // exported symbol. Android, ordinary iOS, and an explicitly supplied
+    // legacy desktop engine retain the compatibility fallback; managed
+    // Windows and observer artifacts must be patched and fail loud.
     let enable_frame_attribution = hermes_frame_attribution_binary
         .as_deref()
         .is_some_and(|path| hermes_has_frame_attribution(&target_os, path));
@@ -2143,6 +2169,11 @@ fn main() {
     {
         panic!(
             "Windows Hermes DLL does not expose ex_hermes_vm_current_package_id; install the pinned patched artifact with scripts/install-windows-hermes.ps1 and run Cargo from an MSVC developer shell"
+        );
+    }
+    if capsec_simulator_performance_observer_enabled && !enable_frame_attribution {
+        panic!(
+            "iOS Simulator observer Hermes framework does not expose ex_hermes_vm_current_package_id; install the pinned patched observer artifact"
         );
     }
     if enable_frame_attribution {
@@ -2155,11 +2186,20 @@ fn main() {
     // async-provenance exports; compiling direct calls from newer headers
     // against that engine would otherwise link weakly and jump through null.
     // @ref LLP 0024#9-asynchronous-failures
+    let hermes_structured_async_binary = match target_os.as_str() {
+        "macos" => hermes_macos_binary.as_deref(),
+        "ios" => hermes_ios_observer_binary.as_deref(),
+        _ => None,
+    };
     let enable_structured_async_provenance = enable_frame_attribution
-        && hermes_macos_binary
-            .as_deref()
-            .map(macos_hermes_has_structured_async_provenance)
+        && hermes_structured_async_binary
+            .map(apple_hermes_has_structured_async_provenance)
             .unwrap_or(false);
+    if capsec_simulator_performance_observer_enabled && !enable_structured_async_provenance {
+        panic!(
+            "iOS Simulator observer Hermes framework does not expose the complete structured async provenance bridge; install the pinned patched observer artifact"
+        );
+    }
     if enable_structured_async_provenance {
         build.define("EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE", None);
         println!("cargo:rustc-cfg=exact_structured_async_provenance");
@@ -3913,6 +3953,29 @@ fn resolve_macos_hermes_framework(lib_root: &Path) -> Option<AppleFramework> {
     None
 }
 
+fn resolve_ios_simulator_hermes_binary(lib_root: &Path) -> Option<PathBuf> {
+    let framework_roots = [
+        lib_root.to_path_buf(),
+        lib_root
+            .join("hermes.xcframework")
+            .join("ios-arm64_x86_64-simulator"),
+        lib_root
+            .join("hermesvm.xcframework")
+            .join("ios-arm64_x86_64-simulator"),
+    ];
+
+    for root in framework_roots {
+        for framework_name in ["hermesvm", "hermes"] {
+            let framework_dir = root.join(format!("{framework_name}.framework"));
+            if let Some(binary_path) = find_framework_binary(&framework_dir, framework_name) {
+                return Some(binary_path);
+            }
+        }
+    }
+
+    None
+}
+
 fn find_framework_binary(framework_dir: &Path, framework_name: &str) -> Option<PathBuf> {
     let candidates = [
         framework_dir
@@ -3956,11 +4019,11 @@ fn macos_hermes_has_debugger_symbols(binary_path: &Path) -> bool {
     String::from_utf8_lossy(&output.stdout).contains("AsyncDebuggerAPI")
 }
 
-// @ref LLP 0013#mechanism-3 — detect whether the exact linked desktop Hermes
-// artifact exports the capability-attribution bridge from patches/hermes/0003.
-// An unpatched engine degrades to the thread-local module id instead of failing
-// to link. Linux shared objects need the dynamic symbol table; macOS frameworks
-// use the same global/undefined filter as the debugger-symbol probe above.
+// @ref LLP 0013#mechanism-3 — detect whether the exact linked Hermes artifact
+// exports the capability-attribution bridge from patches/hermes/0003. An
+// unpatched ordinary engine degrades to the thread-local module id instead of
+// failing to link. Linux shared objects need the dynamic symbol table; Apple
+// frameworks use the same global/undefined filter as the debugger probe above.
 fn hermes_has_frame_attribution(target_os: &str, binary_path: &Path) -> bool {
     if target_os == "windows" {
         let output = std::process::Command::new("dumpbin")
@@ -3976,7 +4039,7 @@ fn hermes_has_frame_attribution(target_os: &str, binary_path: &Path) -> bool {
 
     let mut command = std::process::Command::new("nm");
     match target_os {
-        "macos" => {
+        "macos" | "ios" => {
             command.arg("-gU");
         }
         "linux" if binary_path.extension().is_some_and(|value| value == "so") => {
@@ -3987,7 +4050,7 @@ fn hermes_has_frame_attribution(target_os: &str, binary_path: &Path) -> bool {
     let output = command.arg(binary_path).output().or_else(|_| {
         let mut command = std::process::Command::new("xcrun");
         command.arg("nm");
-        if target_os == "macos" {
+        if matches!(target_os, "macos" | "ios") {
             command.arg("-gU");
         }
         command.arg(binary_path).output()
@@ -4004,7 +4067,7 @@ fn hermes_has_frame_attribution(target_os: &str, binary_path: &Path) -> bool {
     String::from_utf8_lossy(&output.stdout).contains("ex_hermes_vm_current_package_id")
 }
 
-fn macos_hermes_has_structured_async_provenance(binary_path: &Path) -> bool {
+fn apple_hermes_has_structured_async_provenance(binary_path: &Path) -> bool {
     let output = std::process::Command::new("nm")
         .args(["-gU", binary_path.to_string_lossy().as_ref()])
         .output()

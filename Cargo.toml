@@ -215,6 +215,10 @@ host-http-server = []
 # recipe harness. The production decision path is unchanged; the observer is
 # inert until a test explicitly scopes one terminal branch.
 capsec-conformance-observer = []
+# Release/iOS-Simulator-only observer for the ratified Partitime carrier-cost
+# lane. It substitutes only report-derived target cells plus authenticated-root
+# IPv4-loopback fetch; every ordinary build omits the constructor and C++ seam.
+capsec-simulator-performance-observer = []
 # Compiles the optional, provider-independent Exact GPU service registration
 # seam. The public version/query/install ABI remains present without this
 # feature and deterministically reports unsupported; no wgpu dependency is

@@ -194,17 +194,31 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
         // legacy check unchanged.
         // @ref LLP 0021#wp6--convert-network-effects-and-protected-peers
         if (ex_host_is_armed() == 1) {
+#if defined(IBEX_CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER)
+          if (parsedUrl.host != "127.0.0.1" ||
+              !checkCapability("network:fetch:127.0.0.1")) {
+            throw facebook::jsi::JSError(
+                runtime,
+                "Permission denied: performance observer admits only authenticated-root IPv4 loopback fetch");
+          }
+          static std::once_flag observerLoopbackMarker;
+          std::call_once(observerLoopbackMarker, []() {
+            fprintf(
+                stderr,
+                "[Ibex] CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER_V1 stage=loopback-fetch-substituted\n");
+          });
+#else
           throw facebook::jsi::JSError(
               runtime,
               "Permission denied: typed network:fetch transport is unavailable");
+#endif
+        } else if (!checkCapability("network:fetch:" + parsedUrl.host)) {
+          throw facebook::jsi::JSError(
+              runtime, "Permission denied: network:fetch capability required");
         }
         // @ref LLP 0013#policy — generated legacy policies can grant fetch to
         // a specific endpoint (`network:fetch:host`), so the diagnostic native
         // boundary checks the concrete URL host rather than only the broad class.
-        if (!checkCapability("network:fetch:" + parsedUrl.host)) {
-          throw facebook::jsi::JSError(
-              runtime, "Permission denied: network:fetch capability required");
-        }
         auto requestPrincipal = currentPrincipalId();
 
         auto init = args[1].asObject(runtime);
