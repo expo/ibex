@@ -256,6 +256,7 @@ const REVIEWED_BINARY_RUST_PATHS = Object.freeze([
   "src/bin/ibex/compat/expectations.rs",
   "src/bin/ibex/compat/manifest.rs",
   "src/bin/ibex/compat/mod.rs",
+  "src/bin/ibex/compat/probe.rs",
   "src/bin/ibex/compat/reporter.rs",
   "src/bin/ibex/compat/runner.rs",
   "src/bin/ibex/compat/types.rs",

@@ -2191,7 +2191,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 5947,
+          "line": 5948,
           "column": 64,
           "source": "auto deleted = runtime->root_global_reflect_delete_property->call("
         }
@@ -2258,28 +2258,28 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 6045,
+          "line": 6046,
           "column": 35,
           "source": "if (!outerEvaluationOpen && (!exactRuntimeEnterUserExecution(runtime) ||"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6062,
+          "line": 6063,
           "column": 43,
           "source": "binding->canvas_app_bundle_begin->call(*runtime->runtime, 0.0);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6099,
+          "line": 6100,
           "column": 57,
           "source": "auto captureValue = binding->canvas_app_bundle_begin->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6132,
+          "line": 6133,
           "column": 42,
           "source": "binding->canvas_app_bundle_finish->call("
         }
@@ -2294,7 +2294,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6481,
+          "line": 6482,
           "column": 33,
           "source": "binding->canvas_receipt_sink->call(*runtime->runtime, value);"
         }
@@ -2309,7 +2309,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6380,
+          "line": 6381,
           "column": 52,
           "source": "auto result = binding->canvas_app_bundle_finish->call("
         }
@@ -2324,7 +2324,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 5690,
+          "line": 5691,
           "column": 9,
           "source": ".call(rt, authority);"
         }
@@ -2339,35 +2339,35 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6605,
+          "line": 6606,
           "column": 21,
           "source": ".call(rt, object);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6608,
+          "line": 6609,
           "column": 64,
           "source": "auto namesValue = runtime->root_global_get_own_property_names->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6610,
+          "line": 6611,
           "column": 68,
           "source": "auto symbolsValue = runtime->root_global_get_own_property_symbols->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6648,
+          "line": 6649,
           "column": 62,
           "source": "auto prototypeValue = runtime->root_global_get_prototype_of->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6663,
+          "line": 6664,
           "column": 57,
           "source": "runtime->root_global_get_own_property_descriptor->call("
         }
@@ -2382,7 +2382,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7046,
+          "line": 7047,
           "column": 15,
           "source": "checkpoint->call(*runtime->runtime);"
         }
@@ -2397,14 +2397,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6921,
+          "line": 6922,
           "column": 9,
           "source": ".call(rt, gpuNativeBridgeV2);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6937,
+          "line": 6938,
           "column": 31,
           "source": "auto revokeValue = capture.call(rt, *captured);"
         }
@@ -2419,7 +2419,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 5906,
+          "line": 5907,
           "column": 58,
           "source": "return runtime->root_global_get_own_property_descriptor->call("
         }
@@ -2434,7 +2434,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 5883,
+          "line": 5884,
           "column": 64,
           "source": "auto namesValue = runtime->root_global_get_own_property_names->call("
         }
@@ -2449,14 +2449,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7595,
+          "line": 7596,
           "column": 9,
           "source": ".call(rt, integration);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7596,
+          "line": 7597,
           "column": 55,
           "source": "runtime->gpu_binding_v2->canvas_app_bundle_capture->call("
         }
@@ -2471,7 +2471,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7507,
+          "line": 7508,
           "column": 73,
           "source": "auto descriptor = runtime->root_global_get_own_property_descriptor->call("
         }
@@ -2486,14 +2486,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7724,
+          "line": 7725,
           "column": 43,
           "source": "lossResolvers->resolve->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7750,
+          "line": 7751,
           "column": 45,
           "source": "lossResolvers->resolve->call("
         }
@@ -2508,7 +2508,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 7868,
+          "line": 7869,
           "column": 29,
           "source": ".callAsConstructor(rt, 16)"
         }

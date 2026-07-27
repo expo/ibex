@@ -142311,6 +142311,16 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.cli.argument.parser.ibex.20compat.probe.utf8.string.1r9nfac",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "argument-parser:ibex%20compat:probe:utf8-string"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.cli.argument.parser.ibex.20compat.section.utf8.string.1v42y1l",
       "classification": "non-capability",
       "surface": {
@@ -143646,6 +143656,46 @@
       "surface": {
         "kind": "cli",
         "name": "option:ibex%20compat:no_retry:value-name:NO_RETRY"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compat.probe.1n7fj5n",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compat:probe"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compat.probe.action.set.0y7nu13",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compat:probe:action:Set"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compat.probe.arity.1.1.0wlvb5w",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compat:probe:arity:1:1"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.20compat.probe.value.name.expr.1ruajvx",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex%20compat:probe:value-name:EXPR"
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
@@ -146876,6 +146926,16 @@
       "surface": {
         "kind": "cli",
         "name": "option-name:ibex%20compat:no_retry:--no-retry"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.name.ibex.20compat.probe.probe.0jae96l",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option-name:ibex%20compat:probe:--probe"
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
@@ -274777,6 +274837,16 @@
       "surface": {
         "kind": "startup",
         "name": "env:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.startup.env.ibex.test.runtime.producer.hold.ms.11ehh7l",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "env:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS"
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."

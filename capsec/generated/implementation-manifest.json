@@ -101097,6 +101097,37 @@
       ]
     },
     {
+      "edgeId": "surface.cli.argument.parser.ibex.20compat.probe.utf8.string.1r9nfac",
+      "observedKey": "cli:argument-parser:ibex%20compat:probe:utf8-string",
+      "branchId": "surface.cli.argument.parser.ibex.20compat.probe.utf8.string.1r9nfac.main",
+      "enforcementBranchId": "surface.cli.argument.parser.ibex.20compat.probe.utf8.string.1r9nfac.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:argument-parser:ibex%20compat:probe:utf8-string"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex compat:probe:utf8-string"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex compat:probe:utf8-string"
+        ],
+        "terminalObservedKey": "cli:argument-parser:ibex%20compat:probe:utf8-string"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex compat:probe:utf8-string"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.argument.parser.ibex.20compat.probe.utf8.string.1r9nfac.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.cli.argument.parser.ibex.20compat.section.utf8.string.1v42y1l",
       "observedKey": "cli:argument-parser:ibex%20compat:section:utf8-string",
       "branchId": "surface.cli.argument.parser.ibex.20compat.section.utf8.string.1v42y1l.main",
@@ -105270,6 +105301,130 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.cli.option.ibex.20compat.no.retry.value.name.no.retry.0syt6f2.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compat.probe.1n7fj5n",
+      "observedKey": "cli:option:ibex%20compat:probe",
+      "branchId": "surface.cli.option.ibex.20compat.probe.1n7fj5n.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compat.probe.1n7fj5n.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compat:probe"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compat:option:probe"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compat:option:probe"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compat:probe"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compat:option:probe"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compat.probe.1n7fj5n.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compat.probe.action.set.0y7nu13",
+      "observedKey": "cli:option:ibex%20compat:probe:action:Set",
+      "branchId": "surface.cli.option.ibex.20compat.probe.action.set.0y7nu13.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compat.probe.action.set.0y7nu13.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compat:probe:action:Set"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compat:option:probe"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compat:option:probe"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compat:probe:action:Set"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compat:option:probe"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compat.probe.action.set.0y7nu13.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compat.probe.arity.1.1.0wlvb5w",
+      "observedKey": "cli:option:ibex%20compat:probe:arity:1:1",
+      "branchId": "surface.cli.option.ibex.20compat.probe.arity.1.1.0wlvb5w.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compat.probe.arity.1.1.0wlvb5w.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compat:probe:arity:1:1"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compat:option:probe"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compat:option:probe"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compat:probe:arity:1:1"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compat:option:probe"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compat.probe.arity.1.1.0wlvb5w.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compat.probe.value.name.expr.1ruajvx",
+      "observedKey": "cli:option:ibex%20compat:probe:value-name:EXPR",
+      "branchId": "surface.cli.option.ibex.20compat.probe.value.name.expr.1ruajvx.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compat.probe.value.name.expr.1ruajvx.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compat:probe:value-name:EXPR"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compat:option:probe"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compat:option:probe"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compat:probe:value-name:EXPR"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compat:option:probe"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compat.probe.value.name.expr.1ruajvx.main.non-capability"
       ]
     },
     {
@@ -115363,6 +115518,37 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.cli.option.name.ibex.20compat.no.retry.no.retry.0j115zj.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20compat.probe.probe.0jae96l",
+      "observedKey": "cli:option-name:ibex%20compat:probe:--probe",
+      "branchId": "surface.cli.option.name.ibex.20compat.probe.probe.0jae96l.main",
+      "enforcementBranchId": "surface.cli.option.name.ibex.20compat.probe.probe.0jae96l.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option-name:ibex%20compat:probe:--probe"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compat:option:probe"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compat:option:probe"
+        ],
+        "terminalObservedKey": "cli:option-name:ibex%20compat:probe:--probe"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compat:option:probe"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.name.ibex.20compat.probe.probe.0jae96l.main.non-capability"
       ]
     },
     {
@@ -182772,7 +182958,7 @@
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
           "scripts/install-android-hermes.sh#com.facebook.react:react-android",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
         "sourceRefs": [
@@ -182784,7 +182970,7 @@
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
           "scripts/install-android-hermes.sh#com.facebook.react:react-android",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
         "terminalObservedKey": "native-op:global:AsyncFunction"
@@ -182805,7 +182991,7 @@
         "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
         "scripts/install-android-hermes.sh#com.facebook.react:react-android",
-        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
         "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
       ],
       "implementationOwner": "WP7",
@@ -182842,9 +183028,9 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-fdeae712d08510a8b18b195793ad7e041b950ac4c3b67267a2afadae77f76e13",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-e3b9d97dcff722042a35475de830544b26b271aa4b1f6cfea1ebad7cf514af40",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
         "sourceRefs": [
@@ -182866,9 +183052,9 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-fdeae712d08510a8b18b195793ad7e041b950ac4c3b67267a2afadae77f76e13",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-e3b9d97dcff722042a35475de830544b26b271aa4b1f6cfea1ebad7cf514af40",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
         "terminalObservedKey": "native-op:global:AsyncFunction"
@@ -182898,9 +183084,9 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-fdeae712d08510a8b18b195793ad7e041b950ac4c3b67267a2afadae77f76e13",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-e3b9d97dcff722042a35475de830544b26b271aa4b1f6cfea1ebad7cf514af40",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
         "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
       ],
       "implementationOwner": "WP7",
@@ -182920,16 +183106,16 @@
         ],
         "proofSourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-544612845d8761c439b10f2c7ec45bcc3c3faf9fd9e8e0f268cdb3798194649c",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cde482e67c4483a4ad85136e802956c056d87808e0685d8ac11c61c2aa215b8f",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-544612845d8761c439b10f2c7ec45bcc3c3faf9fd9e8e0f268cdb3798194649c",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cde482e67c4483a4ad85136e802956c056d87808e0685d8ac11c61c2aa215b8f",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
         "terminalObservedKey": "native-op:global:AsyncFunction"
@@ -182943,9 +183129,9 @@
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-544612845d8761c439b10f2c7ec45bcc3c3faf9fd9e8e0f268cdb3798194649c",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cde482e67c4483a4ad85136e802956c056d87808e0685d8ac11c61c2aa215b8f",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
-        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
         "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
       ],
       "implementationOwner": "WP7",
@@ -200388,7 +200574,7 @@
           "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
           "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
           "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
         "sourceRefs": [
@@ -200406,7 +200592,7 @@
           "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
           "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
           "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
         "terminalObservedKey": "native-op:global:eval"
@@ -200433,7 +200619,7 @@
         "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
         "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
         "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
-        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
         "src/engine/hermes_runtime.cc#lockdownJS:eval"
       ],
       "implementationOwner": "WP7",
@@ -200470,7 +200656,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-fdeae712d08510a8b18b195793ad7e041b950ac4c3b67267a2afadae77f76e13",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-e3b9d97dcff722042a35475de830544b26b271aa4b1f6cfea1ebad7cf514af40",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -200478,7 +200664,7 @@
           "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
           "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
           "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
         "sourceRefs": [
@@ -200500,7 +200686,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-fdeae712d08510a8b18b195793ad7e041b950ac4c3b67267a2afadae77f76e13",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-e3b9d97dcff722042a35475de830544b26b271aa4b1f6cfea1ebad7cf514af40",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -200508,7 +200694,7 @@
           "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
           "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
           "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
         "terminalObservedKey": "native-op:global:eval"
@@ -200538,7 +200724,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-fdeae712d08510a8b18b195793ad7e041b950ac4c3b67267a2afadae77f76e13",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-e3b9d97dcff722042a35475de830544b26b271aa4b1f6cfea1ebad7cf514af40",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/bootstrap/compat-polyfills.js#eval",
         "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -200546,7 +200732,7 @@
         "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
         "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
         "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
-        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
         "src/engine/hermes_runtime.cc#lockdownJS:eval"
       ],
       "implementationOwner": "WP7",
@@ -200566,16 +200752,16 @@
         ],
         "proofSourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-544612845d8761c439b10f2c7ec45bcc3c3faf9fd9e8e0f268cdb3798194649c",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cde482e67c4483a4ad85136e802956c056d87808e0685d8ac11c61c2aa215b8f",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-544612845d8761c439b10f2c7ec45bcc3c3faf9fd9e8e0f268cdb3798194649c",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cde482e67c4483a4ad85136e802956c056d87808e0685d8ac11c61c2aa215b8f",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
         "terminalObservedKey": "native-op:global:eval"
@@ -200589,9 +200775,9 @@
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-544612845d8761c439b10f2c7ec45bcc3c3faf9fd9e8e0f268cdb3798194649c",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cde482e67c4483a4ad85136e802956c056d87808e0685d8ac11c61c2aa215b8f",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
-        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
         "src/engine/hermes_runtime.cc#lockdownJS:eval"
       ],
       "implementationOwner": "WP7",
@@ -211767,7 +211953,7 @@
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
           "scripts/install-android-hermes.sh#com.facebook.react:react-android",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
         "sourceRefs": [
@@ -211779,7 +211965,7 @@
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
           "scripts/install-android-hermes.sh#com.facebook.react:react-android",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
         "terminalObservedKey": "native-op:global:Function"
@@ -211800,7 +211986,7 @@
         "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
         "scripts/install-android-hermes.sh#com.facebook.react:react-android",
-        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
         "src/engine/hermes_runtime.cc#lockdownJS:Function"
       ],
       "implementationOwner": "WP7",
@@ -211837,9 +212023,9 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-fdeae712d08510a8b18b195793ad7e041b950ac4c3b67267a2afadae77f76e13",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-e3b9d97dcff722042a35475de830544b26b271aa4b1f6cfea1ebad7cf514af40",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
         "sourceRefs": [
@@ -211861,9 +212047,9 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-fdeae712d08510a8b18b195793ad7e041b950ac4c3b67267a2afadae77f76e13",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-e3b9d97dcff722042a35475de830544b26b271aa4b1f6cfea1ebad7cf514af40",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
         "terminalObservedKey": "native-op:global:Function"
@@ -211893,9 +212079,9 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-fdeae712d08510a8b18b195793ad7e041b950ac4c3b67267a2afadae77f76e13",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-e3b9d97dcff722042a35475de830544b26b271aa4b1f6cfea1ebad7cf514af40",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
         "src/engine/hermes_runtime.cc#lockdownJS:Function"
       ],
       "implementationOwner": "WP7",
@@ -211915,16 +212101,16 @@
         ],
         "proofSourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-544612845d8761c439b10f2c7ec45bcc3c3faf9fd9e8e0f268cdb3798194649c",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cde482e67c4483a4ad85136e802956c056d87808e0685d8ac11c61c2aa215b8f",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-544612845d8761c439b10f2c7ec45bcc3c3faf9fd9e8e0f268cdb3798194649c",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cde482e67c4483a4ad85136e802956c056d87808e0685d8ac11c61c2aa215b8f",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
         "terminalObservedKey": "native-op:global:Function"
@@ -211938,9 +212124,9 @@
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-544612845d8761c439b10f2c7ec45bcc3c3faf9fd9e8e0f268cdb3798194649c",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cde482e67c4483a4ad85136e802956c056d87808e0685d8ac11c61c2aa215b8f",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
-        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
         "src/engine/hermes_runtime.cc#lockdownJS:Function"
       ],
       "implementationOwner": "WP7",
@@ -211998,7 +212184,7 @@
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
           "scripts/install-android-hermes.sh#com.facebook.react:react-android",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
         "sourceRefs": [
@@ -212010,7 +212196,7 @@
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
           "scripts/install-android-hermes.sh#com.facebook.react:react-android",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
         "terminalObservedKey": "native-op:global:GeneratorFunction"
@@ -212031,7 +212217,7 @@
         "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
         "scripts/install-android-hermes.sh#com.facebook.react:react-android",
-        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
         "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
       ],
       "implementationOwner": "WP7",
@@ -212068,9 +212254,9 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-fdeae712d08510a8b18b195793ad7e041b950ac4c3b67267a2afadae77f76e13",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-e3b9d97dcff722042a35475de830544b26b271aa4b1f6cfea1ebad7cf514af40",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
         "sourceRefs": [
@@ -212092,9 +212278,9 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-fdeae712d08510a8b18b195793ad7e041b950ac4c3b67267a2afadae77f76e13",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-e3b9d97dcff722042a35475de830544b26b271aa4b1f6cfea1ebad7cf514af40",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
         "terminalObservedKey": "native-op:global:GeneratorFunction"
@@ -212124,9 +212310,9 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-fdeae712d08510a8b18b195793ad7e041b950ac4c3b67267a2afadae77f76e13",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-e3b9d97dcff722042a35475de830544b26b271aa4b1f6cfea1ebad7cf514af40",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
         "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
       ],
       "implementationOwner": "WP7",
@@ -212146,16 +212332,16 @@
         ],
         "proofSourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-544612845d8761c439b10f2c7ec45bcc3c3faf9fd9e8e0f268cdb3798194649c",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cde482e67c4483a4ad85136e802956c056d87808e0685d8ac11c61c2aa215b8f",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-544612845d8761c439b10f2c7ec45bcc3c3faf9fd9e8e0f268cdb3798194649c",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cde482e67c4483a4ad85136e802956c056d87808e0685d8ac11c61c2aa215b8f",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
         "terminalObservedKey": "native-op:global:GeneratorFunction"
@@ -212169,9 +212355,9 @@
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-544612845d8761c439b10f2c7ec45bcc3c3faf9fd9e8e0f268cdb3798194649c",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cde482e67c4483a4ad85136e802956c056d87808e0685d8ac11c61c2aa215b8f",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
-        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
         "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
       ],
       "implementationOwner": "WP7",
@@ -272614,6 +272800,37 @@
       ]
     },
     {
+      "edgeId": "surface.startup.env.ibex.test.runtime.producer.hold.ms.11ehh7l",
+      "observedKey": "startup:env:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS",
+      "branchId": "surface.startup.env.ibex.test.runtime.producer.hold.ms.11ehh7l.main",
+      "enforcementBranchId": "surface.startup.env.ibex.test.runtime.producer.hold.ms.11ehh7l.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_internal.h#getenv:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS:read"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_internal.h#getenv:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS:read"
+        ],
+        "terminalObservedKey": "startup:env:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_internal.h#getenv:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS:read"
+      ],
+      "implementationOwner": "WP9",
+      "fixtureObligations": [
+        "surface.startup.env.ibex.test.runtime.producer.hold.ms.11ehh7l.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.startup.env.ibex.test.transpile.input.barrier.07svevo",
       "observedKey": "startup:env:IBEX_TEST_TRANSPILE_INPUT_BARRIER",
       "branchId": "surface.startup.env.ibex.test.transpile.input.barrier.07svevo.main",
@@ -282807,7 +283024,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-sEg1gys8ZxgbQ7Mf97vMUYen06h6xLSB_0MJ_iVDib4"
+      "rawContentDigest": "sha256-yTT418qzXKUDHIwNzQPlGJrDca0i1bRJC1aRKIEdH1M"
     },
     {
       "kind": "output-disposition-dataset",
@@ -282822,44 +283039,44 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-fZZpcMCQGz92qUkNpafxyBdFEpEp_1_etgCmED-Xwp8"
+      "rawContentDigest": "sha256-VGXBkNd4CyfI0yWWp6LQ8t5ijq8cj6T758EaiHzI2QI"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-SFLShZqT4dX421GAVtEwbED_mBGFnfsdbcQmBYXC6Lo"
+      "rawContentDigest": "sha256-8dAj466EqSVolJvC6cnVOjUPC0tpt57SgWrRYS6nLYE"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-OU4YGlqxfPT2ka9o1odjgT3M8MKDkCLBu0XqdVR_h08"
+      "rawContentDigest": "sha256-lxqgCfcePIU8ilPGKx1mFj48FTPVl3dBbYf7QnXPEAw"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-5az_fsbyvbo1nFA69rvuQwszjjiMo6TphecDIbf7Kkc"
+      "rawContentDigest": "sha256-BOU4vDlOBp4h-pRqfn9DL_VNPppLxDGmeaPsbaWm6A8"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-qrpfKKLuNxyVrOKannPVWa4Zugyoa0sYyGPCUK7rGbc"
+      "rawContentDigest": "sha256-oXhX1ZlrsgK80nVDvHQycZCk_fC-J6YVJshwS45dK8c"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-c4VkPxUC7yzoNFCBxW5PH0b17__Ui1LLAQulg7NzgJc"
+      "rawContentDigest": "sha256-zwHYvzaQyeb5UNVuec9QAlq02Gm3_p8snbCHNHGu47o"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-U5DfHK5dWg7cZLn2yXliRHJ-KsNZbe4ob3S_uovXT44"
+      "rawContentDigest": "sha256-_SGErHMMyrCUwMpF3BEFCb9MW94SWee20yiMkTc8jhA"
     }
   ],
   "counts": {
-    "observedReferences": 13351,
-    "logicalSurfaces": 7610,
-    "enforcementBranches": 7830,
-    "coverageEdges": 7610,
-    "targetCells": 15220
+    "observedReferences": 13358,
+    "logicalSurfaces": 7617,
+    "enforcementBranches": 7837,
+    "coverageEdges": 7617,
+    "targetCells": 15234
   }
 }

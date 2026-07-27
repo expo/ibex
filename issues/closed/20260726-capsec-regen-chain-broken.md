@@ -1,9 +1,9 @@
 # CapSec registry/contract regen chain is broken by unreviewed surface drift
 
-**Status:** Open
+**Status:** Closed (2026-07-27 — all drifted review affirmations discharged; full chain green)
 **Date:** 2026-07-26
 **Priority:** High
-**Related:** [20260726-native-fetch-jsi-last-owner-race](./closed/20260726-native-fetch-jsi-last-owner-race.md)
+**Related:** [20260726-native-fetch-jsi-last-owner-race](./20260726-native-fetch-jsi-last-owner-race.md)
 
 ## Problem
 
@@ -23,7 +23,7 @@ landed work that did not run the fail-closed regen/review steps:
    fails closed on an unreviewed engine identity. **Fixed 2026-07-26** with an
    actual review of the drift (4c6ac052, the error-prototype override-mistake
    repair) — see
-   [closed/20260726-capsec-reviewed-lockdown-identity-drift](./closed/20260726-capsec-reviewed-lockdown-identity-drift.md)
+   [closed/20260726-capsec-reviewed-lockdown-identity-drift](./20260726-capsec-reviewed-lockdown-identity-drift.md)
    for the review record, the restamped
    `REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST`/evaluator review id, and the two
    companion reviewed-count/name updates (host-ABI 362 from 1407af0e;
@@ -72,3 +72,45 @@ landed work that did not run the fail-closed regen/review steps:
   `regenerate:vendored` → `check:drift`, confirming the
   `IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS` row lands in
   `capsec/generated/surface-inventory.md`.
+
+## Resolution — 2026-07-27
+
+Item 3 turned out to be one of **four** stale review affirmations; running the
+chain fail-closed surfaced each in turn, and each got its own review before
+its repin (all four drifting edits are already-landed main commits):
+
+1. `src/bin/ibex/runtime.rs#authenticated-file-ingress` — drift is 8 added
+   `StartupPhaseTrace` lines from 9968127c ("perf: attribute native module
+   startup phases"). Reviewed: the tracer is opt-in via the already-reviewed
+   `env:IBEX_STARTUP_TRACE`, `mark()` prints only a static label and elapsed
+   time to stderr, holds no authenticated data, and the diff is pure
+   additions — no authentication step is skipped, reordered, or made
+   conditional. Repinned to `sha256-yxzWt9SORBND7uk_dofBp-OZzWzd3BwBNpm3l8OAsQE`.
+2. `src/bin/ibex/engine/hermes.rs#authenticated-native-graph-join` — same
+   family: 8 pure `phase.mark(...)` additions from the same commit. Repinned
+   to `sha256-CpplWmPpU7Tw5VWkVeru-QobNMIFc8M2FakeayrnSQw`.
+3. `src/bin/ibex/main.rs#authenticated-product-routing` — the range matched
+   its pin through 1407af0e and drifted at f3a527d6 (`ibex compat --probe`):
+   exactly two lines threading the reviewed `probe` option through the
+   `Commands::Compat` routing, mirroring the neighboring `section`/`module`
+   args; no new authority. Repinned to
+   `sha256-Jyk-aRGDH9a3z1vOn2nXFVy0s5lTbGJXWb8U1SD09Qk`.
+4. The debugger native-alias audit's `REVIEWED_BINARY_RUST_PATHS` — f3a527d6
+   added `src/bin/ibex/compat/probe.rs`. Reviewed: the probe harness
+   references no debugger alias or CDP surface (it shells the pinned
+   standalone `hermes` binary and a fresh in-process engine for fault
+   localization). Added to the reviewed corpus.
+
+Then the full chain ran clean end to end: `generate:capsec-registry` →
+`generate:host-task-ingress-inventory` → `generate:capsec-contract` (7617
+coverage edges, 15234 target cells, 217 ingress sites) → all four example
+policies (digest-only diffs; no grant or mode changes) →
+`generate:compiled-environment-profile` (profile digest only) →
+`regenerate:vendored` → `check:drift` **green**. The
+`env:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS` row is present in
+`capsec/generated/surface-inventory.md` as required.
+
+Note: the 45 failing `--bin ibex` observer tests recorded under Impact were
+branch/main drift diagnosed alongside the identity-drift ticket; with the
+reviewed identity restamped there, re-verify on a current observer build if
+they persist (tracked there, not here).

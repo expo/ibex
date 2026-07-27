@@ -698,7 +698,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-product-routing",
       "pub(crate) enum AuthenticatedProductIngress {",
       "async fn run_capsec_audit(",
-      "sha256-XUmGN_unJPjNkTmcFvO-WUdbr9lEGKLk19F8qwF72J8",
+      "sha256-Jyk-aRGDH9a3z1vOn2nXFVy0s5lTbGJXWb8U1SD09Qk",
     ),
     freezeReviewedRange(
       "authenticated-product-execution",
@@ -744,7 +744,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-file-ingress",
       "impl AuthenticatedFileIngress {",
       "fn expected_identity_from_snapshot(",
-      "sha256-34TG8qsLMKVHeS3eBWFdFRhFphFttu_yKi8PkxX1rKw",
+      "sha256-yxzWt9SORBND7uk_dofBp-OZzWzd3BwBNpm3l8OAsQE",
     ),
     freezeReviewedRange(
       "runtime-file-execution",
@@ -758,7 +758,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-native-graph-join",
       "    async fn evaluate_native_module_graph(",
       "    async fn install_capsec_context_test_observer(",
-      "sha256-Z2exVRU0L096-QhJSBLd38uFspz1KAiymZHs_y-T8D4",
+      "sha256-CpplWmPpU7Tw5VWkVeru-QobNMIFc8M2FakeayrnSQw",
     ),
   ]),
   "src/bin/ibex/terminal_session.rs": Object.freeze([
