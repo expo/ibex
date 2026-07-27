@@ -3375,6 +3375,44 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — reconciled intentional native-crash residual contracts
+
+- A direct adjacent-suite audit found two stale expectations left by the
+  earlier bounded-output checkpoint. The source had correctly removed
+  one-shot/native-work zlib probes and synchronous crypto KDF/key/prime plus
+  `Hmac.digest` probes after physical static-Hermes process termination, but
+  the older unit assertions still claimed those recipes were authored.
+- The complete devtools audit then found three more deterministic count pins
+  that predated the 7,658th coverage edge: the fixture pilot still expected
+  7,657 cells / 23,846 fixtures, and two output-catalog tests still expected
+  1,704 structural-only surfaces. The regenerated authorities already proved
+  the exact replacements: 7,658 cells, 23,847 fixtures, and 1,705
+  structural-only surfaces.
+- The probe contract now positively checks only non-native zlib construction
+  and `_ensureNativeStream` setup, and explicitly requires native-work zlib
+  routes plus all six process-terminating crypto routes to remain un-authored.
+  The crypto source comment now points random-data helpers at their separately
+  owned, physically executed captured-output routes instead of retaining the
+  obsolete pre-execution crash claim.
+- The repaired source-bound probe suite passes **23/23** with 155 assertions.
+  The three refreshed fixture/registry/output suites pass **42/42**, and the
+  M5 MacBook Air passes the complete devtools script corpus:
+  **1,299/1,299 tests across 89 files with 236,913 assertions**. After the
+  next moving-`main` merge touched two scanned Rust sources, the combined
+  branch's source-inventory suite also passes **114/114** with 12,685
+  assertions and the complete generated drift chain remains fresh.
+- Hard part: these adjacent suites were outside the focused conformance set
+  used for the preceding physical checkpoint, so generated drift and the
+  152-test evidence slice could both be green while older contract assertions
+  silently diverged from the fail-closed source table. A local whole-corpus
+  run on Bun 1.3.12 also starved four fixed-deadline process-tree tests; all
+  four pass in the isolated 15/15 command-evidence suite, and the less
+  contended Air run on Bun 1.3.14 passes the whole corpus.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. No crashing route
+  received execution credit; criterion 7 remains open and both advertisement
+  sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

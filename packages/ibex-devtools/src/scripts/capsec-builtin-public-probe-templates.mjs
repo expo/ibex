@@ -315,10 +315,9 @@ function exactCryptoCallSpecs() {
     // The synchronous KDF entry points currently share a process-terminating
     // native defect on the bound static-Hermes target. Keep hkdfSync,
     // pbkdf2Sync, and scryptSync residual until they can return and clean up.
-    // Random generation currently shares the process-terminating native
-    // defect observed through the public crypto globals on static Hermes.
-    // randomBytes, randomFillSync, randomInt, prng, pseudoRandomBytes, and rng
-    // remain residual until physical execution can return.
+    // Random-data helpers are deliberately absent from this generic call
+    // table. Their exact output routes own bounded buffers, async quiescence,
+    // and the physical loaded-engine receipts needed for promotion.
     timingSafeEqual: rootCall(
       [
         uint8ArrayArgument([0x69, 0x62, 0x65, 0x78]),

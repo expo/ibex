@@ -605,20 +605,18 @@ describe("source-bound builtin public probes", () => {
     });
   });
 
-  test("authors format-correct zlib roots and inherited transform receivers", () => {
+  test("authors non-native zlib setup and keeps native work residual", () => {
     expect(
       probeFor({
         sourceKey: "node_zlib",
-        exportName: "gzipSync",
+        exportName: "createGzip",
         moduleSpecifiers: ["node:zlib", "zlib"],
         valueShape: "callable",
       }),
     ).toMatchObject({
       invocation: {
         templateId: "node-zlib-bounded-v1",
-        arguments: [
-          { kind: "zlib-input", ownerExportName: "Gzip" },
-        ],
+        arguments: [],
         setup: { kind: "root-call" },
         bodyEntryProof: { resultType: "object" },
       },
@@ -626,17 +624,14 @@ describe("source-bound builtin public probes", () => {
     expect(
       probeFor({
         sourceKey: "node_zlib",
-        exportName: "Gunzip._processChunk",
+        exportName: "Gunzip._ensureNativeStream",
         exportIdioms: ["exported-constructor-inherited-prototype"],
         moduleSpecifiers: ["node:zlib", "zlib"],
         valueShape: "callable",
       }),
     ).toMatchObject({
       invocation: {
-        arguments: [
-          { kind: "zlib-input", ownerExportName: "Gunzip" },
-          { kind: "json", value: 4 },
-        ],
+        arguments: [],
         setup: {
           kind: "zlib-owner",
           ownerExportName: "Gunzip",
@@ -647,15 +642,23 @@ describe("source-bound builtin public probes", () => {
         },
       },
     });
-    expect(
-      probeFor({
-        sourceKey: "node_zlib",
-        exportName: "ZstdDecompress._processChunk",
-        exportIdioms: ["exported-constructor-inherited-prototype"],
-        moduleSpecifiers: ["node:zlib", "zlib"],
-        valueShape: "callable",
-      }),
-    ).toBeNull();
+    for (const exportName of [
+      "gzipSync",
+      "Gunzip._processChunk",
+      "ZstdDecompress._processChunk",
+    ]) {
+      expect(
+        probeFor({
+          sourceKey: "node_zlib",
+          exportName,
+          exportIdioms: exportName.includes(".")
+            ? ["exported-constructor-inherited-prototype"]
+            : ["object-binding", "object-source"],
+          moduleSpecifiers: ["node:zlib", "zlib"],
+          valueShape: "callable",
+        }),
+      ).toBeNull();
+    }
   });
 
   test("authors configured stream receivers but leaves throwing base methods residual", () => {
@@ -848,7 +851,7 @@ describe("source-bound builtin public probes", () => {
     ).toBeNull();
   });
 
-  test("authors bounded crypto operations and explicit in-memory receivers", () => {
+  test("authors bounded crypto operations and keeps native crashes residual", () => {
     expect(
       probeFor({
         sourceKey: "exact_crypto",
@@ -869,19 +872,6 @@ describe("source-bound builtin public probes", () => {
         bodyEntryProof: { resultType: "string" },
       },
     });
-    expect(
-      probeFor({
-        sourceKey: "exact_crypto",
-        exportName: "scryptSync",
-        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
-        valueShape: "callable",
-      })?.invocation.arguments,
-    ).toEqual([
-      { kind: "json", value: "ibex-password" },
-      { kind: "json", value: "ibex-salt" },
-      { kind: "json", value: 16 },
-      { kind: "json", value: { N: 16, r: 1, p: 1, maxmem: 1024 * 1024 } },
-    ]);
     expect(
       probeFor({
         sourceKey: "exact_crypto",
@@ -907,19 +897,31 @@ describe("source-bound builtin public probes", () => {
     expect(
       probeFor({
         sourceKey: "exact_crypto",
-        exportName: "generatePrimeSync",
-        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
-        valueShape: "callable",
-      })?.invocation.bodyEntryProof.resultType,
-    ).toBe("bigint");
-    expect(
-      probeFor({
-        sourceKey: "exact_crypto",
         exportName: "privateDecrypt",
         moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
         valueShape: "callable",
       }),
     ).toBeNull();
+    for (const exportName of [
+      "generateKeySync",
+      "generatePrimeSync",
+      "hkdfSync",
+      "Hmac.digest",
+      "pbkdf2Sync",
+      "scryptSync",
+    ]) {
+      expect(
+        probeFor({
+          sourceKey: "exact_crypto",
+          exportName,
+          exportIdioms: exportName.includes(".")
+            ? ["exported-constructor-prototype"]
+            : ["object-binding", "object-source"],
+          moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+          valueShape: "callable",
+        }),
+      ).toBeNull();
+    }
     for (const exportName of ["Hash._flush", "Hash.end", "randomUUID"]) {
       expect(
         probeFor({
