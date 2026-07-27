@@ -23,7 +23,7 @@ retain that original identity as historical provenance.
 - **Reasoning effort:** `high` (`-c 'model_reasoning_effort="high"'`).
 - **Date:** 2026-07-27
 - **Revision under review:** `e7a988c9d605`
-  (`shasum -a 256 llp/0040-consuming-ibex.decision.md | cut -c1-12`)
+  (`shasum -a 256 llp/0041-consuming-ibex.decision.md | cut -c1-12`)
 - **Authorization:** The directing author (Charlie Cheever) invoked
   `/llp-super-refine` on this document in the orchestrating session; he is
   the human with repository-disclosure authority for this external send, and
@@ -166,3 +166,17 @@ Proposed next step: the author applies `Accepted` (this loop never does),
 optionally folding the five wording-level dispositions above into the
 acceptance revision — which would then be a later, unreviewed revision and
 should be labeled as such.
+
+---
+
+## Author acceptance — 2026-07-27
+
+The author accepted LLP 0041 (`Status: Accepted`) after this loop converged.
+The five wording-level minors dispositioned above were folded into the
+acceptance revision; those edits are **post-READY and unreviewed** — the
+round-3 dual-family READY verdicts bind to revision `6a3a689fff74`, not to
+the accepted text. No decision changed: each edit answers a concern recorded
+in the ledger above (rule-4 overdue predicate and bound ownership; rule-6
+retention duty scoped to the pin declared in the rule-7 record; step 0's
+retention-guarantee wording and its alignment with step 4's stricter
+retirement condition).

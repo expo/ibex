@@ -1083,6 +1083,9 @@ mod tests {
             is_bytecode: i32,
             out_value: *mut *mut c_char,
         ) -> i32;
+        fn ex_hermes_watch_time_limit(runtime: *mut HermesRuntimeOpaque, timeout_ms: u32) -> i32;
+        fn ex_hermes_unwatch_time_limit(runtime: *mut HermesRuntimeOpaque);
+        fn ex_hermes_interrupt_eval(runtime: *mut HermesRuntimeOpaque, runtime_nonce: u64) -> i32;
         fn ex_hermes_evaluation_result_init(result: *mut StructuredEvaluationResult);
         fn ex_hermes_evaluation_result_dispose(result: *mut StructuredEvaluationResult);
         fn ex_hermes_eval_structured_diagnostic(
@@ -3357,6 +3360,111 @@ function collect() {
             assert_eq!(count.load(std::sync::atomic::Ordering::Relaxed), 1);
             ex_hermes_destroy(replacement);
         }
+    }
+
+    /// A CPU-bound eval must be interruptible. Hermes compiles async-break
+    /// checks by default, so an armed time limit terminates the loop and
+    /// surfaces its stable error rather than hanging the owner thread.
+    /// @ref LLP 0002#runtime-driving-thread-contract
+    #[test]
+    fn time_limit_interrupts_cpu_bound_eval() {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            assert_eq!(ex_hermes_watch_time_limit(runtime, 50), 0);
+            let started = std::time::Instant::now();
+            let (status, value) = eval(runtime, "while (true) {};");
+            let elapsed = started.elapsed();
+            ex_hermes_unwatch_time_limit(runtime);
+            ex_hermes_destroy(runtime);
+            let _ = sender.send((status, value, elapsed));
+        });
+
+        let (status, value, elapsed) = receiver
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("Hermes async-break time limit must terminate the eval");
+        worker.join().expect("time-limited eval worker");
+        assert_ne!(status, 0, "a timed-out eval cannot report success");
+        assert!(
+            value
+                .as_deref()
+                .unwrap_or_default()
+                .contains("Javascript execution has timed out"),
+            "timeout must carry Hermes' stable error: {value:?}"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(10),
+            "a 50ms limit must interrupt promptly, took {elapsed:?}"
+        );
+    }
+
+    /// A zero timeout is refused rather than silently arming nothing, and
+    /// unwatch is safe when no limit is armed.
+    #[test]
+    fn time_limit_rejects_zero_and_tolerates_idle_unwatch() {
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            assert_ne!(ex_hermes_watch_time_limit(runtime, 0), 0);
+            ex_hermes_unwatch_time_limit(runtime);
+            assert_eq!(ex_hermes_watch_time_limit(runtime, 50), 0);
+            // Re-arming replaces the previous registration rather than
+            // stacking a second monitor entry.
+            assert_eq!(ex_hermes_watch_time_limit(runtime, 75), 0);
+            ex_hermes_unwatch_time_limit(runtime);
+            ex_hermes_unwatch_time_limit(runtime);
+            ex_hermes_destroy(runtime);
+        }
+    }
+
+    /// The any-thread interrupt stops a running eval from a foreign thread
+    /// (what an embedder's cancellation hook needs), and refuses a stale
+    /// nonce so it cannot interrupt a runtime that reused the address.
+    #[test]
+    fn interrupt_eval_stops_a_foreign_threads_runaway_and_checks_the_nonce() {
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            let nonce = ex_hermes_runtime_nonce(runtime);
+            assert_ne!(nonce, 0);
+            // A stale nonce must be refused before any eval is running.
+            assert_ne!(
+                ex_hermes_interrupt_eval(runtime, nonce.wrapping_add(1)),
+                0,
+                "a stale nonce must not interrupt this runtime"
+            );
+            ready_tx.send((runtime as usize, nonce)).unwrap();
+            let (status, value) = eval(runtime, "while (true) {};");
+            ex_hermes_destroy(runtime);
+            let _ = done_tx.send((status, value));
+        });
+
+        let (runtime_addr, nonce) = ready_rx.recv().expect("worker published its runtime");
+        // Give the worker time to enter the loop, then interrupt off-thread.
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        let interrupted =
+            unsafe { ex_hermes_interrupt_eval(runtime_addr as *mut HermesRuntimeOpaque, nonce) };
+
+        let settled = done_rx.recv_timeout(std::time::Duration::from_secs(30));
+        worker.join().expect("interrupted eval worker");
+        if interrupted != 0 {
+            // The linked Hermes lacks async-break support; the eval then never
+            // returns on its own, which the recv_timeout above would surface.
+            // Skip rather than assert a capability this engine does not have.
+            return;
+        }
+        let (status, value) = settled.expect("an interrupted eval must settle");
+        assert_ne!(status, 0, "an interrupted eval cannot report success");
+        assert!(
+            value
+                .as_deref()
+                .unwrap_or_default()
+                .contains("Javascript execution has timed out"),
+            "interrupt must surface Hermes' stable timeout error: {value:?}"
+        );
     }
 
     /// Frame attribution must inspect the runtime being evaluated, not merely

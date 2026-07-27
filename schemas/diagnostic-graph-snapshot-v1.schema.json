@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schema/diagnostic-graph-snapshot-v1.schema.json",
+  "title": "Ibex diagnostic graph snapshot v1",
+  "description": "Wire projection of a ForegroundAuditGraphSnapshotV1 (LLP 0030 §1). Evidence, never a credential: it carries no authorities, denials, ceilings, bootstrap floor, protected-artifact grants, target-cell promotions, or policy digest, and a round trip never recreates the live handle.",
+  "type": "object",
+  "required": [
+    "schema",
+    "workflow",
+    "runNonce",
+    "target",
+    "root",
+    "entry",
+    "graphIdentity",
+    "producerBinaryDigest",
+    "transformFingerprintDigest",
+    "baselineDigest",
+    "nodes",
+    "packages",
+    "edges"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/diagnostic-graph-snapshot/1" },
+    "workflow": { "const": "foreground-source-audit" },
+    "runNonce": {
+      "description": "Fresh, unguessable, process-local. Never a reusable credential.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22,}$"
+    },
+    "target": { "$ref": "#/$defs/target" },
+    "root": { "$ref": "#/$defs/objectIdentity" },
+    "entry": { "$ref": "#/$defs/sourceId" },
+    "graphIdentity": {
+      "description": "ibex/authenticated-graph-snapshot/1 digest over the captured graph.",
+      "$ref": "#/$defs/digest"
+    },
+    "producerBinaryDigest": { "$ref": "#/$defs/digest" },
+    "transformFingerprintDigest": { "$ref": "#/$defs/digest" },
+    "baselineDigest": {
+      "description": "foreground-audit-baseline/1 digest over the canonical diagnostic dispositions and the protected-object set, excluding this slot itself. Never a canonical-policy digest.",
+      "$ref": "#/$defs/digest"
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "packages": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/packagePrincipal" }
+    },
+    "edges": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/edge" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256-[A-Za-z0-9_-]{43}$" },
+    "sourceId": { "type": "string", "pattern": "^ibex-source-id-v1:[A-Za-z0-9_-]+$" },
+    "nonEmpty": { "type": "string", "minLength": 1 },
+    "target": {
+      "type": "object",
+      "required": ["triple", "nativeRunnerAbi"],
+      "properties": {
+        "triple": { "$ref": "#/$defs/nonEmpty" },
+        "nativeRunnerAbi": { "$ref": "#/$defs/nonEmpty" }
+      },
+      "additionalProperties": false
+    },
+    "objectIdentity": {
+      "description": "Retained opened-object identity. Path text is diagnostic display only; the identity is what the capture authenticated.",
+      "type": "object",
+      "required": ["deviceId", "inodeId"],
+      "properties": {
+        "deviceId": { "type": "string", "pattern": "^[0-9]+$" },
+        "inodeId": { "type": "string", "pattern": "^[0-9]+$" },
+        "displayPath": { "$ref": "#/$defs/nonEmpty" }
+      },
+      "additionalProperties": false
+    },
+    "packagePrincipal": {
+      "type": "object",
+      "required": ["kind", "name", "locator", "integrity", "root"],
+      "properties": {
+        "kind": { "const": "package" },
+        "name": { "$ref": "#/$defs/nonEmpty" },
+        "locator": { "$ref": "#/$defs/nonEmpty" },
+        "integrity": { "$ref": "#/$defs/digest" },
+        "root": { "$ref": "#/$defs/objectIdentity" }
+      },
+      "additionalProperties": false
+    },
+    "node": {
+      "type": "object",
+      "required": ["sourceId", "sourceIntegrity", "object"],
+      "properties": {
+        "sourceId": { "$ref": "#/$defs/sourceId" },
+        "sourceIntegrity": { "$ref": "#/$defs/digest" },
+        "object": { "$ref": "#/$defs/objectIdentity" }
+      },
+      "additionalProperties": false
+    },
+    "edge": {
+      "type": "object",
+      "required": ["requester", "specifier", "resolutionKind", "attributes", "target"],
+      "properties": {
+        "requester": { "$ref": "#/$defs/sourceId" },
+        "specifier": { "$ref": "#/$defs/nonEmpty" },
+        "resolutionKind": { "enum": ["esm-static", "dynamic-import", "common-js-require"] },
+        "attributes": {
+          "type": "object",
+          "properties": { "type": { "const": "json" } },
+          "additionalProperties": false
+        },
+        "target": { "$ref": "#/$defs/sourceId" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

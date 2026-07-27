@@ -39136,6 +39136,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.interrupt.eval.0k38m1d",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_interrupt_eval"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.module.clear.commonjs.require.provider.01fzf0s",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -39961,6 +39972,15 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.unwatch.time.limit.14lkxq1",
+      "status": "structural-only",
+      "reasonCode": "source-derived-void-all-input-abi",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_unwatch_time_limit"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.value.kind.1p2efiz",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -40016,6 +40036,17 @@
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#ex_hermes_verify_prepared_native_startup_absent_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.watch.time.limit.1wx5to6",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_watch_time_limit"
       ],
       "outputKinds": [
         "[[return]]"
@@ -85555,15 +85586,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-s5NV4BsVa52WGgnMPJWbOvaGoEWiEJom5rxsQyl2_Ro",
+  "catalogKeyDigest": "sha256-4ZHxs7x5qrn-g184uGRtXN3SsZT2tNwb0YERJCxac00",
   "counts": {
-    "coverageSurfaces": 7517,
-    "outputBearingSurfaces": 5813,
-    "structuralOnlySurfaces": 1699,
+    "coverageSurfaces": 7520,
+    "outputBearingSurfaces": 5815,
+    "structuralOnlySurfaces": 1700,
     "unresolvedSurfaces": 5,
-    "catalogRows": 6514,
+    "catalogRows": 6516,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6107,
+    "sourceInventoryRows": 6109,
     "structuredRows": 407
   },
   "rows": [
@@ -151448,6 +151479,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.interrupt.eval.0k38m1d",
+        "output": "[[return]]",
+        "alias": "ex_hermes_interrupt_eval",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_interrupt_eval"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_interrupt_eval"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.module.clear.commonjs.require.provider.01fzf0s",
         "output": "[[return]]",
         "alias": "ex_hermes_module_clear_commonjs_require_provider",
@@ -155264,6 +155316,27 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#ex_hermes_verify_prepared_native_startup_absent_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.watch.time.limit.1wx5to6",
+        "output": "[[return]]",
+        "alias": "ex_hermes_watch_time_limit",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_watch_time_limit"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_watch_time_limit"
         ]
       },
       "requiredValueProof": "live-value-observation"

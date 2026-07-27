@@ -1212,7 +1212,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         "ibex/capsec-output-shape-execution-partition/1",
       completeCatalogKeyDigest: completeCatalog.catalogKeyDigest,
     });
-    expect(completeCatalog.rows).toHaveLength(6514);
+    expect(completeCatalog.rows).toHaveLength(6516);
     expect(executionPartition.genericCatalog.rows).toHaveLength(5911);
     expect(executionPartition.genericProbes).toHaveLength(5911);
     expect(
@@ -1224,9 +1224,10 @@ describe("output-shape-sweep-v3 evidence contract", () => {
     expect(executionPartition.hostAbi.rows).toHaveLength(485);
     // Thirty-five module-activation ABI rows need an owned graph/runtime
     // fixture; twenty-four runtime-extension/ambient-environment rows need an
-    // authenticated extension Host fixture. Neither family may borrow a
+    // authenticated extension Host fixture. Two evaluator time-control returns
+    // additionally require an owned live runtime. None may borrow a
     // descriptor-only result.
-    expect(executionPartition.hostAbi.residuals).toHaveLength(59);
+    expect(executionPartition.hostAbi.residuals).toHaveLength(61);
 
     const baseBindings = fixture().bindings;
     const targetAbsenceProbes = buildTargetAbsenceOutputShapeProbes({
@@ -1346,12 +1347,12 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       shifted.hostAbi.targetAbsenceBindings.length,
       shifted.hostAbi.rows.length,
       shifted.hostAbi.residuals.length,
-    ]).not.toEqual([59, 485, 59]);
+    ]).not.toEqual([59, 485, 61]);
     expect([
       executionPartition.hostAbi.targetAbsenceBindings.length,
       executionPartition.hostAbi.rows.length,
       executionPartition.hostAbi.residuals.length,
-    ]).toEqual([59, 485, 59]);
+    ]).toEqual([59, 485, 61]);
   }, 180_000);
 
   test("routes and exactly validates the complete builtin-effects tranche", async () => {

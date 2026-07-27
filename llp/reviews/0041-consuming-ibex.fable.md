@@ -22,7 +22,7 @@ retain that original identity as historical provenance.
   document) did not perform this review.
 - **Date:** 2026-07-27
 - **Revision under review:** `e7a988c9d605`
-  (`shasum -a 256 llp/0040-consuming-ibex.decision.md | cut -c1-12`)
+  (`shasum -a 256 llp/0041-consuming-ibex.decision.md | cut -c1-12`)
 - **Authorization:** The directing author (Charlie Cheever) invoked
   `/llp-super-refine` on this document in the orchestrating session. The
   repository is public (expo/ibex); the Codex-family review runs against the
@@ -43,7 +43,7 @@ retain that original identity as historical provenance.
 
 **1. Overall assessment**
 
-LLP 0040 addresses a real, well-evidenced problem and reaches the right decision. The core policy — pin `main`-lineage commits, upstream-first, prohibit long-lived compat branches, bounded integration branches, cadenced advances, breakage-flows-back — is sound, and nearly every checkable claim verifies against the repository: the fix commit `e523475f` is on `origin/main`; `archive/eng-25006-snapback-compat` carries exactly six commits whose merge-base (`accb686f`, 2026-07-11) is 891 commits behind current `origin/main`; the three named `ex_hermes_*` symbols exist on that branch and nowhere on `main`; the toolchain pin (1.97.0), `default = ["standard", "insecure"]`, the secure invocation, the watchdog-heartbeat ABI, the `tls-client-identity-openssl` PEM/PKCS#8 decoders, LLP 0013 Mechanism 1 evaluator taming, Exact's pin `1407af0e` (on `main`), and the owed Snapback rerun in `issues/closed/20260726-native-fetch-jsi-last-owner-race.md` all check out. However, the Context section — which the document itself designates as the argument ("the Context section is the argument") — contains two factual claims the repository contradicts, including an internal contradiction about who found the motivating SIGSEGV. And the decision's rules are stated purely as human obligations with no decided visibility mechanism, in a repo whose norms are deterministic fail-closed checks, for a policy whose diagnosed failure mode is precisely silent, invisible drift.
+LLP 0041 addresses a real, well-evidenced problem and reaches the right decision. The core policy — pin `main`-lineage commits, upstream-first, prohibit long-lived compat branches, bounded integration branches, cadenced advances, breakage-flows-back — is sound, and nearly every checkable claim verifies against the repository: the fix commit `e523475f` is on `origin/main`; `archive/eng-25006-snapback-compat` carries exactly six commits whose merge-base (`accb686f`, 2026-07-11) is 891 commits behind current `origin/main`; the three named `ex_hermes_*` symbols exist on that branch and nowhere on `main`; the toolchain pin (1.97.0), `default = ["standard", "insecure"]`, the secure invocation, the watchdog-heartbeat ABI, the `tls-client-identity-openssl` PEM/PKCS#8 decoders, LLP 0013 Mechanism 1 evaluator taming, Exact's pin `1407af0e` (on `main`), and the owed Snapback rerun in `issues/closed/20260726-native-fetch-jsi-last-owner-race.md` all check out. However, the Context section — which the document itself designates as the argument ("the Context section is the argument") — contains two factual claims the repository contradicts, including an internal contradiction about who found the motivating SIGSEGV. And the decision's rules are stated purely as human obligations with no decided visibility mechanism, in a repo whose norms are deterministic fail-closed checks, for a policy whose diagnosed failure mode is precisely silent, invisible drift.
 
 **2. Strengths**
 
@@ -56,7 +56,7 @@ LLP 0040 addresses a real, well-evidenced problem and reaches the right decision
 
 **3. Concerns**
 
-**C1 [MATERIAL] — The SIGSEGV provenance contradicts itself and the repository record.** The Context paragraph says "Snapback's own verification had discovered a macOS SIGSEGV," which matches the repository record (`issues/closed/20260726-native-fetch-jsi-last-owner-race.md`: "Snapback verification reproduced a macOS SIGSEGV"). But cost 3 says "the SIGSEGV came out of the Exact-side Partitime matrix." These cannot both be right as written, and "Partitime" appears nowhere in this repository except LLP 0040 itself. The contradiction is load-bearing: the document's strongest rhetorical move ("the consumer that found the crash is the one consumer structurally unable to receive the fix") depends on Snapback having found it, while cost 3 cites the same crash as an Exact-side finding that "doesn't transfer." If there is a real dual-provenance story (e.g., a shared matrix running both consumers' verification), state it so the two claims reconcile; otherwise correct the cost-3 parenthetical to an example the repository supports.
+**C1 [MATERIAL] — The SIGSEGV provenance contradicts itself and the repository record.** The Context paragraph says "Snapback's own verification had discovered a macOS SIGSEGV," which matches the repository record (`issues/closed/20260726-native-fetch-jsi-last-owner-race.md`: "Snapback verification reproduced a macOS SIGSEGV"). But cost 3 says "the SIGSEGV came out of the Exact-side Partitime matrix." These cannot both be right as written, and "Partitime" appears nowhere in this repository except LLP 0041 itself. The contradiction is load-bearing: the document's strongest rhetorical move ("the consumer that found the crash is the one consumer structurally unable to receive the fix") depends on Snapback having found it, while cost 3 cites the same crash as an Exact-side finding that "doesn't transfer." If there is a real dual-provenance story (e.g., a shared matrix running both consumers' verification), state it so the two claims reconcile; otherwise correct the cost-3 parenthetical to an example the repository supports.
 
 **C2 [MATERIAL] — "Three ABI symbols existed for months" is contradicted by git history.** `ex_hermes_watch_time_limit`/`ex_hermes_unwatch_time_limit` were introduced in `24610d9e` (2026-07-12) and `ex_hermes_create_no_eval` in `c791baa2` (2026-07-18) — 9 to 15 days before the document's date, not months. The document explicitly leans on Context as the argument for rejecting the status quo, so its quantitative claims must survive checking. The fix is one word ("weeks"), and the honest number arguably strengthens the argument: 890 commits of divergence accrued in ~16 days makes the superlinear-drift point better than an inflated age does.
 
@@ -99,7 +99,7 @@ VERDICT: NOT READY
 
 **1. Overall assessment**
 
-The round-1 revision substantially improved the document's factual grounding, and nearly all of its precise claims check out against the repositories: `bfbc6133` is the tip of local `archive/eng-25006-snapback-compat`, the live branch ends exactly two commits earlier at `b129c8e0`, the six commits and their 2026-07-12..18 dates are exact, the three `ex_hermes_*` symbols appear on no `main`-lineage commit (a `-S` sweep of `origin/main` finds only LLP 0040's own text), the merge-base-to-main distance is 884 commits (fairly rounded as "~890"), `e523475f` is on `main` and rewrites the same engine files the compat commits touch, the cherry-picks `57b4fb5e`/`d93d3620` exist where described, Snapback `main` pins `bfbc6133`, the unpushed `chore/advance-vendor-ibex-jsi-owner-fix` branch carries both the submodule bump (to `eaf7ff67`, on ibex `origin/main`) and the `rust-toolchain.toml` move, `default = ["standard", "insecure"]` and the 1.97.0 toolchain pin are current, and the narrowed decision rules (1, 3, 4, 6, 7) are coherent and decision-grade. However, the new remediation step 0 — added in this delta precisely to be exact about ref state — rests on a verifiably false premise: `bfbc6133` **is** advertised on `origin`, by `refs/tags/hermes-ac8c6e6c80ec-bcd8ab683229` (a Hermes artifact-cache release tag created 2026-07-19, before this revision). The step's prescribed action remains sound, but in a revision whose stated purpose was honest, exact ref accounting, a checkable "no ref on `origin`" claim that is wrong must be corrected before acceptance.
+The round-1 revision substantially improved the document's factual grounding, and nearly all of its precise claims check out against the repositories: `bfbc6133` is the tip of local `archive/eng-25006-snapback-compat`, the live branch ends exactly two commits earlier at `b129c8e0`, the six commits and their 2026-07-12..18 dates are exact, the three `ex_hermes_*` symbols appear on no `main`-lineage commit (a `-S` sweep of `origin/main` finds only LLP 0041's own text), the merge-base-to-main distance is 884 commits (fairly rounded as "~890"), `e523475f` is on `main` and rewrites the same engine files the compat commits touch, the cherry-picks `57b4fb5e`/`d93d3620` exist where described, Snapback `main` pins `bfbc6133`, the unpushed `chore/advance-vendor-ibex-jsi-owner-fix` branch carries both the submodule bump (to `eaf7ff67`, on ibex `origin/main`) and the `rust-toolchain.toml` move, `default = ["standard", "insecure"]` and the 1.97.0 toolchain pin are current, and the narrowed decision rules (1, 3, 4, 6, 7) are coherent and decision-grade. However, the new remediation step 0 — added in this delta precisely to be exact about ref state — rests on a verifiably false premise: `bfbc6133` **is** advertised on `origin`, by `refs/tags/hermes-ac8c6e6c80ec-bcd8ab683229` (a Hermes artifact-cache release tag created 2026-07-19, before this revision). The step's prescribed action remains sound, but in a revision whose stated purpose was honest, exact ref accounting, a checkable "no ref on `origin`" claim that is wrong must be corrected before acceptance.
 
 **2. Concerns**
 
@@ -187,3 +187,17 @@ Proposed next step: the author applies `Accepted` (this loop never does),
 optionally folding the five wording-level dispositions above into the
 acceptance revision — which would then be a later, unreviewed revision and
 should be labeled as such.
+
+---
+
+## Author acceptance — 2026-07-27
+
+The author accepted LLP 0041 (`Status: Accepted`) after this loop converged.
+The five wording-level minors dispositioned above were folded into the
+acceptance revision; those edits are **post-READY and unreviewed** — the
+round-3 dual-family READY verdicts bind to revision `6a3a689fff74`, not to
+the accepted text. No decision changed: each edit answers a concern recorded
+in the ledger above (rule-4 overdue predicate and bound ownership; rule-6
+retention duty scoped to the pin declared in the rule-7 record; step 0's
+retention-guarantee wording and its alignment with step 4's stricter
+retirement condition).

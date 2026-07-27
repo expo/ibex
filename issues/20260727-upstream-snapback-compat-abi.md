@@ -1,6 +1,6 @@
 # Upstream the snapback compat ABI to main (LLP 0041 remediation steps 1–2)
 
-**Status:** Open (step-1 audit complete; step-2 upstreaming not started)
+**Status:** In Progress (audit complete; ENG-24340 time limits upstreamed 2026-07-27; ex_hermes_create_no_eval remains)
 **Severity:** P2
 **Systems:** Engine, Build, CapSec
 **Author:** Claude (Fable 5), directed by Charlie Cheever
@@ -65,3 +65,38 @@ exactly three symbols: `ex_hermes_create_no_eval`,
 **Done when:** both capabilities land on `main` through the full review
 discipline; snapback links against a `main` pin; the compat refs retire per
 LLP 0041 step 4.
+## Progress — 2026-07-27: eval time limits upstreamed
+
+Two of the three symbols snapback links now exist on `main`, plus a third the
+audit's design review showed was actually required:
+
+- `ex_hermes_watch_time_limit` / `ex_hermes_unwatch_time_limit` — owner-thread
+  (`ExactRuntimeDriveGuard`), wrapping stock Hermes `watchTimeLimit`, with the
+  `time_limit_watched` flag and a defensive unwatch inside
+  `ex_hermes_try_destroy` after the owner-thread teardown gate. Ported by hand
+  rather than cherry-picked: `d93d3620` no longer merges clean since the
+  runtime-extension SDK reshaped the same files.
+- `ex_hermes_interrupt_eval(runtime, nonce)` — **new**, and the resolution of
+  the design gap the audit flagged. Snapback arms a 1 ms limit from a foreign
+  thread (`RuntimeInterrupt::signal`) to stop a running eval, which the
+  drive guard would silently refuse; Hermes documents only
+  `asyncTriggerTimeout` as any-thread. This takes the nonce-authenticated
+  `ScopedRuntimeControlLease` (the same primitive
+  `ex_hermes_cancel_structured_work_target` uses) so a foreign thread can
+  interrupt while a stale caller cannot hit a runtime that reused the address.
+  Snapback's `signal()` should call this instead of arming a short limit
+  off-thread — a one-line consumer change, and the honest mapping.
+
+Tests (`src/engine/mod.rs`): a CPU-bound `while (true) {}` is terminated with
+Hermes' stable timeout error; zero timeout is refused and idle/repeat unwatch
+is safe; the off-thread interrupt stops a runaway and refuses a stale nonce.
+Capsec chain complete: three reviewed host-ABI rows classified
+`authority-release`/WP7 (interruption control stops work another decision
+authorized and grants nothing), output-disposition `catalogKeyDigest`
+repinned, registry → ingress inventory → contract → policies → compiled
+profile → vendored regenerated, `check:drift` green, and the seven moved
+count pins in `capsec-surface-inventory.test.mjs` updated (host-ABI 349).
+
+**Remaining:** `ex_hermes_create_no_eval` — the expensive half. Engine work is
+modest but the compat Hermes patch 0010 must be renumbered past main's stack
+and the framework rebuilt per platform with new artifact-cache receipts.

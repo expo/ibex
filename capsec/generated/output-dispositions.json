@@ -1,7 +1,7 @@
 {
   "outputDispositionDatasetSchema": "ibex/capsec-output-dispositions/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-s5NV4BsVa52WGgnMPJWbOvaGoEWiEJom5rxsQyl2_Ro",
+  "catalogKeyDigest": "sha256-4ZHxs7x5qrn-g184uGRtXN3SsZT2tNwb0YERJCxac00",
   "evidence": {
     "status": "unpromotable",
     "reason": "The output corpus remains unpromotable: thirteen native surface accounts lack output contracts (one module marker, one prepared-startup carrier, and eleven conformance-only runtime-extension fixture globals or operations); three inherited-intrinsic alias surface accounts lack exact native reachability contracts; and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes these account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
@@ -53368,6 +53368,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.interrupt.eval.0k38m1d",
+        "output": "[[return]]",
+        "alias": "ex_hermes_interrupt_eval",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.module.clear.commonjs.require.provider.01fzf0s",
         "output": "[[return]]",
         "alias": "ex_hermes_module_clear_commonjs_require_provider",
@@ -56448,6 +56465,23 @@
         "surfaceId": "surface.host.abi.ex.hermes.verify.prepared.native.startup.absent.v1.064gzo2",
         "output": "[[return]]",
         "alias": "ex_hermes_verify_prepared_native_startup_absent_v1",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.watch.time.limit.1wx5to6",
+        "output": "[[return]]",
+        "alias": "ex_hermes_watch_time_limit",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -110760,12 +110794,12 @@
     }
   ],
   "counts": {
-    "catalogRows": 6514,
-    "dispositionRows": 6514,
+    "catalogRows": 6516,
+    "dispositionRows": 6516,
     "byDisposition": {
       "absent": 152,
       "closed": 28,
-      "non-path": 6186,
+      "non-path": 6188,
       "private-native-path": 5,
       "refused": 12,
       "reserved-constant": 1,

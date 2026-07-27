@@ -338,14 +338,14 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_580);
+    expect(recipes.summary.requiredFixtures).toBe(23_583);
     // The merged catalog retains every source-bound Apple probe while removing
     // the superseded WebGPU-specific Ibex surface under LLP 0040.
     expect(recipes.summary.fullyExecutableFixtures).toBe(3_531);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_013);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_016);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -442,7 +442,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_239);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_242);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch. The
@@ -464,7 +464,7 @@ describe("exact-target CapSec executable recipes", () => {
     // claims.
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_190);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_027);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_030);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(

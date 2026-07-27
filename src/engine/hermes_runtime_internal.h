@@ -710,6 +710,10 @@ struct ExactHermesRuntime {
   // Strict JSON [{locator,endowments}] projection copied from the immutable
   // armed Host context. Locator punctuation is data, never bootstrap syntax.
   std::string snapshot_endowments_json;
+  // True while Hermes' async-break time-limit monitor is registered for this
+  // runtime. Embedders arm it around one untrusted eval; destroy defensively
+  // unregisters it so the monitor can never retain a dead runtime pointer.
+  bool time_limit_watched{false};
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   // The frame-attribution VM owned by this handle. The active pointer is
   // selected at each engine entry point; a thread may drive nested runtimes.

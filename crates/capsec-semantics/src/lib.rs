@@ -10,6 +10,7 @@ pub mod canonical;
 pub mod compiled_mount;
 pub mod containment;
 pub mod decision;
+pub mod diagnostic_audit;
 pub mod digest;
 pub mod error;
 pub mod graph_snapshot;

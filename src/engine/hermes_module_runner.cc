@@ -3421,7 +3421,7 @@ extern "C" int32_t ex_hermes_module_complete_dynamic_activation(
   const bool computed = request.computed;
   const uint32_t site = request.site;
   const std::string specifier = request.specifier;
-  ScopedGpuHostTask hostTask(runtime);
+  ScopedRuntimeExtensionHostTask hostTask(runtime);
   if (!hostTask) return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
   bool completed = false;
   try {
