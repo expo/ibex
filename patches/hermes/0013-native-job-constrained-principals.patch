@@ -1,0 +1,2599 @@
+# LLP 0040 Hermes patch 0013 — native job constrained principals
+# Class: B (bounded immutable Promise/job/embedder provenance carriers,
+#         private Promise records, and definition-authenticated async helpers)
+# @ref LLP 0040
+#
+diff --git a/API/hermes/hermes.h b/API/hermes/hermes.h
+index bfc595ec4d3cd179ef17501283d5a2f2311c27a9..f5bf431bbfb16263c41e8c4dfcc48e3ebdff7302 100644
+--- a/API/hermes/hermes.h
++++ b/API/hermes/hermes.h
+@@ -197,6 +197,7 @@ class IHermesTracingHelpers : public jsi::ICast {
+ #define HERMES_HAS_RAW_THROW_CAPTURE 1
+ #define HERMES_HAS_COMPLETION_RECORD 1
+ #define HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK 1
++#define HERMES_HAS_JOB_CONSTRAINED_PRINCIPALS 1
+ #define HERMES_HAS_SAFE_STAGE1_TEXT 1
+ #define HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA 1
+ #define HERMES_HAS_SAFE_THROW_METADATA 1
+diff --git a/include/hermes/VM/CapabilityAttribution.h b/include/hermes/VM/CapabilityAttribution.h
+index c458a9dc031c295ff88b9a7b7510a41d48392427..a800a9d3fc64b5442a5f25cf1ff111a34a487b17 100644
+--- a/include/hermes/VM/CapabilityAttribution.h
++++ b/include/hermes/VM/CapabilityAttribution.h
+@@ -19,6 +19,7 @@
+ #ifndef HERMES_VM_CAPABILITYATTRIBUTION_H
+ #define HERMES_VM_CAPABILITYATTRIBUTION_H
+ 
++#include <cstddef>
+ #include <cstdint>
+ 
+ namespace hermes {
+@@ -50,6 +51,10 @@ uint32_t getCurrentPackageId(Runtime &runtime);
+ /// caller's compartment. @ref LLP 0013#mechanism-2
+ JSObject *getCurrentCompartmentGlobal(Runtime &runtime);
+ 
++/// Collect the distinct effective user principals for the current synchronous,
++/// job, and embedder scopes, capped at \p max.
++size_t collectStackPackageIds(Runtime &runtime, uint32_t *out, size_t max);
++
+ } // namespace vm
+ } // namespace hermes
+ 
+diff --git a/include/hermes/VM/Runtime-inline.h b/include/hermes/VM/Runtime-inline.h
+index 4032c3c338bb57b4908cd8be267b027db209b259..95ab40fa9d584b37f5555cf559d4230ec51cc16d 100644
+--- a/include/hermes/VM/Runtime-inline.h
++++ b/include/hermes/VM/Runtime-inline.h
+@@ -65,11 +65,78 @@ inline void Runtime::enqueueJob(Callable *job) {
+       }
+     }
+   }
++  auto mergeConstrainedPrincipals = [&]()
++      -> std::shared_ptr<const std::vector<uint32_t>> {
++    const std::shared_ptr<const std::vector<uint32_t>> slots[] = {
++        currentJobConstrainedPrincipals_,
++        embedderJobConstrainedPrincipals_,
++        embedderHostConstrainedPrincipals_};
++    size_t present = 0;
++    std::shared_ptr<const std::vector<uint32_t>> only;
++    for (const auto &slot : slots) {
++      if (slot) {
++        ++present;
++        only = slot;
++      }
++    }
++    if (present == 0)
++      return nullptr;
++    if (present == 1) {
++      constexpr size_t kMaxConstrainedPrincipals = 256;
++      if (only->empty() ||
++          only->size() > kMaxConstrainedPrincipals ||
++          std::find(
++              only->begin(), only->end(), kNoJobSchedulerPrincipal) !=
++              only->end()) {
++        return std::make_shared<const std::vector<uint32_t>>(
++            1, kNoUserPrincipal);
++      }
++      return only;
++    }
++
++    constexpr size_t kMaxConstrainedPrincipals = 256;
++    auto merged = std::make_shared<std::vector<uint32_t>>();
++    merged->reserve(kMaxConstrainedPrincipals);
++    for (const auto &slot : slots) {
++      if (!slot || slot->empty()) {
++        if (slot) {
++          return std::make_shared<const std::vector<uint32_t>>(
++              1, kNoUserPrincipal);
++        }
++        continue;
++      }
++      for (uint32_t principal : *slot) {
++        if (principal == kNoJobSchedulerPrincipal) {
++          return std::make_shared<const std::vector<uint32_t>>(
++              1, kNoUserPrincipal);
++        }
++        if (std::find(merged->begin(), merged->end(), principal) !=
++            merged->end()) {
++          continue;
++        }
++        if (merged->size() == kMaxConstrainedPrincipals) {
++          return std::make_shared<const std::vector<uint32_t>>(
++              1, kNoUserPrincipal);
++        }
++        merged->push_back(principal);
++      }
++    }
++    if (merged->empty()) {
++      return std::make_shared<const std::vector<uint32_t>>(
++          1, kNoUserPrincipal);
++    }
++    return merged;
++  };
++  // Preserve the complete embedder-authenticated constraint on every job.
++  // Promise.js additionally snapshots settlement and handler-registration
++  // contexts so delayed reactions reach this enqueue point with the same
++  // immutable union after the native callback scope ends.
+   jobSchedulerQueue_.push_back(JobScheduleContext{
+       scheduler,
+       identity,
+       currentJobIdentity_ != 0 ? currentJobAssociatedEvaluation_
+-                               : embedderJobAssociatedEvaluation_});
++                               : embedderJobAssociatedEvaluation_,
++      mergeConstrainedPrincipals()});
+ }
+ 
+ inline Handle<HiddenClass> Runtime::getHiddenClassForPrototype(
+diff --git a/include/hermes/VM/Runtime.h b/include/hermes/VM/Runtime.h
+index af8e91c635f95d7918c4b2ca21b9d859343ccde0..e2e6e722b74cf16d0a669aabf6f3c9efbc1005ad 100644
+--- a/include/hermes/VM/Runtime.h
++++ b/include/hermes/VM/Runtime.h
+@@ -1078,6 +1078,9 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+     uint32_t principal{kNoJobSchedulerPrincipal};
+     uint64_t identity{0};
+     uint64_t associatedEvaluation{0};
++    // Immutable and shared so a Promise chain preserves every outer
++    // authority constraint without copying a bounded vector per reaction.
++    std::shared_ptr<const std::vector<uint32_t>> constrainedPrincipals{};
+   };
+ 
+   /// The principal that SCHEDULED the currently-draining job (restored from the
+@@ -1112,6 +1115,26 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+   uint32_t embedderJobSchedulerPrincipal() const {
+     return embedderJobSchedulerPrincipal_;
+   }
++  const std::shared_ptr<const std::vector<uint32_t>> &
++  currentJobConstrainedPrincipals() const {
++    return currentJobConstrainedPrincipals_;
++  }
++  const std::shared_ptr<const std::vector<uint32_t>> &
++  embedderJobConstrainedPrincipals() const {
++    return embedderJobConstrainedPrincipals_;
++  }
++  void setEmbedderJobConstrainedPrincipals(
++      std::shared_ptr<const std::vector<uint32_t>> principals) {
++    embedderJobConstrainedPrincipals_ = std::move(principals);
++  }
++  const std::shared_ptr<const std::vector<uint32_t>> &
++  embedderHostConstrainedPrincipals() const {
++    return embedderHostConstrainedPrincipals_;
++  }
++  void setEmbedderHostConstrainedPrincipals(
++      std::shared_ptr<const std::vector<uint32_t>> principals) {
++    embedderHostConstrainedPrincipals_ = std::move(principals);
++  }
+ 
+   bool takeFailedJobContext(JobScheduleContext &out) {
+     if (lastFailedJobContext_.identity == 0)
+@@ -1141,6 +1164,15 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+   uint64_t currentJobAssociatedEvaluation_{0};
+   uint64_t embedderJobAssociatedEvaluation_{0};
+   uint32_t embedderJobSchedulerPrincipal_{kNoJobSchedulerPrincipal};
++  std::shared_ptr<const std::vector<uint32_t>>
++      currentJobConstrainedPrincipals_{};
++  std::shared_ptr<const std::vector<uint32_t>>
++      embedderJobConstrainedPrincipals_{};
++  // Authenticated native/TLS carrier owned by the embedder. Keep this distinct
++  // from the internal Promise helper slot above so a nested host callback can
++  // restore its own scope without erasing the surrounding Promise carrier.
++  std::shared_ptr<const std::vector<uint32_t>>
++      embedderHostConstrainedPrincipals_{};
+   uint64_t nextJobIdentity_{1};
+   JobScheduleContext lastFailedJobContext_{};
+   bool captureJobSchedulerPrincipal_{false};
+@@ -1530,8 +1562,9 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+ 
+   /// @ref LLP 0013#phase-5 — (Open-Q3) — the scheduling principal captured for each
+   /// queued job, kept in lockstep with jobQueue_ (one entry per job, same FIFO
+-  /// order; enqueueJob pushes both, drainJobs pops both). POD uint32_t, so unlike
+-  /// jobQueue_ it holds no heap pointers and needs no GC root marking.
++  /// order; enqueueJob pushes both, drainJobs pops both). The optional
++  /// constrained-principal vector is native metadata, not a JS heap pointer,
++  /// and therefore needs no GC root marking.
+   std::deque<JobScheduleContext> jobSchedulerQueue_{};
+ 
+ #ifdef HERMESVM_PROFILER_BB
+diff --git a/lib/AST/AsyncGenerator.cpp b/lib/AST/AsyncGenerator.cpp
+index 73c482b75da37740cacd7d8bca3777a9653e2513..899ab9edbf8bfb47dd669748e71d27ba4bb0ec10 100644
+--- a/lib/AST/AsyncGenerator.cpp
++++ b/lib/AST/AsyncGenerator.cpp
+@@ -26,7 +26,7 @@ namespace hermes {
+  * let userFunction = (() => {
+  *      let _ref = _wrapAsyncGenerator(function* (arguments) { // body
+  * containing await calls }); return function userFunction() { return
+- * _ref.apply(this, arguments);
++ * _invokeAsyncGenerator(_ref, this, arguments);
+  *      };
+  * })();
+  *
+@@ -205,25 +205,23 @@ class AsyncGenerator : public TransformationsBase {
+         : makeHermesInternalCall(
+               funcNode, "_wrapAsyncGenerator", NodeVector{refFunc});
+ 
+-    // Create a function body that calls apply on the wrapped function
++    // Invoke through the internal helper's bootstrap-captured apply intrinsic.
++    // Emitting `wrapped.apply(this, arguments)` would perform a delayed lookup
++    // through mutable Function.prototype.apply and let user code intercept the
++    // compiler-generated async-generator entry.
+     auto appliedBody = createTransformedNode<ESTree::BlockStatementNode>(
+         funcNode,
+         NodeVector{
+             createTransformedNode<ESTree::ReturnStatementNode>(
+                 funcNode,
+-                createTransformedNode<ESTree::CallExpressionNode>(
++                makeHermesInternalCall(
+                     funcNode,
+-                    createTransformedNode<ESTree::MemberExpressionNode>(
+-                        funcNode,
+-                        wrappedRef,
+-                        makeIdentifierNode(funcNode, "apply"),
+-                        false),
+-                    nullptr,
++                    "_invokeAsyncGenerator",
+                     NodeVector{
++                        wrappedRef,
+                         createTransformedNode<ESTree::ThisExpressionNode>(
+                             funcNode),
+-                        makeIdentifierNode(funcNode, "arguments")}
+-                        .toNodeList()))}
++                        makeIdentifierNode(funcNode, "arguments")}))}
+             .toNodeList(),
+         /* implicit */ false);
+ 
+diff --git a/lib/InternalJavaScript/01-Promise.js b/lib/InternalJavaScript/01-Promise.js
+index de4a064458f083bbfdc68b1c1967b592071d5ad2..342b272c40820454567e443bf614fb016f1eda8e 100644
+--- a/lib/InternalJavaScript/01-Promise.js
++++ b/lib/InternalJavaScript/01-Promise.js
+@@ -1,30 +1,131 @@
+ /* @nolint */var initPromise = (function () {
+   'use strict';
+   var useEngineQueue = HermesInternal.useEngineQueue();
++  // Capture pristine collection operations before user code can replace the
++  // public prototypes and observe or rewrite private Promise records.
++  var weakMapGet =
++    Function.prototype.call.bind(WeakMap.prototype.get);
++  var weakMapSet =
++    Function.prototype.call.bind(WeakMap.prototype.set);
++  var weakMapHas =
++    Function.prototype.call.bind(WeakMap.prototype.has);
++  var weakMapDelete =
++    Function.prototype.call.bind(WeakMap.prototype.delete);
++  var arraySlice =
++    Function.prototype.call.bind(Array.prototype.slice);
++  var callFunction =
++    Function.prototype.call.bind(Function.prototype.call);
++  var applyFunction =
++    Function.prototype.call.bind(Function.prototype.apply);
++  var ArrayCtor = Array;
++  var TypeErrorCtor = TypeError;
++  var arrayFrom = Array.from;
++  var objectCreate = Object.create;
++  var defineProperty = Object.defineProperty;
++  var defineProperties = Object.defineProperties;
++  var getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
++  // Promise settlement and handler registration can occur in different
++  // principal scopes. Keep both opaque engine-issued tokens outside the
++  // user-visible Promise/Handler property graph so delayed attachment cannot
++  // erase either constraint.
++  var constrainedPrincipals = new WeakMap();
++  // Promise/A+ state was historically stored in writable, user-visible
++  // underscore properties. Keep it in an engine-private lexical WeakMap so a
++  // package cannot rewrite a root Promise into a clean adoption alias or
++  // splice a root-registered Handler into a queue.
++  var promiseStates = new WeakMap();
++  var handlerStates = new WeakMap();
++  // Legacy rejection tracking historically used a writable `_E` property.
++  // Keep the semantic id private so frozen or user-mutated Promises cannot
++  // interrupt rejection/finalization; `_E` remains a best-effort mirror.
++  var rejectionIds = new WeakMap();
++  var checkpointRejections = new WeakMap();
+   function noop() {}
+ 
++  function privateArraySet(array, index, value) {
++    defineProperty(array, index, {
++      value: value,
++      writable: true,
++      enumerable: true,
++      configurable: true
++    });
++  }
++
++  function privateArrayPush(array, value) {
++    privateArraySet(array, array.length, value);
++    return array.length;
++  }
++
++  function stateOf(promise) {
++    var state = weakMapGet(promiseStates, promise);
++    if (state === undefined) {
++      throw new TypeErrorCtor('Promise operation called on an incompatible receiver');
++    }
++    return state;
++  }
++
++  function handlerOf(handler) {
++    var state = weakMapGet(handlerStates, handler);
++    if (state === undefined) {
++      throw new TypeErrorCtor('Malformed private Promise reaction');
++    }
++    return state;
++  }
++
++  function syncPromiseDebugState(promise, state) {
++    // Read-only-for-correctness compatibility mirrors for the Hermes REPL.
++    // Promise behavior never reads these user-visible properties, and a user
++    // freezing the Promise must not interrupt private settlement/finalization.
++    try {
++      promise._x = state.x;
++      promise._y = state.y;
++      promise._z = state.z;
++    } catch (_) {}
++  }
++
+   // States:
+   //
+   // 0 - pending
+-  // 1 - fulfilled with _value
+-  // 2 - rejected with _value
+-  // 3 - adopted the state of another promise, _value
++  // 1 - fulfilled with state.z
++  // 2 - rejected with state.z
++  // 3 - adopted the state of another promise in state.z
+   //
+   // once the state is no longer pending (0) it is immutable
+ 
+-  // All `_` prefixed properties will be reduced to `_{random number}`
+-  // at build time to obfuscate them and discourage their use.
+-  // We don't use symbols or Object.defineProperty to fully hide them
+-  // because the performance isn't good enough.
+-
+-
+   // to avoid using try/catch inside critical functions, we
+   // extract them to here.
+   var LAST_ERROR = null;
+   var IS_ERROR = {};
+-  function getThen(obj) {
++  function getThen(obj, principals) {
++    try {
++      return HermesInternal.getThenWithConstrainedPrincipals(
++        obj,
++        principals
++      );
++    } catch (ex) {
++      LAST_ERROR = ex;
++      return IS_ERROR;
++    }
++  }
++
++  function getPromiseConstructor(obj, principals) {
++    try {
++      return HermesInternal.getPromiseConstructorWithConstrainedPrincipals(
++        obj,
++        principals
++      );
++    } catch (ex) {
++      LAST_ERROR = ex;
++      return IS_ERROR;
++    }
++  }
++
++  function getPromiseResolve(obj, principals) {
+     try {
+-      return obj.then;
++      return HermesInternal.getPromiseResolveWithConstrainedPrincipals(
++        obj,
++        principals
++      );
+     } catch (ex) {
+       LAST_ERROR = ex;
+       return IS_ERROR;
+@@ -48,19 +149,57 @@
+     }
+   }
+ 
++  function tryCallTwoConstrained(fn, receiver, principals, a, b) {
++    try {
++      return HermesInternal.callThenWithConstrainedPrincipals(
++        fn,
++        receiver,
++        principals,
++        a,
++        b
++      );
++    } catch (ex) {
++      LAST_ERROR = ex;
++      return IS_ERROR;
++    }
++  }
++
+   var core = Promise;
++  var rejectionHandledHook = null;
++  var rejectionCreatedHook = null;
++  var rejectionTrackerPrincipals = null;
++
++  function callRejectionTrackerHook(hook, promise, value) {
++    try {
++      HermesInternal.callJobWithConstrainedPrincipals(
++        function () {
++          hook(promise, value);
++        },
++        weakMapGet(constrainedPrincipals, promise),
++        rejectionTrackerPrincipals
++      );
++    } catch (_) {
++      // Rejection diagnostics are observational. A mutable public tracker
++      // callback must never interrupt settlement or handler registration.
++    }
++  }
+ 
+   function Promise(fn) {
+-    if (typeof this !== 'object') {
+-      throw new TypeError('Promises must be constructed via new');
++    if (new.target === undefined || typeof this !== 'object') {
++      throw new TypeErrorCtor('Promises must be constructed via new');
+     }
+     if (typeof fn !== 'function') {
+-      throw new TypeError('Promise constructor\'s argument is not a function');
++      throw new TypeErrorCtor('Promise constructor\'s argument is not a function');
+     }
+-    this._x = 0;
+-    this._y = 0;
+-    this._z = null;
+-    this._A = null;
++    var state = { x: 0, y: 0, z: null, A: null };
++    weakMapSet(promiseStates, this, state);
++    defineProperties(this, {
++      _x: { value: 0, writable: true, enumerable: true },
++      _y: { value: 0, writable: true, enumerable: true },
++      _z: { value: null, writable: true, enumerable: true },
++      _A: { value: null, writable: true, enumerable: true }
++    });
++    captureConstrainedPrincipals(this);
+     if (fn === noop) return;
+     doResolve(fn, this);
+   }
+@@ -69,123 +208,343 @@
+   Promise._D = noop;
+ 
+   Promise.prototype.then = function(onFulfilled, onRejected) {
+-    if (this.constructor !== Promise) {
+-      return safeThen(this, onFulfilled, onRejected);
++    if (
++      !weakMapHas(constrainedPrincipals, this) ||
++      !weakMapHas(promiseStates, this)
++    ) {
++      throw new TypeErrorCtor('Promise.prototype.then called on an incompatible receiver');
++    }
++    var registrationPrincipals =
++      HermesInternal.captureJobConstrainedPrincipals();
++    var promiseConstructor = getPromiseConstructor(
++      this,
++      HermesInternal.captureJobConstrainedPrincipals(
++        weakMapGet(constrainedPrincipals, this),
++        registrationPrincipals
++      )
++    );
++    if (promiseConstructor === IS_ERROR) {
++      throw LAST_ERROR;
++    }
++    if (promiseConstructor !== Promise) {
++      return safeThen(
++        this,
++        onFulfilled,
++        onRejected,
++        registrationPrincipals,
++        promiseConstructor
++      );
++    }
++    return performThen(
++      this,
++      onFulfilled,
++      onRejected,
++      registrationPrincipals
++    );
++  };
++  var intrinsicPromiseThen = Promise.prototype.then;
++
++  function performThen(
++    self,
++    onFulfilled,
++    onRejected,
++    registrationPrincipals
++  ) {
++    if (
++      !weakMapHas(constrainedPrincipals, self) ||
++      !weakMapHas(promiseStates, self)
++    ) {
++      throw new TypeErrorCtor('Promise operation called on an incompatible receiver');
++    }
++    if (registrationPrincipals === undefined) {
++      registrationPrincipals =
++        HermesInternal.captureJobConstrainedPrincipals();
+     }
+     var res = new Promise(noop);
+-    handle(this, new Handler(onFulfilled, onRejected, res));
++    handle(
++      self,
++      new Handler(
++        onFulfilled,
++        onRejected,
++        res,
++        registrationPrincipals
++      )
++    );
+     return res;
+-  };
++  }
+ 
+-  function safeThen(self, onFulfilled, onRejected) {
+-    return new self.constructor(function (resolve, reject) {
+-      var res = new Promise(noop);
+-      res.then(resolve, reject);
+-      handle(self, new Handler(onFulfilled, onRejected, res));
+-    });
++  function safeThen(
++    self,
++    onFulfilled,
++    onRejected,
++    registrationPrincipals,
++    promiseConstructor
++  ) {
++    var result;
++    // The observable constructor is user code too. Authenticate the exact
++    // callable that was read above and retain its definition principal even
++    // after the constructor frame unwinds. A package-defined constructor may
++    // legally return a pre-existing branded Promise from `new`; source and
++    // registration provenance alone would otherwise let that clean object
++    // erase the constructor package.
++    var constructionPrincipals =
++      HermesInternal.captureJobConstrainedPrincipals(
++        registrationPrincipals,
++        HermesInternal.captureCallableJobConstrainedPrincipals(
++          promiseConstructor
++        )
++      );
++    var construct = function() {
++      result = new promiseConstructor(function (resolve, reject) {
++        var res = new Promise(noop);
++        performThen(res, resolve, reject);
++        handle(
++          self,
++          new Handler(
++            onFulfilled,
++            onRejected,
++            res,
++            registrationPrincipals
++          )
++        );
++      });
++    };
++    HermesInternal.callJobWithConstrainedPrincipals(
++      construct,
++      weakMapGet(constrainedPrincipals, self),
++      constructionPrincipals
++    );
++    if (
++      weakMapHas(constrainedPrincipals, result) &&
++      weakMapHas(promiseStates, result)
++    ) {
++      // A hostile subclass constructor can return a pre-existing Promise
++      // instead of the object allocated by `new`. Retain the source and
++      // complete construction constraints on that exact published result.
++      captureConstrainedPrincipals(result, self);
++      mergeConstrainedPrincipalsToken(result, constructionPrincipals);
++    }
++    return result;
+   }
+   function handle(self, deferred) {
+-    while (self._y === 3) {
+-      self = self._z;
++    var state = stateOf(self);
++    while (state.y === 3) {
++      captureConstrainedPrincipals(deferred, self);
++      self = state.z;
++      state = stateOf(self);
+     }
+-    if (Promise._B) {
+-      Promise._B(self);
++    if (rejectionHandledHook) {
++      callRejectionTrackerHook(
++        rejectionHandledHook,
++        self,
++        undefined
++      );
+     }
+-    if (self._y === 0) {
+-      if (self._x === 0) {
+-        self._x = 1;
+-        self._A = deferred;
++    if (state.y === 0) {
++      if (state.x === 0) {
++        state.x = 1;
++        state.A = deferred;
++        syncPromiseDebugState(self, state);
+         return;
+       }
+-      if (self._x === 1) {
+-        self._x = 2;
+-        self._A = [self._A, deferred];
++      if (state.x === 1) {
++        state.x = 2;
++        state.A = [state.A, deferred];
++        syncPromiseDebugState(self, state);
+         return;
+       }
+-      self._A.push(deferred);
++      privateArrayPush(state.A, deferred);
+       return;
+     }
+     handleResolved(self, deferred);
+   }
+ 
+   function handleResolved(self, deferred) {
+-    (useEngineQueue ? HermesInternal.enqueueJob : setImmediate)(function() {
+-      var cb = self._y === 1 ? deferred.onFulfilled : deferred.onRejected;
++    var state = stateOf(self);
++    var job = function() {
++      var deferredState = handlerOf(deferred);
++      var cb =
++        state.y === 1
++          ? deferredState.onFulfilled
++          : deferredState.onRejected;
+       if (cb === null) {
+-        if (self._y === 1) {
+-          resolve(deferred.promise, self._z);
++        if (state.y === 1) {
++          resolve(deferredState.promise, state.z);
+         } else {
+-          reject(deferred.promise, self._z);
++          reject(deferredState.promise, state.z);
+         }
+         return;
+       }
+-      var ret = tryCallOne(cb, self._z);
++      var ret = tryCallOne(cb, state.z);
+       if (ret === IS_ERROR) {
+-        reject(deferred.promise, LAST_ERROR);
++        reject(deferredState.promise, LAST_ERROR);
+       } else {
+-        resolve(deferred.promise, ret);
++        resolve(deferredState.promise, ret);
+       }
+-    });
++    };
++    var settlementPrincipals = weakMapGet(constrainedPrincipals, self);
++    var registrationPrincipals = weakMapGet(constrainedPrincipals, deferred);
++    if (useEngineQueue) {
++      HermesInternal.enqueueJobWithConstrainedPrincipals(
++        job,
++        settlementPrincipals,
++        registrationPrincipals
++      );
++    } else {
++      setImmediate(function() {
++        HermesInternal.callJobWithConstrainedPrincipals(
++          job,
++          settlementPrincipals,
++          registrationPrincipals
++        );
++      });
++    }
++  }
++
++  function captureConstrainedPrincipals(target, source) {
++    var sourcePrincipals = undefined;
++    if (source !== undefined) {
++      // A Promise-shaped object cannot manufacture the engine-private WeakMap
++      // brand. Pass a deliberately malformed token so native merging fails
++      // closed instead of treating a missing alias context as optional.
++      sourcePrincipals = weakMapHas(constrainedPrincipals, source)
++        ? weakMapGet(constrainedPrincipals, source)
++        : null;
++    }
++    weakMapSet(
++      constrainedPrincipals,
++      target,
++      HermesInternal.captureJobConstrainedPrincipals(
++        weakMapGet(constrainedPrincipals, target),
++        sourcePrincipals
++      )
++    );
++  }
++
++  function mergeConstrainedPrincipalsToken(target, token) {
++    weakMapSet(
++      constrainedPrincipals,
++      target,
++      HermesInternal.captureJobConstrainedPrincipals(
++        weakMapGet(constrainedPrincipals, target),
++        token
++      )
++    );
+   }
++
+   function resolve(self, newValue) {
+     // Promise Resolution Procedure: https://github.com/promises-aplus/promises-spec#the-promise-resolution-procedure
++    // Resolution may assimilate a thenable or alias another Promise instead of
++    // settling immediately. Capture before either branch and monotonically
++    // retain the context at every later resolution/settlement edge.
++    captureConstrainedPrincipals(self);
++    var state = stateOf(self);
+     if (newValue === self) {
+       return reject(
+         self,
+-        new TypeError('A promise cannot be resolved with itself.')
++        new TypeErrorCtor('A promise cannot be resolved with itself.')
+       );
+     }
+     if (
+       newValue &&
+       (typeof newValue === 'object' || typeof newValue === 'function')
+     ) {
+-      var then = getThen(newValue);
++      var brandedPromise =
++        weakMapHas(constrainedPrincipals, newValue) &&
++        weakMapHas(promiseStates, newValue);
++      var sourcePrincipals = brandedPromise
++        ? weakMapGet(constrainedPrincipals, newValue)
++        : null;
++      if (brandedPromise) {
++        captureConstrainedPrincipals(self, newValue);
++      }
++      // Observe an unbranded object's getter fail-closed, but only retain that
++      // unknown provenance when it is an actual thenable (or the getter
++      // throws). Plain object/native payloads carry data, not executable
++      // authority, and must remain usable by their real resolver principal.
++      var then = getThen(newValue, sourcePrincipals);
+       if (then === IS_ERROR) {
++        if (!brandedPromise) {
++          captureConstrainedPrincipals(self, newValue);
++        }
+         return reject(self, LAST_ERROR);
+       }
+       if (
+-        then === self.then &&
+-        newValue instanceof Promise
++        brandedPromise &&
++        then === intrinsicPromiseThen
+       ) {
+-        self._y = 3;
+-        self._z = newValue;
++        state.y = 3;
++        state.z = newValue;
++        syncPromiseDebugState(self, state);
+         finale(self);
+         return;
+-      } else if (typeof then === 'function') {
+-        doResolve(then.bind(newValue), self);
++      }
++      if (typeof then === 'function') {
++        if (!brandedPromise) {
++          captureConstrainedPrincipals(self, newValue);
++        }
++        doResolve(
++          then,
++          self,
++          newValue,
++          weakMapGet(constrainedPrincipals, self)
++        );
+         return;
+       }
+     }
+-    self._y = 1;
+-    self._z = newValue;
++    captureConstrainedPrincipals(self);
++    state.y = 1;
++    state.z = newValue;
++    syncPromiseDebugState(self, state);
+     finale(self);
+   }
+ 
+   function reject(self, newValue) {
+-    self._y = 2;
+-    self._z = newValue;
+-    if (Promise._C) {
+-      Promise._C(self, newValue);
++    captureConstrainedPrincipals(self);
++    var state = stateOf(self);
++    state.y = 2;
++    state.z = newValue;
++    syncPromiseDebugState(self, state);
++    if (rejectionCreatedHook) {
++      callRejectionTrackerHook(
++        rejectionCreatedHook,
++        self,
++        newValue
++      );
+     }
+     finale(self);
+   }
+   function finale(self) {
+-    if (self._x === 1) {
+-      handle(self, self._A);
+-      self._A = null;
++    var state = stateOf(self);
++    if (state.x === 1) {
++      handle(self, state.A);
++      state.A = null;
+     }
+-    if (self._x === 2) {
+-      for (var i = 0; i < self._A.length; i++) {
+-        handle(self, self._A[i]);
++    if (state.x === 2) {
++      for (var i = 0; i < state.A.length; i++) {
++        handle(self, state.A[i]);
+       }
+-      self._A = null;
++      state.A = null;
+     }
+   }
+ 
+-  function Handler(onFulfilled, onRejected, promise){
+-    this.onFulfilled = typeof onFulfilled === 'function' ? onFulfilled : null;
+-    this.onRejected = typeof onRejected === 'function' ? onRejected : null;
+-    this.promise = promise;
++  function Handler(
++    onFulfilled,
++    onRejected,
++    promise,
++    registrationPrincipals
++  ){
++    weakMapSet(handlerStates, this, {
++      onFulfilled:
++        typeof onFulfilled === 'function' ? onFulfilled : null,
++      onRejected:
++        typeof onRejected === 'function' ? onRejected : null,
++      promise: promise
++    });
++    captureConstrainedPrincipals(this);
++    if (registrationPrincipals !== undefined) {
++      mergeConstrainedPrincipalsToken(this, registrationPrincipals);
++    }
+   }
+ 
+   /**
+@@ -194,17 +553,27 @@
+    *
+    * Makes no guarantees about asynchrony.
+    */
+-  function doResolve(fn, promise) {
++  function doResolve(fn, promise, receiver, principals) {
+     var done = false;
+-    var res = tryCallTwo(fn, function (value) {
++    var onFulfilled = function (value) {
+       if (done) return;
+       done = true;
+       resolve(promise, value);
+-    }, function (reason) {
++    };
++    var onRejected = function (reason) {
+       if (done) return;
+       done = true;
+       reject(promise, reason);
+-    });
++    };
++    var res = principals === undefined
++      ? tryCallTwo(fn, onFulfilled, onRejected)
++      : tryCallTwoConstrained(
++          fn,
++          receiver,
++          principals,
++          onFulfilled,
++          onRejected
++        );
+     if (!done && res === IS_ERROR) {
+       done = true;
+       reject(promise, LAST_ERROR);
+@@ -219,94 +588,277 @@
+ 
+   /* Static Functions */
+ 
+-  var TRUE = valuePromise(true);
+-  var FALSE = valuePromise(false);
+-  var NULL = valuePromise(null);
+-  var UNDEFINED = valuePromise(undefined);
+-  var ZERO = valuePromise(0);
+-  var EMPTYSTRING = valuePromise('');
+-
+   function valuePromise(value) {
+-    var p = new core(core._D);
+-    p._y = 1;
+-    p._z = value;
++    // Promise._D is a historical user-visible alias. The real no-op resolver
++    // remains lexical so replacing that property cannot retain or settle a
++    // supposedly already-fulfilled scalar Promise.
++    var p = new core(noop);
++    var state = stateOf(p);
++    state.y = 1;
++    state.z = value;
++    syncPromiseDebugState(p, state);
+     return p;
+   }
+   core.resolve = function (value) {
+-    if (value instanceof core) return value;
+-
+-    if (value === null) return NULL;
+-    if (value === undefined) return UNDEFINED;
+-    if (value === true) return TRUE;
+-    if (value === false) return FALSE;
+-    if (value === 0) return ZERO;
+-    if (value === '') return EMPTYSTRING;
+-
+-    if (typeof value === 'object' || typeof value === 'function') {
+-      try {
+-        var then = value.then;
+-        if (typeof then === 'function') {
+-          return new core(then.bind(value));
+-        }
+-      } catch (ex) {
+-        return new core(function (resolve, reject) {
+-          reject(ex);
+-        });
++    if (
++      weakMapHas(constrainedPrincipals, value) &&
++      weakMapHas(promiseStates, value)
++    ) {
++      var sourcePrincipals = weakMapGet(constrainedPrincipals, value);
++      var promiseConstructor = getPromiseConstructor(
++        value,
++        sourcePrincipals
++      );
++      if (promiseConstructor === IS_ERROR) {
++        throw LAST_ERROR;
++      }
++      if (promiseConstructor === core) {
++        return value;
+       }
+     }
+-    return valuePromise(value);
++
++    if (
++      value === null ||
++      (typeof value !== 'object' && typeof value !== 'function')
++    ) {
++      return valuePromise(value);
++    }
++    var promise = new core(noop);
++    resolve(promise, value);
++    return promise;
+   };
++  var intrinsicPromiseResolve = core.resolve;
++
++  function constrainedPrincipalsForPromiseLike(value) {
++    return (
++      weakMapHas(constrainedPrincipals, value) &&
++      weakMapHas(promiseStates, value)
++    )
++      ? weakMapGet(constrainedPrincipals, value)
++      : null;
++  }
+ 
+-  var iterableToArray = function (iterable) {
+-    if (typeof Array.from === 'function') {
+-      // ES2015+, iterables exist
+-      iterableToArray = Array.from;
+-      return Array.from(iterable);
++  function callObservedThenRecord(value, onFulfilled, onRejected) {
++    var principals = constrainedPrincipalsForPromiseLike(value);
++    var then = getThen(value, principals);
++    if (then === IS_ERROR) {
++      throw LAST_ERROR;
++    }
++    if (typeof then !== 'function') {
++      throw new TypeErrorCtor('Promise resolve result has no callable then');
++    }
++    // The intrinsic method performs its own registration capture. For every
++    // observable replacement, authenticate the exact callable definition and
++    // carry it through both the Call and any branded result it publishes.
++    // Opaque native functions and proxies deliberately collapse to no-user.
++    var invocationPrincipals = principals;
++    if (then !== intrinsicPromiseThen) {
++      invocationPrincipals =
++        HermesInternal.captureJobConstrainedPrincipals(
++          principals,
++          HermesInternal.captureCallableJobConstrainedPrincipals(then)
++        );
++    }
++    var result = tryCallTwoConstrained(
++      then,
++      value,
++      invocationPrincipals,
++      onFulfilled,
++      onRejected
++    );
++    if (result === IS_ERROR) {
++      throw LAST_ERROR;
++    }
++    return {
++      result: result,
++      principals: invocationPrincipals
++    };
++  }
++
++  function callObservedThen(value, onFulfilled, onRejected) {
++    return callObservedThenRecord(
++      value,
++      onFulfilled,
++      onRejected
++    ).result;
++  }
++
++  function callObservedThenAndRetainResult(
++    value,
++    onFulfilled,
++    onRejected
++  ) {
++    var record = callObservedThenRecord(
++      value,
++      onFulfilled,
++      onRejected
++    );
++    var result = record.result;
++    if (
++      weakMapHas(constrainedPrincipals, result) &&
++      weakMapHas(promiseStates, result)
++    ) {
++      // Public catch/finally publish the dynamic then method's exact result.
++      // If a custom method returns a pre-existing clean Promise, retain the
++      // complete authenticated invocation context without changing its
++      // visible identity.
++      mergeConstrainedPrincipalsToken(
++        result,
++        record.principals
++      );
++    }
++    return result;
++  }
++
++  function retainPromiseLikeConstrainedPrincipals(target, source) {
++    if (
++      weakMapHas(constrainedPrincipals, source) &&
++      weakMapHas(promiseStates, source)
++    ) {
++      captureConstrainedPrincipals(target, source);
++    } else {
++      // A user-replaced Promise.resolve may return an unbranded thenable.
++      // Aggregate carriers cannot authenticate that source and fail closed.
++      mergeConstrainedPrincipalsToken(target, null);
++    }
++  }
++
++  function getAggregateResolveRecord(aggregate) {
++    var descriptor = getOwnPropertyDescriptor(core, 'resolve');
++    if (
++      descriptor !== undefined &&
++      descriptor.get === undefined &&
++      descriptor.value === intrinsicPromiseResolve
++    ) {
++      return {
++        method: intrinsicPromiseResolve,
++        constrained: false
++      };
++    }
++    // Preserve the observable dynamic Promise.resolve hook required by the
++    // aggregate methods, but treat any replacement/accessor as
++    // unauthenticated and run both its Get and every Call fail-closed.
++    mergeConstrainedPrincipalsToken(aggregate, null);
++    var resolveMethod = getPromiseResolve(core, null);
++    if (resolveMethod === IS_ERROR) {
++      throw LAST_ERROR;
+     }
++    if (typeof resolveMethod !== 'function') {
++      throw new TypeErrorCtor('Promise.resolve is not a function');
++    }
++    return {
++      method: resolveMethod,
++      constrained: true
++    };
++  }
+ 
+-    // ES5, only arrays and array-likes exist
+-    iterableToArray = function (x) { return Array.prototype.slice.call(x); };
+-    return Array.prototype.slice.call(iterable);
++  function resolveAggregateInput(aggregate, value, resolveRecord) {
++    var brandedInput =
++      weakMapHas(constrainedPrincipals, value) &&
++      weakMapHas(promiseStates, value);
++    if (brandedInput) {
++      // PromiseResolve can abruptly observe `constructor`; retain the source
++      // before that Get so a rejected aggregate cannot lose its provenance.
++      captureConstrainedPrincipals(aggregate, value);
++    }
++    var nextPromise;
++    if (!resolveRecord.constrained) {
++      nextPromise = callFunction(
++        resolveRecord.method,
++        core,
++        value
++      );
++    } else {
++      HermesInternal.callJobWithConstrainedPrincipals(
++        function () {
++          nextPromise = callFunction(
++            resolveRecord.method,
++            core,
++            value
++          );
++        },
++        null,
++        null
++      );
++    }
++    retainPromiseLikeConstrainedPrincipals(
++      aggregate,
++      nextPromise
++    );
++    return nextPromise;
++  }
++
++  var iterableToArray = function (iterable) {
++    if (typeof arrayFrom === 'function') {
++      return callFunction(arrayFrom, ArrayCtor, iterable);
++    }
++    return arraySlice(iterable);
+   };
+ 
+   core.all = function (arr) {
+-    var args = iterableToArray(arr);
+-
+-    return new core(function (resolve, reject) {
+-      if (args.length === 0) return resolve([]);
+-      var remaining = args.length;
+-      function res(i, val) {
+-        if (val && (typeof val === 'object' || typeof val === 'function')) {
+-          if (val instanceof core && val.then === core.prototype.then) {
+-            while (val._y === 3) {
+-              val = val._z;
+-            }
+-            if (val._y === 1) return res(i, val._z);
+-            if (val._y === 2) reject(val._z);
+-            val.then(function (val) {
+-              res(i, val);
+-            }, reject);
+-            return;
+-          } else {
+-            var then = val.then;
+-            if (typeof then === 'function') {
+-              var p = new core(then.bind(val));
+-              p.then(function (val) {
+-                res(i, val);
+-              }, reject);
+-              return;
+-            }
+-          }
+-        }
+-        args[i] = val;
+-        if (--remaining === 0) {
+-          resolve(args);
+-        }
+-      }
++    var aggregateResolve, aggregateReject;
++    var aggregate = new core(function (resolve, reject) {
++      aggregateResolve = resolve;
++      aggregateReject = reject;
++    });
++    var resolveRecord;
++    try {
++      resolveRecord = getAggregateResolveRecord(aggregate);
++    } catch (error) {
++      aggregateReject(error);
++      return aggregate;
++    }
++    var args;
++    try {
++      args = iterableToArray(arr);
++    } catch (error) {
++      aggregateReject(error);
++      return aggregate;
++    }
++    if (args.length === 0) {
++      aggregateResolve([]);
++      return aggregate;
++    }
++    var remaining = args.length;
++    try {
+       for (var i = 0; i < args.length; i++) {
+-        res(i, args[i]);
++        (function (index) {
++          var nextPromise = resolveAggregateInput(
++            aggregate,
++            args[index],
++            resolveRecord
++          );
++          var alreadyCalled = false;
++          callObservedThen(
++            nextPromise,
++            function (value) {
++              if (alreadyCalled) return;
++              alreadyCalled = true;
++              retainPromiseLikeConstrainedPrincipals(
++                aggregate,
++                nextPromise
++              );
++              privateArraySet(args, index, value);
++              if (--remaining === 0) {
++                aggregateResolve(args);
++              }
++            },
++            function (reason) {
++              if (alreadyCalled) return;
++              alreadyCalled = true;
++              retainPromiseLikeConstrainedPrincipals(
++                aggregate,
++                nextPromise
++              );
++              aggregateReject(reason);
++            }
++          );
++        })(i);
+       }
+-    });
++    } catch (error) {
++      aggregateReject(error);
++    }
++    return aggregate;
+   };
+ 
+   function onSettledFulfill(value) {
+@@ -315,21 +867,74 @@
+   function onSettledReject(reason) {
+     return { status: 'rejected', reason: reason };
+   }
+-  function mapAllSettled(item) {
+-    if(item && (typeof item === 'object' || typeof item === 'function')){
+-      if(item instanceof core && item.then === core.prototype.then){
+-        return item.then(onSettledFulfill, onSettledReject);
++  core.allSettled = function (iterable) {
++    var aggregateResolve, aggregateReject;
++    var aggregate = new core(function (resolve, reject) {
++      aggregateResolve = resolve;
++      aggregateReject = reject;
++    });
++    var resolveRecord;
++    try {
++      resolveRecord = getAggregateResolveRecord(aggregate);
++    } catch (error) {
++      aggregateReject(error);
++      return aggregate;
++    }
++    var values;
++    try {
++      values = iterableToArray(iterable);
++    } catch (error) {
++      aggregateReject(error);
++      return aggregate;
++    }
++    if (values.length === 0) {
++      aggregateResolve([]);
++      return aggregate;
++    }
++    var results = new ArrayCtor(values.length);
++    var remaining = values.length;
++    function settled(index, result) {
++      privateArraySet(results, index, result);
++      if (--remaining === 0) {
++        aggregateResolve(results);
+       }
+-      var then = item.then;
+-      if (typeof then === 'function') {
+-        return new core(then.bind(item)).then(onSettledFulfill, onSettledReject)
++    }
++    try {
++      for (var i = 0; i < values.length; ++i) {
++        (function (index) {
++          var nextPromise = resolveAggregateInput(
++            aggregate,
++            values[index],
++            resolveRecord
++          );
++          var alreadyCalled = false;
++          callObservedThen(
++            nextPromise,
++            function (value) {
++              if (alreadyCalled) return;
++              alreadyCalled = true;
++              retainPromiseLikeConstrainedPrincipals(
++                aggregate,
++                nextPromise
++              );
++              settled(index, onSettledFulfill(value));
++            },
++            function (reason) {
++              if (alreadyCalled) return;
++              alreadyCalled = true;
++              retainPromiseLikeConstrainedPrincipals(
++                aggregate,
++                nextPromise
++              );
++              settled(index, onSettledReject(reason));
++            }
++          );
++        })(i);
+       }
++    } catch (error) {
++      aggregateReject(error);
+     }
+-
+-    return onSettledFulfill(item);
+-  }
+-  core.allSettled = function (iterable) {
+-    return core.all(iterableToArray(iterable).map(mapAllSettled));
++    return aggregate;
+   };
+ 
+   core.reject = function (value) {
+@@ -339,17 +944,41 @@
+   };
+ 
+   core.race = function (values) {
+-    return new core(function (resolve, reject) {
++    var aggregateResolve, aggregateReject;
++    var aggregate = new core(function (resolve, reject) {
++      aggregateResolve = resolve;
++      aggregateReject = reject;
++    });
++    var resolveRecord;
++    try {
++      resolveRecord = getAggregateResolveRecord(aggregate);
++    } catch (error) {
++      aggregateReject(error);
++      return aggregate;
++    }
++    try {
+       for (var value of values) {
+-        core.resolve(value).then(resolve, reject);
++        var nextPromise = resolveAggregateInput(
++          aggregate,
++          value,
++          resolveRecord
++        );
++        callObservedThen(
++          nextPromise,
++          aggregateResolve,
++          aggregateReject
++        );
+       }
+-    });
++    } catch (error) {
++      aggregateReject(error);
++    }
++    return aggregate;
+   };
+ 
+   /* Prototype Methods */
+ 
+   core.prototype['catch'] = function (onRejected) {
+-    return this.then(null, onRejected);
++    return callObservedThenAndRetainResult(this, null, onRejected);
+   };
+ 
+   function getAggregateError(errors){
+@@ -366,38 +995,83 @@
+   }
+ 
+   core.any = function promiseAny(values) {
+-    return new core(function(resolve, reject) {
+-      var hasResolved = false;
+-      var rejectionReasons = [];
+-      // Updated once all the promises are enqueued.
+-      var finalCount = -1;
+-
+-      function resolveOnce(value) {
+-        if (!hasResolved) {
+-          hasResolved = true;
+-          resolve(value);
+-        }
++    var aggregateResolve, aggregateReject;
++    var aggregate = new core(function (resolve, reject) {
++      aggregateResolve = resolve;
++      aggregateReject = reject;
++    });
++    var resolveRecord;
++    try {
++      resolveRecord = getAggregateResolveRecord(aggregate);
++    } catch (error) {
++      aggregateReject(error);
++      return aggregate;
++    }
++    var hasResolved = false;
++    var rejectionReasons = [];
++    // Updated once all the promises are enqueued.
++    var finalCount = -1;
++
++    function resolveOnce(value) {
++      if (!hasResolved) {
++        hasResolved = true;
++        aggregateResolve(value);
+       }
++    }
+ 
+-      function rejectionCheck(reason) {
+-        rejectionReasons.push(reason);
++    function rejectionCheck(reason) {
++      privateArrayPush(rejectionReasons, reason);
+ 
+-        if (rejectionReasons.length === finalCount) {
+-          reject(getAggregateError(rejectionReasons));
+-        }
++      if (rejectionReasons.length === finalCount) {
++        aggregateReject(getAggregateError(rejectionReasons));
+       }
++    }
+ 
++    try {
+       var count = 0;
+       for (var value of values) {
+         ++count;
+-        core.resolve(value).then(resolveOnce, rejectionCheck);
++        var nextPromise = resolveAggregateInput(
++          aggregate,
++          value,
++          resolveRecord
++        );
++        (function (observedPromise) {
++          var alreadyCalled = false;
++          callObservedThen(
++            observedPromise,
++            function (result) {
++              if (alreadyCalled) return;
++              alreadyCalled = true;
++              retainPromiseLikeConstrainedPrincipals(
++                aggregate,
++                observedPromise
++              );
++              resolveOnce(result);
++            },
++            function (reason) {
++              if (alreadyCalled) return;
++              alreadyCalled = true;
++              retainPromiseLikeConstrainedPrincipals(
++                aggregate,
++                observedPromise
++              );
++              rejectionCheck(reason);
++            }
++          );
++        })(nextPromise);
+       }
+       finalCount = count;
+-
+-      if (count === 0) {
+-        reject(getAggregateError(rejectionReasons));
++      if (
++        count === 0 ||
++        (!hasResolved && rejectionReasons.length === finalCount)
++      ) {
++        aggregateReject(getAggregateError(rejectionReasons));
+       }
+-    });
++    } catch (error) {
++      aggregateReject(error);
++    }
++    return aggregate;
+   };
+ 
+   core.withResolvers = function () {
+@@ -412,17 +1086,30 @@
+   core.try = function (callback) {
+     var args = arguments;
+     return new this(function (res) {
+-      res(callback.apply(undefined, iterableToArray(args).slice(1)))
++      // Preserve the legacy Hermes polyfill's observable error for the
++      // no-callback case without consulting mutable Function.prototype.apply.
++      if (callback === undefined) {
++        throw new TypeErrorCtor(
++          "Cannot read property 'apply' of undefined"
++        );
++      }
++      res(
++        applyFunction(
++          callback,
++          undefined,
++          arraySlice(iterableToArray(args), 1)
++        )
++      );
+     });
+   };
+ 
+   core.prototype.finally = function (f) {
+-    return this.then(function (value) {
+-      return core.resolve(f()).then(function () {
++    return callObservedThenAndRetainResult(this, function (value) {
++      return callObservedThenAndRetainResult(intrinsicPromiseResolve(f()), function () {
+         return value;
+       });
+     }, function (err) {
+-      return core.resolve(f()).then(function () {
++      return callObservedThenAndRetainResult(intrinsicPromiseResolve(f()), function () {
+         throw err;
+       });
+     });
+@@ -430,23 +1117,37 @@
+ 
+   var DEFAULT_WHITELIST = [
+     ReferenceError,
+-    TypeError,
++    TypeErrorCtor,
+     RangeError
+   ];
+ 
+   var enabled = false;
++  // The embedder installs checkpoint-mode rejection tracking before package
++  // code runs. Once installed, package JavaScript must not be able to replace
++  // or disable those callbacks through the public HermesInternal hook.
++  var checkpointModeLocked = false;
+   var disable_1 = disable;
+   function disable() {
++    if (checkpointModeLocked) return;
+     enabled = false;
+-    core._B = null;
+-    core._C = null;
++    rejectionHandledHook = null;
++    rejectionCreatedHook = null;
++    rejectionTrackerPrincipals = null;
++    checkpointRejections = new WeakMap();
++    try {
++      core._B = null;
++      core._C = null;
++    } catch (_) {}
+   }
+ 
+   var enable_1 = enable;
+   function enable(options) {
++    if (checkpointModeLocked) return;
+     options = options || {};
+     if (enabled) disable();
+     enabled = true;
++    rejectionTrackerPrincipals =
++      HermesInternal.captureJobConstrainedPrincipals();
+ 
+     // Ibex pins unhandled-rejection determination to the embedding host's
+     // poll-iteration checkpoint. Notify that host synchronously when a
+@@ -454,49 +1155,78 @@
+     // attached; the host roots the promise/reason until the checkpoint and
+     // cancels by promise identity. No timer or user-visible property access is
+     // involved in this mode. @ref LLP 0024#9-asynchronous-failures
++    var useCheckpointMode =
++      options.checkpointRejections === true;
++    var onRejectedAtCheckpoint = useCheckpointMode
++      ? options.onRejectedAtCheckpoint
++      : null;
++    var onHandledAtCheckpoint = useCheckpointMode
++      ? options.onHandledAtCheckpoint
++      : null;
+     if (
+-      options.checkpointRejections === true &&
+-      typeof options.onRejectedAtCheckpoint === 'function' &&
+-      typeof options.onHandledAtCheckpoint === 'function'
++      useCheckpointMode &&
++      typeof onRejectedAtCheckpoint === 'function' &&
++      typeof onHandledAtCheckpoint === 'function'
+     ) {
+-      core._B = function (promise) {
+-        if (promise._y === 2) {
+-          options.onHandledAtCheckpoint(promise);
++      checkpointRejections = new WeakMap();
++      rejectionHandledHook = function (promise) {
++        if (
++          stateOf(promise).y === 2 &&
++          weakMapHas(checkpointRejections, promise)
++        ) {
++          weakMapDelete(checkpointRejections, promise);
++          onHandledAtCheckpoint(promise);
+         }
+       };
+-      core._C = function (promise, err) {
+-        if (promise._x === 0) {
+-          options.onRejectedAtCheckpoint(promise, err);
++      rejectionCreatedHook = function (promise, err) {
++        var state = stateOf(promise);
++        if (state.y === 2 && state.x === 0) {
++          weakMapSet(checkpointRejections, promise, true);
++          onRejectedAtCheckpoint(promise, err);
+         }
+       };
++      try {
++        core._B = noop;
++        core._C = noop;
++      } catch (_) {}
++      checkpointModeLocked = true;
+       return;
+     }
+ 
+     var id = 0;
+     var displayId = 0;
+-    var rejections = {};
+-    core._B = function (promise) {
++    var rejections = objectCreate(null);
++    rejectionHandledHook = function (promise) {
++      var rejectionId = weakMapGet(rejectionIds, promise);
+       if (
+-        promise._y === 2 && // IS REJECTED
+-        rejections[promise._E]
++        stateOf(promise).y === 2 && // IS REJECTED
++        rejectionId !== undefined &&
++        rejections[rejectionId]
+       ) {
+-        if (rejections[promise._E].logged) {
+-          onHandled(promise._E);
++        if (rejections[rejectionId].logged) {
++          onHandled(rejectionId);
+         } else {
+-          clearTimeout(rejections[promise._E].timeout);
++          clearTimeout(rejections[rejectionId].timeout);
+         }
+-        delete rejections[promise._E];
++        delete rejections[rejectionId];
+       }
+     };
+-    core._C = function (promise, err) {
+-      if (promise._x === 0) { // not yet handled
+-        promise._E = id++;
+-        rejections[promise._E] = {
++    rejectionCreatedHook = function (promise, err) {
++      var state = stateOf(promise);
++      if (state.y === 2 && state.x === 0) { // not yet handled
++        var rejectionId = id++;
++        weakMapSet(rejectionIds, promise, rejectionId);
++        try {
++          promise._E = rejectionId;
++        } catch (_) {}
++        rejections[rejectionId] = {
+           displayId: null,
+           error: err,
+           promise: promise,
+           timeout: setTimeout(
+-            onUnhandled.bind(null, promise._E),
++            function () {
++              onUnhandled(rejectionId);
++            },
+             // For reference errors and type errors, this almost always
+             // means the programmer made a mistake, so log them after just
+             // 100ms
+@@ -509,6 +1239,10 @@
+         };
+       }
+     };
++    try {
++      core._B = noop;
++      core._C = noop;
++    } catch (_) {}
+     function onUnhandled(id) {
+       if (
+         options.allRejections ||
+@@ -591,10 +1325,11 @@
+   HermesInternal?.setPromiseRejectionTrackingHook?.(enableHook);
+ 
+   var promise = {
+-
++    performThen: performThen,
++    mergeConstrainedPrincipals: mergeConstrainedPrincipalsToken
+   };
+ 
+   return promise;
+ 
+ });
+-initPromise();
++var promiseInternals = initPromise();
+diff --git a/lib/InternalJavaScript/02-AsyncFn.js b/lib/InternalJavaScript/02-AsyncFn.js
+index d603bb770e78affb4a9fe6d46aef2f5c60ff6ac3..a2f087809cd6f461d2c85f02b1a283f9c75efa3c 100644
+--- a/lib/InternalJavaScript/02-AsyncFn.js
++++ b/lib/InternalJavaScript/02-AsyncFn.js
+@@ -6,11 +6,16 @@
+  */
+ 
+ function initAsyncFn() {
++  var applyFunction =
++    Function.prototype.call.bind(Function.prototype.apply);
+   // promiseCapability.[[Promise]]
+   var HermesPromise = globalThis.Promise;
+ 
+   // %Promise_resolve%
+   var HermesPromiseResolve = HermesPromise.resolve.bind(HermesPromise);
++  // Private PerformPromiseThen carrier from the Promise internal-bytecode
++  // closure. Await ignores own/subclass `then` and `constructor` overrides.
++  var HermesPromiseThen = promiseInternals.performThen;
+ 
+   // This spawn function is borrowed from the
+   // [original proposal](https://github.com/tc39/proposal-async-await),
+@@ -20,7 +25,7 @@ function initAsyncFn() {
+   // TODO(the Babel version seem to be a little bit faster.)
+   function spawn(genF, self, args) {
+     return new HermesPromise(function (resolve, reject) {
+-      var gen = genF.apply(self, args);
++      var gen = applyFunction(genF, self, args);
+       function step(nextF) {
+         var next;
+         try {
+@@ -36,18 +41,26 @@ function initAsyncFn() {
+           return;
+         }
+         // not finished, chain off the yielded promise and `step` again
+-        HermesPromiseResolve(next.value).then(
+-          function (v) {
+-            step(function () {
+-              return gen.next(v);
+-            });
+-          },
+-          function (e) {
+-            step(function () {
+-              return gen.throw(e);
+-            });
+-          }
+-        );
++        try {
++          HermesPromiseThen(
++            HermesPromiseResolve(next.value),
++            function (v) {
++              step(function () {
++                return gen.next(v);
++              });
++            },
++            function (e) {
++              step(function () {
++                return gen.throw(e);
++              });
++            }
++          );
++        } catch (e) {
++          // PromiseResolve can observe an abrupt `constructor` getter on an
++          // actual Promise. Reject the async function's outer capability even
++          // on a later await instead of stranding it pending.
++          reject(e);
++        }
+       }
+       step(function () {
+         return gen.next(undefined);
+diff --git a/lib/InternalJavaScript/04-AsyncIterator.js b/lib/InternalJavaScript/04-AsyncIterator.js
+index 7ca161464a11eba2692c0f767a03160dee679984..b6c6f30fad0f9ff8b5cd64717cb11f6e62fd82f4 100644
+--- a/lib/InternalJavaScript/04-AsyncIterator.js
++++ b/lib/InternalJavaScript/04-AsyncIterator.js
+@@ -55,7 +55,16 @@ function initAsyncIterators() {
+ }
+ 
+ function initAsyncGenerators() {
++    var callFunction =
++        Function.prototype.call.bind(Function.prototype.call);
++    var applyFunction =
++        Function.prototype.call.bind(Function.prototype.apply);
++    var defineProperty = Object.defineProperty;
+     var HermesPromise = globalThis.Promise;
++    var HermesPromiseResolve = HermesPromise.resolve.bind(HermesPromise);
++    var HermesPromiseThen = promiseInternals.performThen;
++    var mergePromiseConstrainedPrincipals =
++        promiseInternals.mergeConstrainedPrincipals;
+ 
+     // https://github.com/babel/babel/blob/dcfa42b933299644c4e78168cb4678ecbfae67ed/packages/babel-runtime-corejs3/helpers/esm/wrapAsyncGenerator.js
+     function OverloadYield(value, kind) {
+@@ -69,26 +78,59 @@ function initAsyncGenerators() {
+      * through promises to mimic JavaScript's native async generator behavior.
+      * https://github.com/babel/babel/blob/dcfa42b933299644c4e78168cb4678ecbfae67ed/packages/babel-runtime-corejs3/helpers/esm/awaitAsyncGenerator.js
+      */
+-    function AsyncGenerator(generatorFunction) {
++    function AsyncGenerator(generatorFunction, generatorPrincipals) {
+         var currentPromise, resolveQueue;
+ 
++        function callGenerator(key, argument) {
++            var iteration;
++            HermesInternal.callJobWithConstrainedPrincipals(
++                function () {
++                    var result = generatorFunction[key](argument);
++                    var value = result.value;
++                    var isOverloadYield =
++                        value instanceof OverloadYield;
++                    iteration = {
++                        value: value,
++                        done: result.done,
++                        isOverloadYield: isOverloadYield,
++                        overloadValue:
++                            isOverloadYield ? value.value : void 0,
++                        overloadKind:
++                            isOverloadYield ? value.kind : void 0
++                    };
++                },
++                generatorPrincipals,
++                generatorPrincipals
++            );
++            return iteration;
++        }
++
+         function resume(key, argument) {
+             try {
+-                var nextIteration = generatorFunction[key](argument),
++                var nextIteration = callGenerator(key, argument),
+                     iterationValue = nextIteration.value,
+-                    isOverloadYield = iterationValue instanceof OverloadYield;
+-                HermesPromise.resolve(isOverloadYield ? iterationValue.value : iterationValue).then(function (resolvedValue) {
++                    isOverloadYield = nextIteration.isOverloadYield;
++                var awaited = HermesPromiseResolve(
++                    isOverloadYield
++                        ? nextIteration.overloadValue
++                        : iterationValue
++                );
++                HermesPromiseThen(awaited, function (resolvedValue) {
+                     if (isOverloadYield) {
+                         var nextKey = "return" === key ? "return" : "next";
+-                        if (!iterationValue.kind || resolvedValue.done) {
++                        if (
++                            !nextIteration.overloadKind ||
++                            resolvedValue.done
++                        ) {
+                             return resume(nextKey, resolvedValue);
+                         }
+-                        resolvedValue = generatorFunction[nextKey](resolvedValue).value;
++                        resolvedValue =
++                            callGenerator(nextKey, resolvedValue).value;
+                     }
+                     conclude(nextIteration.done ? "return" : "normal", resolvedValue);
+                 }, function (error) {
+                     resume("throw", error);
+-                });
++                }, generatorPrincipals);
+             } catch (error) {
+                 conclude("throw", error);
+             }
+@@ -109,19 +151,49 @@ function initAsyncGenerators() {
+         }
+ 
+         this._invoke = function (key, argument) {
+-            return new HermesPromise(function (resolve, reject) {
+-                var promiseCapability = {
++            var shouldResume = false;
++            var promiseCapability;
++            var promise = new HermesPromise(function (resolve, reject) {
++                promiseCapability = {
+                     key: key,
+                     arg: argument,
+                     resolve: resolve,
+                     reject: reject,
+                     next: null
+                 };
+-                resolveQueue ? resolveQueue = resolveQueue.next = promiseCapability : (currentPromise = resolveQueue = promiseCapability, resume(key, argument));
++                if (resolveQueue) {
++                    resolveQueue = resolveQueue.next = promiseCapability;
++                } else {
++                    currentPromise = resolveQueue = promiseCapability;
++                    shouldResume = true;
++                }
+             });
++            // `_wrapAsyncGenerator` captured the defining package while its
++            // frame was live. Merge that opaque token before publishing each
++            // iteration Promise, including primitive return/yield paths whose
++            // package frame has unwound by settlement.
++            mergePromiseConstrainedPrincipals(
++                promise,
++                generatorPrincipals
++            );
++            if (shouldResume) {
++                resume(
++                    promiseCapability.key,
++                    promiseCapability.arg
++                );
++            }
++            return promise;
+         };
+ 
+-        if (typeof generatorFunction["return"] !== "function") {
++        var returnMethod;
++        HermesInternal.callJobWithConstrainedPrincipals(
++            function () {
++                returnMethod = generatorFunction["return"];
++            },
++            generatorPrincipals,
++            generatorPrincipals
++        );
++        if (typeof returnMethod !== "function") {
+             this["return"] = void 0;
+         }
+     }
+@@ -141,8 +213,29 @@ function initAsyncGenerators() {
+ 
+     // https://github.com/babel/babel/blob/dcfa42b933299644c4e78168cb4678ecbfae67ed/packages/babel-runtime-corejs3/helpers/esm/wrapAsyncGenerator.js
+     function _wrapAsyncGenerator(generatorFunction) {
++        var generatorPrincipals =
++            HermesInternal.captureCallableJobConstrainedPrincipals(
++                generatorFunction
++            );
+         return function () {
+-            return new AsyncGenerator(generatorFunction.apply(this, arguments));
++            var receiver = this;
++            var args = arguments;
++            var generator;
++            HermesInternal.callJobWithConstrainedPrincipals(
++                function () {
++                    generator = applyFunction(
++                        generatorFunction,
++                        receiver,
++                        args
++                    );
++                },
++                generatorPrincipals,
++                generatorPrincipals
++            );
++            return new AsyncGenerator(
++                generator,
++                generatorPrincipals
++            );
+         };
+     }
+ 
+@@ -151,12 +244,16 @@ function initAsyncGenerators() {
+         return new OverloadYield(value, 0);
+     }
+ 
++    function _invokeAsyncGenerator(wrapped, receiver, args) {
++        return applyFunction(wrapped, receiver, args);
++    }
++
+     // https://github.com/babel/babel/blob/dcfa42b933299644c4e78168cb4678ecbfae67ed/packages/babel-helpers/src/helpers/asyncGeneratorDelegate.ts
+     function _asyncGeneratorDelegate(iterable) {
+         var inner;
+         var asyncIteratorMethod = iterable[Symbol.asyncIterator];
+         if (asyncIteratorMethod != null) {
+-            inner = asyncIteratorMethod.call(iterable);
++            inner = callFunction(asyncIteratorMethod, iterable);
+         } else {
+             inner = iterable[Symbol.iterator]();
+         }
+@@ -195,11 +292,17 @@ function initAsyncGenerators() {
+     // Since async generators require an AST transformation, using internalBytecodeResult is not feasible.
+     var HermesAsyncIteratorsInternal = {
+         _wrapAsyncGenerator,
++        _invokeAsyncGenerator,
+         _awaitAsyncGenerator,
+         _asyncGeneratorDelegate,
+     };
+     Object.freeze(HermesAsyncIteratorsInternal);
+-    globalThis.HermesAsyncIteratorsInternal = HermesAsyncIteratorsInternal;
++    defineProperty(globalThis, "HermesAsyncIteratorsInternal", {
++        value: HermesAsyncIteratorsInternal,
++        writable: false,
++        enumerable: false,
++        configurable: false
++    });
+ }
+ 
+ initAsyncIterators();
+diff --git a/lib/VM/CapabilityAttribution.cpp b/lib/VM/CapabilityAttribution.cpp
+index 2fcecc2f3b582c6a7c75c403e35abd729eee3898..a77c480a64edc97a4acff90939997cf580455118 100644
+--- a/lib/VM/CapabilityAttribution.cpp
++++ b/lib/VM/CapabilityAttribution.cpp
+@@ -14,6 +14,7 @@
+ 
+ #include "hermes/VM/CapabilityAttribution.h"
+ 
++#include <algorithm>
+ #include <cstddef>
+ 
+ #include "hermes/Public/HermesExport.h"
+@@ -130,7 +131,35 @@ size_t collectStackPackageIds(Runtime &runtime, uint32_t *out, size_t max) {
+   if (scheduler != kRuntimePackageId && scheduler != kNoUserPrincipal &&
+       scheduler != last && count < max) {
+     out[count++] = scheduler;
++    last = scheduler;
+   }
++  auto appendConstrained =
++      [&](const std::shared_ptr<const std::vector<uint32_t>> &constrained) {
++    if (!constrained)
++      return;
++    for (uint32_t principal : *constrained) {
++      if (count >= max)
++        break;
++      if (principal == kRuntimePackageId)
++        continue;
++      bool duplicate = false;
++      for (size_t index = 0; index < count; ++index) {
++        if (out[index] == principal) {
++          duplicate = true;
++          break;
++        }
++      }
++      if (!duplicate) {
++        out[count++] = principal;
++      }
++    }
++  };
++  appendConstrained(runtime.currentJobConstrainedPrincipals());
++  // A native completion settles its Promise while no Promise job is draining.
++  // The authenticated embedder scope is therefore part of the effective
++  // context too; Promise internals snapshot it before that scope unwinds.
++  appendConstrained(runtime.embedderJobConstrainedPrincipals());
++  appendConstrained(runtime.embedderHostConstrainedPrincipals());
+   return count;
+ }
+ 
+@@ -252,6 +281,64 @@ HERMES_EXPORT void ex_hermes_vm_set_embedder_job_scheduler_principal(
+       ->setEmbedderJobSchedulerPrincipal(principal);
+ }
+ 
++HERMES_EXPORT int ex_hermes_vm_set_embedder_job_constrained_principals(
++    void *vmRuntime,
++    const uint32_t *principals,
++    size_t count) {
++  if (!vmRuntime)
++    return 0;
++  auto *runtime =
++      reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime);
++  if (count == 0) {
++    runtime->setEmbedderHostConstrainedPrincipals(nullptr);
++    return 1;
++  }
++  constexpr size_t kMaxConstrainedPrincipals = 256;
++  if (!principals || count > kMaxConstrainedPrincipals) {
++    runtime->setEmbedderHostConstrainedPrincipals(
++        std::make_shared<const std::vector<uint32_t>>(
++            1, ::hermes::vm::kNoUserPrincipal));
++    return 1;
++  }
++  auto captured =
++      std::make_shared<std::vector<uint32_t>>();
++  captured->reserve(count);
++  for (size_t index = 0; index < count; ++index) {
++    const uint32_t principal = principals[index];
++    if (principal == ::hermes::vm::kRuntimePackageId) {
++      runtime->setEmbedderHostConstrainedPrincipals(
++          std::make_shared<const std::vector<uint32_t>>(
++              1, ::hermes::vm::kNoUserPrincipal));
++      return 1;
++    }
++    if (std::find(captured->begin(), captured->end(), principal) ==
++        captured->end()) {
++      captured->push_back(principal);
++    }
++  }
++  runtime->setEmbedderHostConstrainedPrincipals(
++      std::move(captured));
++  return 1;
++}
++
++/// Whether the current engine job or an authenticated embedder settlement
++/// scope carries a constrained-principal set. Ibex uses this bit to distinguish
++/// a Promise/native-completion carrier (mandatory conjunction for every effect)
++/// from an ordinary synchronous frame stack (LLP 0013 deputy classes remain
++/// opt-in).
++HERMES_EXPORT int ex_hermes_vm_has_active_job_constrained_principals(
++    void *vmRuntime) {
++  if (!vmRuntime)
++    return 0;
++  auto *runtime =
++      reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime);
++  return runtime->currentJobConstrainedPrincipals() ||
++          runtime->embedderJobConstrainedPrincipals() ||
++          runtime->embedderHostConstrainedPrincipals()
++      ? 1
++      : 0;
++}
++
+ HERMES_EXPORT int ex_hermes_vm_take_failed_job_context(
+     void *vmRuntime,
+     uint32_t *principal,
+diff --git a/lib/VM/JSLib/HermesInternal.cpp b/lib/VM/JSLib/HermesInternal.cpp
+index 345f0dd740061e59265fd394b517830d2554a91c..44f7a96e1eb6f4747e3379914d5eca39a159e043 100644
+--- a/lib/VM/JSLib/HermesInternal.cpp
++++ b/lib/VM/JSLib/HermesInternal.cpp
+@@ -10,7 +10,9 @@
+ #include "hermes/BCGen/HBC/BytecodeFileFormat.h"
+ #include "hermes/Support/Base64vlq.h"
+ #include "hermes/Support/OSCompat.h"
++#include "hermes/VM/CapabilityAttribution.h"
+ #include "hermes/VM/Callable.h"
++#include "hermes/VM/Domain.h"
+ #include "hermes/VM/JSArray.h"
+ #include "hermes/VM/JSArrayBuffer.h"
+ #include "hermes/VM/JSLib.h"
+@@ -18,10 +20,14 @@
+ #include "hermes/VM/JSWeakMapImpl.h"
+ #include "hermes/VM/Operations.h"
+ #include "hermes/VM/PrimitiveBox.h"
++#include "hermes/VM/RuntimeModule-inline.h"
+ #include "hermes/VM/StackFrame-inline.h"
+ #include "hermes/VM/StringView.h"
+ 
++#include <algorithm>
++#include <cmath>
+ #include <cstring>
++#include <limits>
+ #include <random>
+ 
+ namespace hermes {
+@@ -448,6 +454,285 @@ CallResult<HermesValue> hermesInternalEnqueueJob(void *, Runtime &runtime) {
+   return HermesValue::encodeUndefinedValue();
+ }
+ 
++constexpr size_t kMaxJobConstrainedPrincipals = 256;
++
++static std::vector<uint32_t> captureJobConstrainedPrincipals(
++    Runtime &runtime) {
++  uint32_t collected[kMaxJobConstrainedPrincipals + 1];
++  const size_t count = collectStackPackageIds(
++      runtime, collected, kMaxJobConstrainedPrincipals + 1);
++  if (count > kMaxJobConstrainedPrincipals) {
++    return {kNoUserPrincipal};
++  }
++  if (count == 0) {
++    return {kNoUserPrincipal};
++  }
++  return std::vector<uint32_t>(collected, collected + count);
++}
++
++static void appendDistinctJobConstrainedPrincipal(
++    std::vector<uint32_t> &principals,
++    uint32_t principal,
++    bool &valid) {
++  if (!valid || principal == Runtime::kNoJobSchedulerPrincipal)
++    return;
++  if (std::find(principals.begin(), principals.end(), principal) !=
++      principals.end()) {
++    return;
++  }
++  if (principals.size() == kMaxJobConstrainedPrincipals) {
++    principals.assign(1, kNoUserPrincipal);
++    valid = false;
++    return;
++  }
++  principals.push_back(principal);
++}
++
++static void appendJobConstrainedPrincipalsToken(
++    Runtime &runtime,
++    NativeArgs args,
++    uint32_t argument,
++    bool optional,
++    std::vector<uint32_t> &principals,
++    bool &valid) {
++  if (!valid)
++    return;
++  if (args.getArg(argument).isUndefined()) {
++    if (optional)
++      return;
++    principals.assign(1, kNoUserPrincipal);
++    valid = false;
++    return;
++  }
++  auto token = args.dyncastArg<JSArray>(argument);
++  if (!token) {
++    principals.assign(1, kNoUserPrincipal);
++    valid = false;
++    return;
++  }
++  const uint32_t length = JSArray::getLength(*token, runtime);
++  if (length == 0 || length > kMaxJobConstrainedPrincipals) {
++    principals.assign(1, kNoUserPrincipal);
++    valid = false;
++    return;
++  }
++  for (uint32_t index = 0; index < length; ++index) {
++    const HermesValue value = token->at(runtime, index).unboxToHV(runtime);
++    if (!value.isNumber()) {
++      principals.assign(1, kNoUserPrincipal);
++      valid = false;
++      return;
++    }
++    const double number = value.getNumber();
++    if (!std::isfinite(number) || number < 0 ||
++        number > std::numeric_limits<uint32_t>::max() ||
++        number != static_cast<double>(static_cast<uint32_t>(number))) {
++      principals.assign(1, kNoUserPrincipal);
++      valid = false;
++      return;
++    }
++    if (static_cast<uint32_t>(number) ==
++        Runtime::kNoJobSchedulerPrincipal) {
++      principals.assign(1, kNoUserPrincipal);
++      valid = false;
++      return;
++    }
++    appendDistinctJobConstrainedPrincipal(
++        principals, static_cast<uint32_t>(number), valid);
++  }
++}
++
++static CallResult<HermesValue> jobConstrainedPrincipalsToken(
++    Runtime &runtime,
++    const std::vector<uint32_t> &principals) {
++  auto arrayResult =
++      JSArray::create(runtime, principals.size(), principals.size());
++  if (arrayResult == ExecutionStatus::EXCEPTION)
++    return ExecutionStatus::EXCEPTION;
++  struct : public Locals {
++    PinnedValue<JSArray> array;
++  } lv;
++  LocalsRAII lraii(runtime, &lv);
++  lv.array = std::move(*arrayResult);
++  if (JSArray::setStorageEndIndex(lv.array, runtime, principals.size()) ==
++      ExecutionStatus::EXCEPTION) {
++    return ExecutionStatus::EXCEPTION;
++  }
++  for (size_t index = 0; index < principals.size(); ++index) {
++    JSArray::unsafeSetExistingElementAt(
++        *lv.array,
++        runtime,
++        index,
++        SmallHermesValue::encodeNumberValue(principals[index], runtime));
++  }
++  return lv.array.getHermesValue();
++}
++
++/// Capture the complete effective principal set into an internal-only token.
++/// Promise.js retains the token in a lexical WeakMap, so delayed reaction
++/// attachment cannot erase the settlement context. Optional prior tokens are
++/// merged monotonically for Promise assimilation and adoption.
++CallResult<HermesValue> hermesInternalCaptureJobConstrainedPrincipals(
++    void *,
++    Runtime &runtime) {
++  NativeArgs args = runtime.getCurrentFrame().getNativeArgs();
++  auto merged = captureJobConstrainedPrincipals(runtime);
++  bool valid = true;
++  for (uint32_t argument = 0; argument < 2; ++argument) {
++    appendJobConstrainedPrincipalsToken(
++        runtime, args, argument, true, merged, valid);
++  }
++  return jobConstrainedPrincipalsToken(runtime, merged);
++}
++
++/// Enqueue a Promise reaction under the union of its current scheduling
++/// context, settlement context, and handler-registration context. Tokens are
++/// produced only by the internal capture method above; malformed inputs still
++/// collapse to the fail-closed no-user sentinel.
++CallResult<HermesValue>
++hermesInternalEnqueueJobWithConstrainedPrincipals(void *, Runtime &runtime) {
++  NativeArgs args = runtime.getCurrentFrame().getNativeArgs();
++  auto callable = args.dyncastArg<Callable>(0);
++  if (!callable) {
++    return runtime.raiseTypeError(
++        "First argument to constrained enqueueJob must be callable");
++  }
++
++  auto merged = captureJobConstrainedPrincipals(runtime);
++  bool valid = true;
++  for (uint32_t argument = 1; argument <= 2; ++argument) {
++    appendJobConstrainedPrincipalsToken(
++        runtime, args, argument, false, merged, valid);
++  }
++
++  const auto previous = runtime.embedderJobConstrainedPrincipals();
++  runtime.setEmbedderJobConstrainedPrincipals(
++      std::make_shared<const std::vector<uint32_t>>(std::move(merged)));
++  runtime.enqueueJob(callable.get());
++  runtime.setEmbedderJobConstrainedPrincipals(previous);
++  return HermesValue::encodeUndefinedValue();
++}
++
++/// Execute the setImmediate fallback under the same immutable union used by
++/// the engine microtask queue. Ibex enables the engine queue on every runtime,
++/// but the Promise implementation also remains fail-closed for other Hermes
++/// configurations.
++CallResult<HermesValue>
++hermesInternalCallJobWithConstrainedPrincipals(void *, Runtime &runtime) {
++  NativeArgs args = runtime.getCurrentFrame().getNativeArgs();
++  auto callable = args.dyncastArg<Callable>(0);
++  if (!callable) {
++    return runtime.raiseTypeError(
++        "First argument to constrained callJob must be callable");
++  }
++
++  auto merged = captureJobConstrainedPrincipals(runtime);
++  bool valid = true;
++  for (uint32_t argument = 1; argument <= 2; ++argument) {
++    appendJobConstrainedPrincipalsToken(
++        runtime, args, argument, false, merged, valid);
++  }
++
++  const auto previous = runtime.embedderJobConstrainedPrincipals();
++  runtime.setEmbedderJobConstrainedPrincipals(
++      std::make_shared<const std::vector<uint32_t>>(std::move(merged)));
++  auto callResult = Callable::executeCall0(
++      callable, runtime, Runtime::getUndefinedValue());
++  runtime.setEmbedderJobConstrainedPrincipals(previous);
++  return callResult.toCallResultHermesValue();
++}
++
++static CallResult<HermesValue> getPromisePropertyWithConstrainedPrincipals(
++    Runtime &runtime,
++    const char *propertyName) {
++  NativeArgs args = runtime.getCurrentFrame().getNativeArgs();
++  auto object = args.dyncastArg<JSObject>(0);
++  if (!object) {
++    return runtime.raiseTypeError(
++        "First argument to constrained Promise property Get must be an object");
++  }
++  auto propertySymbol = symbolForCStr(runtime, propertyName);
++  if (LLVM_UNLIKELY(propertySymbol == ExecutionStatus::EXCEPTION)) {
++    return ExecutionStatus::EXCEPTION;
++  }
++
++  auto merged = captureJobConstrainedPrincipals(runtime);
++  bool valid = true;
++  appendJobConstrainedPrincipalsToken(
++      runtime, args, 1, false, merged, valid);
++
++  const auto previous = runtime.embedderJobConstrainedPrincipals();
++  runtime.setEmbedderJobConstrainedPrincipals(
++      std::make_shared<const std::vector<uint32_t>>(std::move(merged)));
++  auto getResult =
++      JSObject::getNamed_RJS(object, runtime, **propertySymbol);
++  runtime.setEmbedderJobConstrainedPrincipals(previous);
++  return getResult.toCallResultHermesValue();
++}
++
++/// Read a thenable's observable `then` property under an immutable provenance
++/// token. Getters are user code too, so constraining only the later Call would
++/// leave a synchronous authority-laundering path.
++CallResult<HermesValue>
++hermesInternalGetThenWithConstrainedPrincipals(void *, Runtime &runtime) {
++  return getPromisePropertyWithConstrainedPrincipals(runtime, "then");
++}
++
++/// PromiseResolve and Promise.prototype.then observe `constructor`. Perform
++/// that Get under the Promise's hidden provenance plus the current caller so
++/// an accessor cannot act as a root-clean deputy.
++CallResult<HermesValue>
++hermesInternalGetPromiseConstructorWithConstrainedPrincipals(
++    void *,
++    Runtime &runtime) {
++  return getPromisePropertyWithConstrainedPrincipals(runtime, "constructor");
++}
++
++/// Aggregate methods must observe a user-replaced Promise.resolve, but a
++/// getter installed by an unauthenticated package cannot run as a clean root
++/// deputy. Promise.js uses this only after detecting that the pristine data
++/// property changed.
++CallResult<HermesValue>
++hermesInternalGetPromiseResolveWithConstrainedPrincipals(
++    void *,
++    Runtime &runtime) {
++  return getPromisePropertyWithConstrainedPrincipals(runtime, "resolve");
++}
++
++/// Invoke a previously observed thenable method under the same immutable
++/// provenance token. Unlike Function.prototype.bind/apply, this path cannot
++/// itself be replaced by user code. An absent or malformed token collapses to
++/// the fail-closed no-user principal.
++CallResult<HermesValue>
++hermesInternalCallThenWithConstrainedPrincipals(void *, Runtime &runtime) {
++  NativeArgs args = runtime.getCurrentFrame().getNativeArgs();
++  auto callable = args.dyncastArg<Callable>(0);
++  if (!callable) {
++    return runtime.raiseTypeError(
++        "First argument to constrained Promise then call must be callable");
++  }
++
++  auto merged = captureJobConstrainedPrincipals(runtime);
++  bool valid = true;
++  appendJobConstrainedPrincipalsToken(
++      runtime, args, 2, false, merged, valid);
++
++  auto thisValue = args.getArgHandle(1);
++  auto onFulfilled = args.getArgHandle(3);
++  auto onRejected = args.getArgHandle(4);
++  const auto previous = runtime.embedderJobConstrainedPrincipals();
++  runtime.setEmbedderJobConstrainedPrincipals(
++      std::make_shared<const std::vector<uint32_t>>(std::move(merged)));
++  auto callResult = Callable::executeCall2(
++      callable,
++      runtime,
++      thisValue,
++      onFulfilled.getHermesValue(),
++      onRejected.getHermesValue());
++  runtime.setEmbedderJobConstrainedPrincipals(previous);
++  return callResult.toCallResultHermesValue();
++}
++
+ /// \code
+ ///   HermesInternal.drainJobs = function () {}
+ /// \endcode
+@@ -483,6 +768,42 @@ static const CodeBlock *getLeafCodeBlock(
+   return nullptr;
+ }
+ 
++/// Capture the effective carrier and authenticate the package that defined a
++/// bytecode callable. Async-generator lowering invokes _wrapAsyncGenerator at
++/// definition time, but the compatibility helper is also publicly reachable.
++/// Deriving the definition principal here prevents a package from lending that
++/// root-owned helper to a later clean deputy in order to wrap a package
++/// generator without its provenance.
++///
++/// Bound functions retain their bytecode target's package. Proxies and native
++/// or otherwise opaque callables deliberately fail closed: inspecting through
++/// a Proxy would itself trust attacker-controlled indirection.
++CallResult<HermesValue>
++hermesInternalCaptureCallableJobConstrainedPrincipals(
++    void *,
++    Runtime &runtime) {
++  NativeArgs args = runtime.getCurrentFrame().getNativeArgs();
++  auto callable = args.dyncastArg<Callable>(0);
++  auto merged = captureJobConstrainedPrincipals(runtime);
++  bool valid = true;
++  uint32_t definitionPrincipal = kNoUserPrincipal;
++  if (callable) {
++    if (const CodeBlock *codeBlock = getLeafCodeBlock(callable, runtime)) {
++      if (RuntimeModule *runtimeModule = codeBlock->getRuntimeModule()) {
++        if (Domain *domain = runtimeModule->getDomainUnsafe(runtime)) {
++          const uint32_t packageId = domain->getPackageId();
++          if (packageId != Runtime::kNoJobSchedulerPrincipal) {
++            definitionPrincipal = packageId;
++          }
++        }
++      }
++    }
++  }
++  appendDistinctJobConstrainedPrincipal(
++      merged, definitionPrincipal, valid);
++  return jobConstrainedPrincipalsToken(runtime, merged);
++}
++
+ /// \return the file name associated with \p codeBlock, if any.
+ /// This mirrors the way we print file names for code blocks in JSError.
+ static CallResult<HermesValue> getCodeBlockFileName(
+@@ -828,6 +1149,38 @@ HermesValue createHermesInternalObject(
+   // where HermesInternal might be explicitly disabled.
+   defineInternMethod(P::hasPromise, hermesInternalHasPromise);
+   defineInternMethod(P::enqueueJob, hermesInternalEnqueueJob);
++  defineInternMethodAndSymbol(
++      "captureJobConstrainedPrincipals",
++      hermesInternalCaptureJobConstrainedPrincipals,
++      2);
++  defineInternMethodAndSymbol(
++      "captureCallableJobConstrainedPrincipals",
++      hermesInternalCaptureCallableJobConstrainedPrincipals,
++      1);
++  defineInternMethodAndSymbol(
++      "enqueueJobWithConstrainedPrincipals",
++      hermesInternalEnqueueJobWithConstrainedPrincipals,
++      3);
++  defineInternMethodAndSymbol(
++      "callJobWithConstrainedPrincipals",
++      hermesInternalCallJobWithConstrainedPrincipals,
++      3);
++  defineInternMethodAndSymbol(
++      "getThenWithConstrainedPrincipals",
++      hermesInternalGetThenWithConstrainedPrincipals,
++      2);
++  defineInternMethodAndSymbol(
++      "getPromiseConstructorWithConstrainedPrincipals",
++      hermesInternalGetPromiseConstructorWithConstrainedPrincipals,
++      2);
++  defineInternMethodAndSymbol(
++      "getPromiseResolveWithConstrainedPrincipals",
++      hermesInternalGetPromiseResolveWithConstrainedPrincipals,
++      2);
++  defineInternMethodAndSymbol(
++      "callThenWithConstrainedPrincipals",
++      hermesInternalCallThenWithConstrainedPrincipals,
++      5);
+   defineInternMethod(
+       P::setPromiseRejectionTrackingHook,
+       hermesInternalSetPromiseRejectionTrackingHook);
+diff --git a/lib/VM/Runtime.cpp b/lib/VM/Runtime.cpp
+index 197cb1359e2c34dd62e98533befedc8a2d1533c0..71e892e26c5b461850ae8c99d25c848f6342646d 100644
+--- a/lib/VM/Runtime.cpp
++++ b/lib/VM/Runtime.cpp
+@@ -2048,9 +2048,12 @@ ExecutionStatus Runtime::drainJobs() {
+     uint32_t savedScheduler = currentJobSchedulerPrincipal_;
+     uint64_t savedIdentity = currentJobIdentity_;
+     uint64_t savedAssociatedEvaluation = currentJobAssociatedEvaluation_;
++    auto savedConstrainedPrincipals = currentJobConstrainedPrincipals_;
+     currentJobSchedulerPrincipal_ = context.principal;
+     currentJobIdentity_ = context.identity;
+     currentJobAssociatedEvaluation_ = context.associatedEvaluation;
++    currentJobConstrainedPrincipals_ =
++        std::move(context.constrainedPrincipals);
+ 
+     // Jobs are guaranteed to behave as thunks.
+     auto callRes =
+@@ -2062,6 +2065,8 @@ ExecutionStatus Runtime::drainJobs() {
+     currentJobSchedulerPrincipal_ = savedScheduler;
+     currentJobIdentity_ = savedIdentity;
+     currentJobAssociatedEvaluation_ = savedAssociatedEvaluation;
++    currentJobConstrainedPrincipals_ =
++        std::move(savedConstrainedPrincipals);
+ 
+     // Early return to signal the caller. Note that the exceptional job has been
+     // popped, so re-invocation would pick up from the next available job.
+diff --git a/test/hermes/async-generator-principal-definition.js b/test/hermes/async-generator-principal-definition.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..b79cc8be20d0ac84d4dbb2755e0c7eb88f66848c
+--- /dev/null
++++ b/test/hermes/async-generator-principal-definition.js
+@@ -0,0 +1,35 @@
++/**
++ * Copyright (c) Meta Platforms, Inc. and affiliates.
++ *
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ */
++
++// RUN: %hermes -Xasync-generators %s | %FileCheck --match-full-lines %s
++// RUN: %hermes -Xasync-generators -Xmicrotask-queue %s | %FileCheck --match-full-lines %s
++
++function plain() {}
++var bound = plain.bind(null);
++var proxied = new Proxy(plain, {});
++
++function definitionToken(fn) {
++  return HermesInternal.captureCallableJobConstrainedPrincipals(fn);
++}
++
++print("plain:" + JSON.stringify(definitionToken(plain)));
++// CHECK: plain:[0]
++print("bound:" + JSON.stringify(definitionToken(bound)));
++// CHECK-NEXT: bound:[0]
++print("proxy:" + JSON.stringify(definitionToken(proxied)));
++// CHECK-NEXT: proxy:[0,4294967294]
++print("native:" + JSON.stringify(definitionToken(Math.abs)));
++// CHECK-NEXT: native:[0,4294967294]
++
++async function* generated() {
++  yield await Promise.resolve(7);
++}
++
++generated().next().then(function (result) {
++  print("async-generator:" + result.value + ":" + result.done);
++});
++// CHECK-NEXT: async-generator:7:false
+diff --git a/test/hermes/hermes-internal.js b/test/hermes/hermes-internal.js
+index 22c9468b0cccd6c8d9bee336a2b87ab2856b6d44..5202ded87f57c46e50be892d0e34936659f4891a 100644
+--- a/test/hermes/hermes-internal.js
++++ b/test/hermes/hermes-internal.js
+@@ -20,7 +20,15 @@
+ // enablePromiseRejectionTracker
+ // enqueueJob
+ // useEngineQueue
+-var SAFE_FIELDS_COUNT = 6;
++// captureJobConstrainedPrincipals
++// captureCallableJobConstrainedPrincipals
++// enqueueJobWithConstrainedPrincipals
++// callJobWithConstrainedPrincipals
++// getThenWithConstrainedPrincipals
++// getPromiseConstructorWithConstrainedPrincipals
++// getPromiseResolveWithConstrainedPrincipals
++// callThenWithConstrainedPrincipals
++var SAFE_FIELDS_COUNT = 14;
+ 
+ // Check that we can disable unsafe fields of HermesInternal.
+ print(Object.getOwnPropertyNames(HermesInternal).length)
+diff --git a/test/hermes/promise-rejection-checkpoint-lock.js b/test/hermes/promise-rejection-checkpoint-lock.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..21860887be175d42078bf48d0d5e9640c440c04e
+--- /dev/null
++++ b/test/hermes/promise-rejection-checkpoint-lock.js
+@@ -0,0 +1,41 @@
++/**
++ * Copyright (c) Meta Platforms, Inc. and affiliates.
++ *
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ */
++
++// RUN: %hermes %s | %FileCheck --match-full-lines %s
++// RUN: %hermes -Xmicrotask-queue %s | %FileCheck --match-full-lines %s
++
++var originalRejected = 0;
++var originalHandled = 0;
++var replacementRejected = 0;
++
++HermesInternal.enablePromiseRejectionTracker({
++  checkpointRejections: true,
++  onRejectedAtCheckpoint: function () {
++    ++originalRejected;
++  },
++  onHandledAtCheckpoint: function () {
++    ++originalHandled;
++  },
++});
++
++// Package code runs after the embedder installs checkpoint tracking. It must
++// not be able to replace the host's callbacks through the public hook.
++HermesInternal.enablePromiseRejectionTracker({
++  checkpointRejections: true,
++  onRejectedAtCheckpoint: function () {
++    ++replacementRejected;
++  },
++  onHandledAtCheckpoint: function () {},
++});
++
++var rejected = Promise.reject("locked");
++print(originalRejected, replacementRejected);
++// CHECK: 1 0
++
++rejected.catch(function () {});
++print(originalHandled, replacementRejected);
++// CHECK-NEXT: 1 0

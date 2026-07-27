@@ -30,6 +30,10 @@
 #if defined(__APPLE__)
 #include <crt_externs.h>
 #include <TargetConditionals.h>
+#include <libkern/OSByteOrder.h>
+#include <mach-o/dyld.h>
+#include <mach-o/fat.h>
+#include <mach-o/loader.h>
 #if TARGET_OS_OSX
 #include <libproc.h>
 #include <sys/proc_info.h>
@@ -47,6 +51,7 @@
 #include <mutex>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -86,6 +91,7 @@
 #endif
 #include <sys/ioctl.h>
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/uio.h>
@@ -182,20 +188,9 @@ extern "C" char **environ;
 #include "bootstrap_source.h"
 #endif
 
-// The WebGPU runtime graph is deliberately absent from core startup. A
-// registered provider can evaluate this separate artifact on first activation.
-// @ref LLP 0005#3-the-runtime-bundles
-#if __has_include("webgpu_runtime_bundle_source.h")
-#include "webgpu_runtime_bundle_source.h"
-#define HAS_WEBGPU_RUNTIME_BUNDLE 1
-#endif
-#if __has_include("webgpu_runtime_bundle_bytecode.h")
-#include "webgpu_runtime_bundle_bytecode.h"
-#define HAS_WEBGPU_RUNTIME_BUNDLE_HBC 1
-#endif
-
 #include "../../include/exact_runtime.h"
 #include "hermes_runtime_internal.h"
+#include "hermes_runtime_extension_internal.h"
 #include "hermes_runtime_zlib_streams.h"
 
 // PATH_MAX / realpath live in <limits.h> on Linux; macOS pulls them in
@@ -1207,6 +1202,15 @@ bool requestStructuredLifecycle(
   if (handle == nullptr || !handle->armed) {
     return false;
   }
+#if !defined(EXACT_HAVE_HERMES_ASYNC_TRIGGER_TIMEOUT)
+  (void)surface;
+  (void)requestedCode;
+  (void)hasRequestedCode;
+  throw facebook::jsi::JSError(
+      runtime,
+      "The selected Hermes profile cannot provide fail-closed structured "
+      "lifecycle interruption");
+#else
   // Authorization precedes both the native lifecycle record and the engine
   // interrupt. A denied request is an ordinary catchable JavaScript error and
   // cannot leave a latent exit request behind.
@@ -1223,6 +1227,7 @@ bool requestStructuredLifecycle(
   // native record before classifying the VM termination.
   handle->runtime->asyncTriggerTimeout();
   return true;
+#endif
 }
 
 facebook::jsi::Function makeProcessExitFn(
@@ -1645,7 +1650,9 @@ bool beginStructuredWorkUnit(
           runtime->structured_vm_work_active &&
           runtime->structured_cancel_requested_work_target_id == 0) {
         runtime->structured_cancel_requested_work_target_id = targetId;
+#if defined(EXACT_HAVE_HERMES_ASYNC_TRIGGER_TIMEOUT)
         runtime->runtime->asyncTriggerTimeout();
+#endif
       }
     }
     failStructuredWorkPublication(runtime);
@@ -2645,6 +2652,7 @@ static int evalRuntimeUnchecked(
     const char* sourceUrl,
     int isBytecode,
     char** outValue);
+static void writeEvalRefusal(char** outValue, const char* text) noexcept;
 ExHermesEvaluationFault structuredRuntimeDriveFault(int32_t status);
 
 std::mutex g_runtimeRegistryMutex;
@@ -2736,7 +2744,9 @@ RuntimeCallbackTarget exactRuntimeCallbackTarget(ExactHermesRuntime* runtime) {
           EX_HERMES_ASYNC_FAILURE_NATIVE_COMPLETION,
           principal,
           exactAllocateAsyncEventIdentity(runtime),
-          exactCurrentAsyncEvaluationAssociation(runtime))};
+          exactCurrentAsyncEvaluationAssociation(runtime)),
+      std::make_shared<const std::vector<uint64_t>>(
+          exactCollectTypedPrincipalStack())};
 }
 
 uint64_t exactAllocateAsyncEventIdentity(ExactHermesRuntime* runtime) {
@@ -2869,6 +2879,7 @@ ExactRuntimeDriveGuard::ExactRuntimeDriveGuard(
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   previous_attribution_runtime_ = g_vm_runtime;
   g_vm_runtime = runtime->attribution_runtime;
+  (void)exactSyncTypedPrincipalStackToHermes();
 #endif
   dynamic_scope_active_ = true;
 }
@@ -3132,12 +3143,35 @@ static void drainRuntimeFinalizers(ExactHermesRuntime* runtime) {
   }
 }
 
+static void runRuntimeCallbackOwnerDispositionOnOwnerThread(
+    ExactHermesRuntime::QueuedRuntimeCallback& entry) noexcept {
+  auto disposition = std::move(entry.ownerDisposition);
+  if (!disposition) {
+    return;
+  }
+  try {
+    disposition();
+  } catch (...) {
+    // Queue dispositions are required to be noexcept. Continue settling the
+    // remaining entries so a broken extension cannot strand owner state.
+    ex_host_console_log(1, "Runtime callback owner disposition failed");
+  }
+}
+
+static void runRuntimeCallbackOwnerDispositionsOnOwnerThread(
+    std::deque<ExactHermesRuntime::QueuedRuntimeCallback>& queue) noexcept {
+  for (auto& entry : queue) {
+    runRuntimeCallbackOwnerDispositionOnOwnerThread(entry);
+  }
+}
+
 static void discardRuntimeCallbacksOnOwnerThread(ExactHermesRuntime* runtime) {
   std::deque<ExactHermesRuntime::QueuedRuntimeCallback> queue;
   {
     std::lock_guard<std::mutex> lock(runtime->callbackMutex);
     queue.swap(runtime->callbackQueue);
   }
+  runRuntimeCallbackOwnerDispositionsOnOwnerThread(queue);
   // `queue` is intentionally destroyed on the runtime owner thread. Its
   // functions may own jsi::Function/Object values and must not be dropped by
   // the worker that produced them.
@@ -3357,7 +3391,9 @@ void pushRuntimeCallback(RuntimeCallbackTarget target,
         std::lock_guard<std::mutex> lock(runtime->callbackMutex);
         runtime->callbackQueue.push_back(
             ExactHermesRuntime::QueuedRuntimeCallback{
-                target.failureContext, std::move(fn)});
+                target.failureContext,
+                target.constrainedPrincipals,
+                std::move(fn)});
         if (g_activeRuntimes.at(runtime).state == RuntimeLifecycleState::Closing) {
           runtime->native_worker_cv.notify_all();
         }
@@ -3375,6 +3411,98 @@ void pushRuntimeCallback(RuntimeCallbackTarget target,
     if (foreignProducer) exactTestHoldRuntimeProducerAfterEnqueue();
 #endif
 }
+
+TryRuntimeCallbackResult tryPushRuntimeExtensionCallback(
+    RuntimeCallbackTarget target,
+    std::function<void(facebook::jsi::Runtime&)> fn,
+    std::function<void()> ownerDisposition) noexcept {
+  try {
+    {
+      std::unique_lock<std::mutex> registryLock(
+          g_runtimeRegistryMutex, std::try_to_lock);
+      if (!registryLock.owns_lock()) {
+        return TryRuntimeCallbackResult::Busy;
+      }
+      // New extension work is admitted only while Running. Once teardown wins
+      // this lock and publishes Closing, a stale producer can never touch the
+      // runtime object or enqueue into a replacement at the same address.
+      if (!runtimeTargetMatchesLocked(target, false)) {
+        return TryRuntimeCallbackResult::Stale;
+      }
+      auto* runtime = target.runtime;
+      std::unique_lock<std::mutex> callbackLock(
+          runtime->callbackMutex, std::try_to_lock);
+      if (!callbackLock.owns_lock()) {
+        return TryRuntimeCallbackResult::Busy;
+      }
+      runtime->callbackQueue.push_back(
+          ExactHermesRuntime::QueuedRuntimeCallback{
+              target.failureContext,
+              target.constrainedPrincipals,
+              std::move(fn)});
+      // Publish the queue-owned disposition only after insertion succeeds.
+      // std::function move assignment is noexcept, so a refused enqueue leaves
+      // all settlement responsibility with the producer.
+      runtime->callbackQueue.back().ownerDisposition =
+          std::move(ownerDisposition);
+    }
+    // The registered hook is contractually a bounded enqueue/signal. Keep it
+    // outside both locks, and contain a non-conforming C++ embedder callback.
+    try {
+      ex_hermes_notify_callback();
+    } catch (...) {
+    }
+    return TryRuntimeCallbackResult::Accepted;
+  } catch (...) {
+    // Allocation failure while growing the queue is a fail-fast capacity
+    // refusal. `fn` remains producer-owned and contains no JSI values.
+    return TryRuntimeCallbackResult::Busy;
+  }
+}
+
+#if defined(IBEX_RUNTIME_EXTENSION_CONFORMANCE)
+extern "C" int32_t ibex_test_runtime_extension_with_registry_lock_v1(
+    void (*body)(void*), void* context) {
+  if (body == nullptr) return 0;
+  std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+  body(context);
+  return 1;
+}
+
+extern "C" int32_t ibex_test_runtime_extension_with_callback_queue_lock_v1(
+    ExactHermesRuntime* runtime, void (*body)(void*), void* context) {
+  if (runtime == nullptr || body == nullptr) return 0;
+  {
+    std::lock_guard<std::mutex> registryLock(g_runtimeRegistryMutex);
+    const auto found = g_activeRuntimes.find(runtime);
+    if (found == g_activeRuntimes.end() ||
+        found->second.state != RuntimeLifecycleState::Running ||
+        found->second.owner != std::this_thread::get_id()) {
+      return 0;
+    }
+  }
+  std::lock_guard<std::mutex> lock(runtime->callbackMutex);
+  body(context);
+  return 1;
+}
+
+extern "C" int32_t ibex_test_runtime_extension_with_native_worker_lock_v1(
+    ExactHermesRuntime* runtime, void (*body)(void*), void* context) {
+  if (runtime == nullptr || body == nullptr) return 0;
+  {
+    std::lock_guard<std::mutex> registryLock(g_runtimeRegistryMutex);
+    const auto found = g_activeRuntimes.find(runtime);
+    if (found == g_activeRuntimes.end() ||
+        found->second.state != RuntimeLifecycleState::Running ||
+        found->second.owner != std::this_thread::get_id()) {
+      return 0;
+    }
+  }
+  std::lock_guard<std::mutex> lock(runtime->native_worker_mutex);
+  body(context);
+  return 1;
+}
+#endif
 
 bool pushRuntimeFinalizer(RuntimeCallbackTarget target,
                           std::function<void()> fn) {
@@ -3403,6 +3531,13 @@ int drainCallbackQueue(ExactHermesRuntime* runtime) {
         std::lock_guard<std::mutex> lock(runtime->callbackMutex);
         queue.swap(runtime->callbackQueue);
     }
+    struct ScopedOwnerDispositions {
+      std::deque<ExactHermesRuntime::QueuedRuntimeCallback>& queue;
+      ~ScopedOwnerDispositions() {
+        runRuntimeCallbackOwnerDispositionsOnOwnerThread(queue);
+      }
+    } ownerDispositions{queue};
+    (void)ownerDispositions;
     int count = 0;
     for (auto& entry : queue) {
         if (runtime->structured_lifecycle_pending) break;
@@ -3422,6 +3557,13 @@ int drainCallbackQueue(ExactHermesRuntime* runtime) {
             runtime->runtime.get(), rawCapture);
         try {
             ScopedNativePrincipal nativePrincipal(kNoNativePrincipalOverride);
+            std::unique_ptr<ScopedTypedPrincipalStack> constrainedPrincipals;
+            if (entry.constrainedPrincipals &&
+                !entry.constrainedPrincipals->empty()) {
+              constrainedPrincipals =
+                  std::make_unique<ScopedTypedPrincipalStack>(
+                      *entry.constrainedPrincipals);
+            }
             entry.callback(*runtime->runtime);
             workUnit.finish();
             if (runtime->structured_session_terminated) return count;
@@ -3821,19 +3963,6 @@ bool installCompartmentRegistry(struct ExactHermesRuntime* handle) {
             conditionalPath.length === 0) {
           throw new Error('invalid deferred compartment baseline path');
         }
-        if (conditionalPath === 'navigator.gpu') {
-          var globalNavigatorDesc = getOwnPropDesc(g, 'navigator');
-          var baselineNavigatorDesc = getOwnPropDesc(baseline, 'navigator');
-          if (!globalNavigatorDesc || !baselineNavigatorDesc ||
-              !owns(globalNavigatorDesc, 'value') ||
-              !owns(baselineNavigatorDesc, 'value') ||
-              globalNavigatorDesc.value !== baselineNavigatorDesc.value ||
-              !globalNavigatorDesc.value ||
-              !getOwnPropDesc(globalNavigatorDesc.value, 'gpu')) {
-            throw new Error('deferred navigator.gpu baseline mismatch');
-          }
-          continue;
-        }
         var conditionalDesc = getOwnPropDesc(g, conditionalPath);
         if (!conditionalDesc) {
           throw new Error('missing deferred compartment baseline path');
@@ -4091,10 +4220,8 @@ bool installCompartmentRegistry(struct ExactHermesRuntime* handle) {
         !refresh.getObject(rt).isFunction(rt)) {
       return false;
     }
-    // Retain the trusted closure before the public one-shot hook is deleted.
-    // Late WebGPU activation can then refresh only its generated conditional
-    // paths even when the ordinary CLI finished bootstrap first.
-    // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+    // Retain the trusted closure before the public one-shot hook is deleted so
+    // the explicit embedder-capability finalizer can close the baseline.
     handle->compartment_baseline_refresher =
         std::make_shared<facebook::jsi::Function>(
             refresh.getObject(rt).asFunction(rt));
@@ -4283,7 +4410,8 @@ void installBootstrapCompatibilityModes(ExactHermesRuntime* handle) {
   size_t count = (handle->bootstrap_bun_compat ? 1u : 0u) +
       (handle->bootstrap_fixture_compat ? 1u : 0u) +
       (handle->bootstrap_bun_fixture ? 1u : 0u) +
-      (handle->bootstrap_dev_served ? 1u : 0u);
+      (handle->bootstrap_dev_served ? 1u : 0u) +
+      (handle->authenticated_native_storage_closed ? 1u : 0u);
   facebook::jsi::Array modes(rt, count);
   size_t index = 0;
   auto append = [&](const char* mode) {
@@ -4296,6 +4424,9 @@ void installBootstrapCompatibilityModes(ExactHermesRuntime* handle) {
   if (handle->bootstrap_dev_served) append("dev-served");
   if (handle->bootstrap_fixture_compat) append("fixture");
   if (handle->bootstrap_bun_fixture) append("fixture:bun");
+  if (handle->authenticated_native_storage_closed) {
+    append("native-storage:closed");
+  }
   auto freeze = rt.global()
                     .getPropertyAsObject(rt, "Object")
                     .getPropertyAsFunction(rt, "freeze");
@@ -6054,6 +6185,64 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     }
   }
 
+  // Capture the construction-only runtime-extension loader capabilities and
+  // remove every JavaScript-visible reference before evaluating even an
+  // authenticated extension bootstrap. InstallContext::defineModule and the
+  // per-descriptor registry-delta verifier use only these retained functions.
+  // @ref LLP 0040#3-fixed-bootstrap-window
+  {
+    auto registrar =
+        rt.global().getProperty(rt, "__ibexRegisterRuntimeExtensionModule");
+    auto reflect = rt.global().getProperty(rt, "Reflect");
+    if (!registrar.isObject() ||
+        !registrar.asObject(rt).isFunction(rt) ||
+        !reflect.isObject()) {
+      throw std::runtime_error(
+          "runtime extension loader capabilities are unavailable");
+    }
+    auto deleteProperty =
+        reflect.asObject(rt).getProperty(rt, "deleteProperty");
+    if (!deleteProperty.isObject() ||
+        !deleteProperty.asObject(rt).isFunction(rt)) {
+      throw std::runtime_error(
+          "runtime extension loader capability deletion is unavailable");
+    }
+    auto registrarObject = registrar.asObject(rt);
+    auto inspector = registrarObject.getProperty(rt, "inspectModules");
+    if (!inspector.isObject() ||
+        !inspector.asObject(rt).isFunction(rt)) {
+      throw std::runtime_error(
+          "runtime extension loader inspector is unavailable");
+    }
+    handle->runtime_extension_module_registrar =
+        std::make_shared<facebook::jsi::Function>(
+            registrarObject.asFunction(rt));
+    handle->runtime_extension_module_inspector =
+        std::make_shared<facebook::jsi::Function>(
+            inspector.asObject(rt).asFunction(rt));
+    auto deleteFunction = deleteProperty.asObject(rt).asFunction(rt);
+    const auto deleteGlobal = [&](const char* name) {
+      auto result = deleteFunction.call(
+          rt, rt.global(), facebook::jsi::String::createFromUtf8(rt, name));
+      if (!result.isBool() || !result.getBool() ||
+          rt.global().hasProperty(rt, name)) {
+        throw std::runtime_error(
+            std::string(
+                "runtime extension loader capability remained global: ") +
+            name);
+      }
+    };
+    deleteGlobal("__ibexRegisterRuntimeExtensionModule");
+  }
+
+  // One fixed trusted extension window: Ibex primitives and the shared
+  // runtime are present, while capability hardening, lockdown, package
+  // baseline finalization, and every user-code ingress are still closed.
+  // Installers are deterministic and descriptor-delta checked individually.
+  // @ref LLP 0040
+  requireArmedStartupStage(handle, "runtime-extensions");
+  ibex::runtime_extension::internal::install(handle);
+
   // @ref LLP 0013#phase-0 — end-of-bootstrap capability hardening seal. The
   // module-attribution setter (`__exactSetActiveModuleId`) and the self-grant
   // function (`__exactGrantCapability`) are ambient-authority escape hatches:
@@ -6095,10 +6284,11 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       };
     }
   }
-  var hatches = ['__exactSetActiveModuleId', '__exactGrantCapability',
-                 '__exactSetPendingPackageId', '__exactRegisterPackage',
-                 '__exactCheckImport', '__exactSetCompartmentFor',
-                 '__exactResolveManifestBuiltinInternal'];
+	  var hatches = ['__exactSetActiveModuleId', '__exactGrantCapability',
+	                 '__exactSetPendingPackageId', '__exactRegisterPackage',
+	                 '__exactCheckImport', '__exactSetCompartmentFor',
+	                 '__exactResolveManifestBuiltinInternal',
+	                 '__ibexRegisterRuntimeExtensionModule'];
   if (sealSelfGrant) {
     hatches.push('__exactModuleResolve', '__exactModuleResolveMeta',
                  '__exactNativeModuleResolve', '__exactNativeModuleResolveMeta');
@@ -6665,7 +6855,7 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
   }
 }
 
-GuardedMicrotaskDrainResult drainGpuHostTaskJobsToCheckpoint(
+GuardedMicrotaskDrainResult drainRuntimeExtensionHostTaskJobsToCheckpoint(
     ExactHermesRuntime* runtime) {
   for (;;) {
     runNextTickQueue(runtime);
@@ -6689,15 +6879,15 @@ GuardedMicrotaskDrainResult drainGpuHostTaskJobsToCheckpoint(
 
 }  // namespace
 
-bool exactResumeGpuHostTaskContinuation(ExactHermesRuntime* runtime) noexcept {
+bool exactResumeRuntimeExtensionHostTaskContinuation(ExactHermesRuntime* runtime) noexcept {
   if (!runtime || !runtime->runtime ||
-      runtime->gpu_host_task_checkpoint_failed) {
+      runtime->runtime_extension_host_task_checkpoint_failed) {
     return false;
   }
-  if (!runtime->gpu_host_task_microtask_continuation) return true;
-  if (runtime->gpu_host_task_depth != 0 ||
-      runtime->active_gpu_host_task_id == 0) {
-    runtime->gpu_host_task_checkpoint_failed = true;
+  if (!runtime->runtime_extension_host_task_microtask_continuation) return true;
+  if (runtime->runtime_extension_host_task_depth != 0 ||
+      runtime->active_runtime_extension_host_task_id == 0) {
+    runtime->runtime_extension_host_task_checkpoint_failed = true;
     return false;
   }
 
@@ -6705,77 +6895,77 @@ bool exactResumeGpuHostTaskContinuation(ExactHermesRuntime* runtime) noexcept {
     // Keep the logical outer task active while callbacks from the retained
     // drain run. Any synchronous re-entry joins at depth 2 and cannot allocate
     // a successor identity or checkpoint independently.
-    runtime->gpu_host_task_depth = 1;
+    runtime->runtime_extension_host_task_depth = 1;
     const auto drainResult =
         runtime->runtime_quarantined.load(std::memory_order_acquire)
             ? GuardedMicrotaskDrainResult::Drained
-            : drainGpuHostTaskJobsToCheckpoint(runtime);
+            : drainRuntimeExtensionHostTaskJobsToCheckpoint(runtime);
     if (drainResult == GuardedMicrotaskDrainResult::BoundedIncomplete) {
-      runtime->gpu_host_task_depth = 0;
+      runtime->runtime_extension_host_task_depth = 0;
       return false;
     }
     if (drainResult == GuardedMicrotaskDrainResult::Failed) {
-      runtime->gpu_host_task_depth = 0;
-      runtime->gpu_host_task_microtask_continuation = false;
-      runtime->gpu_host_task_checkpoint_failed = true;
+      runtime->runtime_extension_host_task_depth = 0;
+      runtime->runtime_extension_host_task_microtask_continuation = false;
+      runtime->runtime_extension_host_task_checkpoint_failed = true;
       (void)exactRuntimeQuarantine(runtime);
       return false;
     }
-    runtime->gpu_host_task_depth = 0;
-    runtime->gpu_host_task_microtask_continuation = false;
-    runtime->active_gpu_host_task_id = 0;
-    if (!exactGpuCheckpointHostTask(runtime)) {
-      runtime->gpu_host_task_checkpoint_failed = true;
+    runtime->runtime_extension_host_task_depth = 0;
+    runtime->runtime_extension_host_task_microtask_continuation = false;
+    runtime->active_runtime_extension_host_task_id = 0;
+    if (!ibex::runtime_extension::internal::checkpoint(runtime)) {
+      runtime->runtime_extension_host_task_checkpoint_failed = true;
       return false;
     }
     return true;
   } catch (...) {
-    runtime->gpu_host_task_depth = 0;
-    runtime->gpu_host_task_checkpoint_failed = true;
+    runtime->runtime_extension_host_task_depth = 0;
+    runtime->runtime_extension_host_task_checkpoint_failed = true;
     return false;
   }
 }
 
-ScopedGpuHostTask::ScopedGpuHostTask(ExactHermesRuntime* runtime) noexcept
+ScopedRuntimeExtensionHostTask::ScopedRuntimeExtensionHostTask(ExactHermesRuntime* runtime) noexcept
     : runtime_(runtime) {
   if (!runtime_ || !runtime_->runtime ||
       runtime_->runtime_thread != std::this_thread::get_id() ||
-      runtime_->gpu_host_task_checkpoint_failed) {
+      runtime_->runtime_extension_host_task_checkpoint_failed) {
     return;
   }
-  if (runtime_->gpu_host_task_depth == 0 &&
-      !exactResumeGpuHostTaskContinuation(runtime_)) {
+  if (runtime_->runtime_extension_host_task_depth == 0 &&
+      !exactResumeRuntimeExtensionHostTaskContinuation(runtime_)) {
     return;
   }
-  if (runtime_->gpu_host_task_depth == 0) {
-    uint64_t taskId = runtime_->next_gpu_host_task_id++;
+  if (runtime_->runtime_extension_host_task_depth == 0) {
+    uint64_t taskId = runtime_->next_runtime_extension_host_task_id++;
     if (taskId == 0) {
-      taskId = runtime_->next_gpu_host_task_id++;
+      taskId = runtime_->next_runtime_extension_host_task_id++;
     }
     if (taskId == 0) {
-      runtime_->gpu_host_task_checkpoint_failed = true;
+      runtime_->runtime_extension_host_task_checkpoint_failed = true;
       return;
     }
-    runtime_->active_gpu_host_task_id = taskId;
+    runtime_->active_runtime_extension_host_task_id = taskId;
   }
-  runtime_->gpu_host_task_depth += 1;
+  runtime_->runtime_extension_host_task_depth += 1;
   active_ = true;
 }
 
-ScopedGpuHostTask::~ScopedGpuHostTask() { (void)finish(); }
+ScopedRuntimeExtensionHostTask::~ScopedRuntimeExtensionHostTask() { (void)finish(); }
 
-bool ScopedGpuHostTask::finish() noexcept {
+bool ScopedRuntimeExtensionHostTask::finish() noexcept {
   if (!active_) {
-    return runtime_ && !runtime_->gpu_host_task_checkpoint_failed &&
-           !runtime_->gpu_host_task_microtask_continuation;
+    return runtime_ && !runtime_->runtime_extension_host_task_checkpoint_failed &&
+           !runtime_->runtime_extension_host_task_microtask_continuation;
   }
   active_ = false;
-  if (!runtime_ || runtime_->gpu_host_task_depth == 0) {
-    if (runtime_) runtime_->gpu_host_task_checkpoint_failed = true;
+  if (!runtime_ || runtime_->runtime_extension_host_task_depth == 0) {
+    if (runtime_) runtime_->runtime_extension_host_task_checkpoint_failed = true;
     return false;
   }
-  if (runtime_->gpu_host_task_depth > 1) {
-    runtime_->gpu_host_task_depth -= 1;
+  if (runtime_->runtime_extension_host_task_depth > 1) {
+    runtime_->runtime_extension_host_task_depth -= 1;
     return true;
   }
 
@@ -6785,30 +6975,30 @@ bool ScopedGpuHostTask::finish() noexcept {
     const auto drainResult =
         runtime_->runtime_quarantined.load(std::memory_order_acquire)
             ? GuardedMicrotaskDrainResult::Drained
-            : drainGpuHostTaskJobsToCheckpoint(runtime_);
+            : drainRuntimeExtensionHostTaskJobsToCheckpoint(runtime_);
     if (drainResult == GuardedMicrotaskDrainResult::BoundedIncomplete) {
-      runtime_->gpu_host_task_depth = 0;
-      runtime_->gpu_host_task_microtask_continuation = true;
+      runtime_->runtime_extension_host_task_depth = 0;
+      runtime_->runtime_extension_host_task_microtask_continuation = true;
       return true;
     }
     if (drainResult == GuardedMicrotaskDrainResult::Failed) {
-      runtime_->gpu_host_task_depth = 0;
-      runtime_->gpu_host_task_microtask_continuation = false;
-      runtime_->gpu_host_task_checkpoint_failed = true;
+      runtime_->runtime_extension_host_task_depth = 0;
+      runtime_->runtime_extension_host_task_microtask_continuation = false;
+      runtime_->runtime_extension_host_task_checkpoint_failed = true;
       (void)exactRuntimeQuarantine(runtime_);
       return false;
     }
-    runtime_->gpu_host_task_depth = 0;
-    runtime_->gpu_host_task_microtask_continuation = false;
-    runtime_->active_gpu_host_task_id = 0;
-    if (!exactGpuCheckpointHostTask(runtime_)) {
-      runtime_->gpu_host_task_checkpoint_failed = true;
+    runtime_->runtime_extension_host_task_depth = 0;
+    runtime_->runtime_extension_host_task_microtask_continuation = false;
+    runtime_->active_runtime_extension_host_task_id = 0;
+    if (!ibex::runtime_extension::internal::checkpoint(runtime_)) {
+      runtime_->runtime_extension_host_task_checkpoint_failed = true;
       return false;
     }
     return true;
   } catch (...) {
-    runtime_->gpu_host_task_depth = 0;
-    runtime_->gpu_host_task_checkpoint_failed = true;
+    runtime_->runtime_extension_host_task_depth = 0;
+    runtime_->runtime_extension_host_task_checkpoint_failed = true;
     return false;
   }
 }
@@ -6953,6 +7143,61 @@ struct IbexPrivateHermesMacOsMappingObservationV1 {
 static_assert(sizeof(IbexPrivateHermesMacOsMappingObservationV1) == 40,
               "macOS mapping observation ABI layout changed");
 
+#if defined(__APPLE__)
+// Hash the already pinned file descriptor with CommonCrypto's platform-
+// accelerated SHA-256 implementation. The caller retains the descriptor and
+// revalidates its required object metadata after this returns.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+// engine authentication still covers every byte of the linked artifact; this
+// helper changes only the implementation of that exact digest.
+#if defined(__GNUC__)
+__attribute__((visibility("hidden")))
+#endif
+extern "C" int32_t ibex_private_apple_sha256_fd_v1(
+    int fd, uint64_t expected_size, uint8_t* output) {
+  if (fd < 0 || output == nullptr || expected_size > SIZE_MAX) {
+    return -1;
+  }
+  struct stat before = {};
+  if (fstat(fd, &before) != 0 || !S_ISREG(before.st_mode) ||
+      before.st_size < 0 ||
+      static_cast<uint64_t>(before.st_size) != expected_size) {
+    return -1;
+  }
+  void* mapped = nullptr;
+  if (expected_size != 0) {
+    mapped = mmap(
+        nullptr, static_cast<size_t>(expected_size), PROT_READ, MAP_PRIVATE,
+        fd, 0);
+    if (mapped == MAP_FAILED) return -1;
+  }
+
+  CC_SHA256_CTX context = {};
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
+  bool hashed = CC_SHA256_Init(&context) == 1;
+  const auto* bytes = static_cast<const uint8_t*>(mapped);
+  uint64_t consumed = 0;
+  while (hashed && consumed < expected_size) {
+    const CC_LONG chunk = static_cast<CC_LONG>(std::min<uint64_t>(
+        expected_size - consumed,
+        static_cast<uint64_t>(std::numeric_limits<CC_LONG>::max())));
+    hashed = chunk > 0 &&
+        CC_SHA256_Update(&context, bytes + consumed, chunk) == 1;
+    consumed += chunk;
+  }
+  hashed = hashed && CC_SHA256_Final(output, &context) == 1;
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
+  const bool unmapped = expected_size == 0 ||
+      munmap(mapped, static_cast<size_t>(expected_size)) == 0;
+  return hashed && unmapped ? 1 : -1;
+}
+#endif
+
 #if defined(__GNUC__)
 __attribute__((visibility("hidden")))
 #endif
@@ -6992,6 +7237,186 @@ extern "C" int32_t ibex_private_hermes_macos_mapping_observation_v1(
   return -1;
 #endif
 }
+
+#if defined(IBEX_CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER) && \
+    defined(__APPLE__) && TARGET_OS_SIMULATOR
+namespace {
+
+bool simulatorHermesMappedObject(uint64_t* outDevice, uint64_t* outInode) {
+  const auto fail = [](const char* stage) {
+    std::fprintf(
+        stderr,
+        "[Ibex] CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER_V1 "
+        "stage=hermes-image-auth-failed detail=%s\n",
+        stage);
+    return false;
+  };
+  using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
+      const ::hermes::vm::RuntimeConfig&);
+  auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
+  Dl_info info = {};
+  if (dladdr(reinterpret_cast<void*>(factory), &info) == 0 ||
+      info.dli_fname == nullptr || info.dli_fbase == nullptr) {
+    return fail("dladdr");
+  }
+
+  const auto* header =
+      reinterpret_cast<const mach_header_64*>(info.dli_fbase);
+  if (header->magic != MH_MAGIC_64 ||
+      header->sizeofcmds > 16 * 1024 * 1024) {
+    return fail("mapped-header");
+  }
+
+  intptr_t slide = 0;
+  bool loaderImageMatched = false;
+  for (uint32_t index = 0; index < _dyld_image_count(); ++index) {
+    if (_dyld_get_image_header(index) ==
+        reinterpret_cast<const mach_header*>(header)) {
+      slide = _dyld_get_image_vmaddr_slide(index);
+      loaderImageMatched = true;
+      break;
+    }
+  }
+  if (!loaderImageMatched) return fail("dyld-image");
+
+  const section_64* textCode = nullptr;
+  const uint8_t* commandBytes =
+      reinterpret_cast<const uint8_t*>(header + 1);
+  const uint8_t* commandLimit = commandBytes + header->sizeofcmds;
+  for (uint32_t index = 0; index < header->ncmds; ++index) {
+    if (commandBytes + sizeof(load_command) > commandLimit) {
+      return fail("load-command-header");
+    }
+    const auto* command =
+        reinterpret_cast<const load_command*>(commandBytes);
+    if (command->cmdsize < sizeof(load_command) ||
+        commandBytes + command->cmdsize > commandLimit) {
+      return fail("load-command-size");
+    }
+    if (command->cmd == LC_SEGMENT_64 &&
+        command->cmdsize >= sizeof(segment_command_64)) {
+      const auto* segment =
+          reinterpret_cast<const segment_command_64*>(command);
+      const uint64_t sectionBytes =
+          static_cast<uint64_t>(segment->nsects) * sizeof(section_64);
+      if (sectionBytes > command->cmdsize - sizeof(segment_command_64)) {
+        return fail("section-table");
+      }
+      const auto* sections =
+          reinterpret_cast<const section_64*>(segment + 1);
+      for (uint32_t sectionIndex = 0;
+           sectionIndex < segment->nsects;
+           ++sectionIndex) {
+        if (std::strncmp(sections[sectionIndex].segname, "__TEXT", 16) == 0 &&
+            std::strncmp(sections[sectionIndex].sectname, "__text", 16) == 0) {
+          textCode = &sections[sectionIndex];
+        }
+      }
+    }
+    commandBytes += command->cmdsize;
+  }
+  const uintptr_t factoryAddress =
+      reinterpret_cast<uintptr_t>(reinterpret_cast<void*>(factory));
+  if (textCode == nullptr || textCode->size == 0 ||
+      textCode->size > SIZE_MAX) {
+    return fail("text-section");
+  }
+  const uintptr_t mappedTextAddress =
+      static_cast<uintptr_t>(textCode->addr) + slide;
+  if (factoryAddress < mappedTextAddress ||
+      factoryAddress - mappedTextAddress >= textCode->size) {
+    return fail("factory-address");
+  }
+
+  const int fd = open(info.dli_fname, O_RDONLY | O_CLOEXEC);
+  if (fd < 0) return fail("image-open");
+  struct stat opened = {};
+  const bool openedValid =
+      fstat(fd, &opened) == 0 && S_ISREG(opened.st_mode) &&
+      opened.st_size >= 0 &&
+      static_cast<uint64_t>(opened.st_size) <= SIZE_MAX;
+  uint64_t sliceOffset = 0;
+  uint64_t sliceSize = 0;
+  uint32_t fileMagic = 0;
+  bool sliceMatched = openedValid &&
+      pread(fd, &fileMagic, sizeof(fileMagic), 0) == sizeof(fileMagic);
+  if (sliceMatched && fileMagic == FAT_CIGAM) {
+    fat_header fat = {};
+    sliceMatched =
+        pread(fd, &fat, sizeof(fat), 0) == sizeof(fat);
+    const uint32_t count = OSSwapBigToHostInt32(fat.nfat_arch);
+    sliceMatched = sliceMatched && count > 0 && count <= 64;
+    for (uint32_t index = 0; sliceMatched && index < count; ++index) {
+      fat_arch arch = {};
+      const off_t offset =
+          sizeof(fat_header) + static_cast<off_t>(index * sizeof(fat_arch));
+      if (pread(fd, &arch, sizeof(arch), offset) != sizeof(arch)) {
+        sliceMatched = false;
+        break;
+      }
+      const cpu_type_t cpuType =
+          static_cast<cpu_type_t>(OSSwapBigToHostInt32(arch.cputype));
+      const cpu_subtype_t cpuSubtype =
+          static_cast<cpu_subtype_t>(OSSwapBigToHostInt32(arch.cpusubtype));
+      if (cpuType == header->cputype &&
+          cpuSubtype == header->cpusubtype) {
+        sliceOffset = OSSwapBigToHostInt32(arch.offset);
+        sliceSize = OSSwapBigToHostInt32(arch.size);
+        break;
+      }
+    }
+    sliceMatched = sliceMatched && sliceSize != 0;
+  } else if (sliceMatched && fileMagic == MH_MAGIC_64) {
+    sliceSize = static_cast<uint64_t>(opened.st_size);
+  } else {
+    sliceMatched = false;
+  }
+  const uint64_t textFileOffset = sliceOffset + textCode->offset;
+  bool matched =
+      openedValid && sliceMatched &&
+      sliceOffset <= static_cast<uint64_t>(opened.st_size) &&
+      sliceSize <= static_cast<uint64_t>(opened.st_size) - sliceOffset &&
+      textCode->offset <= sliceSize &&
+      textCode->size <= sliceSize - textCode->offset &&
+      textFileOffset <= static_cast<uint64_t>(opened.st_size) &&
+      textCode->size <=
+          static_cast<uint64_t>(opened.st_size) - textFileOffset;
+  const auto* mappedBytes =
+      reinterpret_cast<const uint8_t*>(mappedTextAddress);
+  void* fileMapping = MAP_FAILED;
+  if (matched) {
+    fileMapping = mmap(
+        nullptr, static_cast<size_t>(opened.st_size), PROT_READ, MAP_PRIVATE,
+        fd, 0);
+    matched = fileMapping != MAP_FAILED;
+  }
+  if (matched) {
+    const auto* fileBytes = static_cast<const uint8_t*>(fileMapping);
+    matched = std::memcmp(
+        fileBytes + textFileOffset,
+        mappedBytes,
+        static_cast<size_t>(textCode->size)) == 0;
+    if (!matched) {
+      std::fprintf(
+          stderr,
+          "[Ibex] CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER_V1 "
+          "stage=hermes-image-auth-failed detail=text-bytes\n");
+    }
+  }
+  if (fileMapping != MAP_FAILED &&
+      munmap(fileMapping, static_cast<size_t>(opened.st_size)) != 0) {
+    matched = false;
+  }
+  close(fd);
+  if (!matched) return fail("file-slice");
+  if (opened.st_ino == 0) return fail("file-identity");
+  *outDevice = static_cast<uint64_t>(opened.st_dev);
+  *outInode = static_cast<uint64_t>(opened.st_ino);
+  return true;
+}
+
+}  // namespace
+#endif
 
 extern "C" int32_t ex_hermes_engine_mapped_object(
     uint64_t* out_device, uint64_t* out_inode) {
@@ -7035,6 +7460,9 @@ extern "C" int32_t ex_hermes_engine_mapped_object(
   *out_device = observation.device;
   *out_inode = observation.inode;
   return 1;
+#elif defined(IBEX_CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER) && \
+    defined(__APPLE__) && TARGET_OS_SIMULATOR
+  return simulatorHermesMappedObject(out_device, out_inode) ? 1 : -1;
 #elif defined(__linux__) || defined(__ANDROID__)
   // Identify the file object backing the mapping that contains Hermes' runtime
   // factory. This binds device/inode identity only; it does not hash the
@@ -7105,10 +7533,18 @@ extern "C" uint32_t ex_hermes_bytecode_version() {
 }
 
 extern "C" uint64_t ex_host_claim_armed_context(const char* digest);
+extern "C" uint64_t ex_host_claim_armed_context_with_runtime_extensions(
+    const char* digest,
+    const char* authority_digest);
 extern "C" uint64_t ex_host_claim_diagnostic_context();
 extern "C" void ex_host_release_context(uint64_t context_id);
 
-static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool armed);
+static ExactHermesRuntime* ex_hermes_create_impl(
+    uint64_t host_context_id,
+    bool armed,
+    bool authenticate_extension_registry,
+    const char* extension_report_mode,
+    const IbexRuntimeExtensionRegistryV1* extension_registry);
 
 static std::string rootGlobalSymbolKey(
     facebook::jsi::Runtime& rt,
@@ -7336,14 +7772,6 @@ static bool rootGlobalActivationApplies(
   if (std::strcmp(activation, "authenticated-exact-host-ingress") == 0) {
     return exactAuthenticatedHostIngressActive(handle);
   }
-  if (std::strcmp(activation, "authenticated-webgpu-provider") == 0) {
-    return exactGpuAuthenticatedV2ProviderGlobalsActive(handle);
-  }
-  if (
-      std::strcmp(
-          activation, "authenticated-webgpu-decoded-image") == 0) {
-    return exactGpuAuthenticatedDecodedImageGlobalActive(handle);
-  }
   if (std::strcmp(activation, "openssl-crypto") == 0) {
 #if defined(EXACT_NO_OPENSSL)
     return false;
@@ -7390,55 +7818,6 @@ static bool rootGlobalActivationApplies(
   return false;
 }
 
-static bool refreshCompartmentBaselineForDeferredWebGpu(
-    ExactHermesRuntime* handle) {
-  if (!handle || !handle->runtime) return false;
-  auto& rt = *handle->runtime;
-  auto registry = rt.global().getProperty(rt, "__compartments");
-  auto ready =
-      rt.global().getProperty(rt, "__ibexCompartmentRegistryReady");
-  auto finalized =
-      rt.global().getProperty(rt, "__ibexCompartmentBaselineFinalized");
-  if (registry.isUndefined() && ready.isUndefined() &&
-      finalized.isUndefined()) {
-    return true;
-  }
-  if (!registry.isObject() || !ready.isBool() || !ready.getBool() ||
-      !finalized.isBool() || !finalized.getBool() ||
-      !handle->compartment_baseline_refresher) {
-    return false;
-  }
-
-  std::vector<std::string> activePaths;
-  for (const auto& expectation :
-       exact::root_global_disposition::kConditionalLiveSweepExpectations) {
-    if (!rootGlobalTargetApplies(handle, expectation.target_variant)) continue;
-    if (std::strcmp(
-            expectation.activation, "authenticated-webgpu-provider") != 0 &&
-        std::strcmp(
-            expectation.activation,
-            "authenticated-webgpu-decoded-image") != 0) {
-      continue;
-    }
-    if (rootGlobalActivationApplies(
-            handle, expectation.activation, expectation.logical_path)) {
-      activePaths.emplace_back(expectation.logical_path);
-    }
-  }
-
-  facebook::jsi::Array paths(rt, activePaths.size());
-  for (size_t index = 0; index < activePaths.size(); ++index) {
-    paths.setValueAtIndex(
-        rt,
-        index,
-        facebook::jsi::String::createFromUtf8(rt, activePaths[index]));
-  }
-  auto result = handle->compartment_baseline_refresher->call(rt, paths);
-  auto refreshGlobal =
-      rt.global().getProperty(rt, "__ibexRefreshCompartmentBaseline");
-  return result.isBool() && result.getBool() && refreshGlobal.isUndefined();
-}
-
 static bool rootGlobalConcreteKey(const std::string& key) {
   return key.rfind("[[dynamic-table:", 0) != 0 &&
       key.rfind("[[return]]", 0) != 0;
@@ -7460,11 +7839,7 @@ static void failRootGlobalDispositionFinalization(
     ExactHermesRuntime* handle) noexcept {
   if (!handle) return;
   handle->root_global_disposition_verified_for_user_execution = false;
-  // The WebGPU publication remains revocable through the native-held capture
-  // result until teardown. A failed final sweep must use that result now so
-  // no provider-created root survives even though the runtime is terminal.
   rollbackExactHostIngress(handle);
-  exactGpuRollbackInstall(handle);
   handle->embedder_capability_state = EmbedderCapabilityState::Failed;
 }
 
@@ -7653,7 +8028,7 @@ static bool preparedNativeStartupObjectHasExactKeysV1(
   }
   std::sort(observed.begin(), observed.end());
   static const std::vector<std::string> expected{
-      "consumeGpuRuntimeIntegration",
+      "consumeRuntimeExtensions",
       "disposition",
       "preparedStartupVersion",
       "runApp",
@@ -7706,7 +8081,7 @@ static bool preparedNativeStartupMatchesV1(
   auto disposition = preparedNativeStartupOwnDataValueV1(
       runtime, prepared, "disposition");
   auto consume = preparedNativeStartupOwnDataValueV1(
-      runtime, prepared, "consumeGpuRuntimeIntegration");
+      runtime, prepared, "consumeRuntimeExtensions");
   auto runApp = preparedNativeStartupOwnDataValueV1(
       runtime, prepared, "runApp");
   const char* expectedDispositionText =
@@ -7788,15 +8163,13 @@ extern "C" int32_t ex_hermes_begin_app_bundle_evaluation_v1(
   }
   ExactRuntimeDriveGuard drive(runtime);
   if (!drive) return drive.status();
-  if (runtime->app_bundle_evaluation_open.load(std::memory_order_acquire) ||
-      runtime->gpu_canvas_app_bundle_transaction_open.load(
-          std::memory_order_acquire)) {
+  if (runtime->app_bundle_evaluation_open.load(std::memory_order_acquire)) {
     return EXACT_RUNTIME_DRIVE_APP_BUNDLE_OPEN;
   }
   // The debugger is detached before any generated preparation can publish its
   // carrier. The outer-open bit then makes every ordinary eval/poll/dispatch
   // drive refuse until native finish has re-proved the carrier absent.
-  if (!exactRuntimeBeginGpuCanvasDebuggerExclusion(runtime)) {
+  if (!exactRuntimeBeginExtensionAppBundleDebuggerExclusion(runtime)) {
     (void)exactRuntimeQuarantine(runtime);
     return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
   }
@@ -7820,14 +8193,14 @@ extern "C" int32_t ex_hermes_begin_app_bundle_evaluation_v1(
   runtime->app_bundle_prepared_classified = false;
   runtime->app_bundle_prepared_staged = false;
   runtime->app_bundle_prepared_invoked = false;
-  runtime->app_bundle_prepared_consume_gpu_integration.reset();
+  runtime->app_bundle_prepared_consume_runtime_extensions.reset();
   runtime->app_bundle_prepared_run_app.reset();
 
   if (!driveDevServedModuleTableLifecycle(runtime, "begin")) {
     runtime->app_bundle_evaluation_open.store(
         false, std::memory_order_release);
     runtime->app_bundle_expected_prepared_disposition = 0;
-    (void)exactRuntimeFinishGpuCanvasDebuggerExclusion(runtime);
+    (void)exactRuntimeFinishExtensionAppBundleDebuggerExclusion(runtime);
     return EXACT_RUNTIME_DRIVE_QUARANTINED;
   }
 
@@ -7839,7 +8212,7 @@ extern "C" int32_t ex_hermes_begin_app_bundle_evaluation_v1(
   runtime->app_bundle_evaluation_open.store(
       false, std::memory_order_release);
   runtime->app_bundle_expected_prepared_disposition = 0;
-  if (!exactRuntimeFinishGpuCanvasDebuggerExclusion(runtime)) {
+  if (!exactRuntimeFinishExtensionAppBundleDebuggerExclusion(runtime)) {
     (void)exactRuntimeQuarantine(runtime);
     return EXACT_PREPARED_NATIVE_STARTUP_CLEANUP_FAILED_V1;
   }
@@ -7854,9 +8227,7 @@ extern "C" int32_t ex_hermes_finish_app_bundle_evaluation_v1(
   }
   ExactRuntimeDriveGuard drive(runtime, 0, true, true);
   if (!drive) return drive.status();
-  if (!runtime->app_bundle_evaluation_open.load(std::memory_order_acquire) ||
-      runtime->gpu_canvas_app_bundle_transaction_open.load(
-          std::memory_order_acquire)) {
+  if (!runtime->app_bundle_evaluation_open.load(std::memory_order_acquire)) {
     return EXACT_RUNTIME_DRIVE_APP_BUNDLE_OPEN;
   }
 
@@ -7873,7 +8244,7 @@ extern "C" int32_t ex_hermes_finish_app_bundle_evaluation_v1(
     (void)exactRuntimeQuarantine(runtime);
   }
   const int32_t absence = verifyPreparedNativeStartupAbsentUncheckedV1(runtime);
-  runtime->app_bundle_prepared_consume_gpu_integration.reset();
+  runtime->app_bundle_prepared_consume_runtime_extensions.reset();
   runtime->app_bundle_prepared_run_app.reset();
   runtime->app_bundle_immediate_evaluation_completed = false;
   runtime->app_bundle_immediate_source_fallback_allowed = false;
@@ -7883,7 +8254,7 @@ extern "C" int32_t ex_hermes_finish_app_bundle_evaluation_v1(
   runtime->app_bundle_expected_prepared_disposition = 0;
   runtime->app_bundle_evaluation_open.store(
       false, std::memory_order_release);
-  if (!exactRuntimeFinishGpuCanvasDebuggerExclusion(runtime)) {
+  if (!exactRuntimeFinishExtensionAppBundleDebuggerExclusion(runtime)) {
     (void)exactRuntimeQuarantine(runtime);
     return EXACT_PREPARED_NATIVE_STARTUP_CLEANUP_FAILED_V1;
   }
@@ -7912,8 +8283,6 @@ extern "C" int32_t ex_hermes_classify_prepared_native_startup_v1(
   ExactRuntimeDriveGuard drive(runtime, 0, false, true);
   if (!drive) return drive.status();
   if (!runtime->app_bundle_evaluation_open.load(std::memory_order_acquire) ||
-      runtime->gpu_canvas_app_bundle_transaction_open.load(
-          std::memory_order_acquire) ||
       runtime->app_bundle_expected_prepared_disposition == 0 ||
       runtime->app_bundle_expected_prepared_disposition !=
           expected_disposition ||
@@ -7944,10 +8313,10 @@ extern "C" int32_t ex_hermes_classify_prepared_native_startup_v1(
                         runtime, descriptor.asObject(rt), "value")
                         .asObject(rt);
     auto consume = preparedNativeStartupOwnDataValueV1(
-        runtime, prepared, "consumeGpuRuntimeIntegration");
+        runtime, prepared, "consumeRuntimeExtensions");
     auto runApp = preparedNativeStartupOwnDataValueV1(
         runtime, prepared, "runApp");
-    runtime->app_bundle_prepared_consume_gpu_integration =
+    runtime->app_bundle_prepared_consume_runtime_extensions =
         std::make_unique<facebook::jsi::Function>(
             consume.asObject(rt).asFunction(rt));
     runtime->app_bundle_prepared_run_app =
@@ -8009,18 +8378,13 @@ extern "C" int32_t ex_hermes_stage_prepared_native_startup_v1(
   }
   const uint32_t disposition =
       runtime->app_bundle_expected_prepared_disposition;
-  const bool canvasOpen =
-      runtime->gpu_canvas_app_bundle_transaction_open.load(
-          std::memory_order_acquire);
   if (!runtime->app_bundle_evaluation_open.load(std::memory_order_acquire) ||
-      (disposition == EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1 &&
-       !canvasOpen) ||
       (disposition != EXACT_PREPARED_NATIVE_STARTUP_CONSUME_REQUIRED_V1 &&
        disposition != EXACT_PREPARED_NATIVE_STARTUP_UNUSED_VALID_V1) ||
       !runtime->app_bundle_prepared_classified ||
       runtime->app_bundle_prepared_staged ||
       runtime->app_bundle_prepared_invoked ||
-      !runtime->app_bundle_prepared_consume_gpu_integration ||
+      !runtime->app_bundle_prepared_consume_runtime_extensions ||
       !runtime->app_bundle_prepared_run_app) {
     if (runtime->app_bundle_evaluation_open.load(
             std::memory_order_acquire)) {
@@ -8032,7 +8396,7 @@ extern "C" int32_t ex_hermes_stage_prepared_native_startup_v1(
   }
 
   auto consume = std::move(
-      runtime->app_bundle_prepared_consume_gpu_integration);
+      runtime->app_bundle_prepared_consume_runtime_extensions);
   if (!removeExpectedPreparedNativeStartupUncheckedV1(runtime)) {
     (void)exactRuntimeQuarantine(runtime);
     writePreparedNativeStartupErrorV1(
@@ -8040,7 +8404,7 @@ extern "C" int32_t ex_hermes_stage_prepared_native_startup_v1(
     return EXACT_PREPARED_NATIVE_STARTUP_CLEANUP_FAILED_V1;
   }
 
-  ScopedGpuHostTask hostTask(runtime);
+  ScopedRuntimeExtensionHostTask hostTask(runtime);
   if (!hostTask) {
     (void)exactRuntimeQuarantine(runtime);
     writePreparedNativeStartupErrorV1(
@@ -8111,12 +8475,10 @@ extern "C" int32_t ex_hermes_run_prepared_app_v1(
     return drive.status();
   }
   if (!runtime->app_bundle_evaluation_open.load(std::memory_order_acquire) ||
-      runtime->gpu_canvas_app_bundle_transaction_open.load(
-          std::memory_order_acquire) ||
       !runtime->app_bundle_prepared_classified ||
       !runtime->app_bundle_prepared_staged ||
       runtime->app_bundle_prepared_invoked ||
-      runtime->app_bundle_prepared_consume_gpu_integration ||
+      runtime->app_bundle_prepared_consume_runtime_extensions ||
       !runtime->app_bundle_prepared_run_app) {
     if (runtime->app_bundle_evaluation_open.load(
             std::memory_order_acquire)) {
@@ -8134,7 +8496,7 @@ extern "C" int32_t ex_hermes_run_prepared_app_v1(
     return absence;
   }
   auto runApp = std::move(runtime->app_bundle_prepared_run_app);
-  ScopedGpuHostTask hostTask(runtime);
+  ScopedRuntimeExtensionHostTask hostTask(runtime);
   if (!hostTask) {
     (void)exactRuntimeQuarantine(runtime);
     writePreparedNativeStartupErrorV1(
@@ -8152,7 +8514,7 @@ extern "C" int32_t ex_hermes_run_prepared_app_v1(
     if (!hostTask.finish()) {
       (void)exactRuntimeQuarantine(runtime);
       writePreparedNativeStartupErrorV1(
-          out_error, "Prepared runApp GPU host-task checkpoint failed");
+          out_error, "Prepared runApp runtime-extension host-task checkpoint failed");
       return EXACT_RUNTIME_DRIVE_INVALID;
     }
     return EXACT_PREPARED_NATIVE_STARTUP_OK_V1;
@@ -8233,10 +8595,6 @@ static bool capturePrivateBridgeConsumers(ExactHermesRuntime* handle) {
         facebook::jsi::String::createFromAscii(rt, "assert-private-bridges"));
     if (!captured.isBool() || !captured.getBool()) {
       throw std::runtime_error("private bootstrap bridge capture is incomplete");
-    }
-    if (!exactGpuRetainConstructionCaptureForBootstrapSeal(handle)) {
-      throw std::runtime_error(
-          "GPU provider construction handoff could not be retained privately");
     }
     return true;
   } catch (const facebook::jsi::JSError& error) {
@@ -8444,6 +8802,15 @@ static bool verifyRootGlobalDisposition(ExactHermesRuntime* handle) {
         absentRoots.insert(key);
       }
     }
+    // The authenticated runtime-extension registry is a generated addition to
+    // the fixed Ibex root inventory. Only its exact descriptor-declared roots
+    // participate; no ambient installer discovery or wildcard is accepted.
+    // @ref LLP 0040
+    for (const auto& root :
+         ibex::runtime_extension::internal::declaredRootKeys(handle)) {
+      reachableRoots.insert(root);
+      absentRoots.erase(root);
+    }
     std::vector<std::string> missingRoots;
     std::vector<std::string> reachableSealedRoots;
     std::vector<std::string> extraRoots;
@@ -8501,8 +8868,8 @@ static bool verifyRootGlobalDisposition(ExactHermesRuntime* handle) {
     // Provider-finalized public projections are conditional in both
     // directions. When authenticated, every generated path must exist; when
     // inactive, none may survive. This explicit logical-path check is needed
-    // for nested publication such as navigator.gpu, which cannot be proven by
-    // root-key cardinality alone. Traversal remains descriptor-only.
+    // for nested publication, which cannot be proven by root-key cardinality
+    // alone. Traversal remains descriptor-only.
     // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
     for (const auto& expectation :
          exact::root_global_disposition::
@@ -8523,6 +8890,13 @@ static bool verifyRootGlobalDisposition(ExactHermesRuntime* handle) {
         return rootGlobalDispositionFailure(
             std::string("inactive conditional path remains reachable: ") +
             expectation.logical_path);
+      }
+    }
+    for (const auto& path :
+         ibex::runtime_extension::internal::declaredGlobalPaths(handle)) {
+      if (rootGlobalLogicalPathAbsent(handle, path)) {
+        return rootGlobalDispositionFailure(
+            "authenticated runtime extension path is missing: " + path);
       }
     }
 
@@ -8547,6 +8921,11 @@ static bool verifyRootGlobalDisposition(ExactHermesRuntime* handle) {
       }
       permittedKeys.insert(rootGlobalKeyPair(
           expectation.root_key, expectation.property_key));
+    }
+    for (const auto& key :
+         ibex::runtime_extension::internal::declaredNativeKeyPairs(handle)) {
+      requiredNativeKeys.insert(key);
+      permittedKeys.insert(key);
     }
 
     std::unordered_set<std::string> foundKeys;
@@ -8816,6 +9195,20 @@ static bool verifyArmedBootstrapFinalized(ExactHermesRuntime* handle) {
 
 static void cleanupPartiallyConstructedRuntime(ExactHermesRuntime* handle) {
   if (handle == nullptr) return;
+  // Failed construction uses the same reverse owner-thread lifecycle as
+  // ordinary teardown. No installer/provider state may survive a refused
+  // realm. @ref LLP 0040
+  ibex::runtime_extension::internal::close(handle);
+  // A failed installer can leave owner-only SDK roots and Host leases in the
+  // prepared RuntimeState even after rollback has closed every instance.
+  // Release that state explicitly while Hermes and the authenticated Host
+  // context are both still live. Deferring it to ExactHermesRuntime's member
+  // destruction would interleave extension finalizers with already-unbound
+  // VFS/native registries and made a bootstrap refusal crash instead of
+  // returning nullptr.
+  handle->runtime_extensions.reset();
+  handle->runtime_extension_module_inspector.reset();
+  handle->runtime_extension_module_registrar.reset();
   // Bootstrap can register runtime-scoped native state before the handle is
   // admitted to g_activeRuntimes. Refusal must unwind every such registry just
   // like normal destruction, without calling the registered-runtime wait path.
@@ -8850,7 +9243,9 @@ extern "C" ExactHermesRuntime* ex_hermes_create_armed(
   if (armed_snapshot_digest == nullptr) return nullptr;
   uint64_t context = ex_host_claim_armed_context(armed_snapshot_digest);
   if (context == 0) return nullptr;
-  auto* runtime = ex_hermes_create_impl(context, true);
+  auto* runtime =
+      ex_hermes_create_impl(
+          context, true, true, "production-armed", nullptr);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
 }
@@ -8865,10 +9260,172 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
 extern "C" ExactHermesRuntime* ex_hermes_create_diagnostic() {
   uint64_t context = ex_host_claim_diagnostic_context();
   if (context == 0) return nullptr;
-  auto* runtime = ex_hermes_create_impl(context, false);
+  auto* runtime =
+      ex_hermes_create_impl(
+          context, false, false, "diagnostic", nullptr);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
 }
+
+extern "C" ExactHermesRuntime* ibex_runtime_create_armed_v2(
+    const IbexArmedRuntimeOptionsV2* options) {
+  if (options == nullptr ||
+      options->struct_size != sizeof(IbexArmedRuntimeOptionsV2) ||
+      options->abi_version != IBEX_RUNTIME_CREATE_OPTIONS_VERSION_V2 ||
+      options->armed_snapshot_digest == nullptr) {
+    return nullptr;
+  }
+  const char* authority_digest =
+      options->extension_registry == nullptr
+      ? nullptr
+      : options->extension_registry->authority_capsule_digest;
+  uint64_t context =
+      ex_host_claim_armed_context_with_runtime_extensions(
+          options->armed_snapshot_digest, authority_digest);
+  if (context == 0) return nullptr;
+  auto* runtime =
+      ex_hermes_create_impl(
+          context,
+          true,
+          true,
+          "production-armed",
+          options->extension_registry);
+  if (runtime == nullptr) ex_host_release_context(context);
+  return runtime;
+}
+
+extern "C" ExactHermesRuntime* ibex_runtime_create_diagnostic_v2(
+    const IbexDiagnosticRuntimeOptionsV2* options) {
+  if (options == nullptr ||
+      options->struct_size != sizeof(IbexDiagnosticRuntimeOptionsV2) ||
+      options->abi_version != IBEX_RUNTIME_CREATE_OPTIONS_VERSION_V2) {
+    return nullptr;
+  }
+  uint64_t context = ex_host_claim_diagnostic_context();
+  if (context == 0) return nullptr;
+  auto* runtime =
+      ex_hermes_create_impl(
+          context,
+          false,
+          false,
+          "diagnostic",
+          options->extension_registry);
+  if (runtime == nullptr) ex_host_release_context(context);
+  return runtime;
+}
+
+#ifdef IBEX_RUNTIME_EXTENSION_CONFORMANCE
+extern "C" uint64_t
+ibex_runtime_extension_conformance_armed_prerequisites_v1() {
+  uint64_t features = 0;
+#ifdef HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK
+  features |= UINT64_C(1) << 0;
+#endif
+#ifdef EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE
+  features |= UINT64_C(1) << 1;
+#endif
+#ifdef EXACT_HAVE_JOB_CONSTRAINED_PRINCIPALS
+  features |= UINT64_C(1) << 2;
+#endif
+  return features;
+}
+
+extern "C" ExactHermesRuntime*
+ibex_runtime_extension_conformance_create_authenticated_fixture_v1(
+    const IbexArmedRuntimeOptionsV2* options) {
+  if (options == nullptr ||
+      options->struct_size != sizeof(IbexArmedRuntimeOptionsV2) ||
+      options->abi_version != IBEX_RUNTIME_CREATE_OPTIONS_VERSION_V2 ||
+      options->armed_snapshot_digest == nullptr ||
+      options->extension_registry == nullptr) {
+    return nullptr;
+  }
+  uint64_t context =
+      ex_host_claim_armed_context_with_runtime_extensions(
+          options->armed_snapshot_digest,
+          options->extension_registry->authority_capsule_digest);
+  if (context == 0) return nullptr;
+  // This fixture-only constructor authenticates the exact armed capsule and
+  // registry projection, then drives the production extension install,
+  // lifecycle, lease, and callback substrate inside a diagnostic Hermes
+  // runtime. It deliberately does not claim to prove full native armed
+  // startup; the report labels this distinct mode.
+  auto* runtime =
+      ex_hermes_create_impl(
+          context,
+          false,
+          true,
+          "authenticated-conformance-fixture",
+          options->extension_registry);
+  if (runtime == nullptr) ex_host_release_context(context);
+  return runtime;
+}
+
+extern "C" int32_t
+ibex_runtime_extension_conformance_eval_with_principals_v1(
+    ExactHermesRuntime* runtime,
+    const uint64_t* principal_ids,
+    size_t principal_count,
+    const uint8_t* source,
+    size_t source_length,
+    const char* source_url,
+    char** out_value) {
+  if (out_value != nullptr) *out_value = nullptr;
+  if (runtime == nullptr || principal_ids == nullptr ||
+      principal_count == 0 || principal_count > 256 ||
+      source == nullptr || source_length == 0 ||
+      source_url == nullptr) {
+    writeEvalRefusal(
+        out_value, "runtime-extension principal fixture received invalid input");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  for (size_t index = 1; index < principal_count; ++index) {
+    if (principal_ids[index - 1] >= principal_ids[index]) {
+      writeEvalRefusal(
+          out_value,
+          "runtime-extension principal fixture requires a canonical stack");
+      return EXACT_RUNTIME_DRIVE_INVALID;
+    }
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    writeEvalRefusal(
+        out_value,
+        "runtime-extension principal fixture was refused by the drive gate");
+    return drive.status();
+  }
+  std::vector<uint64_t> principals(
+      principal_ids, principal_ids + principal_count);
+  ScopedTypedPrincipalStack principal_scope(principals);
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  // This fixture models package source, not merely a transient host callback.
+  // Stamp the actor (the final id in the required canonical root-to-package
+  // stack) onto the Domain created for this evaluation so callable-definition
+  // authentication exercises the same CodeBlock identity as the real package
+  // loader. The pending id is one-shot, but clear it on every return path too
+  // so a failed compilation cannot contaminate the next fixture evaluation.
+  const uint64_t definitionPrincipal = principals.back();
+  if (runtime->attribution_runtime == nullptr ||
+      definitionPrincipal >= static_cast<uint64_t>(kNoUserPrincipalId)) {
+    writeEvalRefusal(
+        out_value,
+        "runtime-extension principal fixture cannot stamp its source principal");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  struct PendingPackageIdReset {
+    void* attributionRuntime;
+    ~PendingPackageIdReset() {
+      ex_hermes_vm_clear_pending_package_id(attributionRuntime);
+    }
+  } pendingPackageIdReset{runtime->attribution_runtime};
+  ex_hermes_vm_set_pending_package_id(
+      runtime->attribution_runtime,
+      static_cast<uint32_t>(definitionPrincipal));
+#endif
+  return evalRuntimeUnchecked(
+      runtime, source, source_length, source_url, 0, out_value);
+}
+#endif
 
 extern "C" int32_t ibex_private_hermes_shared_runtime_bundle_installed_v1(
     ExactHermesRuntime* runtime) {
@@ -8877,7 +9434,27 @@ extern "C" int32_t ibex_private_hermes_shared_runtime_bundle_installed_v1(
   return runtime->shared_runtime_bundle_installed ? 1 : 0;
 }
 
-static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool armed) {
+static ExactHermesRuntime* ex_hermes_create_impl(
+    uint64_t host_context_id,
+    bool armed,
+    bool authenticate_extension_registry,
+    const char* extension_report_mode,
+    const IbexRuntimeExtensionRegistryV1* extension_registry) {
+  std::string runtimeExtensionError;
+  auto runtimeExtensions =
+      ibex::runtime_extension::internal::prepare(
+          host_context_id,
+          authenticate_extension_registry,
+          extension_report_mode,
+          extension_registry,
+          &runtimeExtensionError);
+  if (!runtimeExtensions) {
+    ex_host_console_log(
+        1,
+        ("Runtime extension registry refused: " + runtimeExtensionError)
+            .c_str());
+    return nullptr;
+  }
   TRACE_START(total);
   TRACE_START(hermes_config);
   auto gcConfig = ::hermes::vm::GCConfig::Builder()
@@ -8908,6 +9485,8 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   handle->runtime_thread = std::this_thread::get_id();
   handle->host_context_id = host_context_id;
   handle->armed = armed;
+  handle->authenticated_native_storage_closed =
+      armed || authenticate_extension_registry;
   handle->trusted_bootstrap_in_progress = true;
   // Both production and the explicitly named foreground diagnostic constructor
   // use structural isolation. Only production seals dynamic self-grant and
@@ -8919,8 +9498,16 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     delete handle;
     return nullptr;
   }
+  try {
+    ibex::runtime_extension::internal::bind(runtimeExtensions, handle);
+  } catch (const std::exception& error) {
+    ex_host_console_log(1, error.what());
+    cleanupPartiallyConstructedRuntime(handle);
+    return nullptr;
+  }
   ScopedRuntimeSecurityContext securityContext(handle);
-  if (armed) {
+  const bool authenticatedHost = armed || authenticate_extension_registry;
+  if (authenticatedHost) {
     const uint32_t compatibilityFlags =
         ex_host_armed_bootstrap_compatibility_flags();
     if ((compatibilityFlags & ~15u) != 0 ||
@@ -8937,7 +9524,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     handle->bootstrap_bun_fixture = (compatibilityFlags & 4u) != 0;
     handle->bootstrap_dev_served = (compatibilityFlags & 8u) != 0;
   }
-  if (armed) {
+  if (authenticatedHost) {
     // Bind the authenticated namespace before bootstrap installs any path-
     // bearing surface. No armed JavaScript can run without an exact runtime
     // generation owning `/project` and its retained cwd identity.
@@ -9164,6 +9751,40 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     // @ref LLP 0029#4-compiled-mode-authority
     ex_host_console_log(
         1, "Armed startup refused: bootstrap authority did not seal exactly once");
+    cleanupPartiallyConstructedRuntime(handle);
+    return nullptr;
+  }
+
+  bool runtimeExtensionActivationFailed = false;
+  std::string runtimeExtensionActivationError;
+  try {
+    // Extension callbacks are not admitted until all global/baseline/posture
+    // checks have succeeded. The live runtime registry is published
+    // immediately afterward, closing the Installing -> Active transition.
+    // @ref LLP 0040
+    ibex::runtime_extension::internal::activate(handle);
+  } catch (const facebook::jsi::JSError& error) {
+    // Preserve only detached text while Hermes is live. A JSError retains a
+    // realm-owned Value, so destroying the runtime from inside this catch
+    // would leave the exception destructor touching a dead realm.
+    runtimeExtensionActivationFailed = true;
+    runtimeExtensionActivationError = error.getMessage();
+  } catch (const std::exception& error) {
+    runtimeExtensionActivationFailed = true;
+    runtimeExtensionActivationError = error.what();
+  } catch (...) {
+    runtimeExtensionActivationFailed = true;
+    runtimeExtensionActivationError = "unknown failure";
+  }
+  if (runtimeExtensionActivationFailed) {
+    if (runtimeExtensionActivationError.empty()) {
+      runtimeExtensionActivationError = "empty exception";
+    }
+    ex_host_console_log(
+        1,
+        (std::string("Runtime extension activation refused: ") +
+         runtimeExtensionActivationError)
+            .c_str());
     cleanupPartiallyConstructedRuntime(handle);
     return nullptr;
   }
@@ -9519,6 +10140,11 @@ extern "C" int32_t ex_hermes_try_destroy(
   uint64_t hostContext = runtime->host_context_id;
   ScopedRuntimeSecurityContext securityContext(runtime);
 
+  // Revoke extension work first. Newly scheduled completions now observe
+  // Quiescing/Closing; already admitted producer pins drain through the
+  // ordinary runtime callback queue below. @ref LLP 0040
+  ibex::runtime_extension::internal::quiesce(runtime);
+
   // Closing refuses new native lifetime pins, including structured-control
   // leases. Cancel only filesystem leases that have not crossed the pool's
   // queued -> committed edge; workers that already crossed it retain their
@@ -9529,10 +10155,6 @@ extern "C" int32_t ex_hermes_try_destroy(
   // registered in Closing. Already-admitted JSI-bearing producers retain a
   // native-worker pin, may enqueue their captures, and are drained below.
   unregisterAndroidHostFunctions(runtime);
-  // The GPU mailbox is plain native state and deliberately holds no
-  // realm-long worker pin. Detach before closing the service realm, then
-  // continue teardown without waiting for a provider terminal callback.
-  exactGpuBeginRuntimeTeardown(runtime);
   unregisterSignalRuntime(runtime);
   disableDebugger(runtime);
   forgetHostCallTargets(target);
@@ -9542,6 +10164,11 @@ extern "C" int32_t ex_hermes_try_destroy(
   exactCleanupRuntimeHttpServers(runtime->runtime_nonce);
 
   finishRuntimeTeardown(target);
+
+  // Every admitted producer and owner callback has drained. Close extension
+  // instances in reverse install order while Hermes and all JSI values are
+  // still owned by this thread. @ref LLP 0040
+  ibex::runtime_extension::internal::close(runtime);
 
   // A committed filesystem lease can still perform chunk/commit-stage typed
   // checks while its native pin drains. Keep this exact VFS session bound
@@ -10197,7 +10824,7 @@ int evaluateStructuredSource(
       runtime->attribution_runtime);
 #endif
 
-  ScopedGpuHostTask evalTask(runtime);
+  ScopedRuntimeExtensionHostTask evalTask(runtime);
   if (!evalTask) {
     structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
     return 0;
@@ -12920,6 +13547,7 @@ extern "C" int32_t ibex_test_enqueue_runtime_principal_throw(
               static_cast<uint64_t>(kRuntimePrincipalId),
               exactAllocateAsyncEventIdentity(runtime),
               0),
+          {},
           [](facebook::jsi::Runtime& rt) {
             throw facebook::jsi::JSError(
                 rt, "runtime-principal-unavailable");
@@ -12989,6 +13617,12 @@ extern "C" uint32_t ex_hermes_cancel_structured_work_target(
     ExactHermesRuntime* runtime,
     uint64_t runtimeNonce,
     uint64_t workTargetId) {
+#if !defined(EXACT_HAVE_HERMES_ASYNC_TRIGGER_TIMEOUT)
+  (void)runtime;
+  (void)runtimeNonce;
+  (void)workTargetId;
+  return EX_HERMES_CANCEL_UNAVAILABLE;
+#else
   if (workTargetId == 0) {
     return EX_HERMES_CANCEL_FAILED;
   }
@@ -13031,6 +13665,7 @@ extern "C" uint32_t ex_hermes_cancel_structured_work_target(
   // a successor between the exact-id check and the interrupt request.
   runtime->runtime->asyncTriggerTimeout();
   return EX_HERMES_CANCEL_ACCEPTED;
+#endif
 }
 
 // @abi-output ex_hermes_eval_structured_session result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
@@ -13504,7 +14139,7 @@ extern "C" int ex_hermes_eval_lowered_session(
   ScopedActiveAttributionRuntime activeAttributionRuntime(
       runtime->attribution_runtime);
 #endif
-  ScopedGpuHostTask loweredEvalTask(runtime);
+  ScopedRuntimeExtensionHostTask loweredEvalTask(runtime);
   if (!loweredEvalTask) {
     structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
     return 0;
@@ -14323,72 +14958,6 @@ int exactHermesEvalImmediateNoJobs(
   }
 }
 
-static bool evaluateDeferredWebGpuRuntimeBundle(
-    ExactHermesRuntime* runtime) {
-  if (!runtime || !runtime->runtime) return false;
-  if (runtime->webgpu_runtime_bundle_evaluated) return true;
-#if !defined(HAS_WEBGPU_RUNTIME_BUNDLE)
-  return false;
-#else
-  if (WEBGPU_RUNTIME_BUNDLE_SRC[0] == '\0') return false;
-  const auto started = std::chrono::steady_clock::now();
-  char* error = nullptr;
-  int status = 2;
-#if defined(HAS_WEBGPU_RUNTIME_BUNDLE_HBC)
-  if (WEBGPU_RUNTIME_BUNDLE_HBC_LEN > 0) {
-    status = exactHermesEvalImmediateNoJobs(
-        runtime,
-        reinterpret_cast<const uint8_t*>(WEBGPU_RUNTIME_BUNDLE_HBC),
-        WEBGPU_RUNTIME_BUNDLE_HBC_LEN,
-        "<deferred-webgpu-runtime>",
-        1,
-        &error,
-        nullptr,
-        0,
-        nullptr);
-  }
-#endif
-  // Status 2 is the only bytecode refusal that proves no instruction ran.
-  // A post-instruction error cannot safely retry the source in this realm.
-  if (status == 2) {
-    free(error);
-    error = nullptr;
-    status = exactHermesEvalImmediateNoJobs(
-        runtime,
-        reinterpret_cast<const uint8_t*>(WEBGPU_RUNTIME_BUNDLE_SRC),
-        std::strlen(WEBGPU_RUNTIME_BUNDLE_SRC),
-        "<deferred-webgpu-runtime>",
-        0,
-        &error,
-        nullptr,
-        0,
-        nullptr);
-  }
-  if (status != 0) {
-    if (startup_trace_enabled() && error) {
-      fprintf(
-          stderr,
-          "[startup]   deferred_webgpu_runtime failed: %s\n",
-          error);
-    }
-    if (error) ex_host_console_log(1, error);
-    free(error);
-    return false;
-  }
-  free(error);
-  runtime->webgpu_runtime_bundle_evaluated = true;
-  if (startup_trace_enabled()) {
-    const auto elapsed = std::chrono::duration<double, std::milli>(
-        std::chrono::steady_clock::now() - started);
-    fprintf(
-        stderr,
-        "[startup]   deferred_webgpu_runtime %.3f ms\n",
-        elapsed.count());
-  }
-  return true;
-#endif
-}
-
 static int evalRuntimeUnchecked(
     ExactHermesRuntime* runtime,
     const uint8_t* data,
@@ -14450,7 +15019,7 @@ static int evalRuntimeUnchecked(
       runtime->attribution_runtime);
 #endif
 
-  ScopedGpuHostTask evalTask(runtime);
+  ScopedRuntimeExtensionHostTask evalTask(runtime);
   if (!evalTask) {
     writeOutError("Hermes eval could not enter the runtime host-task boundary");
     return 1;
@@ -14552,14 +15121,14 @@ static int evalRuntimeUnchecked(
       }
       if (!evalTask.finish()) {
         writeOutError(
-            "Hermes GPU host-task checkpoint failed after evaluation");
+            "Hermes runtime-extension host-task checkpoint failed after evaluation");
         return 1;
       }
       if (traceEval) {
         fprintf(stderr, "[eval] host_task_checkpoint_end %s\n", source.c_str());
       }
 
-      ScopedGpuHostTask unwrapTask(runtime);
+      ScopedRuntimeExtensionHostTask unwrapTask(runtime);
       if (!unwrapTask) {
         writeOutError("Hermes Promise unwrap could not enter a host task");
         return 1;
@@ -14584,16 +15153,16 @@ static int evalRuntimeUnchecked(
       auto check = rt.evaluateJavaScript(ubuf, "<promise-unwrap>");
       if (!unwrapTask.finish()) {
         writeOutError(
-            "Hermes GPU host-task checkpoint failed during Promise unwrap");
+            "Hermes runtime-extension host-task checkpoint failed during Promise unwrap");
         return 1;
       }
 
       if (!check.isNull() && check.isObject()) {
         auto promiseState = check.getObject(rt);
         auto resolvePromiseResult = [&]() -> std::optional<bool> {
-          ScopedGpuHostTask advanceTask(runtime);
+          ScopedRuntimeExtensionHostTask advanceTask(runtime);
           if (!advanceTask) {
-            runtime->gpu_host_task_checkpoint_failed = true;
+            runtime->runtime_extension_host_task_checkpoint_failed = true;
             return false;
           }
           auto doneProp = promiseState.getProperty(rt, "done");
@@ -14697,11 +15266,11 @@ static int evalRuntimeUnchecked(
       coerceResult();
       if (!evalTask.finish()) {
         writeOutError(
-            "Hermes GPU host-task checkpoint failed after result coercion");
+            "Hermes runtime-extension host-task checkpoint failed after result coercion");
         return 1;
       }
     } else {
-      ScopedGpuHostTask resultTask(runtime);
+      ScopedRuntimeExtensionHostTask resultTask(runtime);
       if (!resultTask) {
         writeOutError("Hermes result coercion could not enter a host task");
         return 1;
@@ -14709,7 +15278,7 @@ static int evalRuntimeUnchecked(
       coerceResult();
       if (!resultTask.finish()) {
         writeOutError(
-            "Hermes GPU host-task checkpoint failed after result coercion");
+            "Hermes runtime-extension host-task checkpoint failed after result coercion");
         return 1;
       }
     }
@@ -14725,9 +15294,9 @@ static int evalRuntimeUnchecked(
 
     return 0;
   } catch (const facebook::jsi::JSError& err) {
-    std::unique_ptr<ScopedGpuHostTask> errorTask;
+    std::unique_ptr<ScopedRuntimeExtensionHostTask> errorTask;
     if (!evalTask) {
-      errorTask = std::make_unique<ScopedGpuHostTask>(runtime);
+      errorTask = std::make_unique<ScopedRuntimeExtensionHostTask>(runtime);
     }
     if (!evalTask && (!errorTask || !*errorTask)) {
       writeOutError("Hermes exception disposition host-task boundary failed");
@@ -14770,9 +15339,9 @@ static int evalRuntimeUnchecked(
     (void)writeOutError(full);
     return 1;
   } catch (const std::exception& err) {
-    std::unique_ptr<ScopedGpuHostTask> errorTask;
+    std::unique_ptr<ScopedRuntimeExtensionHostTask> errorTask;
     if (!evalTask) {
-      errorTask = std::make_unique<ScopedGpuHostTask>(runtime);
+      errorTask = std::make_unique<ScopedRuntimeExtensionHostTask>(runtime);
     }
     if (!evalTask && (!errorTask || !*errorTask)) return 1;
     const std::string message(err.what());
@@ -14784,9 +15353,9 @@ static int evalRuntimeUnchecked(
     (void)writeOutError(message);
     return 1;
   } catch (...) {
-    std::unique_ptr<ScopedGpuHostTask> errorTask;
+    std::unique_ptr<ScopedRuntimeExtensionHostTask> errorTask;
     if (!evalTask) {
-      errorTask = std::make_unique<ScopedGpuHostTask>(runtime);
+      errorTask = std::make_unique<ScopedRuntimeExtensionHostTask>(runtime);
     }
     if (!evalTask && (!errorTask || !*errorTask)) return 1;
     const std::string sourceLabel =
@@ -15172,7 +15741,6 @@ constexpr size_t kMaxExactHostOperationCount = 4096;
 constexpr size_t kMaxExactHostPayloadBytes = 16 * 1024 * 1024;
 constexpr size_t kMaxExactPendingHostCalls = 1024;
 constexpr uint32_t kEmbedderCapabilityExactIngress = 1u << 0;
-constexpr uint32_t kEmbedderCapabilityGpuProvider = 1u << 1;
 
 bool exactHostContextIsValid(uint32_t context) {
   return context == EXACT_EMBEDDER_CONTEXT_APP ||
@@ -15183,8 +15751,7 @@ bool exactHostContextIsValid(uint32_t context) {
 
 extern "C" int32_t ex_hermes_begin_embedder_capabilities_v1(
     ExactHermesRuntime* runtime) {
-  // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam — no user
-  // evaluation may race provisional native capability publication.
+  // No user evaluation may race provisional native capability publication.
   if (!runtime || !runtime->runtime) {
     return EXACT_EMBEDDER_CAPABILITIES_INVALID_ARGUMENT;
   }
@@ -15196,8 +15763,7 @@ extern "C" int32_t ex_hermes_begin_embedder_capabilities_v1(
   }
   if (runtime->embedder_capability_state !=
           EmbedderCapabilityState::LegacyAutoFinalize ||
-      runtime->user_execution_started || runtime->exact_host_call_async_fn ||
-      exactGpuBindingInstalled(runtime)) {
+      runtime->user_execution_started || runtime->exact_host_call_async_fn) {
     return EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE;
   }
   runtime->embedder_capability_state = EmbedderCapabilityState::Configuring;
@@ -15235,132 +15801,28 @@ extern "C" int32_t ex_hermes_finalize_embedder_capabilities_v1(
   if (runtime->exact_host_call_async_fn) {
     installed |= kEmbedderCapabilityExactIngress;
   }
-  if (exactGpuBindingInstalled(runtime)) {
-    installed |= kEmbedderCapabilityGpuProvider;
-  }
   if (ex_host_authorize_embedder_capability_set(
           runtime->host_context_id, installed) != 1) {
     rollbackExactHostIngress(runtime);
-    exactGpuRollbackInstall(runtime);
     runtime->root_global_disposition_verified_for_user_execution = false;
     runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
     return EXACT_EMBEDDER_CAPABILITIES_AUTHENTICATION_FAILED;
   }
   try {
     if (!finalizeCompartmentBaselineForEmbedder(runtime) ||
-        !sealExactHostIngress(runtime) ||
-        !exactGpuCloseConstructionCapture(runtime)) {
+        !sealExactHostIngress(runtime)) {
       throw std::runtime_error("embedder capability finalization failed");
     }
   } catch (...) {
     rollbackExactHostIngress(runtime);
-    exactGpuRollbackInstall(runtime);
     runtime->root_global_disposition_verified_for_user_execution = false;
     runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
     return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
   }
-  // A registered GPU provider remains dormant here: no deferred JS is
-  // evaluated, no realm opens, and no WebGPU root participates in this sweep.
-  // Exact activates it later through ex_hermes_activate_webgpu_runtime_v1.
   if (!finalizeEmbedderCapabilityDisposition(runtime)) {
     return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
   }
   return EXACT_EMBEDDER_CAPABILITIES_OK;
-}
-
-extern "C" int32_t ex_hermes_activate_webgpu_runtime_v1(
-    ExactHermesRuntime* runtime) {
-  if (!runtime || !runtime->runtime) {
-    return EXACT_GPU_PROVIDER_INVALID_ARGUMENT;
-  }
-  ExactRuntimeDriveGuard drive(runtime);
-  if (!drive) {
-    return drive.status() == EXACT_RUNTIME_DRIVE_OFF_OWNER
-        ? EXACT_GPU_PROVIDER_WRONG_THREAD
-        : EXACT_GPU_PROVIDER_INVALID_STATE;
-  }
-  if (runtime->restricted) return EXACT_GPU_PROVIDER_RESTRICTED_RUNTIME;
-  if (runtime->embedder_capability_state !=
-          EmbedderCapabilityState::Finalized ||
-      runtime->webgpu_runtime_activation_in_progress) {
-    return EXACT_GPU_PROVIDER_INVALID_STATE;
-  }
-  if (!exactGpuBindingInstalled(runtime)) {
-    return EXACT_GPU_PROVIDER_UNSUPPORTED;
-  }
-  if (exactGpuRuntimeActivated(runtime)) return EXACT_GPU_PROVIDER_OK;
-  const auto activationStarted = std::chrono::steady_clock::now();
-
-  // The activation artifact owns this exact temporary rendezvous. Refuse an
-  // app-created collision before evaluating any trusted byte.
-  try {
-    if (!rootGlobalLogicalPathAbsent(
-            runtime, "__ibexCaptureGpuNativeBridge")) {
-      return EXACT_GPU_PROVIDER_INVALID_STATE;
-    }
-  } catch (...) {
-    return EXACT_GPU_PROVIDER_INVALID_STATE;
-  }
-  if (!exactRuntimeBeginGpuCanvasDebuggerExclusion(runtime)) {
-    return EXACT_GPU_PROVIDER_INVALID_STATE;
-  }
-
-  runtime->webgpu_runtime_activation_in_progress = true;
-  runtime->root_global_disposition_verified_for_user_execution = false;
-  auto fail = [&](int32_t status, const char* stage) {
-    if (startup_trace_enabled()) {
-      fprintf(
-          stderr,
-          "[startup]   webgpu_runtime_activation failed at %s (%d)\n",
-          stage,
-          status);
-    }
-    exactGpuRollbackInstall(runtime);
-    runtime->root_global_disposition_verified_for_user_execution = false;
-    runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
-    (void)exactRuntimeQuarantine(runtime);
-    runtime->webgpu_runtime_activation_in_progress = false;
-    (void)exactRuntimeFinishGpuCanvasDebuggerExclusion(runtime);
-    return status;
-  };
-
-  try {
-    if (!evaluateDeferredWebGpuRuntimeBundle(runtime)) {
-      return fail(EXACT_GPU_PROVIDER_OPEN_FAILED, "bundle-evaluation");
-    }
-    const int32_t activationStatus = exactGpuActivateInstall(runtime);
-    if (activationStatus != EXACT_GPU_PROVIDER_OK) {
-      return fail(activationStatus, "provider-open");
-    }
-    if (!exactGpuPublishPrivateBridge(runtime)) {
-      return fail(EXACT_GPU_PROVIDER_OPEN_FAILED, "bridge-publication");
-    }
-    if (!exactGpuSealPrivateBridge(runtime)) {
-      return fail(EXACT_GPU_PROVIDER_OPEN_FAILED, "bridge-seal");
-    }
-    if (!refreshCompartmentBaselineForDeferredWebGpu(runtime)) {
-      return fail(EXACT_GPU_PROVIDER_OPEN_FAILED, "compartment-refresh");
-    }
-    if (!finalizeEmbedderCapabilityDisposition(runtime)) {
-      return fail(EXACT_GPU_PROVIDER_OPEN_FAILED, "root-disposition");
-    }
-  } catch (...) {
-    return fail(EXACT_GPU_PROVIDER_OPEN_FAILED, "native-exception");
-  }
-
-  runtime->webgpu_runtime_activation_in_progress = false;
-  if (!exactRuntimeFinishGpuCanvasDebuggerExclusion(runtime)) {
-    return fail(EXACT_GPU_PROVIDER_OPEN_FAILED, "debugger-restoration");
-  }
-  if (startup_trace_enabled()) {
-    const auto elapsed = std::chrono::duration<double, std::milli>(
-        std::chrono::steady_clock::now() - activationStarted);
-    fprintf(
-        stderr,
-        "[startup]   webgpu_runtime_activation_total %.3f ms\n",
-        elapsed.count());
-  }
-  return EXACT_GPU_PROVIDER_OK;
 }
 
 extern "C" int ex_hermes_set_exact_host_call_async(
@@ -15708,10 +16170,10 @@ static int pollTypedAuthorityGenerations(ExactHermesRuntime* runtime) {
 
 static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms,
                        bool external_keep_alive) {
-  if (runtime->gpu_host_task_checkpoint_failed) return -1;
-  if (runtime->gpu_host_task_microtask_continuation) {
-    if (!exactResumeGpuHostTaskContinuation(runtime)) {
-      return runtime->gpu_host_task_checkpoint_failed ? -1 : 0;
+  if (runtime->runtime_extension_host_task_checkpoint_failed) return -1;
+  if (runtime->runtime_extension_host_task_microtask_continuation) {
+    if (!exactResumeRuntimeExtensionHostTaskContinuation(runtime)) {
+      return runtime->runtime_extension_host_task_checkpoint_failed ? -1 : 0;
     }
   }
   if (runtime->structured_session_terminated) {
@@ -15727,7 +16189,7 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms,
       runtime->attribution_runtime);
 #endif
 
-  ScopedGpuHostTask pollBatchTask(runtime);
+  ScopedRuntimeExtensionHostTask pollBatchTask(runtime);
   if (!pollBatchTask) return -1;
 
   int executed = 0;
@@ -15743,12 +16205,6 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms,
     return -1;
   }
   drainRuntimeFinalizers(runtime);
-
-  // GPU provider callbacks normally arrive through callbackQueue. If that
-  // queue cannot allocate while publishing a drain, the mailbox raises this
-  // durable allocation-free owner flag instead so polling still retires every
-  // Promise exactly once.
-  executed += exactGpuDrainOwnerFallback(runtime);
 
   // Drain cross-thread callback queue (HTTP server responses, etc.)
   executed += drainCallbackQueue(runtime);
@@ -15833,7 +16289,7 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms,
   // The poll-batch boundary owns nextTick/microtask draining in its finally
   // path. This keeps all callbacks admitted above in one declared Exact task.
   if (!pollBatchTask.finish()) return -1;
-  if (runtime->gpu_host_task_microtask_continuation) return executed;
+  if (runtime->runtime_extension_host_task_microtask_continuation) return executed;
   if (runtime->structured_session_terminated) {
     return -1;
   }
@@ -15929,7 +16385,7 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms,
       }
       continue;
     }
-    ScopedGpuHostTask timerTask(runtime);
+    ScopedRuntimeExtensionHostTask timerTask(runtime);
     if (!timerTask) return -1;
     consumeStructuredTimerDue(runtime, id);
     // Retire or reschedule the fired timer. Must run before any error return
@@ -16001,7 +16457,7 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms,
         retireTimer();
         if (!timerTask.finish()) return -1;
         if (runtime->structured_session_terminated) return -1;
-        if (runtime->gpu_host_task_microtask_continuation) return executed;
+        if (runtime->runtime_extension_host_task_microtask_continuation) return executed;
         continue;
       }
       if (runtime->structured_lifecycle_pending) {
@@ -16027,7 +16483,7 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms,
         if (!timerTask.finish()) return -1;
         if (runtime->structured_session_terminated) return -1;
         executed += 1;
-        if (runtime->gpu_host_task_microtask_continuation) return executed;
+        if (runtime->runtime_extension_host_task_microtask_continuation) return executed;
         continue;
       }
       retireTimer();
@@ -16038,7 +16494,7 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms,
         recordStructuredAsyncFailureDrop(runtime);
         executed += 1;
         if (!timerTask.finish()) return -1;
-        if (runtime->gpu_host_task_microtask_continuation) return executed;
+        if (runtime->runtime_extension_host_task_microtask_continuation) return executed;
         continue;
       }
       ex_host_console_log(1, err.what());
@@ -16049,7 +16505,7 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms,
 
     retireTimer();
     if (!timerTask.finish()) return -1;
-    if (runtime->gpu_host_task_microtask_continuation) return executed;
+    if (runtime->runtime_extension_host_task_microtask_continuation) return executed;
     if (runtime->structured_session_terminated) return -1;
     if (runtime->structured_lifecycle_pending) {
       return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
@@ -16061,11 +16517,11 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms,
   // attached anywhere above removed its exact promise record first.
   // @ref LLP 0024#9-asynchronous-failures
   if (hasPendingPromiseRejectionCheckpointWork(runtime)) {
-    ScopedGpuHostTask rejectionCheckpointTask(runtime);
+    ScopedRuntimeExtensionHostTask rejectionCheckpointTask(runtime);
     if (!rejectionCheckpointTask) return -1;
     flushPendingPromiseRejections(runtime);
     if (!rejectionCheckpointTask.finish()) return -1;
-    if (runtime->gpu_host_task_microtask_continuation) return executed;
+    if (runtime->runtime_extension_host_task_microtask_continuation) return executed;
   }
   if (runtime->structured_session_terminated) return -1;
   if (runtime->structured_lifecycle_pending) {
@@ -16095,12 +16551,12 @@ static std::optional<int> pollAppBundleHostTaskContinuation(
   // open resumes phase 0's retained Windows microtask slice. Even when that
   // slice completes, return before admitting a successor callback or timer;
   // the host must retry begin with the same expectation first.
-  if (!runtime->gpu_host_task_microtask_continuation.load(
+  if (!runtime->runtime_extension_host_task_microtask_continuation.load(
           std::memory_order_acquire)) {
     return EXACT_RUNTIME_DRIVE_APP_BUNDLE_OPEN;
   }
-  if (!exactResumeGpuHostTaskContinuation(runtime) &&
-      runtime->gpu_host_task_checkpoint_failed.load(
+  if (!exactResumeRuntimeExtensionHostTaskContinuation(runtime) &&
+      runtime->runtime_extension_host_task_checkpoint_failed.load(
           std::memory_order_acquire)) {
     return -1;
   }
@@ -16169,10 +16625,12 @@ static int hasPendingTasksUnchecked(ExactHermesRuntime* runtime) {
   if (runtime->structured_lifecycle_pending) {
     return 1;
   }
-  if (runtime->gpu_host_task_microtask_continuation.load(
+  if (runtime->runtime_extension_host_task_microtask_continuation.load(
           std::memory_order_acquire) ||
-      runtime->gpu_host_task_checkpoint_failed.load(
-          std::memory_order_acquire)) {
+      runtime->runtime_extension_host_task_checkpoint_failed.load(
+          std::memory_order_acquire) ||
+      ibex::runtime_extension::internal::hasPendingOwnerRetirements(
+          runtime)) {
     return 1;
   }
   if (!runtime->structured_pending_promise_rejections.empty() ||
@@ -16184,9 +16642,6 @@ static int hasPendingTasksUnchecked(ExactHermesRuntime* runtime) {
     return 1;
   }
   if (!runtime->next_tick.empty()) {
-    return 1;
-  }
-  if (exactGpuOwnerDrainPending(runtime)) {
     return 1;
   }
   if (runtime->active_spawn_processes.load(std::memory_order_relaxed) > 0) {
@@ -16246,11 +16701,12 @@ extern "C" uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime) {
         runtimeIt->second.state != RuntimeLifecycleState::Running) {
       return 0;
     }
-    if (exactGpuOwnerDrainPending(runtime) ||
-        runtime->gpu_host_task_microtask_continuation.load(
+    if (runtime->runtime_extension_host_task_microtask_continuation.load(
             std::memory_order_acquire) ||
-        runtime->gpu_host_task_checkpoint_failed.load(
-            std::memory_order_acquire)) {
+        runtime->runtime_extension_host_task_checkpoint_failed.load(
+            std::memory_order_acquire) ||
+        ibex::runtime_extension::internal::hasPendingOwnerRetirements(
+            runtime)) {
       backlog += 1;
     }
     {

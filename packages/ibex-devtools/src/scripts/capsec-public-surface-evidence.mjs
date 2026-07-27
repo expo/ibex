@@ -908,14 +908,6 @@ const EXACT_EMBEDDER_NON_CAPABILITY_SURFACES = new Map([
     ["authority-control-plane", "exact-artifact-prepare-round-trip"],
   ],
   [
-    "host-abi:ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts",
-    ["authority-control-plane", "exact-gpu-artifact-prepare-round-trip"],
-  ],
-  [
-    "host-abi:ex_host_build_exact_gpu_armed_embedder_artifacts",
-    ["authority-control-plane", "exact-gpu-artifact-prepare-round-trip"],
-  ],
-  [
     "host-abi:ex_host_prepare_armed_embedder_artifacts",
     ["authority-control-plane", "exact-artifact-prepare-round-trip"],
   ],
@@ -1257,63 +1249,6 @@ function validateCallbackInvariantResult(result, authored, fixtureId) {
         checks.operationManifestDigest !== EXACT_OPERATION_MANIFEST_DIGEST
       ) {
         throw new Error(`${label} did not prove exact-set authorization`);
-      }
-      return;
-    }
-    if (mechanism === "exact-gpu-artifact-prepare-round-trip") {
-      exactKeys(
-        checks,
-        [
-          "executionMechanism",
-          "artifactPrepared",
-          "artifactSchema",
-          "nonceFreshened",
-          "digestRebound",
-          "sourceDigest",
-          "preparedDigest",
-          "preparedPairAuthenticated",
-          "descriptorAuthenticated",
-          "profileProtected",
-          "profileArtifactContentAuthenticated",
-          "protectedArtifactCount",
-          "profileId",
-          "profileDigest",
-          "profileArtifactDigest",
-          "webgpuCVocabularyDigest",
-          "operationSetDigest",
-          "semanticProgramDigest",
-          "operationIds",
-          "topology",
-        ],
-        label,
-      );
-      const identityDigests = [
-        checks.profileDigest,
-        checks.webgpuCVocabularyDigest,
-        checks.operationSetDigest,
-        checks.semanticProgramDigest,
-      ];
-      if (
-        checks.artifactPrepared !== true ||
-        checks.artifactSchema !== "ibex/armed-embedder-artifacts/1" ||
-        checks.nonceFreshened !== true ||
-        checks.digestRebound !== true ||
-        !isTaggedDigest(checks.sourceDigest) ||
-        !isTaggedDigest(checks.preparedDigest) ||
-        checks.sourceDigest === checks.preparedDigest ||
-        checks.preparedPairAuthenticated !== true ||
-        checks.descriptorAuthenticated !== true ||
-        checks.profileProtected !== true ||
-        checks.profileArtifactContentAuthenticated !== true ||
-        checks.protectedArtifactCount !== 6 ||
-        checks.profileId !== "fixture-v1" ||
-        !identityDigests.every(isTaggedDigest) ||
-        new Set(identityDigests).size !== identityDigests.length ||
-        checks.profileArtifactDigest !== checks.profileDigest ||
-        canonicalJson(checks.operationIds) !== canonicalJson([101, 207]) ||
-        checks.topology !== "isolated-per-logical-v1"
-      ) {
-        throw new Error(`${label} did not prove the authenticated Exact GPU profile`);
       }
       return;
     }

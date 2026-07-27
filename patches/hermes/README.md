@@ -53,16 +53,19 @@ is the line between "carrying patches" and "maintaining a divergent engine."
 | 0009 | `0009-raw-throw-capture.patch` | B | Adds an owner-thread scoped Hermes control that suppresses `.message` / `.stack` property reads and `String` coercion while a pending exception crosses JSI. The structured evaluator can therefore retain the exact thrown value without invoking project code; legacy evaluation keeps Hermes' default diagnostics. |
 | 0010 | `0010-completion-record-discriminator.patch` | B | Preserves the VM's `Empty` completion discriminator across the JSI conversion that otherwise collapses it into `undefined`. Structured evaluation can now distinguish a declaration/empty completion from the JavaScript value `undefined` without a syntactic last-expression heuristic. |
 | 0011 | `0011-structured-async-failure-provenance.patch` | B | Captures Promise-job scheduler, job identity, and associated evaluation at enqueue time; exposes failed-job context to the host; adds a poll-checkpoint rejection tracker that cancels by Promise identity; extracts a closed Error class from internal direct-prototype identity; and source-bounds Stage-1 primitive text plus Error message/stack to 16 KiB of valid UTF-8 including an explicit trusted truncation marker, without invoking project code or first materializing attacker-sized text. |
-| 0012 | `0012-webgpu-mapped-arraybuffer-alias.patch` | B | Adds an optional construction-private Hermes interface that mints overlapping `ArrayBuffer` aliases over one source byte block, promoting an internal source's existing allocation to shared external ownership in place without copying or replacing the source. It tags aliases with the `WebGPUBufferMapping` detach key, refuses ordinary transfer, and detaches them only through the matching native key. The engine API is not a JavaScript intrinsic and Ibex withholds the complete private GPU bridge when either the compile-time declaration or live UUID cast is absent. |
+| 0012 | `0012-keyed-external-arraybuffer-alias.patch` | B | Adds an extension-neutral construction-private Hermes interface that mints overlapping `ArrayBuffer` aliases over one source byte block, promoting an internal source's existing allocation to shared external ownership in place without copying or replacing the source. It tags aliases with a private keyed-external detach capability, refuses ordinary transfer, and detaches them only through the matching native key. The engine API is not a JavaScript intrinsic; embedders negotiate it through the runtime-extension SDK. |
+| 0013 | `0013-native-job-constrained-principals.patch` | B | Carries bounded, immutable construction, settlement, handler-registration, adoption/thenable, async-generator-definition, and job constrained-principal sets across immediate, delayed, aggregate, and chained Promise reactions, including constrained observable getters/calls; keeps Promise state/hooks in private lexical records, locks the embedder rejection-checkpoint tracker before package code, and exposes embedder carrier/active-query symbols so authenticated native completions cannot collapse a multi-principal acquisition context to one scheduler identity. The runtime-extension profile requires the engine microtask queue; the compatibility `setImmediate` path is not cited as extension-confinement evidence. |
 
-All twelve apply clean from pristine (`scripts/apply-hermes-patches.sh`) to
-tree `a6e9b222128ab97f9b740839e354f8edd357a388` and
+All thirteen apply clean from pristine (`scripts/apply-hermes-patches.sh`) to
+tree `15b3441654de0bf5ed6ceaac8f69e61e57175437` and
 compile into a working `hermesvm.framework` exporting the `ex_hermes_vm_*`
 symbols (`current_package_id`, `set_pending_package_id`, `clear_pending_package_id`,
 `set_default_package_id`, `collect_package_ids`, `set_job_scheduler_capture`,
 `current_job_scheduler_principal`, `current_job_identity`,
 `current_job_associated_evaluation`, `set_job_associated_evaluation`,
-`set_embedder_job_scheduler_principal`, and `take_failed_job_context`),
+`set_embedder_job_scheduler_principal`,
+`set_embedder_job_constrained_principals`,
+`has_active_job_constrained_principals`, and `take_failed_job_context`),
 verified against the pinned checkout (`ac8c6e6c80ec…`, HEAD of
 `origin/260318099.0.0-stable`).
 

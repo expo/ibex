@@ -152,7 +152,7 @@ pub fn validate_selector_resource(resource: &SelectorResource) -> Result<()> {
         | SelectorResource::StorageNamespace { .. }
         | SelectorResource::SessionLifecycle { .. }
         | SelectorResource::SessionState { .. }
-        | SelectorResource::GpuOperation { .. }
+        | SelectorResource::RuntimeExtension { .. }
         | SelectorResource::ClosedSurface { .. } => {}
         SelectorResource::Executable {
             path, interpreter, ..
@@ -917,25 +917,19 @@ pub fn validate_occurrence_stage_facts(occurrence: &EffectOccurrence) -> Result<
             }
             validate_selector_resource(requested)?;
         }
-        OccurrenceResource::GpuOperationOccurrence {
-            requested,
-            presented_handle_identities,
-            ..
-        } => {
-            if !matches!(requested.as_ref(), SelectorResource::GpuOperation { .. }) {
-                return invalid("GPU operation occurrence requested a non-GPU resource");
+        OccurrenceResource::RuntimeExtensionOccurrence { requested, .. } => {
+            if !matches!(
+                requested.as_ref(),
+                SelectorResource::RuntimeExtension { .. }
+            ) {
+                return invalid("runtime-extension occurrence requested a non-extension resource");
             }
             if !matches!(stage, Stage::Requested | Stage::Commit | Stage::Repeat) {
                 return invalid(
-                    "GPU operation occurrence supports only requested, commit, and repeat stages",
+                    "runtime-extension occurrence supports only requested, commit, and repeat stages",
                 );
             }
             validate_selector_resource(requested)?;
-            validate_set(
-                presented_handle_identities,
-                "presentedHandleIdentities",
-                false,
-            )?;
         }
         OccurrenceResource::ClosedOccurrence { requested, .. } => {
             if !matches!(requested.as_ref(), SelectorResource::ClosedSurface { .. }) {

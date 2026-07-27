@@ -90,7 +90,13 @@ the functional EOF defect remains tracked independently in
 
 ## Progress (2026-07-25)
 
-### Deferred WebGPU activation follow-up
+### Historical deferred WebGPU activation follow-up (superseded)
+
+This section is retained as measurement and extraction history only. Its
+`webgpu-binding`, embedded secondary bundle, GPU provider registration, and
+`ex_hermes_activate_webgpu_runtime_v1` prescriptions are no longer current
+work. LLP 0040 now owns Ibex's generic extension substrate; Exact LLPs 0115 and
+0405 own WebGPU startup and conformance decisions.
 
 The next implementation phase moves the remaining feature-on startup penalty
 off Exact's startup-critical path rather than making WebGPU unavailable. The

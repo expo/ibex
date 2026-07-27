@@ -19,6 +19,7 @@ pub mod path_alias;
 pub mod policy;
 pub mod registry;
 pub mod retained;
+pub mod runtime_extensions;
 pub mod strict_json;
 
 pub use error::{Error, Result};

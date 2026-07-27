@@ -417,7 +417,7 @@ extern "C" char* ex_hermes_debugger_eval(
             exactRuntimeSettleDebuggerCommand(
                 runtime,
                 pending,
-                "{\"exceptionDetails\":{\"text\":\"Debugger ingress is excluded during GPU Canvas app-bundle evaluation\"}}");
+                "{\"exceptionDetails\":{\"text\":\"Debugger ingress is excluded during extension app-bundle evaluation\"}}");
             return;
           }
           if (!exactRuntimeEnterUserExecution(runtime)) {
@@ -427,7 +427,7 @@ extern "C" char* ex_hermes_debugger_eval(
                 "{\"exceptionDetails\":{\"text\":\"Hermes embedder capability transaction is not finalized\"}}");
             return;
           }
-          ScopedGpuHostTask hostTask(runtime);
+          ScopedRuntimeExtensionHostTask hostTask(runtime);
           if (!hostTask) {
             exactRuntimeSettleDebuggerCommand(
                 runtime, pending, kDebuggerHostTaskUnavailable);
@@ -462,7 +462,7 @@ extern "C" char* ex_hermes_debugger_eval(
                       publishState->callback_claimed = true;
                     }
 
-                    ScopedGpuHostTask callbackTask(runtime);
+                    ScopedRuntimeExtensionHostTask callbackTask(runtime);
                     std::string stagedResult;
                     if (!callbackTask) {
                       stagedResult = kDebuggerHostTaskUnavailable;
@@ -592,7 +592,7 @@ extern "C" char* ex_hermes_debugger_eval(
     if (!exactRuntimeEnterUserExecution(handle)) {
       return std::string();
     }
-    ScopedGpuHostTask hostTask(handle);
+    ScopedRuntimeExtensionHostTask hostTask(handle);
     if (!hostTask) return std::string(kDebuggerHostTaskUnavailable);
     auto& rt = *handle->runtime;
     std::string stagedResult;

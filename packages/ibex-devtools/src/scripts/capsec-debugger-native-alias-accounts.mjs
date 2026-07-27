@@ -45,15 +45,6 @@ const HOST_ABI_OUTPUT_TEST_PATH =
   "src/bin/ibex/engine/capsec_host_abi_output_batch.test.rs";
 const PUBLIC_CLOSED_TEST_PATH =
   "src/bin/ibex/engine/capsec_public_closed_batch.rs";
-const APP_BUNDLE_DEBUGGER_GATE_TEST_SYMBOL_COUNTS = Object.freeze({
-  ex_hermes_debugger_enable: 2,
-  ex_hermes_debugger_eval: 3,
-  ex_hermes_debugger_get_script_source: 1,
-  ex_hermes_debugger_get_scripts: 3,
-  ex_hermes_debugger_next_event: 3,
-  ex_hermes_debugger_set_breakpoint: 1,
-});
-
 function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -1137,59 +1128,6 @@ function auditGuardAndRustReachability(requiredSources, binaryRustSources) {
     "CDP listener authorization type",
   );
 
-  const hermesTestsToken = compactRust(
-    "#[cfg(test)]\nmod tests",
-    "Hermes tests module token",
-  );
-  const appBundleDebuggerGateTestToken = compactRust(
-    "async fn gpu_canvas_app_bundle_excludes_debugger_ingress_until_finish()",
-    "GPU Canvas debugger gate test token",
-  );
-  const nextHermesTestToken = compactRust(
-    "async fn gpu_canvas_receipt_delivery_uses_frozen_exact_shape_for_provider()",
-    "next Hermes test token",
-  );
-  const hermesTestsStart = hermes.indexOf(hermesTestsToken);
-  const appBundleDebuggerGateTestStart = hermes.indexOf(
-    appBundleDebuggerGateTestToken,
-  );
-  const nextHermesTestStart = hermes.indexOf(
-    nextHermesTestToken,
-    appBundleDebuggerGateTestStart + appBundleDebuggerGateTestToken.length,
-  );
-  requireCondition(
-    hermesTestsStart !== -1 &&
-      hermes.indexOf(hermesTestsToken, hermesTestsStart + 1) === -1 &&
-      appBundleDebuggerGateTestStart > hermesTestsStart &&
-      hermes.indexOf(
-        appBundleDebuggerGateTestToken,
-        appBundleDebuggerGateTestStart + 1,
-      ) === -1 &&
-      nextHermesTestStart > appBundleDebuggerGateTestStart,
-    "GPU Canvas debugger gate test is not uniquely bounded inside the Hermes tests module",
-  );
-  const appBundleDebuggerGateTest = hermes.slice(
-    appBundleDebuggerGateTestStart,
-    nextHermesTestStart,
-  );
-  const appBundleDebuggerGateCalls = Object.fromEntries(
-    DEBUGGER_ALIAS_SPECS.map((spec) => {
-      const expected =
-        APP_BUNDLE_DEBUGGER_GATE_TEST_SYMBOL_COUNTS[spec.symbol];
-      requireCondition(
-        Number.isInteger(expected) && expected > 0,
-        `GPU Canvas debugger gate test lacks a bounded count for ${spec.symbol}`,
-      );
-      exactOccurrence(
-        appBundleDebuggerGateTest,
-        spec.symbol,
-        expected,
-        `GPU Canvas debugger gate test ${spec.symbol}`,
-      );
-      return [spec.symbol, expected];
-    }),
-  );
-
   const allRust = [...compactByPath.entries()];
   const symbolEvidence = new Map();
   for (const spec of DEBUGGER_ALIAS_SPECS) {
@@ -1204,8 +1142,6 @@ function auditGuardAndRustReachability(requiredSources, binaryRustSources) {
       spec.symbol === "ex_hermes_debugger_enable" ? 7 : 2;
     const closedTestCount =
       spec.symbol === "ex_hermes_debugger_next_event" ? 5 : 3;
-    const appBundleDebuggerGateTestCount =
-      appBundleDebuggerGateCalls[spec.symbol];
     requireCondition(
       identifierOccurrences(diagnosticOutputExecutor, spec.symbol) ===
         diagnosticTestCount &&
@@ -1216,16 +1152,12 @@ function auditGuardAndRustReachability(requiredSources, binaryRustSources) {
           closedTestCount &&
         identifierOccurrences(publicClosedTest, spec.symbol) ===
           closedTestCount &&
-        total ===
-          2 +
-            appBundleDebuggerGateTestCount +
-            diagnosticTestCount +
-            closedTestCount &&
+        total === 2 + diagnosticTestCount + closedTestCount &&
         sites.length === 3 &&
         sites.some(
           (site) =>
             site.path === HERMES_RUST_PATH &&
-            site.count === 2 + appBundleDebuggerGateTestCount,
+            site.count === 2,
         ) &&
         sites.some(
           (site) =>
@@ -1237,7 +1169,7 @@ function auditGuardAndRustReachability(requiredSources, binaryRustSources) {
             site.path === PUBLIC_CLOSED_TEST_PATH &&
             site.count === closedTestCount,
         ),
-      `${spec.nativeName}: expected one Rust declaration, one guarded production call, the bounded gpu_canvas_app_bundle_excludes_debugger_ingress_until_finish test calls, and only the bounded diagnostic/closed-target test calls of ${spec.symbol}`,
+      `${spec.nativeName}: expected one Rust declaration, one guarded production call, and only the bounded diagnostic/closed-target test calls of ${spec.symbol}`,
     );
     const backendCount = identifierOccurrences(backend, spec.symbol);
     const enableCount = identifierOccurrences(maybeEnable, spec.symbol);
@@ -1267,7 +1199,6 @@ function auditGuardAndRustReachability(requiredSources, binaryRustSources) {
       diagnosticRuntimeMatched,
       diagnosticOutputMatched,
       closedDebuggerMatched,
-      appBundleDebuggerGateCalls,
     }),
     assertions: [
       {
@@ -1284,11 +1215,6 @@ function auditGuardAndRustReachability(requiredSources, binaryRustSources) {
         id: "listener-requires-unarmed-authorization",
         path: CDP_RUST_PATH,
         digest: taggedDigest(cdpMatched),
-      },
-      {
-        id: "test-only-gpu-canvas-debugger-gate",
-        path: HERMES_RUST_PATH,
-        digest: taggedDigest({ appBundleDebuggerGateCalls }),
       },
       {
         id: "test-only-diagnostic-output-executor",

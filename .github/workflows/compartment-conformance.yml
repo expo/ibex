@@ -170,10 +170,8 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Install Rust toolchain
-        shell: pwsh
-        run: |
-          rustup toolchain install 1.93.1 --profile minimal
-          rustup default 1.93.1
+        shell: bash
+        run: scripts/install-rust-toolchain.sh
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2

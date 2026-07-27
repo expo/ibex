@@ -103,6 +103,7 @@ const HOST_TERMINAL_FUNCTIONS = new Set([
 const HOST_BASIC_FUNCTIONS = new Set([
   "ex_host_armed_bootstrap_compatibility_flags",
   "ex_host_armed_endowments",
+  "ex_host_authorize_embedder_capability_set",
   "ex_host_check_capability",
   "ex_host_check_capability_no_follow_final",
   "ex_host_check_capability_stack",
@@ -154,32 +155,16 @@ const HERMES_STATELESS_FUNCTIONS = new Set([
   "ex_hermes_evaluation_result_dispose",
   "ex_hermes_evaluation_result_init",
   "ex_hermes_free_string",
-  // The GPU provider/decoded-image ABI version and descriptor-size getters
-  // return compile-time constants from the loaded engine with no runtime or
-  // provider state; the batch executor invokes each exact symbol directly.
-  "ex_hermes_gpu_decoded_image_abi_version_v1",
-  "ex_hermes_gpu_decoded_image_descriptor_size_v1",
-  "ex_hermes_gpu_provider_abi_version",
-  "ex_hermes_gpu_provider_abi_version_v2",
-  "ex_hermes_gpu_provider_descriptor_size_v1",
-  "ex_hermes_gpu_provider_descriptor_size_v2",
   "ex_hermes_module_preflight_bytecode",
   "ex_hermes_now_ms",
 ]);
 
-// The app-bundle transaction routes run the reviewed valid no-webgpu prepared
-// sequence on one owned diagnostic runtime and record each route's exact
-// transaction status; the two immediate-eval routes record the exact
-// invalid-artifact refusal (status 2) plus its bounded error string. runApp is
-// never invoked, so no application code executes through this bounded path.
+// The app-bundle transaction routes execute a bounded admission or refusal on
+// one owned diagnostic runtime. No application code runs through this path.
 const HERMES_APP_BUNDLE_FUNCTIONS = new Set([
   "ex_hermes_begin_app_bundle_evaluation_v1",
-  "ex_hermes_begin_gpu_canvas_app_bundle_v1",
   "ex_hermes_classify_prepared_native_startup_v1",
-  "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1",
-  "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1",
   "ex_hermes_finish_app_bundle_evaluation_v1",
-  "ex_hermes_finish_gpu_canvas_app_bundle_v1",
   "ex_hermes_run_prepared_app_v1",
   "ex_hermes_stage_prepared_native_startup_v1",
   "ex_hermes_verify_prepared_native_startup_absent_v1",
@@ -192,15 +177,9 @@ const HERMES_DIAGNOSTIC_FUNCTIONS = new Set([
   // runtime is destroyed with the fixture.
   "ex_hermes_quarantine_runtime_v1",
   "ex_hermes_runtime_is_quarantined_v1",
-  // The embedder-capability window and provider registrations execute the
-  // reviewed feature-off sequence on one owned diagnostic runtime: the window
-  // opens and closes normally while the exact null-descriptor registrations
-  // are refused with the reviewed status.
+  // The embedder-capability window executes on one owned diagnostic runtime.
   "ex_hermes_begin_embedder_capabilities_v1",
   "ex_hermes_finalize_embedder_capabilities_v1",
-  "ex_hermes_set_gpu_decoded_image_provider_v1",
-  "ex_hermes_set_gpu_provider_v1",
-  "ex_hermes_set_gpu_provider_v2",
   "ex_hermes_cancel_structured_work_target",
   "ex_hermes_create_diagnostic",
   "ex_hermes_debugger_enable",
@@ -314,7 +293,6 @@ const HOST_AUTHENTICATED_STATEFUL_FUNCTIONS = new Set([
   "ex_host_env_compiled_key_count",
   "ex_host_env_get",
   "ex_host_install_armed",
-  "ex_host_install_armed_experimental_webgpu_pre1a",
   "ex_host_matches_armed_snapshot_digest",
   "ex_host_prepare_armed_embedder_artifacts",
   "ex_host_prepare_exact_armed_embedder_artifacts",
@@ -322,28 +300,6 @@ const HOST_AUTHENTICATED_STATEFUL_FUNCTIONS = new Set([
   "ex_host_seal_bootstrap_phase",
   "ex_host_session_static_import_resolve",
   "ex_host_session_static_import_resolve_meta",
-]);
-
-// GPU-authority and armed-embedder-artifact routes whose single output surface
-// is fully covered by their fail-closed refusal on invalid input: the four
-// authority checks return 0, and the two artifact builders return an exact
-// closed `{"ok":false,...}` refusal document. Their success paths need armed
-// GPU authority state and remain residual.
-const HOST_GPU_AUTHORITY_REFUSAL_FUNCTIONS = new Set([
-  "ex_host_authorize_embedder_capability_set",
-  "ex_host_authorize_exact_gpu_provider",
-  "ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts",
-  "ex_host_build_exact_gpu_armed_embedder_artifacts",
-  "ex_host_exact_gpu_authority_session_requested_v2",
-  "ex_host_force_retire_exact_gpu_authority_session_v2",
-]);
-
-// The provider authorization route emits an authority digest only against an
-// armed Host whose GPU provider binding is source-registry exact. The batch
-// builds that fixture from the compiled registry itself, so the binding cannot
-// drift away from the gate it must satisfy.
-const HOST_GPU_AUTHORITY_SUCCESS_FUNCTIONS = new Set([
-  "ex_host_authorize_exact_gpu_provider_v2",
 ]);
 
 // Stateful native families whose output shapes can be observed only while a
@@ -481,14 +437,8 @@ const BOUNDED_FAMILY_OUTPUT_SELECTORS = new Set([
   "ex_hermes_engine_mapped_object\0out:inode",
   "ex_hermes_eval\0out:value",
   "ex_hermes_module_preflight_bytecode\0out:error",
-  // The immediate app-bundle evaluators surface the exact bounded refusal
-  // string for an invalid Hermes bytecode artifact; stage/run carry their
-  // out_error channel through the reviewed success path (null string).
-  "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1\0out:error",
-  "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1\0out:error",
   // stage/run surface this channel only on the reviewed out-of-order drive
   // refusal, which writes a bounded error and quarantines the owned runtime.
-  "ex_host_authorize_exact_gpu_provider_v2\0out:authority_digest",
   "ex_hermes_run_prepared_app_v1\0out:error",
   "ex_hermes_stage_prepared_native_startup_v1\0out:error",
   ...["ex_hermes_evaluation_result_dispose", "ex_hermes_evaluation_result_init"]
@@ -847,12 +797,6 @@ function operationFor(functionName, outputSelector = "[[return]]", key = null) {
   }
   if (HOST_TYPED_AUTHORITY_FUNCTIONS.has(functionName)) {
     return { kind: "rust-host-authenticated-typed-authority" };
-  }
-  if (HOST_GPU_AUTHORITY_REFUSAL_FUNCTIONS.has(functionName)) {
-    return { kind: "rust-host-gpu-authority-refusal" };
-  }
-  if (HOST_GPU_AUTHORITY_SUCCESS_FUNCTIONS.has(functionName)) {
-    return { kind: "rust-host-gpu-authority-success" };
   }
   if (HOST_AUTHENTICATED_STATEFUL_FUNCTIONS.has(functionName)) {
     return { kind: "rust-host-authenticated-stateful-output" };

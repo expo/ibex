@@ -66,12 +66,6 @@ describe("generated root-global disposition artifacts", () => {
     expect(rendered.cxx).toContain("__exactExit");
     expect(rendered.cxx).toContain("Ibex.permissions");
     expect(rendered.cxx).toContain(
-      '"navigator.gpu", "all", "authenticated-webgpu-provider"',
-    );
-    expect(rendered.cxx).toContain(
-      '"createImageBitmap", "all", "authenticated-webgpu-decoded-image"',
-    );
-    expect(rendered.cxx).toContain(
       '"exact", "invokeHostAsync", "default", "authenticated-exact-host-ingress"',
     );
     expect(

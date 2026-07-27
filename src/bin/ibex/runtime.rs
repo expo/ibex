@@ -3137,6 +3137,12 @@ fn expected_identity_from_snapshot(
         path_canonicalizers: snapshot.path_canonicalizers().rows().to_vec(),
         protected_artifacts: snapshot.protected_artifacts().to_vec(),
         embedded_protected_artifacts: snapshot.embedded_protected_artifacts().to_vec(),
+        runtime_extension_authority_digest: snapshot
+            .runtime_extension_authority()
+            .map(|capsule| capsule.authority_capsule_digest.clone()),
+        runtime_extension_mapped_executable: snapshot
+            .runtime_extension_authority()
+            .map(|capsule| capsule.mapped_executable.clone()),
     })
 }
 
@@ -5129,6 +5135,8 @@ fn build_default_armed_host(
             },
         ],
         embedded_protected_artifacts: vec![],
+        runtime_extension_authority_digest: None,
+        runtime_extension_mapped_executable: None,
     };
     phase.mark("arm_snapshot_build");
     let snapshot = Arc::new(ArmedSnapshot::load(
@@ -6408,15 +6416,14 @@ struct MaterializedProtectedArtifact {
     content_digest: capsec_semantics::model::Digest,
 }
 
-/// Build-time SHA-256 of the armed registry-record JCS bytes (and their
-/// length), computed by build.rs from the same checked-in registry inputs and
-/// the same capsec-semantics canonicalization the cold path uses.
+/// Shared build-time SHA-256, length, and canonical bytes for the armed
+/// registry record. Native and CLI startup use one embedded copy.
 const CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST: &str =
-    include_str!(concat!(env!("OUT_DIR"), "/capsec-registry-record.digest"));
+    ibex_runtime::host::embedder_artifacts::CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST;
 const CAPSEC_REGISTRY_RECORD_CONTENT_LEN: &str =
-    include_str!(concat!(env!("OUT_DIR"), "/capsec-registry-record.len"));
+    ibex_runtime::host::embedder_artifacts::CAPSEC_REGISTRY_RECORD_CONTENT_LEN;
 const CAPSEC_REGISTRY_RECORD_JCS: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/capsec-registry-record.jcs"));
+    ibex_runtime::host::embedder_artifacts::CAPSEC_REGISTRY_RECORD_JCS;
 
 /// Warm-start fast path for the registry protected artifact: authenticate an
 /// already-pinned cache file against the build-time content digest instead of
@@ -12245,12 +12252,12 @@ pub(crate) mod tests {
                     ProtectedArtifactRole::ExactOperationManifest => {
                         digest_at(&["exactEmbedder", "operationManifestDigest"])
                     }
-                    ProtectedArtifactRole::ExactWebgpuProfile => {
-                        digest_at(&["exactGpuProvider", "profileDigest"])
-                    }
                     ProtectedArtifactRole::ArmedPolicy => digest_at(&["policyDigest"]),
                     ProtectedArtifactRole::PackageGraph => digest_at(&["packageGraph", "digest"]),
                     ProtectedArtifactRole::Registry => digest_at(&["registryDigest"]),
+                    ProtectedArtifactRole::RuntimeExtensionAuthorityCapsule => {
+                        digest_at(&["runtimeExtensions", "authorityCapsuleDigest"])
+                    }
                 };
                 ExpectedProtectedArtifact {
                     role,
@@ -12291,6 +12298,8 @@ pub(crate) mod tests {
                 .unwrap(),
             protected_artifacts,
             embedded_protected_artifacts: Vec::new(),
+            runtime_extension_authority_digest: None,
+            runtime_extension_mapped_executable: None,
         };
         let snapshot =
             ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
@@ -14704,6 +14713,8 @@ pub(crate) mod tests {
                 },
             ],
             embedded_protected_artifacts: vec![],
+            runtime_extension_authority_digest: None,
+            runtime_extension_mapped_executable: None,
         };
         let snapshot_path = directory.join("armed.json");
         let identity_path = directory.join("identity.json");

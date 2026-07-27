@@ -7,6 +7,8 @@ use ibex_windows_dll_staging::stage_runtime_dlls;
 
 #[path = "build_support/hermes_profile_provenance.rs"]
 mod hermes_profile_provenance;
+#[path = "build_support/hermes_symbol_probe.rs"]
+mod hermes_symbol_probe;
 #[path = "build_support/portable_engine_build_consumption.rs"]
 mod portable_engine_build_consumption;
 #[cfg(target_os = "macos")]
@@ -20,6 +22,8 @@ mod portable_engine_build_preflight;
 mod portable_engine_promotion_report;
 #[path = "build_support/portable_host_tool_runner.rs"]
 mod portable_host_tool_runner;
+#[path = "build_support/windows_compile_only_profile.rs"]
+mod windows_compile_only_profile;
 
 #[derive(Clone)]
 struct AppleFramework {
@@ -185,6 +189,93 @@ fn read_dir_paths_or_panic(path: &Path, context: &str) -> Vec<PathBuf> {
 }
 
 const HERMES_PROFILE_PROVENANCE_SCHEMA: &str = "ibex/hermes-profile-provenance-receipt/2";
+
+fn optional_unicode_env(name: &str) -> Option<String> {
+    match std::env::var(name) {
+        Ok(value) => Some(value),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => panic!("{name} must be valid Unicode"),
+    }
+}
+
+fn windows_compile_only_profile_plan(
+    target_os: &str,
+    target_triple: &str,
+) -> Option<windows_compile_only_profile::CompileOnlyPlan> {
+    println!(
+        "cargo:rerun-if-env-changed={}",
+        windows_compile_only_profile::MODE_ENV
+    );
+    let mode_value = optional_unicode_env(windows_compile_only_profile::MODE_ENV);
+    mode_value.as_ref()?;
+
+    for variable in [
+        "HOST",
+        "IBEX_LEGACY_HERMES_BLOCK_SCOPING",
+        "IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE",
+    ]
+    .into_iter()
+    .chain(
+        windows_compile_only_profile::FORBIDDEN_SELECTOR_ENVS
+            .iter()
+            .copied(),
+    )
+    .chain(
+        windows_compile_only_profile::REQUIRED_DIRECTORY_ENVS
+            .iter()
+            .copied(),
+    ) {
+        println!("cargo:rerun-if-env-changed={variable}");
+    }
+    let host_triple = optional_unicode_env("HOST");
+    let legacy_block_scoping = optional_unicode_env("IBEX_LEGACY_HERMES_BLOCK_SCOPING");
+    let require_provenance = optional_unicode_env("IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE");
+    let present_forbidden_selectors = windows_compile_only_profile::FORBIDDEN_SELECTOR_ENVS
+        .iter()
+        .copied()
+        .filter(|variable| std::env::var_os(variable).is_some())
+        .collect::<Vec<_>>();
+    let missing_required_directories = windows_compile_only_profile::REQUIRED_DIRECTORY_ENVS
+        .iter()
+        .copied()
+        .filter(|variable| {
+            optional_unicode_env(variable)
+                .as_deref()
+                .is_none_or(str::is_empty)
+        })
+        .collect::<Vec<_>>();
+    windows_compile_only_profile::select(windows_compile_only_profile::SelectorRequest {
+        mode_value: mode_value.as_deref(),
+        target_os,
+        target_triple,
+        host_triple: host_triple.as_deref(),
+        legacy_block_scoping: legacy_block_scoping.as_deref(),
+        require_provenance: require_provenance.as_deref(),
+        present_forbidden_selectors: &present_forbidden_selectors,
+        missing_required_directories: &missing_required_directories,
+    })
+    .unwrap_or_else(|error| panic!("{error}"))
+}
+
+fn validate_windows_compile_only_artifacts(hermes_bin_dir: &Path, import_library: &Path) {
+    println!("cargo:rerun-if-changed={}", hermes_bin_dir.display());
+    let entries = read_dir_paths_or_panic(
+        hermes_bin_dir,
+        "compile-only Windows Hermes binary directory",
+    );
+    let mut names = entries
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>();
+    names.sort();
+    println!("cargo:rerun-if-changed={}", import_library.display());
+    windows_compile_only_profile::validate_artifacts(
+        &names,
+        import_library.is_file(),
+        &import_library.display().to_string(),
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
+}
 
 fn exact_json_object_fields(value: &serde_json::Value, expected: &[&str]) -> bool {
     let Some(object) = value.as_object() else {
@@ -514,15 +605,15 @@ fn windows_import_library_for_link(
     pinned
 }
 
-/// Precompute the armed registry-record canonical bytes and content digest. The record —
+/// Precompute the armed registry-record content digest. The record —
 /// registryDigest plus the capability definitions, coverage edges, target
 /// cells, and policy rules — is fully determined by checked-in files, but the
 /// runtime used to re-parse and re-canonicalize ~17 MB of JSON on every launch
-/// just to authenticate or create the pinned cache artifact. Computing the JCS
-/// bytes here (with the same capsec-semantics code the runtime uses) lets warm
-/// startup authenticate the pinned artifact by digest and lets cold startup
-/// materialize those exact bytes without repeating deterministic parsing and
-/// canonicalization.
+/// just to authenticate the pinned cache artifact. Computing the JCS digest
+/// here (with the same capsec-semantics code the runtime uses, so bytes are
+/// identical by construction) lets a warm startup authenticate the pinned
+/// artifact by digest and skip that work; a cold startup still constructs and
+/// byte-verifies the record in full.
 /// issues/20260724-insecure-startup-performance.md
 fn precompute_capsec_registry_record_digest(manifest_dir: &Path) {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -606,6 +697,10 @@ fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     let target_triple = std::env::var("TARGET").unwrap_or_default();
+    let windows_compile_only_plan = windows_compile_only_profile_plan(&target_os, &target_triple);
+    let windows_compile_only_profile = windows_compile_only_plan.is_some();
+    let capsec_simulator_performance_observer_enabled =
+        std::env::var_os("CARGO_FEATURE_CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER").is_some();
     for variable in [
         portable_engine_build_consumption::ARTIFACT_ID_ENV,
         portable_engine_build_consumption::STORE_ROOT_ENV,
@@ -773,6 +868,9 @@ fn main() {
         );
         None
     };
+    if windows_compile_only_profile && portable_engine.is_some() {
+        panic!("compile-only Windows Hermes profile cannot select a portable engine");
+    }
     let hermes_link_static = env_truthy("HERMES_LINK_STATIC");
     let static_hermes_lib = match std::env::var("HERMES_STATIC_LIB_NAME")
         .unwrap_or_else(|_| "hermesvm_a".into())
@@ -966,6 +1064,10 @@ fn main() {
                 hermes_bin_dir.display()
             );
         }
+        if windows_compile_only_profile {
+            let import_library = hermes_lib_dir.join("hermes.lib");
+            validate_windows_compile_only_artifacts(&hermes_bin_dir, &import_library);
+        }
     }
     if target_os == "macos"
         && hermes_link_static
@@ -1047,6 +1149,15 @@ fn main() {
         // joining it to the selected manifest/runtime bytes. Running the
         // legacy checkout-relative validator here would introduce a second,
         // unrelated selector.
+    } else if let Some(plan) = windows_compile_only_plan.as_ref() {
+        // This cross-target lint profile deliberately has no runtime image or
+        // executable compiler. It is admitted only for type/code generation
+        // checks and cannot make a runtime provenance claim.
+        if !plan.embed_null_provenance {
+            panic!("compile-only Windows Hermes plan must embed null provenance");
+        }
+        std::fs::write(out_dir.join("hermes_profile_provenance.json"), b"null\n")
+            .expect("write compile-only absent Hermes provenance marker");
     } else if let Some((
         selected_binary,
         default_receipt,
@@ -1108,8 +1219,11 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
     println!("cargo:rerun-if-changed=src/engine/hermes_module_runner.cc");
-    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_gpu.cc");
-    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_gpu_v2.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_extension.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_extension_internal.h");
+    println!("cargo:rerun-if-changed=tests/native/hermes_runtime_extension_conformance.cc");
+    println!("cargo:rerun-if-changed=include/ibex_runtime_extension.h");
+    println!("cargo:rerun-if-changed=include/ibex/runtime_extension.hpp");
     println!("cargo:rerun-if-changed=src/engine/self_image.cc");
     // @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory —
     // native registry IDs are committed generated input to the C++ archive.
@@ -1142,6 +1256,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_templates.inl");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
     println!("cargo:rerun-if-changed=src/engine/exact_runtime_c_abi_check.c");
+    println!("cargo:rerun-if-changed=src/engine/ibex_runtime_extension_c_abi_check.c");
     println!("cargo:rerun-if-changed=include/exact_runtime.h");
     println!("cargo:rerun-if-changed=src/host/mod.rs");
     println!("cargo:rerun-if-changed=src/sync.rs");
@@ -1244,30 +1359,53 @@ fn main() {
     } else {
         None
     };
-    let hermes_frame_attribution_binary = match target_os.as_str() {
-        "macos" => hermes_macos_binary.clone(),
-        "linux" => {
-            if hermes_link_static {
-                [
-                    hermes_lib_dir.join(format!("lib{static_hermes_lib}.a")),
-                    hermes_lib_dir.join("libhermesvm.a"),
-                ]
-                .into_iter()
-                .find(|path| path.is_file())
-            } else {
-                hermes_lib_dir
-                    .join("libhermesvm.so")
-                    .is_file()
-                    .then(|| hermes_lib_dir.join("libhermesvm.so"))
-            }
+    // @ref LLP 0039#simulator-only-performance-observer — the feature-bound
+    // Simulator lane must prove that the framework Xcode will link carries
+    // the reviewed attribution symbols.
+    let hermes_ios_observer_binary = if capsec_simulator_performance_observer_enabled {
+        if target_os != "ios" || !(target_triple.ends_with("-ios-sim") || target_arch == "x86_64") {
+            panic!("capsec-simulator-performance-observer requires an iOS Simulator target");
         }
-        "windows" => [
-            hermes_bin_dir.join("hermesvm.dll"),
-            hermes_bin_dir.join("hermes.dll"),
-        ]
-        .into_iter()
-        .find(|path| path.is_file()),
-        _ => None,
+        let binary = resolve_ios_simulator_hermes_binary(&hermes_lib_dir).unwrap_or_else(|| {
+            panic!(
+                "iOS Simulator observer Hermes framework not found under {}; install the pinned patched hermesvm.framework before building",
+                hermes_lib_dir.display()
+            )
+        });
+        println!("cargo:rerun-if-changed={}", binary.display());
+        Some(binary)
+    } else {
+        None
+    };
+    let hermes_frame_attribution_binary = if windows_compile_only_profile {
+        None
+    } else {
+        match target_os.as_str() {
+            "macos" => hermes_macos_binary.clone(),
+            "ios" => hermes_ios_observer_binary.clone(),
+            "linux" => {
+                if hermes_link_static {
+                    [
+                        hermes_lib_dir.join(format!("lib{static_hermes_lib}.a")),
+                        hermes_lib_dir.join("libhermesvm.a"),
+                    ]
+                    .into_iter()
+                    .find(|path| path.is_file())
+                } else {
+                    hermes_lib_dir
+                        .join("libhermesvm.so")
+                        .is_file()
+                        .then(|| hermes_lib_dir.join("libhermesvm.so"))
+                }
+            }
+            "windows" => [
+                hermes_bin_dir.join("hermesvm.dll"),
+                hermes_bin_dir.join("hermes.dll"),
+            ]
+            .into_iter()
+            .find(|path| path.is_file()),
+            _ => None,
+        }
     };
     if let Some(path) = hermes_frame_attribution_binary.as_ref() {
         println!("cargo:rerun-if-changed={}", path.display());
@@ -1499,11 +1637,7 @@ fn main() {
                 "IBEX_UPDATE_VENDORED_GENERATED=1 requires IBEX_REGENERATE_RUNTIME=1 so vendored artifacts come from a real regeneration"
             );
         }
-        refresh_vendored_generated(
-            &out_dir,
-            &vendored_generated_dir,
-            std::env::var_os("CARGO_FEATURE_WEBGPU_BINDING").is_some(),
-        );
+        refresh_vendored_generated(&out_dir, &vendored_generated_dir);
     }
 
     // --- Precompile bootstrap JS to Hermes bytecode (HBC) ---
@@ -1817,6 +1951,7 @@ fn main() {
     let mut c_abi_consumer = cc::Build::new();
     c_abi_consumer
         .file("src/engine/exact_runtime_c_abi_check.c")
+        .file("src/engine/ibex_runtime_extension_c_abi_check.c")
         .include("include")
         .std("c11")
         .warnings(true)
@@ -1826,6 +1961,9 @@ fn main() {
         // ordinary artifacts; the always-built declaration/layout half stays.
         c_abi_consumer.define("IBEX_CAPSEC_CONFORMANCE_OBSERVER", None);
     }
+    if std::env::var_os("CARGO_FEATURE_RUNTIME_EXTENSION_CONFORMANCE").is_some() {
+        c_abi_consumer.define("IBEX_RUNTIME_EXTENSION_CONFORMANCE", None);
+    }
     c_abi_consumer.compile("exact_runtime_c_abi_check");
 
     // Compile Hermes runtime adapter sources.
@@ -1834,8 +1972,7 @@ fn main() {
         .cpp(true)
         .file("src/engine/hermes_runtime.cc")
         .file("src/engine/hermes_module_runner.cc")
-        .file("src/engine/hermes_runtime_gpu.cc")
-        .file("src/engine/hermes_runtime_gpu_v2.cc")
+        .file("src/engine/hermes_runtime_extension.cc")
         .file("src/engine/self_image.cc")
         .file("src/engine/hermes_bootstrap.cc")
         .file("src/engine/hermes_runtime_utils.cc")
@@ -1848,6 +1985,7 @@ fn main() {
         .file("src/engine/hermes_runtime_worklet.cc")
         .include(&hermes_include_dir)
         .include(&jsi_include_dir)
+        .include("include")
         .include(&out_dir); // For bootstrap_bytecode.h
 
     if let Some(public_include_dir) = hermes_source_public_include_dir.as_ref() {
@@ -1860,19 +1998,15 @@ fn main() {
         build.define("IBEX_CAPSEC_CONFORMANCE_OBSERVER", None);
         build.file("src/engine/hermes_session_conformance.cc");
     }
-    if std::env::var_os("CARGO_FEATURE_WEBGPU_BINDING").is_some() {
-        build.define("IBEX_ENABLE_WEBGPU_BINDING", None);
+    if std::env::var_os("CARGO_FEATURE_RUNTIME_EXTENSION_CONFORMANCE").is_some() {
+        build.define("IBEX_RUNTIME_EXTENSION_CONFORMANCE", None);
+        build.file("tests/native/hermes_runtime_extension_conformance.cc");
+    }
+    if capsec_simulator_performance_observer_enabled {
+        build.define("IBEX_CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER", None);
     }
     if std::env::var_os("CARGO_FEATURE_INSECURE").is_some() {
         build.define("IBEX_INSECURE_BUILD", None);
-    }
-    if std::env::var_os("CARGO_FEATURE_GPU_BRIDGE_TEST_HOOKS").is_some() {
-        build.define("IBEX_GPU_BRIDGE_TEST_HOOKS", None);
-        // The mapped-range composition probe verifies that aliases minted by
-        // the private HostFunction are rejected by Hermes' transfer path.
-        // ISerialization is intentionally behind JSI_UNSTABLE; expose that
-        // interface only in test-hook artifacts, never ordinary binaries.
-        build.define("JSI_UNSTABLE", None);
     }
 
     if target_os == "windows" {
@@ -2035,6 +2169,11 @@ fn main() {
 
     let jsi_header = jsi_include_dir.join("jsi").join("jsi.h");
     let hermes_interfaces_header = jsi_include_dir.join("jsi").join("hermes-interfaces.h");
+    println!(
+        "cargo:rerun-if-changed={}",
+        hermes_interfaces_header.display()
+    );
+    let hermes_interfaces_header = jsi_include_dir.join("jsi").join("hermes-interfaces.h");
     let hermes_header = hermes_include_dir.join("hermes").join("hermes.h");
     let installed_runtime_config_header = hermes_include_dir
         .join("hermes")
@@ -2069,12 +2208,12 @@ fn main() {
     if file_contains_all(
         &hermes_interfaces_header,
         &[
-            "class JSI_EXPORT IExactWebGpuArrayBuffer",
-            "createWebGpuMappedRangeAlias(",
-            "detachWebGpuMappedRange(",
+            "class JSI_EXPORT IKeyedExternalArrayBuffer",
+            "createKeyedExternalRangeAlias(",
+            "detachKeyedExternalRange(",
         ],
     ) {
-        build.define("EXACT_HAVE_WEBGPU_MAPPED_ARRAY_BUFFER", None);
+        build.define("IBEX_HAVE_KEYED_EXTERNAL_ARRAY_BUFFER", None);
     }
     if file_contains_all(&jsi_header, &["queueMicrotask("]) {
         build.define("EXACT_HAVE_JSI_QUEUE_MICROTASK", None);
@@ -2106,6 +2245,15 @@ fn main() {
         ],
     ) {
         build.define("EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK", None);
+    }
+    if file_contains_all(&hermes_interfaces_header, &["asyncTriggerTimeout("])
+        || file_contains_all(&hermes_header, &["asyncTriggerTimeout("])
+    {
+        // The pinned source-patched profile exposes Hermes' any-thread
+        // immediate break used by structured lifecycle/cancellation. Older
+        // compile-only SDK headers do not; keep those builds fail-closed
+        // instead of calling an API they cannot provide.
+        build.define("EXACT_HAVE_HERMES_ASYNC_TRIGGER_TIMEOUT", None);
     }
 
     // Debugger support is auto-detected on macOS so we do not compile against
@@ -2147,15 +2295,32 @@ fn main() {
     // against that engine would otherwise link weakly and jump through null.
     // @ref LLP 0024#9-asynchronous-failures
     let enable_structured_async_provenance = enable_frame_attribution
-        && hermes_macos_binary
+        && hermes_frame_attribution_binary
             .as_deref()
-            .map(macos_hermes_has_structured_async_provenance)
-            .unwrap_or(false);
+            .is_some_and(|path| hermes_has_structured_async_provenance(&target_os, path));
+    if capsec_simulator_performance_observer_enabled && !enable_structured_async_provenance {
+        panic!(
+            "iOS Simulator observer Hermes framework does not expose the complete structured async provenance bridge; install the pinned patched observer artifact"
+        );
+    }
     if enable_structured_async_provenance {
         build.define("EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE", None);
         println!("cargo:rustc-cfg=exact_structured_async_provenance");
     }
     println!("cargo:rustc-check-cfg=cfg(exact_structured_async_provenance)");
+    // Patch 0013 extends, but does not replace, patch 0011's structured
+    // failure provenance. Keep the feature probes independent so a compatible
+    // older engine retains scheduler/job failure context while a non-empty
+    // runtime-extension registry still refuses without the stronger carrier.
+    let enable_job_constrained_principals = enable_structured_async_provenance
+        && hermes_frame_attribution_binary
+            .as_deref()
+            .is_some_and(|path| hermes_has_job_constrained_principals(&target_os, path));
+    if enable_job_constrained_principals {
+        build.define("EXACT_HAVE_JOB_CONSTRAINED_PRINCIPALS", None);
+        println!("cargo:rustc-cfg=exact_job_constrained_principals");
+    }
+    println!("cargo:rustc-check-cfg=cfg(exact_job_constrained_principals)");
     // No-op `ex_host_http_*` stubs are compiled exactly when no real
     // implementation is linked, i.e. when the `host-http-server` feature is
     // off. Non-MSVC builds mark them weak so an external strong implementation
@@ -2296,26 +2461,44 @@ fn main() {
             .flag("/Zc:__cplusplus");
         ws_build.compile("exact_native_websocket");
 
-        // @ref LLP 0005#c-compilation — Windows test/run binaries need the
-        // Hermes runtime DLLs beside the executable; link-search paths alone do
-        // not make Cargo-launched tests find the NuGet bin directory.
-        stage_windows_runtime_dlls(&out_dir, &hermes_bin_dir);
+        // @ref LLP 0005#c-compilation — linkable Windows test/run binaries need
+        // the Hermes runtime DLLs beside the executable; link-search paths
+        // alone do not make Cargo-launched tests find the runtime bin
+        // directory. The explicit metadata-only profile below is deliberately
+        // non-linkable and therefore stages no runtime image.
+        if let Some(plan) = windows_compile_only_plan.as_ref() {
+            // Cargo check/clippy consumes native-library metadata without
+            // invoking the target linker. Propagate an intentionally absent
+            // native dependency so any attempt to turn this header/import-lib
+            // fixture into a final executable fails at link time.
+            if plan.stage_runtime_dlls || plan.add_runtime_bin_search || !plan.poison_codegen_link {
+                panic!("compile-only Windows Hermes plan reopened a runtime/link path");
+            }
+            println!(
+                "cargo:rustc-link-lib=static={}",
+                windows_compile_only_profile::POISON_LIBRARY
+            );
+            eprintln!("ibex build: admitted non-linkable compile-only Windows Hermes profile");
+        } else {
+            stage_windows_runtime_dlls(&out_dir, &hermes_bin_dir);
+            // @ref LLP 0005#c-compilation — Cargo adds native link-search
+            // paths to the DLL search path for `cargo test`, so include the
+            // Hermes runtime DLL directory as well as the import-library
+            // directory.
+            println!(
+                "cargo:rustc-link-search=native={}",
+                hermes_bin_dir.display()
+            );
+        }
 
         println!(
             "cargo:rustc-link-search=native={}",
             hermes_lib_dir.display()
         );
-        // @ref LLP 0005#c-compilation — Cargo adds native link-search paths to
-        // the DLL search path for `cargo test`, so include the Hermes runtime
-        // DLL directory as well as the import-library directory.
-        println!(
-            "cargo:rustc-link-search=native={}",
-            hermes_bin_dir.display()
-        );
-        // Link the exact import library captured after receipt validation.
-        // The digest-unique verbatim name propagates through this crate's rlib
-        // to downstream embedders without permitting another search directory
-        // to substitute a bare `hermes.lib` after build.rs checked it.
+        // Link the exact selected import library. Runtime profiles use the
+        // digest-unique copy captured after receipt validation; the narrow
+        // compile-only path uses its profile-digest-checked fixture path and
+        // remains poisoned against codegen/link above.
         let import_library = windows_import_library
             .as_ref()
             .expect("Windows Hermes import library must be selected");
@@ -2864,11 +3047,10 @@ fn generate_runtime_bundle_source_header(
     portable_hermesc_runner: Option<&portable_host_tool_runner::PortableHostToolRunner>,
 ) {
     let devtools_dir = exact_devtools_dir(repo_root);
-    let webgpu_binding_enabled = std::env::var_os("CARGO_FEATURE_WEBGPU_BINDING").is_some();
-    // @ref LLP 0005#3-the-runtime-bundles — every profile starts from the
-    // core graph; feature-on builds embed the production WebGPU graph as an
-    // independently evaluated activation artifact below.
-    let runtime_entry_name = "runtime-entry-no-webgpu.ts";
+    // @ref LLP 0005#3-the-runtime-bundles — standalone Ibex embeds only its
+    // core runtime graph. Realm extensions own and authenticate their own
+    // optional bootstrap payloads through the runtime-extension registry.
+    let runtime_entry_name = "runtime-entry.ts";
     let runtime_entry = ibex_runtime_js_dir(repo_root)
         .join("src")
         .join(runtime_entry_name);
@@ -2916,17 +3098,6 @@ fn generate_runtime_bundle_source_header(
             "runtime_bundle_bytecode.h",
             "SHARED_RUNTIME_BUNDLE_HBC",
             "shared runtime bundle",
-        );
-        generate_webgpu_runtime_bundle_headers(
-            repo_root,
-            out_dir,
-            allow_fallback,
-            standalone,
-            vendored_generated_dir,
-            hermesc,
-            runtime_hbc_version,
-            portable_hermesc_runner,
-            webgpu_binding_enabled,
         );
         return;
     }
@@ -3013,111 +3184,6 @@ fn generate_runtime_bundle_source_header(
         "runtime_bundle_bytecode.h",
         "SHARED_RUNTIME_BUNDLE_HBC",
         "shared runtime bundle",
-    );
-    generate_webgpu_runtime_bundle_headers(
-        repo_root,
-        out_dir,
-        allow_fallback,
-        standalone,
-        vendored_generated_dir,
-        hermesc,
-        runtime_hbc_version,
-        portable_hermesc_runner,
-        webgpu_binding_enabled,
-    );
-}
-
-#[allow(clippy::too_many_arguments)]
-fn generate_webgpu_runtime_bundle_headers(
-    repo_root: &Path,
-    out_dir: &Path,
-    allow_fallback: bool,
-    standalone: bool,
-    vendored_generated_dir: &Path,
-    hermesc: &Path,
-    runtime_hbc_version: Option<u32>,
-    portable_hermesc_runner: Option<&portable_host_tool_runner::PortableHostToolRunner>,
-    webgpu_binding_enabled: bool,
-) {
-    let bundled_runtime = out_dir.join("embedded_runtime_webgpu_bundle.js");
-    let source_header = out_dir.join("webgpu_runtime_bundle_source.h");
-    let bytecode_header = out_dir.join("webgpu_runtime_bundle_bytecode.h");
-    safe_remove_file(&bundled_runtime);
-    safe_remove_file(&source_header);
-    safe_remove_file(&bytecode_header);
-    safe_remove_file(&out_dir.join("embedded_runtime_webgpu_bundle.hbc"));
-    if !webgpu_binding_enabled {
-        return;
-    }
-
-    let source = if standalone {
-        read_text_or_panic(
-            &vendored_generated_dir.join("embedded_runtime_webgpu_bundle.js"),
-            "embedded_runtime_webgpu_bundle.js",
-        )
-    } else {
-        let runtime_entry_name = "runtime-entry-webgpu.ts";
-        let runtime_entry = ibex_runtime_js_dir(repo_root)
-            .join("src")
-            .join(runtime_entry_name);
-        let build_script = exact_devtools_script(repo_root, "rolldown-bundle.mjs");
-        if !runtime_entry.exists() || !build_script.exists() {
-            if !allow_fallback {
-                panic!(
-                    "Deferred WebGPU runtime source files are missing (expected {} and {}) and EXACT_ALLOW_FALLBACK is not set",
-                    runtime_entry.display(),
-                    build_script.display()
-                );
-            }
-            println!(
-                "cargo:warning=Deferred WebGPU runtime source files are missing; activation will be unavailable"
-            );
-            return;
-        }
-        if !build_runtime_bundle_source(
-            repo_root,
-            &exact_devtools_dir(repo_root),
-            &runtime_entry,
-            &bundled_runtime,
-        ) {
-            if !allow_fallback {
-                panic!(
-                    "Failed to build the deferred WebGPU runtime bundle and EXACT_ALLOW_FALLBACK is not set{}",
-                    missing_js_build_deps_hint(repo_root)
-                );
-            }
-            println!(
-                "cargo:warning=Failed to build the deferred WebGPU runtime bundle; activation will be unavailable"
-            );
-            return;
-        }
-        read_text_or_panic(&bundled_runtime, "embedded_runtime_webgpu_bundle.js")
-    };
-
-    if !source.contains("__ibexCaptureGpuNativeBridge") {
-        panic!("Deferred WebGPU runtime bundle does not contain its private activation capture");
-    }
-    write_file_or_panic(
-        &bundled_runtime,
-        &source,
-        "embedded_runtime_webgpu_bundle.js",
-    );
-    let mut header = String::from(
-        "// Generated by build.rs from the deferred WebGPU runtime entry\n\
-         // Do not edit by hand.\n",
-    );
-    push_cpp_raw_string_literal(&mut header, "WEBGPU_RUNTIME_BUNDLE_SRC", &source);
-    write_file_or_panic(&source_header, header, "webgpu_runtime_bundle_source.h");
-    generate_runtime_bundle_bytecode_header(
-        out_dir,
-        &bundled_runtime,
-        hermesc,
-        runtime_hbc_version,
-        portable_hermesc_runner,
-        "embedded_runtime_webgpu_bundle",
-        "webgpu_runtime_bundle_bytecode.h",
-        "WEBGPU_RUNTIME_BUNDLE_HBC",
-        "deferred WebGPU runtime bundle",
     );
 }
 
@@ -3651,11 +3717,7 @@ fn clear_dir_if_exists(path: &Path, context: &str) {
     });
 }
 
-fn refresh_vendored_generated(
-    out_dir: &Path,
-    vendored_generated_dir: &Path,
-    webgpu_binding_enabled: bool,
-) {
+fn refresh_vendored_generated(out_dir: &Path, vendored_generated_dir: &Path) {
     if let Err(error) = std::fs::create_dir_all(vendored_generated_dir) {
         panic!(
             "Failed to create vendored generated dir {}: {error}",
@@ -3678,17 +3740,6 @@ fn refresh_vendored_generated(
         "ibex build: refreshed vendored artifact {}",
         runtime_dst.display()
     );
-    if webgpu_binding_enabled {
-        let webgpu_src = out_dir.join("embedded_runtime_webgpu_bundle.js");
-        let webgpu_dst = vendored_generated_dir.join("embedded_runtime_webgpu_bundle.js");
-        let contents = read_bytes_or_panic(&webgpu_src, "embedded_runtime_webgpu_bundle.js");
-        write_file_or_panic(&webgpu_dst, contents, "embedded_runtime_webgpu_bundle.js");
-        eprintln!(
-            "ibex build: refreshed vendored artifact {}",
-            webgpu_dst.display()
-        );
-    }
-
     let src_builtins = out_dir.join("builtins");
     let dst_builtins = vendored_generated_dir.join("builtins");
     clear_dir_if_exists(&dst_builtins, "vendored builtins");
@@ -3913,6 +3964,29 @@ fn resolve_macos_hermes_framework(lib_root: &Path) -> Option<AppleFramework> {
     None
 }
 
+fn resolve_ios_simulator_hermes_binary(lib_root: &Path) -> Option<PathBuf> {
+    let framework_roots = [
+        lib_root.to_path_buf(),
+        lib_root
+            .join("hermes.xcframework")
+            .join("ios-arm64_x86_64-simulator"),
+        lib_root
+            .join("hermesvm.xcframework")
+            .join("ios-arm64_x86_64-simulator"),
+    ];
+
+    for root in framework_roots {
+        for framework_name in ["hermesvm", "hermes"] {
+            let framework_dir = root.join(format!("{framework_name}.framework"));
+            if let Some(binary_path) = find_framework_binary(&framework_dir, framework_name) {
+                return Some(binary_path);
+            }
+        }
+    }
+
+    None
+}
+
 fn find_framework_binary(framework_dir: &Path, framework_name: &str) -> Option<PathBuf> {
     let candidates = [
         framework_dir
@@ -3961,8 +4035,31 @@ fn macos_hermes_has_debugger_symbols(binary_path: &Path) -> bool {
 // An unpatched engine degrades to the thread-local module id instead of failing
 // to link. Linux shared objects need the dynamic symbol table; macOS frameworks
 // use the same global/undefined filter as the debugger-symbol probe above.
-fn hermes_has_frame_attribution(target_os: &str, binary_path: &Path) -> bool {
-    if target_os == "windows" {
+fn configure_defined_nm_command(
+    command: &mut std::process::Command,
+    target_os: &str,
+    binary_path: &Path,
+) {
+    match target_os {
+        "macos" | "ios" => {
+            // Apple nm spells "external definitions only" as -g -U.
+            command.args(["-g", "-U"]);
+        }
+        "linux" if binary_path.extension().is_some_and(|value| value == "so") => {
+            command.args(["-D", "-g", "--defined-only"]);
+        }
+        "linux" => {
+            command.args(["-g", "--defined-only"]);
+        }
+        _ => {}
+    }
+    command.arg(binary_path);
+}
+
+fn hermes_exports_exact_symbols(target_os: &str, binary_path: &Path, required: &[&str]) -> bool {
+    use hermes_symbol_probe::{has_exact_defined_symbols, SymbolListingFormat};
+
+    let (format, output) = if target_os == "windows" {
         let output = std::process::Command::new("dumpbin")
             .arg("/exports")
             .arg(binary_path)
@@ -3970,69 +4067,42 @@ fn hermes_has_frame_attribution(target_os: &str, binary_path: &Path) -> bool {
         let Ok(output) = output else {
             return false;
         };
-        return output.status.success()
-            && String::from_utf8_lossy(&output.stdout).contains("ex_hermes_vm_current_package_id");
-    }
-
-    let mut command = std::process::Command::new("nm");
-    match target_os {
-        "macos" => {
-            command.arg("-gU");
-        }
-        "linux" if binary_path.extension().is_some_and(|value| value == "so") => {
-            command.arg("-D");
-        }
-        _ => {}
-    }
-    let output = command.arg(binary_path).output().or_else(|_| {
-        let mut command = std::process::Command::new("xcrun");
-        command.arg("nm");
-        if target_os == "macos" {
-            command.arg("-gU");
-        }
-        command.arg(binary_path).output()
-    });
-
-    let Ok(output) = output else {
-        return false;
+        (SymbolListingFormat::DumpbinExports, output)
+    } else {
+        let format = SymbolListingFormat::Nm {
+            strip_leading_underscore: target_os == "macos",
+        };
+        let mut command = std::process::Command::new("nm");
+        configure_defined_nm_command(&mut command, target_os, binary_path);
+        let output = command.output().or_else(|_| {
+            let mut command = std::process::Command::new("xcrun");
+            command.arg("nm");
+            configure_defined_nm_command(&mut command, target_os, binary_path);
+            command.output()
+        });
+        let Ok(output) = output else {
+            return false;
+        };
+        (format, output)
     };
 
-    if !output.status.success() {
-        return false;
-    }
-
-    String::from_utf8_lossy(&output.stdout).contains("ex_hermes_vm_current_package_id")
+    has_exact_defined_symbols(format, output.status.success(), &output.stdout, required)
 }
 
-fn macos_hermes_has_structured_async_provenance(binary_path: &Path) -> bool {
-    let output = std::process::Command::new("nm")
-        .args(["-gU", binary_path.to_string_lossy().as_ref()])
-        .output()
-        .or_else(|_| {
-            std::process::Command::new("xcrun")
-                .arg("nm")
-                .arg("-gU")
-                .arg(binary_path)
-                .output()
-        });
+fn hermes_has_frame_attribution(target_os: &str, binary_path: &Path) -> bool {
+    hermes_exports_exact_symbols(target_os, binary_path, &["ex_hermes_vm_current_package_id"])
+}
 
-    let Ok(output) = output else {
-        return false;
-    };
-    if !output.status.success() {
-        return false;
-    }
-    let symbols = String::from_utf8_lossy(&output.stdout);
-    [
-        "ex_hermes_vm_current_job_scheduler_principal",
-        "ex_hermes_vm_current_job_identity",
-        "ex_hermes_vm_current_job_associated_evaluation",
-        "ex_hermes_vm_set_job_associated_evaluation",
-        "ex_hermes_vm_set_embedder_job_scheduler_principal",
-        "ex_hermes_vm_take_failed_job_context",
-    ]
-    .into_iter()
-    .all(|symbol| symbols.contains(symbol))
+fn hermes_has_structured_async_provenance(target_os: &str, binary_path: &Path) -> bool {
+    use hermes_symbol_probe::STRUCTURED_ASYNC_PROVENANCE_SYMBOLS;
+
+    hermes_exports_exact_symbols(target_os, binary_path, STRUCTURED_ASYNC_PROVENANCE_SYMBOLS)
+}
+
+fn hermes_has_job_constrained_principals(target_os: &str, binary_path: &Path) -> bool {
+    use hermes_symbol_probe::JOB_CONSTRAINED_PRINCIPAL_SYMBOLS;
+
+    hermes_exports_exact_symbols(target_os, binary_path, JOB_CONSTRAINED_PRINCIPAL_SYMBOLS)
 }
 
 fn should_enable_hermes_debugger(target_os: &str, hermes_macos_binary: Option<&Path>) -> bool {

@@ -46,7 +46,7 @@ typedef enum ExactRuntimeDriveStatus {
     /// permanently closed.
     EXACT_RUNTIME_DRIVE_QUARANTINED = -6,
     /// An outer app-bundle evaluation transaction owns the runtime. Only its
-    /// immediate evaluator, prepared-carrier checks, nested Canvas handoff,
+    /// immediate evaluator and prepared-carrier checks,
     /// quarantine, and finish cleanup may drive until it closes.
     EXACT_RUNTIME_DRIVE_APP_BUNDLE_OPEN = -7,
 } ExactRuntimeDriveStatus;
@@ -74,104 +74,8 @@ typedef enum ExactEmbedderCapabilitiesStatus {
     EXACT_EMBEDDER_CAPABILITIES_AUTHENTICATION_FAILED = -8,
 } ExactEmbedderCapabilitiesStatus;
 
-/// Versioned optional Exact GPU service ABI. This is a provider-independent
-/// semantic service boundary, not the wgpu-native ABI. No WGPU object or raw
-/// physical provider handle crosses it.
-#define EXACT_GPU_SERVICE_ABI_VERSION_V1 UINT32_C(0x00010000)
-#define EXACT_GPU_SERVICE_TOPOLOGY_ISOLATED_PER_LOGICAL_V1 UINT32_C(1)
-/// Additive carrier ABI used by the generated-wrapper checkpoint. V2 keeps the
-/// authenticated semantic operation vocabulary from V1, but replaces ambient
-/// token/ordinal interpretation with complete generation-bearing identities.
-/// V1 remains supported and unchanged.
-#define EXACT_GPU_SERVICE_ABI_VERSION_V2 UINT32_C(0x00020000)
-#define EXACT_GPU_SERVICE_TOPOLOGY_ISOLATED_PER_LOGICAL_V2 UINT32_C(1)
-#define EXACT_GPU_AUTHORITY_DIGEST_SIZE_V2 UINT32_C(32)
-/// Maximum number of distinct provider-loss/logical-loss/account-close/
-/// realm-close records retained for exact replay arbitration in one realm.
-/// A service must fold larger fanout into its semantic operation terminals or
-/// close/reopen a realm. Exceeding this declared realm-lifetime limit fails
-/// closed rather than evicting an exactly-once tombstone.
-#define EXACT_GPU_MAX_LIFECYCLE_TERMINALS_PER_REALM_V2 UINT32_C(1024)
-
-/// Construction-private decoded-image callback ABI. This is subordinate to
-/// the authenticated V2 WebGPU bridge: registering it does not add an
-/// embedder capability bit, publish a global, or make a WebGPU support claim.
-#define EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1 UINT32_C(0x00010000)
-#define EXACT_GPU_DECODED_IMAGE_MIME_PNG_V1 UINT32_C(1)
-#define EXACT_GPU_DECODED_IMAGE_COLOR_SPACE_SRGB_V1 UINT32_C(1)
-#define EXACT_GPU_DECODED_IMAGE_ALPHA_PREMULTIPLIED_V1 UINT32_C(1)
-#define EXACT_GPU_DECODED_IMAGE_ORIENTATION_TOP_LEFT_V1 UINT32_C(1)
-#define EXACT_GPU_DECODED_IMAGE_ORIGIN_SCRIPT_OWNED_BLOB_V1 UINT32_C(1)
-
-/// Construction-private Exact native Canvas attachment receipt. This ABI
-/// delivers semantic identities only: no component identity, physical
-/// endpoint, drawable, device, queue, texture, or provider handle crosses it.
-#define EXACT_GPU_CANVAS_ATTACHMENT_RECEIPT_ABI_VERSION_V1 \
-    UINT32_C(0x00010000)
-
-typedef enum ExactGpuProviderStatus {
-    EXACT_GPU_PROVIDER_OK = 0,
-    EXACT_GPU_PROVIDER_INVALID_ARGUMENT = -1,
-    EXACT_GPU_PROVIDER_RESTRICTED_RUNTIME = -2,
-    EXACT_GPU_PROVIDER_UNSUPPORTED = -3,
-    EXACT_GPU_PROVIDER_ALREADY_INSTALLED = -4,
-    EXACT_GPU_PROVIDER_ABI_MISMATCH = -5,
-    EXACT_GPU_PROVIDER_AUTHENTICATION_FAILED = -6,
-    EXACT_GPU_PROVIDER_WRONG_THREAD = -7,
-    EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION = -8,
-    EXACT_GPU_PROVIDER_INVALID_STATE = -9,
-    EXACT_GPU_PROVIDER_OPEN_FAILED = -10,
-} ExactGpuProviderStatus;
-
-typedef enum ExactGpuCanvasAttachmentReceiptOutcomeV1 {
-    EXACT_GPU_CANVAS_ATTACHMENT_ATTACHED_V1 = 1,
-    EXACT_GPU_CANVAS_ATTACHMENT_REJECTED_V1 = 2,
-} ExactGpuCanvasAttachmentReceiptOutcomeV1;
-
-/// Values match Exact's native-runtime Canvas attachment failure vocabulary.
-typedef enum ExactGpuCanvasAttachmentFailureV1 {
-    EXACT_GPU_CANVAS_ATTACHMENT_STALE_GENERATION_V1 = 1,
-    EXACT_GPU_CANVAS_ATTACHMENT_AUTHORITY_DENIED_V1 = 2,
-    EXACT_GPU_CANVAS_ATTACHMENT_PROVIDER_LOST_V1 = 3,
-    EXACT_GPU_CANVAS_ATTACHMENT_SUPERSEDED_BEFORE_ATTACH_V1 = 4,
-    EXACT_GPU_CANVAS_ATTACHMENT_ROOT_GENERATION_CLOSED_V1 = 5,
-    EXACT_GPU_CANVAS_ATTACHMENT_INTERNAL_V1 = 6,
-} ExactGpuCanvasAttachmentFailureV1;
-
-/// Delivery otherwise returns the existing EXACT_RUNTIME_DRIVE_* statuses:
-/// INVALID for malformed input, STALE for a stale pointer/nonce pair,
-/// OFF_OWNER, REENTRANT, and ENGINE_ERROR when the retained JS sink throws.
-typedef enum ExactGpuCanvasReceiptDeliveryStatusV1 {
-    EXACT_GPU_CANVAS_RECEIPT_SINK_UNAVAILABLE_V1 = -6,
-} ExactGpuCanvasReceiptDeliveryStatusV1;
-
-/// Result of one native-delimited Exact app-bundle Canvas handoff. Begin
-/// returns OK when the temporary capture is armed. Finish returns OK when the
-/// bundle consumed and installed the exact integration, or UNUSED after it
-/// safely closed an untouched handoff. Negative values supplement the shared
-/// EXACT_RUNTIME_DRIVE_* statuses returned by the owner/liveness gate.
-typedef enum ExactGpuCanvasAppBundleStatusV1 {
-    EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1 = 0,
-    EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_V1 = 1,
-    EXACT_GPU_CANVAS_APP_BUNDLE_UNAVAILABLE_V1 = -6,
-    EXACT_GPU_CANVAS_APP_BUNDLE_INVALID_STATE_V1 = -7,
-    EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1 = -8,
-    EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_FAILED_V1 = -9,
-    EXACT_GPU_CANVAS_APP_BUNDLE_REQUIRED_NOT_CONSUMED_V1 = -10,
-    EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_PENDING_V1 = -11,
-} ExactGpuCanvasAppBundleStatusV1;
-
-/// Trusted bundle-manifest disposition for one app evaluation. REQUIRED arms
-/// the one-shot hook and requires the trusted prelude to consume it before raw
-/// evaluation returns. UNUSED_VALID never publishes the hook at all.
-typedef enum ExactGpuCanvasAppBundleExpectationV1 {
-    EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1 = 1,
-    EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_VALID_V1 = 2,
-} ExactGpuCanvasAppBundleExpectationV1;
-
 /// Native classification of the prepared-startup record produced by Exact's
-/// generated app-bundle wrapper. Values intentionally match the Canvas bundle
-/// expectation discriminants while remaining a distinct ABI type.
+/// generated app-bundle wrapper.
 typedef enum ExactPreparedNativeStartupDispositionV1 {
     /// Legacy raw app bundle: no prepared carrier is expected or classified.
     EXACT_PREPARED_NATIVE_STARTUP_NONE_V1 = 0,
@@ -188,840 +92,6 @@ typedef enum ExactPreparedNativeStartupStatusV1 {
     EXACT_PREPARED_NATIVE_STARTUP_INVALID_SHAPE_V1 = -13,
     EXACT_PREPARED_NATIVE_STARTUP_CLEANUP_FAILED_V1 = -14,
 } ExactPreparedNativeStartupStatusV1;
-
-typedef enum ExactGpuClientEventReceipt {
-    EXACT_GPU_CLIENT_EVENT_DISCARDED = 0,
-    EXACT_GPU_CLIENT_EVENT_ACCEPTED = 1,
-    EXACT_GPU_CLIENT_EVENT_PROTOCOL_VIOLATION = -1,
-} ExactGpuClientEventReceipt;
-
-typedef enum ExactGpuServiceEventKind {
-    EXACT_GPU_SERVICE_EVENT_OPERATION_COMPLETE = 1,
-    EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR = 2,
-    EXACT_GPU_SERVICE_EVENT_DEVICE_LOST = 3,
-    EXACT_GPU_SERVICE_EVENT_REALM_CLOSED = 4,
-} ExactGpuServiceEventKind;
-
-typedef enum ExactGpuServiceEventKindV2 {
-    EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2 = 1,
-    EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2 = 2,
-    EXACT_GPU_SERVICE_EVENT_PROVIDER_LOSS_V2 = 3,
-    EXACT_GPU_SERVICE_EVENT_LOGICAL_DEVICE_LOST_V2 = 4,
-    EXACT_GPU_SERVICE_EVENT_ACCOUNT_CLOSED_V2 = 5,
-    EXACT_GPU_SERVICE_EVENT_REALM_CLOSED_V2 = 6,
-} ExactGpuServiceEventKindV2;
-
-typedef enum ExactGpuServiceEventFlagsV2 {
-    EXACT_GPU_SERVICE_EVENT_FLAG_NONE_V2 = 0,
-    /// Kind-2-only secondary notification disposition. The authenticated
-    /// semantic service sets this bit only when the mandatory DEVICE_ERROR
-    /// operation terminal also reached the bottom of the captured error-scope
-    /// stack and must dispatch `uncapturederror` on its exact logical device.
-    /// It never replaces or suppresses the correlated operation terminal.
-    EXACT_GPU_SERVICE_EVENT_FLAG_UNCAPTURED_ERROR_V2 = 1,
-} ExactGpuServiceEventFlagsV2;
-
-typedef enum ExactGpuProviderAdmissionV2 {
-    /// Semantic validation/admission terminated before a provider token and
-    /// physical sequence existed. physical_sequence must be zero.
-    EXACT_GPU_PROVIDER_NOT_ADMITTED_V2 = 0,
-    /// Provider admission minted the operation token. physical_sequence must
-    /// be nonzero and is carried unchanged on every later terminal.
-    EXACT_GPU_PROVIDER_ADMITTED_V2 = 1,
-} ExactGpuProviderAdmissionV2;
-
-typedef enum ExactGpuDeviceTransitionV2 {
-    /// The result/completion logical-device identity exactly equals the
-    /// ingress identity. Adapter-discovery operations keep both absent.
-    EXACT_GPU_DEVICE_UNCHANGED_V2 = 0,
-    /// The authenticated semantic service assigned a live, attached logical
-    /// device for an admitted requestDevice-class operation whose ingress
-    /// identity was absent. provider_admission is ADMITTED and
-    /// physical_sequence is nonzero.
-    EXACT_GPU_DEVICE_ASSIGNED_V2 = 1,
-    /// The authenticated semantic service assigned a fresh logical device but
-    /// completed requestDevice with that device already lost and detached from
-    /// the realm registry. This self-contained OBJECT result preserves either
-    /// NOT_ADMITTED + physical_sequence zero or ADMITTED + a nonzero physical
-    /// sequence exactly as supplied; no diagnostic field may be used to infer
-    /// or rewrite that provenance. No logical-device-loss lifecycle record
-    /// precedes it, and the wrapper settles the fresh device's stable lost
-    /// promise with UNKNOWN/backend NONE before resolving the outer receipt.
-    EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2 = 2,
-} ExactGpuDeviceTransitionV2;
-
-typedef enum ExactGpuObjectKindV2 {
-    EXACT_GPU_OBJECT_NONE_V2 = 0,
-    EXACT_GPU_OBJECT_GPU_V2 = 1,
-    EXACT_GPU_OBJECT_ADAPTER_V2 = 2,
-    EXACT_GPU_OBJECT_DEVICE_V2 = 3,
-    EXACT_GPU_OBJECT_QUEUE_V2 = 4,
-    EXACT_GPU_OBJECT_BUFFER_V2 = 5,
-    EXACT_GPU_OBJECT_TEXTURE_V2 = 6,
-    EXACT_GPU_OBJECT_TEXTURE_VIEW_V2 = 7,
-    EXACT_GPU_OBJECT_SAMPLER_V2 = 8,
-    EXACT_GPU_OBJECT_BIND_GROUP_LAYOUT_V2 = 9,
-    EXACT_GPU_OBJECT_BIND_GROUP_V2 = 10,
-    EXACT_GPU_OBJECT_PIPELINE_LAYOUT_V2 = 11,
-    EXACT_GPU_OBJECT_SHADER_MODULE_V2 = 12,
-    EXACT_GPU_OBJECT_COMPUTE_PIPELINE_V2 = 13,
-    EXACT_GPU_OBJECT_RENDER_PIPELINE_V2 = 14,
-    EXACT_GPU_OBJECT_COMMAND_ENCODER_V2 = 15,
-    EXACT_GPU_OBJECT_COMPUTE_PASS_ENCODER_V2 = 16,
-    EXACT_GPU_OBJECT_RENDER_PASS_ENCODER_V2 = 17,
-    EXACT_GPU_OBJECT_RENDER_BUNDLE_ENCODER_V2 = 18,
-    EXACT_GPU_OBJECT_RENDER_BUNDLE_V2 = 19,
-    EXACT_GPU_OBJECT_COMMAND_BUFFER_V2 = 20,
-    EXACT_GPU_OBJECT_QUERY_SET_V2 = 21,
-    EXACT_GPU_OBJECT_CANVAS_CONTEXT_V2 = 22,
-} ExactGpuObjectKindV2;
-
-typedef enum ExactGpuResultKindV2 {
-    EXACT_GPU_RESULT_NONE_V2 = 0,
-    EXACT_GPU_RESULT_UNDEFINED_V2 = 1,
-    EXACT_GPU_RESULT_NULL_V2 = 2,
-    EXACT_GPU_RESULT_OBJECT_V2 = 3,
-    EXACT_GPU_RESULT_BYTES_V2 = 4,
-} ExactGpuResultKindV2;
-
-typedef enum ExactGpuErrorKindV2 {
-    EXACT_GPU_ERROR_NONE_V2 = 0,
-    EXACT_GPU_ERROR_VALIDATION_V2 = 1,
-    EXACT_GPU_ERROR_OUT_OF_MEMORY_V2 = 2,
-    EXACT_GPU_ERROR_INTERNAL_V2 = 3,
-    EXACT_GPU_ERROR_OPERATION_V2 = 4,
-    EXACT_GPU_ERROR_SECURITY_V2 = 5,
-    EXACT_GPU_ERROR_TYPE_V2 = 6,
-    EXACT_GPU_ERROR_INVALID_STATE_V2 = 7,
-} ExactGpuErrorKindV2;
-
-typedef enum ExactGpuDeviceLossReasonV2 {
-    EXACT_GPU_DEVICE_LOSS_NONE_V2 = 0,
-    EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2 = 1,
-    EXACT_GPU_DEVICE_LOSS_DESTROYED_V2 = 2,
-    EXACT_GPU_DEVICE_LOSS_PHYSICAL_DEVICE_V2 = 3,
-    EXACT_GPU_DEVICE_LOSS_PROVIDER_RESTART_V2 = 4,
-    EXACT_GPU_DEVICE_LOSS_ACCOUNT_CLOSED_V2 = 5,
-} ExactGpuDeviceLossReasonV2;
-
-typedef enum ExactGpuBackendClassV2 {
-    EXACT_GPU_BACKEND_NONE_V2 = 0,
-    EXACT_GPU_BACKEND_VALIDATION_V2 = 1,
-    EXACT_GPU_BACKEND_OUT_OF_MEMORY_V2 = 2,
-    EXACT_GPU_BACKEND_INTERNAL_V2 = 3,
-    EXACT_GPU_BACKEND_DEVICE_REMOVED_V2 = 4,
-    EXACT_GPU_BACKEND_PROVIDER_FAILURE_V2 = 5,
-} ExactGpuBackendClassV2;
-
-typedef enum ExactGpuCloseReasonV2 {
-    EXACT_GPU_CLOSE_NONE_V2 = 0,
-    EXACT_GPU_CLOSE_EXPLICIT_V2 = 1,
-    EXACT_GPU_CLOSE_OWNER_TEARDOWN_V2 = 2,
-    EXACT_GPU_CLOSE_AUTHORITY_REVOKED_V2 = 3,
-    EXACT_GPU_CLOSE_PROVIDER_FAILURE_V2 = 4,
-} ExactGpuCloseReasonV2;
-
-typedef uint64_t ExactGpuRealmTokenV1;
-typedef uint64_t ExactGpuAccountTokenV1;
-
-typedef struct ExactGpuRealmOpenV1 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    uint32_t context_kind;
-    uint32_t reserved;
-    uint64_t runtime_nonce;
-} ExactGpuRealmOpenV1;
-
-typedef struct ExactGpuSemanticCallV1 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    uint32_t operation_id;
-    uint32_t flags;
-    /// Nonzero and strictly increasing within one realm across every call that
-    /// reaches the provider, including an admission rejection. Cancellation,
-    /// rejection, or completion never makes an earlier ID reusable. This is
-    /// an identity allocator contract, not a device/queue ordering domain.
-    uint64_t completion_id;
-    uint64_t device_ordinal;
-    uint64_t queue_ordinal;
-    ExactGpuAccountTokenV1 account_token;
-    /// Borrowed only for the duration of `submit`; copy before returning if the
-    /// provider needs the bytes later. Ibex bounds this payload to 16 MiB.
-    const uint8_t* payload;
-    size_t payload_len;
-} ExactGpuSemanticCallV1;
-
-typedef struct ExactGpuRetireBatchV1 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    /// Unique nonzero handles, borrowed only for the duration of `retire`.
-    const uint64_t* logical_handles;
-    size_t logical_handle_count;
-} ExactGpuRetireBatchV1;
-
-typedef struct ExactGpuServiceEventV1 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    uint32_t kind;
-    uint32_t flags;
-    ExactGpuRealmTokenV1 realm_token;
-    uint64_t operation_id;
-    uint64_t completion_id;
-    int32_t status;
-    uint32_t reserved;
-    /// Borrowed only for the duration of `on_event`. Ibex validates the whole
-    /// prefix and copies at most 16 MiB before returning ACCEPTED. Operation
-    /// complete/device-error events must identify one pending
-    /// operation/completion pair. Device-lost/realm-closed events use zero for
-    /// both IDs and reduce the realm's authority.
-    const uint8_t* payload;
-    size_t payload_len;
-} ExactGpuServiceEventV1;
-
-typedef struct ExactGpuClientSinkV1 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    void (*retain_client)(void* client_context);
-    void (*release_client)(void* client_context);
-    /// May be invoked synchronously from `submit` or later from a service
-    /// thread. It never enters JSI inline: it copies into a bounded native
-    /// mailbox and schedules at most one owner-thread drain. The service must
-    /// not hold its own locks while calling this sink.
-    int32_t (*on_event)(void* client_context,
-                        const ExactGpuServiceEventV1* event);
-} ExactGpuClientSinkV1;
-
-typedef struct ExactGpuServiceApiV1 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    uint64_t feature_bits;
-    void* service_context;
-    void (*retain_service)(void* service_context);
-    void (*release_service)(void* service_context);
-    int32_t (*open_realm)(void* service_context,
-                          const ExactGpuRealmOpenV1* open,
-                          const ExactGpuClientSinkV1* sink,
-                          void* client_context,
-                          ExactGpuRealmTokenV1* out_realm,
-                          ExactGpuAccountTokenV1* out_account);
-    void (*activate_realm)(void* service_context,
-                           ExactGpuRealmTokenV1 realm);
-    /// Called on the runtime owner thread without Ibex mailbox/JS locks held.
-    /// Return promptly. A synchronous `on_event` is safe and is drained later.
-    /// Returning nonzero after such a callback is a provider contradiction:
-    /// Ibex reports protocol violation, quarantines/closes the realm, cancels
-    /// outstanding work, and rejects the receipt exactly once.
-    int32_t (*submit)(void* service_context,
-                      ExactGpuRealmTokenV1 realm,
-                      const ExactGpuSemanticCallV1* call);
-    /// Best-effort logical-handle retirement; called without Ibex locks held.
-    int32_t (*retire)(void* service_context,
-                      ExactGpuRealmTokenV1 realm,
-                      const ExactGpuRetireBatchV1* batch);
-    /// Best-effort cancellation. Teardown can call this once per pending
-    /// completion after the mailbox has stopped admitting events.
-    int32_t (*cancel)(void* service_context,
-                      ExactGpuRealmTokenV1 realm,
-                      uint64_t completion_id);
-    int32_t (*close_realm)(void* service_context,
-                           ExactGpuRealmTokenV1 realm,
-                           uint64_t close_ordinal);
-} ExactGpuServiceApiV1;
-
-typedef struct ExactHermesGpuProviderDescriptorV1 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    uint64_t flags;
-    const char* profile_id;
-    size_t profile_id_len;
-    uint8_t profile_digest[32];
-    uint8_t webgpu_c_vocabulary_digest[32];
-    uint8_t operation_set_digest[32];
-    uint8_t semantic_program_digest[32];
-    const uint32_t* sorted_operation_ids;
-    size_t operation_id_count;
-    uint32_t topology_id;
-    uint32_t reserved;
-    const ExactGpuServiceApiV1* api;
-} ExactHermesGpuProviderDescriptorV1;
-
-/// V2 identities are values, not service-owned pointers. Every generation and
-/// digest participates in equality; zero is reserved for the explicitly
-/// absent device/target forms described below.
-typedef struct ExactGpuRuntimeIdentityV2 {
-    uint64_t runtime_address;
-    uint64_t runtime_nonce;
-} ExactGpuRuntimeIdentityV2;
-
-typedef struct ExactGpuRealmIdentityV2 {
-    ExactGpuRuntimeIdentityV2 runtime;
-    uint64_t realm_id;
-    uint64_t realm_generation;
-} ExactGpuRealmIdentityV2;
-
-typedef struct ExactGpuAccountIdentityV2 {
-    uint64_t account_id;
-    uint64_t account_generation;
-    uint8_t authority_digest[EXACT_GPU_AUTHORITY_DIGEST_SIZE_V2];
-} ExactGpuAccountIdentityV2;
-
-typedef struct ExactGpuDeviceIdentityV2 {
-    uint64_t logical_device_id;
-    uint64_t logical_device_generation;
-    uint64_t provider_generation;
-} ExactGpuDeviceIdentityV2;
-
-typedef struct ExactGpuObjectRefV2 {
-    uint32_t kind;
-    uint32_t flags;
-    uint64_t object_id;
-    uint64_t object_generation;
-} ExactGpuObjectRefV2;
-
-/// Native-only CapSec authority-session stages. The semantic service must
-/// evaluate REQUESTED before provider admission, COMMIT before publishing the
-/// effect, and REPEAT for every later use of retained authority.
-typedef enum ExactGpuAuthorityStageV2 {
-    EXACT_GPU_AUTHORITY_REQUESTED_V2 = 1,
-    EXACT_GPU_AUTHORITY_COMMIT_V2 = 2,
-    EXACT_GPU_AUTHORITY_REPEAT_V2 = 3,
-} ExactGpuAuthorityStageV2;
-
-/// Registry-pinned presentation batches accepted by
-/// evaluate_batch_and_then. No other decision ordering or count is inferred.
-typedef enum ExactGpuAuthorityDecisionBatchPhaseV2 {
-    EXACT_GPU_AUTHORITY_CANDIDATE_COMMIT_V2 = 1,
-    EXACT_GPU_AUTHORITY_HANDOFF_REPEAT_V2 = 2,
-} ExactGpuAuthorityDecisionBatchPhaseV2;
-
-typedef enum ExactGpuAuthorityDecisionV2Status {
-    EXACT_GPU_AUTHORITY_INVALID_V2 = -1,
-    EXACT_GPU_AUTHORITY_STALE_V2 = -2,
-    EXACT_GPU_AUTHORITY_DENIED_V2 = 0,
-    EXACT_GPU_AUTHORITY_ALLOWED_V2 = 1,
-} ExactGpuAuthorityDecisionV2Status;
-
-/// Full immutable authority-session key. Every callback requires exact struct
-/// size and exact equality with the call captured by Ibex. The opaque session
-/// identity is minted from OS randomness in native code and is never exposed
-/// to JavaScript.
-typedef struct ExactGpuAuthoritySessionFactsV2 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    uint32_t operation_id;
-    uint32_t topology_id;
-    uint64_t authority_session_id;
-    ExactGpuRealmIdentityV2 realm;
-    ExactGpuAccountIdentityV2 account;
-    ExactGpuDeviceIdentityV2 ingress_device;
-    uint64_t provider_generation;
-    uint64_t operation_instance_id;
-    uint64_t promise_id;
-    uint64_t captured_scope_id;
-    uint64_t adapter_ordinal;
-    uint64_t device_ingress_ordinal;
-    uint64_t queue_ingress_ordinal;
-    uint8_t authority_context_digest[32];
-    ExactGpuObjectRefV2 receiver;
-    ExactGpuObjectRefV2 target;
-} ExactGpuAuthoritySessionFactsV2;
-
-/// One service-decoded handle-lineage fact. Lists must be bounded, sorted by
-/// the complete binary tuple, unique, account-exact, and generation-exact.
-typedef struct ExactGpuAuthorityPresentedHandleV2 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    ExactGpuAccountIdentityV2 account;
-    ExactGpuDeviceIdentityV2 device;
-    ExactGpuObjectRefV2 object;
-} ExactGpuAuthorityPresentedHandleV2;
-
-typedef struct ExactGpuAuthorityDecisionRequestV2 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    uint32_t stage;
-    uint32_t flags;
-    ExactGpuAuthoritySessionFactsV2 facts;
-    const ExactGpuAuthorityPresentedHandleV2* presented_handles;
-    size_t presented_handle_count;
-} ExactGpuAuthorityDecisionRequestV2;
-
-typedef struct ExactGpuAuthorityRetireV2 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    uint32_t flags;
-    uint32_t reserved;
-    ExactGpuAuthoritySessionFactsV2 facts;
-} ExactGpuAuthorityRetireV2;
-
-typedef struct ExactGpuAuthorityDecisionBatchV2 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    uint32_t phase;
-    uint32_t flags;
-    const ExactGpuAuthorityDecisionRequestV2* decisions;
-    size_t decision_count;
-} ExactGpuAuthorityDecisionBatchV2;
-
-typedef int32_t (*ExactGpuAuthorityAllowedContinuationV2)(
-    void* continuation_context);
-
-typedef struct ExactGpuAuthoritySessionApiV2 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    void* authority_context;
-    int32_t (*evaluate)(void* authority_context,
-                        const ExactGpuAuthorityDecisionRequestV2* decision);
-    int32_t (*retire)(void* authority_context,
-                      const ExactGpuAuthorityRetireV2* retire);
-    int32_t (*evaluate_batch_and_then)(
-        void* authority_context,
-        const ExactGpuAuthorityDecisionBatchV2* batch,
-        void* continuation_context,
-        ExactGpuAuthorityAllowedContinuationV2 continuation);
-} ExactGpuAuthoritySessionApiV2;
-
-typedef struct ExactGpuRealmOpenV2 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    uint32_t context_kind;
-    uint32_t reserved;
-    ExactGpuRuntimeIdentityV2 runtime;
-    /// Digest of the exact authenticated provider/profile authority selected
-    /// by the embedder transaction. The service must bind its returned root
-    /// account to this value or open fails closed.
-    uint8_t authority_digest[EXACT_GPU_AUTHORITY_DIGEST_SIZE_V2];
-    /// Domain-separated digest of the exact operation-to-runtime routing plan:
-    /// public/service codecs, receiver/target kinds, timing, dispatch/provider
-    /// mode, result shape, and typed error tags.
-    uint8_t runtime_routing_digest[32];
-    /// Exact-size native-only callback table. It is process-lifetime immutable;
-    /// the service borrows it for the realm lifetime and must not retain it
-    /// beyond close. It neither installs a JS API nor issues public grants.
-    const ExactGpuAuthoritySessionApiV2* authority_session_api;
-} ExactGpuRealmOpenV2;
-
-typedef struct ExactGpuSemanticCallV2 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    uint32_t operation_id;
-    uint32_t flags;
-    uint32_t topology_id;
-    uint32_t reserved;
-    ExactGpuRealmIdentityV2 realm;
-    ExactGpuAccountIdentityV2 account;
-    /// All-zero means that this is a realm/adapter operation. Otherwise every
-    /// word is nonzero and names one logical device incarnation and provider
-    /// incarnation exactly.
-    ExactGpuDeviceIdentityV2 ingress_device;
-    /// Provider incarnation known at ingress. Zero is allowed only before an
-    /// operation such as requestAdapter selects a provider. When `device` is
-    /// present this must equal device.provider_generation.
-    uint64_t provider_generation;
-    /// Always nonzero and strictly increasing per realm, including rejected
-    /// admissions. This is distinct from promise identity.
-    uint64_t operation_instance_id;
-    /// Zero for synchronous-enqueue operations; otherwise nonzero and strictly
-    /// increasing in the independent Promise domain.
-    uint64_t promise_id;
-    /// Zero means no eligible error scope was captured at API ingress.
-    uint64_t captured_scope_id;
-    uint64_t adapter_ordinal;
-    uint64_t device_ingress_ordinal;
-    uint64_t queue_ingress_ordinal;
-    /// Generation-fenced caller-attribution digest captured by Ibex from the
-    /// armed snapshot, native actor/effect-owner/scheduler attribution, the
-    /// canonical constrained-principal stack, and all authority generations at
-    /// API ingress. JS metadata cannot supply or override this value. This is
-    /// not positive operation authority: the semantic service must separately
-    /// authorize the selected effects, stages, targets, and handle lineage
-    /// encoded by the operation-selected payload before provider admission.
-    uint8_t authority_context_digest[32];
-    uint64_t authority_session_id;
-    /// Receiver is always a full typed service reference. Realm-level public
-    /// calls may have no wrapper handle, but their authenticated runtime-routing
-    /// record projects that fact to the singleton GPU reference rather than an
-    /// untyped zero handle; callers cannot choose or fabricate the projection.
-    ExactGpuObjectRefV2 receiver;
-    /// `kind == EXACT_GPU_OBJECT_NONE_V2` with zero flags/id/generation means
-    /// no caller-allocated target; every other form is a full typed reference.
-    /// requestAdapter/requestDevice-class calls use NONE: the authenticated
-    /// service returns the adapter/device reference only in that operation's
-    /// typed result payload, never by accepting a caller-selected target.
-    ExactGpuObjectRefV2 target;
-    /// Borrowed only for the duration of `submit`. The operation ID selects the
-    /// authenticated codec; the payload contains no caller-selected codec tag.
-    /// Ibex bounds this operation-selected program to 16 MiB.
-    const uint8_t* payload;
-    size_t payload_len;
-} ExactGpuSemanticCallV2;
-
-/// Full immutable terminal key. The service sets provider_admission and, only
-/// after provider admission, assigns a nonzero physical sequence. A provider
-/// generation already known at ingress remains unchanged even on NOT_ADMITTED
-/// validation/security/account terminals. Pre-provider allocation paths may
-/// carry generation zero; an ADMITTED terminal then assigns a nonzero provider
-/// generation. Every NOT_ADMITTED terminal carries physical_sequence zero; no
-/// callback fabricates either value or reconstructs ownership ambiently.
-/// Completion callbacks may reorder, so the carrier does not enforce an
-/// arrival-order high-water mark. It rejects duplicate nonzero sequences while
-/// their full keys remain in the bounded terminal/lifecycle windows and applies
-/// ProviderLoss fences. The authenticated semantic service's conformance suite
-/// must prove realm-lifetime unique, monotonic assignment after ordinary
-/// terminal keys age out of the carrier's 2048-entry recent-terminal window.
-typedef struct ExactGpuOperationProvenanceV2 {
-    ExactGpuRealmIdentityV2 realm;
-    ExactGpuAccountIdentityV2 account;
-    /// Exact device identity received at API ingress; absent for requestAdapter
-    /// and requestDevice-class operations.
-    ExactGpuDeviceIdentityV2 ingress_device;
-    /// Logical device named by the common completion key. Existing-device
-    /// operations equal ingress_device; requestDevice-class operations may
-    /// assign a distinct nonzero identity even when provider admission fails.
-    ExactGpuDeviceIdentityV2 result_device;
-    uint64_t provider_generation;
-    uint32_t topology_id;
-    uint32_t operation_id;
-    uint64_t operation_instance_id;
-    uint64_t promise_id;
-    uint32_t provider_admission;
-    uint32_t device_transition;
-    uint32_t reserved;
-    uint32_t reserved2;
-    uint64_t physical_sequence;
-    uint64_t captured_scope_id;
-    uint64_t adapter_ordinal;
-    uint64_t device_ingress_ordinal;
-    uint64_t queue_ingress_ordinal;
-    uint8_t authority_context_digest[32];
-    uint64_t authority_session_id;
-    ExactGpuObjectRefV2 receiver;
-    ExactGpuObjectRefV2 target;
-} ExactGpuOperationProvenanceV2;
-
-/// Typed cancellation is built from the carrier's retained admitted call, not
-/// from mutable JS metadata. `promise_id` may be zero for cancellable
-/// non-Promise work; operation_instance_id remains the realm-unique key. A
-/// service-rejected call can never initiate lifecycle loss. When cancellation
-/// wins before terminal delivery, the first later lifecycle initiator may pin
-/// the exact full call provenance for a physical-cleanup race; subsequent
-/// lifecycle replays or late terminals must match that pinned key exactly.
-typedef struct ExactGpuCancelV2 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    uint32_t flags;
-    uint32_t reserved;
-    ExactGpuRealmIdentityV2 realm;
-    ExactGpuAccountIdentityV2 account;
-    ExactGpuDeviceIdentityV2 ingress_device;
-    uint64_t provider_generation;
-    uint32_t topology_id;
-    uint32_t operation_id;
-    uint64_t operation_instance_id;
-    uint64_t promise_id;
-    uint64_t captured_scope_id;
-    uint64_t adapter_ordinal;
-    uint64_t device_ingress_ordinal;
-    uint64_t queue_ingress_ordinal;
-    uint8_t authority_context_digest[32];
-    uint64_t authority_session_id;
-    ExactGpuObjectRefV2 receiver;
-    ExactGpuObjectRefV2 target;
-} ExactGpuCancelV2;
-
-typedef struct ExactGpuOwnedObjectRefV2 {
-    ExactGpuAccountIdentityV2 account;
-    ExactGpuDeviceIdentityV2 device;
-    ExactGpuObjectRefV2 object;
-} ExactGpuOwnedObjectRefV2;
-
-typedef struct ExactGpuRetireBatchV2 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    uint32_t flags;
-    uint32_t reserved;
-    /// Unique full references, borrowed only for the duration of `retire`.
-    const ExactGpuOwnedObjectRefV2* objects;
-    size_t object_count;
-} ExactGpuRetireBatchV2;
-
-typedef struct ExactGpuOperationResultRecordV2 {
-    /// ASSIGNED_DETACHED + OBJECT is authenticated by the retained call key,
-    /// preserves its original admission/sequence provenance, and carries the
-    /// complete operation-selected detached-device result bytes. It is an
-    /// operation terminal rather than a realm-lifetime lifecycle tombstone;
-    /// service-attached device loss continues to use
-    /// EXACT_GPU_SERVICE_EVENT_LOGICAL_DEVICE_LOST_V2.
-    ExactGpuOperationProvenanceV2 operation;
-    uint32_t result_kind;
-    int32_t status;
-} ExactGpuOperationResultRecordV2;
-
-typedef struct ExactGpuDeviceErrorRecordV2 {
-    ExactGpuOperationProvenanceV2 operation;
-    uint32_t error_kind;
-    uint32_t backend_class;
-    int32_t status;
-    uint32_t reserved;
-} ExactGpuDeviceErrorRecordV2;
-
-/// Spontaneous loss is not a fabricated operation completion. The provider
-/// supplies its last accepted sequence (zero is valid) and may include one
-/// complete initiating operation key when causality is known.
-typedef struct ExactGpuProviderLossRecordV2 {
-    ExactGpuRealmIdentityV2 realm;
-    ExactGpuDeviceIdentityV2 device;
-    uint32_t topology_id;
-    uint32_t backend_class;
-    uint32_t loss_reason;
-    uint32_t has_initiating_operation;
-    uint64_t last_accepted_physical_sequence;
-    ExactGpuOperationProvenanceV2 initiating_operation;
-} ExactGpuProviderLossRecordV2;
-
-/// Exactly-once logical loss settlement for one GPUDevice incarnation. This is
-/// distinct from provider loss: destroy(), account closure, already-lost
-/// requestDevice, and semantic settlement need no spontaneous provider event.
-/// The service-detached already-lost requestDevice form is canonical: its
-/// initiating operation is ASSIGNED_DETACHED (with its original admission and
-/// physical sequence preserved). It is self-contained in the operation result
-/// and therefore has no separate logical-device-loss record.
-typedef struct ExactGpuLogicalDeviceLostRecordV2 {
-    ExactGpuRealmIdentityV2 realm;
-    ExactGpuAccountIdentityV2 account;
-    ExactGpuDeviceIdentityV2 device;
-    uint32_t topology_id;
-    uint32_t backend_class;
-    uint32_t loss_reason;
-    uint32_t has_initiating_operation;
-    uint64_t logical_loss_ordinal;
-    /// Diagnostic snapshot and exact-initiator bound only. Unlike the field on
-    /// ProviderLoss, this is not a future-sequence fence: the semantic service
-    /// may admit release-after-loss cleanup at later physical sequences. A
-    /// service-detached ASSIGNED_DETACHED terminal has no logical-loss record,
-    /// so it never supplies or rewrites this field.
-    uint64_t last_accepted_physical_sequence;
-    ExactGpuOperationProvenanceV2 initiating_operation;
-} ExactGpuLogicalDeviceLostRecordV2;
-
-typedef struct ExactGpuAccountClosedRecordV2 {
-    ExactGpuRealmIdentityV2 realm;
-    ExactGpuAccountIdentityV2 account;
-    uint64_t close_ordinal;
-    uint32_t close_reason;
-    uint32_t reserved;
-} ExactGpuAccountClosedRecordV2;
-
-typedef struct ExactGpuRealmClosedRecordV2 {
-    ExactGpuRealmIdentityV2 realm;
-    uint64_t close_ordinal;
-    uint32_t close_reason;
-    uint32_t reserved;
-} ExactGpuRealmClosedRecordV2;
-
-typedef union ExactGpuServiceEventRecordV2 {
-    ExactGpuOperationResultRecordV2 operation_result;
-    ExactGpuDeviceErrorRecordV2 device_error;
-    ExactGpuProviderLossRecordV2 provider_loss;
-    ExactGpuLogicalDeviceLostRecordV2 logical_device_lost;
-    ExactGpuAccountClosedRecordV2 account_closed;
-    ExactGpuRealmClosedRecordV2 realm_closed;
-} ExactGpuServiceEventRecordV2;
-
-typedef struct ExactGpuServiceEventV2 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    uint32_t kind;
-    /// Exact `ExactGpuServiceEventFlagsV2` value. All event kinds except
-    /// DEVICE_ERROR require NONE. DEVICE_ERROR accepts either NONE or the
-    /// single UNCAPTURED_ERROR bit; unknown bits are protocol violations.
-    uint32_t flags;
-    /// Must equal sizeof(the selected typed record), never a prefix size.
-    uint32_t record_size;
-    uint32_t reserved;
-    ExactGpuServiceEventRecordV2 record;
-    /// Variant-qualified diagnostic/result bytes, copied into the bounded
-    /// native mailbox before `on_event` returns.
-    const uint8_t* payload;
-    size_t payload_len;
-} ExactGpuServiceEventV2;
-
-typedef struct ExactGpuClientSinkV2 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    void (*retain_client)(void* client_context);
-    void (*release_client)(void* client_context);
-    /// Callback-safe bounded mailbox ingress. Distinct lifecycle records are
-    /// subject to EXACT_GPU_MAX_LIFECYCLE_TERMINALS_PER_REALM_V2 for the realm
-    /// lifetime; identical replays discard and contradictory replays or
-    /// overflow quarantine the realm.
-    int32_t (*on_event)(void* client_context,
-                        const ExactGpuServiceEventV2* event);
-} ExactGpuClientSinkV2;
-
-typedef struct ExactGpuServiceApiV2 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    uint64_t feature_bits;
-    void* service_context;
-    void (*retain_service)(void* service_context);
-    void (*release_service)(void* service_context);
-    int32_t (*open_realm)(void* service_context,
-                          const ExactGpuRealmOpenV2* open,
-                          const ExactGpuClientSinkV2* sink,
-                          void* client_context,
-                          ExactGpuRealmIdentityV2* out_realm,
-                          ExactGpuAccountIdentityV2* out_root_account);
-    void (*activate_realm)(void* service_context,
-                           const ExactGpuRealmIdentityV2* realm);
-    /// These three entries run without the Ibex mailbox mutex held. A
-    /// synchronous on_event is allowed. If it reports a protocol violation,
-    /// that violation dominates the service return and owner reduction settles
-    /// any Promise; the bridge must not publish ordinary success/cancellation.
-    /// Each call reserves its exact entry under the callback-admission mutex.
-    /// A pre-reserved entry may finish after wall-clock realm close, while a
-    /// new entry after accepted REALM_CLOSED is rejected before service code.
-    int32_t (*submit)(void* service_context,
-                      const ExactGpuSemanticCallV2* call);
-    int32_t (*retire)(void* service_context,
-                      const ExactGpuRealmIdentityV2* realm,
-                      const ExactGpuRetireBatchV2* batch);
-    int32_t (*cancel)(void* service_context,
-                      const ExactGpuCancelV2* cancel);
-    /// Nonblocking close requested only when Ibex teardown wins the admission
-    /// mutex. Once a service REALM_CLOSED record is accepted, Ibex neither
-    /// synthesizes per-operation cancellation nor echoes close_realm, even if
-    /// owner polling has not yet drained that record.
-    int32_t (*close_realm)(void* service_context,
-                           const ExactGpuRealmIdentityV2* realm,
-                           uint64_t close_ordinal);
-} ExactGpuServiceApiV2;
-
-typedef struct ExactHermesGpuProviderDescriptorV2 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    uint64_t flags;
-    const char* profile_id;
-    size_t profile_id_len;
-    uint8_t profile_digest[32];
-    uint8_t webgpu_c_vocabulary_digest[32];
-    uint8_t operation_set_digest[32];
-    uint8_t semantic_program_digest[32];
-    /// Domain-separated digest over each operation's runtime routing record,
-    /// including argument/result codecs, receiver/target, timing,
-    /// dispatch/provider mode, and typed error tags.
-    uint8_t runtime_routing_digest[32];
-    const uint32_t* sorted_operation_ids;
-    size_t operation_id_count;
-    uint32_t topology_id;
-    uint32_t reserved;
-    const ExactGpuServiceApiV2* api;
-} ExactHermesGpuProviderDescriptorV2;
-
-/// Exact-size, flat discriminated receipt copied synchronously by the runtime.
-/// `runtime_generation` is the exact Hermes runtime nonce used by the host/root
-/// registry, not an independent Canvas counter. `protocol_root_id` alone may
-/// be zero; every other common identity/generation is positive.
-///
-/// ATTACHED requires failure == 0 and every attached-only field below to be
-/// nonzero (including at least one nonzero digest byte). REJECTED requires a
-/// declared failure and zeros every attached-only field and digest byte.
-typedef struct ExactGpuCanvasAttachmentReceiptV1 {
-    uint32_t struct_size;
-    uint32_t abi_version;
-    uint32_t outcome;
-    uint32_t failure;
-    uint32_t protocol_root_id;
-    uint32_t view_id;
-    uint64_t runtime_generation;
-    uint64_t root_instance_id;
-    uint64_t root_generation;
-    uint64_t commit_sequence;
-    uint64_t view_generation;
-    uint64_t handle_id;
-    uint64_t handle_generation;
-    uint64_t attachment_id;
-    uint64_t attachment_generation;
-    uint64_t context_id;
-    uint64_t context_generation;
-    uint32_t drawing_buffer_width;
-    uint32_t drawing_buffer_height;
-    uint8_t target_authority_digest[32];
-    uint64_t surface_account_token;
-    uint64_t surface_account_generation;
-} ExactGpuCanvasAttachmentReceiptV1;
-
-/// Full source identity minted by the runtime-private ImageBitmap factory.
-/// Every word is nonzero and is compared again when native completion arrives.
-typedef struct ExactGpuDecodedImageIdentityV1 {
-  uint64_t runtime_address;
-  uint64_t runtime_nonce;
-  uint64_t source_id;
-  uint64_t source_generation;
-} ExactGpuDecodedImageIdentityV1;
-
-/// Borrowed call-time request. The host must copy encoded_bytes before
-/// begin_decode returns. Admission is bounded by Ibex before this callback.
-typedef struct ExactGpuDecodedImageRequestV1 {
-  uint32_t struct_size;
-  uint32_t abi_version;
-  uint32_t mime_type;
-  uint32_t reserved;
-  uint64_t request_id;
-  ExactGpuDecodedImageIdentityV1 identity;
-  const uint8_t *encoded_bytes;
-  size_t encoded_len;
-} ExactGpuDecodedImageRequestV1;
-
-/// Borrowed completion plane. Ibex validates the exact identity and canonical
-/// metadata, compares encoded_bytes with its retained request snapshot, and
-/// copies both byte ranges before the completion call returns.
-typedef struct ExactGpuDecodedImagePlaneV1 {
-  uint32_t struct_size;
-  uint32_t abi_version;
-  uint32_t width;
-  uint32_t height;
-  uint32_t bytes_per_row;
-  uint32_t color_space;
-  uint32_t alpha_mode;
-  uint32_t orientation;
-  uint32_t origin_clean_class;
-  uint32_t reserved;
-  uint64_t request_id;
-  ExactGpuDecodedImageIdentityV1 identity;
-  const uint8_t *encoded_bytes;
-  size_t encoded_len;
-  const uint8_t *decoded_bytes;
-  size_t decoded_len;
-  uint8_t encoded_sha256[32];
-  uint8_t decoded_sha256[32];
-} ExactGpuDecodedImagePlaneV1;
-
-typedef enum ExactGpuDecodedImageCompletionStatusV1 {
-  EXACT_GPU_DECODED_IMAGE_COMPLETE_V1 = 0,
-  EXACT_GPU_DECODED_IMAGE_DECODE_FAILED_V1 = 1,
-  EXACT_GPU_DECODED_IMAGE_CANCELLED_V1 = 2,
-} ExactGpuDecodedImageCompletionStatusV1;
-
-typedef struct ExactGpuDecodedImageHostApiV1 {
-  uint32_t struct_size;
-  uint32_t abi_version;
-  void *host_context;
-  void (*retain_context)(void *host_context);
-  void (*release_context)(void *host_context);
-  int32_t (*begin_decode)(void *host_context,
-                          const ExactGpuDecodedImageRequestV1 *request);
-  void (*cancel_decode)(void *host_context,
-                        const ExactGpuDecodedImageIdentityV1 *identity,
-                        uint64_t request_id);
-} ExactGpuDecodedImageHostApiV1;
-
-typedef struct ExactHermesGpuDecodedImageDescriptorV1 {
-  uint32_t struct_size;
-  uint32_t abi_version;
-  uint64_t flags;
-  const ExactGpuDecodedImageHostApiV1 *api;
-} ExactHermesGpuDecodedImageDescriptorV1;
 
 /// Version-1 discriminants shared by every authenticated virtual-filesystem
 /// result. Functions return the fixed-width `uint32_t` representation rather
@@ -1073,107 +143,24 @@ ExactHermesRuntime* ex_hermes_create_armed(const char* armed_snapshot_digest);
 int32_t ex_hermes_begin_embedder_capabilities_v1(ExactHermesRuntime* runtime);
 
 /// Authenticate the exact installed capability set, refresh the package
-/// baseline once, and seal provisional properties. A registered GPU provider
-/// remains dormant: this call does not evaluate the WebGPU runtime bundle,
-/// open its realm, or publish WebGPU roots. Failure is terminal for the runtime
-/// and rolls back/tears down provisional native capabilities.
+/// baseline once, and seal provisional properties. Failure is terminal for
+/// the runtime and rolls back provisional native capabilities.
 int32_t ex_hermes_finalize_embedder_capabilities_v1(ExactHermesRuntime* runtime);
-
-/// Return the optional GPU service ABI version and descriptor size implemented
-/// by this library. These query symbols remain present when the Cargo feature is
-/// disabled so embedders can fail deterministically without symbol probing.
-uint32_t ex_hermes_gpu_provider_abi_version(void);
-size_t ex_hermes_gpu_provider_descriptor_size_v1(void);
-/// Additive V2 query symbols. The V1 query above deliberately continues to
-/// report V1 so existing embedders do not silently switch layouts.
-uint32_t ex_hermes_gpu_provider_abi_version_v2(void);
-size_t ex_hermes_gpu_provider_descriptor_size_v2(void);
-
-/// Query/register the construction-private decoded-image callback adapter.
-/// Registration is owner-thread-only and valid only inside the additive
-/// embedder construction transaction. The callback is retained only when the
-/// library was built with `webgpu-binding`; otherwise registration reports
-/// EXACT_GPU_PROVIDER_UNSUPPORTED without retaining caller state.
-uint32_t ex_hermes_gpu_decoded_image_abi_version_v1(void);
-size_t ex_hermes_gpu_decoded_image_descriptor_size_v1(void);
-int32_t ex_hermes_set_gpu_decoded_image_provider_v1(
-    ExactHermesRuntime *runtime,
-    const ExactHermesGpuDecodedImageDescriptorV1 *descriptor);
-
-/// Arbitrary-thread, one-shot completion ingress. request_id resolves through
-/// a generation-qualified native registry before any runtime pointer is
-/// dereferenced. All records and bytes are copied before this call returns.
-int32_t ex_hermes_complete_gpu_decoded_image_v1(
-    uint64_t request_id, uint32_t status,
-    const ExactGpuDecodedImagePlaneV1 *plane);
-
-/// Register one authenticated provider-independent Exact GPU service. The
-/// descriptor and function table are copied. The function returns
-/// EXACT_GPU_PROVIDER_UNSUPPORTED when Ibex was built without
-/// `webgpu-binding`. Registration and capability finalization never evaluate
-/// the separately embedded WebGPU graph, open a realm, publish navigator.gpu,
-/// or expose an app-visible bridge global. The later explicit activation call
-/// hands a low-level bridge to that graph through a one-shot callback, verifies
-/// that callback was deleted, and seals the module-private slot. App
-/// package/deep/filesystem imports of that source directory are rejected;
-/// dormant registration makes no public WebGPU-support claim.
-/// Must run inside the additive capability transaction on the runtime owner
-/// thread. Registration retains and copies provisional service state;
-/// open_realm runs once during explicit WebGPU activation, after all setters
-/// have supplied the app/agent context, so setter order cannot change realm
-/// identity. During open_realm the service may use retain_client and
-/// release_client for plain-native mailbox ownership; retaining is required
-/// before storing the sink/context beyond the call. It must not invoke
-/// on_event or publish an event-producing path until Ibex calls the one-way
-/// activate_realm hook. Its invocation boundary (the Installing -> Activating
-/// transition) is the callback-admission point: during Activating, callbacks
-/// from any provider thread are admitted, including after the hook returns but
-/// before Ibex publishes Live. A callback observed before that boundary is a
-/// protocol error. A submit callback may be synchronous or service-threaded
-/// after Live. Service calls must return promptly and must not wait on the
-/// runtime thread. Runtime teardown transitions the
-/// mailbox Closing -> Detached without waiting, cancels pending completions,
-/// rejects their receipts on-owner, closes the realm, and discards late events.
-int32_t ex_hermes_set_gpu_provider_v1(
-    ExactHermesRuntime* runtime,
-    const ExactHermesGpuProviderDescriptorV1* descriptor);
-
-/// Register the additive full-identity carrier. V1 and V2 are mutually
-/// exclusive per runtime. V2 requires exact (not prefix-compatible) structure
-/// sizes and zero reserved fields, and otherwise follows the same authenticated
-/// construction/activation/teardown rules documented for V1 above.
-int32_t ex_hermes_set_gpu_provider_v2(
-    ExactHermesRuntime* runtime,
-    const ExactHermesGpuProviderDescriptorV2* descriptor);
-
-/// Activate a registered, authenticated dormant WebGPU provider. This
-/// owner-thread-only transaction may run before or after ordinary user work.
-/// It excludes user/debugger ingress, evaluates the separately embedded
-/// WebGPU source/HBC once, opens and captures the provider, refreshes only the
-/// generated conditional WebGPU compartment paths, seals the private bridge,
-/// and repeats the exact root sweep when bootstrap is closed. It is idempotent
-/// after success. Provider absence returns EXACT_GPU_PROVIDER_UNSUPPORTED
-/// without evaluating the bundle; any failure after mutation terminally
-/// quarantines the runtime.
-int32_t ex_hermes_activate_webgpu_runtime_v1(
-    ExactHermesRuntime* runtime);
 
 /// Open the outer owner-thread app-bundle evaluation transaction before any
 /// generated preparation runs. `expected_prepared_disposition` is NONE for a
 /// legacy raw artifact or the exact generated carrier disposition. Success
 /// detaches/excludes the debugger, blocks ordinary eval/poll/dispatch drives,
 /// and proves the prepared root absent. The exclusion remains held across
-/// immediate preparation, native classification, nested Canvas begin/finish,
-/// cached consume staging, nested Canvas close, cached runApp invocation, and
-/// final absence verification.
+/// immediate preparation, native classification, cached extension staging,
+/// cached runApp invocation, and final absence verification.
 int32_t ex_hermes_begin_app_bundle_evaluation_v1(
     ExactHermesRuntime* runtime,
     uint32_t expected_prepared_disposition);
 
-/// Close the outer transaction only after the nested Canvas transaction (if
-/// any) is closed. A successful evaluation must have invoked a declared
-/// prepared carrier. Both outcomes use pristine native reflection to prove the
-/// carrier root absent before debugger restoration. Failure quarantines; a
+/// Close the outer transaction after a successful evaluation invoked its
+/// declared prepared carrier. Both outcomes use pristine native reflection to
+/// prove the carrier root absent before debugger restoration. Failure quarantines; a
 /// QUARANTINED result with prior immediate status 2 means cleanup was sound but
 /// this generation must retire (source fallback is normally attempted inside
 /// the still-open transaction before finish).
@@ -1181,90 +168,16 @@ int32_t ex_hermes_finish_app_bundle_evaluation_v1(
     ExactHermesRuntime* runtime,
     uint32_t evaluation_succeeded);
 
-/// Open one owner-thread app-bundle Canvas integration transaction immediately
-/// before the host evaluates that Exact bundle. A successful begin revokes the
-/// preceding bundle's integration. CONSUME_REQUIRED then exposes exactly one
-/// non-enumerable, configurable
-/// `__ibexCaptureGpuCanvasRuntimeIntegration` data function;
-/// UNUSED_VALID proves the same root absent and never publishes it.
-/// The host MUST pair begin/finish around a raw, no-pump evaluation: no event
-/// loop, debugger, callback, or other untrusted ingress may run before finish.
-/// Ibex enforces the debugger portion at the runtime boundary: debugger calls,
-/// queued interrupt callbacks, event publication, and event polling all refuse
-/// while the transaction is open; a previously attached debugger is restored
-/// only after finish proves the temporary root absent.
-/// A standalone legacy begin also irreversibly enters user execution and seals
-/// every construction-only capability handoff before exposing the Canvas root.
-/// Reentrant begin, a pre-existing root property, an AGENT runtime, or an
-/// unavailable authenticated V2 provider fails without exposing a new hook.
-int32_t ex_hermes_begin_gpu_canvas_app_bundle_v1(
-    ExactHermesRuntime* runtime,
-    uint32_t expectation);
-
-/// Close the transaction immediately after the host-controlled bundle eval.
-/// `evaluation_succeeded` must be 0 or 1. Both outcomes remove the temporary
-/// root. A successful eval returns OK when the trusted app prelude consumed the
-/// exact handoff. A required but unconsumed prelude is a negative refusal;
-/// UNUSED is valid only for an UNUSED_VALID transaction. A failed eval revokes
-/// any captured integration and reports only whether cleanup observed consumption.
-/// Cleanup failure makes the runtime fail closed and requires destruction.
-int32_t ex_hermes_finish_gpu_canvas_app_bundle_v1(
-    ExactHermesRuntime* runtime,
-    uint32_t evaluation_succeeded);
-
-/// Evaluate exactly one source or Hermes bytecode buffer either as prepared
-/// generation under the outer transaction, or as a legacy raw bundle while its
-/// nested Canvas transaction is open. Prepared carriers must use the native
-/// classifier/invoker after this step; no second immediate eval is admitted
-/// between successful classification and Canvas begin. Success discards the
-/// resulting JSI value. This
-/// primitive performs no nextTick or microtask drain, debugger publication or
-/// pause, thenable inspection/poll, result coercion, mutable uncaught-exception
-/// handler, or other post-eval hook. `out_error` is NULL on success and is a
-/// caller-freed diagnostic on failure. Status 2 is reserved exclusively for a
-/// bytecode sanity rejection proven to occur before any program instruction;
-/// it is the only result for which the same open transaction may retry source.
-/// Every other evaluation failure quarantines the runtime before return; the
-/// host must still call finish with `evaluation_succeeded == 0`, then retire it.
-/// @abi-output ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1 out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
-int32_t ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1(
-    ExactHermesRuntime* runtime,
-    const uint8_t* data,
-    size_t len,
-    const char* source_url,
-    int is_bytecode,
-    char** out_error);
-
-/// Atomically evaluate an optional trusted source prelude and one source/HBC
-/// artifact under the same ingress-excluded immediate drive. `(NULL, 0, NULL)`
-/// denotes no prelude. For HBC, native sanity validation completes before the
-/// prelude executes, so status 2 proves neither prelude nor artifact ran and is
-/// the only source-fallback eligibility result. No queue/debugger/coercion/
-/// mutable-handler hook runs between or after the two evaluations. Any
-/// prelude or artifact execution failure quarantines before return.
-/// @abi-output ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1 out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
-int32_t ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1(
-    ExactHermesRuntime* runtime,
-    const uint8_t* prelude_data,
-    size_t prelude_len,
-    const char* prelude_source_url,
-    const uint8_t* artifact_data,
-    size_t artifact_len,
-    const char* artifact_source_url,
-    int artifact_is_bytecode,
-    char** out_error);
-
 /// Accessor-free native validation of the generated prepared-startup carrier,
-/// performed under the outer gate before Canvas begin. Pristine reflection can
+/// performed under the outer gate. Pristine reflection can
 /// execute Proxy traps, so the carrier artifact must already be authenticated
 /// generated code; this is structural posture validation, not provenance
-/// authentication. Because the Canvas capture root is still absent and all
-/// other ingress is blocked, a hostile trap cannot steal the handoff. The
-/// validated functions are cached natively before return.
+/// authentication. Because all other ingress is blocked, a hostile trap cannot
+/// steal the handoff. The validated functions are cached natively before return.
 /// The root descriptor must be a non-writable/non-enumerable/configurable data
 /// property. Its value must be a frozen, symbol-free exact four-field object:
 /// version 1, the expected disposition string, and two data functions named
-/// consumeGpuRuntimeIntegration and runApp. Missing, malformed, or owner-
+/// consumeRuntimeExtensions and runApp. Missing, malformed, or owner-
 /// thread in-transaction out-of-sequence handling quarantines the runtime
 /// before return.
 int32_t ex_hermes_classify_prepared_native_startup_v1(
@@ -1272,8 +185,7 @@ int32_t ex_hermes_classify_prepared_native_startup_v1(
     uint32_t expected_disposition);
 
 /// Remove the prepared root with pristine Reflect, then invoke only the cached
-/// consume function when required. CONSUME_REQUIRED requires an open nested
-/// Canvas transaction; UNUSED_VALID may stage with no Canvas provider. A
+/// consume function when required. UNUSED_VALID skips that function. A
 /// second pristine absence proof runs after consume, before arbitrary runApp
 /// code can execute. No mutable Object/Reflect lookup, result coercion, queue
 /// drain, Promise poll, debugger hook, or uncaught handler occurs. Execution
@@ -1284,9 +196,8 @@ int32_t ex_hermes_stage_prepared_native_startup_v1(
     ExactHermesRuntime* runtime,
     char** out_error);
 
-/// Invoke only the natively cached runApp function after the nested Canvas
-/// transaction has closed and successful staging proved the prepared root
-/// absent. The outer gate remains held for the complete call. The same
+/// Invoke only the natively cached runApp function after successful staging
+/// proved the prepared root absent. The outer gate remains held for the complete call. The same
 /// no-pump/no-coercion/no-mutable-handler rules and `out_error` ownership as
 /// staging apply. Execution failures and owner-thread in-transaction sequence
 /// failures quarantine before return.
@@ -1302,22 +213,6 @@ int32_t ex_hermes_run_prepared_app_v1(
 /// already quarantined by immediate evaluation.
 int32_t ex_hermes_verify_prepared_native_startup_absent_v1(
     ExactHermesRuntime* runtime);
-
-/// Deliver one Exact native Canvas attachment terminal to the construction-
-/// captured runtime-js sink. The caller retains the record; Ibex converts it
-/// synchronously into a frozen exact-shape JS object and retains no C pointer.
-///
-/// Validation is deliberately ordered: null/exact-size/version/complete
-/// discriminant validation occurs before runtime entry; then
-/// ExactRuntimeDriveGuard validates `runtime_generation` as this exact Hermes
-/// runtime nonce and enforces owner-thread/non-reentrant delivery. Returns an
-/// EXACT_RUNTIME_DRIVE_* status, or
-/// EXACT_GPU_CANVAS_RECEIPT_SINK_UNAVAILABLE_V1 when no authenticated V2
-/// app-bundle transaction is currently committed (including legacy capture,
-/// an open/reloading bundle, an unused/failed bundle, and detach).
-int32_t ex_hermes_deliver_gpu_canvas_attachment_receipt_v1(
-    ExactHermesRuntime* runtime,
-    const ExactGpuCanvasAttachmentReceiptV1* receipt);
 
 /// Run the reviewed shared-runtime ambient/global closure program for an armed
 /// runtime. This is an owner-thread, non-reentrant, trusted-bootstrap-only
@@ -2671,18 +1566,6 @@ int ex_host_install_armed(const uint8_t* snapshot,
                           const uint8_t* expected_identity,
                           size_t expected_identity_len);
 
-/// Authenticate and install the named Exact WebGPU Pre-1A private-cell
-/// profile. This is an explicit experimental construction mode, not a target
-/// advertisement. It accepts no selector/cell input, and must be called on the
-/// same creating thread as the subsequent `ex_hermes_create_armed` call.
-/// Returns 0 on success and non-zero on refusal. Builds without
-/// `webgpu-binding` always refuse.
-int ex_host_install_armed_experimental_webgpu_pre1a(
-    const uint8_t* snapshot,
-    size_t snapshot_len,
-    const uint8_t* expected_identity,
-    size_t expected_identity_len);
-
 /// Authenticate a paired snapshot template/expected identity against the
 /// loaded engine and checked registry, validate protected artifacts/package
 /// roots, replace the template nonce with OS randomness, and recompute the
@@ -2732,45 +1615,43 @@ char* ex_host_build_exact_armed_embedder_artifacts(
     const uint8_t* operation_manifest,
     size_t operation_manifest_len);
 
-/// Build the target-local Exact artifact pair with a strict
-/// `exact/webgpu-provider/1` binding and the exact WebGPU profile bytes named
-/// by its `profileDigest`. The profile becomes an independently authenticated
-/// `exact-webgpu-profile` protected artifact. All byte strings are consumed
-/// synchronously and need not be NUL terminated. The optional dev-project-root
-/// pair has the same semantics as the non-GPU builder. It returns the same heap-owned
-/// JSON envelope as the non-GPU builder; release it with `ex_host_free_string`.
-/// This does not advertise a target; `ex_host_install_armed` retains the
-/// report-derived gate.
-char* ex_host_build_exact_gpu_armed_embedder_artifacts(
+/// Build the target-local Exact artifact pair with a statically selected
+/// finalized runtime-extension authority capsule and the independently
+/// launcher-observed loaded-executable file identity. The wire schema retains
+/// its historical mapped-executable name but does not attest relocated pages.
+/// Both JSON byte strings are required, consumed synchronously, and never
+/// retained.
+char* ex_host_build_exact_runtime_extension_armed_embedder_artifacts(
     const uint8_t* project_root_utf8,
     size_t project_root_utf8_len,
     const uint8_t* dev_project_root_utf8,
     size_t dev_project_root_utf8_len,
     const uint8_t* operation_manifest,
     size_t operation_manifest_len,
-    const uint8_t* gpu_provider_binding,
-    size_t gpu_provider_binding_len,
-    const uint8_t* webgpu_profile,
-    size_t webgpu_profile_len);
+    const uint8_t* authority_capsule,
+    size_t authority_capsule_len,
+    const uint8_t* launcher_mapped_executable,
+    size_t launcher_mapped_executable_len);
 
-/// Build the target-local artifact pair for Exact's named WebGPU Pre-1A
-/// experiment. The authenticated root floor is derived solely from the pinned
-/// construction-private operation registry; callers cannot provide selectors,
-/// cell IDs, operation names, or wildcards. The optional dev-project-root pair
-/// has the same semantics as the ordinary builder. The returned envelope is released
-/// with `ex_host_free_string`. This does not change canonical target
-/// advertisements and is consumed only by the matching experimental installer.
-char* ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts(
-    const uint8_t* project_root_utf8,
-    size_t project_root_utf8_len,
-    const uint8_t* dev_project_root_utf8,
-    size_t dev_project_root_utf8_len,
-    const uint8_t* operation_manifest,
-    size_t operation_manifest_len,
-    const uint8_t* gpu_provider_binding,
-    size_t gpu_provider_binding_len,
-    const uint8_t* webgpu_profile,
-    size_t webgpu_profile_len);
+/// Finalize a generated, non-armable runtime-extension authority template
+/// against a launcher observation of the loaded executable containing its
+/// registry and callable anchors. Ibex independently pins and hashes that
+/// executable file, then returns the canonical final capsule, its authority
+/// digest, the loaded-executable file identity (under the historical
+/// mapped-executable wire schema), and the final executable-selection
+/// identity. This does not hash relocated in-memory pages. Every output is a
+/// separately allocated NUL-terminated string released with
+/// `ex_host_free_string`. Returns an
+/// `IbexRuntimeExtensionStatusV1` value.
+int32_t ex_host_finalize_runtime_extension_authority_v1(
+    const uint8_t* authority_template,
+    size_t authority_template_len,
+    const uint8_t* loaded_image_observation,
+    size_t loaded_image_observation_len,
+    char** out_authority_capsule,
+    char** out_authority_capsule_digest,
+    char** out_executable_selection_identity,
+    char** out_mapped_executable);
 
 /// Release a heap-owned string returned by the host ABI.
 void ex_host_free_string(char* value);

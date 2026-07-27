@@ -59,14 +59,6 @@ const PRIVATE_CONSUMERS = new Map([
   ["__exactStdinRead", "runtime-process-stdin-adapter"],
   ["__exactQuarantineDevServedModuleTable", "trusted-module-loader"],
   ["__ibexBarePackageName", "trusted-module-loader"],
-  [
-    "__ibexCaptureGpuCanvasRuntimeIntegration",
-    "exact-app-bundle-evaluation-transaction",
-  ],
-  [
-    "__ibexCaptureGpuNativeBridge",
-    "authenticated-webgpu-provider-construction-handoff",
-  ],
   ["__ibexEndowRaw", "compartment-registry-bootstrap"],
   ["__ibexEndowments", "compartment-registry-bootstrap"],
   ["__ibexRefreshCompartmentBaseline", "armed-runtime-finalizer"],
@@ -304,28 +296,6 @@ function branchActivation(surface, routes, sourceRefs, targetVariant) {
   const { root } = splitLogicalPath(surface.metadata);
   const routeSet = new Set(routes);
   const logicalPath = pathText(surface);
-
-  // The shared-runtime scanner reaches these rows by following the temporary
-  // native capture callback into installProductionWebGpu and then resolving
-  // its literal/frozen installation tables. Activation is therefore attached
-  // to the actual helper-driven install evidence, not a second handwritten
-  // list of WebGPU global spellings.
-  const authenticatedWebGpuInstall = sourceRefs.some((sourceRef) =>
-    sourceRef.startsWith(
-      "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:",
-    ),
-  );
-  if (authenticatedWebGpuInstall) {
-    if (logicalPath === "createImageBitmap") {
-      return "authenticated-webgpu-decoded-image";
-    }
-    if (logicalPath === "navigator.gpu" || /^GPU/u.test(logicalPath)) {
-      return "authenticated-webgpu-provider";
-    }
-    throw new Error(
-      `${surface.observedKey}: unreviewed authenticated WebGPU root installation`,
-    );
-  }
 
   // The native registrar predeclares the stable `exact` facade, then this
   // single source installs the typed method only after authenticating one

@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/runtime-extension-registry-projection.schema.json",
+  "title": "Ibex runtime-extension native registry projection",
+  "type": "object",
+  "required": [
+    "schema",
+    "extensionSetDigest",
+    "authorityCapsuleDigest",
+    "executableSelectionIdentity",
+    "descriptors"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ibex/runtime-extension-registry-projection/1"
+    },
+    "extensionSetDigest": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+    },
+    "authorityCapsuleDigest": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+    },
+    "executableSelectionIdentity": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+    },
+    "descriptors": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/descriptor"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "descriptor": {
+      "type": "object",
+      "required": [
+        "id",
+        "version",
+        "sdkVersion",
+        "manifestDigest",
+        "authorityCapsuleDigest",
+        "trustedBootstrap",
+        "bootstrap",
+        "requiredFeatureBits",
+        "globals",
+        "modules",
+        "callbacks",
+        "authorityFragment"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "version": {
+          "$ref": "https://ibex.dev/capsec/schema/armed-snapshot.schema.json#/$defs/runtimeExtensionWireString"
+        },
+        "sdkVersion": {
+          "$ref": "https://ibex.dev/capsec/schema/armed-snapshot.schema.json#/$defs/runtimeExtensionWireString"
+        },
+        "manifestDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "authorityCapsuleDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "trustedBootstrap": {
+          "type": "object",
+          "required": ["realm", "installPhase"],
+          "properties": {
+            "realm": {
+              "const": "app"
+            },
+            "installPhase": {
+              "const": "pre-user-code"
+            }
+          },
+          "additionalProperties": false
+        },
+        "bootstrap": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/armed-snapshot.schema.json#/$defs/runtimeExtensionBootstrapArtifact"
+          }
+        },
+        "requiredFeatureBits": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "globals": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "required": ["name", "kind"],
+            "properties": {
+              "name": {
+                "$ref": "https://ibex.dev/capsec/schema/armed-snapshot.schema.json#/$defs/runtimeExtensionWireString"
+              },
+              "kind": {
+                "enum": ["function", "object"]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "modules": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "required": ["specifier"],
+            "properties": {
+              "specifier": {
+                "$ref": "https://ibex.dev/capsec/schema/armed-snapshot.schema.json#/$defs/runtimeExtensionWireString"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "callbacks": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "operationId",
+              "producerAffinity",
+              "delivery",
+              "maxPending"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "operationId": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "producerAffinity": {
+                "enum": [
+                  "runtime-owner",
+                  "background-producer",
+                  "provider-thread"
+                ]
+              },
+              "delivery": {
+                "const": "runtime-thread"
+              },
+              "maxPending": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65536
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "providerAbi": {
+          "$ref": "#/$defs/providerAbi"
+        },
+        "authorityFragment": {
+          "$ref": "https://ibex.dev/capsec/schema/armed-snapshot.schema.json#/$defs/runtimeExtensionAuthorityFragment"
+        }
+      },
+      "additionalProperties": false
+    },
+    "providerAbi": {
+      "type": "object",
+      "required": [
+        "id",
+        "minVersion",
+        "selectedVersion",
+        "structSize",
+        "identityDigest"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "minVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "selectedVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "structSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "identityDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

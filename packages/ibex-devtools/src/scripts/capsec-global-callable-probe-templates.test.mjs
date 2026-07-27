@@ -653,14 +653,9 @@ describe("source-bound global callable recipes", () => {
     // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
     // the frozen 882-row baseline preceded the deliberate closure of two
     // accessibility callbacks, thirty IndexedDB callables, and two worklet
-    // helpers. The authenticated construction-private WebGPU command-program
-    // expansion adds one unexercisable callable row; its ten route identities
-    // remain separately covered by closed-surface output dispositions rather
-    // than borrowing non-capability execution evidence.
+    // helpers.
     // The runtime-authored ArrayBuffer transfer fence adds one ordinary
-    // non-capability, unexercisable recipe without publishing WebGPU or CapSec
-    // support. The authenticated WebGPU operation-identity rebind contributes
-    // one additional unexercisable callable without changing that boundary.
+    // non-capability, unexercisable recipe without publishing CapSec support.
     // The authenticated dev-served module-table lifecycle contributes two
     // private native root callables; neither has a bounded public invocation.
     expect(recipes).toHaveLength(852);

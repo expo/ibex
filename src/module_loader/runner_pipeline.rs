@@ -1238,7 +1238,12 @@ fn build_authenticated_source_graph_v1_with_host(
                     Err(error) => return Err(error),
                 }
             } else {
-                match host.resolve(&key.specifier, Some(&path), key.resolution_kind, &attributes) {
+                match host.resolve(
+                    &key.specifier,
+                    Some(&path),
+                    key.resolution_kind,
+                    &attributes,
+                ) {
                     Ok(target) => target,
                     // Call-time edges (literal dynamic imports and CommonJS
                     // requires) preserve Node error timing: a target that does
@@ -2390,12 +2395,12 @@ mod tests {
                     ProtectedArtifactRole::ExactOperationManifest => {
                         digest_at(&["exactEmbedder", "operationManifestDigest"])
                     }
-                    ProtectedArtifactRole::ExactWebgpuProfile => {
-                        digest_at(&["exactGpuProvider", "profileDigest"])
-                    }
                     ProtectedArtifactRole::ArmedPolicy => digest_at(&["policyDigest"]),
                     ProtectedArtifactRole::PackageGraph => digest_at(&["packageGraph", "digest"]),
                     ProtectedArtifactRole::Registry => digest_at(&["registryDigest"]),
+                    ProtectedArtifactRole::RuntimeExtensionAuthorityCapsule => {
+                        digest_at(&["runtimeExtensions", "authorityCapsuleDigest"])
+                    }
                 };
                 ExpectedProtectedArtifact {
                     role,
@@ -2436,6 +2441,8 @@ mod tests {
                 .unwrap(),
             protected_artifacts,
             embedded_protected_artifacts: Vec::new(),
+            runtime_extension_authority_digest: None,
+            runtime_extension_mapped_executable: None,
         };
         let snapshot =
             ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();

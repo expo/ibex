@@ -5,7 +5,8 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-25 (separates authenticated GPU-provider registration from WebGPU runtime activation: construction finalization retains a dormant provider without opening its realm or publishing roots; the additive owner-thread `ex_hermes_activate_webgpu_runtime_v1` transaction evaluates a separately embedded trusted WebGPU HBC, opens and captures the provider, refreshes only the generated conditional WebGPU compartment projection, seals the private bridge, and repeats the descriptor-only root sweep when bootstrap is already closed; ordinary and debugger ingress remain closed throughout, activation is idempotent, and any partial/failing activation is terminal)
+**Revised:** 2026-07-25 (LLP 0040 supersedes the WebGPU-specific artifact builder, provider registration, private bridge, and deferred activation sections with the generic authenticated native runtime-extension registry, constructors, authority finalizer, owner executor, and lifecycle)
+**Revised:** 2026-07-25 (historical: separated authenticated GPU-provider registration from WebGPU runtime activation; superseded by LLP 0040)
 **Revised:** 2026-07-24 (reconciles the production WebGPU contract with the implemented exact-size three-callback authority-session API and nine-method construction-private bridge: paired acquire/present capture, same-epoch transient recheck, registry-pinned candidate-commit and handoff-repeat continuations, and atomic pair retirement remain construction-private and fail closed; the checked experimental projection now derives 65 private target cells and 23 typed-positive selectors without adding a public issuer, advertisement, or support claim)
 **Revised:** 2026-07-23 (the Exact dev-served builder grants its root only a loopback, TCP, ephemeral listener selector so the authenticated Acto server can bind without ambient or fixed-port listen authority; release compositions remain unchanged); 2026-07-21 (implements the `dev-served` bootstrap compatibility mode and its construction-private one-shot module-table seam: dev-served compositions install a frozen URL-space table of in-band transformed sources ahead of the private native resolver fallback, gated by armed material carrying the mode together with an explicit dev project-root binding; the resolver seal, host-path authorization for non-table specifiers, import gating, and ordinary target cells are unchanged, and misuse quarantines the generation — Exact ENG-25076)
 **Revised:** 2026-07-20 (gives the production WebGPU runtime section a stable heading so the reviewed Hermes patch stack can reference its governing contract without changing patch bytes)
@@ -687,26 +688,21 @@ facts. Exact's current application is a single bundled root; a future
 package-bearing application must pass Ibex's canonical generated policy through
 a separately specified input rather than being flattened by this API.
 
-`ex_host_build_exact_gpu_armed_embedder_artifacts` is the additive GPU-capable
-producer. It accepts the legacy builder's two inputs plus one strict
-`exact/webgpu-provider/1` binding and the exact WebGPU profile bytes named by
-that binding. It validates the complete provider identity, verifies the profile
-digest before publishing anything into the content-addressed cache, records the
-binding as `exactGpuProvider`, and materializes the profile as the independent
-sixth `exact-webgpu-profile` protected artifact. The returned pair is
-re-authenticated through the ordinary armed-snapshot loader. Like the legacy
-producer, it cannot advertise a target; installation retains the report-derived
-gate.
+`ex_host_build_exact_runtime_extension_armed_embedder_artifacts` is the
+additive selected-extension producer. It accepts the ordinary Exact builder
+inputs plus one finalized generic authority capsule and its independently
+launcher-observed executable identity. The separate
+`ex_host_finalize_runtime_extension_authority_v1` operation pins and hashes
+the executable that supplied the generated anchors before it can mint that
+capsule. Neither operation accepts an extension ID, provider vocabulary, or
+caller-authored capability selector.
 
-These six new symbols (`ex_hermes_set_exact_host_call_async`, its resolver,
-`ex_host_prepare_armed_embedder_artifacts`, and
-`ex_host_prepare_exact_armed_embedder_artifacts`, plus
-`ex_host_build_exact_armed_embedder_artifacts` and
-`ex_host_build_exact_gpu_armed_embedder_artifacts`) are a public, provisional
-extension for the pinned Exact consumer, not an expansion of LLP 0000's five-
-function semver-major minimum. Until this Draft spec is accepted, a breaking
-change requires an atomic Ibex commit plus Exact submodule/consumer update; it
-must never silently preserve an older ambient bridge.
+These Exact-bound artifact and runtime-extension symbols are a public,
+provisional extension for the pinned Exact consumer, not an expansion of LLP
+0000's five-function semver-major minimum. LLP 0040 owns their v1 contract.
+Until that Draft RFC is accepted, a breaking change requires an atomic Ibex
+commit plus Exact submodule/consumer update; it must never preserve the retired
+GPU-specific ABI as an ambient compatibility bridge.
 
 ### The dev-served module-table seam
 
@@ -736,8 +732,8 @@ The seam. When (and only when) the armed material admits `dev-served`:
   `ex_host_install_armed*` refuses a material claiming `dev-served` without
   that binding.
 - Bootstrap exposes one construction-private, one-shot capability
-  (`__ibexCaptureDevServedModuleTable`, following the GPU rendezvous capture
-  idiom) that the dev envelope consumes before app evaluation. Consumption
+  (`__ibexCaptureDevServedModuleTable`) that the dev envelope consumes before
+  app evaluation. Consumption
   installs a frozen URL-space module table ahead of the loader's private
   native fallback; the hook deletes itself on first use and is removed by
   bootstrap finish if unconsumed.
@@ -757,20 +753,21 @@ The seam. When (and only when) the armed material admits `dev-served`:
   port. This is the minimum listener authority required by the authenticated
   Acto server when the envelope requests port zero; it grants neither remote
   peers nor a caller-selected fixed port, and installed/release compositions
-  do not carry it. The named WebGPU Pre-1A installer derives and re-proves
-  this same selector from the authenticated `dev-served` mode in addition to
-  the checked private GPU registry and completes only the construction-private
-  `__exactHttpServe` target cell needed to exercise it. The cell is not
-  advertised or selected through canonical public arming, and no
-  caller-provided selector or target disposition is accepted. The builder
-  carries that same single selector in the digest-bound root ceiling so the
+  do not carry it. The builder carries that same single selector in the
+  digest-bound root ceiling so the
   floor cannot be admitted by profile validation yet denied later by the
   immutable ceiling; the installed/release ceiling remains empty.
 - Second consumption, a malformed or non-frozen table, or consumption at or
-  after `runApp` quarantines the generation for destruction, matching the
-  GPU capture's failure semantics.
+  after `runApp` quarantines the generation for destruction.
 
-### WebGPU production runtime
+### Historical WebGPU production runtime (superseded by LLP 0040)
+
+Everything in this subsection through the Rust host surface records the
+pre-extraction one-off. Its GPU-specific builders, provider descriptors,
+mailbox, private bridge, activation bundle, and
+`ex_hermes_activate_webgpu_runtime_v1` transition have been removed. They are
+not current ABI. LLP 0040 is the generic Ibex authority; Exact LLPs 0115 and
+0397 own the extracted WebGPU implementation.
 
 #### The optional Exact GPU service registration seam
 
@@ -1002,7 +999,7 @@ correctly observes no WebGPU surface; Exact must schedule activation before
 loading that code, typically after first paint or before entering a GPU-backed
 feature.
 
-### WebGPU production runtime
+### Historical WebGPU runtime binding (continued; superseded by LLP 0040)
 
 The Ibex binding does own owner-thread-only JSI roots for the low-level bridge
 and pending Promise resolvers. During successful activation, the deferred

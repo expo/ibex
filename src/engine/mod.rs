@@ -20,21 +20,31 @@ pub mod sourcemap;
 // itself is sans-I/O and shared across Unix and Windows.
 pub mod tls_bridge;
 
+#[cfg(all(test, feature = "runtime-extension-conformance"))]
+mod runtime_extension_conformance_tests;
+
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
 extern "C" {
     fn ex_hermes_bytecode_version() -> u32;
     fn ex_hermes_engine_binary_path(out: *mut std::ffi::c_char, out_len: usize) -> i32;
-    #[cfg(unix)]
-    fn ex_open_pinned_self_image(error: *mut std::ffi::c_char, error_len: usize) -> i32;
+    #[cfg(any(unix, windows))]
+    fn ex_open_pinned_self_image(error: *mut std::ffi::c_char, error_len: usize) -> isize;
     #[cfg(any(
         target_os = "linux",
         target_os = "android",
         target_os = "macos",
+        all(target_os = "ios", feature = "capsec-simulator-performance-observer"),
         windows
     ))]
     fn ex_hermes_engine_mapped_object(out_device: *mut u64, out_inode: *mut u64) -> i32;
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    fn ibex_private_apple_sha256_fd_v1(
+        fd: std::os::fd::RawFd,
+        expected_size: u64,
+        output: *mut u8,
+    ) -> i32;
 }
 
 /// Open the running executable once and prove that the descriptor names the
@@ -58,10 +68,29 @@ pub fn open_pinned_self_image() -> Result<std::fs::File, String> {
             message
         });
     }
-    Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+    Ok(unsafe { std::fs::File::from_raw_fd(fd as i32) })
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+pub fn open_pinned_self_image() -> Result<std::fs::File, String> {
+    use std::os::windows::io::FromRawHandle;
+
+    let mut error = [0i8; 512];
+    let handle = unsafe { ex_open_pinned_self_image(error.as_mut_ptr(), error.len()) };
+    if handle < 0 {
+        let message = unsafe { std::ffi::CStr::from_ptr(error.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
+        return Err(if message.is_empty() {
+            "failed to pin the running executable image".into()
+        } else {
+            message
+        });
+    }
+    Ok(unsafe { std::fs::File::from_raw_handle(handle as *mut std::ffi::c_void) })
+}
+
+#[cfg(not(any(unix, windows)))]
 pub fn open_pinned_self_image() -> Result<std::fs::File, String> {
     Err("pinned self-image acquisition is unsupported on this target".into())
 }
@@ -140,8 +169,6 @@ fn capture_engine_artifact_identity(
 ) -> Result<LoadedEngineBinaryIdentity, String> {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine as _;
-    use sha2::{Digest as _, Sha256};
-    use std::io::Read as _;
 
     let path = std::fs::canonicalize(candidate_path).map_err(|error| {
         format!(
@@ -175,17 +202,7 @@ fn capture_engine_artifact_identity(
     }
     let object = engine_object_identity(&file, &metadata)?;
     verify_mapping(&metadata, &object)?;
-    let mut hash = Sha256::new();
-    let mut chunk = [0u8; 64 * 1024];
-    loop {
-        let read = file
-            .read(&mut chunk)
-            .map_err(|error| format!("failed to hash loaded Hermes artifact: {error}"))?;
-        if read == 0 {
-            break;
-        }
-        hash.update(&chunk[..read]);
-    }
+    let hash = hash_open_file_sha256(&mut file, metadata.len())?;
     let after = file
         .metadata()
         .map_err(|error| format!("failed to revalidate loaded Hermes artifact: {error}"))?;
@@ -202,7 +219,7 @@ fn capture_engine_artifact_identity(
     if changed {
         return Err("loaded Hermes artifact changed while it was authenticated".into());
     }
-    let digest = format!("sha256-{}", URL_SAFE_NO_PAD.encode(hash.finalize()));
+    let digest = format!("sha256-{}", URL_SAFE_NO_PAD.encode(hash));
     Ok(LoadedEngineBinaryIdentity {
         engine_artifact_path: path,
         kind: "hermes".into(),
@@ -211,6 +228,45 @@ fn capture_engine_artifact_identity(
         target_architecture: std::env::consts::ARCH.to_owned(),
         structural_features: loaded_engine_structural_features(),
     })
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub(crate) fn hash_open_file_sha256(
+    file: &mut std::fs::File,
+    expected_size: u64,
+) -> Result<[u8; 32], String> {
+    use std::os::fd::AsRawFd as _;
+
+    let mut digest = [0u8; 32];
+    if unsafe {
+        ibex_private_apple_sha256_fd_v1(file.as_raw_fd(), expected_size, digest.as_mut_ptr())
+    } != 1
+    {
+        return Err("failed to hash the complete pinned file".into());
+    }
+    Ok(digest)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+pub(crate) fn hash_open_file_sha256(
+    file: &mut std::fs::File,
+    _expected_size: u64,
+) -> Result<[u8; 32], String> {
+    use sha2::{Digest as _, Sha256};
+    use std::io::Read as _;
+
+    let mut hash = Sha256::new();
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut chunk)
+            .map_err(|error| format!("failed to hash loaded Hermes artifact: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        hash.update(&chunk[..read]);
+    }
+    Ok(hash.finalize().into())
 }
 
 pub fn loaded_engine_structural_features() -> Vec<String> {
@@ -294,6 +350,27 @@ fn verify_loaded_mapping_object(
     Ok(())
 }
 
+#[cfg(all(target_os = "ios", feature = "capsec-simulator-performance-observer"))]
+fn verify_loaded_mapping_object(
+    metadata: &std::fs::Metadata,
+    _object: &capsec_semantics::model::ObjectIdentity,
+) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let mut device = 0u64;
+    let mut inode = 0u64;
+    if unsafe { ex_hermes_engine_mapped_object(&mut device, &mut inode) } != 1 {
+        return Err("failed to authenticate the mapped Hermes simulator __text image".into());
+    }
+    if device != metadata.dev() || inode != metadata.ino() {
+        return Err(
+            "loaded Hermes path names a different object than the authenticated simulator image"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 #[cfg(windows)]
 fn verify_loaded_mapping_object(
     _metadata: &std::fs::Metadata,
@@ -324,6 +401,7 @@ fn verify_loaded_mapping_object(
     target_os = "linux",
     target_os = "android",
     target_os = "macos",
+    all(target_os = "ios", feature = "capsec-simulator-performance-observer"),
     windows
 )))]
 fn verify_loaded_mapping_object(
@@ -575,6 +653,24 @@ pub fn take_callback_pending() -> bool {
 mod tests {
     use std::ffi::{c_void, CStr, CString};
     use std::os::raw::c_char;
+
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[test]
+    fn apple_open_file_sha256_matches_portable_digest() {
+        use sha2::{Digest as _, Sha256};
+        use std::io::Write as _;
+
+        for bytes in [
+            Vec::new(),
+            (0u8..=255).cycle().take(1_000_123).collect::<Vec<_>>(),
+        ] {
+            let mut file = tempfile::tempfile().expect("digest fixture");
+            file.write_all(&bytes).expect("write digest fixture");
+            let observed = super::hash_open_file_sha256(&mut file, bytes.len() as u64)
+                .expect("hash open file");
+            assert_eq!(observed.as_slice(), Sha256::digest(&bytes).as_slice());
+        }
+    }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
@@ -4254,8 +4350,7 @@ function collect() {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
             loop {
                 ex_hermes_poll(runtime, ex_hermes_now_ms());
-                let (_, settled) =
-                    eval(runtime, "String(globalThis.__done + globalThis.__fail)");
+                let (_, settled) = eval(runtime, "String(globalThis.__done + globalThis.__fail)");
                 if settled.as_deref() == Some(want.as_str()) {
                     break;
                 }

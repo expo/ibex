@@ -7,7 +7,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 subject="$repo_root/scripts/apply-hermes-patches.sh"
 pinned_commit="ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138"
-reviewed_final_tree="a6e9b222128ab97f9b740839e354f8edd357a388"
+reviewed_final_tree="15b3441654de0bf5ed6ceaac8f69e61e57175437"
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/ibex-hermes-patch-test.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
@@ -213,7 +213,7 @@ mkdir -p "$fixture_source/ignored"
 printf 'unreviewed generated source\n' >"$fixture_source/ignored/injected.cpp"
 expect_rejected "ignored untracked input" "complete checkout does not match any verified stack prefix"
 
-# Replay the checked-in 12-patch stack against the real pin. A caller may point
+# Replay the checked-in 13-patch stack against the real pin. A caller may point
 # IBEX_HERMES_TEST_SOURCE_REPO at an existing object cache; otherwise this
 # focused integration test fetches only the pinned commit.
 real_source="$work/real-hermes"
@@ -230,9 +230,9 @@ fi
 real_base_tree="$(git -C "$real_source" write-tree)"
 if "$subject" "$real_source" >"$work/real-first.out" 2>&1 \
   && grep -q "final tree: $reviewed_final_tree" "$work/real-first.out"; then
-  ok "real 12-patch stack replays to the reviewed final tree"
+  ok "real 13-patch stack replays to the reviewed final tree"
 else
-  bad "real 12-patch stack replays to the reviewed final tree"
+  bad "real 13-patch stack replays to the reviewed final tree"
   sed -n '1,40p' "$work/real-first.out" >&2
 fi
 if [[ "$(git -C "$real_source" write-tree)" == "$real_base_tree" ]]; then
@@ -241,7 +241,7 @@ else
   bad "real stack replay preserves the checkout index"
 fi
 if "$subject" "$real_source" >"$work/real-second.out" 2>&1 \
-  && [[ "$(grep -c '^\[patches\] already applied:' "$work/real-second.out")" -eq 12 ]] \
+  && [[ "$(grep -c '^\[patches\] already applied:' "$work/real-second.out")" -eq 13 ]] \
   && grep -q "final tree: $reviewed_final_tree" "$work/real-second.out"; then
   ok "real fully applied stack is idempotent"
 else

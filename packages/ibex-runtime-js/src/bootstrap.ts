@@ -1290,24 +1290,15 @@ export function installGlobals(): void {
   // ========================================
   // LAZY: localStorage, sessionStorage
   // ========================================
-  const hasNativeStorage = installSQLiteStorageModule(g);
-  if (hasNativeStorage) {
-    Object.defineProperty(g, 'localStorage', {
-      value: localStorage,
-      writable: true,
-      configurable: true,
-      enumerable: true,
-    });
-    Object.defineProperty(g, 'sessionStorage', {
-      value: sessionStorage,
-      writable: true,
-      configurable: true,
-      enumerable: true,
-    });
-  } else {
-    defineLazyGlobal(g, 'localStorage', () => localStorage);
-    defineLazyGlobal(g, 'sessionStorage', () => sessionStorage);
-  }
+  installSQLiteStorageModule(g);
+  // Keep the Storage Proxies behind accessors even when the native SQLite
+  // backend is available. Trusted descriptor-graph verification records
+  // accessors without invoking them; publishing the Proxy as a data value
+  // would make reflective own-key inspection materialize persistent storage
+  // during bootstrap.
+  // @ref LLP 0040#verification
+  defineLazyGlobal(g, 'localStorage', () => localStorage);
+  defineLazyGlobal(g, 'sessionStorage', () => sessionStorage);
 
   // ========================================
   // Scheduling bridge

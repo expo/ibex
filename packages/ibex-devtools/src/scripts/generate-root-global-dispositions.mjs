@@ -81,8 +81,6 @@ function logicalPathText(property) {
 
 const CONDITIONAL_LIVE_SWEEP_ACTIVATIONS = new Set([
   "authenticated-exact-host-ingress",
-  "authenticated-webgpu-decoded-image",
-  "authenticated-webgpu-provider",
 ]);
 
 const EVALUATED_NATIVE_SCRIPT_ROOTS = Object.freeze([

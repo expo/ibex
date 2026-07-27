@@ -461,6 +461,13 @@ describe('promise rejection tracking executor wrap (ENG-23140 #11)', () => {
     expect('__OriginalPromise' in g).toBe(false);
   });
 
+  test('the wrapped Promise constructor cannot be called without new', () => {
+    const shell = Object.create(g.Promise.prototype);
+    expect(() => g.Promise.call(shell, () => {})).toThrow(
+      'Promises must be constructed via new',
+    );
+  });
+
   // Observe the tracker's pending-unhandled map directly (the ENG-22985 test
   // pattern) rather than letting the rejection stay unhandled long enough for
   // the event dispatch: Bun's test runner fails any test with a genuinely

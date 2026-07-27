@@ -78,7 +78,6 @@ describe("root-global disposition manifest", () => {
       surface("__exactOnRejectionHandled"),
       surface("__exactOnUnhandledRejection"),
       surface("__exactProcessIpcBootstrap"),
-      surface("__ibexCaptureGpuNativeBridge"),
       surface("__exactProcessIpcBootstrap.close", {
         globalName: "__exactProcessIpcBootstrap",
         memberName: "close",
@@ -111,16 +110,6 @@ describe("root-global disposition manifest", () => {
     });
     expect(privateExit.registryEdgeId).toBe("edge.exactexit");
     expect(privateExit.installId).toMatch(/^root-global\.exactexit\./u);
-    expect(
-      manifest.rows.find(
-        (row) =>
-          row.observedKey === "native-op:__ibexCaptureGpuNativeBridge",
-      ),
-    ).toMatchObject({
-      disposition: "private",
-      privateConsumer: "authenticated-webgpu-provider-construction-handoff",
-      liveExpectation: "absent",
-    });
     expect(
       manifest.rows.find(
         (row) => row.observedKey === "native-op:__exactCompatModes",
@@ -415,25 +404,6 @@ describe("root-global disposition manifest", () => {
         globalName: "process",
         memberName: "stdout.write",
       }),
-      surface("global:GPUDevice", {
-        globalName: "GPUDevice",
-        sourceRefs: [
-          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:GPUDevice",
-        ],
-      }),
-      surface("global:navigator.gpu", {
-        globalName: "navigator",
-        memberName: "gpu",
-        sourceRefs: [
-          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:navigator.gpu",
-        ],
-      }),
-      surface("global:createImageBitmap", {
-        globalName: "createImageBitmap",
-        sourceRefs: [
-          "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:createImageBitmap",
-        ],
-      }),
     ];
     const manifest = buildRootGlobalDispositionManifest({
       globals: conditional,
@@ -465,31 +435,7 @@ describe("root-global disposition manifest", () => {
         (row) => row.observedKey === "native-op:global:process.stdout.write",
       ).branch.activation,
     ).toBe("legacy-runtime-fallback");
-    expect(activation("GPUDevice")).toBe("authenticated-webgpu-provider");
-    expect(
-      manifest.rows.find(
-        (row) => row.observedKey === "native-op:global:navigator.gpu",
-      ).branch.activation,
-    ).toBe("authenticated-webgpu-provider");
-    expect(activation("createImageBitmap")).toBe(
-      "authenticated-webgpu-decoded-image",
-    );
     expect(manifest.status).toBe("enforced-by-armed-live-sweep");
-  });
-
-  test("rejects unreviewed helper-driven authenticated root names", () => {
-    const unreviewed = surface("global:WebGpuSurprise", {
-      globalName: "WebGpuSurprise",
-      sourceRefs: [
-        "packages/ibex-runtime-js/src/webgpu/production-wrapper.ts#installValue:globals:WebGpuSurprise",
-      ],
-    });
-    expect(() =>
-      buildRootGlobalDispositionManifest({
-        globals: [unreviewed],
-        coverage: coverage([unreviewed]),
-      }),
-    ).toThrow(/unreviewed authenticated WebGPU root installation/u);
   });
 
   test("rejects a same-spelling Exact ingress from an unreviewed source", () => {
