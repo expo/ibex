@@ -13239,8 +13239,11 @@ pub(crate) mod tests {
         );
 
         let session = ingress.session.clone();
+        // The timeout guards a hang (a graph that never wakes without a JS
+        // timer), not latency: keep it wide so parallel-suite CPU saturation
+        // cannot false-fail the wake.
         let evaluation = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
+            std::time::Duration::from_secs(30),
             engine.evaluate_authenticated_module_graph(
                 &session,
                 request,
