@@ -428,6 +428,12 @@ fn diagnostic_with(registry: *const c_void) -> Option<Runtime> {
     Runtime::diagnostic(registry)
 }
 
+fn diagnostic_with_closed_host(registry: *const c_void) -> Option<Runtime> {
+    let host = crate::host::Host::closed_unarmed();
+    assert_ne!(crate::host::abi::install_host(host), 0);
+    Runtime::diagnostic(registry)
+}
+
 fn construct_authenticated_runtime(conformance_fixture: bool) -> Option<Runtime> {
     construct_authenticated_runtime_with_host(conformance_fixture).map(|(runtime, _)| runtime)
 }
@@ -676,6 +682,20 @@ fn bootstrap_cannot_publish_an_undeclared_loader_module() {
         0,
         "the installer ran after bootstrap module injection"
     );
+}
+
+#[test]
+fn diagnostic_registry_construction_does_not_materialize_lazy_storage() {
+    let _host_guard = crate::host::abi::host_test_lock();
+    reset();
+    let registry = unsafe { ibex_runtime_extension_conformance_registry_v1() };
+    let runtime = diagnostic_with_closed_host(registry)
+        .expect("diagnostic extension construction must not require storage authority");
+    assert_eq!(unsafe { ibex_runtime_extension_count_v1(runtime.0) }, 1);
+    assert_eq!(counter(COUNTER_INSTALL), 1);
+    drop(runtime);
+    assert_eq!(counter(COUNTER_QUIESCE), 1);
+    assert_eq!(counter(COUNTER_CLOSE), 1);
 }
 
 #[test]
