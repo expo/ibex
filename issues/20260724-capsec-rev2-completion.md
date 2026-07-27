@@ -2442,12 +2442,61 @@ ticket closes.
   final eight-criterion LLP 0021 audit and the exact-target advertisement/report
   contradiction, not a known open Windows filesystem or network effect path.
 
+### 2026-07-26 — closed process-wide diagnostics and domain builtin registries
+
+- The final LLP 0021 audit found that two wholly closed builtin source
+  families remained importable whenever an authenticated snapshot listed them.
+  `node:diagnostics_channel` exposes a process-wide publication registry, and
+  legacy `node:domain` exposes process-wide execution-context mutation. Their
+  roots and every inventoried export are closed, so neither family has a
+  supported operation that an armed principal must retain.
+- The artifact-independent armed import boundary now denies both bare and
+  `node:` spellings before module evaluation, even under a deliberately
+  overbroad authenticated snapshot. The direct closure harness covers all 15
+  diagnostics-channel and all 16 domain source/alias facets. This raises the
+  exact terminal-builtin tranche from 106 to **137** rows on both targets.
+- This is intentionally not a mechanical conversion of every closed builtin
+  root into an import denial. Mixed modules such as `assert`, `crypto`, and
+  `events` still contain supported export operations; their remaining
+  import-time and export-route work must be separated or guarded without
+  deleting supported capability-bearing APIs.
+- The M5 MacBook Air generated the Apple catalog with digest
+  `sha256-5GGNB3f6QWE6GbBW39e_wa7VFpez2_-ckfZJQ-0Dpu4`: 23,846 required /
+  2,830 fully executable / 3,136 internally verified / 17,880 unresolved.
+  Its loaded-engine closed batch passes **732/732**, including **137/137**
+  terminal rows, with no typed or legacy authorization observation. The
+  evidence file SHA-256 is
+  `97de44d4e0eac2ceacd5554126e4e3139a067de2a8fe67626e1348c515db361d`.
+- The physical Windows NucBox independently generated digest
+  `sha256-yKG3PBJ7PdtstDTf-cgVTdVn7DEYAzp_uvebgF7LWPU`: 23,505 required /
+  2,484 fully executable / 3,122 internally verified / 17,899 unresolved.
+  Its no-debugger patched Hermes batch passes **711/711**, including
+  **137/137** terminal rows and the exact 15/16 diagnostics/domain split, with
+  zero typed and zero legacy observations. The engine digest is
+  `sha256-xqWHmqF0mGjVqhS8bUI7Av9fiP84rE8Zj23kOq9JJw8`; the evidence file
+  SHA-256 is
+  `3fb49ce993cba10bd0207944b7861780978a58eb8874157d27d620831d2b40d4`.
+- The eight-criterion audit now has current implementation evidence for
+  criteria 1–6 and 8. Criterion 7 is not complete under the plan's publication
+  intent: the advertisement set is empty, and LLP 0021 requires the ordinary
+  supported command to flip only after at least one exact advertised target
+  has a complete source-, engine-, and report-bound conformance result. Empty
+  advertisements are fail-closed safety, not vacuous completion evidence.
+- Hard part: a source-derived `closed` label does not by itself justify
+  deleting an entire module. Module-wide closure is sound only when every
+  public operation in the source family is closed and the import itself is the
+  terminal; mixed modules require route-level enforcement. Important
+  enforcement mechanisms are about **99.7% complete** and the overall
+  requested task remains about **95% complete**, with exact-target public
+  report completion now the dominant remaining program.
+
 ## Next milestone
 
-Run the final LLP 0021 eight-criterion audit against the rebased source,
-physical Apple/Windows evidence, generated target cells, and empty
-advertisement set. Reconcile whether criterion 7's literal empty-set condition
-is sufficient or whether the plan's release/claim intent still requires one
-fully reported advertised target. Do not advertise a target while exact-target
-public-evidence rows remain unresolved, and do not convert catalog labels into
-completion evidence.
+Continue the exact-target report program without advertising either target:
+select the highest-leverage residual public-evidence family, add a
+source-bound executor only where it reaches the real production route, and
+regenerate both target catalogs. Prioritize startup environment and loader
+families after separating operations that can be safely executed from those
+that must remain closed. Do not treat the empty advertisement set as criterion
+7 completion, and do not convert catalog labels or generic failed imports into
+public execution evidence.

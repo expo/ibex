@@ -1347,6 +1347,11 @@ pub(super) async fn execute_exact_fixture_runtime_observation(
 fn reviewed_terminal_builtin(source_key: &str) -> Option<(&'static str, &'static [&'static str])> {
     Some(match source_key {
         "node_async_hooks" => ("async_hooks", &["async_hooks", "node:async_hooks"]),
+        "node_diagnostics_channel" => (
+            "diagnostics_channel",
+            &["diagnostics_channel", "node:diagnostics_channel"],
+        ),
+        "node_domain" => ("domain", &["domain", "node:domain"]),
         "node_inspector" => (
             "inspector",
             &[
@@ -4298,8 +4303,8 @@ async fn capsec_public_closed_recipe_batch() {
         "expected the armed module namespace inspection closure fixture"
     );
     assert_eq!(
-        terminal_builtin_count, 106,
-        "expected every source facet of the five terminal builtin modules"
+        terminal_builtin_count, 137,
+        "expected every source facet of the seven terminal builtin modules"
     );
     assert_eq!(
         sqlite_extension_load_count, 2,

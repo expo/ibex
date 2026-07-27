@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-26 (the artifact-independent armed import boundary now closes the process-wide `node:diagnostics_channel` and legacy `node:domain` registries alongside the previously terminal runtime-inspection and execution builtins, even under an authenticated overbroad snapshot; 31 additional source and alias facets per exact target execute as direct closed-import evidence, bringing the terminal-builtin tranche to 137 without converting imports that still contain supported export operations into module-wide denials)
 **Revised:** 2026-07-26 (the residual installed Windows filesystem plane now refuses armed execution before path conversion, descriptor lookup, caller-buffer acquisition, worker dispatch, or legacy capability probing: whole-file write, mkdir, realpath, readlink, access, truncate, statfs, path/descriptor async whole-file write, every generic async path/stat operation, and the JavaScript synchronous writev fallback all return structured EPERM; the already typed retained-object routes remain unchanged)
 **Revised:** 2026-07-26 (armed POSIX and Windows `__exactFsWriteAsync` / `__exactFsWritevAsync` now retain bounded caller input and submit one exact-object `fs:write` Repeat on the filesystem worker immediately before their sole scalar or aggregate mutation; Windows restricts the typed worker route to an existing append-only retained file, and both Windows descriptor durability surfaces plus their POSIX counterparts use distinct public-edge Repeats immediately before flushing, promoting eight async-write recipes on both targets and eight additional durability recipes on Windows)
 **Revised:** 2026-07-26 (armed Windows TCP now authorizes requested host/port before DNS, every member of the complete canonical candidate set before connect, and the verified `getpeername` peer at Commit; retained socket identity and connection id bind generation-aware Repeat to each read/write while the registry lock prevents close/reuse races, and five connect plus three lifecycle recipes become executable)
@@ -1779,20 +1780,24 @@ Parent-side extra stdio is a bounded, backpressure-aware full-duplex stream:
 `destroy` releases both directions. Production child environment and inherited
 stdio effects remain closed pending their typed conjunctive spawn implementation.
 The armed import gate also carries an artifact-independent terminal-builtin
-deny set for `async_hooks`, `inspector`, `vm`, `wasi`, and `worker_threads`
-(including `node:` aliases and subpaths). A deliberately overbroad but
-otherwise authenticated snapshot cannot re-enable those runtime-inspection,
-VM, WASI, or worker escape surfaces; ordinary typed builtins such as `node:fs`
-remain governed by the snapshot import policy.
+deny set for `async_hooks`, `diagnostics_channel`, `domain`, `inspector`, `vm`,
+`wasi`, and `worker_threads` (including `node:` aliases and subpaths). A
+deliberately overbroad but otherwise authenticated snapshot cannot re-enable
+those runtime-inspection, process-wide publication/context, VM, WASI, or worker
+escape surfaces; ordinary typed builtins such as `node:fs` remain governed by
+the snapshot import policy. This module-wide closure is limited to source
+families whose root and every export are closed. A mixed module with supported
+operations is not terminal-denied merely because some of its import-time or
+export routes remain closed.
 For a terminal builtin with no downstream static call-graph terminal, the
 authenticated import gate is itself the runtime terminal. Its closure recipe
 therefore may have one exact surface key and zero route alternatives. Evidence
 accepts that direct route only for the terminal-builtin import operation, only
 when the recipe is the closed scenario, and only when the runtime-derived key
-equals that sole bound surface. The complete Apple run at `510ba04e` executed
-all 106 terminal-builtin source and alias facets successfully before exposing
-the former validator contradiction; the retained evidence digests remain
-unchanged under the corrected rule. A missing surface binding still fails
+equals that sole bound surface. The original complete Apple run at `510ba04e`
+executed all 106 facets in the first five source families before exposing the
+former validator contradiction. Current exact-target batches execute 137
+facets across all seven families. A missing surface binding still fails
 closed rather than turning an empty alternative set into wildcard authority.
 On-disk `.node` native-addon and `.wasm` module candidates now refuse in the
 native resolver before their bytes are read into the JavaScript compilation

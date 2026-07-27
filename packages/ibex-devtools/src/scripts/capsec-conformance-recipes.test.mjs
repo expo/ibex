@@ -346,12 +346,12 @@ describe("exact-target CapSec executable recipes", () => {
     // contribute four retained-descriptor scenarios apiece. Descriptor denial
     // remains residual because the harness cannot prepare its source descriptor
     // under a denied matching floor.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_799);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_830);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_911);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_880);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -461,9 +461,9 @@ describe("exact-target CapSec executable recipes", () => {
     // the same floor that the scenario denies. Typed synchronous TCP connect
     // adds its five staged public scenarios, and its exact typed setup promotes
     // the three ownership-only lifecycle consumers.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_453);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_484);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_930);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_899);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -864,7 +864,7 @@ describe("exact-target CapSec executable recipes", () => {
           "capsec_public_closed_recipe_batch",
         ),
       ),
-    ).toHaveLength(680);
+    ).toHaveLength(711);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -3834,7 +3834,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "terminal-builtin-import",
     );
-    expect(rows).toHaveLength(106);
+    expect(rows).toHaveLength(137);
     expect(
       Object.entries(
         Object.groupBy(
@@ -3847,6 +3847,8 @@ describe("exact-target CapSec executable recipes", () => {
         .sort(),
     ).toEqual([
       ["async_hooks", 25],
+      ["diagnostics_channel", 15],
+      ["domain", 16],
       ["inspector", 22],
       ["vm", 11],
       ["wasi", 7],

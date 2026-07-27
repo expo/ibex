@@ -82,6 +82,11 @@ const TAMED_EVALUATOR_ACCESS = new Map([
 const TERMINAL_BUILTIN_SPECIFIERS = new Map([
   ["node_async_hooks", ["async_hooks", "node:async_hooks"]],
   [
+    "node_diagnostics_channel",
+    ["diagnostics_channel", "node:diagnostics_channel"],
+  ],
+  ["node_domain", ["domain", "node:domain"]],
+  [
     "node_inspector",
     [
       "inspector",

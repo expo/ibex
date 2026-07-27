@@ -7767,10 +7767,16 @@ fn typed_import_allowed(
 ) -> bool {
     let without_node = specifier.strip_prefix("node:").unwrap_or(specifier);
     let builtin_root = without_node.split('/').next().unwrap_or(without_node);
-    // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces — Terminal builtins remain absent even if an authenticated artifact erroneously lists them.
+    // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces — Terminal builtins, including the process-wide diagnostics and domain registries, remain absent even if an authenticated artifact erroneously lists them.
     if matches!(
         builtin_root,
-        "async_hooks" | "inspector" | "vm" | "wasi" | "worker_threads"
+        "async_hooks"
+            | "diagnostics_channel"
+            | "domain"
+            | "inspector"
+            | "vm"
+            | "wasi"
+            | "worker_threads"
     ) {
         return false;
     }
@@ -12410,6 +12416,8 @@ mod tests {
         let host = example_armed_host_with(|value| {
             value["principals"][1]["imports"]["builtins"] = serde_json::json!([
                 "node:async_hooks",
+                "node:diagnostics_channel",
+                "node:domain",
                 "node:fs",
                 "node:inspector",
                 "node:inspector/promises",
@@ -12428,6 +12436,10 @@ mod tests {
         for specifier in [
             "async_hooks",
             "node:async_hooks",
+            "diagnostics_channel",
+            "node:diagnostics_channel",
+            "domain",
+            "node:domain",
             "inspector",
             "node:inspector/promises",
             "vm",
