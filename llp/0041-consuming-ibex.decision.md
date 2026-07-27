@@ -1,10 +1,14 @@
-# LLP 0040: How Exact and Snapback Consume Ibex
+# LLP 0041: How Exact and Snapback Consume Ibex
 
 **Type:** Decision
 **Status:** Review
 **Systems:** Build, Release, CapSec, Product
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-07-27
+**Revised:** 2026-07-27 (renumbered 0040 -> 0041: a concurrent landing
+claimed 0040 for the native runtime-extension SDK and ~15 code annotations
+already pointed at it, so this document moved; content unchanged, and the
+round-3 dual-READY verdicts still bind to the reviewed body)
 **Revised:** 2026-07-27 (round-2 delta review: step 0 corrected — the pin IS
 advertised on origin, incidentally, by the Hermes artifact-cache tag
 `hermes-ac8c6e6c80ec-bcd8ab683229`, and the step now replaces incidental

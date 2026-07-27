@@ -1,6 +1,6 @@
-# Reviews of LLP 0040 — How Exact and Snapback Consume Ibex (Codex/OpenAI family)
+# Reviews of LLP 0041 — How Exact and Snapback Consume Ibex (Codex/OpenAI family)
 
-Review artifacts for `llp/0040-consuming-ibex.decision.md`, recorded per
+Review artifacts for `llp/0041-consuming-ibex.decision.md`, recorded per
 [LLP 0005](https://github.com/ccheever/llp/blob/main/llp/0005-rfc-process.guide.md).
 One `## Round N` section per round, appended, never overwritten.
 
@@ -18,7 +18,7 @@ One `## Round N` section per round, appended, never overwritten.
 - **Reasoning effort:** `high` (`-c 'model_reasoning_effort="high"'`).
 - **Date:** 2026-07-27
 - **Revision under review:** `e7a988c9d605`
-  (`shasum -a 256 llp/0040-consuming-ibex.decision.md | cut -c1-12`)
+  (`shasum -a 256 llp/0041-consuming-ibex.decision.md | cut -c1-12`)
 - **Authorization:** The directing author (Charlie Cheever) invoked
   `/llp-super-refine` on this document in the orchestrating session; he is
   the human with repository-disclosure authority for this external send, and
@@ -27,7 +27,7 @@ One `## Round N` section per round, appended, never overwritten.
 - **Redacted:** No. The reviewer ran read-only against the repository
   working tree.
 - **Independence:** Fresh non-interactive Codex session with no access to
-  the concurrent Fable review of the same revision and no prior LLP 0040
+  the concurrent Fable review of the same revision and no prior LLP 0041
   review artifact (none existed — this is round 1). Instructed not to read
   `llp/reviews/` or scratchpad notes; that exclusion is instruction-based
   and therefore self-attested.
