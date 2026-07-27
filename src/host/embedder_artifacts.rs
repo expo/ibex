@@ -466,6 +466,8 @@ fn materialize_protected_artifact(
 /// build-time digest of the exact canonical bytes. Any missing or doubtful
 /// artifact falls back to byte-identical materialization; a present but
 /// mismatched artifact is then rejected by that path.
+/// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+/// — reuse is permitted only after full byte and object authentication.
 fn pin_precomputed_registry_artifact(
     cache_root: &Path,
     digest_name: &Digest,
@@ -1282,6 +1284,122 @@ mod tests {
             super::super::object_identity_for_host_path(&path).unwrap(),
             content_digest(bytes),
         )
+    }
+
+    fn precomputed_registry_cache_path(
+        cache_root: &std::path::Path,
+        digest: &Digest,
+    ) -> std::path::PathBuf {
+        let directory = cache_root.join("capsec-artifacts");
+        std::fs::create_dir_all(&directory).unwrap();
+        directory.join(format!(
+            "{}.registry.json",
+            digest.as_str().trim_start_matches("sha256-")
+        ))
+    }
+
+    fn freeze_test_artifact(path: &std::path::Path) {
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            permissions.set_mode(0o400);
+        }
+        #[cfg(not(unix))]
+        permissions.set_readonly(true);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[test]
+    fn precomputed_registry_constants_are_self_consistent() {
+        let expected_len = CAPSEC_REGISTRY_RECORD_CONTENT_LEN
+            .trim()
+            .parse::<usize>()
+            .unwrap();
+        assert_eq!(CAPSEC_REGISTRY_RECORD_JCS.len(), expected_len);
+        assert_eq!(
+            content_digest(CAPSEC_REGISTRY_RECORD_JCS).as_str(),
+            CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST.trim()
+        );
+        let record: serde_json::Value = serde_json::from_slice(CAPSEC_REGISTRY_RECORD_JCS).unwrap();
+        let (_, checked_registry_digest) = checked_identity_digests().unwrap();
+        assert_eq!(
+            record["registryDigest"].as_str(),
+            Some(checked_registry_digest.as_str())
+        );
+    }
+
+    #[test]
+    fn precomputed_registry_cache_hit_reauthenticates_immutable_bytes() {
+        let temp = tempfile::tempdir().unwrap();
+        let (_, registry_digest) = checked_identity_digests().unwrap();
+        let content_digest = Digest::new(CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST.trim()).unwrap();
+        let path = precomputed_registry_cache_path(temp.path(), &registry_digest);
+        std::fs::write(&path, CAPSEC_REGISTRY_RECORD_JCS).unwrap();
+        freeze_test_artifact(&path);
+
+        let pinned = pin_precomputed_registry_artifact(temp.path(), &registry_digest)
+            .unwrap()
+            .expect("valid immutable registry cache hit");
+        let canonical_path = std::fs::canonicalize(&path).unwrap();
+        assert_eq!(pinned.host_path, absolute_host_path(&canonical_path));
+        assert_eq!(
+            pinned.object,
+            super::super::object_identity_for_host_path(&canonical_path).unwrap()
+        );
+        assert_eq!(pinned.content_digest, content_digest);
+    }
+
+    #[test]
+    fn precomputed_registry_cache_rejects_mutable_or_mismatched_files() {
+        let (_, registry_digest) = checked_identity_digests().unwrap();
+
+        let mutable = tempfile::tempdir().unwrap();
+        let mutable_path = precomputed_registry_cache_path(mutable.path(), &registry_digest);
+        std::fs::write(&mutable_path, CAPSEC_REGISTRY_RECORD_JCS).unwrap();
+        assert!(
+            pin_precomputed_registry_artifact(mutable.path(), &registry_digest)
+                .unwrap()
+                .is_none()
+        );
+
+        let mismatched = tempfile::tempdir().unwrap();
+        let mismatched_path = precomputed_registry_cache_path(mismatched.path(), &registry_digest);
+        let file = std::fs::File::create(&mismatched_path).unwrap();
+        file.set_len(
+            CAPSEC_REGISTRY_RECORD_CONTENT_LEN
+                .trim()
+                .parse::<u64>()
+                .unwrap(),
+        )
+        .unwrap();
+        drop(file);
+        freeze_test_artifact(&mismatched_path);
+        assert!(
+            pin_precomputed_registry_artifact(mismatched.path(), &registry_digest)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn precomputed_registry_cache_rejects_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let (_, registry_digest) = checked_identity_digests().unwrap();
+        let path = precomputed_registry_cache_path(temp.path(), &registry_digest);
+        let target = temp.path().join("registry-target");
+        std::fs::write(&target, CAPSEC_REGISTRY_RECORD_JCS).unwrap();
+        freeze_test_artifact(&target);
+        symlink(&target, &path).unwrap();
+
+        assert!(
+            pin_precomputed_registry_artifact(temp.path(), &registry_digest)
+                .unwrap()
+                .is_none()
+        );
     }
 
     fn real_embedder_fixture() -> RealEmbedderFixture {
