@@ -125,7 +125,8 @@ and a dot-separated export path. Registry admission rejects empty or repeated
 `#` separators, malformed export segments, and fragments whose owner is not a
 declared global or module. Module/export entries remain outside the global-key
 seal projection; their authority comes from the authenticated module and
-operation inventories.
+operation inventories. CapSec authority-template/capsule validation applies
+the same owner and segment grammar before authenticating those inventories.
 
 The registry declares an extension-set digest, authority-capsule digest, and
 executable-selection identity. Ibex rejects the complete registry before
@@ -607,7 +608,11 @@ Tests must cover:
     and active-query exports on Mach-O, ELF, and PE/COFF listings, including
     undefined-only, prefix/suffix-collision, and tool-failure refusals; and
 27. construction with a declared module/export operation entry, plus refusal
-    of undeclared-owner and malformed-export variants before installation.
+    of undeclared-owner and malformed-export variants before installation; and
+28. CapSec authority-template/capsule validation using the same ASCII
+    global/member, exact-module, and owner/export grammar as native registry
+    admission, including malformed global descendants, malformed export
+    segments, and cross-owner borrowing.
 
 Before any extension bootstrap or installer runs, Ibex retains the pristine
 `Object.getOwnPropertyNames`, `Object.getOwnPropertySymbols`,

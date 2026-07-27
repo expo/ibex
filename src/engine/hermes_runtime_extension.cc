@@ -167,11 +167,16 @@ bool validIdentifierSegment(const std::string &segment) {
   if (segment.empty())
     return false;
   const auto first = static_cast<unsigned char>(segment.front());
-  if (!(std::isalpha(first) || first == '_' || first == '$'))
+  const auto asciiAlpha = [](unsigned char byte) {
+    return (byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z');
+  };
+  if (!(asciiAlpha(first) || first == '_' || first == '$'))
     return false;
   return std::all_of(segment.begin() + 1, segment.end(),
-                     [](unsigned char byte) {
-                       return std::isalnum(byte) || byte == '_' || byte == '$';
+                     [&asciiAlpha](unsigned char byte) {
+                       return asciiAlpha(byte) ||
+                              (byte >= '0' && byte <= '9') || byte == '_' ||
+                              byte == '$';
                      });
 }
 

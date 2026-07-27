@@ -130,9 +130,10 @@ typedef struct IbexRuntimeExtensionOperationV1 {
   size_t resource_kind_count;
   /*
    * Complete JS-triggerable native entry path. Global/member operations use
-   * dot-separated identifiers (for example AcmeDevice.submit). A declared
-   * module may be named directly or followed by a '#' and a dot-separated
-   * export path (for example acme/device#submit).
+   * dot-separated identifiers (for example AcmeDevice.submit), while a
+   * module may be named directly. A declared global or module owner may be
+   * followed by a '#' and a dot-separated export path (for example
+   * acme/device#submit).
    */
   const char* js_entry_path;
   uint32_t flags;

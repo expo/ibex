@@ -939,6 +939,9 @@ fn validate_descriptor<'a>(
     }
     for global in &descriptor.globals {
         validate_wire_string(global.name.as_str(), "runtime-extension global name")?;
+        if !is_dotted_identifier_path(global.name.as_str()) {
+            return refused("runtime-extension global name is not a dotted identifier path");
+        }
         if global_names
             .iter()
             .any(|existing| global_paths_overlap(existing.as_str(), global.name.as_str()))
@@ -968,6 +971,13 @@ fn validate_descriptor<'a>(
             operation.js_entry_path.as_str(),
             "runtime-extension operation JS entry path",
         )?;
+        if !is_owned_operation_entry_path(
+            operation.js_entry_path.as_str(),
+            &descriptor.globals,
+            &descriptor.modules,
+        ) {
+            return refused("runtime-extension operation JS entry path is malformed or unowned");
+        }
         if operation.semantics.as_str() != RUNTIME_EXTENSION_INVOKE_SEMANTICS {
             return refused("runtime-extension operation names unsupported effect semantics");
         }
@@ -1040,6 +1050,49 @@ fn global_paths_overlap(left: &str, right: &str) -> bool {
         || right
             .strip_prefix(left)
             .is_some_and(|suffix| suffix.starts_with('.'))
+}
+
+fn is_dotted_identifier_path(path: &str) -> bool {
+    path.split('.').all(|segment| {
+        let Some((&first, rest)) = segment.as_bytes().split_first() else {
+            return false;
+        };
+        (first.is_ascii_alphabetic() || first == b'_' || first == b'$')
+            && rest
+                .iter()
+                .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'$')
+    })
+}
+
+fn is_owned_operation_entry_path(
+    path: &str,
+    globals: &[RuntimeExtensionGlobal],
+    modules: &[RuntimeExtensionModule],
+) -> bool {
+    if let Some((owner, export_path)) = path.split_once('#') {
+        if owner.is_empty() || export_path.is_empty() || export_path.contains('#') {
+            return false;
+        }
+        return is_dotted_identifier_path(export_path)
+            && (globals.iter().any(|global| global.name.as_str() == owner)
+                || modules
+                    .iter()
+                    .any(|module| module.specifier.as_str() == owner));
+    }
+
+    if modules
+        .iter()
+        .any(|module| module.specifier.as_str() == path)
+    {
+        return true;
+    }
+    is_dotted_identifier_path(path)
+        && globals.iter().any(|global| {
+            path == global.name.as_str()
+                || path
+                    .strip_prefix(global.name.as_str())
+                    .is_some_and(|suffix| suffix.starts_with('.'))
+        })
 }
 
 fn validate_wire_string(value: &str, label: &str) -> Result<()> {
@@ -1362,6 +1415,71 @@ mod tests {
         );
         assert!(capsule.authority_class("other.echo", "echo").is_none());
         assert!(capsule.authority_class("acme.echo", "other").is_none());
+    }
+
+    #[test]
+    fn operation_entry_paths_are_closed_to_declared_globals_and_modules() {
+        for js_entry_path in [
+            "AcmeEcho",
+            "AcmeEcho.echo",
+            "AcmeEcho#echo",
+            "AcmeEcho#$private.nested",
+            "acme:echo",
+            "acme:echo#echo",
+            "acme:echo#echo.nested",
+        ] {
+            let mut capsule = unsigned_capsule();
+            capsule.descriptors[0].authority_fragment.operations[0].js_entry_path =
+                NonEmptyString::new(js_entry_path).unwrap();
+            validate_authority_contents(&capsule.descriptors, &capsule.linked_artifacts)
+                .unwrap_or_else(|error| panic!("valid entry path {js_entry_path}: {error}"));
+        }
+
+        for js_entry_path in [
+            "AcmeEcho..echo",
+            "AcmeEcho.",
+            "AcmeEcho.foo/bar",
+            "AcmeEcho.foo-bar",
+            "AcmeEcho.1bad",
+            "AcmeEcho.child#echo",
+            "acme:echo#bad..export",
+            "acme:echo#bad.",
+            "acme:echo#",
+            "acme:echo##echo",
+            "undeclared:module#echo",
+            "Undeclared.echo",
+        ] {
+            let mut capsule = unsigned_capsule();
+            capsule.descriptors[0].authority_fragment.operations[0].js_entry_path =
+                NonEmptyString::new(js_entry_path).unwrap();
+            let error =
+                validate_authority_contents(&capsule.descriptors, &capsule.linked_artifacts)
+                    .unwrap_err()
+                    .to_string();
+            assert!(
+                error.contains("operation JS entry path"),
+                "invalid entry path {js_entry_path}: {error}"
+            );
+        }
+
+        let mut malformed_global = unsigned_capsule();
+        malformed_global.descriptors[0].globals[0].name =
+            NonEmptyString::new("AcmeEcho..nested").unwrap();
+        let error = validate_authority_contents(
+            &malformed_global.descriptors,
+            &malformed_global.linked_artifacts,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("dotted identifier path"), "{error}");
+
+        let mut authenticated_malformed = signed_capsule();
+        authenticated_malformed.descriptors[0]
+            .authority_fragment
+            .operations[0]
+            .js_entry_path = NonEmptyString::new("acme:echo#bad..export").unwrap();
+        let error = authenticated_malformed.validate().unwrap_err().to_string();
+        assert!(error.contains("operation JS entry path"), "{error}");
     }
 
     #[test]
