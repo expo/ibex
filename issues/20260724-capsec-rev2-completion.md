@@ -3325,6 +3325,56 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — executed exact bounded crypto random-data routes
+
+- Promoted seven more exact `exact_crypto` calls: the synchronous
+  `prng`/`pseudoRandomBytes`/`randomBytes`/`rng` aliases request four bytes,
+  `randomInt` uses the bounded range `[0, 1024)`, `randomFillSync` fills a
+  harness-owned four-byte `Uint8Array`, and `randomFill` fills the same owned
+  shape before its completion callback reaches quiescence. Together with
+  `getRandomValues` and `randomUUID`, the exact crypto allowlist now contains
+  nine physically executed routes; the absent RSA aliases remain residual.
+- The captured set is now **145** routes: 72 calls, 17 constructions, and 56
+  property gets across 20 source families. Each new route binds the inventoried
+  export descriptor, exercises the authenticated random-bytes bridge, proves a
+  normal return and owned cleanup, reaches quiescence, and records zero
+  decisions.
+- Apple catalog digest
+  `sha256-hSrtxBVy1T5oCmSlO8c6wv5IYZz--gKb3zsWXu1q-Vo` reports 23,847 required /
+  **3,518 fully executable** / 3,136 internally verified / 17,193 unresolved.
+  The M5 MacBook Air static-Hermes batch passes **1,226/1,226**: 34 isolated
+  module imports, 1,047 established exports, and all 145 captured routes. It
+  binds engine digest
+  `sha256-3_7KDIgLCqYJI7BYS4h1rMub5L7IkAyMPBsC3IZi4yk`; the evidence-file
+  SHA-256 is
+  `1bccbfd4df12aa6eb868e4ea8e814a5b159590a32e5d836bc3498cace3d8633f`,
+  and independent validation produced execution digest
+  `sha256-eDyDkf1Dw3zCECxLI4ZWrhY0v1D6Jf5-73MiT2rK96k`.
+- Windows catalog digest
+  `sha256-lBbpXLc9xV_xEg0-Nm-SRTi9KL7sHqJ8M3uY6buBd-o` reports 23,506 required /
+  **3,177 fully executable** / 3,122 internally verified / 17,207 unresolved.
+  The NucBox strict stale-vendored batch passes **1,190/1,190**: 34 isolated
+  imports, 1,011 established exports, and the same 145 captured routes. It
+  binds engine digest
+  `sha256-X3YZyvzEJ1RgMNkEPjbfLC1X4hkKzmmw_82UQKV854Q`; the evidence-file
+  SHA-256 is
+  `f7166cefabc821a7626fc986a67b2538cfef234a6a25c16b23359bdc682dc715`,
+  and independent validation produced execution digest
+  `sha256-Xq47O0DmZzhgvFM1seZ_UStsrYXpg2csvltvSxP_-ow`.
+- Both independent aggregates bind source revision
+  `da40805d00f33e74307b8bf7e0b4ca23b654f257` and tree digest
+  `sha256-r14pS3J1oWcmScQx-FSmsPRtkQ1E0RL0wu4edQRCkxQ`. The focused evidence
+  suite passes **152/152** with 125,933 assertions.
+- Hard part: several deprecated random-data aliases are non-enumerable but are
+  still exact inventoried public descriptors. They can share one bounded
+  fixture only because each name is independently source-bound and physically
+  executed. The asynchronous fill additionally requires callback quiescence;
+  a successful call alone would not prove that its harness-owned buffer and
+  callback lifecycle were complete.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

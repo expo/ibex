@@ -134,14 +134,14 @@ describe("builtin non-capability/closed output recipes", () => {
     ).toMatchObject({
       total: 613,
       operations: {
-        call: 291,
+        call: 297,
         construct: 18,
         "import-refusal": 22,
-        unexercisable: 282,
+        unexercisable: 276,
       },
       residualReasons: {
         "codec-route-retains-native-or-deferred-stream-state": 73,
-        "crypto-route-needs-authentic-key-cipher-or-callback-fixture": 12,
+        "crypto-route-needs-authentic-key-cipher-or-callback-fixture": 6,
         "no-bounded-source-owned-receiver": 50,
         "receiver-needs-external-or-network-lifecycle": 86,
         "runtime-inspection-or-escape-surface-has-no-safe-receiver": 61,

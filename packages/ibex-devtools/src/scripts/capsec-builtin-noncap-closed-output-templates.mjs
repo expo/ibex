@@ -65,14 +65,21 @@ const CONFORMANCE_CAPTURED_SOURCE_OPERATIONS = new Map([
   ["node_stream", new Set(["get"])],
 ]);
 const CONFORMANCE_CAPTURED_EXACT_EXPORT_OPERATIONS = new Map([
-  // Physical Apple execution proves these helpers are loaded and return
-  // normally. The inventoried publicEncrypt/privateDecrypt names are absent
-  // from the loaded public descriptor and therefore remain residual.
+  // Physical Apple execution proved that the inventoried
+  // publicEncrypt/privateDecrypt names are absent from the loaded public
+  // descriptor. Keep this allowlist exact so those aliases remain residual.
   [
     "exact_crypto",
     new Map([
       ["getRandomValues", new Set(["call"])],
+      ["prng", new Set(["call"])],
+      ["pseudoRandomBytes", new Set(["call"])],
+      ["randomBytes", new Set(["call"])],
+      ["randomFill", new Set(["call"])],
+      ["randomFillSync", new Set(["call"])],
+      ["randomInt", new Set(["call"])],
       ["randomUUID", new Set(["call"])],
+      ["rng", new Set(["call"])],
     ]),
   ],
   [
@@ -1326,10 +1333,27 @@ function cryptoRoute(exportName, valueShape) {
       { kind: "async-callback-quiescence" },
     );
   }
+  if (
+    new Set(["prng", "pseudoRandomBytes", "randomBytes", "rng"]).has(
+      exportName,
+    )
+  ) {
+    return capturePublicBuiltinOutcome(rootCall([json(4)]));
+  }
+  if (exportName === "randomInt") {
+    return capturePublicBuiltinOutcome(rootCall([json(0), json(1024)]));
+  }
+  if (exportName === "randomFillSync") {
+    return capturePublicBuiltinOutcome(
+      rootCall([uint8Array([0, 0, 0, 0])]),
+    );
+  }
   if (exportName === "randomFill") {
-    return rootCall([uint8Array([0, 0, 0, 0]), completionCallback()], {
-      kind: "async-callback-quiescence",
-    });
+    return capturePublicBuiltinOutcome(
+      rootCall([uint8Array([0, 0, 0, 0]), completionCallback()], {
+        kind: "async-callback-quiescence",
+      }),
+    );
   }
   if (exportName === "hkdf") {
     return rootCall(
