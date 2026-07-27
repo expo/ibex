@@ -1,11 +1,11 @@
 # Armed observer test batches fail confusingly on the default (insecure) build
 
-**Status:** Open
+**Status:** Closed (2026-07-27 — armed observer batches cfg-gated off insecure builds; run-tests.sh gained --secure)
 **Severity:** P3
 **Systems:** Engine, Build, Testing
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-07-27
-**Related:** LLP 0039 (insecure default; mode-divergence risk), LLP 0018 (test entry point), [closed/20260726-capsec-regen-chain-broken](./closed/20260726-capsec-regen-chain-broken.md)
+**Related:** LLP 0039 (insecure default; mode-divergence risk), LLP 0018 (test entry point), [closed/20260726-capsec-regen-chain-broken](./20260726-capsec-regen-chain-broken.md)
 
 ## Problem
 
@@ -34,9 +34,9 @@ fail instead of being excluded or skipping loudly.
 ## History this corrects
 
 The "45 failing `--bin ibex` observer tests" recorded on 2026-07-26 in
-[closed/20260726-capsec-regen-chain-broken](./closed/20260726-capsec-regen-chain-broken.md)
+[closed/20260726-capsec-regen-chain-broken](./20260726-capsec-regen-chain-broken.md)
 and
-[closed/20260726-native-fetch-jsi-last-owner-race](./closed/20260726-native-fetch-jsi-last-owner-race.md)
+[closed/20260726-native-fetch-jsi-last-owner-race](./20260726-native-fetch-jsi-last-owner-race.md)
 were **mostly** this artifact. Measured 2026-07-27 at 43ef63e9: the default
 (insecure) build fails 44; the explicit secure build fails 8, of which one
 (`public_os_read_denial_stops_before_commit_and_data_access`) passes when
@@ -45,7 +45,7 @@ seven fail identically on pre-landing main (3c1f24b3, verified in a clean
 worktree with the same secure feature set), so they are pre-existing red
 tests, not identity drift and not introduced by the 2026-07-26/27 landings —
 tracked separately in
-[20260727-secure-observer-suite-seven-red-tests](./closed/20260727-secure-observer-suite-seven-red-tests.md).
+[20260727-secure-observer-suite-seven-red-tests](./20260727-secure-observer-suite-seven-red-tests.md).
 So: 36 of the 44 are the insecure-default artifact this ticket covers.
 
 ## Fix options (pick one)
@@ -65,3 +65,26 @@ Option 1 is the least surprising: the tests are meaningless under
 `insecure`, and LLP 0039's mode-divergence risk section already anticipates
 mode-conditional coverage. Whichever lands should also note the invocation
 in LLP 0039.
+
+## Resolution — 2026-07-27
+
+Options 1 and 3 landed together:
+
+- **cfg-gate (option 1):** every observer test that fails on an
+  insecure-default build — 40 as measured after the seven real reds were
+  fixed — now carries `#[cfg(not(feature = "insecure"))]`, extending the
+  LLP 0039 precedent already applied to five lib tests. A default
+  (insecure) observer build compiles without the armed/capsec conformance
+  batches and its `--bin ibex` suite runs green; the secure build still
+  contains and passes all of them (620 non-ignored, serially).
+- **run-tests.sh --secure (option 3):** the LLP 0018 test entry point now
+  accepts `--secure`, which expands to
+  `--no-default-features --features standard,...` so the armed suites have
+  a one-flag sanctioned invocation:
+  `scripts/run-tests.sh --secure --features capsec-conformance-observer
+  --scope bin -- --test-threads=1`.
+- LLP 0039 §"Secure mode must stay exercised" records the extended gating
+  and the invocation.
+
+Option 2 (runtime mode assert) was unnecessary once the tests no longer
+compile into insecure builds.

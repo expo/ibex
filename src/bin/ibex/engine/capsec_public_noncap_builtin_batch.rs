@@ -1895,6 +1895,7 @@ fn mixed_public_catalog_selects_before_strict_builtin_decode() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[cfg(not(feature = "insecure"))]
 async fn noncap_observer_covers_source_entry_and_ready_work_through_completion() {
     let _lock = hermes_engine_test_lock().lock().await;
     let (host, digest) =
@@ -2036,6 +2037,7 @@ async fn authenticated_builtin_source_observer_rejects_wrong_alias_and_cache_hit
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[cfg(not(feature = "insecure"))]
 async fn manifest_builtin_fanout_preserves_terminal_authority_checks() {
     let temp = tempfile::tempdir().expect("create builtin terminal fixture root");
     let root = std::fs::canonicalize(temp.path()).expect("canonicalize builtin terminal root");

@@ -122,6 +122,18 @@ Tests scoped away from `insecure` now run in an ordinary default suite. The
 separate secure-mode gate remains necessary because it also compiles the
 unadvertised development posture and executes behavioral denial probes.
 
+The same scoping now covers the `--bin ibex` armed/capsec conformance batches
+(2026-07-27, after forty of them spent days failing confusingly on
+insecure-default observer builds and were briefly misdiagnosed as engine
+drift): every observer test that asserts secure-armed semantics carries
+`#[cfg(not(feature = "insecure"))]`, so a default build simply does not
+contain them. The suite they belong to runs on an explicit secure build —
+`scripts/run-tests.sh --secure --features capsec-conformance-observer
+--scope bin -- --test-threads=1` (the `--secure` flag supplies
+`--no-default-features --features standard,...`; serial because the batches
+share process-global environment variables). The full story is in
+`issues/closed/20260727-armed-observer-suite-needs-secure-build.md`.
+
 This is the failure mode of every two-track system where one track is optional.
 Mitigations, in rough priority:
 

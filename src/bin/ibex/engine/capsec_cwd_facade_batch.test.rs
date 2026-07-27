@@ -79,6 +79,7 @@ fn package_fixture_binding(
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[cfg(not(feature = "insecure"))]
 async fn builtin_process_chdir_does_not_observe_after_a_successful_mutation() {
     let _lock = hermes_engine_test_lock().lock().await;
     let temp = tempfile::tempdir().unwrap();
@@ -155,6 +156,7 @@ async fn builtin_process_chdir_does_not_observe_after_a_successful_mutation() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[cfg(not(feature = "insecure"))]
 async fn builtin_process_chdir_denial_does_not_trigger_cwd_observation() {
     let _lock = hermes_engine_test_lock().lock().await;
     let temp = tempfile::tempdir().unwrap();
@@ -206,6 +208,7 @@ async fn builtin_process_chdir_denial_does_not_trigger_cwd_observation() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[cfg(not(feature = "insecure"))]
 async fn empty_referrer_relative_require_uses_the_authenticated_virtual_cwd() {
     let _lock = hermes_engine_test_lock().lock().await;
     let temp = tempfile::tempdir().unwrap();
@@ -242,6 +245,7 @@ async fn empty_referrer_relative_require_uses_the_authenticated_virtual_cwd() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[cfg(not(feature = "insecure"))]
 async fn cwd_denial_stops_empty_referrer_module_entry_points_before_resolution() {
     let _lock = hermes_engine_test_lock().lock().await;
     let temp = tempfile::tempdir().unwrap();
@@ -294,6 +298,7 @@ async fn cwd_denial_stops_empty_referrer_module_entry_points_before_resolution()
 // SourceId retains identity, not the authority of the principal that warmed it.
 #[cfg(unix)]
 #[tokio::test(flavor = "current_thread")]
+#[cfg(not(feature = "insecure"))]
 async fn authenticated_resolution_memo_reauthorizes_root_and_exact_locator_targets() {
     let _lock = hermes_engine_test_lock().lock().await;
     let temp = tempfile::tempdir().unwrap();

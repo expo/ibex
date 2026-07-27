@@ -2737,6 +2737,7 @@ fn smoke_recipe(scenario: &str) -> Recipe {
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[cfg(not(feature = "insecure"))]
 async fn capsec_callback_invariant_mechanisms_smoke() {
     let _lock = hermes_engine_test_lock().lock().await;
     let package = prepare_package_fixture();

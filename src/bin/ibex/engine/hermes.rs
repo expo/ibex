@@ -16727,6 +16727,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_exact_ingress_activation_rejects_forged_js_projection() {
         let _lock = hermes_engine_test_lock().lock().await;
         let (_reset, digest) = install_armed_test_host();
@@ -17460,6 +17461,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_fs_builtin_uses_sealed_bootstrap_mutation_guard() {
         let _lock = hermes_engine_test_lock().lock().await;
         let root = std::env::temp_dir().join(format!(
@@ -17982,6 +17984,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn authenticated_package_promise_and_native_completion_never_launder_to_root() {
         use capsec_semantics::model::{LogicalPath, LogicalRoot, Principal};
         use ibex_runtime::engine::evaluation::SubmissionSequence;
@@ -18603,6 +18606,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_root_global_disposition_rejects_extra_accessor_without_get() {
         struct ResetDispositionInjection;
         impl Drop for ResetDispositionInjection {
@@ -18746,6 +18750,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_exact_memory_sqlite_is_a_zero_decision_non_capability() {
         let _lock = hermes_engine_test_lock().lock().await;
         let (_reset, digest) = install_armed_test_host();
@@ -19521,6 +19526,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn public_os_reads_reach_their_exact_typed_native_gates() {
         let _lock = hermes_engine_test_lock().lock().await;
         let floors = [
@@ -19707,6 +19713,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn public_os_read_denial_stops_before_commit_and_data_access() {
         let _lock = hermes_engine_test_lock().lock().await;
         let (host, digest) =
@@ -19835,6 +19842,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn concurrent_equal_digest_runtimes_claim_their_exact_installed_host() {
         let _lock = hermes_engine_test_lock().lock().await;
         let tempdir = tempfile::tempdir().unwrap();
@@ -20020,6 +20028,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_process_environment_and_signal_surfaces_stay_closed() {
         let _lock = hermes_engine_test_lock().lock().await;
         let original_cwd = std::env::current_dir().unwrap();
@@ -20172,6 +20181,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_tcp_connect_commits_and_rechecks_the_actual_peer() {
         use std::io::Read;
         use std::net::TcpListener;
@@ -20405,6 +20415,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_udp_send_authorizes_each_literal_datagram_peer() {
         use std::net::UdpSocket;
 
@@ -20459,6 +20470,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_udp_repeat_lease_is_bounded_and_generation_checked() {
         use std::net::UdpSocket;
 
@@ -20578,6 +20590,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_unported_network_surfaces_refuse_synchronously_and_unix_listen_leaves_no_path() {
         let _lock = hermes_engine_test_lock().lock().await;
         let fetch_listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
@@ -20695,6 +20708,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_fs_open_authorizes_create_truncate_and_repeated_write() {
         let _lock = hermes_engine_test_lock().lock().await;
         let root = std::env::temp_dir().join(format!(
@@ -20896,6 +20910,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_large_reads_use_generation_checked_descriptor_leases() {
         let _lock = hermes_engine_test_lock().lock().await;
         let root = std::env::temp_dir().join(format!(
@@ -22192,6 +22207,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_read_stops_after_dynamic_authority_is_revoked_mid_stream() {
         use std::os::unix::fs::MetadataExt;
 
@@ -22393,6 +22409,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_fs_open_denial_cannot_truncate_or_create() {
         let _lock = hermes_engine_test_lock().lock().await;
         let root = std::env::temp_dir().join(format!(
@@ -22678,6 +22695,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_fs_list_denial_prevents_metadata_and_directory_disclosure() {
         let _lock = hermes_engine_test_lock().lock().await;
         let root = std::env::temp_dir().join(format!(
@@ -22722,6 +22740,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_fs_open_rejects_parent_and_final_symlink_escape() {
         use std::os::unix::fs::symlink;
 
@@ -22850,6 +22869,7 @@ navigator.gpu.requestAdapter()
     }
 
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn retained_sqlite_statements_reuse_generation_checked_authorization() {
         let _lock = hermes_engine_test_lock().lock().await;
         let directory = tempfile::tempdir().unwrap();
@@ -24457,6 +24477,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_prepared_mutations_are_committed_leases_and_drain_on_teardown() {
         const CHILD_ENV: &str = "IBEX_TEST_ARMED_COMMITTED_FS_LEASE_CHILD";
         const TEST_NAME: &str = "engine::hermes::tests::armed_prepared_mutations_are_committed_leases_and_drain_on_teardown";
@@ -24644,6 +24665,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_committed_preparation_preserves_typed_failure_codes() {
         let _guard = hermes_engine_test_lock().lock().await;
         let _throw_enqueue = TestEnvVar::remove("IBEX_TEST_FS_WORKER_THROW_ENQUEUE");
@@ -24715,6 +24737,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_requested_denial_and_outside_path_cross_no_lookup_syscall() {
         let _guard = hermes_engine_test_lock().lock().await;
         let tempdir = tempfile::tempdir().unwrap();
@@ -24813,6 +24836,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn armed_discovered_denied_absent_target_is_not_probed() {
         let _guard = hermes_engine_test_lock().lock().await;
         let tempdir = tempfile::tempdir().unwrap();
@@ -24913,6 +24937,7 @@ navigator.gpu.requestAdapter()
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn diagnostic_allow_all_cannot_use_or_close_an_armed_runtime_fd_or_socket() {
         let _guard = hermes_engine_test_lock().lock().await;
         let tempdir = tempfile::tempdir().unwrap();

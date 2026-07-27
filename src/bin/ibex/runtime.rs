@@ -13190,6 +13190,7 @@ pub(crate) mod tests {
         )
     ))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn authenticated_native_tla_wakes_from_host_io_without_a_javascript_timer() {
         use ibex_runtime::module_loader::identity::SourceId;
 
@@ -13265,6 +13266,7 @@ pub(crate) mod tests {
         )
     ))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn authenticated_commonjs_require_uses_call_time_compatibility_vfs_context() {
         let _lock = crate::engine::hermes::hermes_engine_test_lock()
             .lock()
@@ -15289,6 +15291,7 @@ pub(crate) mod tests {
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
+    #[cfg(not(feature = "insecure"))]
     async fn repl_ingress_uses_native_runtime_cwd_after_chdir() {
         use crate::engine::{AuthenticatedDisplayKind, AuthenticatedEvaluation};
         use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
@@ -16618,6 +16621,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(feature = "insecure"))]
     async fn default_and_explicit_enforce_refuse_the_same_unadvertised_target() {
         let _lock = crate::engine::hermes::hermes_engine_test_lock()
             .lock()
@@ -16646,6 +16650,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(feature = "insecure"))]
     async fn default_arming_ingests_only_digest_valid_canonical_policy() {
         let _lock = crate::engine::hermes::hermes_engine_test_lock()
             .lock()

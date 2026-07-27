@@ -7892,6 +7892,7 @@ fn host_abi_path_outputs_persist_only_validated_class_markers() {
 }
 
 #[test]
+#[cfg(not(feature = "insecure"))]
 fn legacy_host_path_variants_and_readdir_emit_only_bounded_observations() {
     let rows = [
         (
