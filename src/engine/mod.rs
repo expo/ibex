@@ -305,7 +305,7 @@ fn verify_loaded_mapping_object(
     let mut device = 0u64;
     let mut inode = 0u64;
     if unsafe { ex_hermes_engine_mapped_object(&mut device, &mut inode) } != 1 {
-        return Err("failed to authenticate the mapped Hermes simulator __TEXT image".into());
+        return Err("failed to authenticate the mapped Hermes simulator __text image".into());
     }
     if device != metadata.dev() || inode != metadata.ino() {
         return Err(

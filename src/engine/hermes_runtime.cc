@@ -7028,7 +7028,7 @@ bool simulatorHermesMappedObject(uint64_t* outDevice, uint64_t* outInode) {
   }
   if (!loaderImageMatched) return false;
 
-  const segment_command_64* text = nullptr;
+  const section_64* textCode = nullptr;
   const uint8_t* commandBytes =
       reinterpret_cast<const uint8_t*>(header + 1);
   const uint8_t* commandLimit = commandBytes + header->sizeofcmds;
@@ -7044,14 +7044,34 @@ bool simulatorHermesMappedObject(uint64_t* outDevice, uint64_t* outInode) {
         command->cmdsize >= sizeof(segment_command_64)) {
       const auto* segment =
           reinterpret_cast<const segment_command_64*>(command);
-      if (std::strncmp(segment->segname, "__TEXT", 16) == 0) {
-        text = segment;
+      const uint64_t sectionBytes =
+          static_cast<uint64_t>(segment->nsects) * sizeof(section_64);
+      if (sectionBytes > command->cmdsize - sizeof(segment_command_64)) {
+        return false;
+      }
+      const auto* sections =
+          reinterpret_cast<const section_64*>(segment + 1);
+      for (uint32_t sectionIndex = 0;
+           sectionIndex < segment->nsects;
+           ++sectionIndex) {
+        if (std::strncmp(sections[sectionIndex].segname, "__TEXT", 16) == 0 &&
+            std::strncmp(sections[sectionIndex].sectname, "__text", 16) == 0) {
+          textCode = &sections[sectionIndex];
+        }
       }
     }
     commandBytes += command->cmdsize;
   }
-  if (text == nullptr || text->filesize == 0 ||
-      text->filesize > SIZE_MAX) {
+  const uintptr_t factoryAddress =
+      reinterpret_cast<uintptr_t>(reinterpret_cast<void*>(factory));
+  if (textCode == nullptr || textCode->size == 0 ||
+      textCode->size > SIZE_MAX) {
+    return false;
+  }
+  const uintptr_t mappedTextAddress =
+      static_cast<uintptr_t>(textCode->addr) + slide;
+  if (factoryAddress < mappedTextAddress ||
+      factoryAddress - mappedTextAddress >= textCode->size) {
     return false;
   }
 
@@ -7061,18 +7081,18 @@ bool simulatorHermesMappedObject(uint64_t* outDevice, uint64_t* outInode) {
   bool matched =
       fstat(fd, &opened) == 0 && S_ISREG(opened.st_mode) &&
       opened.st_size >= 0 &&
-      text->fileoff <= static_cast<uint64_t>(opened.st_size) &&
-      text->filesize <=
-          static_cast<uint64_t>(opened.st_size) - text->fileoff;
+      textCode->offset <= static_cast<uint64_t>(opened.st_size) &&
+      textCode->size <=
+          static_cast<uint64_t>(opened.st_size) - textCode->offset;
   std::vector<uint8_t> fileBytes(64 * 1024);
-  const auto* mappedBytes = reinterpret_cast<const uint8_t*>(
-      static_cast<uintptr_t>(text->vmaddr) + slide);
+  const auto* mappedBytes =
+      reinterpret_cast<const uint8_t*>(mappedTextAddress);
   uint64_t compared = 0;
-  while (matched && compared < text->filesize) {
+  while (matched && compared < textCode->size) {
     const size_t requested = static_cast<size_t>(
-        std::min<uint64_t>(fileBytes.size(), text->filesize - compared));
+        std::min<uint64_t>(fileBytes.size(), textCode->size - compared));
     const ssize_t read =
-        pread(fd, fileBytes.data(), requested, text->fileoff + compared);
+        pread(fd, fileBytes.data(), requested, textCode->offset + compared);
     if (read != static_cast<ssize_t>(requested) ||
         std::memcmp(fileBytes.data(), mappedBytes + compared, requested) != 0) {
       matched = false;
