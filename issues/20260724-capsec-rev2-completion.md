@@ -2360,17 +2360,33 @@ ticket closes.
   digest `sha256-XKT-SU_PYWl_kSIRKNKF0-FVyQZEZvaMB6L4NWYWBoY`, with 23,846
   required / 2,799 fully executable / 3,136 internally verified / 17,911
   unresolved rows. It also completed a fresh exact 12-patch, no-debugger
-  release Hermes build under the new Linux build-authority identity; physical
-  shard evidence is deliberately not claimed until the production batches
-  finish.
+  release Hermes build under the new Linux build-authority identity. The build
+  gate confirms that the selected framework exports no debugger symbols, and
+  the focused authenticated call-time edge plus synchronous CommonJS/ESM
+  provider regressions pass against that physical engine.
+- Both complete production native shards pass on the Air: **281 primary and
+  313 secondary fixtures**. The evidence artifacts bind engine digest
+  `sha256-3_7KDIgLCqYJI7BYS4h1rMub5L7IkAyMPBsC3IZi4yk` and catalog digest
+  `sha256-XKT-SU_PYWl_kSIRKNKF0-FVyQZEZvaMB6L4NWYWBoY`; their file SHA-256
+  values are
+  `9b39d68921a5ec212a2e563f1b52bb375c10310fffa20da4bd412183c806ffcc`
+  and
+  `7b79d7a09e4b5f42e89137e0aff6aa66d3dfeec205e01774ac5268fc49f8f050`.
+  Independent cross-shard validation accepts all **594/594** executions.
+- After the corpus-only checkpoint, the Air advanced to exact source
+  `88fe1a3339916ed7f1223dd0e51d1482f8014049` and independently regenerated
+  the identical catalog digest. Rebinding the already validated physical
+  batches to that clean source tree yields aggregate public-surface digest
+  `sha256-sd5mN86p6W5Rv6jm0RSgV51_-AI2G0cmfCc6QPPhIfc`; no product, recipe, or
+  engine bytes changed between the shard execution and that checkpoint.
 - Hard part: large generated-corpus shifts can make stale assertions look like
   implementation failures, but replacing assertions with looser inequalities
   would erase the independent partition check. Each new number was derived
   from the validated source corpus, and route-specific tests still prove that
   rows moved to the intended stricter author. Important enforcement mechanisms
   remain about **99.3% complete** and the overall requested task is about
-  **94% complete**, pending final-tip Apple evidence, the remaining Windows
-  route audit, and the LLP 0021 completion audit.
+  **94% complete**, pending the remaining Windows route audit and the LLP 0021
+  completion audit.
 
 ## Next milestone
 
