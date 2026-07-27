@@ -14,6 +14,14 @@
 //! The `ibex` binary wraps these in async Rust (via tokio). The iOS app calls the C API
 //! directly from Swift via the bridging header.
 
+#[cfg(all(feature = "capsec-simulator-performance-observer", debug_assertions))]
+compile_error!("capsec-simulator-performance-observer is unavailable in debug builds");
+#[cfg(all(
+    feature = "capsec-simulator-performance-observer",
+    not(all(target_os = "ios", any(target_arch = "x86_64", target_abi = "sim")))
+))]
+compile_error!("capsec-simulator-performance-observer is available only for iOS Simulator targets");
+
 // Keep libz-sys in the Windows link graph; the C++ zlib host functions call
 // zlib symbols directly.
 #[cfg(windows)]

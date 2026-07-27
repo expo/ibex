@@ -1860,6 +1860,9 @@ fn main() {
         build.define("IBEX_CAPSEC_CONFORMANCE_OBSERVER", None);
         build.file("src/engine/hermes_session_conformance.cc");
     }
+    if std::env::var_os("CARGO_FEATURE_CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER").is_some() {
+        build.define("IBEX_CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER", None);
+    }
     if std::env::var_os("CARGO_FEATURE_WEBGPU_BINDING").is_some() {
         build.define("IBEX_ENABLE_WEBGPU_BINDING", None);
     }

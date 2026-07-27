@@ -864,6 +864,43 @@ impl Host {
         )
     }
 
+    /// Ratified iOS-Simulator carrier-cost observer. This preserves every
+    /// production authenticator and substitutes only the report-derived target
+    /// cell join. It is absent from ordinary artifacts and cannot compile for
+    /// devices, desktop, or Debug.
+    #[cfg(feature = "capsec-simulator-performance-observer")]
+    #[doc(hidden)]
+    pub fn new_armed_for_capsec_simulator_performance_observer(
+        config: HostConfig,
+        armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
+    ) -> capsec_semantics::Result<Self> {
+        validate_loaded_engine_identity(&armed_snapshot)?;
+        validate_snapshot_protected_artifacts(&armed_snapshot)?;
+        let authenticated_package_sources = validate_snapshot_root_bindings(&armed_snapshot)?;
+        let target_cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
+            .iter()
+            .map(|edge| {
+                (
+                    (*edge).to_owned(),
+                    capsec_semantics::decision::TargetCellDisposition::Complete,
+                )
+            })
+            .collect();
+        let host = Self::new_armed_with_target_cells(
+            config,
+            armed_snapshot,
+            target_cells,
+            authenticated_package_sources,
+            capsec_semantics::decision::TargetArmState::CompleteAdvertised,
+            BTreeMap::new(),
+        )?;
+        eprintln!(
+            "[Ibex] CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER_V1: authenticated artifacts; report target cells substituted"
+        );
+        eprintln!("[Ibex] CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER_V1 stage=posture-verified");
+        Ok(host)
+    }
+
     /// Construct the closed-world Exact WebGPU Pre-1A product profile. This
     /// is deliberately separate from canonical public arming: the checked
     /// private registry supplies every admitted selector/cell, all other
