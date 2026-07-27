@@ -3442,33 +3442,50 @@ ticket closes.
   `installIpcListenerPatch`, `installOsInfoGlobals`, and
   `applyResOptionsTiming`. This removes three fictitious fixtures and two
   corresponding internal credits.
-- Final pre-merge Apple catalog digest
-  `sha256-3YPXUEtUaB59hXusgZ-ns3i-q7DBrJpksXdWgIm6K_4` reports 23,844 required /
+- The later simulator-observer merge exposed a second scanner collision:
+  Mach-O `__TEXT` / `__text` section metadata was being interpreted as a
+  private native operation. Those metadata tokens are now excluded, with a
+  regression that preserves discovery of real calls in the same source.
+- Final Apple catalog digest
+  `sha256-YwyEGiU906sxfdDbSQreOmeQUuFcp_FzeFgFj-x5qbQ` reports 23,844 required /
   **3,531 fully executable** / 3,134 internally verified / 17,179 unresolved.
-  The Air strict stale-vendored canonical-bundle batch passes **13/13**, binds
+  The M5 Air strict stale-vendored static-Hermes batch passes **13/13**, binds
   engine digest
-  `sha256-ENsutSxwrUwcn8iCj9MHG99Oaupv5oPCd6oT9W31Hc8`, and has evidence-file
+  `sha256-edkV5E9TkPlRLyGeO1uTBEHhBnHa4TBEwuRFw06KYR0`, and has evidence-file
   SHA-256
-  `20cae3eead5350c84b9040f7fc9150f6c7600e8ac1abfdf5b5d65e7c803ed0ec`.
+  `e58372da863002df8a5b6fc5a47787cf45b6dee8e57942b7540500ab5b6b327d`.
   Independent JavaScript validation accepts exactly 13 expected fixtures,
   13 distinct runtime nonces, one match per route, zero decisions, and
   execution digest
-  `sha256-JE-FBliM7lKpSWdB60f3cxgfWn60m0Mk9saymIagqmg` against the explicit
-  38-file working snapshot.
-- Final pre-merge Windows catalog digest
-  `sha256-sUY5cI42rMEQfi3WPHMYEgVv3oV0nEGnzMCcBukoqgg` reports 23,503 required /
+  `sha256-vlbNB6VtggBriqxsAKUsO6DOtsSzHejBRdtHlY2AXGE`.
+- Final Windows catalog digest
+  `sha256-Emt8544W78pVLMizBGhKaQt2tIJuqWE6Se383StPlu8` reports 23,503 required /
   **3,190 fully executable** / 3,120 internally verified / 17,193 unresolved.
-  Physical Windows execution is intentionally pending: `origin/main` advanced
-  to `11d15593` with an eight-commit simulator-observer tranche after Apple
-  validation, so this checkpoint will merge that source before either target
-  is treated as final.
+  The NucBox strict stale-vendored patched-Hermes batch passes **13/13**, binds
+  engine digest
+  `sha256-X3YZyvzEJ1RgMNkEPjbfLC1X4hkKzmmw_82UQKV854Q`, and has evidence-file
+  SHA-256
+  `02fbce841112a2941e321cc6f933b6f6426785e826d68dbad24ca7f1e5e82371`.
+  Independent JavaScript validation accepts the same exact 13 fixtures and 13
+  distinct nonces with execution digest
+  `sha256-GOQJC48eQzMOlr_LwVhiVX8iDAV8azAhBLWaz4AnJgc`.
+- Both aggregates bind source revision
+  `362e21c70f0b9ebcc7eccb0ed9cfa9f0c82a068d` and tree digest
+  `sha256-7Rdvzwm5tGaDVNqW1U9sUiyp1VabIIhRuCT_iN-uOPI`. The focused six-file
+  evidence suite passes **421/421** with 133,587 assertions; secure Cargo
+  checking, complete regeneration and generated-drift checking,
+  `cargo fmt --check`, `git diff --check`, and `ref-check` pass on the combined
+  source. Both catalogs retain empty advertisement arrays.
 - Hard parts: static reachability was a poor predictor of actual loader
   traversal, so the larger hypothesis had to be executed and reduced rather
-  than blessed. The Air's newer Bun also regenerated different runtime-bundle
-  bytes despite an identical source fingerprint; the accepted run therefore
-  restored the repository's canonical bundle and passed with regeneration
-  disabled plus strict stale-vendored checking. Moving `main` now requires
-  another regeneration and both target reruns.
+  than blessed. Moving `main` supplied an overlapping Release-simulator
+  performance observer and late loader-error changes; reconciliation retained
+  both authenticated source acquisition and the simulator-only observer, then
+  regenerated and reran both targets. The Air required explicit static linking
+  and debugger disablement. The NucBox first found an obsolete Hermes DLL
+  without the package-id export; pinned x64 `dumpbin` identified the correct
+  cached patched SDK, and a dropped SSH channel after the expensive link was
+  recovered by rerunning the exact warm binary to produce the final receipt.
 - Important enforcement mechanisms remain about **99.7% complete**, and the
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
