@@ -66,6 +66,28 @@ const CONFORMANCE_CAPTURED_SOURCE_OPERATIONS = new Map([
 ]);
 const CONFORMANCE_CAPTURED_EXACT_EXPORT_OPERATIONS = new Map([
   [
+    "exact_sqlite",
+    new Map([
+      ["Database._checkClosed", new Set(["call"])],
+      ["Database._closed", new Set(["get"])],
+      ["Database.inTransaction", new Set(["get"])],
+      ["SQLiteError", new Set(["construct"])],
+      ["SQLiteError.constructor", new Set(["construct"])],
+      ["Statement._checkFinalized", new Set(["call"])],
+      ["Statement._finalized", new Set(["get"])],
+      ["Statement._normalizeParams", new Set(["call"])],
+      ["Statement.as", new Set(["call"])],
+      ["Statement.columnTypes", new Set(["get"])],
+      ["Statement.declaredTypes", new Set(["get"])],
+      ["Statement.finalize", new Set(["call"])],
+      ["Statement.native", new Set(["get"])],
+      ["Statement.toString", new Set(["call"])],
+      ["default._checkClosed", new Set(["call"])],
+      ["default._closed", new Set(["get"])],
+      ["default.inTransaction", new Set(["get"])],
+    ]),
+  ],
+  [
     "node_http",
     new Map([
       ["_checkInvalidHeaderChar", new Set(["call"])],

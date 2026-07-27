@@ -349,21 +349,22 @@ describe("exact-target CapSec executable recipes", () => {
     // contribute four retained-descriptor scenarios apiece. Descriptor denial
     // remains residual because the harness cannot prepare its source descriptor
     // under a denied matching floor.
-    // One hundred four output-authored builtin routes now execute their exact
-    // inner source operation as decision-free evidence. This includes 41
-    // get-only reads on harness-owned stream instances and nine exact HTTP
-    // helper/constructor routes; stream calls, servers, sockets, and connection
-    // lifecycles remain residual. Physical Apple execution also retired stale
-    // crypto and zlib recipes that crashed or deliberately threw instead of
-    // returning; residual accounting must reflect both.
+    // One hundred twenty-one output-authored builtin routes now execute their
+    // exact inner source operation as decision-free evidence. This includes 41
+    // get-only reads on harness-owned stream instances, nine exact HTTP
+    // helper/constructor routes, and 17 exact in-memory SQLite routes; stream
+    // calls, servers, sockets, connection lifecycles, and unsupported SQLite
+    // deserialization remain residual. Physical Apple execution also retired
+    // stale crypto and zlib recipes that crashed or deliberately threw instead
+    // of returning; residual accounting must reflect both.
     // The principal environment Proxy adds the complete exact read/write
     // scenario matrix through its captured native bridges.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_465);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_482);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_246);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_229);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -472,13 +473,14 @@ describe("exact-target CapSec executable recipes", () => {
     // descriptor denial remains residual because its prerequisite handle needs
     // the same floor that the scenario denies. Typed synchronous TCP connect
     // adds its five staged public scenarios, and its exact typed setup promotes
-    // the three ownership-only lifecycle consumers. The same 104 captured
-    // output routes execute here, including the 41 get-only stream reads and
-    // nine exact HTTP helpers/constructors; target-local physical evidence
-    // also retires the unsafe or deliberately throwing crypto/zlib claims.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_124);
+    // the three ownership-only lifecycle consumers. The same 121 captured
+    // output routes execute here, including the 41 get-only stream reads, nine
+    // exact HTTP helpers/constructors, and 17 exact in-memory SQLite routes;
+    // target-local physical evidence also retires the unsafe or deliberately
+    // throwing crypto/zlib claims.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_141);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_260);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_243);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5179,7 +5181,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-builtin-noncap-captured-invocation/1",
     );
-    expect(captured).toHaveLength(104);
+    expect(captured).toHaveLength(121);
     expect(windowsCaptured.map((recipe) => recipe.fixtureId)).toEqual(
       captured.map((recipe) => recipe.fixtureId),
     );
@@ -5193,6 +5195,7 @@ describe("exact-target CapSec executable recipes", () => {
     ).toEqual(
       new Set([
         "exact_process",
+        "exact_sqlite",
         "node_buffer",
         "node_console",
         "node_events",
@@ -5218,7 +5221,7 @@ describe("exact-target CapSec executable recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ call: 44, construct: 12, get: 48 });
+    ).toEqual({ call: 51, construct: 14, get: 56 });
     const streamCaptured = captured.filter(
       (recipe) =>
         recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
@@ -5254,6 +5257,35 @@ describe("exact-target CapSec executable recipes", () => {
       "node_http:validateHeaderValue:call",
       "node_http2:getPackedSettings:call",
       "node_http2:getUnpackedSettings:call",
+    ]);
+    const sqliteCaptured = captured.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+        "exact_sqlite",
+    );
+    expect(
+      sqliteCaptured.map(
+        (recipe) =>
+          `${recipe.publicSurfaceProbe.invocation.sourceDescriptor.exportName}:${recipe.publicSurfaceProbe.invocation.capturedOutputInvocation.route.operation}`,
+      ),
+    ).toEqual([
+      "Database._checkClosed:call",
+      "Database._closed:get",
+      "Database.inTransaction:get",
+      "default._checkClosed:call",
+      "default._closed:get",
+      "default.inTransaction:get",
+      "SQLiteError:construct",
+      "SQLiteError.constructor:construct",
+      "Statement.as:call",
+      "Statement._checkFinalized:call",
+      "Statement.columnTypes:get",
+      "Statement.declaredTypes:get",
+      "Statement.finalize:call",
+      "Statement._finalized:get",
+      "Statement.native:get",
+      "Statement._normalizeParams:call",
+      "Statement.toString:call",
     ]);
     for (const recipe of captured) {
       const probe = recipe.publicSurfaceProbe;

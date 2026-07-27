@@ -2977,6 +2977,59 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-26 — executed exact in-memory SQLite value routes
+
+- Added 17 captured-output routes by exact `exact_sqlite` export and operation.
+  Fresh harness-owned `:memory:` databases prove `_checkClosed`, `_closed`, and
+  `inTransaction` on both the `Database` and default public owners. Fresh
+  `SELECT 1 AS value` statements prove `as`, `_checkFinalized`,
+  `_normalizeParams`, `finalize`, `toString`, `columnTypes`, `declaredTypes`,
+  `_finalized`, and `native`; the harness executes the statement before the
+  `declaredTypes` read and always finalizes the statement and closes its
+  database. `SQLiteError` and its inventoried constructor route use standalone
+  bounded values.
+- The admission policy names all 17 export/operation pairs. It does not admit
+  `exact_sqlite` generally, file-backed databases, extension loading, cr-sqlite
+  enablement, or any query/mutation family. The captured set is now **121**
+  routes: 51 calls, 14 constructions, and 56 property gets across 14 source
+  families.
+- Apple catalog digest
+  `sha256-XyEf2X86unMP8y_QcD6XcENbYMSRZGa_VSkY1XNCjCA` reports 23,847 required /
+  **3,482 fully executable** / 3,136 internally verified / 17,229 unresolved.
+  The M5 MacBook Air static-Hermes batch passes **1,202/1,202**: 34 isolated
+  module imports, 1,047 established exports, and all 121 captured routes. It
+  binds engine digest
+  `sha256-KxH8T10HAD6aW2BDb-NpVJxOnM5HuDZK-FrBuaDBo0w`; the evidence-file
+  SHA-256 is
+  `8c1dfc3064d579b3bb78d76ab879ff1d77f71fe25ca23de8df3e34390a04efa6`,
+  and independent validation produced execution digest
+  `sha256-ZUW9Zj6BN1BIytVGPX0TBcUbOVBaZGi7YFm2-2FvYV0`.
+- Windows catalog digest
+  `sha256-pngQJx_ssIHmfNrwygkua1ZoWMozAODgQGaQxAlaVuE` reports 23,506 required /
+  **3,141 fully executable** / 3,122 internally verified / 17,243 unresolved.
+  The NucBox strict stale-vendored batch passes **1,166/1,166**: 34 isolated
+  imports, 1,011 established exports, and the same 121 captured routes. It
+  binds engine digest
+  `sha256-xqWHmqF0mGjVqhS8bUI7Av9fiP84rE8Zj23kOq9JJw8`; the evidence-file
+  SHA-256 is
+  `dd14fddb3a20fe8476d4691f82541da48bd817faad01e71019d2d768dd83a9be`,
+  and independent validation produced execution digest
+  `sha256-IVaVfpNX12FHVyGJnX_nbwNNJ5-S6V93Zi64rfH4ZEw`.
+- Both independent aggregates bind source revision
+  `973712aafe2f4ca7b259f38b0f7f43351d507a8b` and tree digest
+  `sha256-Yac62hDty1ld2gu8kAYlGHmxxJJDbGsBLyT9aIw5szc`. The focused
+  recipe/template/evidence suite passes **152/152** with 125,408 assertions.
+- Hard part: the first physical tranche deliberately included the statically
+  bounded `deserialize` route. Both the route author and catalog accepted its
+  empty byte input, but the loaded Apple engine returned the explicit error
+  `Database deserialization not supported`. A deliberate throw is not a
+  normal-return proof, so `deserialize` was removed from the allowlist and
+  remains residual; both target batches were regenerated and rerun with the
+  exact 17-route set.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
