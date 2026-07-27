@@ -1,6 +1,6 @@
 # Draft the audit-admission Spec LLP
 
-**Status:** In Progress
+**Status:** Closed (2026-07-26 — LLP 0030 accepted)
 **Severity:** P2
 **Systems:** Security, Module Loader, Runtime
 **Author:** Claude (Fable 5), directed by Charlie Cheever
@@ -51,3 +51,21 @@ advertisements, and selects inline-only v1 admission. The same reviewer then
 spot-checked the revision, found C1–C8 resolved, and returned `VERDICT: READY`.
 Its four wording notes are reconciled in LLP 0030 and LLP 0028. Author
 acceptance remains; the review does not change LLP 0030's Draft status.
+
+## Resolution — 2026-07-26
+
+The author (Charlie, directing) instructed that this issue be completed;
+the sole remaining step was acceptance, so LLP 0030's status moved
+Draft → Accepted with a Revised entry recording the decision (per the
+LLP 0027 precedent). The acceptance rests on the recorded READY verdict in
+`llp/reviews/0030-audit-graph-admission.fable.md`; the four READY wording
+notes were verified reconciled in LLP 0030 and LLP 0028's risk register. The
+post-READY wording edits carry no recorded reviewer spot-check — the reviewer
+pre-authorized proceeding without one, and the acceptance note says so
+explicitly rather than claiming a re-review.
+
+Timing: `issues/20260717-oxc-window-close.md` had not started (still blocked
+on LLP 0031 acceptance, the audit-admission implementation, telemetry
+archive, quarantine rows, and the script frontend), so the "accepted before
+window close" ordering holds. Implementation continues under
+`issues/20260717-oxc-audit-admission-impl.md`, which stays open.
