@@ -2490,6 +2490,59 @@ ticket closes.
   requested task remains about **95% complete**, with exact-target public
   report completion now the dominant remaining program.
 
+### 2026-07-26 — authenticated decision-free global callable evidence
+
+- Static discovery had 600-plus deterministic decision-free global callable
+  routes per target, but a route label alone was not execution evidence. The
+  new `capsec_public_global_callable_batch` reaches each selected callable in
+  one authenticated armed engine, drives the event loop to an authored
+  one-second quiescence bound, drains authenticated publications, proves the
+  exact source descriptor and cleanup, and rejects any typed or legacy CapSec
+  decision.
+- Promotion remains deliberately narrower than discovery. Compatibility
+  routes that request environment authority remain residual. Armed startup
+  does not endow the source-derived `Bun.*` aliases. Physical Apple execution
+  found that `crypto.getRandomValues` and `crypto.randomUUID` currently
+  terminate the process with `SIGSEGV`, and returned-object member routes fail
+  before reaching their selected operation. Physical Windows execution also
+  proved that its target profile does not endow the `WebSocket` receiver used
+  by 14 source-derived member routes. Each of these rows remains unresolved;
+  none is converted into completion evidence by weakening the harness.
+- Ordinary JavaScript throws are valid source completions only when they carry
+  a non-empty stable error code or error name. This matters for standard
+  `TypeError` results, which generally have a stable name but no Node-style
+  `.code`; anonymous throw envelopes are still rejected.
+- The M5 MacBook Air generated Apple catalog digest
+  `sha256-2tdkpQCnt_XpV5abe-vTl_txqPShi07-fnD9IFjmy5o`: 23,846 required /
+  **3,405 fully executable** / 3,136 internally verified / 17,305 unresolved.
+  Its loaded-engine callable batch passes **575/575** with engine digest
+  `sha256-NKl8KlB4WVQOzjSDsuKpg1Cgez1uX0gsOqmSa0QWYAE`. The evidence file
+  SHA-256 is
+  `382fbaafb8acb5acc5e586fe51d76c10c2aefa44e5f93fd0ddaab84208ce509c`,
+  and independent JavaScript validation produced execution digest
+  `sha256-AJMqoNHau8nc2ZtmCc4dfz3V9Bh0zPp3RCrdqOxCUnY`.
+- The physical Windows NucBox generated catalog digest
+  `sha256-0fQLHAjYooQhB_6Ua5Lb1G4XOSBFtoZoLcc2o-BH-kY`: 23,505 required /
+  **3,045 fully executable** / 3,122 internally verified / 17,338 unresolved.
+  Its current no-debugger patched Hermes callable batch passes **561/561**
+  with engine digest
+  `sha256-xqWHmqF0mGjVqhS8bUI7Av9fiP84rE8Zj23kOq9JJw8`. The evidence file
+  SHA-256 is
+  `5f93dc65ee2527aa4dd8c55ad22d5977b3826ecc5d4af5fb6380285e266807bb`,
+  and independent validation produced execution digest
+  `sha256-9vtV6OGHuKxKLQZ0ftybT36pXX8tGKMBmqowfpQQuTw`.
+- The focused recipe/evidence suite passes 145 tests with 114,743 assertions;
+  generated drift, Rust formatting, and all local LLP references also pass.
+  Hard part: executable public evidence must distinguish a source operation
+  that throws from receiver/setup failure and from a process-terminating native
+  defect. Treating all three as equivalent would silently promote static
+  intent instead of runtime fact.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task is about **96% complete**. Criterion 7 is still not
+  satisfied: advertisements remain empty until every required public
+  obligation for at least one exact target is source-, engine-, and
+  report-bound.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

@@ -1510,6 +1510,119 @@ function validateRuntimeInvocation(observation, recipe) {
     "result",
   ];
   if (
+    invocation?.invocationSchema ===
+    "ibex/capsec-global-callable-invocation/1"
+  ) {
+    exactKeys(
+      authored,
+      [
+        "invocationSchema",
+        "kind",
+        "coverageEdgeId",
+        "coverageClassification",
+        "sourceDescriptor",
+        "sourceDescriptorDigest",
+        "route",
+        "completion",
+        "expectedResult",
+        "expectedTypedStages",
+        "expectedTypedDecisionCount",
+        "allowedCoverageEdgeIds",
+        "expectedActionIds",
+      ],
+      `${recipe.fixtureId}: authored global callable invocation`,
+    );
+    exactKeys(
+      invocation,
+      [...commonKeys, "globalName", "memberName", "completion"],
+      `${recipe.fixtureId}: global callable runtime invocation`,
+    );
+    exactKeys(
+      authored.sourceDescriptor,
+      ["kind", "globalName", "memberName", "memberKinds", "sourceRefs"],
+      `${recipe.fixtureId}: global callable source descriptor`,
+    );
+    exactKeys(
+      authored.completion,
+      ["kind", "timeoutMilliseconds"],
+      `${recipe.fixtureId}: authored global callable completion`,
+    );
+    exactKeys(
+      invocation.completion,
+      ["kind", "status", "timeoutMilliseconds"],
+      `${recipe.fixtureId}: global callable runtime completion`,
+    );
+    const descriptor = authored.sourceDescriptor;
+    const memberSuffix =
+      descriptor.memberName === null ? "" : `.${descriptor.memberName}`;
+    const sharedRuntimeObservedKey =
+      `native-op:global:${descriptor.globalName}${memberSuffix}`;
+    const expectedObservedKeys = new Set([
+      sharedRuntimeObservedKey,
+      ...(descriptor.memberName === null
+        ? [`native-op:${descriptor.globalName}`]
+        : []),
+    ]);
+    if (
+      recipe.classification !== "non-capability" ||
+      recipe.scenario !== "non-capability" ||
+      recipe.actionIds.length !== 0 ||
+      recipe.edgeIds.length !== 1 ||
+      authored.kind !== "global-callable-invocation" ||
+      authored.coverageClassification !== "non-capability" ||
+      authored.coverageEdgeId !== recipe.edgeIds[0] ||
+      canonicalJson(authored.allowedCoverageEdgeIds) !==
+        canonicalJson([authored.coverageEdgeId]) ||
+      authored.expectedResult !== "source-completion" ||
+      authored.expectedTypedDecisionCount !== 0 ||
+      authored.expectedTypedStages.length !== 0 ||
+      authored.expectedActionIds.length !== 0 ||
+      descriptor.kind !== "global-api-callable" ||
+      typeof descriptor.globalName !== "string" ||
+      descriptor.globalName.length === 0 ||
+      (descriptor.memberName !== null &&
+        (typeof descriptor.memberName !== "string" ||
+          descriptor.memberName.length === 0)) ||
+      !Array.isArray(descriptor.memberKinds) ||
+      descriptor.memberKinds.length === 0 ||
+      !descriptor.memberKinds.every(
+        (kind) => typeof kind === "string" && kind.length > 0,
+      ) ||
+      !Array.isArray(descriptor.sourceRefs) ||
+      descriptor.sourceRefs.length === 0 ||
+      !descriptor.sourceRefs.every(
+        (sourceRef) =>
+          typeof sourceRef === "string" && sourceRef.length > 0,
+      ) ||
+      !expectedObservedKeys.has(
+        recipe.publicSurfaceProbe.surfaceObservedKey,
+      ) ||
+      recipe.route.surfaceObservedKeys.length !== 1 ||
+      recipe.route.surfaceObservedKeys[0] !==
+        recipe.publicSurfaceProbe.surfaceObservedKey ||
+      recipe.route.alternatives.length !== 1 ||
+      recipe.route.alternatives[0].terminalObservedKey !==
+        recipe.publicSurfaceProbe.surfaceObservedKey ||
+      recipe.route.ambiguousCallees.length !== 0 ||
+      !new Set(["call", "construct", "get"]).has(
+        authored.route?.operation,
+      ) ||
+      Object.hasOwn(authored.route, "authority") ||
+      authored.completion.kind !== "event-loop-quiescence" ||
+      authored.completion.timeoutMilliseconds !== 1_000 ||
+      invocation.kind !== authored.kind ||
+      invocation.globalName !== descriptor.globalName ||
+      invocation.memberName !== descriptor.memberName ||
+      invocation.completion.kind !== authored.completion.kind ||
+      invocation.completion.timeoutMilliseconds !==
+        authored.completion.timeoutMilliseconds ||
+      invocation.completion.status !== "quiescent"
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: global callable runtime invocation descriptor drift`,
+      );
+    }
+  } else if (
     invocation?.invocationSchema === "ibex/capsec-native-global-invocation/1"
   ) {
     const requiresCompletion = authored.completion !== undefined;
@@ -2995,7 +3108,87 @@ function validateRuntimeInvocation(observation, recipe) {
       `${recipe.fixtureId}: malformed builtin descriptor cleanup expectation`,
     );
   }
-  if (authored.expectedResult === "normal-return") {
+  if (authored.expectedResult === "source-completion") {
+    exactKeys(
+      invocation.result,
+      [
+        "kind",
+        "sourceCompletionKind",
+        "sourceOperationAttempted",
+        "descriptorProof",
+        "cleanupPerformed",
+        "cleanupError",
+        "rawOutput",
+        "engineExecuted",
+        "projectCodeExecuted",
+      ],
+      `${recipe.fixtureId}: global callable source completion`,
+    );
+    exactKeys(
+      invocation.result.descriptorProof,
+      ["presence", "descriptorKind", "valueType"],
+      `${recipe.fixtureId}: global callable descriptor proof`,
+    );
+    const raw = invocation.result.rawOutput;
+    const rawKind = raw?.kind;
+    exactKeys(
+      raw,
+      [
+        "kind",
+        "rawValueShape",
+        "value",
+        "errorCode",
+        ...(Object.hasOwn(raw ?? {}, "errorName") ? ["errorName"] : []),
+      ],
+      `${recipe.fixtureId}: global callable raw completion`,
+    );
+    const validRaw =
+      (rawKind === "return" &&
+        typeof raw.rawValueShape === "string" &&
+        !["throw", "absent"].includes(raw.rawValueShape) &&
+        raw.errorCode === null) ||
+      (rawKind === "throw" &&
+        raw.rawValueShape === "throw" &&
+        raw.value === null &&
+        (raw.errorCode === null ||
+          (typeof raw.errorCode === "string" &&
+            raw.errorCode.length > 0)) &&
+        (raw.errorName === undefined ||
+          (typeof raw.errorName === "string" &&
+            raw.errorName.length > 0)) &&
+        ((typeof raw.errorCode === "string" &&
+          raw.errorCode.length > 0) ||
+          (typeof raw.errorName === "string" &&
+            raw.errorName.length > 0))) ||
+      (rawKind === "absent" &&
+        raw.rawValueShape === "absent" &&
+        raw.value === null &&
+        raw.errorCode === null &&
+        raw.errorName === undefined);
+    const descriptorKind =
+      invocation.result.descriptorProof.descriptorKind;
+    const descriptorMatches =
+      (rawKind === "absent" && descriptorKind === "absent") ||
+      (["return", "throw"].includes(rawKind) &&
+        ["data", "accessor"].includes(descriptorKind));
+    if (
+      authored.invocationSchema !==
+        "ibex/capsec-global-callable-invocation/1" ||
+      invocation.result.kind !== "source-completion" ||
+      invocation.result.sourceCompletionKind !== rawKind ||
+      invocation.result.sourceOperationAttempted !== true ||
+      invocation.result.cleanupPerformed !== true ||
+      invocation.result.cleanupError !== null ||
+      invocation.result.engineExecuted !== true ||
+      invocation.result.projectCodeExecuted !== true ||
+      !validRaw ||
+      !descriptorMatches
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: loaded engine did not prove the exact callable source completion`,
+      );
+    }
+  } else if (authored.expectedResult === "normal-return") {
     if (
       authored.invocationSchema !== "ibex/capsec-builtin-call-invocation/1" ||
       authored.kind !== "builtin-export-call" ||

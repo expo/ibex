@@ -346,12 +346,14 @@ describe("exact-target CapSec executable recipes", () => {
     // contribute four retained-descriptor scenarios apiece. Descriptor denial
     // remains residual because the harness cannot prepare its source descriptor
     // under a denied matching floor.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_830);
+    // Six hundred source-bound callable globals now execute their exact
+    // decision-free call/construct/get route through the loaded engine.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_405);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_880);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_305);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -461,9 +463,9 @@ describe("exact-target CapSec executable recipes", () => {
     // the same floor that the scenario denies. Typed synchronous TCP connect
     // adds its five staged public scenarios, and its exact typed setup promotes
     // the three ownership-only lifecycle consumers.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_484);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_045);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_899);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_338);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5021,6 +5023,111 @@ describe("exact-target CapSec executable recipes", () => {
     ).toBe(true);
   });
 
+  test("promotes only authority-free source-bound global callable routes", () => {
+    const unsafeArmedRuntimeRoutes = new Set([
+      "native-op:global:crypto.getrandomvalues",
+      "native-op:global:crypto.randomuuid",
+    ]);
+    for (const candidate of [recipes, windowsRecipes]) {
+      const callableRecipes = candidate.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
+          "ibex/capsec-global-callable-invocation/1",
+      );
+      expect(callableRecipes).toHaveLength(
+        candidate.target.triple === "x86_64-pc-windows-msvc" ? 561 : 575,
+      );
+      expect(
+        callableRecipes.every((recipe) => {
+          const probe = recipe.publicSurfaceProbe;
+          const invocation = probe.invocation;
+          const normalizedObservedKey =
+            probe.surfaceObservedKey.toLowerCase();
+          return (
+            recipe.classification === "non-capability" &&
+            recipe.scenario === "non-capability" &&
+            recipe.actionIds.length === 0 &&
+            recipe.edgeIds.length === 1 &&
+            recipe.status === "fully-executable" &&
+            recipe.residualReasons.length === 0 &&
+            probe.kind === "public-surface-invocation" &&
+            probe.command.join(" ") ===
+              [
+                "cargo",
+                "test",
+                "--bin",
+                "ibex",
+                "--no-default-features",
+                "--features",
+                CAPSEC_SECURE_TEST_FEATURES,
+                "capsec_public_global_callable_batch",
+                "--",
+                "--test-threads=1",
+              ].join(" ") &&
+            invocation.kind === "global-callable-invocation" &&
+            invocation.coverageEdgeId === recipe.edgeIds[0] &&
+            invocation.coverageClassification === "non-capability" &&
+            new Set(["call", "construct", "get"]).has(
+              invocation.route.operation,
+            ) &&
+            !Object.hasOwn(invocation.route, "authority") &&
+            invocation.expectedResult === "source-completion" &&
+            invocation.expectedTypedDecisionCount === 0 &&
+            invocation.expectedTypedStages.length === 0 &&
+            invocation.allowedCoverageEdgeIds.join() ===
+              recipe.edgeIds.join() &&
+            invocation.expectedActionIds.length === 0 &&
+            invocation.sourceDescriptor.kind ===
+              "global-api-callable" &&
+            invocation.sourceDescriptor.sourceRefs.length > 0 &&
+            !unsafeArmedRuntimeRoutes.has(normalizedObservedKey) &&
+            !normalizedObservedKey.includes(".[[return]].") &&
+            !(
+              candidate.target.triple === "x86_64-pc-windows-msvc" &&
+              normalizedObservedKey.startsWith(
+                "native-op:global:websocket.",
+              )
+            )
+          );
+        }),
+      ).toBe(true);
+    }
+    const compatibilityEnvironmentRoutes = new Set([
+      ...[
+        "arrayBuffer",
+        "blob",
+        "bytes",
+        "clone",
+        "formData",
+        "getBodyAsUint8Array",
+        "getBodyStream",
+        "hasExplicitKeepalive",
+        "isBodyStream",
+        "json",
+        "markBodyAsUsedForFetch",
+        "text",
+      ].map((member) => `native-op:global:Request.${member}`),
+      "native-op:global:Response.json",
+      "native-op:global:Response.redirect",
+    ]);
+    expect(
+      recipes.recipes.filter((recipe) =>
+        compatibilityEnvironmentRoutes.has(
+          recipe.publicSurfaceProbe?.surfaceObservedKey,
+        ),
+      ),
+    ).toHaveLength(0);
+    expect(
+      recipes.recipes.filter((recipe) =>
+        (recipe.publicSurfaceProbe?.surfaceObservedKey ?? "").startsWith(
+          "native-op:global:Bun.",
+        ) &&
+        recipe.publicSurfaceProbe.invocation.invocationSchema ===
+          "ibex/capsec-global-callable-invocation/1",
+      ),
+    ).toHaveLength(0);
+  });
+
   test("binds readable globals to exact source-derived paths and shapes", () => {
     const recipe = recipes.recipes.find(
       (candidate) =>
@@ -5105,6 +5212,12 @@ describe("exact-target CapSec executable recipes", () => {
     }
 
     const inheritedStaticReads = recipes.recipes.filter((candidate) => {
+      if (
+        candidate.publicSurfaceProbe?.invocation?.invocationSchema !==
+        "ibex/capsec-native-global-invocation/1"
+      ) {
+        return false;
+      }
       const memberKinds =
         candidate.publicSurfaceProbe?.invocation?.sourceDescriptor?.memberKinds;
       return Array.isArray(memberKinds) && memberKinds.includes("inherited");

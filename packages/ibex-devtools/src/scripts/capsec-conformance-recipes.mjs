@@ -27,6 +27,7 @@ import {
 import { authoredBuiltinPublicProbe } from "./capsec-public-probe-templates.mjs";
 import { authoredCallbackInvariantProbe } from "./capsec-callback-invariant-probe-templates.mjs";
 import { authoredClosedPublicProbe } from "./capsec-closed-probe-templates.mjs";
+import { authoredGlobalCallableOutputInvocation } from "./capsec-global-callable-probe-templates.mjs";
 import { authoredStartupPublicProbe } from "./capsec-startup-probe-templates.mjs";
 import { authoredStartupEnvironmentProbe } from "./capsec-startup-environment-probe-templates.mjs";
 import { authoredTargetAbsenceProbe } from "./capsec-target-absence-probe-templates.mjs";
@@ -3987,6 +3988,88 @@ function nativePublicProbeForPlan({
   };
 }
 
+const GLOBAL_CALLABLE_ARMED_RUNTIME_EXCLUSIONS = new Set([
+  "native-op:global:crypto.getrandomvalues",
+  "native-op:global:crypto.randomuuid",
+]);
+
+function globalCallablePublicProbeForPlan({
+  plan,
+  scenario,
+  route,
+  liveByObservedKey,
+  coverageByEdge,
+  target,
+}) {
+  if (
+    plan.classification !== "non-capability" ||
+    scenario !== "non-capability" ||
+    plan.actionIds.length !== 0 ||
+    plan.edgeIds.length !== 1 ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  // The compatibility namespace records Bun aliases in source, but armed
+  // startup deliberately does not endow them. A call/construct recipe
+  // therefore proves setup failure rather than entry into the selected public
+  // source and must remain unresolved.
+  const unavailableOnArmedRuntime =
+    surfaceObservedKey.startsWith("native-op:global:Bun.");
+  // Physical armed execution proves that the CSPRNG bindings currently
+  // terminate the process with SIGSEGV and that the returned-stream route
+  // fails before reaching its selected member. Windows also omits the
+  // WebSocket receiver used by its source-derived member routes. Keep those
+  // discoveries unresolved until their runtime routes can yield authenticated
+  // completion.
+  const normalizedObservedKey = surfaceObservedKey.toLowerCase();
+  const excludedOnArmedRuntime =
+    GLOBAL_CALLABLE_ARMED_RUNTIME_EXCLUSIONS.has(normalizedObservedKey) ||
+    normalizedObservedKey.includes(".[[return]].") ||
+    (target.triple === "x86_64-pc-windows-msvc" &&
+      normalizedObservedKey.startsWith("native-op:global:websocket."));
+  if (
+    !surfaceObservedKey.startsWith("native-op:") ||
+    unavailableOnArmedRuntime ||
+    excludedOnArmedRuntime ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const coverageEdge = coverageByEdge.get(plan.edgeIds[0]);
+  const invocation = authoredGlobalCallableOutputInvocation({
+    surface: liveByObservedKey.get(surfaceObservedKey),
+    coverageEdge,
+  });
+  if (
+    invocation?.route?.operation === undefined ||
+    invocation.route.operation === "unexercisable" ||
+    (invocation.route.authority ?? []).length !== 0 ||
+    invocation.coverageEdgeId !== plan.edgeIds[0] ||
+    invocation.coverageClassification !== "non-capability"
+  ) {
+    return null;
+  }
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: capsecSecureCargoTestCommand(
+      "capsec_public_global_callable_batch",
+    ),
+    invocation: {
+      ...clone(invocation),
+      expectedResult: "source-completion",
+      expectedTypedStages: [],
+      expectedTypedDecisionCount: 0,
+      allowedCoverageEdgeIds: clone(plan.edgeIds),
+      expectedActionIds: [],
+    },
+  };
+}
+
 const CONDITIONAL_SQLITE_HOST_ABIS = new Set([
   "ex_host_sqlite_all",
   "ex_host_sqlite_exec",
@@ -4583,6 +4666,15 @@ export function buildConformanceRecipeCatalog({
       adapterProbe,
       target,
     });
+    const globalCallablePublicSurfaceProbe =
+      globalCallablePublicProbeForPlan({
+        plan,
+        scenario,
+        route,
+        liveByObservedKey,
+        coverageByEdge,
+        target,
+      });
     const conditionalHostAbiProbe = conditionalHostAbiProbeForPlan({
       plan,
       scenario,
@@ -4631,6 +4723,7 @@ export function buildConformanceRecipeCatalog({
             conditionalHostAbiProbe,
             moduleRunnerLoaderProbe,
             moduleRunnerHostAbiProbe,
+            globalCallablePublicSurfaceProbe,
             nativePublicSurface.probe,
           ].filter((probe) => probe !== null);
     if (authoredPublicSurfaceProbes.length > 1) {

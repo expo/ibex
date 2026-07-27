@@ -118,6 +118,15 @@ const coverage = {
       surface: { kind: "native-op", name: "__exactPublic" },
     },
     {
+      id: "edge.global-callable",
+      classification: "non-capability",
+      surface: {
+        kind: "native-op",
+        name: "global:AbortController.abort",
+      },
+      effects: [],
+    },
+    {
       id: "edge.builtin-node-util",
       classification: "effects",
       surface: { kind: "builtin", name: "node:util" },
@@ -384,6 +393,113 @@ function runtimeObservation(recipe) {
       },
     ],
   };
+}
+
+function globalCallableFixture() {
+  const recipe = completeCatalog().recipes[0];
+  const surfaceObservedKey =
+    "native-op:global:AbortController.abort";
+  Object.assign(recipe, {
+    fixtureId: "fixture.global-callable.abort-controller-abort",
+    classification: "non-capability",
+    scenario: "non-capability",
+    edgeIds: ["edge.global-callable"],
+    actionIds: [],
+    terminalObservedKey: surfaceObservedKey,
+    expectedObservation: {
+      kind: "enforcement-branch",
+      branchId: "edge.global-callable.main",
+    },
+    route: {
+      surfaceObservedKeys: [surfaceObservedKey],
+      alternatives: [
+        {
+          terminalObservedKey: surfaceObservedKey,
+          proofPaths: [surfaceObservedKey],
+        },
+      ],
+      ambiguousCallees: [],
+    },
+  });
+  const sourceDescriptor = {
+    kind: "global-api-callable",
+    globalName: "AbortController",
+    memberName: "abort",
+    memberKinds: ["prototype"],
+    sourceRefs: [
+      "packages/ibex-runtime-js/src/shared-runtime.ts#global:AbortController.abort",
+    ],
+  };
+  recipe.publicSurfaceProbe = {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: ["cargo", "test", "capsec_public_global_callable_batch"],
+    invocation: {
+      invocationSchema: "ibex/capsec-global-callable-invocation/1",
+      kind: "global-callable-invocation",
+      coverageEdgeId: "edge.global-callable",
+      coverageClassification: "non-capability",
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      route: {
+        operation: "call",
+        receiver: {
+          kind: "construct-global",
+          globalName: "AbortController",
+          arguments: [],
+        },
+        arguments: [],
+      },
+      completion: {
+        kind: "event-loop-quiescence",
+        timeoutMilliseconds: 1_000,
+      },
+      expectedResult: "source-completion",
+      expectedTypedStages: [],
+      expectedTypedDecisionCount: 0,
+      allowedCoverageEdgeIds: ["edge.global-callable"],
+      expectedActionIds: [],
+    },
+  };
+  const observation = {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: "ibex/capsec-global-callable-invocation/1",
+      kind: "global-callable-invocation",
+      surfaceObservedKey,
+      globalName: "AbortController",
+      memberName: "abort",
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      completion: {
+        kind: "event-loop-quiescence",
+        timeoutMilliseconds: 1_000,
+        status: "quiescent",
+      },
+      result: {
+        kind: "source-completion",
+        sourceCompletionKind: "return",
+        sourceOperationAttempted: true,
+        descriptorProof: {
+          presence: "own",
+          descriptorKind: "data",
+          valueType: "function",
+        },
+        cleanupPerformed: true,
+        cleanupError: null,
+        rawOutput: {
+          kind: "return",
+          rawValueShape: "undefined",
+          value: null,
+          errorCode: null,
+        },
+        engineExecuted: true,
+        projectCodeExecuted: true,
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
+  return { recipe, observation };
 }
 
 function openThenActFixture(scenario = "allow", exportName = "readFileSync") {
@@ -3233,6 +3349,104 @@ describe("CapSec public-surface promotion evidence", () => {
         expectedFixtureIds: ["fixture.public.allow"],
       }),
     ).not.toThrow();
+  });
+
+  test("accepts only exact authority-free global callable source completions", () => {
+    const { recipe, observation } = globalCallableFixture();
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const namedThrow = structuredClone(observation);
+    Object.assign(namedThrow.invocation.result, {
+      sourceCompletionKind: "throw",
+      rawOutput: {
+        kind: "throw",
+        rawValueShape: "throw",
+        value: null,
+        errorCode: null,
+        errorName: "TypeError",
+      },
+    });
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: namedThrow,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const anonymousThrow = structuredClone(namedThrow);
+    delete anonymousThrow.invocation.result.rawOutput.errorName;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: anonymousThrow,
+        coverage,
+      }),
+    ).toThrow(/did not prove the exact callable source completion/);
+
+    const authorityBearing = structuredClone(recipe);
+    authorityBearing.publicSurfaceProbe.invocation.route.authority = [
+      {
+        kind: "typed-effect",
+        cap: "env:read",
+        resourceKind: "environment-occurrence",
+        requested: {
+          kind: "environment-name",
+          target: "broker-base",
+          name: "WPT_SERVER_URL",
+        },
+      },
+    ];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: authorityBearing,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/global callable runtime invocation descriptor drift/);
+
+    const incompleteCleanup = structuredClone(observation);
+    incompleteCleanup.invocation.result.cleanupPerformed = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: incompleteCleanup,
+        coverage,
+      }),
+    ).toThrow(/did not prove the exact callable source completion/);
+
+    const staleCompletion = structuredClone(observation);
+    staleCompletion.invocation.completion.status = "pending";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: staleCompletion,
+        coverage,
+      }),
+    ).toThrow(/global callable runtime invocation descriptor drift/);
+
+    const substitutedDescriptor = structuredClone(observation);
+    substitutedDescriptor.invocation.globalName = "AbortSignal";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: substitutedDescriptor,
+        coverage,
+      }),
+    ).toThrow(/global callable runtime invocation descriptor drift/);
   });
 
   test("accepts only ambient fs:list traversal surplus for open-then-act builtins", () => {

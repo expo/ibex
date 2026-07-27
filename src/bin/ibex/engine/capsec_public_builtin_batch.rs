@@ -53,6 +53,7 @@ struct RouteAlternative {
 #[serde(untagged)]
 enum PublicSurfaceProbe {
     EffectBuiltin(Box<EffectBuiltinPublicSurfaceProbe>),
+    GlobalCallable(Box<GlobalCallablePublicSurfaceProbe>),
     Other {
         #[serde(flatten)]
         _fields: BTreeMap<String, serde_json::Value>,
@@ -66,6 +67,33 @@ struct EffectBuiltinPublicSurfaceProbe {
     surface_observed_key: String,
     command: Vec<String>,
     invocation: BuiltinInvocation,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GlobalCallablePublicSurfaceProbe {
+    kind: String,
+    surface_observed_key: String,
+    command: Vec<String>,
+    invocation: GlobalCallableInvocation,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GlobalCallableInvocation {
+    invocation_schema: String,
+    kind: String,
+    coverage_edge_id: String,
+    coverage_classification: String,
+    source_descriptor: serde_json::Value,
+    source_descriptor_digest: String,
+    route: serde_json::Value,
+    completion: serde_json::Value,
+    expected_result: String,
+    expected_typed_stages: Vec<String>,
+    expected_typed_decision_count: usize,
+    allowed_coverage_edge_ids: Vec<String>,
+    expected_action_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1578,7 +1606,7 @@ async fn execute_isolated_recipe(
         .as_ref()
         .and_then(|probe| match probe {
             PublicSurfaceProbe::EffectBuiltin(probe) => Some(&probe.invocation),
-            PublicSurfaceProbe::Other { .. } => None,
+            _ => None,
         })
         .expect("isolated recipe has no effect-builtin invocation");
     let authority = canonical_values(invocation.required_authority.clone());
@@ -1718,4 +1746,9 @@ async fn capsec_public_builtin_recipe_batch() {
         .write_all(b"\n")
         .expect("finish builtin public evidence");
     output.sync_all().expect("sync builtin public evidence");
+}
+
+#[cfg(test)]
+mod capsec_public_global_callable_batch {
+    include!("capsec_public_global_callable_batch.test.rs");
 }
