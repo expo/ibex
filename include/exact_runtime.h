@@ -55,7 +55,9 @@ typedef struct ExHermesModuleDynamicActivationRequest {
 /// Synchronous, generation-scoped provider for one exactly reached authored
 /// CommonJS `require()` spelling. The provider may use only the module
 /// mutation ABI while it is active; it must publish the returned target but
-/// must not evaluate it. `out_target_kind` is 0 for CommonJS and 1 for ESM.
+/// must not evaluate it. An ESM target must already have passed the complete
+/// synchronous-eligibility check; the provider must refuse an async-tainted
+/// target. `out_target_kind` is 0 for CommonJS and 1 for ESM.
 typedef int32_t (*ExactCommonJsRequireProviderCallback)(
     void* context,
     uint64_t runtime_nonce,

@@ -7,6 +7,7 @@ import {
   buildPublicSurfaceExecutionArtifact,
   mergePublicBatchExecutions,
   nativeAsyncWorkerTerminal,
+  nativeAsyncWorkerTerminals,
   validateNativeFilesystemDenialRecipeDescriptor,
   validatePublicSurfaceExecutionArtifact,
   validateStartupEnvironmentRecipeDescriptor,
@@ -32,6 +33,12 @@ const registryBundle = readJsonStrict(
 const digestVectors = readJsonStrict(
   path.join(capsecRoot, "examples/digest-vectors.canonical.json"),
 );
+const rootGlobalDispositions = readJsonStrict(
+  path.join(
+    capsecRoot,
+    "generated/root-global-disposition-manifest.json",
+  ),
+).rows;
 const semanticRegistryIdentity = {
   vocabDigest: registryBundle.members.find(
     (member) => member.logicalName === "vocab-digest",
@@ -2976,6 +2983,19 @@ function globalReadObservation(recipe) {
 function privateCwdFacadeCatalog() {
   const catalog = globalReadCatalog();
   const recipe = catalog.recipes[0];
+  const publicDisposition = rootGlobalDispositions.find(
+    (row) =>
+      row.observedKey === "native-op:global:process.cwd" &&
+      row.branch.activation === "always",
+  );
+  const privateDisposition = rootGlobalDispositions.find(
+    (row) =>
+      row.observedKey === "native-op:__exactGetCwd" &&
+      row.branch.activation === "always",
+  );
+  if (!publicDisposition || !privateDisposition) {
+    throw new Error("private cwd facade dispositions are unavailable");
+  }
   const sourceDescriptor = {
     kind: "native-global-function",
     globalName: "__exactGetCwd",
@@ -2985,17 +3005,12 @@ function privateCwdFacadeCatalog() {
   const publicAccess = {
     kind: "captured-private-global-function",
     observedKey: "native-op:global:process.cwd",
-    installId: "root-global.process.cwd.2583c1a2d2ca2d7b",
+    installId: publicDisposition.installId,
     path: ["process", "cwd"],
-    sourceRefs: [
-      "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process",
-      "packages/ibex-runtime-js/src/node/process.ts#Process.prototype.cwd",
-      "src/engine/bootstrap/compat-polyfills.js#process.cwd",
-      "src/engine/hermes_runtime_process_setup.cc#jsi-global:process.cwd",
-    ],
+    sourceRefs: structuredClone(publicDisposition.branch.sourceRefs),
     privateTerminal: {
       observedKey: "native-op:__exactGetCwd",
-      installId: "root-global.exactgetcwd.9b3be5b1ccdb728e",
+      installId: privateDisposition.installId,
       privateConsumer: "trusted-path-process-builtins",
       liveExpectation: "absent",
     },
@@ -4995,6 +5010,22 @@ describe("CapSec public-surface promotion evidence", () => {
       }),
     ).toThrow(/private native facade provenance drift/);
 
+    const driftedInstallId = structuredClone(recipe);
+    driftedInstallId.publicSurfaceProbe.invocation.publicAccess.installId =
+      "root-global.process.cwd.2583c1a2d2ca2d7b";
+    driftedInstallId.publicSurfaceProbe.invocation.publicAccessDigest =
+      taggedDigest(
+        driftedInstallId.publicSurfaceProbe.invocation.publicAccess,
+      );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: driftedInstallId,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/private native facade provenance drift/);
+
     const staleDigest = structuredClone(recipe);
     staleDigest.publicSurfaceProbe.invocation.publicAccessDigest =
       "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -5437,6 +5468,11 @@ describe("CapSec public-surface promotion evidence", () => {
       invocationSchema: "ibex/capsec-native-global-invocation/1",
       kind: "native-global-function",
       globalName: "__exactFsPathAsync",
+      sourceDescriptor: {
+        sourceRef:
+          "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsPathAsync",
+      },
+      setup: [],
       arguments: [{ kind: "json-literal", value: operation }],
       ...overrides,
     });
@@ -5454,18 +5490,88 @@ describe("CapSec public-surface promotion evidence", () => {
     for (const globalName of [
       "__exactFsFdAsync",
       "__exactFsFchmodSync",
-      "__exactFsFdatasyncSync",
       "__exactFsFstatSync",
-      "__exactFsFsyncSync",
       "__exactFsFtruncateSync",
       "__exactFsFutimesSync",
-      "__exactFsOpenAsync",
+      "__exactFsRead",
+      "__exactFsReadv",
+      "__exactFsWrite",
     ]) {
       expect(
         nativeAsyncWorkerTerminal(
-          descriptor("unrelated", { globalName, arguments: [] }),
+          descriptor("unrelated", {
+            globalName,
+            arguments: [],
+            setup: [{ kind: "fs-read-file" }],
+          }),
         ),
       ).toBe("native-op:__exactFsOpen");
+    }
+    expect(
+      nativeAsyncWorkerTerminal(
+        descriptor("unrelated", {
+          globalName: "__exactFsOpenAsync",
+          arguments: [],
+        }),
+      ),
+    ).toBe("native-op:__exactFsOpen");
+    expect(
+      nativeAsyncWorkerTerminals(
+        descriptor("unrelated", {
+          globalName: "__exactFsReadFileAsync",
+          arguments: [],
+          setup: [{ kind: "fs-read-file" }],
+        }),
+      ),
+    ).toEqual([
+      "native-op:__exactFsOpen",
+      "native-op:__exactFsReadFileAsync",
+    ]);
+    expect(
+      nativeAsyncWorkerTerminal(
+        descriptor("unrelated", {
+          globalName: "__exactFsReadFileAsync",
+          arguments: [],
+          setup: [{ kind: "fs-read-file" }],
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      nativeAsyncWorkerTerminal(
+        descriptor("unrelated", {
+          globalName: "__exactFsRead",
+          arguments: [],
+          setup: [{ kind: "fs-read-file" }],
+          sourceDescriptor: {
+            sourceRef:
+              "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsRead",
+          },
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      nativeAsyncWorkerTerminal(
+        descriptor("unrelated", {
+          globalName: "__exactFsRead",
+          arguments: [],
+        }),
+      ),
+    ).toBeNull();
+    for (const globalName of [
+      "__exactFsFdatasyncSync",
+      "__exactFsFsyncSync",
+      "__exactFsReadAsync",
+      "__exactFsReadvAsync",
+    ]) {
+      expect(
+        nativeAsyncWorkerTerminal(
+          descriptor("unrelated", {
+            globalName,
+            arguments: [],
+            setup: [{ kind: "fs-write-file" }],
+          }),
+        ),
+      ).toBeNull();
     }
     expect(nativeAsyncWorkerTerminal(descriptor("mkdtemp"))).toBeNull();
     expect(nativeAsyncWorkerTerminal(descriptor("chmod"))).toBeNull();
@@ -5501,6 +5607,7 @@ describe("CapSec public-surface promotion evidence", () => {
       "__exactFsOpen",
       "__exactFsOpenAsync",
       "__exactFsPathAsync",
+      "__exactFsReadFileAsync",
       "__exactLstat",
       "__exactMkdir",
       "__exactReadFile",

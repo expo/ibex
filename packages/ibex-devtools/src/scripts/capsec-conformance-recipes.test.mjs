@@ -2803,7 +2803,7 @@ describe("exact-target CapSec executable recipes", () => {
         expect(invocation.arguments).toEqual([
           { kind: "harness-fs-file-descriptor" },
           { kind: "json-literal", value: "-append" },
-          { kind: "json-literal", value: 0 },
+          { kind: "json-literal", value: -1 },
         ]);
         expect(invocation.setup).toEqual([
           expect.objectContaining({
@@ -6101,6 +6101,21 @@ describe("exact-target CapSec executable recipes", () => {
   });
 
   test("binds the private cwd bridge to its authenticated public facade", () => {
+    const dispositions = readJson(
+      "capsec/generated/root-global-disposition-manifest.json",
+    ).rows;
+    const publicDisposition = dispositions.find(
+      (row) =>
+        row.observedKey === "native-op:global:process.cwd" &&
+        row.branch.activation === "always",
+    );
+    const privateDisposition = dispositions.find(
+      (row) =>
+        row.observedKey === "native-op:__exactGetCwd" &&
+        row.branch.activation === "always",
+    );
+    expect(publicDisposition).toBeDefined();
+    expect(privateDisposition).toBeDefined();
     const privateCwd = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName === "__exactGetCwd",
@@ -6128,9 +6143,12 @@ describe("exact-target CapSec executable recipes", () => {
             publicAccess: {
               kind: "captured-private-global-function",
               observedKey: "native-op:global:process.cwd",
+              installId: publicDisposition.installId,
               path: ["process", "cwd"],
+              sourceRefs: publicDisposition.branch.sourceRefs,
               privateTerminal: {
                 observedKey: "native-op:__exactGetCwd",
+                installId: privateDisposition.installId,
                 privateConsumer: "trusted-path-process-builtins",
                 liveExpectation: "absent",
               },

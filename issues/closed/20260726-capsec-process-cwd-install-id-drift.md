@@ -1,6 +1,6 @@
 # Reconcile the `process.cwd` CapSec install identity
 
-Status: Open
+Status: Resolved
 
 The exact committed Apple snapshot cannot start the complete native public
 primary shard because three checked artifacts disagree about the source-derived
@@ -28,3 +28,18 @@ target-catalog change from the filesystem repair.
   evidence validator with different install IDs.
 - Pass both complete Apple native public shards on the M4 verifier under
   `IBEX_FAIL_ON_STALE_VENDORED=1`.
+
+## Resolution
+
+The checked root-global disposition manifest is authoritative. The JavaScript
+public-evidence validator and Rust native producer now look up both the
+converted `process.cwd` facade and its private `__exactGetCwd` terminal by
+install ID in that manifest, then validate the exact observed keys,
+dispositions, activations, property paths, source references, consumer, and
+live expectation. Neither validator carries a second hard-coded install ID.
+Regressions reject the retired ID and manifest/evidence drift.
+
+The physical M4 verifier passed all 281 primary and 313 secondary Apple
+fixtures under strict stale-vendored enforcement. Cross-shard validation
+merged all 594 executions with zero failures and aggregate digest
+`sha256-pjKQVJY9H5oqPUfAd-3At7dYhftHksIn1291nfpP3ms`.

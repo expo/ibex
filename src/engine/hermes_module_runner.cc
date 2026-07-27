@@ -562,6 +562,12 @@ facebook::jsi::Value evaluateCommonJsRecord(
                 ? NativeCommonJsRequireTargetKind::CommonJs
                 : NativeCommonJsRequireTargetKind::Esm;
             activatedBinding.record_id = targetHandle.opaque[2];
+            // The provider publishes an ESM target only after the host has
+            // checked its complete static closure for synchronous eligibility.
+            // Preserve that successful gate on the binding; async-tainted
+            // targets are refused by the provider before they reach here.
+            // @ref LLP 0026#7-commonjs-interop
+            activatedBinding.esm_synchronous_eligible = targetKind == 1;
             if (targetKind == 0) {
               auto* activated =
                   commonJsRecordFor(target.runtime, targetHandle);

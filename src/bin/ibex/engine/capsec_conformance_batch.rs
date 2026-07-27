@@ -1385,12 +1385,12 @@ fn materialize_native_arguments(
             NativeProbeArgument::HarnessUint8ArrayList { byte_lengths } => {
                 assert!(
                     byte_lengths.len() <= 1024
-                        && byte_lengths.iter().all(|length| *length <= u32::MAX as usize)
                         && byte_lengths
                             .iter()
-                            .try_fold(0_u64, |sum, length| {
-                                sum.checked_add(*length as u64)
-                            })
+                            .all(|length| *length <= u32::MAX as usize)
+                        && byte_lengths
+                            .iter()
+                            .try_fold(0_u64, |sum, length| { sum.checked_add(*length as u64) })
                             .is_some_and(|sum| sum <= u32::MAX as u64),
                     "typed-array list fixture must remain bounded"
                 );
@@ -1760,37 +1760,95 @@ fn validate_private_native_facade(
     assert!(invocation.expected_deny_message_fragment.is_none());
     assert_eq!(access.kind, "captured-private-global-function");
     assert_eq!(access.observed_key, "native-op:global:process.cwd");
-    assert_eq!(
-        access.install_id,
-        "root-global.process.cwd.2583c1a2d2ca2d7b"
-    );
     assert_eq!(access.path, ["process", "cwd"]);
+    let public_disposition = root_global_disposition_by_install_id(&access.install_id)
+        .expect("private cwd facade install ID is absent or duplicated");
     assert_eq!(
-        access.source_refs,
-        [
-            "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process",
-            "packages/ibex-runtime-js/src/node/process.ts#Process.prototype.cwd",
-            "src/engine/bootstrap/compat-polyfills.js#process.cwd",
-            "src/engine/hermes_runtime_process_setup.cc#jsi-global:process.cwd",
-        ]
+        public_disposition["observedKey"].as_str(),
+        Some(access.observed_key.as_str())
+    );
+    assert_eq!(
+        public_disposition["branch"]["activation"].as_str(),
+        Some("always")
+    );
+    assert_eq!(
+        public_disposition["disposition"].as_str(),
+        Some("converted")
+    );
+    assert_eq!(
+        public_disposition["liveExpectation"].as_str(),
+        Some("reachable")
+    );
+    assert_eq!(
+        public_disposition["property"],
+        serde_json::json!({
+            "root": {"kind": "string", "value": "process"},
+            "path": [{"kind": "string", "value": "cwd"}],
+        })
+    );
+    assert_eq!(
+        public_disposition["branch"]["sourceRefs"],
+        serde_json::to_value(&access.source_refs).unwrap()
     );
     assert_eq!(
         access.private_terminal.observed_key,
         probe.surface_observed_key
     );
+    let private_disposition =
+        root_global_disposition_by_install_id(&access.private_terminal.install_id)
+            .expect("private cwd terminal install ID is absent or duplicated");
     assert_eq!(
-        access.private_terminal.install_id,
-        "root-global.exactgetcwd.9b3be5b1ccdb728e"
+        private_disposition["observedKey"].as_str(),
+        Some(access.private_terminal.observed_key.as_str())
+    );
+    assert_eq!(
+        private_disposition["branch"]["activation"].as_str(),
+        Some("always")
+    );
+    assert_eq!(private_disposition["disposition"].as_str(), Some("private"));
+    assert_eq!(
+        private_disposition["property"],
+        serde_json::json!({
+            "root": {"kind": "string", "value": "__exactGetCwd"},
+            "path": [],
+        })
     );
     assert_eq!(
         access.private_terminal.private_consumer,
         "trusted-path-process-builtins"
     );
+    assert_eq!(
+        private_disposition["privateConsumer"].as_str(),
+        Some(access.private_terminal.private_consumer.as_str())
+    );
     assert_eq!(access.private_terminal.live_expectation, "absent");
+    assert_eq!(
+        private_disposition["liveExpectation"].as_str(),
+        Some(access.private_terminal.live_expectation.as_str())
+    );
     assert_eq!(
         access.expected_deny_message_fragment,
         "filesystem policy denied"
     );
+}
+
+fn root_global_disposition_by_install_id(install_id: &str) -> Option<&'static serde_json::Value> {
+    static MANIFEST: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+    let manifest = MANIFEST.get_or_init(|| {
+        serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/generated/root-global-disposition-manifest.json"
+        )))
+        .expect("parse checked root-global disposition manifest")
+    });
+    let rows = manifest["rows"]
+        .as_array()
+        .expect("root-global disposition manifest rows");
+    let mut matches = rows
+        .iter()
+        .filter(|row| row["installId"].as_str() == Some(install_id));
+    let disposition = matches.next()?;
+    matches.next().is_none().then_some(disposition)
 }
 
 fn uses_ambient_project_prefix_authority(
@@ -1910,22 +1968,6 @@ fn validate_native_runtime_observation(
         .as_str()
         .is_some_and(|source_ref| source_ref.contains("_windows.cc#"));
     let target_absence = recipe.expected_observation["kind"] == "target-absence";
-    let posix_auxiliary_worker_terminal = if !target_absence
-        && !windows_source
-        && matches!(
-        invocation.global_name.as_str(),
-        "__exactFsOpenAsync"
-            | "__exactFsFdAsync"
-            | "__exactFsFstatSync"
-            | "__exactFsFtruncateSync"
-            | "__exactFsFchmodSync"
-            | "__exactFsFutimesSync"
-            | "__exactFsWrite"
-    ) {
-        Some("native-op:__exactFsOpen")
-    } else {
-        native_async_worker_terminal(invocation)
-    };
     let retained_descriptor_setup = invocation.setup.iter().any(|setup| {
         matches!(
             setup,
@@ -1934,25 +1976,61 @@ fn validate_native_runtime_observation(
     });
     let auxiliary_allowed_terminal = if !target_absence
         && ((retained_descriptor_setup
-        && matches!(
-            invocation.global_name.as_str(),
-            "__exactFsFdAsync"
-                | "__exactFsRead"
-                | "__exactFsReadv"
-                | "__exactFsReadAsync"
-                | "__exactFsReadvAsync"
-                | "__exactFsReadFileAsync"
-                | "__exactFsFstatSync"
-                | "__exactFsFtruncateSync"
-                | "__exactFsFchmodSync"
-                | "__exactFsFutimesSync"
-                | "__exactFsWrite"
-        ))
+            && matches!(
+                invocation.global_name.as_str(),
+                "__exactFsFdAsync"
+                    | "__exactFsRead"
+                    | "__exactFsReadv"
+                    | "__exactFsReadAsync"
+                    | "__exactFsReadvAsync"
+                    | "__exactFsReadFileAsync"
+                    | "__exactFsFstatSync"
+                    | "__exactFsFtruncateSync"
+                    | "__exactFsFchmodSync"
+                    | "__exactFsFutimesSync"
+                    | "__exactFsWrite"
+            ))
             || (!windows_source && invocation.global_name == "__exactFsOpenAsync"))
     {
         Some("native-op:__exactFsOpen")
     } else {
         native_async_worker_terminal(invocation)
+    };
+    // POSIX synchronous retained reads reauthorize through the source-owned
+    // open receipt. Descriptor readFileAsync retains that edge and also emits
+    // its operation-specific worker edge; scalar/vector async reads emit only
+    // their dedicated worker surface. Windows routes carry operation-specific
+    // identities throughout. An admitted setup edge is therefore not
+    // automatically the selected terminal.
+    // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+    let source_selected_auxiliary_terminals = if !target_absence
+        && !windows_source
+        && retained_descriptor_setup
+        && invocation.global_name == "__exactFsReadFileAsync"
+    {
+        Some(BTreeSet::from([
+            "native-op:__exactFsOpen".to_owned(),
+            "native-op:__exactFsReadFileAsync".to_owned(),
+        ]))
+    } else if !target_absence
+        && !windows_source
+        && matches!(
+            invocation.global_name.as_str(),
+            "__exactFsOpenAsync"
+                | "__exactFsFdAsync"
+                | "__exactFsFstatSync"
+                | "__exactFsFtruncateSync"
+                | "__exactFsFchmodSync"
+                | "__exactFsFutimesSync"
+                | "__exactFsRead"
+                | "__exactFsReadv"
+                | "__exactFsWrite"
+        )
+    {
+        Some(BTreeSet::from(["native-op:__exactFsOpen".to_owned()]))
+    } else {
+        native_async_worker_terminal(invocation)
+            .map(|terminal| BTreeSet::from([terminal.to_owned()]))
     };
     let mut expected_allowed_coverage_edge_ids = recipe.edge_ids.clone();
     if let Some(worker_terminal) = auxiliary_allowed_terminal {
@@ -2302,10 +2380,9 @@ fn validate_native_runtime_observation(
             recipe.fixture_id
         );
         probe.surface_observed_key.clone()
-    } else if let Some(worker_terminal) = posix_auxiliary_worker_terminal {
+    } else if let Some(worker_terminals) = source_selected_auxiliary_terminals {
         assert_eq!(
-            observed_terminals,
-            BTreeSet::from([worker_terminal.to_owned()]),
+            observed_terminals, worker_terminals,
             "{}: async invocation did not remain on its source-selected worker",
             recipe.fixture_id
         );
@@ -2684,9 +2761,7 @@ async fn execute_native_public_recipe(
             let expected_bytes = match invocation.global_name.as_str() {
                 "__exactFsFtruncateSync" => b"ib".to_vec(),
                 "__exactFsWrite" => b"ibex-capsec-retained-sync-append".to_vec(),
-                "__exactFsWriteAsync" => {
-                    b"ibex-capsec-retained-sync-async".to_vec()
-                }
+                "__exactFsWriteAsync" => b"ibex-capsec-retained-sync-async".to_vec(),
                 "__exactFsWritevAsync" => {
                     let mut bytes = b"ibex-capsec-retained-sync".to_vec();
                     bytes.extend_from_slice(&[0; 5]);
@@ -3340,12 +3415,10 @@ async fn execute_authenticated_module_runner_public_graph(
     assert!(
         typed.iter().all(|decision| {
             decision.terminal_branch_id == execution_session_id
-                && decision.evidence.outcome
-                    == capsec_semantics::decision::DecisionOutcome::Allow
+                && decision.evidence.outcome == capsec_semantics::decision::DecisionOutcome::Allow
                 && !decision.gates.is_empty()
                 && decision.gates.iter().all(|gate| {
-                    REVIEWED_MODULE_RUNNER_AUXILIARY_EDGES
-                        .contains(&gate.coverage_edge_id.as_str())
+                    REVIEWED_MODULE_RUNNER_AUXILIARY_EDGES.contains(&gate.coverage_edge_id.as_str())
                 })
         }),
         "module-runner execution escaped its reviewed auxiliary effects: {typed_summary:#?}"
@@ -3907,10 +3980,7 @@ const NATIVE_PUBLIC_BATCH_COMMANDS: [[&str; 10]; 2] = [
 ];
 
 #[cfg(test)]
-fn is_native_public_batch_probe(
-    probe: &PublicSurfaceProbe,
-    expected_command: &[&str; 10],
-) -> bool {
+fn is_native_public_batch_probe(probe: &PublicSurfaceProbe, expected_command: &[&str; 10]) -> bool {
     (probe.invocation.native().is_some()
         || probe.invocation.host_abi().is_some()
         || probe.invocation.module_loader().is_some())

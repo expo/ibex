@@ -2262,7 +2262,10 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     "__exactFsWrite",
     nativeRetainedFsWriteTemplate({
       path: "target/ibex-capsec-fswrite",
-      argumentsList: [literalArgument("-append"), literalArgument(0)],
+      // Use the current-position sentinel so the append-open descriptor has
+      // one portable result. A positional pwrite on O_APPEND is
+      // platform-specific (Linux appends; Darwin honors the offset).
+      argumentsList: [literalArgument("-append"), literalArgument(-1)],
       requiredSourceArity: 3,
     }),
   ],

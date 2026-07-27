@@ -1430,10 +1430,18 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             }
             targets.insert(self.static_edge_target(record, edge)?.clone());
         }
-        let allowed = allowed_dynamic_bindings.get(source_id);
-        for binding in self.dynamic_import_bindings(source_id)? {
-            if allowed.is_some_and(|bindings| bindings.contains(&binding.key())) {
-                targets.insert(binding.target);
+        // A deferred source intentionally has no authenticated dynamic target
+        // until its exact site is reached. Enumerating its artifact edges here
+        // would turn static linkage back into eager discovery and fail merely
+        // because the target binding is absent. Invocation-time activation
+        // publishes that target closure through its separate request path.
+        // @ref LLP 0026#6-top-level-await-and-dynamic-import
+        if !self.defers_dynamic_edges(source_id) {
+            let allowed = allowed_dynamic_bindings.get(source_id);
+            for binding in self.dynamic_import_bindings(source_id)? {
+                if allowed.is_some_and(|bindings| bindings.contains(&binding.key())) {
+                    targets.insert(binding.target);
+                }
             }
         }
         for target in targets {
@@ -1748,7 +1756,19 @@ mod tests {
         );
         assert_eq!(
             dynamic_plan.linkage_order(&dynamic_entry_id).unwrap(),
-            [dynamic_target_id, dynamic_entry_id]
+            [dynamic_target_id, dynamic_entry_id.clone()]
+        );
+        let deferred_dynamic_plan = SynchronousGraphPlan::new_typed_with_call_time_deferred(
+            [(verify(&dynamic_entry), BTreeMap::new())],
+            BTreeMap::new(),
+            BTreeSet::from([dynamic_entry_id.clone()]),
+        )
+        .unwrap();
+        assert_eq!(
+            deferred_dynamic_plan
+                .linkage_order_for_authorized(&dynamic_entry_id, &BTreeMap::new())
+                .unwrap(),
+            [dynamic_entry_id.clone()]
         );
 
         let commonjs_entry_id = source("commonjs-entry");

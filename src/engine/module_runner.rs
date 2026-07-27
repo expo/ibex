@@ -4791,13 +4791,23 @@ mod tests {
         }
     }
 
+    enum RequireProviderTestTarget {
+        CommonJs {
+            factory: NativeModuleHandle,
+            context: NativeModuleHandle,
+            source_id: Vec<u8>,
+        },
+        Esm {
+            record: NativeModuleHandle,
+        },
+    }
+
     struct RequireProviderTestContext {
         raw: *mut c_void,
+        expected_generation: u64,
         expected_requester: Vec<u8>,
         expected_specifier: Vec<u8>,
-        target_factory: NativeModuleHandle,
-        target_context: NativeModuleHandle,
-        target_source_id: Vec<u8>,
+        target: RequireProviderTestTarget,
         invocations: usize,
         reentrant_eval_status: i32,
     }
@@ -4809,7 +4819,7 @@ mod tests {
     ) -> Result<NativeCommonJsRequireActivationTarget> {
         if request.requester.encode()?.as_bytes() != state.expected_requester
             || request.specifier.as_bytes() != state.expected_specifier
-            || request.graph_generation() != 23
+            || request.graph_generation() != state.expected_generation
         {
             bail!("provider received the wrong requester token");
         }
@@ -4831,6 +4841,18 @@ mod tests {
             unsafe { ex_hermes_free_string(reentrant_output) };
         }
 
+        let (factory, context, source_id) = match &state.target {
+            RequireProviderTestTarget::CommonJs {
+                factory,
+                context,
+                source_id,
+            } => (factory, context, source_id),
+            RequireProviderTestTarget::Esm { record } => {
+                return Ok(NativeCommonJsRequireActivationTarget(
+                    PublishedNativeRecord::Esm { record: *record },
+                ));
+            }
+        };
         let filename = b"/project/activated-target.cjs";
         let dirname = b"/project";
         let mut target = NativeModuleHandle::default();
@@ -4838,10 +4860,10 @@ mod tests {
             ex_hermes_commonjs_create_record(
                 state.raw,
                 request.requester_record.opaque[0],
-                state.target_factory,
-                state.target_context,
-                state.target_source_id.as_ptr(),
-                state.target_source_id.len(),
+                *factory,
+                *context,
+                source_id.as_ptr(),
+                source_id.len(),
                 filename.as_ptr(),
                 filename.len(),
                 dirname.as_ptr(),
@@ -6351,11 +6373,14 @@ mod tests {
                 .unwrap();
             let mut provider_context = Box::new(RequireProviderTestContext {
                 raw,
+                expected_generation: 23,
                 expected_requester: requester_id.encode().unwrap().into_bytes(),
                 expected_specifier: b"./target".to_vec(),
-                target_factory: target_factory.handle.unwrap(),
-                target_context: target_context.handle.unwrap(),
-                target_source_id: target_id.encode().unwrap().into_bytes(),
+                target: RequireProviderTestTarget::CommonJs {
+                    factory: target_factory.handle.unwrap(),
+                    context: target_context.handle.unwrap(),
+                    source_id: target_id.encode().unwrap().into_bytes(),
+                },
                 invocations: 0,
                 reentrant_eval_status: 0,
             });
@@ -6421,6 +6446,154 @@ mod tests {
             drop(target_context);
             drop(target_factory);
             assert_eq!(ex_hermes_module_unpin_generation(raw, nonce, 23), 0);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn deferred_commonjs_require_provider_preserves_synchronous_esm_admission() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            assert_eq!(ex_hermes_module_pin_generation(raw, nonce, 24), 0);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let owner = Principal::Root {
+                identity: NonEmptyString::new("deferred-require-esm-root").unwrap(),
+            };
+            let requester_id = SourceId::file(
+                owner.clone(),
+                vec![PathComponent::utf8("requester.cjs").unwrap()],
+            )
+            .unwrap();
+            let target_id = SourceId::file(
+                owner,
+                vec![PathComponent::utf8("activated-target.mjs").unwrap()],
+            )
+            .unwrap();
+            let requester = test_artifact_for_goal(
+                requester_id.clone(),
+                "function (require, module, exports) { var target = require('./target'); exports.observed = target.value; }",
+                SourceGoalV1::CommonJs,
+                vec![StaticEdgeV1::CommonJsRequire {
+                    specifier: NonEmptyString::new("./target").unwrap(),
+                }],
+                Vec::new(),
+                Some(CommonJsExportsV1 {
+                    detector: NonEmptyString::new("cjs-module-lexer").unwrap(),
+                    detector_version: NonEmptyString::new("2.1.0").unwrap(),
+                    names: vec![NonEmptyString::new("observed").unwrap()],
+                    reexports: Vec::new(),
+                }),
+            );
+            let target = test_artifact_with_factory(
+                target_id.clone(),
+                "function ($export) { return { declare: function () {}, execute: function () { $export('value', 42); } }; }",
+                &["value"],
+            );
+            let plan = SynchronousGraphPlan::new_typed_with_call_time_deferred_edges(
+                [(verify_test_artifact(&requester), BTreeMap::new())],
+                BTreeMap::new(),
+                BTreeSet::new(),
+                BTreeSet::from([requester_id.clone()]),
+            )
+            .unwrap();
+
+            let target_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(target_id.clone(), 0, 0, [0], 24).unwrap(),
+                )
+                .unwrap();
+            let target_factory = runtime
+                .compile_verified_factory(
+                    verify_test_artifact(&target),
+                    0,
+                    None,
+                    24,
+                    "/project/activated-target.mjs",
+                )
+                .unwrap();
+            let mut target_record = target_factory
+                .create_record(&target_context, &target_id)
+                .unwrap();
+            target_record.declare_export("value").unwrap();
+            target_record
+                .instantiate("file:///project/activated-target.mjs", false)
+                .unwrap();
+            target_record.run_declare().unwrap();
+            let target_handle = target_record.live_handle().unwrap();
+            assert_eq!(
+                ex_hermes_module_publish_records(raw, nonce, &target_handle, 1),
+                0
+            );
+            target_record.published = true;
+
+            let mut provider_context = Box::new(RequireProviderTestContext {
+                raw,
+                expected_generation: 24,
+                expected_requester: requester_id.encode().unwrap().into_bytes(),
+                expected_specifier: b"./target".to_vec(),
+                target: RequireProviderTestTarget::Esm {
+                    record: target_handle,
+                },
+                invocations: 0,
+                reentrant_eval_status: 0,
+            });
+            let provider_context_pointer = NonNull::from(provider_context.as_mut());
+            let provider = runtime
+                .install_commonjs_require_provider(
+                    24,
+                    provider_context_pointer,
+                    test_commonjs_require_provider,
+                )
+                .unwrap();
+            let policy = AllowGraphPolicy::new();
+            let authority =
+                GraphAuthorityContext::initialization(requester_id.clone(), 24).unwrap();
+            let config = NativeModuleRecordConfig::new(
+                0,
+                None,
+                GraphEvaluationContext::new(requester_id.clone(), 0, 0, [0], 24).unwrap(),
+                "/project/requester.cjs",
+                "file:///project/requester.cjs",
+            )
+            .unwrap();
+            let deferred = BTreeMap::from([(
+                requester_id.clone(),
+                DeferredDynamicImportBindings {
+                    literal_specifiers: BTreeSet::new(),
+                    computed_candidates: BTreeSet::new(),
+                    commonjs_require_specifiers: BTreeSet::from(["./target".to_owned()]),
+                    bootstrap_internal_commonjs_specifiers: BTreeSet::new(),
+                },
+            )]);
+            let mut graph = NativeSynchronousGraph::link_authorized_deferred(
+                &runtime,
+                &plan,
+                &requester_id,
+                BTreeMap::from([(requester_id.clone(), config)]),
+                &ModuleGraphAuthorizer::new(&policy),
+                &BTreeMap::from([(requester_id.clone(), authority)]),
+                &deferred,
+            )
+            .unwrap();
+            graph.evaluate().unwrap();
+            assert_eq!(
+                graph.namespace_json(&requester_id).unwrap(),
+                r#"{"default":{"observed":42},"module.exports":{"observed":42},"observed":42}"#
+            );
+            assert_eq!(provider_context.invocations, 1);
+            assert_eq!(provider_context.reentrant_eval_status, -4);
+
+            drop(graph);
+            drop(provider);
+            drop(target_record);
+            drop(target_factory);
+            drop(target_context);
+            assert_eq!(ex_hermes_module_unpin_generation(raw, nonce, 24), 0);
             drop(runtime);
             ex_hermes_destroy(raw);
         }

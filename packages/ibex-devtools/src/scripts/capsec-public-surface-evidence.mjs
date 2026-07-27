@@ -58,6 +58,28 @@ const SEMANTIC_REGISTRY_IDENTITY = (() => {
   }
   return Object.freeze({ vocabDigest, registryDigest });
 })();
+const ROOT_GLOBAL_DISPOSITIONS = (() => {
+  const manifest = readJsonStrict(
+    path.join(
+      capsecRoot,
+      "generated/root-global-disposition-manifest.json",
+    ),
+  );
+  if (
+    manifest?.rootGlobalDispositionManifestSchema !==
+      "ibex/root-global-disposition-manifest/1" ||
+    !Array.isArray(manifest.rows)
+  ) {
+    throw new Error("root-global disposition manifest is unavailable");
+  }
+  return manifest.rows;
+})();
+const rootGlobalDispositionByInstallId = (installId) => {
+  const matches = ROOT_GLOBAL_DISPOSITIONS.filter(
+    (row) => row.installId === installId,
+  );
+  return matches.length === 1 ? matches[0] : null;
+};
 const BUILTIN_RUNTIME_INVOCATION_SCHEMAS = new Set([
   "ibex/capsec-builtin-export-invocation/1",
   "ibex/capsec-builtin-call-invocation/1",
@@ -144,17 +166,12 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["stream-owner", "prototype-call"],
   ["zlib-owner", "prototype-call"],
 ]);
-const PRIVATE_CWD_FACADE_SOURCE_REFS = Object.freeze([
-  "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process",
-  "packages/ibex-runtime-js/src/node/process.ts#Process.prototype.cwd",
-  "src/engine/bootstrap/compat-polyfills.js#process.cwd",
-  "src/engine/hermes_runtime_process_setup.cc#jsi-global:process.cwd",
-]);
 const NATIVE_FILESYSTEM_DENIAL_GLOBALS = new Set([
   "__exactAppendFile",
   "__exactFsOpen",
   "__exactFsOpenAsync",
   "__exactFsPathAsync",
+  "__exactFsReadFileAsync",
   "__exactLstat",
   "__exactMkdir",
   "__exactReadFile",
@@ -175,24 +192,23 @@ const NATIVE_ASYNC_WORKER_TERMINALS = new Map([
   ["statfs", "native-op:__exactStatfs"],
   ["truncate", "native-op:__exactTruncate"],
 ]);
-const NATIVE_RETAINED_FS_AUXILIARY_TERMINALS = new Map(
-  [
-    "__exactFsFdAsync",
-    "__exactFsFchmodSync",
-    "__exactFsFdatasyncSync",
-    "__exactFsFstatSync",
-    "__exactFsFsyncSync",
-    "__exactFsFtruncateSync",
-    "__exactFsFutimesSync",
-    "__exactFsOpenAsync",
-  ].map((globalName) => [globalName, "native-op:__exactFsOpen"]),
-);
+const POSIX_RETAINED_FS_OPEN_TERMINALS = new Set([
+  "__exactFsFdAsync",
+  "__exactFsFchmodSync",
+  "__exactFsFstatSync",
+  "__exactFsFtruncateSync",
+  "__exactFsFutimesSync",
+  "__exactFsRead",
+  "__exactFsReadFileAsync",
+  "__exactFsReadv",
+  "__exactFsWrite",
+]);
 const CLOSED_SQLITE_CARRIER_OPERATIONS = new Set([
   "sqlite-cr-sqlite-enable",
   "sqlite-extension-load",
 ]);
 
-export function nativeAsyncWorkerTerminal(authored) {
+export function nativeAsyncWorkerTerminals(authored) {
   if (
     authored?.invocationSchema !==
       "ibex/capsec-native-global-invocation/1" ||
@@ -200,15 +216,42 @@ export function nativeAsyncWorkerTerminal(authored) {
   ) {
     return null;
   }
-  const retainedFsTerminal = NATIVE_RETAINED_FS_AUXILIARY_TERMINALS.get(
-    authored.globalName,
+  const posixSource =
+    typeof authored.sourceDescriptor?.sourceRef === "string" &&
+    !authored.sourceDescriptor.sourceRef.includes("_windows.cc#");
+  const retainedDescriptorSetup = authored.setup?.some((setup) =>
+    ["fs-read-file", "fs-write-file"].includes(setup.kind),
   );
-  if (retainedFsTerminal) return retainedFsTerminal;
+  if (
+    posixSource &&
+    retainedDescriptorSetup &&
+    authored.globalName === "__exactFsReadFileAsync"
+  ) {
+    return [
+      "native-op:__exactFsOpen",
+      "native-op:__exactFsReadFileAsync",
+    ];
+  }
+  if (
+    posixSource &&
+    (authored.globalName === "__exactFsOpenAsync" ||
+      (retainedDescriptorSetup &&
+        POSIX_RETAINED_FS_OPEN_TERMINALS.has(authored.globalName)))
+  ) {
+    return ["native-op:__exactFsOpen"];
+  }
   if (authored.globalName !== "__exactFsPathAsync") return null;
   const operation = authored.arguments?.[0];
-  return operation?.kind === "json-literal"
-    ? NATIVE_ASYNC_WORKER_TERMINALS.get(operation.value) ?? null
-    : null;
+  const terminal =
+    operation?.kind === "json-literal"
+      ? NATIVE_ASYNC_WORKER_TERMINALS.get(operation.value) ?? null
+      : null;
+  return terminal === null ? null : [terminal];
+}
+
+export function nativeAsyncWorkerTerminal(authored) {
+  const terminals = nativeAsyncWorkerTerminals(authored);
+  return terminals?.length === 1 ? terminals[0] : null;
 }
 
 export function validateNativeFilesystemDenialRecipeDescriptor(authored) {
@@ -1501,6 +1544,12 @@ function validateRuntimeInvocation(observation, recipe) {
     );
     if (authored.kind === "private-native-facade-function") {
       const access = authored.publicAccess;
+      const publicDisposition = rootGlobalDispositionByInstallId(
+        access?.installId,
+      );
+      const privateDisposition = rootGlobalDispositionByInstallId(
+        access?.privateTerminal?.installId,
+      );
       exactKeys(
         access,
         [
@@ -1529,16 +1578,35 @@ function validateRuntimeInvocation(observation, recipe) {
         authored.publicAccessDigest !== taggedDigest(access) ||
         access.kind !== "captured-private-global-function" ||
         access.observedKey !== "native-op:global:process.cwd" ||
-        access.installId !== "root-global.process.cwd.2583c1a2d2ca2d7b" ||
         canonicalJson(access.path) !== canonicalJson(["process", "cwd"]) ||
+        publicDisposition?.observedKey !== access.observedKey ||
+        publicDisposition?.branch?.activation !== "always" ||
+        publicDisposition?.disposition !== "converted" ||
+        publicDisposition?.liveExpectation !== "reachable" ||
+        canonicalJson(publicDisposition?.property) !==
+          canonicalJson({
+            root: { kind: "string", value: "process" },
+            path: [{ kind: "string", value: "cwd" }],
+          }) ||
         canonicalJson(access.sourceRefs) !==
-          canonicalJson(PRIVATE_CWD_FACADE_SOURCE_REFS) ||
+          canonicalJson(publicDisposition?.branch?.sourceRefs) ||
         access.privateTerminal.observedKey !== "native-op:__exactGetCwd" ||
-        access.privateTerminal.installId !==
-          "root-global.exactgetcwd.9b3be5b1ccdb728e" ||
         access.privateTerminal.privateConsumer !==
           "trusted-path-process-builtins" ||
         access.privateTerminal.liveExpectation !== "absent" ||
+        privateDisposition?.observedKey !==
+          access.privateTerminal.observedKey ||
+        privateDisposition?.branch?.activation !== "always" ||
+        privateDisposition?.disposition !== "private" ||
+        privateDisposition?.privateConsumer !==
+          access.privateTerminal.privateConsumer ||
+        privateDisposition?.liveExpectation !==
+          access.privateTerminal.liveExpectation ||
+        canonicalJson(privateDisposition?.property) !==
+          canonicalJson({
+            root: { kind: "string", value: "__exactGetCwd" },
+            path: [],
+          }) ||
         access.expectedDenyMessageFragment !== "filesystem policy denied"
       ) {
         throw new Error(
@@ -4014,7 +4082,7 @@ export function validatePublicFixtureRuntimeObservation(
     effectBuiltinAuxiliaryCarrier && recipe.scenario === "deny";
   const runtimeAuxiliaryCarrier =
     auxiliaryCarrier || effectBuiltinDenialCarrier;
-  const nativeWorkerTerminal = nativeAsyncWorkerTerminal(authored);
+  const nativeWorkerTerminals = nativeAsyncWorkerTerminals(authored);
   let effectBuiltinModuleImportIdentity = null;
   if (callbackInvariant) {
     // Callback/control surfaces are non-capabilities, but their invariant can
@@ -4653,10 +4721,10 @@ export function validatePublicFixtureRuntimeObservation(
       : sourceVariantAbsence
         ? `${observation.invocation.result.surfaceKind}:${observation.invocation.result.surfaceName}`
         : observation.invocation.surfaceObservedKey;
-  } else if (nativeWorkerTerminal !== null) {
+  } else if (nativeWorkerTerminals !== null) {
     if (
-      terminals.size !== 1 ||
-      !terminals.has(nativeWorkerTerminal)
+      canonicalJson([...terminals].sort(compareText)) !==
+      canonicalJson([...nativeWorkerTerminals].sort(compareText))
     ) {
       throw new Error(
         `${recipe.fixtureId}: async invocation did not remain on its source-selected worker`,

@@ -2224,12 +2224,83 @@ ticket closes.
   Important enforcement mechanisms remain about **99.2% complete** and the
   overall requested task remains about **93% complete**.
 
+### 2026-07-26 — completed both Apple native public shards
+
+- Removed the checked `process.cwd` install-ID split that stopped the complete
+  Apple primary shard at fixture 3. Both the JavaScript evidence validator and
+  the Rust native producer now join the exact public and private install IDs to
+  the checked root-global disposition manifest. A regression rejects the
+  retired hard-coded ID and any manifest/evidence disagreement.
+- Reconciled retained POSIX filesystem evidence with the installed runtime.
+  Scalar and vector descriptor reads retain their exact open terminal;
+  descriptor `readFileAsync` retains both the open and its own worker terminal.
+  Windows remains on its separate source-selected typed edges. The portable
+  retained write fixture now uses the current-position sentinel because
+  positional writes on an append descriptor differ between Darwin and Linux.
+- The complete primary shard exposed an older deferred-module linkage defect.
+  Static linkage no longer tries to discover a literal dynamic target for a
+  source whose dynamic edges are explicitly call-time deferred. The next
+  fixture exposed a separate CommonJS-provider boundary defect: a provider had
+  proved an ESM target's complete graph synchronously eligible, but the native
+  binding discarded that result and rejected the target as async. The binding
+  now preserves the successful admission bit; async-tainted ESM is still
+  refused by the Rust provider before publication. Focused M4 tests cover both
+  regressions.
+- The physical M4 verifier passed the exact complete Apple production shards:
+  **281 primary fixtures** and **313 secondary fixtures**, with zero failures.
+  Their evidence artifacts bind Apple aarch64 engine digest
+  `sha256-afSytE7VsUfboE9brsH6q0m7LA-KNYrghjCVYL05-yQ` and catalog digest
+  `sha256-egBjY2PSRxWBdGqh8Cib0Zau9Miin4QnnjD4Mh_y6LQ`
+  (23,846 required / 2,799 fully executable). The evidence artifact SHA-256
+  values are
+  `8bbc4863f2c7a52620974d6288a2c1d3819e64982ad62f3e5a0fd56c25e6570c`
+  and
+  `c051f006636cc5f0a5afadd6156a15c7df3d3750008044258d79b3ae4200707c`.
+  Cross-shard validation merged all **594/594** executions and produced
+  aggregate digest
+  `sha256-pjKQVJY9H5oqPUfAd-3At7dYhftHksIn1291nfpP3ms`.
+- The newly added M5 MacBook Air independently ran the complete CapSec
+  JavaScript family: 824 tests passed and 17 failed across 49 files. The
+  changed recipe and public-surface suites passed. The failures are
+  branch-wide stale corpus debt: hard-coded residual/output counts, a reviewed
+  Hermes profile identity, toy-catalog summaries, and the generated host-task
+  ingress inventory. The inventory failure was the deterministic six-line
+  offset caused by this checkpoint's native binding comment and was
+  regenerated locally. The inherited-alias profile pin was also reconciled
+  after confirming the already-reviewed 12-patch Hermes profile still exposes
+  exactly the same four evaluator families and that patch 0012 only adds the
+  private WebGPU ArrayBuffer alias/detach interface. Its live profile digest is
+  `sha256-76318d287e6d33e65b0f84d18fb91eda561a0e9caf432d1fb74c744964090de1`;
+  all 114 source-inventory tests pass. The deterministic vendored refresh also
+  rotated the stale evaluator disposition install IDs, exact-runtime-dependent
+  WebGPU codec authority, REPL source identity, and final source fingerprint.
+  The other 15 failures are not counted as green and remain inputs to the final
+  generated-corpus audit.
+- While the native shards ran, `origin/main` advanced from `002ba828` to
+  `e4e9bca9` with the startup-performance work. It does not overlap this
+  checkpoint's nine source files, but the complete branch must be rebased and
+  reverified before the physical evidence can be treated as final-tip
+  promotion evidence. The post-shard evaluator/vendored identity refresh also
+  means the catalog must be regenerated and both physical shards rerun after
+  that rebase; the 594/594 result remains exact evidence for the explicitly
+  recorded v6 catalog and engine, not for an inferred successor identity.
+- Hard part: exact-target evidence spans several independent identity joins.
+  A source-derived install ID cannot be duplicated in validators, setup
+  decisions cannot be mistaken for the terminal under observation, and a
+  call-time module provider must carry its already-proved graph property across
+  the native ABI without eagerly discovering the target. Important enforcement
+  mechanisms are about **99.3% complete** and the overall requested task
+  remains about **93% complete** pending moving-main replay, Windows route
+  audit, stale-corpus reconciliation, and the LLP 0021 completion audit.
+
 ## Next milestone
 
 Continue criterion 4 by auditing the remaining installed Windows filesystem
 routes, starting with synchronous vector/positional descriptor mutation and
-write-capable whole-file families. Reconcile the Apple `process.cwd` install-ID
-drift before relying on another complete Apple native shard. Do not advertise
-Windows while installed legacy routes or 17,930 exact-target public-evidence
-rows remain unresolved, and do not convert catalog labels into completion
-evidence.
+write-capable whole-file families. First replay the branch onto the current
+`origin/main` startup-performance landing and rerun the exact generated and
+native checks whose identities it changes. Reconcile the 15 remaining stale
+branch-wide JavaScript corpus tests during the final generated-corpus audit.
+Do not advertise Windows while installed legacy routes or 17,930 exact-target
+public-evidence rows remain unresolved, and do not convert catalog labels into
+completion evidence.
