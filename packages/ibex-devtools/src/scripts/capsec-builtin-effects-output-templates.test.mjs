@@ -91,17 +91,17 @@ function countFamilies(rows) {
 }
 
 describe("builtin effects output recipes", () => {
-  test("accounts for the exact 607 callable-return rows", async () => {
+  test("accounts for the exact 565 callable-return rows", async () => {
     const { selected, missing } = await loaded;
     expect(missing).toEqual([]);
-    expect(selected).toHaveLength(607);
+    expect(selected).toHaveLength(565);
     const registrar = selected.filter(
       (row) => row.invocation.cohort === "registrar",
     );
     const descriptorResidual = selected.filter(
       (row) => row.invocation.cohort === "descriptor-residual",
     );
-    expect(registrar).toHaveLength(607);
+    expect(registrar).toHaveLength(565);
     expect(descriptorResidual).toHaveLength(0);
     expect(countFamilies(registrar)).toEqual(
       BUILTIN_EFFECTS_REGISTRAR_FAMILY_COUNTS,
@@ -114,8 +114,8 @@ describe("builtin effects output recipes", () => {
         selected.map((row) => row.invocation),
       ),
     ).toMatchObject({
-      total: 607,
-      cohorts: { registrar: 607 },
+      total: 565,
+      cohorts: { registrar: 565 },
     });
   }, 30_000);
 
@@ -231,17 +231,9 @@ describe("builtin effects output recipes", () => {
         ),
       },
     ]);
-    expect(byExport.get("node_fs:rename").route.arguments).toEqual([
-      {
-        kind: "json",
-        value: expect.stringMatching(/^\/project\/fixtures\//),
-      },
-      {
-        kind: "json",
-        value: expect.stringMatching(/^\/project\/fixtures\//),
-      },
-      { kind: "noop-function" },
-    ]);
+    // The exact retained-filesystem author now owns rename; this generic
+    // effects tranche must not duplicate that terminal route.
+    expect(byExport.has("node_fs:rename")).toBe(false);
     for (const identity of [
       "node_fs:readFile",
       "node_fs:writeFile",

@@ -118,7 +118,7 @@ const loaded = residualInvocations();
 describe("builtin non-capability/closed output recipes", () => {
   test("accounts for the exact callable/accessor and descriptor residual universe", async () => {
     const rows = await loaded;
-    expect(rows).toHaveLength(480);
+    expect(rows).toHaveLength(512);
     expect(
       Object.fromEntries(
         ["non-capability", "closed"].map((classification) => [
@@ -128,18 +128,19 @@ describe("builtin non-capability/closed output recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ "non-capability": 302, closed: 178 });
+    ).toEqual({ "non-capability": 292, closed: 220 });
     expect(
       builtinNoncapClosedOutputRouteManifest(rows.map((row) => row.invocation)),
     ).toMatchObject({
-      total: 480,
+      total: 512,
       operations: {
-        call: 286,
-        construct: 25,
+        call: 278,
+        construct: 23,
         "import-refusal": 22,
-        unexercisable: 147,
+        unexercisable: 189,
       },
       residualReasons: {
+        "no-bounded-source-owned-receiver": 42,
         "receiver-needs-external-or-network-lifecycle": 86,
         "runtime-inspection-or-escape-surface-has-no-safe-receiver": 61,
       },
@@ -258,13 +259,10 @@ describe("builtin non-capability/closed output recipes", () => {
         row.invocation,
       ]),
     );
-    expect(byExport.get("node_fs:Dirent.isFile").route).toMatchObject({
-      operation: "call",
-      receiver: { kind: "fs-dirent" },
-    });
     // These rows are now handled by the earlier exact public-return author,
     // so the residual author must not duplicate their proof route.
     for (const independentlyAuthored of [
+      "node_fs:Dirent.isFile",
       "node_buffer:Buffer.offset",
       "node_fs:ReadStream.destroy",
       "node_fs:WriteStream._emitClose",

@@ -2333,6 +2333,45 @@ ticket closes.
   stay constant. Important enforcement mechanisms remain about **99.3%
   complete** and the overall requested task remains about **93% complete**.
 
+### 2026-07-26 — reconciled the expanded CapSec corpus after the replay
+
+- The M5 MacBook Air broad sweep measured the rebased corpus at 853 passing
+  tests and 16 failures. Every failure was an independent expectation or toy
+  fixture left behind by the already validated 7,657-edge coverage expansion;
+  the coverage, ingress, registry, evaluator, and LLP contract validators
+  themselves passed.
+- Reconciled the exact current partitions rather than weakening validation.
+  Thirty-nine filesystem rows moved from the generic effects author into the
+  retained-filesystem author, leaving 565 generic effect-call rows. The
+  non-capability/closed residual author now accounts for 512 rows, including
+  42 newly closed callables with the honest
+  `no-bounded-source-owned-receiver` reason. Output-shape accounting now binds
+  all 6,569 rows and all 1,704 structural-only surfaces.
+- Updated the target-absence toy catalog to carry the required
+  `internallyVerifiedFixtures` summary field, and refreshed the nine-observation
+  pilot's exact incomplete-report counts. These fixtures still fail closed on
+  digest, target, summary, source, and plan tampering.
+- The complete local CapSec JavaScript family now passes **869/869 tests
+  across 49 files with 165,166 assertions**. The strengthened Host-ABI
+  partition regression compares the tampered partition against the current
+  59 target-absence / 508 executable / 56 residual baseline, not its retired
+  predecessor.
+- The Air independently generated the same rebased Apple catalog as the M4:
+  digest `sha256-XKT-SU_PYWl_kSIRKNKF0-FVyQZEZvaMB6L4NWYWBoY`, with 23,846
+  required / 2,799 fully executable / 3,136 internally verified / 17,911
+  unresolved rows. It also completed a fresh exact 12-patch, no-debugger
+  release Hermes build under the new Linux build-authority identity; physical
+  shard evidence is deliberately not claimed until the production batches
+  finish.
+- Hard part: large generated-corpus shifts can make stale assertions look like
+  implementation failures, but replacing assertions with looser inequalities
+  would erase the independent partition check. Each new number was derived
+  from the validated source corpus, and route-specific tests still prove that
+  rows moved to the intended stricter author. Important enforcement mechanisms
+  remain about **99.3% complete** and the overall requested task is about
+  **94% complete**, pending final-tip Apple evidence, the remaining Windows
+  route audit, and the LLP 0021 completion audit.
+
 ## Next milestone
 
 Continue criterion 4 by auditing the remaining installed Windows filesystem

@@ -23,7 +23,7 @@ export const BUILTIN_EFFECTS_OUTPUT_SOURCE_DESCRIPTOR_KIND =
 
 export const BUILTIN_EFFECTS_REGISTRAR_FAMILY_COUNTS = Object.freeze({
   node_http: 152,
-  node_fs: 109,
+  node_fs: 70,
   node_net: 68,
   node_tls: 50,
   node_readline: 48,
@@ -31,7 +31,7 @@ export const BUILTIN_EFFECTS_REGISTRAR_FAMILY_COUNTS = Object.freeze({
   node_dns: 32,
   ws: 28,
   node_http2: 18,
-  node_fs_promises: 16,
+  node_fs_promises: 13,
   node_tty: 14,
   node_child_process: 8,
   exact_process: 7,
