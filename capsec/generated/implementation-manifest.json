@@ -277863,68 +277863,6 @@
       ]
     },
     {
-      "edgeId": "surface.startup.evaluation.has.include.18ool1z.stream.enhance.0x24hc2",
-      "observedKey": "startup:evaluation:__has_include:18ool1z:stream-enhance",
-      "branchId": "surface.startup.evaluation.has.include.18ool1z.stream.enhance.0x24hc2.main",
-      "enforcementBranchId": "surface.startup.evaluation.has.include.18ool1z.stream.enhance.0x24hc2.main",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "startup:evaluation:__has_include:18ool1z:stream-enhance"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime_process_setup.cc#__has_include:18ool1z:evaluateJavaScript:<stream-enhance>"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_process_setup.cc#__has_include:18ool1z:evaluateJavaScript:<stream-enhance>"
-        ],
-        "terminalObservedKey": "startup:evaluation:__has_include:18ool1z:stream-enhance"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime_process_setup.cc#__has_include:18ool1z:evaluateJavaScript:<stream-enhance>"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.startup.evaluation.has.include.18ool1z.stream.enhance.0x24hc2.main.non-capability"
-      ]
-    },
-    {
-      "edgeId": "surface.startup.evaluation.has.include.18ool1z.stream.stability.patch.0brqfz4",
-      "observedKey": "startup:evaluation:__has_include:18ool1z:stream-stability-patch",
-      "branchId": "surface.startup.evaluation.has.include.18ool1z.stream.stability.patch.0brqfz4.main",
-      "enforcementBranchId": "surface.startup.evaluation.has.include.18ool1z.stream.stability.patch.0brqfz4.main",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "startup:evaluation:__has_include:18ool1z:stream-stability-patch"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime_process_setup.cc#__has_include:18ool1z:evaluateJavaScript:<stream-stability-patch>"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_process_setup.cc#__has_include:18ool1z:evaluateJavaScript:<stream-stability-patch>"
-        ],
-        "terminalObservedKey": "startup:evaluation:__has_include:18ool1z:stream-stability-patch"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime_process_setup.cc#__has_include:18ool1z:evaluateJavaScript:<stream-stability-patch>"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.startup.evaluation.has.include.18ool1z.stream.stability.patch.0brqfz4.main.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.startup.evaluation.installcompartmentregistry.compartment.registry.0nif5gk",
       "observedKey": "startup:evaluation:installCompartmentRegistry:compartment-registry",
       "branchId": "surface.startup.evaluation.installcompartmentregistry.compartment.registry.0nif5gk.main",
@@ -278280,6 +278218,68 @@
       ]
     },
     {
+      "edgeId": "surface.startup.evaluation.installprocesssetup.stream.enhance.19o3nqq",
+      "observedKey": "startup:evaluation:installProcessSetup:stream-enhance",
+      "branchId": "surface.startup.evaluation.installprocesssetup.stream.enhance.19o3nqq.main",
+      "enforcementBranchId": "surface.startup.evaluation.installprocesssetup.stream.enhance.19o3nqq.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:evaluation:installProcessSetup:stream-enhance"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_process_setup.cc#installProcessSetup:evaluateJavaScript:<stream-enhance>"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_process_setup.cc#installProcessSetup:evaluateJavaScript:<stream-enhance>"
+        ],
+        "terminalObservedKey": "startup:evaluation:installProcessSetup:stream-enhance"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_process_setup.cc#installProcessSetup:evaluateJavaScript:<stream-enhance>"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.evaluation.installprocesssetup.stream.enhance.19o3nqq.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.evaluation.installprocesssetup.stream.stability.patch.17t7seo",
+      "observedKey": "startup:evaluation:installProcessSetup:stream-stability-patch",
+      "branchId": "surface.startup.evaluation.installprocesssetup.stream.stability.patch.17t7seo.main",
+      "enforcementBranchId": "surface.startup.evaluation.installprocesssetup.stream.stability.patch.17t7seo.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:evaluation:installProcessSetup:stream-stability-patch"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_process_setup.cc#installProcessSetup:evaluateJavaScript:<stream-stability-patch>"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_process_setup.cc#installProcessSetup:evaluateJavaScript:<stream-stability-patch>"
+        ],
+        "terminalObservedKey": "startup:evaluation:installProcessSetup:stream-stability-patch"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_process_setup.cc#installProcessSetup:evaluateJavaScript:<stream-stability-patch>"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.evaluation.installprocesssetup.stream.stability.patch.17t7seo.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.startup.evaluation.installwebsocketglobals.windows.websocket.shim.0w4o2cz",
       "observedKey": "startup:evaluation:installWebSocketGlobals:windows-websocket-shim",
       "branchId": "surface.startup.evaluation.installwebsocketglobals.windows.websocket.shim.0w4o2cz.main",
@@ -278504,72 +278504,6 @@
         "surface.startup.install.route.ex.worklet.create.installworkletglobals.0n12p2j.main.cannot-widen-authority",
         "surface.startup.install.route.ex.worklet.create.installworkletglobals.0n12p2j.main.non-capability",
         "surface.startup.install.route.ex.worklet.create.installworkletglobals.0n12p2j.main.post-lockdown-invariant"
-      ]
-    },
-    {
-      "edgeId": "surface.startup.install.route.exacthermesruntime.defined.installfshostfunctions.1d56dnq",
-      "observedKey": "startup:install-route:ExactHermesRuntime::defined:installFsHostFunctions",
-      "branchId": "surface.startup.install.route.exacthermesruntime.defined.installfshostfunctions.1d56dnq.main",
-      "enforcementBranchId": "surface.startup.install.route.exacthermesruntime.defined.installfshostfunctions.1d56dnq.main",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "startup:install-route:ExactHermesRuntime::defined:installFsHostFunctions"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime.cc#ExactHermesRuntime::defined:installFsHostFunctions"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime.cc#ExactHermesRuntime::defined:installFsHostFunctions"
-        ],
-        "terminalObservedKey": "startup:install-route:ExactHermesRuntime::defined:installFsHostFunctions"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime.cc#ExactHermesRuntime::defined:installFsHostFunctions"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.startup.install.route.exacthermesruntime.defined.installfshostfunctions.1d56dnq.main.cannot-widen-authority",
-        "surface.startup.install.route.exacthermesruntime.defined.installfshostfunctions.1d56dnq.main.non-capability",
-        "surface.startup.install.route.exacthermesruntime.defined.installfshostfunctions.1d56dnq.main.post-lockdown-invariant"
-      ]
-    },
-    {
-      "edgeId": "surface.startup.install.route.has.include.18ool1z.installstdioqueryaccessor.1pbqcmt",
-      "observedKey": "startup:install-route:__has_include:18ool1z:installStdioQueryAccessor",
-      "branchId": "surface.startup.install.route.has.include.18ool1z.installstdioqueryaccessor.1pbqcmt.main",
-      "enforcementBranchId": "surface.startup.install.route.has.include.18ool1z.installstdioqueryaccessor.1pbqcmt.main",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "startup:install-route:__has_include:18ool1z:installStdioQueryAccessor"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime_process_setup.cc#__has_include:18ool1z:installStdioQueryAccessor"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_process_setup.cc#__has_include:18ool1z:installStdioQueryAccessor"
-        ],
-        "terminalObservedKey": "startup:install-route:__has_include:18ool1z:installStdioQueryAccessor"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime_process_setup.cc#__has_include:18ool1z:installStdioQueryAccessor"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.startup.install.route.has.include.18ool1z.installstdioqueryaccessor.1pbqcmt.main.cannot-widen-authority",
-        "surface.startup.install.route.has.include.18ool1z.installstdioqueryaccessor.1pbqcmt.main.non-capability",
-        "surface.startup.install.route.has.include.18ool1z.installstdioqueryaccessor.1pbqcmt.main.post-lockdown-invariant"
       ]
     },
     {
@@ -279462,6 +279396,39 @@
         "surface.startup.install.route.installnethostfunctions.installtlshostfunctions.0gnanm9.main.cannot-widen-authority",
         "surface.startup.install.route.installnethostfunctions.installtlshostfunctions.0gnanm9.main.non-capability",
         "surface.startup.install.route.installnethostfunctions.installtlshostfunctions.0gnanm9.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.install.route.installprocesssetup.installstdioqueryaccessor.07au45p",
+      "observedKey": "startup:install-route:installProcessSetup:installStdioQueryAccessor",
+      "branchId": "surface.startup.install.route.installprocesssetup.installstdioqueryaccessor.07au45p.main",
+      "enforcementBranchId": "surface.startup.install.route.installprocesssetup.installstdioqueryaccessor.07au45p.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:install-route:installProcessSetup:installStdioQueryAccessor"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_process_setup.cc#installProcessSetup:installStdioQueryAccessor"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_process_setup.cc#installProcessSetup:installStdioQueryAccessor"
+        ],
+        "terminalObservedKey": "startup:install-route:installProcessSetup:installStdioQueryAccessor"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_process_setup.cc#installProcessSetup:installStdioQueryAccessor"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.install.route.installprocesssetup.installstdioqueryaccessor.07au45p.main.cannot-widen-authority",
+        "surface.startup.install.route.installprocesssetup.installstdioqueryaccessor.07au45p.main.non-capability",
+        "surface.startup.install.route.installprocesssetup.installstdioqueryaccessor.07au45p.main.post-lockdown-invariant"
       ]
     },
     {
@@ -286785,7 +286752,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-nDm3wl94jQ5IdsEJph1quDldZQz1rIEaszMEQo77wC4"
+      "rawContentDigest": "sha256--0IHKq7wPkCqVQs5ofnQ5yj7d1EhGnP4ZYJIP0Xz_Gc"
     },
     {
       "kind": "output-disposition-dataset",
@@ -286800,44 +286767,44 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-iloSwu3g8ESRhaYuMiMjB_XQrk3VeeiV5G3y8bE2ei8"
+      "rawContentDigest": "sha256-uxmWX66utfqCGD9tCZjrCMBwIjp_g-RnjnxnX1JoU_M"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-teFw1UuQfwtU6TiCc9FOBDy-Zb95ApzzMO5LpHk6AhQ"
+      "rawContentDigest": "sha256-8CHckxPDnePAj6EAWfTDLzTnT9Rp7E25sNRKs6IEkJA"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-HUM_y30HeTBvB4ouk9fJarEuDtaZZ1w3TpobJ9YZMJ8"
+      "rawContentDigest": "sha256-4RITrM4DmnCRVIXpQJRD_3O5PiPjQ86ADinwkM1c9j8"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-jcH-OysnglP0uvjbtR1znM-ADLwSERYD_4DDuq07AEY"
+      "rawContentDigest": "sha256-qCNQbRq3de4rYRItaKgKQIO9er4a2iHQZoC38kLC-rs"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-fNYeECqH68TZ4aWS9BLh9JnpvrHGG_z_m3viC8WI0yM"
+      "rawContentDigest": "sha256-sWy4V2-3MSlTAiTMKQ0qDFwEphOlvG-s7ANkv815g4E"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-Br0ddg37a_DmWvIIpNdC-K8BeGjLhl2yPJdywgaglpk"
+      "rawContentDigest": "sha256-gAEbo4DX8Ht2aj8aBe9GCFwhBJjfpDErfCjrOdLCG9M"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-EZW6uNSwwhzk9dwxouj69i2OJS-XYDilj-NAEV5z2HE"
+      "rawContentDigest": "sha256-JCrKcEIE04CrmRuJAijDksC2tgCgrvoSz_hVm20PMiU"
     }
   ],
   "counts": {
-    "observedReferences": 13611,
-    "logicalSurfaces": 7658,
-    "enforcementBranches": 7959,
-    "coverageEdges": 7658,
-    "targetCells": 15316
+    "observedReferences": 13610,
+    "logicalSurfaces": 7657,
+    "enforcementBranches": 7958,
+    "coverageEdges": 7657,
+    "targetCells": 15314
   }
 }

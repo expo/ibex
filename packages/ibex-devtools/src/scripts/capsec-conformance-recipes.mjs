@@ -29,6 +29,10 @@ import { authoredBuiltinPublicProbe } from "./capsec-public-probe-templates.mjs"
 import { authoredCallbackInvariantProbe } from "./capsec-callback-invariant-probe-templates.mjs";
 import { authoredClosedPublicProbe } from "./capsec-closed-probe-templates.mjs";
 import { authoredGlobalCallableOutputInvocation } from "./capsec-global-callable-probe-templates.mjs";
+import {
+  authoredModuleLoaderCapturedInvocation,
+  MODULE_LOADER_CAPTURED_BATCH_COMMAND,
+} from "./capsec-loader-public-probe-templates.mjs";
 import { authoredPrincipalEnvironmentProbe } from "./capsec-principal-environment-probe-templates.mjs";
 import { authoredStartupPublicProbe } from "./capsec-startup-probe-templates.mjs";
 import { authoredStartupEnvironmentProbe } from "./capsec-startup-environment-probe-templates.mjs";
@@ -4186,6 +4190,52 @@ const MODULE_RUNNER_LOADER_OPERATIONS = new Map([
   ["module-runner-prepared-carrier-access", "prepared-carrier-read"],
 ]);
 
+function moduleLoaderCapturedProbeForPlan({
+  plan,
+  scenario,
+  route,
+  liveByObservedKey,
+  coverageByEdge,
+  target,
+}) {
+  if (
+    plan.classification !== "non-capability" ||
+    scenario !== "non-capability" ||
+    plan.actionIds.length !== 0 ||
+    plan.edgeIds.length !== 1 ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  if (!surfaceObservedKey.startsWith("loader:")) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const coverageEdge = coverageByEdge.get(plan.edgeIds[0]);
+  if (
+    live?.kind !== "loader" ||
+    live.observedKey !== surfaceObservedKey ||
+    coverageEdge?.surface?.kind !== "loader" ||
+    coverageEdge.surface.name !== live.name ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const invocation = authoredModuleLoaderCapturedInvocation({
+    surface: live,
+    coverageEdge,
+    target,
+  });
+  if (!invocation) return null;
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: clone(MODULE_LOADER_CAPTURED_BATCH_COMMAND),
+    invocation,
+  };
+}
+
 // Authored dynamic-import and CommonJS require edges deliberately select the
 // compatibility loader before target discovery, so their six eager native
 // dynamic/require link ABIs cannot receive production-path execution credit
@@ -4700,6 +4750,14 @@ export function buildConformanceRecipeCatalog({
       liveByObservedKey,
       coverageByEdge,
     });
+    const moduleLoaderCapturedProbe = moduleLoaderCapturedProbeForPlan({
+      plan,
+      scenario,
+      route,
+      liveByObservedKey,
+      coverageByEdge,
+      target,
+    });
     const moduleRunnerLoaderProbe = moduleRunnerLoaderProbeForPlan({
       plan,
       scenario,
@@ -4740,6 +4798,7 @@ export function buildConformanceRecipeCatalog({
             effectBuiltinPublicSurfaceProbe,
             nonCapabilityBuiltinPublicSurfaceProbe,
             conditionalHostAbiProbe,
+            moduleLoaderCapturedProbe,
             moduleRunnerLoaderProbe,
             moduleRunnerHostAbiProbe,
             globalCallablePublicSurfaceProbe,

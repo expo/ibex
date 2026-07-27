@@ -4507,8 +4507,10 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(edgeActions(debuggerEvaluation)).toEqual(["runtime:inspect"]);
 
     const trustedEvaluation = classifyObservedSurface(
-      surface("startup", "evaluation:__has_include:18ool1z:stream-enhance", {
+      surface("startup", "evaluation:installProcessSetup:stream-enhance", {
+        caller: "installProcessSetup",
         evidenceType: "startup-evaluation-route",
+        sourceUrl: "<stream-enhance>",
       }),
       context,
     );

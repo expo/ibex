@@ -9,6 +9,8 @@ const EVENT_LOOP_COMPLETION_KIND: &str = "event-loop-quiescence";
 const EVENT_LOOP_COMPLETION_TIMEOUT_MS: u64 = 1_000;
 const CAPTURED_INVOCATION_SCHEMA: &str =
     "ibex/capsec-builtin-noncap-captured-invocation/1";
+const LOADER_CAPTURED_INVOCATION_SCHEMA: &str =
+    "ibex/capsec-loader-captured-invocation/1";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -142,6 +144,48 @@ struct BuiltinSourceObservation {
     expected_alias: String,
     status: String,
     source_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LoaderPublicSurfaceProbe {
+    kind: String,
+    surface_observed_key: String,
+    command: Vec<String>,
+    invocation: LoaderCapturedInvocation,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LoaderCapturedInvocation {
+    invocation_schema: String,
+    kind: String,
+    coverage_edge_id: String,
+    coverage_classification: String,
+    module_specifier: String,
+    entrypoint: String,
+    source_descriptor: serde_json::Value,
+    source_descriptor_digest: String,
+    captured_output_invocation: serde_json::Value,
+    captured_output_invocation_digest: String,
+    completion: CompletionExpectation,
+    required_authority: Vec<serde_json::Value>,
+    expected_result: String,
+    expected_typed_stages: Vec<String>,
+    expected_typed_decision_count: usize,
+    allowed_coverage_edge_ids: Vec<String>,
+    expected_action_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LoaderPointObservation {
+    schema: String,
+    runtime_nonce: String,
+    observation_id: String,
+    expected_point: String,
+    status: String,
+    match_count: u64,
 }
 
 fn reviewed_noncap_module_alias(module_specifier: &str) -> Option<(&'static str, bool, &'static str)> {
@@ -1061,6 +1105,195 @@ fn noncap_builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
         .collect()
 }
 
+fn loader_public_probe(recipe: &Recipe) -> Option<LoaderPublicSurfaceProbe> {
+    if recipe.classification != "non-capability"
+        || recipe.scenario != "non-capability"
+        || !recipe.action_ids.is_empty()
+    {
+        return None;
+    }
+    let value = recipe.public_surface_probe.as_ref()?;
+    if value["invocation"]["invocationSchema"] != LOADER_CAPTURED_INVOCATION_SCHEMA
+        || value["invocation"]["kind"] != "module-loader-captured-route"
+    {
+        return None;
+    }
+    Some(
+        serde_json::from_value(value.clone())
+            .expect("selected module-loader probe must match its typed schema"),
+    )
+}
+
+fn expected_loader_execution_point(surface_name: &str, evidence_type: Option<&str>) -> Option<String> {
+    let _ = evidence_type;
+    match surface_name {
+        "function:javascript:checkImportGate" => {
+            Some("function:javascript:checkImportGate".to_owned())
+        }
+        "function:javascript:__exactResolvedPath" => {
+            Some("function:javascript:__exactResolvedPath".to_owned())
+        }
+        "function:javascript:idToModuleId" => {
+            Some("function:javascript:idToModuleId".to_owned())
+        }
+        "function:javascript:privateBridgesForBuiltin" => {
+            Some("function:javascript:privateBridgesForBuiltin".to_owned())
+        }
+        "function:javascript:privateResolverPath" => {
+            Some("function:javascript:privateResolverPath".to_owned())
+        }
+        "function:javascript:rejectRuntimeLoaderOptions" | "import-needs" => {
+            Some("function:javascript:rejectRuntimeLoaderOptions".to_owned())
+        }
+        "function:javascript:resolverVirtualPath" => {
+            Some("function:javascript:resolverVirtualPath".to_owned())
+        }
+        "function:javascript:stripViteImportQuery" => {
+            Some("function:javascript:stripViteImportQuery".to_owned())
+        }
+        "import-policy-bare" => {
+            Some("function:javascript:checkImportGate".to_owned())
+        }
+        "internal-route:assert/strict" => {
+            Some("internal-route:assert/strict".to_owned())
+        }
+        "internal-route:internal/fs/utils" => {
+            Some("internal-route:internal/fs/utils".to_owned())
+        }
+        "kind:builtin" => Some("kind:builtin".to_owned()),
+        _ => None,
+    }
+}
+
+fn validate_loader_probe(recipe: &Recipe, probe: &LoaderPublicSurfaceProbe) {
+    let invocation = &probe.invocation;
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(
+        probe.command
+            .iter()
+            .any(|part| part == "capsec_public_loader_recipe_batch"),
+        "{}: loader probe command does not select the reviewed batch",
+        recipe.fixture_id
+    );
+    assert_eq!(recipe.edge_ids, vec![invocation.coverage_edge_id.clone()]);
+    assert_eq!(invocation.coverage_classification, "non-capability");
+    assert_eq!(
+        invocation.allowed_coverage_edge_ids,
+        vec![invocation.coverage_edge_id.clone()]
+    );
+    assert!(invocation.required_authority.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert_eq!(invocation.expected_result, "source-completion");
+    assert_eq!(invocation.completion.kind, EVENT_LOOP_COMPLETION_KIND);
+    assert_eq!(
+        invocation.completion.timeout_milliseconds,
+        EVENT_LOOP_COMPLETION_TIMEOUT_MS
+    );
+    assert_eq!(
+        tagged_jcs_digest(&invocation.source_descriptor),
+        invocation.source_descriptor_digest
+    );
+    assert_eq!(
+        tagged_jcs_digest(&invocation.captured_output_invocation),
+        invocation.captured_output_invocation_digest
+    );
+    let descriptor = invocation
+        .source_descriptor
+        .as_object()
+        .expect("loader source descriptor must be an object");
+    assert_eq!(descriptor["kind"], "module-loader-public-route");
+    let surface_name = descriptor["surfaceName"]
+        .as_str()
+        .expect("loader source descriptor has no surface name");
+    assert_eq!(
+        probe.surface_observed_key,
+        format!("loader:{surface_name}")
+    );
+    let evidence_type = descriptor["evidenceType"].as_str();
+    let execution_point = descriptor["executionPoint"]
+        .as_str()
+        .expect("loader source descriptor has no execution point");
+    assert_eq!(
+        expected_loader_execution_point(surface_name, evidence_type).as_deref(),
+        Some(execution_point),
+        "{}: loader execution point is not derived from its source surface",
+        recipe.fixture_id
+    );
+    let source_refs = descriptor["sourceRefs"]
+        .as_array()
+        .expect("loader source refs must be an array");
+    assert!(!source_refs.is_empty());
+    assert!(source_refs.iter().all(|source_ref| {
+        source_ref
+            .as_str()
+            .is_some_and(|source_ref| !source_ref.is_empty())
+    }));
+    assert!(source_refs.iter().any(|source_ref| {
+        source_ref.as_str().is_some_and(|source_ref| {
+            source_ref.starts_with("src/engine/bootstrap/module-loader.js#")
+        })
+    }));
+    let captured = invocation
+        .captured_output_invocation
+        .as_object()
+        .expect("captured loader output invocation must be an object");
+    assert_eq!(
+        captured["invocationSchema"],
+        "ibex/capsec-loader-output-invocation/1"
+    );
+    assert_eq!(captured["kind"], "loader-output");
+    assert_eq!(captured["coverageEdgeId"], invocation.coverage_edge_id);
+    assert_eq!(
+        captured["coverageClassification"],
+        invocation.coverage_classification
+    );
+    assert_eq!(
+        captured["sourceDescriptorDigest"],
+        descriptor["outputSourceDescriptorDigest"]
+    );
+    let route = captured["route"]
+        .as_object()
+        .expect("captured loader route must be an object");
+    assert_eq!(route["operation"], "invoke-public-loader");
+    assert_eq!(route["specifier"], invocation.module_specifier);
+    assert_eq!(route["entrypoint"], invocation.entrypoint);
+    assert!(
+        !route.contains_key("authority"),
+        "{}: zero-effect loader probe carries typed authority",
+        recipe.fixture_id
+    );
+    assert!(matches!(
+        invocation.entrypoint.as_str(),
+        "exact-require"
+            | "global-import"
+            | "global-require"
+            | "import-module"
+            | "require-resolve"
+    ));
+    assert_eq!(recipe.route.ambiguous_callees, Vec::<String>::new());
+    assert_eq!(recipe.route.alternatives.len(), 1);
+    assert_eq!(
+        recipe.route.alternatives[0].terminal_observed_key,
+        probe.surface_observed_key
+    );
+    assert!(!recipe.route.alternatives[0].proof_paths.is_empty());
+}
+
+fn loader_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
+    catalog
+        .recipes
+        .iter()
+        .filter(|recipe| {
+            recipe.status == "fully-executable" && loader_public_probe(recipe).is_some()
+        })
+        .inspect(|recipe| {
+            validate_loader_probe(recipe, &loader_public_probe(recipe).unwrap())
+        })
+        .collect()
+}
+
 fn invocation_script(invocation: &BuiltinInvocation) -> String {
     const HARNESS: &str = include_str!("capsec_public_noncap_builtin_invocation.js");
     const CAPTURED_HARNESS: &str =
@@ -1797,6 +2030,265 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
         .expect("serialize noncap builtin public evidence artifact");
     output.write_all(b"\n").expect("finish builtin evidence");
     output.sync_all().expect("sync builtin evidence artifact");
+}
+
+fn loader_invocation_script(invocation: &LoaderCapturedInvocation) -> String {
+    const HARNESS: &str = include_str!("capsec_loader_output_invocation.js");
+    format!(
+        "JSON.stringify(await ({})({}))",
+        HARNESS.trim(),
+        serde_json::to_string(&invocation.captured_output_invocation)
+            .expect("serialize captured module-loader invocation")
+    )
+}
+
+async fn execute_isolated_loader_recipe(
+    recipe: &Recipe,
+    engine_binary_digest: &str,
+) -> std::result::Result<serde_json::Value, String> {
+    let probe = loader_public_probe(recipe).expect("loader recipe has no public probe");
+    let execution_point = probe.invocation.source_descriptor["executionPoint"]
+        .as_str()
+        .expect("validated loader descriptor has no execution point")
+        .to_owned();
+    let module_specifier = probe.invocation.module_specifier.clone();
+    let (host, digest) =
+        build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |snapshot| {
+            snapshot["principals"][0]["imports"]["builtins"] =
+                serde_json::json!([module_specifier]);
+        });
+    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+    let _reset = HostResetGuard;
+    let mut engine = authenticated_noncap_engine(&host, &digest).await;
+    engine
+        .arm_loader_point_observation(&recipe.fixture_id, &execution_point)
+        .await
+        .map_err(|error| {
+            format!(
+                "{}: arm loader source-point observation: {error:#}",
+                recipe.fixture_id
+            )
+        })?;
+    let session_id = format!("loader-public-observation:{}", recipe.plan_digest);
+    let (encoded, legacy, typed) = observe_script_to_quiescence(
+        &mut engine,
+        &session_id,
+        &loader_invocation_script(&probe.invocation),
+        &probe.invocation.completion,
+        &recipe.fixture_id,
+    )
+    .await?;
+    let point_value = engine
+        .take_loader_point_observation()
+        .await
+        .map_err(|error| {
+            format!(
+                "{}: take loader source-point observation: {error:#}",
+                recipe.fixture_id
+            )
+        })?;
+    let point: LoaderPointObservation =
+        serde_json::from_value(point_value).map_err(|error| {
+            format!(
+                "{}: decode loader source-point observation: {error}",
+                recipe.fixture_id
+            )
+        })?;
+    if point.schema != "ibex/capsec-loader-source-point-observation/1"
+        || !is_tagged_nonzero_u64(&point.runtime_nonce)
+        || point.observation_id != recipe.fixture_id
+        || point.expected_point != execution_point
+        || point.status != "completed"
+        || point.match_count == 0
+    {
+        return Err(format!(
+            "{}: exact loader source point did not execute: {:?}",
+            recipe.fixture_id, point
+        ));
+    }
+    if !legacy.is_empty() || !typed.is_empty() {
+        return Err(format!(
+            "{}: non-capability loader route observed {} legacy and {} typed decisions: {}",
+            recipe.fixture_id,
+            legacy.len(),
+            typed.len(),
+            serde_json::to_string(&typed)
+                .expect("serialize unexpected loader typed decisions")
+        ));
+    }
+    let invocation_result: serde_json::Value =
+        serde_json::from_str(&encoded).map_err(|error| {
+            format!(
+                "{}: loader invocation returned invalid JSON: {error}",
+                recipe.fixture_id
+            )
+        })?;
+    if invocation_result["kind"] != "return"
+        || invocation_result["sourceOperationAttempted"] != true
+        || invocation_result["entrypointProof"]["valueType"] != "function"
+        || invocation_result["rawOutput"]["kind"] != "return"
+    {
+        return Err(format!(
+            "{}: public loader route did not complete normally: {}",
+            recipe.fixture_id, invocation_result
+        ));
+    }
+    engine.finish().map_err(|error| {
+        format!(
+            "{}: finish isolated loader publication stream: {error:#}",
+            recipe.fixture_id
+        )
+    })?;
+
+    let source_execution = serde_json::json!({
+        "schema": "ibex/capsec-loader-source-point-execution/1",
+        "observationId": point.observation_id,
+        "runtimeNonce": point.runtime_nonce,
+        "executionPoint": point.expected_point,
+        "matchCount": point.match_count,
+        "loaderPrivate": true,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": probe.invocation.invocation_schema,
+            "kind": probe.invocation.kind,
+            "surfaceObservedKey": probe.surface_observed_key,
+            "moduleSpecifier": probe.invocation.module_specifier,
+            "entrypoint": probe.invocation.entrypoint,
+            "sourceDescriptorDigest": probe.invocation.source_descriptor_digest,
+            "completion": {
+                "kind": probe.invocation.completion.kind,
+                "timeoutMilliseconds": probe.invocation.completion.timeout_milliseconds,
+                "status": "quiescent",
+            },
+            "sourceExecution": source_execution,
+            "result": invocation_result,
+        },
+        "legacyObservationCount": 0,
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected loader observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": probe.surface_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .expect("loader evidence must be an object")
+        .insert("evidenceDigest".into(), serde_json::Value::String(digest));
+    Ok(serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-loader-public-surface-harness",
+        "evidence": evidence,
+    }))
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn capsec_public_loader_recipe_batch() {
+    let Ok(recipe_path) = std::env::var("IBEX_CAPSEC_RECIPE_CATALOG") else {
+        eprintln!("IBEX_CAPSEC_RECIPE_CATALOG is unset; skipping loader public batch");
+        return;
+    };
+    let output_path = std::env::var("IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT").ok();
+    let recipe_path = std::fs::canonicalize(recipe_path)
+        .expect("canonicalize CapSec executable recipe catalog path");
+    let catalog = load_catalog(&recipe_path);
+    let recipes = loader_recipes(&catalog);
+    assert!(
+        !recipes.is_empty(),
+        "recipe catalog contains no source-bound module-loader probes"
+    );
+
+    let _lock = hermes_engine_test_lock().lock().await;
+    let identity_before = HermesEngine::loaded_engine_identity()
+        .expect("attest exact loaded Hermes before loader public probes");
+    let portable = super::capsec_portable_public_batch::PortablePublicBatchContext::begin(
+        "ibex-loader-public-surface-harness",
+    );
+    assert_ne!(
+        output_path.is_some(),
+        portable.is_some(),
+        "loader public batch requires exactly one legacy output or portable plan"
+    );
+    let mut executions = Vec::with_capacity(recipes.len());
+    let mut failures = Vec::new();
+    for (index, recipe) in recipes.iter().enumerate() {
+        match execute_isolated_loader_recipe(recipe, &identity_before.binary_digest).await {
+            Ok(execution) => executions.push(execution),
+            Err(error) => {
+                failures.push(error);
+            }
+        }
+        if index % 32 == 31 {
+            eprintln!(
+                "CapSec source-bound module-loader probes passed: {}/{}",
+                index + 1,
+                recipes.len()
+            );
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} module-loader public probes failed:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+    executions.sort_by(|left, right| left["fixtureId"].as_str().cmp(&right["fixtureId"].as_str()));
+    assert_eq!(executions.len(), recipes.len());
+    let runtime_nonces = executions
+        .iter()
+        .filter_map(|execution| {
+            execution["evidence"]["runtimeObservation"]["invocation"]["sourceExecution"]
+                ["runtimeNonce"]
+                .as_str()
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        runtime_nonces.len(),
+        recipes.len(),
+        "isolated loader source-point receipts reused or omitted a runtime nonce"
+    );
+    let identity_after = HermesEngine::loaded_engine_identity()
+        .expect("attest exact loaded Hermes after loader public probes");
+    assert_eq!(identity_after, identity_before);
+    ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity_before)
+        .expect("re-verify mapped Hermes after loader public probes");
+    if let Some(portable) = portable {
+        portable.finish(&executions);
+        return;
+    }
+    let artifact = PublicBatchArtifact {
+        public_batch_evidence_schema: "ibex/capsec-public-batch-evidence/1",
+        recipe_catalog_digest: catalog.recipe_catalog_digest,
+        loaded_engine_identity: identity_before,
+        executions,
+    };
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output_path.expect("legacy loader batch has no output path"))
+        .expect("create owned loader public evidence artifact");
+    serde_json::to_writer_pretty(&mut output, &artifact)
+        .expect("serialize loader public evidence artifact");
+    output
+        .write_all(b"\n")
+        .expect("finish loader public evidence");
+    output.sync_all().expect("sync loader public evidence artifact");
 }
 
 fn path_basename_call_invocation(argument: serde_json::Value) -> BuiltinInvocation {

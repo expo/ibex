@@ -537,6 +537,16 @@ struct ExactHermesRuntime {
   std::string capsec_builtin_source_observation_id;
   std::string capsec_builtin_source_expected_alias;
   std::string capsec_builtin_source_id;
+  // One-shot proof that the trusted JavaScript loader entered an exact
+  // source-owned point while executing a public loader route. The loader
+  // reports through the same private attribution HostFunction used by the
+  // builtin-body receipt, so no observer hook survives bootstrap.
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+  bool capsec_loader_point_observer_armed{false};
+  bool capsec_loader_point_observer_completed{false};
+  uint64_t capsec_loader_point_match_count{0};
+  std::string capsec_loader_point_observation_id;
+  std::string capsec_loader_point_expected;
   // Deterministic conformance seam for the normal-return cancellation race.
   // The queued native task never enters JS, so a delivered Hermes break must
   // be drained by the consistency probe and resolve Defeated.

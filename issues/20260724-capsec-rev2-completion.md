@@ -3413,6 +3413,66 @@ ticket closes.
   received execution credit; criterion 7 remains open and both advertisement
   sets remain empty.
 
+### 2026-07-27 — executed exact source-bound module-loader routes
+
+- Audited a broad 100-route Apple loader hypothesis on the M5 MacBook Air
+  against pinned static Hermes. Eighty-seven candidates failed honestly:
+  cached or bootstrap-internal paths bypassed the armed point, lazy installers
+  were not reached by the public traversal, or the route emitted real typed
+  environment authority. No failed candidate received catalog credit.
+- Retained exactly 13 physical routes: eight loader functions
+  (`checkImportGate`, `__exactResolvedPath`, `idToModuleId`,
+  `privateBridgesForBuiltin`, `privateResolverPath`,
+  `rejectRuntimeLoaderOptions`, `resolverVirtualPath`, and
+  `stripViteImportQuery`), the `import-needs` and `import-policy-bare` facets,
+  `assert/strict`, `internal/fs/utils`, and builtin-kind selection.
+- The conformance-only observer reuses the already captured and sealed private
+  attribution HostFunction. Each isolated recipe arms one expected loader
+  point, invokes real public `require`, and accepts evidence only after one
+  exact private receipt, normal return, one-second quiescence, zero legacy and
+  typed decisions, unique runtime nonce, cleanup, and loaded-engine
+  re-attestation. Ordinary builds retain only the exact private marker no-op
+  and expose no observer API.
+- The physical audit exposed a pre-existing inventory defect: the C++ scanner
+  treated preprocessor `defined(...)` and `__has_include(...)` predicates as
+  function definitions, so unrelated source movement could rename lifecycle
+  and environment owners. The scanner now excludes both predicates, a
+  synthetic regression proves the real enclosing function is retained, and
+  reviewed startup/environment rows name `installProcessSetup`,
+  `installIpcListenerPatch`, `installOsInfoGlobals`, and
+  `applyResOptionsTiming`. This removes three fictitious fixtures and two
+  corresponding internal credits.
+- Final pre-merge Apple catalog digest
+  `sha256-3YPXUEtUaB59hXusgZ-ns3i-q7DBrJpksXdWgIm6K_4` reports 23,844 required /
+  **3,531 fully executable** / 3,134 internally verified / 17,179 unresolved.
+  The Air strict stale-vendored canonical-bundle batch passes **13/13**, binds
+  engine digest
+  `sha256-ENsutSxwrUwcn8iCj9MHG99Oaupv5oPCd6oT9W31Hc8`, and has evidence-file
+  SHA-256
+  `20cae3eead5350c84b9040f7fc9150f6c7600e8ac1abfdf5b5d65e7c803ed0ec`.
+  Independent JavaScript validation accepts exactly 13 expected fixtures,
+  13 distinct runtime nonces, one match per route, zero decisions, and
+  execution digest
+  `sha256-JE-FBliM7lKpSWdB60f3cxgfWn60m0Mk9saymIagqmg` against the explicit
+  38-file working snapshot.
+- Final pre-merge Windows catalog digest
+  `sha256-sUY5cI42rMEQfi3WPHMYEgVv3oV0nEGnzMCcBukoqgg` reports 23,503 required /
+  **3,190 fully executable** / 3,120 internally verified / 17,193 unresolved.
+  Physical Windows execution is intentionally pending: `origin/main` advanced
+  to `11d15593` with an eight-commit simulator-observer tranche after Apple
+  validation, so this checkpoint will merge that source before either target
+  is treated as final.
+- Hard parts: static reachability was a poor predictor of actual loader
+  traversal, so the larger hypothesis had to be executed and reduced rather
+  than blessed. The Air's newer Bun also regenerated different runtime-bundle
+  bytes despite an identical source fingerprint; the accepted run therefore
+  restored the repository's canonical bundle and passed with regeneration
+  disabled plus strict stale-vendored checking. Moving `main` now requires
+  another regeneration and both target reruns.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

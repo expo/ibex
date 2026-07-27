@@ -17,6 +17,7 @@
     : Object.freeze([]);
   try { delete g.__exactGeneratedImportGrantKeys; } catch (_generatedKeyCleanupError) {}
   function rejectRuntimeLoaderOptions(argumentCount) {
+    _capsecPoint('function:javascript:rejectRuntimeLoaderOptions');
     if (argumentCount <= 1) return;
     var suffix = __reservedImportGrantKeys.length
       ? " (reserved grant keys: " + __reservedImportGrantKeys.join(", ") + ")"
@@ -33,6 +34,15 @@
   var __privSetActiveModuleId = (typeof g.__exactSetActiveModuleId === 'function')
     ? g.__exactSetActiveModuleId
     : null;
+  // Conformance can arm one exact source-point receipt through the already
+  // private attribution bridge. The two-string marker is a no-op in ordinary
+  // builds, and the bridge remains unreachable after the bootstrap seal.
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+  function _capsecPoint(point) {
+    if (__privSetActiveModuleId) {
+      __privSetActiveModuleId('ibex-capsec-loader-source-point-v1', point);
+    }
+  }
   // @ref LLP 0013#mechanism-1 — capture the real Function constructor before
   // lockdown tames the intrinsic evaluators. The loader is a trusted principal
   // and legitimately needs to compile CommonJS module bodies; package code that
@@ -319,6 +329,7 @@
   }
 
   function privateResolverPath(value) {
+    _capsecPoint('function:javascript:privateResolverPath');
     if (!value || typeof value !== 'object' || __privArrayIsArray(value) ||
         value.schema !== 'ibex/private-resolver-ref/1' ||
         typeof value.sessionHandle !== 'string' ||
@@ -336,6 +347,7 @@
   }
 
   function resolverVirtualPath(value) {
+    _capsecPoint('function:javascript:resolverVirtualPath');
     var typed = typedLogicalPath(value);
     if (typed) return typed.virtualPath;
     var privatePath = privateResolverPath(value);
@@ -952,6 +964,7 @@
     return out;
   }
   function stripViteImportQuery(specifier) {
+    _capsecPoint('function:javascript:stripViteImportQuery');
     if (typeof specifier !== 'string') {
       return specifier;
     }
@@ -5699,6 +5712,7 @@
     authenticatedTargetSourceId,
     resolutionKind
   ) {
+    _capsecPoint('function:javascript:checkImportGate');
     // CommonJS require() accepts only primitive strings. Do this before the
     // native gate and before loadInternal()/load() can coerce an object into a
     // builtin or internal name, otherwise an object-shaped specifier skips the
@@ -5874,6 +5888,7 @@
   }
 
   function privateBridgesForBuiltin(kind, id) {
+    _capsecPoint('function:javascript:privateBridgesForBuiltin');
     if (kind !== 'builtin') return undefined;
     var normalized = normalizeSpecifier(id);
     if (normalized === 'url') return __privUrlFacadeBridges;
@@ -6380,6 +6395,9 @@
     }
     const legacyId = record.id || resolvedSpecifier;
     const kind = record.kind || "cjs";
+    if (kind === 'builtin') {
+      _capsecPoint('kind:builtin');
+    }
     const privateBuiltinBridges = privateBridgesForBuiltin(kind, legacyId);
     var authenticatedRawDirectEntry =
       structuredDirectEntry !== undefined &&
@@ -7623,6 +7641,7 @@
   // Convert a module specifier or id to a numeric module identifier used
   // by runtime capability checks.
   var idToModuleId = function(specifier) {
+    _capsecPoint('function:javascript:idToModuleId');
     var id = typeof specifier === "string" ? specifier : String(specifier || "");
     var moduleId = 0;
     for (var i = 0; i < id.length; i++) {
@@ -7638,7 +7657,10 @@
     // it must still be gated by the requesting frame's principal. (ENG-22618)
     checkImportGate(specifier);
     var internal = loadInternal(specifier);
-    if (internal) return internal;
+    if (internal) {
+      _capsecPoint('internal-route:' + normalizeSpecifier(specifier));
+      return internal;
+    }
     return load(specifier, "");
   };
   // require.resolve needs only the resolved path, so prefer the metadata-only
@@ -7648,6 +7670,7 @@
   // record shape is identical apart from the omitted `source`. Hoisted, so the
   // localRequire.resolve closure above can reach it. (ENG-23007)
   function __exactResolvedPath(specifier, json) {
+    _capsecPoint('function:javascript:__exactResolvedPath');
     if (!json) {
       throw new Error("Cannot find module '" + specifier + "'");
     }

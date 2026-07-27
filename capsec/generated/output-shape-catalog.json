@@ -85719,24 +85719,6 @@
       "outputKinds": []
     },
     {
-      "surfaceId": "surface.startup.evaluation.has.include.18ool1z.stream.enhance.0x24hc2",
-      "status": "structural-only",
-      "reasonCode": "startup-structural-route",
-      "sourceRefs": [
-        "src/engine/hermes_runtime_process_setup.cc#__has_include:18ool1z:evaluateJavaScript:<stream-enhance>"
-      ],
-      "outputKinds": []
-    },
-    {
-      "surfaceId": "surface.startup.evaluation.has.include.18ool1z.stream.stability.patch.0brqfz4",
-      "status": "structural-only",
-      "reasonCode": "startup-structural-route",
-      "sourceRefs": [
-        "src/engine/hermes_runtime_process_setup.cc#__has_include:18ool1z:evaluateJavaScript:<stream-stability-patch>"
-      ],
-      "outputKinds": []
-    },
-    {
       "surfaceId": "surface.startup.evaluation.installcompartmentregistry.compartment.registry.0nif5gk",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -85836,6 +85818,24 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.evaluation.installprocesssetup.stream.enhance.19o3nqq",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_process_setup.cc#installProcessSetup:evaluateJavaScript:<stream-enhance>"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.startup.evaluation.installprocesssetup.stream.stability.patch.17t7seo",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_process_setup.cc#installProcessSetup:evaluateJavaScript:<stream-stability-patch>"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.evaluation.installwebsocketglobals.windows.websocket.shim.0w4o2cz",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -85895,24 +85895,6 @@
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
         "src/engine/hermes_runtime_worklet.cc#ex_worklet_create:installWorkletGlobals"
-      ],
-      "outputKinds": []
-    },
-    {
-      "surfaceId": "surface.startup.install.route.exacthermesruntime.defined.installfshostfunctions.1d56dnq",
-      "status": "structural-only",
-      "reasonCode": "startup-structural-route",
-      "sourceRefs": [
-        "src/engine/hermes_runtime.cc#ExactHermesRuntime::defined:installFsHostFunctions"
-      ],
-      "outputKinds": []
-    },
-    {
-      "surfaceId": "surface.startup.install.route.has.include.18ool1z.installstdioqueryaccessor.1pbqcmt",
-      "status": "structural-only",
-      "reasonCode": "startup-structural-route",
-      "sourceRefs": [
-        "src/engine/hermes_runtime_process_setup.cc#__has_include:18ool1z:installStdioQueryAccessor"
       ],
       "outputKinds": []
     },
@@ -86157,6 +86139,15 @@
       "sourceRefs": [
         "src/engine/hermes_runtime_net.cc#installNetHostFunctions:installTlsHostFunctions",
         "src/engine/hermes_runtime_platform_windows.cc#installNetHostFunctions:installTlsHostFunctions"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.startup.install.route.installprocesssetup.installstdioqueryaccessor.07au45p",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_process_setup.cc#installProcessSetup:installStdioQueryAccessor"
       ],
       "outputKinds": []
     },
@@ -87034,9 +87025,9 @@
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
   "catalogKeyDigest": "sha256-P-BHTGCLB9pukvnrgyw0K0W88BExZ-CLrwnvY06paHg",
   "counts": {
-    "coverageSurfaces": 7658,
+    "coverageSurfaces": 7657,
     "outputBearingSurfaces": 5864,
-    "structuralOnlySurfaces": 1705,
+    "structuralOnlySurfaces": 1704,
     "unresolvedSurfaces": 89,
     "catalogRows": 6569,
     "parameterizedBindings": 1,

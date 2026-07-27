@@ -4787,6 +4787,27 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                const facebook::jsi::Value* args,
                size_t count) -> facebook::jsi::Value {
         auto previous = g_active_module_id;
+        // The trusted loader's source-point receipt reuses this already
+        // captured-and-sealed HostFunction rather than installing a new
+        // ambient observer. Two strings are not part of the attribution
+        // setter contract; the exact marker is a no-op in ordinary builds and
+        // becomes a one-shot receipt only in conformance builds.
+        // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+        if (count == 2 && args[0].isString() && args[1].isString()) {
+          auto marker = args[0].toString(runtime).utf8(runtime);
+          if (marker == "ibex-capsec-loader-source-point-v1") {
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+            if (handle->armed && handle->capsec_loader_point_observer_armed) {
+              auto point = args[1].toString(runtime).utf8(runtime);
+              if (point == handle->capsec_loader_point_expected) {
+                handle->capsec_loader_point_observer_completed = true;
+                handle->capsec_loader_point_match_count += 1;
+              }
+            }
+#endif
+            return facebook::jsi::Value(static_cast<double>(previous));
+          }
+        }
 #if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
         bool restoresPreviousExactly = false;
         if (count == 4 && args[0].isNumber()) {
@@ -6636,6 +6657,60 @@ extern "C" char* ibex_test_take_builtin_source_observation(
   runtime->capsec_builtin_source_observation_id.clear();
   runtime->capsec_builtin_source_expected_alias.clear();
   runtime->capsec_builtin_source_id.clear();
+  return output;
+}
+
+extern "C" int ibex_test_arm_loader_point_observation(
+    ExactHermesRuntime* runtime,
+    const char* observationId,
+    const char* expectedPoint) {
+  if (runtime == nullptr || observationId == nullptr || expectedPoint == nullptr ||
+      !runtime->runtime || !runtime->armed ||
+      runtime->runtime_thread != std::this_thread::get_id()) {
+    return 0;
+  }
+  const std::string observation(observationId);
+  const std::string point(expectedPoint);
+  if (observation.empty() || observation.size() > 4096 || point.empty() ||
+      point.size() > 4096 || runtime->capsec_loader_point_observer_armed) {
+    return 0;
+  }
+  runtime->capsec_loader_point_observation_id = observation;
+  runtime->capsec_loader_point_expected = point;
+  runtime->capsec_loader_point_observer_completed = false;
+  runtime->capsec_loader_point_match_count = 0;
+  runtime->capsec_loader_point_observer_armed = true;
+  return 1;
+}
+
+extern "C" char* ibex_test_take_loader_point_observation(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || !runtime->runtime ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->capsec_loader_point_observer_armed) {
+    return nullptr;
+  }
+  const std::string status =
+      runtime->capsec_loader_point_observer_completed ? "completed" : "missing";
+  const std::string json =
+      std::string("{\"schema\":\"ibex/capsec-loader-source-point-observation/1\",") +
+      "\"runtimeNonce\":" +
+      jsonString("u64:" + std::to_string(runtime->runtime_nonce)) +
+      ",\"observationId\":" +
+      jsonString(runtime->capsec_loader_point_observation_id) +
+      ",\"expectedPoint\":" +
+      jsonString(runtime->capsec_loader_point_expected) +
+      ",\"status\":" + jsonString(status) + ",\"matchCount\":" +
+      std::to_string(runtime->capsec_loader_point_match_count) + "}";
+  auto* output = static_cast<char*>(malloc(json.size() + 1));
+  if (output == nullptr) return nullptr;
+  memcpy(output, json.data(), json.size());
+  output[json.size()] = '\0';
+  runtime->capsec_loader_point_observer_armed = false;
+  runtime->capsec_loader_point_observer_completed = false;
+  runtime->capsec_loader_point_match_count = 0;
+  runtime->capsec_loader_point_observation_id.clear();
+  runtime->capsec_loader_point_expected.clear();
   return output;
 }
 #endif

@@ -16,6 +16,7 @@ import {
   computeRecipeCatalogDigest,
   assertRecipeCatalogComplete,
 } from "./capsec-conformance-recipes.mjs";
+import { authoredModuleLoaderCapturedInvocation } from "./capsec-loader-public-probe-templates.mjs";
 import {
   canonicalJson,
   capsecRoot,
@@ -6315,6 +6316,119 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/did not prove its exact access/);
+  });
+
+  test("accepts only an exact loader-private source-point receipt", () => {
+    const surfaceName = "function:javascript:checkImportGate";
+    const surfaceObservedKey = `loader:${surfaceName}`;
+    const edge = {
+      id: "edge.loader-check-import-gate",
+      classification: "non-capability",
+      surface: { kind: "loader", name: surfaceName },
+    };
+    const surface = {
+      kind: "loader",
+      name: surfaceName,
+      observedKey: surfaceObservedKey,
+      sourceRefs: [
+        "src/engine/bootstrap/module-loader.js#checkImportGate",
+      ],
+      metadata: { evidenceType: "loader-function" },
+    };
+    const invocation = authoredModuleLoaderCapturedInvocation({
+      surface,
+      coverageEdge: edge,
+      target,
+    });
+    const recipe = completeCatalog().recipes[0];
+    Object.assign(recipe, {
+      fixtureId: "fixture.loader.check-import-gate.non-capability",
+      classification: "non-capability",
+      scenario: "non-capability",
+      edgeIds: [edge.id],
+      implementationBranchIds: [`${edge.id}.main`],
+      enforcementBranchIds: [`${edge.id}.main`],
+      actionIds: [],
+      terminalObservedKey: surfaceObservedKey,
+      expectedObservation: {
+        kind: "enforcement-branch",
+        branchId: `${edge.id}.main`,
+      },
+      route: {
+        surfaceObservedKeys: [surfaceObservedKey],
+        alternatives: [
+          {
+            terminalObservedKey: surfaceObservedKey,
+            proofPaths: [surfaceObservedKey],
+          },
+        ],
+        ambiguousCallees: [],
+      },
+      publicSurfaceProbe: {
+        kind: "public-surface-invocation",
+        surfaceObservedKey,
+        command: ["cargo", "test", "capsec_public_loader_recipe_batch"],
+        invocation,
+      },
+    });
+    const observation = {
+      observationSchema: "ibex/capsec-runtime-public-observation/1",
+      invocation: {
+        invocationSchema: invocation.invocationSchema,
+        kind: invocation.kind,
+        surfaceObservedKey,
+        moduleSpecifier: invocation.moduleSpecifier,
+        entrypoint: invocation.entrypoint,
+        sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+        completion: {
+          ...invocation.completion,
+          status: "quiescent",
+        },
+        sourceExecution: {
+          schema: "ibex/capsec-loader-source-point-execution/1",
+          observationId: recipe.fixtureId,
+          runtimeNonce: "u64:42",
+          executionPoint: surfaceName,
+          matchCount: 1,
+          loaderPrivate: true,
+        },
+        result: {
+          kind: "return",
+          sourceOperationAttempted: true,
+          entrypointProof: {
+            presence: "present",
+            descriptorKind: "data",
+            valueType: "function",
+          },
+          rawOutput: {
+            kind: "return",
+            rawValueShape: "object",
+            value: null,
+            errorCode: null,
+          },
+        },
+      },
+      legacyObservationCount: 0,
+      typedDecisions: [],
+    };
+    const build = () =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage: { edges: [edge] },
+      });
+
+    expect(build).not.toThrow();
+    observation.invocation.sourceExecution.executionPoint =
+      "function:javascript:load";
+    expect(build).toThrow(/captured module-loader invocation descriptor drift/);
+    observation.invocation.sourceExecution.executionPoint = surfaceName;
+    observation.invocation.sourceExecution.matchCount = 0;
+    expect(build).toThrow(/captured module-loader invocation descriptor drift/);
+    observation.invocation.sourceExecution.matchCount = 1;
+    invocation.requiredAuthority = [{ cap: "fs:read" }];
+    expect(build).toThrow(/captured module-loader invocation descriptor drift/);
   });
 
   test("accepts a source-bound module-runner ABI only when the graph enters it", () => {

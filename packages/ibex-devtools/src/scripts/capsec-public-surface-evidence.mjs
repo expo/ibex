@@ -1822,6 +1822,297 @@ export function validatePrincipalEnvironmentRecipeDescriptor(recipe) {
   return recipe;
 }
 
+const REVIEWED_MODULE_LOADER_EXECUTION_POINTS = new Map([
+  [
+    "function:javascript:checkImportGate",
+    "function:javascript:checkImportGate",
+  ],
+  [
+    "function:javascript:__exactResolvedPath",
+    "function:javascript:__exactResolvedPath",
+  ],
+  ["function:javascript:idToModuleId", "function:javascript:idToModuleId"],
+  [
+    "function:javascript:privateBridgesForBuiltin",
+    "function:javascript:privateBridgesForBuiltin",
+  ],
+  [
+    "function:javascript:privateResolverPath",
+    "function:javascript:privateResolverPath",
+  ],
+  [
+    "function:javascript:rejectRuntimeLoaderOptions",
+    "function:javascript:rejectRuntimeLoaderOptions",
+  ],
+  [
+    "function:javascript:resolverVirtualPath",
+    "function:javascript:resolverVirtualPath",
+  ],
+  [
+    "function:javascript:stripViteImportQuery",
+    "function:javascript:stripViteImportQuery",
+  ],
+  ["import-needs", "function:javascript:rejectRuntimeLoaderOptions"],
+  ["import-policy-bare", "function:javascript:checkImportGate"],
+  ["internal-route:assert/strict", "internal-route:assert/strict"],
+  [
+    "internal-route:internal/fs/utils",
+    "internal-route:internal/fs/utils",
+  ],
+  ["kind:builtin", "kind:builtin"],
+]);
+
+function expectedModuleLoaderExecutionPoint(descriptor) {
+  return (
+    REVIEWED_MODULE_LOADER_EXECUTION_POINTS.get(descriptor?.surfaceName) ??
+    null
+  );
+}
+
+function validateCapturedModuleLoaderRuntimeInvocation(
+  invocation,
+  authored,
+  recipe,
+) {
+  const descriptor = authored.sourceDescriptor;
+  const captured = authored.capturedOutputInvocation;
+  const capturedDescriptor = captured?.sourceDescriptor;
+  const route = captured?.route;
+  const capturedAsync =
+    captured?.completion?.kind === "event-loop-quiescence";
+  exactKeys(
+    authored,
+    [
+      "invocationSchema",
+      "kind",
+      "coverageEdgeId",
+      "coverageClassification",
+      "moduleSpecifier",
+      "entrypoint",
+      "sourceDescriptor",
+      "sourceDescriptorDigest",
+      "capturedOutputInvocation",
+      "capturedOutputInvocationDigest",
+      "completion",
+      "requiredAuthority",
+      "expectedResult",
+      "expectedTypedStages",
+      "expectedTypedDecisionCount",
+      "allowedCoverageEdgeIds",
+      "expectedActionIds",
+    ],
+    `${recipe.fixtureId}: authored captured module-loader invocation`,
+  );
+  exactKeys(
+    descriptor,
+    [
+      "kind",
+      "surfaceName",
+      "evidenceType",
+      "sourceRefs",
+      "executionPoint",
+      "outputSourceDescriptorDigest",
+    ],
+    `${recipe.fixtureId}: module-loader public source descriptor`,
+  );
+  exactKeys(
+    captured,
+    [
+      "invocationSchema",
+      "kind",
+      "coverageEdgeId",
+      "coverageClassification",
+      "sourceDescriptor",
+      "sourceDescriptorDigest",
+      "route",
+      "completion",
+    ],
+    `${recipe.fixtureId}: captured loader output invocation`,
+  );
+  exactKeys(
+    capturedDescriptor,
+    ["kind", "surfaceName", "evidenceType", "sourceRefs"],
+    `${recipe.fixtureId}: captured loader output source descriptor`,
+  );
+  exactKeys(
+    route,
+    ["operation", "entrypoint", "specifier"],
+    `${recipe.fixtureId}: captured loader output route`,
+  );
+  exactKeys(
+    authored.completion,
+    ["kind", "timeoutMilliseconds"],
+    `${recipe.fixtureId}: authored loader completion`,
+  );
+  exactKeys(
+    captured.completion,
+    capturedAsync ? ["kind", "timeoutMilliseconds"] : ["kind"],
+    `${recipe.fixtureId}: captured loader output completion`,
+  );
+  exactKeys(
+    invocation,
+    [
+      "invocationSchema",
+      "kind",
+      "surfaceObservedKey",
+      "moduleSpecifier",
+      "entrypoint",
+      "sourceDescriptorDigest",
+      "completion",
+      "sourceExecution",
+      "result",
+    ],
+    `${recipe.fixtureId}: captured module-loader runtime invocation`,
+  );
+  exactKeys(
+    invocation.completion,
+    ["kind", "timeoutMilliseconds", "status"],
+    `${recipe.fixtureId}: captured module-loader runtime completion`,
+  );
+  exactKeys(
+    invocation.sourceExecution,
+    [
+      "schema",
+      "observationId",
+      "runtimeNonce",
+      "executionPoint",
+      "matchCount",
+      "loaderPrivate",
+    ],
+    `${recipe.fixtureId}: loader-private source execution`,
+  );
+  exactKeys(
+    invocation.result,
+    [
+      "kind",
+      "sourceOperationAttempted",
+      "entrypointProof",
+      "rawOutput",
+    ],
+    `${recipe.fixtureId}: captured loader result`,
+  );
+  exactKeys(
+    invocation.result.entrypointProof,
+    ["presence", "descriptorKind", "valueType"],
+    `${recipe.fixtureId}: loader entrypoint proof`,
+  );
+  exactKeys(
+    invocation.result.rawOutput,
+    ["kind", "rawValueShape", "value", "errorCode"],
+    `${recipe.fixtureId}: loader raw output`,
+  );
+  exactKeys(
+    recipe.route,
+    ["surfaceObservedKeys", "alternatives", "ambiguousCallees"],
+    `${recipe.fixtureId}: module-loader recipe route`,
+  );
+  if (recipe.route.alternatives?.length === 1) {
+    exactKeys(
+      recipe.route.alternatives[0],
+      ["terminalObservedKey", "proofPaths"],
+      `${recipe.fixtureId}: module-loader route alternative`,
+    );
+  }
+  const surfaceObservedKey = `loader:${descriptor.surfaceName}`;
+  const expectedPoint = expectedModuleLoaderExecutionPoint(descriptor);
+  if (
+    authored.invocationSchema !==
+      "ibex/capsec-loader-captured-invocation/1" ||
+    authored.kind !== "module-loader-captured-route" ||
+    recipe.classification !== "non-capability" ||
+    recipe.scenario !== "non-capability" ||
+    canonicalJson(recipe.actionIds) !== canonicalJson([]) ||
+    canonicalJson(recipe.edgeIds) !==
+      canonicalJson([authored.coverageEdgeId]) ||
+    authored.coverageClassification !== "non-capability" ||
+    canonicalJson(authored.allowedCoverageEdgeIds) !==
+      canonicalJson([authored.coverageEdgeId]) ||
+    authored.expectedResult !== "source-completion" ||
+    authored.expectedTypedDecisionCount !== 0 ||
+    canonicalJson(authored.expectedTypedStages) !== canonicalJson([]) ||
+    canonicalJson(authored.expectedActionIds) !== canonicalJson([]) ||
+    canonicalJson(authored.requiredAuthority) !== canonicalJson([]) ||
+    descriptor.kind !== "module-loader-public-route" ||
+    typeof descriptor.surfaceName !== "string" ||
+    descriptor.surfaceName.length === 0 ||
+    expectedPoint === null ||
+    descriptor.executionPoint !== expectedPoint ||
+    !Array.isArray(descriptor.sourceRefs) ||
+    descriptor.sourceRefs.length === 0 ||
+    !descriptor.sourceRefs.every(
+      (sourceRef) => typeof sourceRef === "string" && sourceRef.length > 0,
+    ) ||
+    !descriptor.sourceRefs.some((sourceRef) =>
+      sourceRef.startsWith("src/engine/bootstrap/module-loader.js#"),
+    ) ||
+    captured.invocationSchema !==
+      "ibex/capsec-loader-output-invocation/1" ||
+    captured.kind !== "loader-output" ||
+    captured.coverageEdgeId !== authored.coverageEdgeId ||
+    captured.coverageClassification !== authored.coverageClassification ||
+    captured.sourceDescriptorDigest !==
+      descriptor.outputSourceDescriptorDigest ||
+    captured.sourceDescriptorDigest !== taggedDigest(capturedDescriptor) ||
+    capturedDescriptor.kind !== "module-loader-surface" ||
+    capturedDescriptor.surfaceName !== descriptor.surfaceName ||
+    capturedDescriptor.evidenceType !== descriptor.evidenceType ||
+    canonicalJson(capturedDescriptor.sourceRefs) !==
+      canonicalJson(descriptor.sourceRefs) ||
+    authored.capturedOutputInvocationDigest !== taggedDigest(captured) ||
+    route.operation !== "invoke-public-loader" ||
+    Object.hasOwn(route, "authority") ||
+    route.entrypoint !== authored.entrypoint ||
+    route.specifier !== authored.moduleSpecifier ||
+    !new Set([
+      "exact-require",
+      "global-import",
+      "global-require",
+      "import-module",
+      "require-resolve",
+    ]).has(authored.entrypoint) ||
+    !new Set([
+      "synchronous-loaded-runtime",
+      "event-loop-quiescence",
+    ]).has(captured.completion.kind) ||
+    (capturedAsync && captured.completion.timeoutMilliseconds !== 1_000) ||
+    authored.completion.kind !== "event-loop-quiescence" ||
+    authored.completion.timeoutMilliseconds !== 1_000 ||
+    recipe.publicSurfaceProbe.surfaceObservedKey !== surfaceObservedKey ||
+    recipe.terminalObservedKey !== surfaceObservedKey ||
+    canonicalJson(recipe.route.surfaceObservedKeys) !==
+      canonicalJson([surfaceObservedKey]) ||
+    recipe.route.alternatives?.length !== 1 ||
+    recipe.route.alternatives[0].terminalObservedKey !== surfaceObservedKey ||
+    !Array.isArray(recipe.route.alternatives[0].proofPaths) ||
+    recipe.route.alternatives[0].proofPaths.length === 0 ||
+    canonicalJson(recipe.route.ambiguousCallees) !== canonicalJson([]) ||
+    invocation.kind !== authored.kind ||
+    invocation.moduleSpecifier !== authored.moduleSpecifier ||
+    invocation.entrypoint !== authored.entrypoint ||
+    invocation.completion.kind !== authored.completion.kind ||
+    invocation.completion.timeoutMilliseconds !==
+      authored.completion.timeoutMilliseconds ||
+    invocation.completion.status !== "quiescent" ||
+    invocation.sourceExecution.schema !==
+      "ibex/capsec-loader-source-point-execution/1" ||
+    invocation.sourceExecution.observationId !== recipe.fixtureId ||
+    !isTaggedRuntimeNonce(invocation.sourceExecution.runtimeNonce) ||
+    invocation.sourceExecution.executionPoint !== expectedPoint ||
+    !Number.isSafeInteger(invocation.sourceExecution.matchCount) ||
+    invocation.sourceExecution.matchCount < 1 ||
+    invocation.sourceExecution.loaderPrivate !== true ||
+    invocation.result.kind !== "return" ||
+    invocation.result.sourceOperationAttempted !== true ||
+    invocation.result.entrypointProof.valueType !== "function" ||
+    invocation.result.rawOutput.kind !== "return" ||
+    invocation.result.rawOutput.errorCode !== null
+  ) {
+    throw new Error(
+      `${recipe.fixtureId}: captured module-loader invocation descriptor drift`,
+    );
+  }
+}
+
 function validateRuntimeInvocation(observation, recipe) {
   const invocation = observation.invocation;
   const authored = recipe.publicSurfaceProbe?.invocation;
@@ -1838,6 +2129,15 @@ function validateRuntimeInvocation(observation, recipe) {
     "result",
   ];
   if (
+    invocation?.invocationSchema ===
+    "ibex/capsec-loader-captured-invocation/1"
+  ) {
+    validateCapturedModuleLoaderRuntimeInvocation(
+      invocation,
+      authored,
+      recipe,
+    );
+  } else if (
     invocation?.invocationSchema ===
     "ibex/capsec-global-callable-invocation/1"
   ) {
@@ -3727,6 +4027,13 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: loaded engine did not prove the captured builtin source return`,
       );
     }
+  } else if (
+    authored.expectedResult === "source-completion" &&
+    authored.invocationSchema ===
+      "ibex/capsec-loader-captured-invocation/1"
+  ) {
+    // The source-point receipt, loader result, and quiescence account were
+    // validated together by validateCapturedModuleLoaderRuntimeInvocation.
   } else if (authored.expectedResult === "source-completion") {
     exactKeys(
       invocation.result,
@@ -5973,7 +6280,7 @@ export function validatePublicSurfaceExecutionArtifact(
     recipeCatalog.recipes.map((recipe) => [recipe.fixtureId, recipe]),
   );
   const seen = new Set();
-  const authenticatedBuiltinRuntimeNonces = new Set();
+  const authenticatedSourceRuntimeNonces = new Set();
   for (const execution of artifact.executions) {
     const recipe = recipes.get(execution?.fixtureId);
     if (!recipe || seen.has(execution.fixtureId)) {
@@ -5988,18 +6295,18 @@ export function validatePublicSurfaceExecutionArtifact(
       artifact.engine?.binaryDigest,
       coverage,
     );
-    const authenticatedBuiltinRuntimeNonce =
+    const authenticatedSourceRuntimeNonce =
       execution.evidence?.runtimeObservation?.invocation?.sourceExecution
         ?.runtimeNonce;
-    if (authenticatedBuiltinRuntimeNonce !== undefined) {
+    if (authenticatedSourceRuntimeNonce !== undefined) {
       if (
-        authenticatedBuiltinRuntimeNonces.has(authenticatedBuiltinRuntimeNonce)
+        authenticatedSourceRuntimeNonces.has(authenticatedSourceRuntimeNonce)
       ) {
         throw new Error(
-          "authenticated builtin source executions reused a runtime nonce",
+          "authenticated source executions reused a runtime nonce",
         );
       }
-      authenticatedBuiltinRuntimeNonces.add(authenticatedBuiltinRuntimeNonce);
+      authenticatedSourceRuntimeNonces.add(authenticatedSourceRuntimeNonce);
     }
   }
   if (

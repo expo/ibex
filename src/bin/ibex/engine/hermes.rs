@@ -1618,6 +1618,16 @@ extern "C" {
         runtime: *mut HermesRuntimeOpaque,
     ) -> *mut std::os::raw::c_char;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_arm_loader_point_observation(
+        runtime: *mut HermesRuntimeOpaque,
+        observation_id: *const std::os::raw::c_char,
+        expected_point: *const std::os::raw::c_char,
+    ) -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_take_loader_point_observation(
+        runtime: *mut HermesRuntimeOpaque,
+    ) -> *mut std::os::raw::c_char;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_enqueue_blocking_native_work(runtime: *mut HermesRuntimeOpaque) -> i32;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_enqueue_runtime_principal_throw(runtime: *mut HermesRuntimeOpaque) -> i32;
@@ -3284,6 +3294,50 @@ impl HermesEngine {
         unsafe { ex_hermes_free_string(output) };
         capsec_semantics::strict_json::parse_strict(&json)
             .map_err(|error| anyhow!("builtin source observation returned invalid JSON: {error}"))
+    }
+
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    pub(super) async fn arm_loader_point_observation(
+        &self,
+        observation_id: &str,
+        expected_point: &str,
+    ) -> Result<()> {
+        let observation_id = CString::new(observation_id)
+            .context("loader source-point observation id contains an interior NUL")?;
+        let expected_point = CString::new(expected_point)
+            .context("loader source-point expectation contains an interior NUL")?;
+        let status = self.ensure_runtime().await?.with_runtime(|raw| unsafe {
+            ibex_test_arm_loader_point_observation(
+                raw,
+                observation_id.as_ptr(),
+                expected_point.as_ptr(),
+            )
+        })?;
+        anyhow::ensure!(
+            status == 1,
+            "loader source-point observation could not be armed"
+        );
+        Ok(())
+    }
+
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    pub(super) async fn take_loader_point_observation(&self) -> Result<Value> {
+        let output = self
+            .ensure_runtime()
+            .await?
+            .with_runtime(|raw| unsafe { ibex_test_take_loader_point_observation(raw) })?;
+        anyhow::ensure!(
+            !output.is_null(),
+            "loader source-point observation is unavailable"
+        );
+        let json = unsafe { CStr::from_ptr(output) }
+            .to_str()
+            .context("loader source-point observation returned invalid UTF-8")?
+            .to_owned();
+        unsafe { ex_hermes_free_string(output) };
+        capsec_semantics::strict_json::parse_strict(&json).map_err(|error| {
+            anyhow!("loader source-point observation returned invalid JSON: {error}")
+        })
     }
 
     async fn finish_armed_bootstrap(&self) -> Result<()> {

@@ -6686,6 +6686,36 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ]);
   });
 
+  test("native lifecycle discovery ignores preprocessor predicate pseudo-calls", () => {
+    const rows = scanNativeLifecycleSurfaces(
+      String.raw`
+        void installBootstrap(Runtime* runtime) {
+        #if defined(EXACT_HAS_STORAGE)
+          installStorage(runtime);
+        #endif
+        #if __has_include(<exact/streams.h>)
+          runtime->evaluateJavaScript(source, "<stream-bootstrap>");
+        #endif
+        }
+      `,
+      "preprocessor.cc",
+    );
+    expect(
+      rows.filter((row) => row.kind === "startup").map((row) => row.name),
+    ).toEqual([
+      "evaluation:installBootstrap:stream-bootstrap",
+      "install-route:installBootstrap:installStorage",
+      "installer:installBootstrap",
+      "script:stream-bootstrap",
+    ]);
+    expect(
+      rows.some(
+        (row) =>
+          row.name.includes("defined") || row.name.includes("__has_include"),
+      ),
+    ).toBe(false);
+  });
+
   test("unscoped native lifecycle calls use a stable explicit fallback", () => {
     const rows = scanNativeLifecycleSurfaces(
       'runtime->evaluateJavaScript(source, "<boot>"); installStorage(runtime);',

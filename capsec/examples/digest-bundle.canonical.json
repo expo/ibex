@@ -275534,26 +275534,6 @@
             "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
           },
           {
-            "id": "surface.startup.evaluation.has.include.18ool1z.stream.enhance.0x24hc2",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "startup",
-              "name": "evaluation:__has_include:18ool1z:stream-enhance"
-            },
-            "rationaleId": "runtime-bootstrap-state",
-            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-          },
-          {
-            "id": "surface.startup.evaluation.has.include.18ool1z.stream.stability.patch.0brqfz4",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "startup",
-              "name": "evaluation:__has_include:18ool1z:stream-stability-patch"
-            },
-            "rationaleId": "runtime-bootstrap-state",
-            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-          },
-          {
             "id": "surface.startup.evaluation.installcompartmentregistry.compartment.registry.0nif5gk",
             "classification": "non-capability",
             "surface": {
@@ -275664,6 +275644,26 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.startup.evaluation.installprocesssetup.stream.enhance.19o3nqq",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "evaluation:installProcessSetup:stream-enhance"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
+            "id": "surface.startup.evaluation.installprocesssetup.stream.stability.patch.17t7seo",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "evaluation:installProcessSetup:stream-stability-patch"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
             "id": "surface.startup.evaluation.installwebsocketglobals.windows.websocket.shim.0w4o2cz",
             "classification": "non-capability",
             "surface": {
@@ -275729,26 +275729,6 @@
             "surface": {
               "kind": "startup",
               "name": "install-route:ex_worklet_create:installWorkletGlobals"
-            },
-            "rationaleId": "authority-control-plane",
-            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
-          },
-          {
-            "id": "surface.startup.install.route.exacthermesruntime.defined.installfshostfunctions.1d56dnq",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "startup",
-              "name": "install-route:ExactHermesRuntime::defined:installFsHostFunctions"
-            },
-            "rationaleId": "authority-control-plane",
-            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
-          },
-          {
-            "id": "surface.startup.install.route.has.include.18ool1z.installstdioqueryaccessor.1pbqcmt",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "startup",
-              "name": "install-route:__has_include:18ool1z:installStdioQueryAccessor"
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -276019,6 +275999,16 @@
             "surface": {
               "kind": "startup",
               "name": "install-route:installNetHostFunctions:installTlsHostFunctions"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.startup.install.route.installprocesssetup.installstdioqueryaccessor.07au45p",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "install-route:installProcessSetup:installStdioQueryAccessor"
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."

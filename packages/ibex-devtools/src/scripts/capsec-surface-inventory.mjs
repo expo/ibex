@@ -3070,6 +3070,7 @@ function cppFunctionDefinitions(tokens) {
     "bool",
     "catch",
     "char",
+    "defined",
     "double",
     "float",
     "for",
@@ -3089,6 +3090,7 @@ function cppFunctionDefinitions(tokens) {
     "unsigned",
     "void",
     "while",
+    "__has_include",
   ]);
   const definitions = [];
   for (let index = 0; index < tokens.length - 2; index += 1) {
