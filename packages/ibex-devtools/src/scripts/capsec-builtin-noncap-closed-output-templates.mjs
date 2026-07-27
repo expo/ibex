@@ -64,6 +64,38 @@ const CONFORMANCE_CAPTURED_SOURCE_OPERATIONS = new Map([
   ]),
   ["node_stream", new Set(["get"])],
 ]);
+const CONFORMANCE_CAPTURED_EXACT_EXPORT_OPERATIONS = new Map([
+  [
+    "node_http",
+    new Map([
+      ["_checkInvalidHeaderChar", new Set(["call"])],
+      ["_checkIsHttpToken", new Set(["call"])],
+      ["CloseEvent", new Set(["construct"])],
+      ["HTTPParser", new Set(["construct"])],
+      ["MessageEvent", new Set(["construct"])],
+      ["validateHeaderName", new Set(["call"])],
+      ["validateHeaderValue", new Set(["call"])],
+    ]),
+  ],
+  [
+    "node_http2",
+    new Map([
+      ["getPackedSettings", new Set(["call"])],
+      ["getUnpackedSettings", new Set(["call"])],
+    ]),
+  ],
+]);
+
+function isConformanceCapturedOperationAllowed(descriptor, operation) {
+  return (
+    CONFORMANCE_CAPTURED_SOURCE_OPERATIONS.get(descriptor.sourceKey)?.has(
+      operation,
+    ) === true ||
+    CONFORMANCE_CAPTURED_EXACT_EXPORT_OPERATIONS.get(descriptor.sourceKey)
+      ?.get(descriptor.exportName)
+      ?.has(operation) === true
+  );
+}
 const DESCRIPTOR_ROOT_RETURN_ALIASES = new Set([
   "_stream_duplex",
   "_stream_passthrough",
@@ -2277,7 +2309,8 @@ export function authoredNonCapabilityBuiltinCapturedProbe({
   }
   const descriptor = capturedOutputInvocation.sourceDescriptor;
   if (
-    !CONFORMANCE_CAPTURED_SOURCE_OPERATIONS.get(descriptor.sourceKey)?.has(
+    !isConformanceCapturedOperationAllowed(
+      descriptor,
       capturedOutputInvocation.route.operation,
     )
   ) {

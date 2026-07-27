@@ -2922,6 +2922,61 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-26 — executed exact HTTP value routes without opening network lifecycles
+
+- Added nine captured-output routes by exact source, export, and operation:
+  the four pure `node:http` header helpers, `CloseEvent`, `MessageEvent`,
+  `HTTPParser`, and the two `node:http2` settings codecs. The constructors use
+  no socket or server, and every route must still prove one normal inner source
+  return, cleanup, one-second quiescence, and zero typed or legacy decisions.
+- The admission policy does not allow either HTTP source family generally.
+  `createServer`, `createSecureServer`, agents, client requests, server
+  close/ref/unref methods, and every other connection-owned route remain
+  residual. The captured set is now **104** routes: 44 calls, 12
+  constructions, and 48 property gets across 13 source families.
+- Reconciled three additional `main` landings before checkpointing. The composed
+  reviewed evaluator identity, range affirmations, and generated corpus pass
+  the full drift chain at 7,658 coverage edges, 15,316 target cells, 169
+  environment rows, and 225 host-task ingress sites. The newly reviewed
+  producer-hold startup environment row is honestly residual and adds one
+  required fixture on each target. Both physical engines and catalogs were
+  rebuilt after the two corpus-affecting merges; the final docs-only landing
+  changed no catalog or physical-engine input, and no pre-merge evidence is
+  cited below.
+- Apple catalog digest
+  `sha256-y3iSHPHz5I3c7JTXlN8wES10zftbMaO8p0IhDNcLAgA` reports 23,847 required /
+  **3,465 fully executable** / 3,136 internally verified / 17,246 unresolved.
+  The M5 MacBook Air static-Hermes batch passes **1,185/1,185**: 34 isolated
+  module imports, 1,047 established exports, and all 104 captured routes. It
+  binds engine digest
+  `sha256-KxH8T10HAD6aW2BDb-NpVJxOnM5HuDZK-FrBuaDBo0w`; the evidence-file
+  SHA-256 is
+  `be0d284094c920f5c7d163ad4ed520e5e11424e7f1af27628235ab7ce92329f9`,
+  and independent validation produced execution digest
+  `sha256-tdytjFKyEu-MvdbddUrsUsGtsdlgxFxNA56Wdrk9lL8`.
+- Windows catalog digest
+  `sha256-eENwflh_0LAyycHqAPVXnLJUJrxnm2B7lkuXSItZ2No` reports 23,506 required /
+  **3,124 fully executable** / 3,122 internally verified / 17,260 unresolved.
+  The NucBox strict stale-vendored batch passes **1,149/1,149**: 34 isolated
+  imports, 1,011 established exports, and the same 104 captured routes. It
+  binds engine digest
+  `sha256-xqWHmqF0mGjVqhS8bUI7Av9fiP84rE8Zj23kOq9JJw8`; the evidence-file
+  SHA-256 is
+  `d73fbdaeaacbb84f8578602d076531bcf5afb8c5c6401c9729101178c41d8b8d`,
+  and independent validation produced execution digest
+  `sha256-392XVsdbkAP67cVjrvyc27d9kvbLO9WBvN1v4f2oXsk`.
+- The focused recipe/template/evidence suite passes **152/152** with 125,152
+  assertions.
+- Hard part: operation-class admission is still too broad for a module that
+  mixes pure value transforms with external lifecycle ownership. `call` would
+  include server factories and request teardown, while `construct` would
+  include live servers. The policy therefore names the nine exact
+  export/operation pairs; physical success for an HTTP settings codec cannot
+  promote an unrelated network route.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

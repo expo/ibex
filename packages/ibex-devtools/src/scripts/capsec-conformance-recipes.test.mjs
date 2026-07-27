@@ -338,7 +338,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_846);
+    expect(recipes.summary.requiredFixtures).toBe(23_847);
     // Invocation-time require activation adds source-derived obligations; the
     // six eager dynamic/require-link ABIs remain residual because the
     // production graph deliberately uses deferred call-time links. The net-new
@@ -349,20 +349,21 @@ describe("exact-target CapSec executable recipes", () => {
     // contribute four retained-descriptor scenarios apiece. Descriptor denial
     // remains residual because the harness cannot prepare its source descriptor
     // under a denied matching floor.
-    // Ninety-five output-authored builtin routes now execute their exact inner
-    // source operation as decision-free evidence. This includes 41 get-only
-    // reads on harness-owned stream instances; stream calls and constructors
-    // remain residual. Physical Apple execution also retired stale crypto and
-    // zlib recipes that crashed or deliberately threw instead of returning;
-    // residual accounting must reflect both.
+    // One hundred four output-authored builtin routes now execute their exact
+    // inner source operation as decision-free evidence. This includes 41
+    // get-only reads on harness-owned stream instances and nine exact HTTP
+    // helper/constructor routes; stream calls, servers, sockets, and connection
+    // lifecycles remain residual. Physical Apple execution also retired stale
+    // crypto and zlib recipes that crashed or deliberately threw instead of
+    // returning; residual accounting must reflect both.
     // The principal environment Proxy adds the complete exact read/write
     // scenario matrix through its captured native bridges.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_456);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_465);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_254);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_246);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -459,7 +460,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_505);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_506);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch. The
@@ -471,13 +472,13 @@ describe("exact-target CapSec executable recipes", () => {
     // descriptor denial remains residual because its prerequisite handle needs
     // the same floor that the scenario denies. Typed synchronous TCP connect
     // adds its five staged public scenarios, and its exact typed setup promotes
-    // the three ownership-only lifecycle consumers. The same 95 captured
-    // output routes execute here, including the 41 get-only stream reads;
-    // target-local physical evidence also retires the unsafe or deliberately
-    // throwing crypto/zlib claims.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_115);
+    // the three ownership-only lifecycle consumers. The same 104 captured
+    // output routes execute here, including the 41 get-only stream reads and
+    // nine exact HTTP helpers/constructors; target-local physical evidence
+    // also retires the unsafe or deliberately throwing crypto/zlib claims.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_124);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_268);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_260);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5178,7 +5179,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-builtin-noncap-captured-invocation/1",
     );
-    expect(captured).toHaveLength(95);
+    expect(captured).toHaveLength(104);
     expect(windowsCaptured.map((recipe) => recipe.fixtureId)).toEqual(
       captured.map((recipe) => recipe.fixtureId),
     );
@@ -5195,6 +5196,8 @@ describe("exact-target CapSec executable recipes", () => {
         "node_buffer",
         "node_console",
         "node_events",
+        "node_http",
+        "node_http2",
         "node_perf_hooks",
         "node_stream",
         "node_string_decoder",
@@ -5215,7 +5218,7 @@ describe("exact-target CapSec executable recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ call: 38, construct: 9, get: 48 });
+    ).toEqual({ call: 44, construct: 12, get: 48 });
     const streamCaptured = captured.filter(
       (recipe) =>
         recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
@@ -5231,6 +5234,27 @@ describe("exact-target CapSec executable recipes", () => {
             .cleanup.kind === "stream-owned-destroy",
       ),
     ).toBe(true);
+    const httpCaptured = captured.filter((recipe) =>
+      new Set(["node_http", "node_http2"]).has(
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey,
+      ),
+    );
+    expect(
+      httpCaptured.map(
+        (recipe) =>
+          `${recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey}:${recipe.publicSurfaceProbe.invocation.sourceDescriptor.exportName}:${recipe.publicSurfaceProbe.invocation.capturedOutputInvocation.route.operation}`,
+      ),
+    ).toEqual([
+      "node_http:_checkInvalidHeaderChar:call",
+      "node_http:_checkIsHttpToken:call",
+      "node_http:CloseEvent:construct",
+      "node_http:HTTPParser:construct",
+      "node_http:MessageEvent:construct",
+      "node_http:validateHeaderName:call",
+      "node_http:validateHeaderValue:call",
+      "node_http2:getPackedSettings:call",
+      "node_http2:getUnpackedSettings:call",
+    ]);
     for (const recipe of captured) {
       const probe = recipe.publicSurfaceProbe;
       const invocation = probe.invocation;
