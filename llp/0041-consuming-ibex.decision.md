@@ -1,10 +1,22 @@
 # LLP 0041: How Exact and Snapback Consume Ibex
 
 **Type:** Decision
-**Status:** Review
+**Status:** Accepted
 **Systems:** Build, Release, CapSec, Product
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-07-27
+**Revised:** 2026-07-27 (**accepted by the author.** The five wording-level
+minors left open at loop convergence are folded in here: rule 4's overdue
+predicate now requires a newer `main`-lineage commit to exist and names where
+a tightened bound is recorded; rule 6's retention duty attaches to the pin a
+consumer declares, and rule 7 requires that record to carry the live pin;
+step 0 states the artifact tag carries no retention guarantee rather than
+asserting GC mechanics; step 0's hold now aligns with step 4's stricter
+retirement condition. These edits are POST-READY and therefore unreviewed —
+the round-3 dual-family READY verdicts bind to revision `6a3a689fff74`, not
+to this one. No decision changed; the disposition ledgers in
+`llp/reviews/0041-consuming-ibex.{fable,codex}.md` record what each edit
+answers.)
 **Revised:** 2026-07-27 (renumbered 0040 -> 0041: a concurrent landing
 claimed 0040 for the native runtime-extension SDK and ~15 code annotations
 already pointed at it, so this document moved; content unchanged, and the
@@ -120,12 +132,17 @@ Concretely:
 4. **Advance cadence.** Consumers advance their pin (a) promptly when ibex
    lands a fix for a defect that consumer reported or is exposed to —
    security fixes are not optional; and (b) routinely otherwise: a pin more
-   than **30 days** old is overdue. Pin age is measured from the pinned
+   than **30 days** old is overdue *when a newer `main`-lineage commit
+   exists* — a pin at the tip of a quiet `main` is never overdue, because
+   there is no compliant action to take. Pin age is measured from the pinned
    ibex commit's committer date — checkable from the SHA alone. Thirty days
    is a deliberately generous backstop, not the expected rhythm: rule 4(a)
    is what keeps drift small (the motivating fork accrued ~890 commits in
    two weeks, so no calendar bound alone can), and the bound is a starting
-   value the rule-6 check can tighten as advances get cheaper. Small
+   value that may be tightened as advances get cheaper — by revising this
+   document, or in a consumer's rule-7 record for that consumer only; a
+   tightened bound living solely in check configuration would silently
+   diverge from the norm. Small
    frequent advances keep any single advance from ever requiring
    archaeology. An advance that breaks the consumer produces an ibex issue
    (or fix) the same day, while the delta is one pin, not 890 commits.
@@ -138,17 +155,21 @@ Concretely:
    that the committed `vendor/ibex` SHA is reachable from ibex `main` and
    alarms when the pin's age exceeds the rule-4 bound; ibex keeps every
    commit a consumer currently pins reachable from an advertised ref until
-   the consumer has moved off it — and the consumer-side check (with its
-   adoption record, rule 7) is also the channel through which ibex learns
-   what the live pins are. The motivating failure accrued silently for
+   the consumer has moved off it. That retention duty attaches to the pins
+   a consumer **declares** in its rule-7 record, which therefore states the
+   consumer's current pin and is updated when the pin moves — otherwise
+   ibex has no defined way to know what to keep, and a pin could be lost to
+   ref GC without anyone having claimed it. The motivating failure accrued silently for
    ~890 commits; a policy against silent drift that relies on memory would
    reproduce it. The check's existence, the reachability predicate, and the
    30-day bound are decided here; its venue and alerting mechanics are
    implementation-phase.
-7. **Consumers record adoption.** Each consumer repository records its
-   adoption of this policy in its own corpus (a short mirroring decision or
-   pointer document), so the consumer's agents and CI encounter the
-   obligation where they work; this document is the normative text.
+7. **Consumers record adoption and their live pin.** Each consumer
+   repository records its adoption of this policy in its own corpus (a short
+   mirroring decision or pointer document) together with its current
+   `vendor/ibex` pin, so the consumer's agents and CI encounter the
+   obligation where they work and rule 6's retention duty has a declared
+   subject; this document is the normative text.
 
 ### What consumers must absorb, knowingly
 
@@ -168,11 +189,13 @@ Tracking `main` means tracking ibex's deliberate inversions and churn:
 0. **Make the pinned commit's retention deliberate.** The only `origin` ref
    advertising Snapback's pin `bfbc6133` today is the Hermes artifact-cache
    release tag `hermes-ac8c6e6c80ec-bcd8ab683229` — incidental retention: a
-   tag that exists to host build assets, subject to artifact-cache GC and
-   release re-cuts, signaling nothing about intent to keep the commit.
+   tag that exists to host build assets and carries no retention guarantee
+   for the commit it happens to point at, signaling nothing about intent to
+   keep it.
    Replace it with obligation-bearing retention: push an explicit archive
    ref (or tag) for `bfbc6133` to `origin`, and drop no ref advertising the
-   commit until step 3 completes.
+   commit until step 4's conditions are met (step 3 landed *and* every
+   commit dispositioned) — not merely until the pin advance lands.
 1. **Audit the six compat commits `accb686f..bfbc6133`** (the *archive* tip —
    the live branch is two commits short, missing the continuation-auth and
    principal-sentinel work) against current `main`. Expect part to be
