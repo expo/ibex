@@ -297,6 +297,10 @@ describe("runtime environment stage inventory", () => {
         scope: "trace_startup",
         stage: "launcher-pre-arm-read",
       }),
+      expect.objectContaining({
+        scope: "begin",
+        stage: "armed-bootstrap-host-read",
+      }),
     ]);
     expect(row("EX_STARTUP_TRACE").occurrences).toEqual([
       expect.objectContaining({

@@ -462,13 +462,21 @@ fn windows_armed_mutation_closure_precedes_path_and_fd_lookup() {
     assert!(WINDOWS_FS.contains("case EPERM: return \"EPERM\";"));
     assert!(WINDOWS_FS.contains("case EPERM: return \"operation not permitted\";"));
 
-    let refusal = source_section(
+    let mutation_refusal = source_section(
         WINDOWS_FS,
         "void refuseClosedArmedFsMutation(",
+        "void refuseClosedArmedFsRoute(",
+    );
+    assert!(mutation_refusal.contains("ex_host_is_armed() != 1"));
+    assert!(mutation_refusal.contains("throwStructuredFsError("));
+
+    let route_refusal = source_section(
+        WINDOWS_FS,
+        "void refuseClosedArmedFsRoute(",
         "void throwSessionDescriptorRefused(",
     );
-    assert!(refusal.contains("ex_host_is_armed() != 1"));
-    assert!(refusal.contains("fsErrorMessage(syscall, std::string(), EPERM)"));
+    assert!(route_refusal.contains("ex_host_is_armed() != 1"));
+    assert!(route_refusal.contains("throwStructuredFsError("));
 
     let install_guard = source_section(WINDOWS_FS, "auto mutationGuardFn =", "auto readFileFn =");
     assert!(install_guard.contains("__exactFsMutationGuard"));
@@ -504,10 +512,9 @@ fn windows_armed_mutation_closure_precedes_path_and_fd_lookup() {
     let mkdir = source_section(WINDOWS_FS, "auto mkdirFn =", "auto unaryClosedVoid =");
     assert!(mkdir.contains("PropNameID::forAscii(rt, \"__exactMkdir\"),\n      3,"));
     assert!(mkdir.contains("count > 2 && args[2].isNumber()"));
-    assert!(mkdir.contains("if (recursive != 0)"));
     assert_before(
         mkdir,
-        "refuseClosedArmedFsMutation(runtime, \"mkdir\")",
+        "refuseClosedArmedFsRoute(runtime, \"mkdir\")",
         "auto path =",
     );
     assert!(mkdir.contains("mode >= 0 && ex_host_is_armed() != 1"));
@@ -555,54 +562,99 @@ fn windows_armed_mutation_closure_precedes_path_and_fd_lookup() {
         );
     }
 
-    let path_async = source_section(WINDOWS_FS, "auto fsPathAsyncFn =", "auto fsStatAsyncFn =");
-    for operation in [
-        "rmdir",
-        "unlink",
-        "chmod",
-        "chown",
-        "utime",
-        "lchown",
-        "lchmod",
-        "lutime",
-        "rename",
-        "copyfile",
-        "copyfile_excl",
-        "symlink",
-        "link",
-        "mkdtemp",
-    ] {
-        assert!(
-            path_async.contains(&format!("op == \"{operation}\"")),
-            "generic Windows path entry does not close {operation}"
-        );
-    }
-    assert!(path_async.contains("op == \"mkdir\" && x != 0"));
-    assert_before(
-        path_async,
-        "refuseClosedArmedFsMutation(runtime, op)",
-        "auto rawA = args[1].toString(runtime).utf8(runtime)",
-    );
-    assert_before(
-        path_async,
-        "refuseClosedArmedFsMutation(runtime, op)",
-        "auto a = exactResolveVfsPath(runtime, rawA)",
-    );
-
-    let closed_set = source_section(
-        path_async,
-        "const bool closedMutation =",
-        "if (closedMutation)",
-    );
-    assert!(
-        !closed_set.contains("truncate"),
-        "single-path truncate is explicitly open in LLP 0023"
-    );
-    let truncate = source_section(WINDOWS_FS, "auto truncateFn =", "auto utimesFn =");
-    assert!(!truncate.contains("refuseClosedArmedFsMutation"));
     assert!(WINDOWS_FS
         .contains("rt, \"__exactFsFsyncSync\", makeSync(\"__exactFsFsyncSync\", \"fsync\", 0)"));
     assert!(WINDOWS_FS.contains(
         "\"__exactFsFdatasyncSync\",\n      makeSync(\"__exactFsFdatasyncSync\", \"fdatasync\", 1)"
     ));
+}
+
+#[test]
+fn windows_armed_residual_routes_close_before_legacy_effect_inputs() {
+    let direct_routes = [
+        (
+            "auto writeFileFn =",
+            "rt.global().setProperty(rt, \"__exactWriteFile\"",
+            "refuseClosedArmedFsRoute(runtime, \"write\")",
+            "exactResolveVfsPath(runtime",
+        ),
+        (
+            "auto mkdirFn =",
+            "auto unaryClosedVoid =",
+            "refuseClosedArmedFsRoute(runtime, \"mkdir\")",
+            "exactResolveVfsPath(",
+        ),
+        (
+            "auto realpathFn =",
+            "auto readlinkFn =",
+            "refuseClosedArmedFsRoute(runtime, \"realpath\")",
+            "exactResolveVfsPath(runtime",
+        ),
+        (
+            "auto readlinkFn =",
+            "auto accessFn =",
+            "refuseClosedArmedFsRoute(runtime, \"readlink\")",
+            "exactResolveVfsPath(runtime",
+        ),
+        (
+            "auto accessFn =",
+            "auto chmodFn =",
+            "refuseClosedArmedFsRoute(runtime, \"access\")",
+            "exactResolveVfsPath(",
+        ),
+        (
+            "auto truncateFn =",
+            "auto utimesFn =",
+            "refuseClosedArmedFsRoute(runtime, \"truncate\")",
+            "exactResolveVfsPath(runtime",
+        ),
+        (
+            "auto statfsFn =",
+            "auto mkdtempFn =",
+            "refuseClosedArmedFsRoute(runtime, \"statfs\")",
+            "exactResolveVfsPath(runtime",
+        ),
+        (
+            "auto writeFileAsyncFn =",
+            "auto fsReadAsyncFn =",
+            "refuseClosedArmedFsRoute(runtime, \"write\")",
+            "extractBytes(runtime, args[1])",
+        ),
+    ];
+    for (start, end, refusal, first_effect_input) in direct_routes {
+        let route = source_section(WINDOWS_FS, start, end);
+        assert_before(route, refusal, first_effect_input);
+    }
+
+    let path_async = source_section(WINDOWS_FS, "auto fsPathAsyncFn =", "auto fsStatAsyncFn =");
+    assert_before(
+        path_async,
+        "refuseClosedArmedFsRoute(runtime, op)",
+        "auto rawA =",
+    );
+    assert_before(
+        path_async,
+        "refuseClosedArmedFsRoute(runtime, op)",
+        "exactResolveVfsPath(runtime, rawA)",
+    );
+
+    let stat_async = source_section(WINDOWS_FS, "auto fsStatAsyncFn =", "auto makeSync =");
+    assert_before(
+        stat_async,
+        "refuseClosedArmedFsRoute(runtime, kind)",
+        "getFileEntry(runtime",
+    );
+    assert_before(
+        stat_async,
+        "refuseClosedArmedFsRoute(runtime, kind)",
+        "exactResolveVfsPath(",
+    );
+
+    let writev_sync = source_section(BUILTIN_FS, "function writevSync(", "function readv(");
+    assert!(writev_sync.contains("typeof g.__exactFsWritev !== 'function'"));
+    assert_before(
+        writev_sync,
+        "_guardClosedFsMutation('writev')",
+        "writeSync(fd, buffer",
+    );
 }

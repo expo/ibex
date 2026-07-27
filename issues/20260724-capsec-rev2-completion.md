@@ -564,7 +564,7 @@ ticket closes.
 | 1. Typed effect model is the only production plane | Implemented | Armed production hosts construct `VerifiedDecisionContext`; the legacy `PolicyFile` parser and all HostConfig policy/path/override inputs have been deleted. |
 | 2. Every production surface has classification and target cell | Implemented | The generated registry currently validates 7,651 coverage edges and 15,302 target cells with zero drift. |
 | 3. Canonical policy and snapshots are typed, deterministic, digest-bound, fail-closed | Implemented | Strict policy/snapshot schemas, canonical-JCS digests, protected-artifact joins, and mismatch/forgery suites pass in the secure gate. |
-| 4. Filesystem/network bind used object or peer with staged authorization | In progress; unproved routes remain unadvertised or fail closed | Retained VFS objects, symlink/race fixtures, verified-peer records, and repeat-stage leases pass for promoted routes. Windows TCP plus worker-backed scalar/vector descriptor reads and append writes now authorize on the effect side of their worker boundaries; remaining installed Windows filesystem routes and residual operations stay outside every advertised profile. |
+| 4. Filesystem/network bind used object or peer with staged authorization | Implemented | Every installed armed filesystem/network route is now either a typed staged operation bound to its retained object/verified peer or a residual route that returns `EPERM` before lookup, input acquisition, dispatch, or legacy capability probing. Retained VFS objects, symlink/race fixtures, verified-peer records, repeat-stage leases, Windows TCP, and worker-bound scalar/vector descriptor operations pass on their exact targets. |
 | 5. Handles, dynamic authority, deputy intersection, import gating, and audit share immutable semantics | Implemented | Generated operation algebra, generation-bound receipts, graph authority contexts, handle/revocation suites, and structured evidence all pass. |
 | 6. Plain `ibex` enforces and has no silent weakening path | Implemented | `insecure` is absent from Cargo defaults. Plain and explicit-enforce startup produce the same pre-code target-admission refusal; secure-development and no-sandbox postures require separately named compile-time features. |
 | 7. Every advertised target has a passing generated report | Blocked, honestly closed | The advertisement set is empty. Apple and Windows are candidates only; current physical reports remain incomplete and cannot authorize promotion. |
@@ -2388,13 +2388,66 @@ ticket closes.
   **94% complete**, pending the remaining Windows route audit and the LLP 0021
   completion audit.
 
+### 2026-07-26 — closed the residual Windows filesystem route plane
+
+- Audited every filesystem global installed by the Windows engine against LLP
+  0021 WP5. The retained-object routes remain typed and effectful. All other
+  installed routes now refuse armed execution through one structured `EPERM`
+  boundary: `__exactWriteFile`, `__exactMkdir`, `__exactRealpath`,
+  `__exactReadlink`, `__exactAccess`, `__exactTruncate`, `__exactStatfs`,
+  both path and descriptor `__exactFsWriteFileAsync`, every operation selected
+  by `__exactFsPathAsync`, and every path/descriptor kind selected by
+  `__exactFsStatAsync`.
+- Each refusal precedes path conversion, descriptor lookup, caller-buffer
+  acquisition, worker dispatch, and the legacy capability oracle. The
+  JavaScript `writevSync` fallback also invokes its bootstrap-captured armed
+  guard before splitting a logical vector write into scalar mutations on
+  targets without `__exactFsWritev`. Unarmed compatibility behavior is
+  unchanged.
+- Physical Windows production verification executed fifteen representative
+  route attempts across synchronous/async, path/descriptor,
+  mutation/disclosure, existing/absent targets. All fifteen returned `EPERM`,
+  neither the typed nor legacy observer recorded a row, the existing file
+  remained byte-identical, absent file/directory targets stayed absent, and
+  the existing directory survived. Two exact source-order contracts passed on
+  both Windows and the M5 Air.
+- The first full Windows integration build exposed a current production compile
+  defect independent of the closure logic: non-test Windows history code uses
+  `OpenOptions`, but its import was test-only. Extending the import cfg to
+  Windows restored the strict production-feature build; the physical runtime
+  regression and both integration contracts then passed.
+- Regeneration confirms 7,657 coverage edges / 7,958 enforcement branches /
+  15,314 target cells. The broad sweep exposed exact assertions that still
+  described the branch's pre-expansion corpus; they were updated from the
+  already validated generated results rather than weakened. The portable
+  authority corpus also exposed that the
+  authenticated `--no-default-features` Cargo command has eight arguments
+  while its schema retained the old seven-item ceiling; the schema now admits
+  the generator/workflow's exact command.
+- The M5 Air independently passes the complete devtools script corpus:
+  **1,294/1,294 tests across 89 files with 229,354 assertions**. Local generated
+  drift, formatting, diff hygiene, `ref-check`, and the 60-test filesystem
+  builtin compatibility slice pass.
+- Criterion 4 is now implemented: every effectful installed Windows route is
+  typed and retained-object/verified-peer bound, while every still-residual
+  installed route closes before it can inspect or use an effect target.
+- Hard part: a residual public operation is not safe merely because it lacks a
+  promotable recipe. Dispatch families can still convert paths, look up
+  descriptors, snapshot caller buffers, or queue workers before reaching an
+  operation-specific branch. Closure therefore belongs at the common installed
+  route boundary, before any of those inputs, while the already typed branches
+  stay available.
+- Important enforcement mechanisms are about **99.6% complete** and the
+  overall requested task is about **95% complete**. The remaining work is the
+  final eight-criterion LLP 0021 audit and the exact-target advertisement/report
+  contradiction, not a known open Windows filesystem or network effect path.
+
 ## Next milestone
 
-Continue criterion 4 by auditing the remaining installed Windows filesystem
-routes, starting with synchronous vector/positional descriptor mutation and
-write-capable whole-file families. First generate the rebased exact Apple
-catalog and rerun both complete physical native shards, then rerun the broad
-M5 Air corpus to remeasure its 15 remaining stale tests. Do not advertise
-Windows while installed legacy routes or 17,930 exact-target public-evidence
-rows remain unresolved, and do not convert catalog labels into completion
-evidence.
+Run the final LLP 0021 eight-criterion audit against the rebased source,
+physical Apple/Windows evidence, generated target cells, and empty
+advertisement set. Reconcile whether criterion 7's literal empty-set condition
+is sufficient or whether the plan's release/claim intent still requires one
+fully reported advertised target. Do not advertise a target while exact-target
+public-evidence rows remain unresolved, and do not convert catalog labels into
+completion evidence.

@@ -3307,6 +3307,7 @@ function writevSync(fd, buffers, position) {
 	} catch (err) {
 		throw _makeFsError(err, "writev");
 	}
+	if (typeof g.__exactFsWritev !== "function") _guardClosedFsMutation("writev");
 	if (buffers.length === 0) return 0;
 	var pos = typeof position === "number" ? position : -1;
 	var bytesWritten = 0;

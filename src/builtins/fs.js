@@ -3892,6 +3892,10 @@ function writevSync(fd, buffers, position) {
       throw _makeFsError(err, 'writev');
     }
   }
+  if (typeof g.__exactFsWritev !== 'function') {
+    // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Targets without a typed synchronous vector-write terminal must refuse before decomposing one public mutation into scalar writes.
+    _guardClosedFsMutation('writev');
+  }
   if (buffers.length === 0) return 0;
   var pos = (typeof position === 'number') ? position : -1;
   var bytesWritten = 0;

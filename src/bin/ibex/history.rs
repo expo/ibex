@@ -12,7 +12,7 @@ use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 use std::fmt;
-#[cfg(test)]
+#[cfg(any(test, windows))]
 use std::fs::OpenOptions;
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Write};

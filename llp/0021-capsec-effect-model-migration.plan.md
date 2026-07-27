@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-26 (the residual installed Windows filesystem plane now refuses armed execution before path conversion, descriptor lookup, caller-buffer acquisition, worker dispatch, or legacy capability probing: whole-file write, mkdir, realpath, readlink, access, truncate, statfs, path/descriptor async whole-file write, every generic async path/stat operation, and the JavaScript synchronous writev fallback all return structured EPERM; the already typed retained-object routes remain unchanged)
 **Revised:** 2026-07-26 (armed POSIX and Windows `__exactFsWriteAsync` / `__exactFsWritevAsync` now retain bounded caller input and submit one exact-object `fs:write` Repeat on the filesystem worker immediately before their sole scalar or aggregate mutation; Windows restricts the typed worker route to an existing append-only retained file, and both Windows descriptor durability surfaces plus their POSIX counterparts use distinct public-edge Repeats immediately before flushing, promoting eight async-write recipes on both targets and eight additional durability recipes on Windows)
 **Revised:** 2026-07-26 (armed Windows TCP now authorizes requested host/port before DNS, every member of the complete canonical candidate set before connect, and the verified `getpeername` peer at Commit; retained socket identity and connection id bind generation-aware Repeat to each read/write while the registry lock prevents close/reuse races, and five connect plus three lifecycle recipes become executable)
 **Revised:** 2026-07-26 (armed POSIX and Windows `__exactFsReadAsync` / `__exactFsReadvAsync` now carry the runtime/owner/principal/retained-object operation lease to the filesystem worker and submit one exact-object `fs:read` Repeat immediately before their sole scalar or aggregate acquisition; vector destinations are bounded without caller-sized preauthorization allocation and receive bytes only from the successful owned result, positioned reads preserve the cursor, and eight recipes become executable on each exact target while worker-backed writes and durability remain residual)
@@ -1459,6 +1460,18 @@ This is a bounded slice, not Windows filesystem promotion. Unsupported
 write-capable open modes, synchronous vector/positional mutation, and the other
 installed Windows filesystem routes remain residual until their own
 retained-object contracts are implemented.
+Those residual routes are nevertheless closed in armed execution. The
+installed `__exactWriteFile`, `__exactMkdir`, `__exactRealpath`,
+`__exactReadlink`, `__exactAccess`, `__exactTruncate`, `__exactStatfs`,
+path and descriptor forms of `__exactFsWriteFileAsync`, every operation
+selected through `__exactFsPathAsync`, and every target kind selected through
+`__exactFsStatAsync` return structured `EPERM` before path conversion,
+descriptor lookup, caller-buffer acquisition, worker dispatch, or legacy
+capability probing. On a target without a typed synchronous
+`__exactFsWritev`, the JavaScript `writevSync` fallback invokes the
+bootstrap-captured armed mutation guard before decomposing the vector into
+scalar writes. Unarmed compatibility and the typed retained-object Windows
+routes listed above are unchanged.
 Exact-target recipe generation now
 schedules the five `__exactReadFile`, five `__exactStat`, and five
 `__exactLstat`, five `__exactReaddir`, six read-only `__exactFsOpen`, and four

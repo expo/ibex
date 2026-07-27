@@ -22101,6 +22101,95 @@ navigator.gpu.requestAdapter()
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(all(windows, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_windows_residual_fs_routes_fail_closed_before_legacy_effects() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-windows-residual-fs-closed-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let existing = root.join("existing.txt");
+        let absent = root.join("absent.txt");
+        let directory = root.join("directory");
+        let created_directory = root.join("created-directory");
+        std::fs::write(&existing, b"must-remain-unchanged").unwrap();
+        std::fs::create_dir(&directory).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, true, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let _ = crate::host::abi::take_installed_conformance_observations();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "enforcement.src.engine.hermes.runtime.fs.windows.residual.closed"
+        ));
+        let outcome = engine
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  var denied = 0;
+                  function expectClosed(fn) {
+                    try { fn(); } catch (error) {
+                      if (String(error.code) !== 'EPERM') throw error;
+                      denied++;
+                      return;
+                    }
+                    throw new Error('residual Windows filesystem route allowed');
+                  }
+                  expectClosed(function() { __exactWriteFile('/project/existing.txt', 'lost'); });
+                  expectClosed(function() { __exactWriteFile('/project/absent.txt', 'created'); });
+                  expectClosed(function() { __exactMkdir('/project/created-directory', false, 438); });
+                  expectClosed(function() { __exactRealpath('/project/existing.txt'); });
+                  expectClosed(function() { __exactReadlink('/project/existing.txt'); });
+                  expectClosed(function() { __exactAccess('/project/existing.txt', 0); });
+                  expectClosed(function() { __exactTruncate('/project/existing.txt', 0); });
+                  expectClosed(function() { __exactStatfs('/project'); });
+                  expectClosed(function() {
+                    __exactFsWriteFileAsync('/project/absent.txt', 'created', 'w', 438, true);
+                  });
+                  expectClosed(function() {
+                    __exactFsWriteFileAsync(2147483647, 'created', 'w', 438, true);
+                  });
+                  expectClosed(function() {
+                    __exactFsPathAsync('readdir', '/project/directory', '', 0, 0, 0);
+                  });
+                  expectClosed(function() {
+                    __exactFsPathAsync('truncate', '/project/existing.txt', '', 0, 0, 0);
+                  });
+                  expectClosed(function() {
+                    __exactFsStatAsync('/project/existing.txt', 'stat');
+                  });
+                  expectClosed(function() {
+                    __exactFsStatAsync('/project/existing.txt', 'lstat');
+                  });
+                  expectClosed(function() { __exactFsStatAsync(2147483647, 'fstat'); });
+                  return String(denied);
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("15"));
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            legacy.is_empty(),
+            "closed Windows filesystem routes crossed the legacy observer: {legacy:?}"
+        );
+        assert!(
+            typed.is_empty(),
+            "closed Windows filesystem routes emitted typed decisions: {typed:?}"
+        );
+        assert_eq!(std::fs::read(&existing).unwrap(), b"must-remain-unchanged");
+        assert!(!absent.exists());
+        assert!(!created_directory.exists());
+        assert!(directory.is_dir());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_read_stops_after_dynamic_authority_is_revoked_mid_stream() {

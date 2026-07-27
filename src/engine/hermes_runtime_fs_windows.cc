@@ -251,6 +251,15 @@ void refuseClosedArmedFsMutation(
   throwStructuredFsError(runtime, syscall, std::string(), EPERM);
 }
 
+void refuseClosedArmedFsRoute(
+    facebook::jsi::Runtime& runtime, const std::string& syscall) {
+  if (ex_host_is_armed() != 1) {
+    return;
+  }
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Residual Windows filesystem routes refuse before path conversion, descriptor lookup, caller-buffer acquisition, or legacy capability probing.
+  throwStructuredFsError(runtime, syscall, std::string(), EPERM);
+}
+
 void throwSessionDescriptorRefused(
     facebook::jsi::Runtime& runtime, int fd, const std::string& syscall) {
   throw facebook::jsi::JSError(
@@ -2113,6 +2122,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (count < 2) {
           throw facebook::jsi::JSError(runtime, "__exactWriteFile: path and data required");
         }
+        refuseClosedArmedFsRoute(runtime, "write");
         auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
         requireWriteCapability(runtime, path.virtualPath);
         auto bytes = extractBytes(runtime, args[1]);
@@ -2875,6 +2885,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
+        refuseClosedArmedFsRoute(runtime, "mkdir");
         int32_t recursive = 0;
         if (count > 1 && args[1].isBool()) {
           recursive = args[1].getBool() ? 1 : 0;
@@ -2884,9 +2895,6 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         int mode = count > 2 && args[2].isNumber()
             ? static_cast<int>(args[2].asNumber())
             : -1;
-        if (recursive != 0) {
-          refuseClosedArmedFsMutation(runtime, "mkdir");
-        }
         auto path = exactResolveVfsPath(
             runtime,
             count > 0 ? pathArg(runtime, args[0]) : std::string());
@@ -2996,6 +3004,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(
               runtime, "__exactRealpath: path required");
         }
+        refuseClosedArmedFsRoute(runtime, "realpath");
         auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
         requireReadCapability(runtime, path.virtualPath);
         auto result = fsRealpathWork(handle->runtime_nonce, path);
@@ -3019,6 +3028,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(
               runtime, "__exactReadlink: path required");
         }
+        refuseClosedArmedFsRoute(runtime, "readlink");
         auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
         requireReadCapability(runtime, path.virtualPath);
         // There is no Windows Host ABI readlink primitive yet. Preserve the
@@ -3037,6 +3047,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
+        refuseClosedArmedFsRoute(runtime, "access");
         auto path = exactResolveVfsPath(
             runtime,
             count > 0 ? pathArg(runtime, args[0]) : std::string());
@@ -3084,6 +3095,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (count < 2 || !args[1].isNumber()) {
           throw facebook::jsi::JSError(runtime, "__exactTruncate: path and length required");
         }
+        refuseClosedArmedFsRoute(runtime, "truncate");
         auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
         auto length = args[1].asNumber();
         requireWriteCapability(runtime, path.virtualPath);
@@ -3129,6 +3141,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (count < 1) {
           throw facebook::jsi::JSError(runtime, "__exactStatfs: path required");
         }
+        refuseClosedArmedFsRoute(runtime, "statfs");
         auto path = exactResolveVfsPath(runtime, pathArg(runtime, args[0]));
         requireReadCapability(runtime, path.virtualPath);
         return jsonStringResult(
@@ -3266,6 +3279,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(
               runtime, "__exactFsWriteFileAsync: path/fd and data required");
         }
+        refuseClosedArmedFsRoute(runtime, "write");
         auto dataBytes =
             std::make_shared<std::vector<uint8_t>>(extractBytes(runtime, args[1]));
         bool flush = count > 4 && args[4].isBool() && args[4].getBool();
@@ -3624,16 +3638,8 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsPathAsync: op and path required");
         }
         auto op = args[0].toString(runtime).utf8(runtime);
+        refuseClosedArmedFsRoute(runtime, op);
         double x = count > 3 && args[3].isNumber() ? args[3].asNumber() : 0;
-        const bool closedMutation =
-            op == "rmdir" || op == "unlink" || op == "chmod" ||
-            op == "chown" || op == "utime" || op == "lchown" ||
-            op == "lchmod" || op == "lutime" || op == "rename" ||
-            op == "copyfile" || op == "copyfile_excl" || op == "symlink" ||
-            op == "link" || op == "mkdtemp" || (op == "mkdir" && x != 0);
-        if (closedMutation) {
-          refuseClosedArmedFsMutation(runtime, op);
-        }
         auto rawA = args[1].toString(runtime).utf8(runtime);
         std::string rawB;
         if (count > 2 && args[2].isString()) {
@@ -3694,6 +3700,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsStatAsync: target and kind required");
         }
         auto kind = args[1].toString(runtime).utf8(runtime);
+        refuseClosedArmedFsRoute(runtime, kind);
         if (kind == "fstat") {
           if (!args[0].isNumber()) {
             throw facebook::jsi::JSError(runtime, "__exactFsStatAsync: fd required");
