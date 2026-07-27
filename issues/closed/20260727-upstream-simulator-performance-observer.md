@@ -1,6 +1,6 @@
 # Upstream the simulator performance observer before consumer adoption
 
-**Status:** Open
+**Status:** Closed
 **Severity:** P2
 **Systems:** Engine, Host ABI, Build, CapSec
 **Author:** Codex, directed by Charlie Cheever
@@ -38,3 +38,19 @@ instrumentation carrier rather than a product mode.
 3. Land the verified closure on Ibex `origin/main`.
 4. Advance Exact to the landed main-lineage SHA and remove its dependency on
    the observer side branch.
+
+## Resolution
+
+Closed 2026-07-27. The patch-equivalent observer closure landed on Ibex
+`origin/main` through `11d15593`, followed by the authenticated canonical
+registry reuse and focused cache-authentication coverage through
+`28db869b`. The checks retained 4/4 precomputed-registry authentication
+tests, the CLI/runtime canonical-byte equivalence test, the two open-file
+identity tests, formatting, and `./ref-check --verbose`.
+
+Exact `origin/main` now consumes `28db869b` at `ffd91d562`. A clean Air
+Release/iOS-Simulator run against that Exact revision retained every
+authenticated observer marker, rendered the first frame, and emitted real
+first-authoritative-data custody. The observer remains feature-gated,
+Release/iOS-Simulator-only, absent from default features, and separate from
+ordinary Exact native artifacts.
