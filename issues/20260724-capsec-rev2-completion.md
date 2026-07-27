@@ -3178,6 +3178,55 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — executed exact Node/Web stream conversions
+
+- Added exactly two captured `node_stream_web` calls: `fromWeb` converts a
+  harness-owned readable Web stream and destroys the returned native stream,
+  while `toWeb` converts a harness-owned ended native readable and cancels the
+  returned Web stream. Both routes bind the inventoried source descriptor,
+  prove a normal return and owned cleanup, reach quiescence, and record zero
+  decisions.
+- The policy remains export-and-operation scoped. The other 45 residual stream
+  composition, iteration, and lifecycle routes still retain listeners, defer
+  work, or require a pipeline extending beyond the synchronous return. The
+  captured set is now **136** routes: 63 calls, 17 constructions, and 56
+  property gets across 19 source families.
+- Apple catalog digest
+  `sha256-cjtEtNOKANUnyn78ZmIclcV_LfGKSIyejSMH_-a0xpo` reports 23,847 required /
+  **3,497 fully executable** / 3,136 internally verified / 17,214 unresolved.
+  The M5 MacBook Air static-Hermes batch passes **1,217/1,217**: 34 isolated
+  module imports, 1,047 established exports, and all 136 captured routes. It
+  binds engine digest
+  `sha256-KxH8T10HAD6aW2BDb-NpVJxOnM5HuDZK-FrBuaDBo0w`; the evidence-file
+  SHA-256 is
+  `0397c5fc2c8f1e48ca21bae8996daf3d8b0b8bba2a612eaa4936eadec48e01d0`,
+  and independent validation produced execution digest
+  `sha256-KBtNVbSr9TItlsm6qtXYaXn-EBgWFkPW45rND6QZXe8`.
+- Windows catalog digest
+  `sha256-x8eZ-obd4zL7MZfCNAmHZNMka5HX4FHHfZeBEM99pOg` reports 23,506 required /
+  **3,156 fully executable** / 3,122 internally verified / 17,228 unresolved.
+  The NucBox strict stale-vendored batch passes **1,181/1,181**: 34 isolated
+  imports, 1,011 established exports, and the same 136 captured routes. It
+  binds engine digest
+  `sha256-xqWHmqF0mGjVqhS8bUI7Av9fiP84rE8Zj23kOq9JJw8`; the evidence-file
+  SHA-256 is
+  `0efa4f258db34b8bb9e6ff27709c8580f8710c4e879abcc9e4ed66ea5b599d45`,
+  and independent validation produced execution digest
+  `sha256-sgHSOiUCO7FVxIoo5rcFIuCh8wN3hPMOjEJyCDMKG7o`.
+- Both independent aggregates bind source revision
+  `9d75a3cc245fa7788623dac84c1145b81b474e03` and tree digest
+  `sha256-SxD4gUVTaHs-lABDRDvgez0lNWBjUmpPEC-YuK6U1dU`. The split focused runs
+  pass **152/152** with 125,637 assertions.
+- Hard part: the generic stream/web residual was correct for most of the
+  family, but too coarse for these conversions. A normal conversion alone is
+  not sufficient evidence because it transfers lifecycle ownership across the
+  Node/Web boundary. The exact routes are promotable only because the harness
+  owns both sides and proves the returned native stream was destroyed or the
+  returned Web stream was canceled.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

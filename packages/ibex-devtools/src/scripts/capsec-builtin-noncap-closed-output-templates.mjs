@@ -129,6 +129,13 @@ const CONFORMANCE_CAPTURED_EXACT_EXPORT_OPERATIONS = new Map([
     ]),
   ],
   [
+    "node_stream_web",
+    new Map([
+      ["fromWeb", new Set(["call"])],
+      ["toWeb", new Set(["call"])],
+    ]),
+  ],
+  [
     "node_tls",
     new Map([
       ["checkServerIdentity", new Set(["call"])],
