@@ -563,7 +563,12 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
     assert_eq!(recipe.classification, "effects");
     assert!(matches!(
         recipe.scenario.as_str(),
-        "allow" | "deny" | "branch-selection"
+        "allow"
+            | "deny"
+            | "malformed"
+            | "missing-attribution"
+            | "wrong-principal"
+            | "branch-selection"
     ));
     assert_eq!(probe.kind, "public-surface-invocation");
     assert!(probe
@@ -1409,8 +1414,8 @@ async fn capsec_public_startup_environment_batch() {
         .collect::<Vec<_>>();
     assert_eq!(
         recipes.len(),
-        9,
-        "expected three curated startup environment absent slices"
+        18,
+        "expected the complete matrix for three startup environment absent slices"
     );
     assert_eq!(
         principal_environment_recipes.len(),
@@ -1439,7 +1444,14 @@ async fn capsec_public_startup_environment_batch() {
             .iter()
             .map(|recipe| recipe.scenario.as_str())
             .collect::<BTreeSet<_>>(),
-        BTreeSet::from(["allow", "branch-selection", "deny"])
+        BTreeSet::from([
+            "allow",
+            "branch-selection",
+            "deny",
+            "malformed",
+            "missing-attribution",
+            "wrong-principal",
+        ])
     );
     assert_eq!(
         recipes

@@ -2634,13 +2634,58 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-26 — completed three pure-read startup environment matrices
+
+- Extended the three already curated startup environment source carriers
+  (`startup:env:NODE_DEBUG`, `startup:env:EXACT_DEBUG_EMIT_LISTENER`, and
+  `startup:env:TZ`) from allow/deny/branch-selection to the complete six-scenario
+  public-evidence matrix. All **18/18** pure `env:read` absent-branch recipes
+  are now executable; the same batch retains the previously completed
+  **12/12** dynamic principal-overlay rows.
+- Promotion remains source- and action-specific. The author verifies each
+  committed source descriptor, exact environment name, absent branch, native
+  `__exactGetEnv` carrier, typed resource, and expected outcome. Mixed-action
+  startup sites that also require `stdio:write` or `sys:read` remain residual;
+  a pure-read proof is not used to promote those additional terminals. The
+  three curated carriers retain six honest residual rows apiece.
+- Apple catalog digest
+  `sha256-z6G-WjNj134dtSYv0Y-PrO4pIz3cSJ4C5xH-8pewSu8` reports 23,846 required /
+  **3,426 fully executable** / 3,136 internally verified / 17,284 unresolved.
+  The physical M5 MacBook Air static-Hermes batch passes **30/30**, binds
+  engine digest
+  `sha256-Ine2_Krvm-pHkSdQUQbvCH3qWYsejXCOvvbceDA72_w`, and has evidence-file
+  SHA-256
+  `c7d7c45c84d40590eab372c686e0de5eec017e11910c5391cb5a6c8da1e1b733`.
+  Independent validation produced execution digest
+  `sha256-qSvS_YPcLgXXG_izUEtrBgiuym2HtmSEULGkX04LekU`.
+- Windows catalog digest
+  `sha256-1fU3hW81_Hg67qM12J0iSJGiBnHRWE8XXVl0ksfbV_o` reports 23,505 required /
+  **3,066 fully executable** / 3,122 internally verified / 17,317 unresolved.
+  The physical NucBox strict stale-vendored batch passes **30/30** against
+  engine digest
+  `sha256-xqWHmqF0mGjVqhS8bUI7Av9fiP84rE8Zj23kOq9JJw8`. Its evidence-file
+  SHA-256 is
+  `23d8c9e21736ee4e2f2ecb49ee63da39eae7041ab9dc558f77f66be0e8b26f53`,
+  and independent validation produced execution digest
+  `sha256-8meS0hTiHFcydMsaVP9d6u38RkDuPuZAOTnJEnMiYsc`.
+- The focused recipe/evidence suite passes 146 tests with 114,976 assertions.
+  Hard part: malformed, missing-attribution, and wrong-principal are adapter
+  inputs that the public JavaScript route cannot honestly manufacture. As with
+  the principal-overlay and effect-builtin matrices, each row therefore
+  requires both its exact adapter-case proof and a separate loaded-engine
+  execution of the normal source-selected typed terminal. Neither half is
+  represented as the other.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
 select the highest-leverage residual public-evidence family, add a
 source-bound executor only where it reaches the real production route, and
-regenerate both target catalogs. Continue separating the remaining startup
-environment and loader operations that can be safely executed from those that
-must remain closed. Do not treat the empty advertisement set as criterion 7
-completion, and do not convert catalog labels or generic failed imports into
-public execution evidence.
+regenerate both target catalogs. Continue separating the remaining mixed-action
+startup environment and loader operations that can be safely executed from
+those that must remain closed. Do not treat the empty advertisement set as
+criterion 7 completion, and do not convert catalog labels or generic failed
+imports into public execution evidence.

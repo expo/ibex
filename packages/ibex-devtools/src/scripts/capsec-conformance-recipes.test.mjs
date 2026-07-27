@@ -353,12 +353,12 @@ describe("exact-target CapSec executable recipes", () => {
     // decision-free call/construct/get route through the loaded engine. The
     // principal environment Proxy adds the complete exact read/write scenario
     // matrix through its captured native bridges.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_417);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_426);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_293);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_284);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -468,9 +468,9 @@ describe("exact-target CapSec executable recipes", () => {
     // the same floor that the scenario denies. Typed synchronous TCP connect
     // adds its five staged public scenarios, and its exact typed setup promotes
     // the three ownership-only lifecycle consumers.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_057);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_066);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_326);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_317);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -3670,7 +3670,7 @@ describe("exact-target CapSec executable recipes", () => {
     ).toBe(true);
   });
 
-  test("promotes only exact absent reads for the three isolated startup environment sources", () => {
+  test("promotes the exact absent-read matrix for three isolated startup environment sources", () => {
     const startupEnvironmentRecipes = recipes.recipes.filter(
       (recipe) =>
         recipe.classification === "effects" &&
@@ -3687,19 +3687,28 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-startup-environment-invocation/1",
     );
-    expect(authored).toHaveLength(9);
+    expect(authored).toHaveLength(18);
     expect(
       authored.map((recipe) => [recipe.terminalObservedKey, recipe.scenario]),
     ).toEqual([
       ["startup:env:TZ", "allow"],
       ["startup:env:TZ", "branch-selection"],
       ["startup:env:TZ", "deny"],
+      ["startup:env:TZ", "malformed"],
+      ["startup:env:TZ", "missing-attribution"],
+      ["startup:env:TZ", "wrong-principal"],
       ["startup:env:EXACT_DEBUG_EMIT_LISTENER", "allow"],
       ["startup:env:EXACT_DEBUG_EMIT_LISTENER", "branch-selection"],
       ["startup:env:EXACT_DEBUG_EMIT_LISTENER", "deny"],
+      ["startup:env:EXACT_DEBUG_EMIT_LISTENER", "malformed"],
+      ["startup:env:EXACT_DEBUG_EMIT_LISTENER", "missing-attribution"],
+      ["startup:env:EXACT_DEBUG_EMIT_LISTENER", "wrong-principal"],
       ["startup:env:NODE_DEBUG", "allow"],
       ["startup:env:NODE_DEBUG", "branch-selection"],
       ["startup:env:NODE_DEBUG", "deny"],
+      ["startup:env:NODE_DEBUG", "malformed"],
+      ["startup:env:NODE_DEBUG", "missing-attribution"],
+      ["startup:env:NODE_DEBUG", "wrong-principal"],
     ]);
     const expectedSources = new Map([
       [
@@ -3781,14 +3790,14 @@ describe("exact-target CapSec executable recipes", () => {
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.status === "unresolved",
       ),
-    ).toHaveLength(661);
+    ).toHaveLength(652);
     for (const environmentName of expectedSources.keys()) {
       const residual = startupEnvironmentRecipes.filter(
         (recipe) =>
           recipe.terminalObservedKey === `startup:env:${environmentName}` &&
           recipe.status === "unresolved",
       );
-      expect(residual).toHaveLength(9);
+      expect(residual).toHaveLength(6);
       expect(
         residual.every((recipe) => recipe.publicSurfaceProbe === null),
       ).toBe(true);

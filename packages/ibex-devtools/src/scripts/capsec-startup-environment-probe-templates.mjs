@@ -23,6 +23,14 @@ const STARTUP_ENVIRONMENT_BATCH_COMMAND = Object.freeze(
 );
 
 const ENVIRONMENT_AUXILIARY_OBSERVED_KEY = "native-op:__exactGetEnv";
+const STARTUP_ENVIRONMENT_SCENARIOS = new Set([
+  "allow",
+  "deny",
+  "malformed",
+  "missing-attribution",
+  "wrong-principal",
+  "branch-selection",
+]);
 
 const STARTUP_ENVIRONMENT_SOURCES = new Map([
   [
@@ -34,7 +42,7 @@ const STARTUP_ENVIRONMENT_SOURCES = new Map([
       moduleSpecifier: "node:http",
       preloadModuleSpecifiers: ["node:events", "node:stream", "node:util"],
       selectedBranchId: "absent",
-      supportedScenarios: new Set(["allow", "deny", "branch-selection"]),
+      supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
     }),
   ],
   [
@@ -47,7 +55,7 @@ const STARTUP_ENVIRONMENT_SOURCES = new Map([
       moduleSpecifier: "node:events",
       preloadModuleSpecifiers: [],
       selectedBranchId: "absent",
-      supportedScenarios: new Set(["allow", "deny", "branch-selection"]),
+      supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
     }),
   ],
   [
@@ -60,7 +68,7 @@ const STARTUP_ENVIRONMENT_SOURCES = new Map([
       moduleSpecifier: null,
       preloadModuleSpecifiers: [],
       selectedBranchId: "absent",
-      supportedScenarios: new Set(["allow", "deny", "branch-selection"]),
+      supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
     }),
   ],
 ]);

@@ -1472,7 +1472,14 @@ export function validateStartupEnvironmentRecipeDescriptor(recipe) {
     authored.kind !== "startup-environment-source" ||
     authored.surfaceKind !== "startup" ||
     authored.surfaceName !== `env:${environmentName}` ||
-    !["allow", "deny", "branch-selection"].includes(authored.scenario) ||
+    ![
+      "allow",
+      "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
+      "branch-selection",
+    ].includes(authored.scenario) ||
     descriptor.kind !== "startup-environment-source" ||
     descriptor.surfaceObservedKey !== `startup:env:${environmentName}` ||
     descriptor.environmentName !== environmentName ||
