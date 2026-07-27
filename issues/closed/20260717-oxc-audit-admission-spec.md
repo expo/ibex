@@ -1,6 +1,12 @@
 # Draft the audit-admission Spec LLP
 
 **Status:** Closed (2026-07-26 — LLP 0030 accepted)
+**Impact:** 4
+**Urgency:** 4
+**Ease:** 4
+**Confidence:** 5
+**Score reviewed:** 2026-07-26
+**Score rationale:** The ticket evidence for “Draft the audit-admission Spec LLP” shows the issue materially affects a supported product or engineering path; delay compounds an active rollout, reliability, or verification risk, while the implementation is localized and has concrete acceptance witnesses, with a direct reproduction or current implementation proof.
 **Severity:** P2
 **Systems:** Security, Module Loader, Runtime
 **Author:** Claude (Fable 5), directed by Charlie Cheever

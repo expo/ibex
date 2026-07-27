@@ -1,6 +1,12 @@
 # Single-file executable program (LLP 0029) — umbrella and execution map
 
 **Status:** Open
+**Impact:** 5
+**Urgency:** 4
+**Ease:** 1
+**Confidence:** 4
+**Score reviewed:** 2026-07-26
+**Score rationale:** The ticket evidence for “Single-file executable program (LLP 0029) — umbrella and execution map” shows the issue reaches a security, correctness, release, or core product boundary; delay compounds an active rollout, reliability, or verification risk, while delivery is a dependency-heavy, multi-stage program, with specific cited code, progress, or acceptance criteria.
 **Severity:** P2
 **Systems:** Issue tracking, Build, Module Loader, Runtime, Security
 **Author:** Claude (Fable 5), directed by Charlie Cheever

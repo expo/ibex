@@ -1,6 +1,7 @@
 # LLP 0014 canonical-policy schema v2 (single coordinated revision)
 
-**Status:** Complete
+**Status:** Closed
+**Resolution:** Closed from the completion evidence recorded in f5688afb: canonical policy v2, strict admission, regenerated examples, and rotation coverage landed together.
 **Severity:** P2
 **Systems:** Security, Build
 **Author:** Claude (Fable 5), directed by Charlie Cheever

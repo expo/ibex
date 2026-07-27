@@ -1,6 +1,13 @@
 # Static Hermes for the macOS stub (lean vs full by measurement)
 
-**Status:** In Progress
+**Status:** Open
+**Impact:** 4
+**Urgency:** 3
+**Ease:** 2
+**Confidence:** 4
+**Score reviewed:** 2026-07-26
+**Score rationale:** The ticket evidence for “Static Hermes for the macOS stub (lean vs full by measurement)” shows the issue materially affects a supported product or engineering path; it belongs in the current program but is not an immediate blocker, while the repair crosses several runtime, host, protocol, or policy seams, with specific cited code, progress, or acceptance criteria.
+**Progress:** In Progress
 **Severity:** P2
 **Systems:** Engine, Build
 **Author:** Claude (Fable 5), directed by Charlie Cheever

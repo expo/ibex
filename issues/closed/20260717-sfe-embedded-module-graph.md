@@ -1,6 +1,7 @@
 # ibex/embedded-module-graph/1 (path-independent inner contract)
 
-**Status:** Complete
+**Status:** Closed
+**Resolution:** Closed from the completion evidence recorded in f5688afb: path-independent embedded graph publication, admission, relocation, signing, and disk-free execution landed.
 **Severity:** P2
 **Systems:** Module Loader
 **Author:** Claude (Fable 5), directed by Charlie Cheever

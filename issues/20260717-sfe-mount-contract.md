@@ -1,6 +1,13 @@
 # Compiled mount contract: /app, /work, unset cwd (LLP 0023 revision)
 
-**Status:** In Progress
+**Status:** Open
+**Impact:** 5
+**Urgency:** 4
+**Ease:** 2
+**Confidence:** 4
+**Score reviewed:** 2026-07-26
+**Score rationale:** The ticket evidence for “Compiled mount contract: /app, /work, unset cwd (LLP 0023 revision)” shows the issue reaches a security, correctness, release, or core product boundary; delay compounds an active rollout, reliability, or verification risk, while the repair crosses several runtime, host, protocol, or policy seams, with specific cited code, progress, or acceptance criteria.
+**Progress:** In Progress
 **Severity:** P2
 **Systems:** Runtime, Security
 **Author:** Claude (Fable 5), directed by Charlie Cheever

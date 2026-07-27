@@ -1,6 +1,12 @@
 # Linux static-dependency audit (libcurl disposition required)
 
 **Status:** Closed (2026-07-26 — first pinned Ubuntu 22.04 CI execution green)
+**Impact:** 4
+**Urgency:** 4
+**Ease:** 5
+**Confidence:** 5
+**Score reviewed:** 2026-07-26
+**Score rationale:** The ticket evidence for “Linux static-dependency audit (libcurl disposition required)” shows the issue materially affects a supported product or engineering path; delay compounds an active rollout, reliability, or verification risk, while the ticket identifies a narrow, verified change or decision, with a direct reproduction or current implementation proof.
 **Severity:** P2
 **Systems:** Engine, Build
 **Author:** Claude (Fable 5), directed by Charlie Cheever

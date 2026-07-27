@@ -1,6 +1,12 @@
 # CapSec reviewed lockdown/inventory identity has drifted from the live sources
 
 **Status:** Closed (2026-07-26 — drift reviewed and reviewed identity restamped; see Resolution)
+**Impact:** 5
+**Urgency:** 5
+**Ease:** 4
+**Confidence:** 5
+**Score reviewed:** 2026-07-26
+**Score rationale:** The ticket evidence for “CapSec reviewed lockdown/inventory identity has drifted from the live sources” shows the issue reaches a security, correctness, release, or core product boundary; the defect is blocking or unsafe on a live path now, while the implementation is localized and has concrete acceptance witnesses, with a direct reproduction or current implementation proof.
 
 **Filed:** 2026-07-26 (found while landing the 0010/0011 patch-header fix;
 verified against pristine `origin/main` b9558cf3 in a clean worktree — this is
