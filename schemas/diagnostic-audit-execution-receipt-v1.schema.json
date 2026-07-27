@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schema/diagnostic-audit-execution-receipt-v1.schema.json",
+  "title": "Ibex diagnostic audit execution receipt v1",
+  "description": "Emitted once at the completion of a foreground source audit (LLP 0030 §4). This schema has no authority-bearing variant: diagnosticOnly is always true and authorizesProduction is always false, so a receipt can never be replayed as an authority, grant, cache admission, or production receipt.",
+  "type": "object",
+  "required": [
+    "schema",
+    "diagnosticOnly",
+    "authorizesProduction",
+    "runNonce",
+    "target",
+    "entry",
+    "graphIdentity",
+    "producerBinaryDigest",
+    "transformFingerprintDigest",
+    "loadedEngineDigest",
+    "carrierKind",
+    "executedRecords",
+    "wouldDenyEvidence",
+    "outcome"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/diagnostic-audit-execution-receipt/1" },
+    "diagnosticOnly": { "const": true },
+    "authorizesProduction": { "const": false },
+    "runNonce": { "type": "string", "pattern": "^[A-Za-z0-9_-]{22,}$" },
+    "target": {
+      "type": "object",
+      "required": ["triple", "nativeRunnerAbi"],
+      "properties": {
+        "triple": { "$ref": "#/$defs/nonEmpty" },
+        "nativeRunnerAbi": { "$ref": "#/$defs/nonEmpty" }
+      },
+      "additionalProperties": false
+    },
+    "entry": { "$ref": "#/$defs/sourceId" },
+    "graphIdentity": { "$ref": "#/$defs/digest" },
+    "producerBinaryDigest": { "$ref": "#/$defs/digest" },
+    "transformFingerprintDigest": { "$ref": "#/$defs/digest" },
+    "loadedEngineDigest": { "$ref": "#/$defs/digest" },
+    "carrierKind": {
+      "description": "V1 audit is inline-only (LLP 0030 §5); HBC and prepared carriers refuse categorically.",
+      "const": "inline-source"
+    },
+    "executedRecords": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/executedRecord" }
+    },
+    "wouldDenyEvidence": { "$ref": "#/$defs/wouldDenyEvidence" },
+    "outcome": { "$ref": "#/$defs/outcome" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256-[A-Za-z0-9_-]{43}$" },
+    "sourceId": { "type": "string", "pattern": "^ibex-source-id-v1:[A-Za-z0-9_-]+$" },
+    "nonEmpty": { "type": "string", "minLength": 1 },
+    "count": { "type": "integer", "minimum": 0 },
+    "executedRecord": {
+      "type": "object",
+      "required": ["sourceId", "semanticDigest", "principal"],
+      "properties": {
+        "sourceId": { "$ref": "#/$defs/sourceId" },
+        "semanticDigest": { "$ref": "#/$defs/digest" },
+        "principal": {
+          "description": "The authenticated module principal from the native frame/schedule/deputy intersection.",
+          "$ref": "#/$defs/nonEmpty"
+        }
+      },
+      "additionalProperties": false
+    },
+    "wouldDenyEvidence": {
+      "description": "Bounded run-local stream. The retained suffix is the latest 1,024 ordered entries and streamDigest covers exactly that suffix, while terminalClassTotals cover every observed decision.",
+      "type": "object",
+      "required": [
+        "observedCount",
+        "retainedCount",
+        "droppedCount",
+        "truncated",
+        "streamDigest",
+        "terminalClassTotals"
+      ],
+      "properties": {
+        "observedCount": { "$ref": "#/$defs/count" },
+        "retainedCount": { "$ref": "#/$defs/count" },
+        "droppedCount": { "$ref": "#/$defs/count" },
+        "truncated": { "type": "boolean" },
+        "streamDigest": { "$ref": "#/$defs/digest" },
+        "terminalClassTotals": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/count" }
+        },
+        "entries": {
+          "type": "array",
+          "maxItems": 1024,
+          "items": { "$ref": "#/$defs/wouldDenyEntry" }
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "description": "Detail may be discarded only with truncated: true and a nonzero dropped count.",
+          "if": { "properties": { "truncated": { "const": false } }, "required": ["truncated"] },
+          "then": { "properties": { "droppedCount": { "const": 0 } } }
+        },
+        {
+          "if": {
+            "properties": { "droppedCount": { "type": "integer", "minimum": 1 } },
+            "required": ["droppedCount"]
+          },
+          "then": { "properties": { "truncated": { "const": true } } }
+        }
+      ]
+    },
+    "wouldDenyEntry": {
+      "description": "A relaxed final missing-authority decision. It preserves the original terminal branch, principal set, effect, resource, source site, and missing selector.",
+      "type": "object",
+      "required": [
+        "wouldDeny",
+        "terminalBranch",
+        "principals",
+        "effect",
+        "resource",
+        "sourceSite",
+        "missingSelector"
+      ],
+      "properties": {
+        "wouldDeny": { "const": true },
+        "terminalBranch": { "$ref": "#/$defs/nonEmpty" },
+        "principals": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/nonEmpty" }
+        },
+        "effect": { "$ref": "#/$defs/nonEmpty" },
+        "resource": { "$ref": "#/$defs/nonEmpty" },
+        "sourceSite": { "$ref": "#/$defs/nonEmpty" },
+        "missingSelector": { "$ref": "#/$defs/nonEmpty" }
+      },
+      "additionalProperties": false
+    },
+    "outcome": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "completed",
+            "application-throw",
+            "application-rejection",
+            "lifecycle-exit",
+            "hard-refusal"
+          ]
+        },
+        "failureClass": {
+          "description": "LLP 0030 §6 classification, present for every non-completed outcome.",
+          "enum": [
+            "capture-identity",
+            "generation",
+            "admission",
+            "hard-security-decision",
+            "invocation",
+            "execution"
+          ]
+        },
+        "lifecycleExitCode": { "type": "integer" },
+        "detail": { "$ref": "#/$defs/nonEmpty" }
+      },
+      "additionalProperties": false,
+      "if": { "properties": { "kind": { "const": "completed" } }, "required": ["kind"] },
+      "else": { "required": ["kind", "failureClass"] }
+    }
+  }
+}

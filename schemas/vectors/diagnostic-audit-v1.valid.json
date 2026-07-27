@@ -1,0 +1,89 @@
+{
+  "vectorSchema": "ibex/diagnostic-audit-vectors/1",
+  "documents": {
+    "graphSnapshot": {
+      "schema": "ibex/diagnostic-graph-snapshot/1",
+      "workflow": "foreground-source-audit",
+      "runNonce": "K5s7yqhs3Ttq2Yv1v0hE0Q",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "nativeRunnerAbi": "ibex/module-runner/1"
+      },
+      "root": {
+        "deviceId": "16777232",
+        "inodeId": "421337",
+        "displayPath": "/project"
+      },
+      "entry": "ibex-source-id-v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "graphIdentity": "sha256-AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+      "producerBinaryDigest": "sha256-AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+      "transformFingerprintDigest": "sha256-AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+      "baselineDigest": "sha256-BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ",
+      "nodes": [
+        {
+          "sourceId": "ibex-source-id-v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "sourceIntegrity": "sha256-BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU",
+          "object": { "deviceId": "16777232", "inodeId": "421338" }
+        }
+      ],
+      "packages": [],
+      "edges": []
+    },
+    "executionReceipt": {
+      "schema": "ibex/diagnostic-audit-execution-receipt/1",
+      "diagnosticOnly": true,
+      "authorizesProduction": false,
+      "runNonce": "K5s7yqhs3Ttq2Yv1v0hE0Q",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "nativeRunnerAbi": "ibex/module-runner/1"
+      },
+      "entry": "ibex-source-id-v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "graphIdentity": "sha256-AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+      "producerBinaryDigest": "sha256-AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+      "transformFingerprintDigest": "sha256-AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+      "loadedEngineDigest": "sha256-BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+      "carrierKind": "inline-source",
+      "executedRecords": [
+        {
+          "sourceId": "ibex-source-id-v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "semanticDigest": "sha256-CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg",
+          "principal": "package:example-app"
+        }
+      ],
+      "wouldDenyEvidence": {
+        "observedCount": 1,
+        "retainedCount": 1,
+        "droppedCount": 0,
+        "truncated": false,
+        "streamDigest": "sha256-BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgY",
+        "terminalClassTotals": { "missing-authority": 1 },
+        "entries": [
+          {
+            "wouldDeny": true,
+            "terminalBranch": "missing-authority",
+            "principals": ["package:example-app"],
+            "effect": "fs:read",
+            "resource": "/project/data.txt",
+            "sourceSite": "ibex-source-id-v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA@12:5",
+            "missingSelector": "fs:read:/project/data.txt"
+          }
+        ]
+      },
+      "outcome": { "kind": "completed" }
+    },
+    "truncatedReceiptEvidence": {
+      "observedCount": 2048,
+      "retainedCount": 1024,
+      "droppedCount": 1024,
+      "truncated": true,
+      "streamDigest": "sha256-CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk",
+      "terminalClassTotals": { "missing-authority": 2048 }
+    },
+    "hardRefusalOutcome": {
+      "kind": "hard-refusal",
+      "failureClass": "capture-identity",
+      "detail": "captured root object was replaced during the audit"
+    }
+  }
+}

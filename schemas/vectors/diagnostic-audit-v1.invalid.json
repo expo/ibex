@@ -1,0 +1,125 @@
+{
+  "vectorSchema": "ibex/diagnostic-audit-mutations/1",
+  "description": "Each case mutates the corresponding valid document from diagnostic-audit-v1.valid.json. Every one must be refused: these are the fail-closed properties of LLP 0030, not stylistic preferences.",
+  "cases": [
+    {
+      "id": "armed-diagnostic-audit-workflow-arm",
+      "document": "graphSnapshot",
+      "mutation": { "workflow": "diagnostic-audit" },
+      "expected": "invalid",
+      "why": "LLP 0030 §1: the historical armed schema arm is decode-only and must never be read as a foreground audit graph."
+    },
+    {
+      "id": "production-enforce-workflow",
+      "document": "graphSnapshot",
+      "mutation": { "workflow": "production-enforce" },
+      "expected": "invalid",
+      "why": "A production workflow value must not decode into the diagnostic projection."
+    },
+    {
+      "id": "authority-bearing-field",
+      "document": "graphSnapshot",
+      "mutation": { "authorities": [{ "cap": "fs:read", "resource": "/project" }] },
+      "expected": "invalid",
+      "why": "LLP 0030 §1: the diagnostic projection has no authorities/denials/ceilings; additionalProperties is false so smuggling one is a decode failure."
+    },
+    {
+      "id": "policy-digest-field",
+      "document": "graphSnapshot",
+      "mutation": { "policyDigest": "sha256-CgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgo" },
+      "expected": "invalid",
+      "why": "The baseline digest is never a canonical-policy digest, and no policy digest slot exists."
+    },
+    {
+      "id": "empty-node-set",
+      "document": "graphSnapshot",
+      "mutation": { "nodes": [] },
+      "expected": "invalid",
+      "why": "A captured graph retains at least its entry node."
+    },
+    {
+      "id": "receipt-authorizes-production",
+      "document": "executionReceipt",
+      "mutation": { "authorizesProduction": true },
+      "expected": "invalid",
+      "why": "LLP 0030 §4: the receipt schema has no authority-bearing variant."
+    },
+    {
+      "id": "receipt-not-diagnostic-only",
+      "document": "executionReceipt",
+      "mutation": { "diagnosticOnly": false },
+      "expected": "invalid",
+      "why": "Same: diagnosticOnly is a constant, not a caller-supplied flag."
+    },
+    {
+      "id": "hbc-carrier",
+      "document": "executionReceipt",
+      "mutation": { "carrierKind": "hbc" },
+      "expected": "invalid",
+      "why": "LLP 0030 §5: v1 audit is inline-only; HBC and prepared carriers refuse categorically."
+    },
+    {
+      "id": "prepared-carrier",
+      "document": "executionReceipt",
+      "mutation": { "carrierKind": "prepared-graph" },
+      "expected": "invalid",
+      "why": "Same; a prepared-audit format needs its own schema revision and review."
+    },
+    {
+      "id": "silent-truncation",
+      "document": "executionReceipt",
+      "mutationPath": "wouldDenyEvidence",
+      "mutation": { "observedCount": 2048, "retainedCount": 1024, "droppedCount": 1024, "truncated": false },
+      "expected": "invalid",
+      "why": "LLP 0030 §4: overflow may discard detail only with truncated: true and a nonzero dropped count."
+    },
+    {
+      "id": "dropped-without-truncated-flag",
+      "document": "executionReceipt",
+      "mutationPath": "wouldDenyEvidence",
+      "mutation": { "droppedCount": 5, "truncated": false },
+      "expected": "invalid",
+      "why": "The flag and the count must agree in both directions."
+    },
+    {
+      "id": "retention-over-bound",
+      "document": "executionReceipt",
+      "mutationPath": "wouldDenyEvidence",
+      "mutation": { "observedCount": 2048, "retainedCount": 2048, "droppedCount": 0, "truncated": false },
+      "expected": "invalid",
+      "why": "The bounded stream retains at most 1,024 ordered entries."
+    },
+    {
+      "id": "counts-do-not-reconcile",
+      "document": "executionReceipt",
+      "mutationPath": "wouldDenyEvidence",
+      "mutation": { "observedCount": 9, "retainedCount": 3, "droppedCount": 3, "truncated": true },
+      "expected": "invalid",
+      "why": "retained + dropped must equal observed, so a receipt cannot under-report observations."
+    },
+    {
+      "id": "would-deny-entry-claiming-allowed",
+      "document": "executionReceipt",
+      "mutationPath": "wouldDenyEvidence.entries[0]",
+      "mutation": { "wouldDeny": false },
+      "expected": "invalid",
+      "why": "Every entry in the stream is a relaxed would-deny decision by construction."
+    },
+    {
+      "id": "failure-outcome-without-class",
+      "document": "executionReceipt",
+      "mutationPath": "outcome",
+      "mutation": { "kind": "hard-refusal" },
+      "expected": "invalid",
+      "why": "LLP 0030 §6: failures are classified before prose formatting."
+    },
+    {
+      "id": "completed-outcome-with-failure-class",
+      "document": "executionReceipt",
+      "mutationPath": "outcome",
+      "mutation": { "kind": "completed", "failureClass": "execution" },
+      "expected": "invalid",
+      "why": "A completed run has no failure class."
+    }
+  ]
+}
