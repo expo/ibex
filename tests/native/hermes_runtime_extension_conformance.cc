@@ -79,6 +79,13 @@ std::atomic<uint64_t> g_teardownScheduleRejectedCount{0};
 std::atomic<uint64_t> g_providerViewStableCount{0};
 std::atomic<uint64_t> g_offOwnerTokenRetiredCount{0};
 std::atomic<uint64_t> g_offOwnerLeaseRetiredCount{0};
+std::atomic<uint64_t> g_registryAuthenticatedInstallCount{0};
+std::atomic<uint64_t> g_registryUnauthenticatedInstallCount{0};
+std::atomic<uint64_t> g_registryAuthenticatedActivationCount{0};
+std::atomic<uint64_t> g_registryUnauthenticatedActivationCount{0};
+std::atomic<uint64_t> g_activationEffectCount{0};
+std::atomic<uint64_t> g_activationSequence{0};
+std::atomic<uint64_t> g_duplicateActivationRegistrationRejectedCount{0};
 std::atomic<int32_t> g_lastPostResult{
     static_cast<int32_t>(ext::ScheduleResult::Invalid)};
 std::atomic<uint32_t> g_offOwnerRetireDelayMs{0};
@@ -86,6 +93,7 @@ std::atomic<bool> g_retireNextSubscriptionOffOwner{false};
 std::atomic<bool> g_holdNextOperationLeaseRetirement{false};
 std::atomic<bool> g_operationLeaseRetirementHeld{false};
 std::atomic<bool> g_releaseOperationLeaseRetirement{true};
+std::atomic<bool> g_failNextActivation{false};
 const IbexRuntimeExtensionProviderBindingV1 *g_primaryProviderView{nullptr};
 
 void recordClose(uint64_t marker) {
@@ -93,6 +101,13 @@ void recordClose(uint64_t marker) {
   while (!g_closeSequence.compare_exchange_weak(current, current * 10 + marker,
                                                 std::memory_order_relaxed,
                                                 std::memory_order_relaxed)) {
+  }
+}
+
+void recordActivation(uint64_t marker) {
+  auto current = g_activationSequence.load(std::memory_order_relaxed);
+  while (!g_activationSequence.compare_exchange_weak(
+      current, current * 10 + marker, std::memory_order_relaxed)) {
   }
 }
 
@@ -214,7 +229,60 @@ int32_t installFixture(void *opaque_context, void **output) {
   if (!output)
     return IBEX_RUNTIME_EXTENSION_INVALID_ARGUMENT;
   auto &context = ext::InstallContextV1::fromOpaque(opaque_context);
+  (context.registryAuthenticated() ? g_registryAuthenticatedInstallCount
+                                   : g_registryUnauthenticatedInstallCount)
+      .fetch_add(1, std::memory_order_relaxed);
   auto &runtime = context.runtime();
+  const bool registry_authenticated = context.registryAuthenticated();
+  std::shared_ptr<facebook::jsi::Function> activation_effect;
+  if (registry_authenticated) {
+    activation_effect = std::make_shared<facebook::jsi::Function>(
+        context.makeEffectfulHostFunction(
+            "enqueue", "activationEffect", 0,
+            [](facebook::jsi::Runtime &callback_runtime,
+               ext::OperationLeaseV1 &, const facebook::jsi::Value &,
+               const facebook::jsi::Value *, size_t count)
+                -> facebook::jsi::Value {
+              if (count != 0) {
+                throw facebook::jsi::JSError(
+                    callback_runtime,
+                    "activation effect takes no arguments");
+              }
+              g_activationEffectCount.fetch_add(1,
+                                                std::memory_order_relaxed);
+              return facebook::jsi::Value(true);
+            }));
+  }
+  auto *activation_context = &context;
+  context.onActivated(
+      [activation_context, registry_authenticated, activation_effect]() {
+        (registry_authenticated
+             ? g_registryAuthenticatedActivationCount
+             : g_registryUnauthenticatedActivationCount)
+            .fetch_add(1, std::memory_order_relaxed);
+        recordActivation(1);
+        if (g_failNextActivation.exchange(false,
+                                          std::memory_order_acq_rel)) {
+          throw facebook::jsi::JSError(
+              activation_context->runtime(),
+              "injected runtime extension activation failure");
+        }
+        if (activation_effect) {
+          auto &activation_runtime = activation_context->runtime();
+          auto result = activation_effect->call(activation_runtime);
+          if (!result.isBool() || !result.getBool()) {
+            throw std::runtime_error(
+                "runtime extension activation effect failed");
+          }
+        }
+      });
+  try {
+    context.onActivated([]() {});
+    return IBEX_RUNTIME_EXTENSION_INVALID_STATE;
+  } catch (const std::runtime_error &) {
+    g_duplicateActivationRegistrationRejectedCount.fetch_add(
+        1, std::memory_order_relaxed);
+  }
   const auto *provider = context.provider();
   if (provider == nullptr || provider->extension_id == nullptr ||
       provider->abi_id == nullptr || provider->identity_digest == nullptr ||
@@ -720,6 +788,28 @@ int32_t installReflectionReplacement(void *opaque_context, void **output) {
   return IBEX_RUNTIME_EXTENSION_OK;
 }
 
+int32_t installActivationNestedMutation(void *opaque_context, void **output) {
+  if (!output)
+    return IBEX_RUNTIME_EXTENSION_INVALID_ARGUMENT;
+  auto &context = ext::InstallContextV1::fromOpaque(opaque_context);
+  auto &runtime = context.runtime();
+  auto activation_object = facebook::jsi::Object(runtime);
+  auto retained_activation_object = std::make_shared<facebook::jsi::Object>(
+      facebook::jsi::Value(runtime, activation_object).asObject(runtime));
+  context.defineGlobal("__ibexActivationMutationFixture",
+                       std::move(activation_object), false, false);
+  auto *activation_context = &context;
+  context.onActivated([activation_context, retained_activation_object]() {
+    auto &activation_runtime = activation_context->runtime();
+    retained_activation_object->setProperty(
+        activation_runtime, "__ibexActivationNestedMutation",
+        facebook::jsi::Object(activation_runtime));
+  });
+  *output = nullptr;
+  g_installCount.fetch_add(1, std::memory_order_relaxed);
+  return IBEX_RUNTIME_EXTENSION_OK;
+}
+
 int32_t installDeclaredNested(void *opaque_context, void **output) {
   if (!output)
     return IBEX_RUNTIME_EXTENSION_INVALID_ARGUMENT;
@@ -782,6 +872,7 @@ int32_t installSecondary(void *opaque_context, void **output) {
   if (!output)
     return IBEX_RUNTIME_EXTENSION_INVALID_ARGUMENT;
   auto &context = ext::InstallContextV1::fromOpaque(opaque_context);
+  context.onActivated([]() { recordActivation(2); });
   const auto *provider = context.provider();
   if (provider == nullptr || g_primaryProviderView == nullptr ||
       provider == g_primaryProviderView || provider->extension_id == nullptr ||
@@ -824,6 +915,14 @@ constexpr IbexRuntimeExtensionGlobalV1 kDeclaredNestedGlobals[] = {
     {
         sizeof(IbexRuntimeExtensionGlobalV1),
         "Object.__ibexDeclaredNestedFixture",
+        IBEX_RUNTIME_EXTENSION_GLOBAL_OBJECT,
+    },
+};
+
+constexpr IbexRuntimeExtensionGlobalV1 kActivationMutationGlobals[] = {
+    {
+        sizeof(IbexRuntimeExtensionGlobalV1),
+        "__ibexActivationMutationFixture",
         IBEX_RUNTIME_EXTENSION_GLOBAL_OBJECT,
     },
 };
@@ -987,6 +1086,15 @@ constexpr IbexRuntimeExtensionLifecycleVTableV1
     kReflectionReplacementLifecycle = {
         sizeof(IbexRuntimeExtensionLifecycleVTableV1),
         installReflectionReplacement,
+        checkpointFixture,
+        quiesceFixture,
+        closeFixture,
+};
+
+constexpr IbexRuntimeExtensionLifecycleVTableV1
+    kActivationNestedMutationLifecycle = {
+        sizeof(IbexRuntimeExtensionLifecycleVTableV1),
+        installActivationNestedMutation,
         checkpointFixture,
         quiesceFixture,
         closeFixture,
@@ -1215,6 +1323,16 @@ constexpr IbexRuntimeExtensionDescriptorV1 kReflectionReplacementDescriptor =
                        IBEX_RUNTIME_EXTENSION_SDK_VERSION_V1, nullptr, 0,
                        &kReflectionReplacementLifecycle);
 
+constexpr IbexRuntimeExtensionDescriptorV1
+    kActivationNestedMutationDescriptor =
+        makeBareDescriptor(
+            "ibex.conformance.activation-nested-mutation",
+            IBEX_RUNTIME_EXTENSION_SDK_VERSION_V1,
+            kActivationMutationGlobals,
+            sizeof(kActivationMutationGlobals) /
+                sizeof(kActivationMutationGlobals[0]),
+            &kActivationNestedMutationLifecycle);
+
 constexpr IbexRuntimeExtensionDescriptorV1 kDeclaredNestedDescriptor =
     makeBareDescriptor(
         "ibex.conformance.declared-nested",
@@ -1364,6 +1482,9 @@ constexpr IbexRuntimeExtensionRegistryV1 kPrototypeMutationRegistry =
 
 constexpr IbexRuntimeExtensionRegistryV1 kReflectionReplacementRegistry =
     makeRegistry(&kReflectionReplacementDescriptor, 1);
+
+constexpr IbexRuntimeExtensionRegistryV1 kActivationNestedMutationRegistry =
+    makeRegistry(&kActivationNestedMutationDescriptor, 1);
 
 constexpr IbexRuntimeExtensionRegistryV1 kDeclaredNestedRegistry =
     makeRegistry(&kDeclaredNestedDescriptor, 1);
@@ -1522,6 +1643,8 @@ ibex_runtime_extension_conformance_registry_variant_v1(uint32_t variant) {
     return &kReservedModuleSeparatorRegistry;
   case 20:
     return &kInvalidModuleGrammarRegistry;
+  case 21:
+    return &kActivationNestedMutationRegistry;
   default:
     return nullptr;
   }
@@ -1561,6 +1684,25 @@ ibex_runtime_extension_conformance_counter_v1(uint32_t counter) {
         g_lastPostResult.load(std::memory_order_acquire));
   case 14:
     return g_offOwnerLeaseRetiredCount.load(std::memory_order_acquire);
+  case 15:
+    return g_registryAuthenticatedInstallCount.load(
+        std::memory_order_relaxed);
+  case 16:
+    return g_registryUnauthenticatedInstallCount.load(
+        std::memory_order_relaxed);
+  case 17:
+    return g_registryAuthenticatedActivationCount.load(
+        std::memory_order_relaxed);
+  case 18:
+    return g_registryUnauthenticatedActivationCount.load(
+        std::memory_order_relaxed);
+  case 19:
+    return g_activationEffectCount.load(std::memory_order_relaxed);
+  case 20:
+    return g_activationSequence.load(std::memory_order_relaxed);
+  case 21:
+    return g_duplicateActivationRegistrationRejectedCount.load(
+        std::memory_order_relaxed);
   default:
     return 0;
   }
@@ -1610,6 +1752,16 @@ extern "C" void ibex_runtime_extension_conformance_reset_v1() {
   g_providerViewStableCount.store(0, std::memory_order_relaxed);
   g_offOwnerTokenRetiredCount.store(0, std::memory_order_relaxed);
   g_offOwnerLeaseRetiredCount.store(0, std::memory_order_relaxed);
+  g_registryAuthenticatedInstallCount.store(0, std::memory_order_relaxed);
+  g_registryUnauthenticatedInstallCount.store(0, std::memory_order_relaxed);
+  g_registryAuthenticatedActivationCount.store(0,
+                                                std::memory_order_relaxed);
+  g_registryUnauthenticatedActivationCount.store(0,
+                                                  std::memory_order_relaxed);
+  g_activationEffectCount.store(0, std::memory_order_relaxed);
+  g_activationSequence.store(0, std::memory_order_relaxed);
+  g_duplicateActivationRegistrationRejectedCount.store(
+      0, std::memory_order_relaxed);
   g_lastPostResult.store(static_cast<int32_t>(ext::ScheduleResult::Invalid),
                          std::memory_order_relaxed);
   g_offOwnerRetireDelayMs.store(0, std::memory_order_relaxed);
@@ -1618,7 +1770,13 @@ extern "C" void ibex_runtime_extension_conformance_reset_v1() {
                                            std::memory_order_relaxed);
   g_operationLeaseRetirementHeld.store(false, std::memory_order_relaxed);
   g_releaseOperationLeaseRetirement.store(true, std::memory_order_relaxed);
+  g_failNextActivation.store(false, std::memory_order_relaxed);
   g_primaryProviderView = nullptr;
+}
+
+extern "C" void
+ibex_runtime_extension_conformance_fail_next_activation_v1() {
+  g_failNextActivation.store(true, std::memory_order_release);
 }
 
 extern "C" void

@@ -5,7 +5,7 @@
 **Systems:** Engine, Runtime, Host ABI, Capability Security, Build, Verification
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-25
-**Revised:** 2026-07-25; 2026-07-26 (registered conformance and shared-toolchain enforcement); 2026-07-26 (Windows profile qualification boundary and fail-closed lifecycle capability probe)
+**Revised:** 2026-07-25; 2026-07-26 (registered conformance and shared-toolchain enforcement); 2026-07-26 (Windows profile qualification boundary, fail-closed lifecycle capability probe, immutable registry posture, and the owner-thread ACTIVE-before-publication callback)
 **Related:** LLP 0000 (Ibex root), LLP 0002 (host embedding ABI), LLP 0003 (Hermes engine bridge), LLP 0006 (design principles), LLP 0012 (runtime identity), LLP 0013 / 0021 (capability security), LLP 0025 (terminal session ownership and lifecycle); Exact LLP 0405 (native runtime extensions)
 
 ## Summary
@@ -240,6 +240,25 @@ identity plus a monotonically allocated extension generation. Extension
 handles, completion tokens, and provider leases are valid only when all three
 components match and the instance is `Active`.
 
+`InstallContextV1::registryAuthenticated()` exposes one immutable construction
+posture bit to the trusted native installer. It is deliberately not an
+authority grant: `true` does not admit an operation, while `false` means the
+diagnostic construction cannot admit effectful operations. Every effect still
+uses a declared effectful Host Function and the ordinary membrane.
+
+An installer may single-assign `InstallContextV1::onActivated` while its
+instance is `Installing`. After every descriptor has installed and the
+complete set has transitioned to `Active`, Ibex enables producer admission and
+invokes those callbacks exactly once in canonical descriptor order on the
+runtime owner, before publishing the runtime to application code. The callback
+is attributed explicitly to the authenticated first-party root, but that
+identity does not bypass authorization: an effectful call from it must pass the
+same declared operation membrane as any later call. Ibex snapshots the trusted
+global descriptor graph and loader registry before each callback and requires
+both to remain unchanged afterward. A callback exception or surface delta
+rolls the complete set through reverse quiesce/close, and no runtime is
+published. Duplicate or post-construction registration is refused.
+
 `checkpoint` is an owner-thread, non-blocking host-task boundary invoked while
 the instance is `Active`; it lets an extension advance already-ready local
 service work without inventing a private poll loop or synchronous wait.
@@ -260,11 +279,14 @@ tearing down any other native registry.
 
 ### 5. Owner executor and completion tokens
 
-Installers run on the runtime owner and receive direct `jsi::Runtime&` access.
+Installers and activation callbacks run on the runtime owner and receive direct
+`jsi::Runtime&` access.
 This keeps branded objects, prototypes, local validation, and command encoding
 local to the realm. The SDK also supplies guarded helpers for global
 definition, module registration, authorization, and async delivery; raw JSI
-access does not confer provider authority.
+access does not confer provider authority. Installation may publish only the
+descriptor-declared surface; activation is a zero-surface-delta boundary and
+may retain or subscribe already-verified objects only.
 
 Every authorized operation lease has two ownership halves. Public,
 callback-retained, and provider-retained copies share one producer-safe lease

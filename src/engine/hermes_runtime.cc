@@ -9379,22 +9379,36 @@ static ExactHermesRuntime* ex_hermes_create_impl(
     return nullptr;
   }
 
+  bool runtimeExtensionActivationFailed = false;
+  std::string runtimeExtensionActivationError;
   try {
     // Extension callbacks are not admitted until all global/baseline/posture
     // checks have succeeded. The live runtime registry is published
     // immediately afterward, closing the Installing -> Active transition.
     // @ref LLP 0040
     ibex::runtime_extension::internal::activate(handle);
+  } catch (const facebook::jsi::JSError& error) {
+    // Preserve only detached text while Hermes is live. A JSError retains a
+    // realm-owned Value, so destroying the runtime from inside this catch
+    // would leave the exception destructor touching a dead realm.
+    runtimeExtensionActivationFailed = true;
+    runtimeExtensionActivationError = error.getMessage();
   } catch (const std::exception& error) {
+    runtimeExtensionActivationFailed = true;
+    runtimeExtensionActivationError = error.what();
+  } catch (...) {
+    runtimeExtensionActivationFailed = true;
+    runtimeExtensionActivationError = "unknown failure";
+  }
+  if (runtimeExtensionActivationFailed) {
+    if (runtimeExtensionActivationError.empty()) {
+      runtimeExtensionActivationError = "empty exception";
+    }
     ex_host_console_log(
         1,
-        (std::string("Runtime extension activation refused: ") + error.what())
+        (std::string("Runtime extension activation refused: ") +
+         runtimeExtensionActivationError)
             .c_str());
-    cleanupPartiallyConstructedRuntime(handle);
-    return nullptr;
-  } catch (...) {
-    ex_host_console_log(
-        1, "Runtime extension activation refused: unknown failure");
     cleanupPartiallyConstructedRuntime(handle);
     return nullptr;
   }

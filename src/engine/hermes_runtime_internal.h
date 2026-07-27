@@ -1268,6 +1268,7 @@ extern "C" int32_t ex_host_authorize_typed_print_stack(
 // too, so they must remain available when an embedder uses an unpatched Hermes
 // without frame-attribution symbols. Keep these values in sync with Hermes'
 // kRuntimePackageId and the Rust NO_USER_PRINCIPAL constant.
+constexpr uint32_t kFirstPartyRootPrincipalId = 0;
 constexpr uint32_t kRuntimePrincipalId = 0xFFFFFFFFu;
 constexpr uint32_t kNoUserPrincipalId = 0xFFFFFFFEu;
 

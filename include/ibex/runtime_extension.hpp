@@ -135,6 +135,29 @@ public:
   uint64_t supportedFeatures() const;
 
   /*
+   * Reports whether this runtime's complete extension registry was
+   * authenticated during construction. This immutable posture bit is not an
+   * authority grant: `true` does not authorize an operation, and every
+   * effectful call must still pass through authorize() or an effectful Host
+   * Function. `false` means effectful operation authorization is unavailable
+   * for this diagnostic construction.
+   */
+  bool registryAuthenticated() const;
+
+  /*
+   * Registers one construction-only callback for the runtime-owner activation
+   * boundary. Ibex invokes it exactly once after every installed extension has
+   * entered ACTIVE and before the runtime is published to application code.
+   * Ibex attributes the callback to the authenticated first-party root, but
+   * that identity is not an extension-authority bypass: effectful work must
+   * call an effectful Host Function and pass the ordinary operation membrane.
+   * The callback may not change the verified global or module surface. An
+   * exception or surface delta fails activation and rolls the complete
+   * extension set back.
+   */
+  void onActivated(std::function<void()> callback);
+
+  /*
    * Returns an immutable per-instance view which remains stable through the
    * close callback. A provider() call on another context cannot overwrite it.
    */

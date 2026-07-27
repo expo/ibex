@@ -58,6 +58,13 @@ const COUNTER_PROVIDER_VIEW_STABLE: u32 = 11;
 const COUNTER_OFF_OWNER_TOKEN_RETIRED: u32 = 12;
 const COUNTER_LAST_POST_RESULT: u32 = 13;
 const COUNTER_OFF_OWNER_LEASE_RETIRED: u32 = 14;
+const COUNTER_REGISTRY_AUTHENTICATED_INSTALL: u32 = 15;
+const COUNTER_REGISTRY_UNAUTHENTICATED_INSTALL: u32 = 16;
+const COUNTER_REGISTRY_AUTHENTICATED_ACTIVATION: u32 = 17;
+const COUNTER_REGISTRY_UNAUTHENTICATED_ACTIVATION: u32 = 18;
+const COUNTER_ACTIVATION_EFFECT: u32 = 19;
+const COUNTER_ACTIVATION_SEQUENCE: u32 = 20;
+const COUNTER_DUPLICATE_ACTIVATION_REGISTRATION_REJECTED: u32 = 21;
 const FAULT_TOKEN_IMPL_ALLOCATION: u32 = 1 << 0;
 const FAULT_POST_DISPOSITION_ALLOCATION: u32 = 1 << 1;
 const FAULT_POST_CALLBACK_ALLOCATION: u32 = 1 << 2;
@@ -85,6 +92,7 @@ const REGISTRY_UNDECLARED_MODULE_ENTRY: u32 = 17;
 const REGISTRY_MALFORMED_MODULE_ENTRY: u32 = 18;
 const REGISTRY_RESERVED_MODULE_SEPARATOR: u32 = 19;
 const REGISTRY_INVALID_MODULE_GRAMMAR: u32 = 20;
+const REGISTRY_ACTIVATION_NESTED_MUTATION: u32 = 21;
 
 unsafe extern "C" {
     fn ibex_runtime_extension_conformance_registry_v1() -> *const c_void;
@@ -101,6 +109,7 @@ unsafe extern "C" {
     fn ibex_runtime_extension_conformance_registry_variant_v1(variant: u32) -> *const c_void;
     fn ibex_runtime_extension_conformance_counter_v1(counter: u32) -> u64;
     fn ibex_runtime_extension_conformance_reset_v1();
+    fn ibex_runtime_extension_conformance_fail_next_activation_v1();
     fn ibex_runtime_extension_conformance_retire_next_subscription_off_owner_v1();
     fn ibex_runtime_extension_conformance_set_off_owner_retire_delay_v1(delay_ms: u32);
     fn ibex_runtime_extension_conformance_hold_next_accepted_post_v1();
@@ -566,6 +575,42 @@ fn declared_module_export_operation_path_constructs() {
 }
 
 #[test]
+fn install_context_reports_diagnostic_registry_as_unauthenticated() {
+    let _host_guard = crate::host::abi::host_test_lock();
+    reset();
+    let registry = unsafe { ibex_runtime_extension_conformance_registry_v1() };
+    let runtime = diagnostic_with(registry).expect("diagnostic extension runtime");
+    assert_eq!(unsafe { ibex_runtime_extension_count_v1(runtime.0) }, 1);
+    assert_eq!(counter(COUNTER_REGISTRY_AUTHENTICATED_INSTALL), 0);
+    assert_eq!(counter(COUNTER_REGISTRY_UNAUTHENTICATED_INSTALL), 1);
+    assert_eq!(counter(COUNTER_REGISTRY_AUTHENTICATED_ACTIVATION), 0);
+    assert_eq!(counter(COUNTER_REGISTRY_UNAUTHENTICATED_ACTIVATION), 1);
+    assert_eq!(counter(COUNTER_ACTIVATION_EFFECT), 0);
+    assert_eq!(counter(COUNTER_ACTIVATION_SEQUENCE), 1);
+    assert_eq!(
+        counter(COUNTER_DUPLICATE_ACTIVATION_REGISTRATION_REJECTED),
+        1
+    );
+}
+
+#[test]
+fn activation_callback_failure_rolls_back_the_complete_extension_set() {
+    let _host_guard = crate::host::abi::host_test_lock();
+    reset();
+    let registry = unsafe { ibex_runtime_extension_conformance_registry_v1() };
+    unsafe { ibex_runtime_extension_conformance_fail_next_activation_v1() };
+    assert!(
+        diagnostic_with(registry).is_none(),
+        "activation callback failure unexpectedly published a runtime"
+    );
+    assert_eq!(counter(COUNTER_INSTALL), 1);
+    assert_eq!(counter(COUNTER_REGISTRY_UNAUTHENTICATED_ACTIVATION), 1);
+    assert_eq!(counter(COUNTER_ACTIVATION_SEQUENCE), 1);
+    assert_eq!(counter(COUNTER_QUIESCE), 1);
+    assert_eq!(counter(COUNTER_CLOSE), 1);
+}
+
+#[test]
 fn canonical_install_uses_reverse_quiesce_and_close_order() {
     let _host_guard = crate::host::abi::host_test_lock();
     reset();
@@ -574,6 +619,11 @@ fn canonical_install_uses_reverse_quiesce_and_close_order() {
     let runtime = diagnostic_with(registry).expect("two-extension conformance runtime");
     assert_eq!(unsafe { ibex_runtime_extension_count_v1(runtime.0) }, 2);
     assert_eq!(counter(COUNTER_INSTALL), 2);
+    assert_eq!(
+        counter(COUNTER_ACTIVATION_SEQUENCE),
+        12,
+        "activation callbacks must run once in canonical descriptor order"
+    );
     assert_eq!(
         counter(COUNTER_PROVIDER_VIEW_STABLE),
         1,
@@ -652,6 +702,27 @@ fn descriptor_graph_rejects_nested_prototype_and_reflection_evasions() {
             "{name} did not reach the adversarial installer"
         );
     }
+}
+
+#[test]
+fn activation_cannot_mutate_the_verified_global_surface() {
+    let _host_guard = crate::host::abi::host_test_lock();
+    reset();
+    let registry = unsafe {
+        ibex_runtime_extension_conformance_registry_variant_v1(REGISTRY_ACTIVATION_NESTED_MUTATION)
+    };
+    assert!(!registry.is_null());
+    assert!(
+        diagnostic_with(registry).is_none(),
+        "activation global mutation unexpectedly survived post-callback verification"
+    );
+    assert_eq!(
+        counter(COUNTER_INSTALL),
+        1,
+        "the adversarial activation installer did not run"
+    );
+    assert_eq!(counter(COUNTER_QUIESCE), 1);
+    assert_eq!(counter(COUNTER_CLOSE), 1);
 }
 
 #[test]
@@ -782,6 +853,16 @@ fn native_identity_sync_enqueue_async_delivery_and_buffers_execute() {
     let runtime = authenticated_runtime();
 
     assert_eq!(unsafe { ibex_runtime_extension_count_v1(runtime.0) }, 1);
+    assert_eq!(counter(COUNTER_REGISTRY_AUTHENTICATED_INSTALL), 1);
+    assert_eq!(counter(COUNTER_REGISTRY_UNAUTHENTICATED_INSTALL), 0);
+    assert_eq!(counter(COUNTER_REGISTRY_AUTHENTICATED_ACTIVATION), 1);
+    assert_eq!(counter(COUNTER_REGISTRY_UNAUTHENTICATED_ACTIVATION), 0);
+    assert_eq!(
+        counter(COUNTER_ACTIVATION_EFFECT),
+        1,
+        "activation callback did not run through the ACTIVE operation membrane"
+    );
+    assert_eq!(counter(COUNTER_ACTIVATION_SEQUENCE), 1);
     let mut inspection = InspectionV1 {
         struct_size: size_of::<InspectionV1>() as u32,
         id: ptr::null(),

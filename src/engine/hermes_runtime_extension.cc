@@ -37,7 +37,9 @@ struct Instance;
 namespace ibex::runtime_extension::v1 {
 struct RuntimeStateAccess {
   static std::unique_ptr<InstallContextV1>
-  makeInstallContext(ExactHermesRuntime *runtime, internal::Instance *instance);
+  makeInstallContext(ExactHermesRuntime *runtime, internal::Instance *instance,
+                     bool registry_authenticated);
+  static void runActivationCallback(InstallContextV1 &context);
 };
 } // namespace ibex::runtime_extension::v1
 
@@ -2329,7 +2331,8 @@ void install(ExactHermesRuntime *runtime) {
     instance.producer_state->lifecycle.store(
         IBEX_RUNTIME_EXTENSION_INSTALLING, std::memory_order_release);
     instance.install_context =
-        v1::RuntimeStateAccess::makeInstallContext(runtime, &instance);
+        v1::RuntimeStateAccess::makeInstallContext(
+            runtime, &instance, state.registry_authenticated);
     void *extension_instance = nullptr;
     int32_t status = IBEX_RUNTIME_EXTENSION_INSTALL_FAILED;
     try {
@@ -2378,7 +2381,7 @@ void install(ExactHermesRuntime *runtime) {
 }
 
 void activate(ExactHermesRuntime *runtime) {
-  if (!runtime || !runtime->runtime_extensions)
+  if (!runtime || !runtime->runtime || !runtime->runtime_extensions)
     return;
   auto &state = *runtime->runtime_extensions;
   if (state.activated || state.closed || !state.installed ||
@@ -2394,8 +2397,42 @@ void activate(ExactHermesRuntime *runtime) {
     instance->producer_state->lifecycle.store(
         IBEX_RUNTIME_EXTENSION_ACTIVE, std::memory_order_release);
   }
-  state.activated = true;
   state.producer_state->accepting.store(true, std::memory_order_release);
+  try {
+    auto reflection = captureTrustedReflection(*runtime->runtime);
+    auto loader_modules = inspectLoaderModuleRegistry(runtime);
+    const std::vector<uint64_t> activation_principals{
+        static_cast<uint64_t>(kFirstPartyRootPrincipalId)};
+    for (auto &instance : state.instances) {
+      auto before =
+          captureGlobalSnapshot(*runtime->runtime, reflection, *instance);
+      {
+        // Activation is trusted first-party bootstrap work, but it is not
+        // ambient extension authority. Attribute only the lifecycle callback
+        // to the authenticated app root, then require every effect to cross
+        // the ordinary declared-operation membrane. Snapshot reflection stays
+        // in Ibex's bootstrap principal so inspecting a lazy runtime facade
+        // cannot acquire or corrupt the facade's root-owned resources.
+        ScopedNativePrincipal activation_principal(
+            kFirstPartyRootPrincipalId);
+        ScopedTypedPrincipalStack activation_principal_stack(
+            activation_principals);
+        v1::RuntimeStateAccess::runActivationCallback(
+            *instance->install_context);
+      }
+      verifyGlobalDelta(
+          *runtime->runtime, reflection, *instance, before);
+      if (inspectLoaderModuleRegistry(runtime) != loader_modules) {
+        throw std::runtime_error(
+            "runtime extension activation changed the loader registry: " +
+            instance->id);
+      }
+    }
+  } catch (...) {
+    rollbackInstalled(state);
+    throw;
+  }
+  state.activated = true;
 }
 
 bool checkpoint(ExactHermesRuntime *runtime) noexcept {
@@ -2688,6 +2725,8 @@ struct CompletionTokenV1::Impl {
 struct InstallContextV1::Impl {
   ExactHermesRuntime *runtime{nullptr};
   internal::Instance *instance{nullptr};
+  bool registry_authenticated{false};
+  std::function<void()> activation_callback;
 };
 
 thread_local const InstallContextV1 *g_activeOperationContext = nullptr;
@@ -2715,12 +2754,25 @@ private:
 
 std::unique_ptr<InstallContextV1>
 RuntimeStateAccess::makeInstallContext(ExactHermesRuntime *runtime,
-                                       internal::Instance *instance) {
+                                       internal::Instance *instance,
+                                       bool registry_authenticated) {
   auto impl = std::make_unique<InstallContextV1::Impl>();
   impl->runtime = runtime;
   impl->instance = instance;
+  impl->registry_authenticated = registry_authenticated;
   return std::unique_ptr<InstallContextV1>(
       new InstallContextV1(std::move(impl)));
+}
+
+void RuntimeStateAccess::runActivationCallback(InstallContextV1 &context) {
+  if (!context.impl_ || !context.impl_->instance ||
+      context.impl_->instance->producer_state->lifecycle.load(
+          std::memory_order_acquire) != IBEX_RUNTIME_EXTENSION_ACTIVE) {
+    throw std::runtime_error(
+        "runtime extension activation callback is out of sequence");
+  }
+  auto callback = std::move(context.impl_->activation_callback);
+  if (callback) callback();
 }
 
 CompletionTokenV1::CompletionTokenV1() = default;
@@ -2999,6 +3051,23 @@ const std::string &InstallContextV1::extensionId() const {
 
 uint64_t InstallContextV1::supportedFeatures() const {
   return internal::kSupportedFeatures;
+}
+
+bool InstallContextV1::registryAuthenticated() const {
+  return impl_ && impl_->registry_authenticated;
+}
+
+void InstallContextV1::onActivated(std::function<void()> callback) {
+  if (!impl_ || !impl_->instance || !callback ||
+      impl_->instance->producer_state->lifecycle.load(
+          std::memory_order_acquire) !=
+          IBEX_RUNTIME_EXTENSION_INSTALLING ||
+      impl_->activation_callback) {
+    throw std::runtime_error(
+        "runtime extension activation callback is construction-only and "
+        "single-assignment");
+  }
+  impl_->activation_callback = std::move(callback);
 }
 
 const RuntimeExtensionProviderBindingV1 *InstallContextV1::provider() const {
