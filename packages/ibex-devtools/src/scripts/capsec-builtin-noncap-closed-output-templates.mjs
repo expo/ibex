@@ -66,6 +66,13 @@ const CONFORMANCE_CAPTURED_SOURCE_OPERATIONS = new Map([
 ]);
 const CONFORMANCE_CAPTURED_EXACT_EXPORT_OPERATIONS = new Map([
   [
+    "node_assert",
+    new Map([
+      ["doesNotReject", new Set(["call"])],
+      ["rejects", new Set(["call"])],
+    ]),
+  ],
+  [
     "exact_sqlite",
     new Map([
       ["Database._checkClosed", new Set(["call"])],

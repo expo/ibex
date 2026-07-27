@@ -3080,6 +3080,54 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-26 — executed exact assert promise validators
+
+- Added exactly two captured `node_assert` calls: `doesNotReject` receives a
+  harness-owned resolved promise, and `rejects` receives a harness-owned
+  rejected promise whose rejection is consumed by the public validator. Both
+  routes must return normally, reach one-second event-loop quiescence, clean up,
+  and emit zero legacy or typed CapSec decisions.
+- `assert.fail` is deliberately absent from the allowlist: its authored public
+  behavior is to throw. The admission policy names only the two promise
+  validators, leaving every other assert route unchanged. The captured set is
+  now **129** routes: 58 calls, 15 constructions, and 56 property gets across
+  16 source families.
+- Apple catalog digest
+  `sha256-NcAfJZRhbklSkS1AUm7qpZXivrkR-XJJsZoNOxnBH1Y` reports 23,847 required /
+  **3,490 fully executable** / 3,136 internally verified / 17,221 unresolved.
+  The M5 MacBook Air static-Hermes batch passes **1,210/1,210**: 34 isolated
+  module imports, 1,047 established exports, and all 129 captured routes. It
+  binds engine digest
+  `sha256-KxH8T10HAD6aW2BDb-NpVJxOnM5HuDZK-FrBuaDBo0w`; the evidence-file
+  SHA-256 is
+  `19aa823f86c314ad0019ae8b01252af6d1877904198aa621917bd52bb760c68c`,
+  and independent validation produced execution digest
+  `sha256-51sPezmhB-egK2_UljD6HUPgjN4NB5gaPTK6sx-n2jM`.
+- Windows catalog digest
+  `sha256-PFauzdJ6M2OIlmEecIAxOEBI1MLxHNxbAP9lAanEJ2A` reports 23,506 required /
+  **3,149 fully executable** / 3,122 internally verified / 17,235 unresolved.
+  The NucBox strict stale-vendored batch passes **1,174/1,174**: 34 isolated
+  imports, 1,011 established exports, and the same 129 captured routes. It
+  binds engine digest
+  `sha256-xqWHmqF0mGjVqhS8bUI7Av9fiP84rE8Zj23kOq9JJw8`; the evidence-file
+  SHA-256 is
+  `295c9c7d391633eca0d9cb54fe6db445e7b7ada004ce1992054f1cd1fd922dd5`,
+  and independent validation produced execution digest
+  `sha256-erbVb9KN6kJQW2fHUPNpZR7B0EEATGIEOyvmAGr7Ojg`.
+- Both independent aggregates bind source revision
+  `3c07dfe5af2d9a6ff5783b274fdb46d6b7f606df` and tree digest
+  `sha256-SboysAN7CTyH8NuyDM8gYbENvyQU39ZfZPSc5VXZgB8`. The split focused runs
+  pass **152/152** with 125,530 assertions.
+- Hard part: static route authoring offers three nearby assert calls, but one
+  is definitionally incompatible with the normal-return evidence contract.
+  Selecting the module family or operation class would promote `fail` merely
+  because the two promise validators succeeded. The exact export-pair policy
+  keeps the deliberate throw residual without weakening the runtime evidence
+  schema to accept exceptions.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
