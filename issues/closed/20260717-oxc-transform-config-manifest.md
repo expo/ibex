@@ -1,6 +1,7 @@
 # Canonical transform-configuration manifest (one identity authority)
 
-**Status:** Complete
+**Status:** Closed
+**Resolution:** Closed from the completion evidence recorded in f5688afb: one strict transform authority now generates every fingerprint and cache/admission identity site.
 **Severity:** P2
 **Systems:** Module Loader, Build
 **Author:** Claude (Fable 5), directed by Charlie Cheever

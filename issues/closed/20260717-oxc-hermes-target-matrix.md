@@ -1,6 +1,7 @@
 # Exhaustive Hermes target matrix (syntax → pass | typed unsupported)
 
-**Status:** Complete
+**Status:** Closed
+**Resolution:** Closed from the evidence recorded in f5688afb: every target-matrix row has source/prepared fixtures and an explicit pass or typed-quarantine disposition.
 **Severity:** P2
 **Systems:** Module Loader, Engine
 **Author:** Claude (Fable 5), directed by Charlie Cheever

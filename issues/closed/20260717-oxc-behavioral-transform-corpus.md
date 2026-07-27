@@ -1,6 +1,7 @@
 # Behavioral transform corpus, first tranche
 
-**Status:** Complete
+**Status:** Closed
+**Resolution:** Closed from the completion evidence recorded in f5688afb: the twelve-row source/prepared real-Hermes corpus and required CI gate landed.
 **Severity:** P2
 **Systems:** Module Loader, Engine
 **Author:** Claude (Fable 5), directed by Charlie Cheever

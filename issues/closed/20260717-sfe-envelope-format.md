@@ -1,6 +1,7 @@
 # ibex/single-file-executable/1 envelope format
 
-**Status:** Complete
+**Status:** Closed
+**Resolution:** Closed from the completion evidence recorded in f5688afb: strict envelope schemas, canonical admission, malformed-input coverage, and ELF/Mach-O placement contracts landed.
 **Severity:** P2
 **Systems:** Build, Module Loader
 **Author:** Claude (Fable 5), directed by Charlie Cheever

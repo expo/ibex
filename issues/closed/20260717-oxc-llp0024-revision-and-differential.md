@@ -1,6 +1,7 @@
 # LLP 0024 revision (full seam) + archived parser differential
 
-**Status:** Complete
+**Status:** Closed
+**Resolution:** Closed by f5688afb after the LLP 0024 seam revision, archived parser differential, and native Hermes acceptance gate landed.
 **Severity:** P2
 **Systems:** Module Loader, Runtime
 **Author:** Claude (Fable 5), directed by Charlie Cheever

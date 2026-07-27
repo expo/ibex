@@ -1,6 +1,7 @@
 # Quarantine unproven native Tier 3 shapes (live for-of miscompile hazard)
 
-**Status:** Complete
+**Status:** Closed
+**Resolution:** Closed from the evidence recorded in f5688afb: hazardous Tier-3 forms are typed quarantines and the admitted corpus is receipt-tested on both target tuples.
 **Severity:** P1
 **Systems:** Module Loader, Engine
 **Author:** Claude (Fable 5), directed by Charlie Cheever

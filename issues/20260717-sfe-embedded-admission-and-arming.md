@@ -1,6 +1,13 @@
 # Embedded admission, pinned-fd self-file, disk-free arming
 
-**Status:** In Progress
+**Status:** Open
+**Impact:** 5
+**Urgency:** 5
+**Ease:** 2
+**Confidence:** 4
+**Score reviewed:** 2026-07-26
+**Score rationale:** The ticket evidence for “Embedded admission, pinned-fd self-file, disk-free arming” shows the issue reaches a security, correctness, release, or core product boundary; the defect is blocking or unsafe on a live path now, while the repair crosses several runtime, host, protocol, or policy seams, with specific cited code, progress, or acceptance criteria.
+**Progress:** In Progress
 **Severity:** P2
 **Systems:** Security, Module Loader, Runtime
 **Author:** Claude (Fable 5), directed by Charlie Cheever

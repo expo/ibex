@@ -1,6 +1,7 @@
 # Native Tier 3 conformance runner with execution receipts
 
-**Status:** Complete
+**Status:** Closed
+**Resolution:** Closed from the completion evidence recorded in f5688afb: the complete mapped source/prepared native corpus and receipt-gated CI jobs landed.
 **Severity:** P2
 **Systems:** Module Loader, Build, CI
 **Author:** Claude (Fable 5), directed by Charlie Cheever
