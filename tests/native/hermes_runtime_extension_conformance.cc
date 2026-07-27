@@ -734,6 +734,19 @@ int32_t installDeclaredNested(void *opaque_context, void **output) {
   return IBEX_RUNTIME_EXTENSION_OK;
 }
 
+int32_t installModuleEntry(void *opaque_context, void **output) {
+  if (!output)
+    return IBEX_RUNTIME_EXTENSION_INVALID_ARGUMENT;
+  auto &context = ext::InstallContextV1::fromOpaque(opaque_context);
+  auto &runtime = context.runtime();
+  auto exports = facebook::jsi::Object(runtime);
+  exports.setProperty(runtime, "fixtureModuleExport", 1.0);
+  context.defineModule("ibex:conformance", std::move(exports));
+  *output = nullptr;
+  g_installCount.fetch_add(1, std::memory_order_relaxed);
+  return IBEX_RUNTIME_EXTENSION_OK;
+}
+
 void quiesceFixture(void *, void *opaque_instance) {
   g_quiesceCount.fetch_add(1, std::memory_order_relaxed);
   auto *instance = static_cast<FixtureInstance *>(opaque_instance);
@@ -857,6 +870,21 @@ constexpr IbexRuntimeExtensionOperationV1 kOperations[] = {
                                "__ibexRuntimeExtensionFixture.subscribe"),
 };
 
+constexpr IbexRuntimeExtensionOperationV1 kDeclaredModuleEntryOperations[] = {
+    IBEX_CONFORMANCE_OPERATION("module-export", "fixture.module-export",
+                               "ibex:conformance#fixtureModuleExport"),
+};
+
+constexpr IbexRuntimeExtensionOperationV1 kUndeclaredModuleEntryOperations[] = {
+    IBEX_CONFORMANCE_OPERATION("module-export", "fixture.module-export",
+                               "undeclared/module#fixtureModuleExport"),
+};
+
+constexpr IbexRuntimeExtensionOperationV1 kMalformedModuleEntryOperations[] = {
+    IBEX_CONFORMANCE_OPERATION("module-export", "fixture.module-export",
+                               "ibex:conformance#fixture..moduleExport"),
+};
+
 #undef IBEX_CONFORMANCE_OPERATION
 
 constexpr IbexRuntimeExtensionCallbackV1 kCallbacks[] = {
@@ -964,6 +992,14 @@ constexpr IbexRuntimeExtensionLifecycleVTableV1 kDeclaredNestedLifecycle = {
     closeFixture,
 };
 
+constexpr IbexRuntimeExtensionLifecycleVTableV1 kModuleEntryLifecycle = {
+    sizeof(IbexRuntimeExtensionLifecycleVTableV1),
+    installModuleEntry,
+    checkpointFixture,
+    quiesceFixture,
+    closeFixture,
+};
+
 constexpr IbexRuntimeExtensionLifecycleVTableV1 kSecondaryLifecycle = {
     sizeof(IbexRuntimeExtensionLifecycleVTableV1),
     installSecondary,
@@ -1045,6 +1081,35 @@ constexpr IbexRuntimeExtensionDescriptorV1 kFailureDescriptor =
     makeBareDescriptor("ibex.conformance.failure",
                        IBEX_RUNTIME_EXTENSION_SDK_VERSION_V1, nullptr, 0,
                        &kFailureLifecycle);
+
+constexpr IbexRuntimeExtensionDescriptorV1 makeModuleEntryDescriptor(
+    const char *id, const IbexRuntimeExtensionOperationV1 *operations) {
+  auto descriptor =
+      makeBareDescriptor(id, IBEX_RUNTIME_EXTENSION_SDK_VERSION_V1, nullptr, 0,
+                         &kModuleEntryLifecycle);
+  descriptor.required_features =
+      IBEX_RUNTIME_EXTENSION_FEATURE_OWNER_EXECUTOR |
+      IBEX_RUNTIME_EXTENSION_FEATURE_OPERATION_MEMBRANE |
+      IBEX_RUNTIME_EXTENSION_FEATURE_NATIVE_MODULES |
+      IBEX_RUNTIME_EXTENSION_FEATURE_INTROSPECTION;
+  descriptor.module_specifiers = kModules;
+  descriptor.module_specifier_count = sizeof(kModules) / sizeof(kModules[0]);
+  descriptor.operations = operations;
+  descriptor.operation_count = 1;
+  return descriptor;
+}
+
+constexpr IbexRuntimeExtensionDescriptorV1 kDeclaredModuleEntryDescriptor =
+    makeModuleEntryDescriptor("ibex.conformance.module-entry",
+                              kDeclaredModuleEntryOperations);
+
+constexpr IbexRuntimeExtensionDescriptorV1 kUndeclaredModuleEntryDescriptor =
+    makeModuleEntryDescriptor("ibex.conformance.undeclared-module-entry",
+                              kUndeclaredModuleEntryOperations);
+
+constexpr IbexRuntimeExtensionDescriptorV1 kMalformedModuleEntryDescriptor =
+    makeModuleEntryDescriptor("ibex.conformance.malformed-module-entry",
+                              kMalformedModuleEntryOperations);
 
 constexpr IbexRuntimeExtensionDescriptorV1 kOverlapDescriptor =
     makeBareDescriptor(
@@ -1284,6 +1349,15 @@ constexpr IbexRuntimeExtensionRegistryV1 kUnsupportedFeatureRegistry =
 constexpr IbexRuntimeExtensionRegistryV1 kProviderMismatchRegistry =
     makeRegistry(&kProviderMismatchDescriptor, 1);
 
+constexpr IbexRuntimeExtensionRegistryV1 kDeclaredModuleEntryRegistry =
+    makeRegistry(&kDeclaredModuleEntryDescriptor, 1);
+
+constexpr IbexRuntimeExtensionRegistryV1 kUndeclaredModuleEntryRegistry =
+    makeRegistry(&kUndeclaredModuleEntryDescriptor, 1);
+
+constexpr IbexRuntimeExtensionRegistryV1 kMalformedModuleEntryRegistry =
+    makeRegistry(&kMalformedModuleEntryDescriptor, 1);
+
 constexpr IbexRuntimeExtensionRegistryV1 makeSuccessfulRegistry() {
   auto registry = makeRegistry(kSuccessfulDescriptors,
                                sizeof(kSuccessfulDescriptors) /
@@ -1395,6 +1469,12 @@ ibex_runtime_extension_conformance_registry_variant_v1(uint32_t variant) {
     return &kDeclaredNestedRegistry;
   case 15:
     return &kUndeclaredModuleBootstrapRegistry;
+  case 16:
+    return &kDeclaredModuleEntryRegistry;
+  case 17:
+    return &kUndeclaredModuleEntryRegistry;
+  case 18:
+    return &kMalformedModuleEntryRegistry;
   default:
     return nullptr;
   }

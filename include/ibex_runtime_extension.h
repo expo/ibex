@@ -128,7 +128,12 @@ typedef struct IbexRuntimeExtensionOperationV1 {
   /* Sorted, duplicate-free Ibex resource-kind inventory. */
   const char* const* resource_kinds;
   size_t resource_kind_count;
-  /* Complete JS-triggerable native entry path, e.g. AcmeDevice.submit(). */
+  /*
+   * Complete JS-triggerable native entry path. Global/member operations use
+   * dot-separated identifiers (for example AcmeDevice.submit). A declared
+   * module may be named directly or followed by a '#' and a dot-separated
+   * export path (for example acme/device#submit).
+   */
   const char* js_entry_path;
   uint32_t flags;
 } IbexRuntimeExtensionOperationV1;

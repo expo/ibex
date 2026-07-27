@@ -80,6 +80,9 @@ const REGISTRY_PROTOTYPE_MUTATION: u32 = 12;
 const REGISTRY_REFLECTION_REPLACEMENT: u32 = 13;
 const REGISTRY_DECLARED_NESTED: u32 = 14;
 const REGISTRY_UNDECLARED_BOOTSTRAP_MODULE: u32 = 15;
+const REGISTRY_DECLARED_MODULE_ENTRY: u32 = 16;
+const REGISTRY_UNDECLARED_MODULE_ENTRY: u32 = 17;
+const REGISTRY_MALFORMED_MODULE_ENTRY: u32 = 18;
 
 unsafe extern "C" {
     fn ibex_runtime_extension_conformance_registry_v1() -> *const c_void;
@@ -521,6 +524,8 @@ fn malformed_registries_are_refused_before_installation() {
         (REGISTRY_MALFORMED_DIGEST, "malformed digest"),
         (REGISTRY_UNSUPPORTED_FEATURE, "unsupported feature"),
         (REGISTRY_PROVIDER_MISMATCH, "provider mismatch"),
+        (REGISTRY_UNDECLARED_MODULE_ENTRY, "undeclared module entry"),
+        (REGISTRY_MALFORMED_MODULE_ENTRY, "malformed module entry"),
     ] {
         reset();
         let registry = unsafe { ibex_runtime_extension_conformance_registry_variant_v1(variant) };
@@ -531,6 +536,23 @@ fn malformed_registries_are_refused_before_installation() {
         );
         assert_eq!(counter(COUNTER_INSTALL), 0, "{name} reached install");
     }
+}
+
+#[test]
+fn declared_module_export_operation_path_constructs() {
+    let _host_guard = crate::host::abi::host_test_lock();
+    reset();
+    let registry = unsafe {
+        ibex_runtime_extension_conformance_registry_variant_v1(REGISTRY_DECLARED_MODULE_ENTRY)
+    };
+    let runtime =
+        diagnostic_with(registry).expect("declared module-export operation path was refused");
+    let report = runtime.report();
+    assert_eq!(unsafe { ibex_runtime_extension_count_v1(runtime.0) }, 1);
+    assert_eq!(
+        report["extensions"][0]["id"],
+        "ibex.conformance.module-entry"
+    );
 }
 
 #[test]

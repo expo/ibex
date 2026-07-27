@@ -193,6 +193,42 @@ std::vector<std::string> splitPath(const std::string &path) {
   return segments;
 }
 
+bool validOperationEntryPath(
+    const std::string &path,
+    const std::set<std::string> &declared_global_paths,
+    const std::vector<std::string> &declared_module_specifiers) {
+  const size_t export_separator = path.find('#');
+  if (export_separator == std::string::npos) {
+    if (std::binary_search(declared_module_specifiers.begin(),
+                           declared_module_specifiers.end(), path)) {
+      return true;
+    }
+    if (splitPath(path).empty())
+      return false;
+    return std::any_of(
+        declared_global_paths.begin(), declared_global_paths.end(),
+        [&path](const std::string &owner) {
+          return path == owner ||
+                 (path.size() > owner.size() &&
+                  path.compare(0, owner.size(), owner) == 0 &&
+                  path[owner.size()] == '.');
+        });
+  }
+  if (export_separator == 0 || export_separator + 1 >= path.size() ||
+      path.find('#', export_separator + 1) != std::string::npos) {
+    return false;
+  }
+
+  const std::string owner = path.substr(0, export_separator);
+  const std::string export_path = path.substr(export_separator + 1);
+  if (splitPath(export_path).empty())
+    return false;
+
+  return declared_global_paths.count(owner) != 0 ||
+         std::binary_search(declared_module_specifiers.begin(),
+                            declared_module_specifiers.end(), owner);
+}
+
 bool pathOverlaps(const std::string &left, const std::string &right) {
   if (left == right)
     return true;
@@ -899,7 +935,8 @@ bool copyDescriptor(const IbexRuntimeExtensionRegistryV1 *registry,
         operation.resource_kind_count > kMaxListItems ||
         operation.resource_kinds == nullptr ||
         !validCString(operation.js_entry_path) ||
-        splitPath(operation.js_entry_path).empty() ||
+        !validOperationEntryPath(operation.js_entry_path, global_paths,
+                                 instance->module_specifiers) ||
         !operation_ids.insert(operation.id).second) {
       if (error)
         *error = "invalid extension operation inventory";
