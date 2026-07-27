@@ -353,12 +353,12 @@ describe("exact-target CapSec executable recipes", () => {
     // decision-free call/construct/get route through the loaded engine. The
     // principal environment Proxy adds the complete exact read/write scenario
     // matrix through its captured native bridges.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_438);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_450);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_272);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_260);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -468,9 +468,9 @@ describe("exact-target CapSec executable recipes", () => {
     // the same floor that the scenario denies. Typed synchronous TCP connect
     // adds its five staged public scenarios, and its exact typed setup promotes
     // the three ownership-only lifecycle consumers.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_078);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_090);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_305);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_293);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -3687,7 +3687,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-startup-environment-invocation/1",
     );
-    expect(authored).toHaveLength(30);
+    expect(authored).toHaveLength(42);
     expect(
       authored.map((recipe) => [recipe.terminalObservedKey, recipe.scenario]),
     ).toEqual([
@@ -3721,6 +3721,18 @@ describe("exact-target CapSec executable recipes", () => {
       ["startup:env:EXACT_PIPELINE_DEBUG", "malformed"],
       ["startup:env:EXACT_PIPELINE_DEBUG", "missing-attribution"],
       ["startup:env:EXACT_PIPELINE_DEBUG", "wrong-principal"],
+      ["startup:env:COLUMNS", "allow"],
+      ["startup:env:COLUMNS", "branch-selection"],
+      ["startup:env:COLUMNS", "deny"],
+      ["startup:env:COLUMNS", "malformed"],
+      ["startup:env:COLUMNS", "missing-attribution"],
+      ["startup:env:COLUMNS", "wrong-principal"],
+      ["startup:env:LINES", "allow"],
+      ["startup:env:LINES", "branch-selection"],
+      ["startup:env:LINES", "deny"],
+      ["startup:env:LINES", "malformed"],
+      ["startup:env:LINES", "missing-attribution"],
+      ["startup:env:LINES", "wrong-principal"],
     ]);
     const expectedSources = new Map([
       [
@@ -3781,6 +3793,26 @@ describe("exact-target CapSec executable recipes", () => {
             "EXACT_PIPELINE_DEBUG",
             "EXACT_PIPELINE_STATE_DEBUG",
           ],
+        },
+      ],
+      [
+        "COLUMNS",
+        {
+          sourceRef: "src/builtins/tty.js#process.env:COLUMNS:read",
+          mechanism: "tty-refresh-size",
+          moduleSpecifier: "node:tty",
+          preloads: ["node:tty"],
+          observedEnvironmentNames: ["COLUMNS", "LINES"],
+        },
+      ],
+      [
+        "LINES",
+        {
+          sourceRef: "src/builtins/tty.js#process.env:LINES:read",
+          mechanism: "tty-refresh-size",
+          moduleSpecifier: "node:tty",
+          preloads: ["node:tty"],
+          observedEnvironmentNames: ["COLUMNS", "LINES"],
         },
       ],
     ]);
@@ -3849,7 +3881,7 @@ describe("exact-target CapSec executable recipes", () => {
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.status === "unresolved",
       ),
-    ).toHaveLength(640);
+    ).toHaveLength(628);
     for (const environmentName of expectedSources.keys()) {
       const residual = startupEnvironmentRecipes.filter(
         (recipe) =>

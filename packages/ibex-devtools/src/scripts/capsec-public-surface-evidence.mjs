@@ -441,6 +441,28 @@ const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
       ],
     },
   ],
+  [
+    "COLUMNS",
+    {
+      sourceRef: "src/builtins/tty.js#process.env:COLUMNS:read",
+      liveSourceRefs: ["src/builtins/tty.js#process.env:COLUMNS:read"],
+      mechanism: "tty-refresh-size",
+      moduleSpecifier: "node:tty",
+      preloadModuleSpecifiers: ["node:tty"],
+      observedEnvironmentNames: ["COLUMNS", "LINES"],
+    },
+  ],
+  [
+    "LINES",
+    {
+      sourceRef: "src/builtins/tty.js#process.env:LINES:read",
+      liveSourceRefs: ["src/builtins/tty.js#process.env:LINES:read"],
+      mechanism: "tty-refresh-size",
+      moduleSpecifier: "node:tty",
+      preloadModuleSpecifiers: ["node:tty"],
+      observedEnvironmentNames: ["COLUMNS", "LINES"],
+    },
+  ],
 ]);
 
 const PRINCIPAL_ENVIRONMENT_SURFACE =

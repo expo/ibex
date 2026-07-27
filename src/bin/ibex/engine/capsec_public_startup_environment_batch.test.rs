@@ -171,7 +171,7 @@ struct ExpectedSource {
     observed_environment_names: &'static [&'static str],
 }
 
-const EXPECTED_SOURCES: [ExpectedSource; 5] = [
+const EXPECTED_SOURCES: [ExpectedSource; 7] = [
     ExpectedSource {
         environment_name: "NODE_DEBUG",
         source_ref: "src/builtins/http.js#process.env:NODE_DEBUG:read",
@@ -211,6 +211,22 @@ const EXPECTED_SOURCES: [ExpectedSource; 5] = [
         module_specifier: Some("node:stream"),
         preload_module_specifiers: &["node:events", "node:string_decoder", "node:util"],
         observed_environment_names: &["EXACT_PIPELINE_DEBUG", "EXACT_PIPELINE_STATE_DEBUG"],
+    },
+    ExpectedSource {
+        environment_name: "COLUMNS",
+        source_ref: "src/builtins/tty.js#process.env:COLUMNS:read",
+        mechanism: "tty-refresh-size",
+        module_specifier: Some("node:tty"),
+        preload_module_specifiers: &["node:tty"],
+        observed_environment_names: &["COLUMNS", "LINES"],
+    },
+    ExpectedSource {
+        environment_name: "LINES",
+        source_ref: "src/builtins/tty.js#process.env:LINES:read",
+        mechanism: "tty-refresh-size",
+        module_specifier: Some("node:tty"),
+        preload_module_specifiers: &["node:tty"],
+        observed_environment_names: &["COLUMNS", "LINES"],
     },
 ];
 
@@ -377,6 +393,16 @@ fn prepare_package_fixture(operation: &StartupEnvironmentOperation) -> PackageFi
             .expect("serialize event environment probe module")
         ),
         "date-to-string" => "module.exports = function() { return typeof new Date(0).toString() === 'string'; };\n".to_owned(),
+        "tty-refresh-size" => format!(
+            "module.exports = function() {{ var WriteStream = require({}).WriteStream; var target = {{ columns: undefined, rows: undefined }}; WriteStream.prototype._refreshSize.call(target); return target.columns === undefined && target.rows === undefined; }};\n",
+            serde_json::to_string(
+                operation
+                    .module_specifier
+                    .as_deref()
+                    .expect("tty environment probe requires a module"),
+            )
+            .expect("serialize tty environment probe module")
+        ),
         other => panic!("unsupported package startup environment mechanism {other}"),
     };
     std::fs::write(package_root.join("index.js"), source)
@@ -1086,6 +1112,17 @@ async fn invoke_source(
             .unwrap()
         ),
         "date-to-string" => "typeof new Date(0).toString() === 'string'".to_owned(),
+        "tty-refresh-size" => format!(
+            "(function() {{ var WriteStream = require({}).WriteStream; var target = {{ columns: undefined, rows: undefined }}; WriteStream.prototype._refreshSize.call(target); return target.columns === undefined && target.rows === undefined; }})()",
+            serde_json::to_string(
+                invocation
+                    .operation
+                    .module_specifier
+                    .as_deref()
+                    .expect("tty environment source requires a module"),
+            )
+            .unwrap()
+        ),
         other => panic!("unsupported root startup environment mechanism {other}"),
     };
     let expression = if package.is_some() {
@@ -1488,8 +1525,8 @@ async fn capsec_public_startup_environment_batch() {
         .collect::<Vec<_>>();
     assert_eq!(
         recipes.len(),
-        30,
-        "expected the complete matrix for five startup environment absent slices"
+        42,
+        "expected the complete matrix for seven startup environment absent slices"
     );
     assert_eq!(
         principal_environment_recipes.len(),
@@ -1533,9 +1570,11 @@ async fn capsec_public_startup_environment_batch() {
             .map(|recipe| recipe.terminal_observed_key.as_str())
             .collect::<BTreeSet<_>>(),
         BTreeSet::from([
+            "startup:env:COLUMNS",
             "startup:env:EXACT_DEBUG_EMIT_LISTENER",
             "startup:env:EXACT_PIPELINE_DEBUG",
             "startup:env:EXACT_PIPELINE_STATE_DEBUG",
+            "startup:env:LINES",
             "startup:env:NODE_DEBUG",
             "startup:env:TZ",
         ])

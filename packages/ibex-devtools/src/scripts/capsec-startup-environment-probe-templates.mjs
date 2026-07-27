@@ -116,6 +116,32 @@ const STARTUP_ENVIRONMENT_SOURCES = new Map([
       supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
     }),
   ],
+  [
+    "startup:env:COLUMNS",
+    Object.freeze({
+      environmentName: "COLUMNS",
+      sourceRef: "src/builtins/tty.js#process.env:COLUMNS:read",
+      mechanism: "tty-refresh-size",
+      moduleSpecifier: "node:tty",
+      preloadModuleSpecifiers: ["node:tty"],
+      observedEnvironmentNames: ["COLUMNS", "LINES"],
+      selectedBranchId: "absent",
+      supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
+    }),
+  ],
+  [
+    "startup:env:LINES",
+    Object.freeze({
+      environmentName: "LINES",
+      sourceRef: "src/builtins/tty.js#process.env:LINES:read",
+      mechanism: "tty-refresh-size",
+      moduleSpecifier: "node:tty",
+      preloadModuleSpecifiers: ["node:tty"],
+      observedEnvironmentNames: ["COLUMNS", "LINES"],
+      selectedBranchId: "absent",
+      supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
+    }),
+  ],
 ]);
 
 const taggedDigest = (value) =>

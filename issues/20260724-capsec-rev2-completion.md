@@ -2725,6 +2725,49 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-26 — bound paired TTY-size environment reads
+
+- Promoted the absent branches for `startup:env:COLUMNS` and
+  `startup:env:LINES` through the public `node:tty`
+  `WriteStream.prototype._refreshSize` route. The harness preloads the builtin
+  outside observation, invokes the real prototype method on a harness-owned
+  receiver, and binds its exact ordered `COLUMNS`/`LINES` resource set. All
+  **12/12** absent-branch rows now have loaded-engine evidence.
+- Both targets prove root allow and package denial attribution for the paired
+  reads. The receiver remains unchanged when both values are absent. The
+  present branches remain residual because their inventory obligation also
+  selects `stdio:query`; the environment-only execution does not promote that
+  additional effect.
+- Apple catalog digest
+  `sha256-6c20BVnjScUZH4m63tl47GY1RqtBc5Gb0yHcp05e0-A` reports 23,846 required /
+  **3,450 fully executable** / 3,136 internally verified / 17,260 unresolved.
+  The physical M5 MacBook Air batch passes **54/54**, including all 12 new TTY
+  rows, with engine digest
+  `sha256-f8Jb08iKLGJTA1w83zNARMfU_WhHjptQV56PZs1BmSQ`. The evidence-file
+  SHA-256 is
+  `5c8d8c8424b48baa33726ef936ac057d28aec91f065b6109fea5447bcd3348d1`;
+  independent validation produced execution digest
+  `sha256-6EjuwTVvhHmbY5eewZvhSPi0kDlSjctG2edr4A4dqDg`.
+- Windows catalog digest
+  `sha256-O3ojTNTD8AOT9AVZtf1PNjl1kVlt3lAydHtkas1Ytgg` reports 23,505 required /
+  **3,090 fully executable** / 3,122 internally verified / 17,293 unresolved.
+  The physical NucBox strict stale-vendored batch passes **54/54** against
+  engine digest
+  `sha256-xqWHmqF0mGjVqhS8bUI7Av9fiP84rE8Zj23kOq9JJw8`. Its evidence-file
+  SHA-256 is
+  `a331edfc1c45a2399b093419e02333b22907ae23924339a1ee89ad7423d85a1c`,
+  and independent validation produced execution digest
+  `sha256-F1dlyH72aOSSkerYSCBHRdIcwRrqjANu0xPhVeDp_-0`.
+- The focused recipe/evidence suite passes 146 tests with 115,299 assertions.
+  Hard part: constructing a full `WriteStream` would also enter socket setup
+  and conflate unrelated behavior with the two environment reads. Invoking the
+  exported prototype method on an owned receiver reaches the exact production
+  source while bounding the operation to its two reads and observable size
+  result.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
