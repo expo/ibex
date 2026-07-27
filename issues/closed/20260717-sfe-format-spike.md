@@ -1,6 +1,7 @@
 # Phase-0 format spike: envelope on a dynamic dev stub
 
-**Status:** Complete
+**Status:** Closed
+**Resolution:** Closed from the completion evidence recorded in f5688afb: malformed-envelope coverage and the signed, source-deleted relocation smoke test are green.
 **Severity:** P2
 **Systems:** Build, Module Loader
 **Author:** Claude (Fable 5), directed by Charlie Cheever

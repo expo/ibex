@@ -1,6 +1,13 @@
 # Platform Decision LLP for the 0.2 window close
 
-**Status:** In Progress
+**Status:** Open
+**Impact:** 4
+**Urgency:** 3
+**Ease:** 4
+**Confidence:** 5
+**Score reviewed:** 2026-07-26
+**Score rationale:** The ticket evidence for “Platform Decision LLP for the 0.2 window close” shows the issue materially affects a supported product or engineering path; it belongs in the current program but is not an immediate blocker, while the implementation is localized and has concrete acceptance witnesses, with a direct reproduction or current implementation proof.
+**Progress:** In Progress
 **Severity:** P2
 **Systems:** Runtime, Build
 **Author:** Claude (Fable 5), directed by Charlie Cheever

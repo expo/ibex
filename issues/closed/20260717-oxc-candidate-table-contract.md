@@ -1,6 +1,7 @@
 # Computed-candidate table contract (site labels, sidecar, generation)
 
-**Status:** Complete
+**Status:** Closed
+**Resolution:** Closed from the completion evidence recorded in f5688afb: the canonical candidate sidecar, schemas, goldens, publisher joins, and rotation tests landed.
 **Severity:** P2
 **Systems:** Module Loader, Security
 **Author:** Claude (Fable 5), directed by Charlie Cheever

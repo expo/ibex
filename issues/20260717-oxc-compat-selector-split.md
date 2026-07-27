@@ -1,6 +1,13 @@
 # Split EXACT_COMPAT_TEST: fixture fidelity vs loader selection
 
-**Status:** In Progress
+**Status:** Open
+**Impact:** 3
+**Urgency:** 3
+**Ease:** 5
+**Confidence:** 5
+**Score reviewed:** 2026-07-26
+**Score rationale:** The ticket evidence for “Split EXACT_COMPAT_TEST: fixture fidelity vs loader selection” shows the issue materially affects reliability, verification, or developer experience; it belongs in the current program but is not an immediate blocker, while the ticket identifies a narrow, verified change or decision, with a direct reproduction or current implementation proof.
+**Progress:** In Progress
 **Severity:** P2
 **Systems:** Runtime, CI
 **Author:** Claude (Fable 5), directed by Charlie Cheever

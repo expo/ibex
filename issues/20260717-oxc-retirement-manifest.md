@@ -1,6 +1,13 @@
 # Retirement manifest + cargo-metadata prefix gate
 
-**Status:** In Progress
+**Status:** Open
+**Impact:** 4
+**Urgency:** 3
+**Ease:** 3
+**Confidence:** 5
+**Score reviewed:** 2026-07-26
+**Score rationale:** The ticket evidence for “Retirement manifest + cargo-metadata prefix gate” shows the issue materially affects a supported product or engineering path; it belongs in the current program but is not an immediate blocker, while the fix requires a few coordinated implementation and test surfaces, with a direct reproduction or current implementation proof.
+**Progress:** In Progress
 **Severity:** P2
 **Systems:** Build, CI, Security
 **Author:** Claude (Fable 5), directed by Charlie Cheever

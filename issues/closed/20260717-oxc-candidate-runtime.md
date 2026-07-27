@@ -1,6 +1,7 @@
 # Native computed dynamic import execution (graph + ABI plumbing)
 
-**Status:** Partially Complete
+**Status:** Closed
+**Resolution:** Closed from the completion evidence recorded in f5688afb: site-bound candidate admission and native runtime guards landed across source and prepared paths.
 **Severity:** P2
 **Systems:** Module Loader, Engine, Runtime
 **Author:** Claude (Fable 5), directed by Charlie Cheever

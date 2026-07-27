@@ -1,6 +1,7 @@
 # Minimal Oxc script frontend (-e/-p, REPL, .load, stdin)
 
-**Status:** Complete
+**Status:** Closed
+**Resolution:** Closed from the progress evidence recorded in f5688afb: all five script surfaces use the typed Oxc frontend and pass real-Hermes coverage.
 **Severity:** P2
 **Systems:** Runtime, Module Loader
 **Author:** Claude (Fable 5), directed by Charlie Cheever

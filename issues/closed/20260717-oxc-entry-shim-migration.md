@@ -1,6 +1,7 @@
 # Entry-shim and .hbc-fallback migration to the producer
 
-**Status:** Complete
+**Status:** Closed
+**Resolution:** Closed from the result recorded in f5688afb: authenticated entries and stale-bytecode fallback now use the producer path with legacy behavior pinned.
 **Severity:** P2
 **Systems:** Runtime, Module Loader
 **Author:** Claude (Fable 5), directed by Charlie Cheever

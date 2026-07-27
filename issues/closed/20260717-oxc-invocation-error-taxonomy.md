@@ -1,6 +1,7 @@
 # Three-class failure taxonomy (generation / admission / invocation)
 
-**Status:** Complete
+**Status:** Closed
+**Resolution:** Closed from the completion evidence recorded in f5688afb: generation, admission, and invocation failures now have the pinned timing and diagnostic split.
 **Severity:** P2
 **Systems:** Module Loader, Runtime
 **Author:** Claude (Fable 5), directed by Charlie Cheever

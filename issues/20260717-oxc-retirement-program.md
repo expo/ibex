@@ -1,6 +1,12 @@
 # Oxc-only transform program (LLP 0028) — umbrella and execution map
 
 **Status:** Open
+**Impact:** 5
+**Urgency:** 4
+**Ease:** 1
+**Confidence:** 4
+**Score reviewed:** 2026-07-26
+**Score rationale:** The ticket evidence for “Oxc-only transform program (LLP 0028) — umbrella and execution map” shows the issue reaches a security, correctness, release, or core product boundary; delay compounds an active rollout, reliability, or verification risk, while delivery is a dependency-heavy, multi-stage program, with specific cited code, progress, or acceptance criteria.
 **Severity:** P2
 **Systems:** Issue tracking, Module Loader, Runtime, Build, Engine
 **Author:** Claude (Fable 5), directed by Charlie Cheever

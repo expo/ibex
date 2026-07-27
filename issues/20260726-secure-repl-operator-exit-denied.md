@@ -1,6 +1,12 @@
 # Secure REPL rejects operator Ctrl-D after publishing its prompt
 
 **Status:** Open
+**Impact:** 3
+**Urgency:** 4
+**Ease:** 4
+**Confidence:** 5
+**Score reviewed:** 2026-07-26
+**Score rationale:** The ticket evidence for “Secure REPL rejects operator Ctrl-D after publishing its prompt” shows the issue materially affects reliability, verification, or developer experience; delay compounds an active rollout, reliability, or verification risk, while the implementation is localized and has concrete acceptance witnesses, with a direct reproduction or current implementation proof.
 **Date:** 2026-07-26
 **Related:** issues/20260724-insecure-startup-performance.md
 

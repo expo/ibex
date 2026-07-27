@@ -1,6 +1,13 @@
 # ibex/authenticated-graph-snapshot/1 digest domain
 
-**Status:** In Progress
+**Status:** Open
+**Impact:** 5
+**Urgency:** 4
+**Ease:** 3
+**Confidence:** 4
+**Score reviewed:** 2026-07-26
+**Score rationale:** The ticket evidence for “ibex/authenticated-graph-snapshot/1 digest domain” shows the issue reaches a security, correctness, release, or core product boundary; delay compounds an active rollout, reliability, or verification risk, while the fix requires a few coordinated implementation and test surfaces, with specific cited code, progress, or acceptance criteria.
+**Progress:** In Progress
 **Severity:** P2
 **Systems:** Module Loader, Security
 **Author:** Claude (Fable 5), directed by Charlie Cheever

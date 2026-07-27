@@ -1,6 +1,13 @@
 # Root-specific ceiling stratum + sealed bootstrap stage
 
 **Status:** Resolved
+**Impact:** 5
+**Urgency:** 5
+**Ease:** 2
+**Confidence:** 4
+**Score reviewed:** 2026-07-26
+**Score rationale:** The ticket evidence for “Root-specific ceiling stratum + sealed bootstrap stage” shows the issue reaches a security, correctness, release, or core product boundary; the defect is blocking or unsafe on a live path now, while the repair crosses several runtime, host, protocol, or policy seams, with specific cited code, progress, or acceptance criteria.
+**Progress:** Resolved; see the 2026-07-25 resolution below.
 **Severity:** P2
 **Systems:** Security
 **Author:** Claude (Fable 5), directed by Charlie Cheever

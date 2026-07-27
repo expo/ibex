@@ -1,6 +1,7 @@
 # Rust toolchain bump + Oxc re-pin (atomic with identity rotation)
 
-**Status:** Complete
+**Status:** Closed
+**Resolution:** Closed by f5688afb with the atomic Rust/Oxc pin rotation, generated identity drift gates, native corpus, and performance evidence in place.
 **Severity:** P2
 **Systems:** Build, CI
 **Author:** Claude (Fable 5), directed by Charlie Cheever

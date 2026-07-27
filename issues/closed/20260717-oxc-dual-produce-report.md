@@ -1,6 +1,7 @@
 # Archived old-pin/new-pin dual-produce comparison
 
-**Status:** Complete
+**Status:** Closed
+**Resolution:** Closed by f5688afb with the reproducible dual-produce gate and content-addressed comparison report recorded in this ticket.
 **Severity:** P3
 **Systems:** Build, CI
 **Author:** Claude (Fable 5), directed by Charlie Cheever

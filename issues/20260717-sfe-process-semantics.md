@@ -1,6 +1,13 @@
 # Compiled process semantics: argv, lifecycle, signals
 
-**Status:** In Progress
+**Status:** Open
+**Impact:** 4
+**Urgency:** 3
+**Ease:** 3
+**Confidence:** 4
+**Score reviewed:** 2026-07-26
+**Score rationale:** The ticket evidence for “Compiled process semantics: argv, lifecycle, signals” shows the issue materially affects a supported product or engineering path; it belongs in the current program but is not an immediate blocker, while the fix requires a few coordinated implementation and test surfaces, with specific cited code, progress, or acceptance criteria.
+**Progress:** In Progress
 **Severity:** P2
 **Systems:** Runtime
 **Author:** Claude (Fable 5), directed by Charlie Cheever

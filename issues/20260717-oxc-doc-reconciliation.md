@@ -1,6 +1,12 @@
 # LLP reconciliation and acceptance-criteria audit (LLP 0028)
 
 **Status:** Open
+**Impact:** 3
+**Urgency:** 3
+**Ease:** 4
+**Confidence:** 5
+**Score reviewed:** 2026-07-26
+**Score rationale:** The ticket evidence for “LLP reconciliation and acceptance-criteria audit (LLP 0028)” shows the issue materially affects reliability, verification, or developer experience; it belongs in the current program but is not an immediate blocker, while the implementation is localized and has concrete acceptance witnesses, with a direct reproduction or current implementation proof.
 **Severity:** P3
 **Systems:** Issue tracking
 **Author:** Claude (Fable 5), directed by Charlie Cheever
