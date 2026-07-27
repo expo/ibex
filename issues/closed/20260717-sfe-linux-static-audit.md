@@ -1,6 +1,6 @@
 # Linux static-dependency audit (libcurl disposition required)
 
-**Status:** Implemented; first Ubuntu 22.04 CI execution pending
+**Status:** Closed (2026-07-26 — first pinned Ubuntu 22.04 CI execution green)
 **Severity:** P2
 **Systems:** Engine, Build
 **Author:** Claude (Fable 5), directed by Charlie Cheever
@@ -39,3 +39,29 @@ disposition recorded; baseline in `StubContractV1`.
 
 The issue becomes complete when the first pinned workflow run is green; do not
 infer a 2.35 claim from the 2.39 development host.
+
+## Resolution — 2026-07-26
+
+The first pinned execution ran green on `ubuntu-22.04` in the "Hermes artifact
+cache" workflow (`.github/workflows/hermes-artifacts.yml`), job "Build Linux
+bundle (x64, unprivileged)", main @ `002ba828`, 2026-07-26T22:13:40Z:
+<https://github.com/expo/ibex/actions/runs/30222708191> (job
+89847770132, identity `ac8c6e6c80ec-cd3dd1da3755`). The audit report
+(schema `ibex/sfe-linux-dependency-audit/1`, uploaded as artifact
+`sfe-linux-static-dependency-audit`, ID 8637809690) records `"result": "pass"`
+against `--minimum-platform linux-glibc-2.35-x86-64-v1`:
+
+- `measured.maximumGlibcSymbolVersion: "2.34"` — under the 2.35 floor, and an
+  authoritative measurement (unlike the 2.39 dev-host run above).
+- `measured.cpuIsa: "x86-64-baseline"` — satisfies the x86-64-v1 floor.
+- `measured.needed`: `ld-linux-x86-64.so.2, libc.so.6, libgcc_s.so.1, libm.so.6,
+  libresolv.so.2, libstdc++.so.6, libz.so.1` — system baseline only; no
+  RPATH/RUNPATH; **no libcurl in `DT_NEEDED`**.
+- `policy.libcurlDisposition: "absent-until-compiled-network-advertisement"`
+  recorded in the report, matching the stub contract.
+
+Note the job is cache-gated (`need_linux == 'true'`): later runs skip it when
+the release-cache asset for the current identity exists, so a skipped Linux job
+in recent runs is expected, not a regression.
+
+All three done-when clauses are met; closing.
