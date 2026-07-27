@@ -7002,20 +7002,28 @@ extern "C" int32_t ibex_private_hermes_macos_mapping_observation_v1(
 namespace {
 
 bool simulatorHermesMappedObject(uint64_t* outDevice, uint64_t* outInode) {
+  const auto fail = [](const char* stage) {
+    std::fprintf(
+        stderr,
+        "[Ibex] CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER_V1 "
+        "stage=hermes-image-auth-failed detail=%s\n",
+        stage);
+    return false;
+  };
   using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
       const ::hermes::vm::RuntimeConfig&);
   auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
   Dl_info info = {};
   if (dladdr(reinterpret_cast<void*>(factory), &info) == 0 ||
       info.dli_fname == nullptr || info.dli_fbase == nullptr) {
-    return false;
+    return fail("dladdr");
   }
 
   const auto* header =
       reinterpret_cast<const mach_header_64*>(info.dli_fbase);
   if (header->magic != MH_MAGIC_64 ||
       header->sizeofcmds > 16 * 1024 * 1024) {
-    return false;
+    return fail("mapped-header");
   }
 
   intptr_t slide = 0;
@@ -7028,19 +7036,21 @@ bool simulatorHermesMappedObject(uint64_t* outDevice, uint64_t* outInode) {
       break;
     }
   }
-  if (!loaderImageMatched) return false;
+  if (!loaderImageMatched) return fail("dyld-image");
 
   const section_64* textCode = nullptr;
   const uint8_t* commandBytes =
       reinterpret_cast<const uint8_t*>(header + 1);
   const uint8_t* commandLimit = commandBytes + header->sizeofcmds;
   for (uint32_t index = 0; index < header->ncmds; ++index) {
-    if (commandBytes + sizeof(load_command) > commandLimit) return false;
+    if (commandBytes + sizeof(load_command) > commandLimit) {
+      return fail("load-command-header");
+    }
     const auto* command =
         reinterpret_cast<const load_command*>(commandBytes);
     if (command->cmdsize < sizeof(load_command) ||
         commandBytes + command->cmdsize > commandLimit) {
-      return false;
+      return fail("load-command-size");
     }
     if (command->cmd == LC_SEGMENT_64 &&
         command->cmdsize >= sizeof(segment_command_64)) {
@@ -7049,7 +7059,7 @@ bool simulatorHermesMappedObject(uint64_t* outDevice, uint64_t* outInode) {
       const uint64_t sectionBytes =
           static_cast<uint64_t>(segment->nsects) * sizeof(section_64);
       if (sectionBytes > command->cmdsize - sizeof(segment_command_64)) {
-        return false;
+        return fail("section-table");
       }
       const auto* sections =
           reinterpret_cast<const section_64*>(segment + 1);
@@ -7068,17 +7078,17 @@ bool simulatorHermesMappedObject(uint64_t* outDevice, uint64_t* outInode) {
       reinterpret_cast<uintptr_t>(reinterpret_cast<void*>(factory));
   if (textCode == nullptr || textCode->size == 0 ||
       textCode->size > SIZE_MAX) {
-    return false;
+    return fail("text-section");
   }
   const uintptr_t mappedTextAddress =
       static_cast<uintptr_t>(textCode->addr) + slide;
   if (factoryAddress < mappedTextAddress ||
       factoryAddress - mappedTextAddress >= textCode->size) {
-    return false;
+    return fail("factory-address");
   }
 
   const int fd = open(info.dli_fname, O_RDONLY | O_CLOEXEC);
-  if (fd < 0) return false;
+  if (fd < 0) return fail("image-open");
   struct stat opened = {};
   const bool openedValid =
       fstat(fd, &opened) == 0 && S_ISREG(opened.st_mode) &&
@@ -7140,13 +7150,22 @@ bool simulatorHermesMappedObject(uint64_t* outDevice, uint64_t* outInode) {
         pread(fd, fileBytes.data(), requested, textFileOffset + compared);
     if (read != static_cast<ssize_t>(requested) ||
         std::memcmp(fileBytes.data(), mappedBytes + compared, requested) != 0) {
+      std::fprintf(
+          stderr,
+          "[Ibex] CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER_V1 "
+          "stage=hermes-image-auth-failed detail=text-bytes offset=%llu "
+          "requested=%zu read=%lld\n",
+          static_cast<unsigned long long>(compared),
+          requested,
+          static_cast<long long>(read));
       matched = false;
       break;
     }
     compared += requested;
   }
   close(fd);
-  if (!matched || opened.st_ino == 0) return false;
+  if (!matched) return fail("file-slice");
+  if (opened.st_ino == 0) return fail("file-identity");
   *outDevice = static_cast<uint64_t>(opened.st_dev);
   *outInode = static_cast<uint64_t>(opened.st_ino);
   return true;
