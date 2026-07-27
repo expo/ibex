@@ -3920,11 +3920,17 @@ function collect() {
                 first,
                 &format!("require('fs'); __exactFsReadFileAsync({path}); 'fs-queued'"),
             );
+            // Measure from job submission, not from destroy: the worker holds
+            // ~100ms after this eval, so a draining destroy cannot return
+            // earlier than submission + hold regardless of how long the test
+            // scheduler stalls between eval and destroy. Measuring from
+            // destroy false-fails under parallel-load contention once the
+            // hold has already expired.
+            let submitted = std::time::Instant::now();
             assert_eq!((status, value.as_deref()), (0, Some("fs-queued")));
-            let started = std::time::Instant::now();
             ex_hermes_destroy(first);
             assert!(
-                started.elapsed() >= std::time::Duration::from_millis(60),
+                submitted.elapsed() >= std::time::Duration::from_millis(60),
                 "destroy returned before the pinned filesystem worker drained"
             );
 
@@ -3934,11 +3940,12 @@ function collect() {
                 second,
                 "require('dns'); __exactDnsLookupAsync('localhost', 4); 'dns-queued'",
             );
+            // Submission-anchored for the same reason as the fs block above.
+            let submitted = std::time::Instant::now();
             assert_eq!((status, value.as_deref()), (0, Some("dns-queued")));
-            let started = std::time::Instant::now();
             ex_hermes_destroy(second);
             assert!(
-                started.elapsed() >= std::time::Duration::from_millis(60),
+                submitted.elapsed() >= std::time::Duration::from_millis(60),
                 "destroy returned before the pinned DNS worker drained"
             );
 
