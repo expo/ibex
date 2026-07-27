@@ -115,6 +115,13 @@ branch/main drift diagnosed alongside the identity-drift ticket; with the
 reviewed identity restamped there, re-verify on a current observer build if
 they persist (tracked there, not here).
 
+**Correction 2026-07-27:** re-verified after the restamp — the observer
+failures were NOT engine drift at all. They are an artifact of `insecure`
+being in the default feature set: the armed batches fail on an
+insecure-featured binary and are green on an explicit secure build
+(`--no-default-features --features standard,capsec-conformance-observer`).
+See [20260727-armed-observer-suite-needs-secure-build](../20260727-armed-observer-suite-needs-secure-build.md).
+
 ### Completion-branch reconciliation
 
 The CapSec completion branch contains additional reviewed authenticated-file

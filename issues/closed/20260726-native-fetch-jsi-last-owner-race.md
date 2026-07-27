@@ -136,6 +136,10 @@ observer suite has 45 pre-existing armed/capsec-batch failures on this
 branch, verified identical with this fix stashed (details in the regen-chain
 ticket); the observer suite was unrunnable at all before the sanctioned
 `build-hermes.sh --no-debugger` receipt restamp this fix required.
+*(Correction 2026-07-27: those armed-batch failures were an
+insecure-default-build artifact, not drift — the suite is green on an
+explicit secure build. See
+[20260727-armed-observer-suite-needs-secure-build](../20260727-armed-observer-suite-needs-secure-build.md).)*
 
 **Follow-up (external):** after this lands, Snapback advances `vendor/ibex`
 and reruns the verification that exposed the crash.
