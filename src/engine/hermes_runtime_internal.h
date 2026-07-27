@@ -377,6 +377,50 @@ inline void exactTestDelayRuntimeProducer() {
 #endif
 }
 
+// Test-only: parks a cross-thread producer after pushRuntimeCallback has
+// published (and notified) its completion, so the runtime thread executes and
+// releases the queued callback before the producer returns. Counterpart of
+// exactTestDelayRuntimeProducer, which delays before target acquisition.
+inline void exactTestHoldRuntimeProducerAfterEnqueue() {
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  const char* value = std::getenv("IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS");
+  if (!value || !*value) return;
+  char* end = nullptr;
+  auto milliseconds = std::strtoull(value, &end, 10);
+  if (end == value || *end != '\0') return;
+  milliseconds = std::min<unsigned long long>(milliseconds, 2000);
+  std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+#endif
+}
+
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+extern std::atomic<uint64_t> g_trackedJsiOwnerFinalReleasesOnOwnerThread;
+extern std::atomic<uint64_t> g_trackedJsiOwnerFinalReleasesOffOwnerThread;
+#endif
+
+// Wrap a JSI promise callback destined for a cross-thread completion so
+// observer builds record which thread ran the FINAL owner release. JSI values
+// may only be destroyed on the runtime owner thread; a nonzero off-owner
+// count is always a bug (the producer-side copy became the last owner).
+// Ordinary builds compile to a plain make_shared.
+inline std::shared_ptr<facebook::jsi::Function> exactMakeTrackedJsiCallbackOwner(
+    std::thread::id ownerThread, facebook::jsi::Function&& fn) {
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  return std::shared_ptr<facebook::jsi::Function>(
+      new facebook::jsi::Function(std::move(fn)),
+      [ownerThread](facebook::jsi::Function* owned) {
+        auto& counter = std::this_thread::get_id() == ownerThread
+            ? g_trackedJsiOwnerFinalReleasesOnOwnerThread
+            : g_trackedJsiOwnerFinalReleasesOffOwnerThread;
+        counter.fetch_add(1, std::memory_order_seq_cst);
+        delete owned;
+      });
+#else
+  (void)ownerThread;
+  return std::make_shared<facebook::jsi::Function>(std::move(fn));
+#endif
+}
+
 struct ExactHermesRuntime {
   std::unique_ptr<facebook::hermes::HermesRuntime> runtime;
   uint64_t host_context_id{0};

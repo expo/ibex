@@ -5617,6 +5617,14 @@ extern "C" int32_t ex_hermes_complete_gpu_decoded_image_v1(
 
     bool accepted = false;
     try {
+      // @ref LLP 0003#the-event-loop — `binding` is deliberately
+      // copy-captured, unlike the JSI-owner move-capture rule the
+      // fetch/host-call completions follow: the !accepted fallback and the
+      // catch path below still need it. Safe because a provider-thread local
+      // can only become the final owner after the runtime released its strong
+      // ref, and every such release is preceded by detach() draining
+      // `pending` — the binding's only JSI-bearing state — on the runtime
+      // thread.
       pushRuntimeCallback(
           targetEntry->target,
           [binding, request_id, terminalStatus,

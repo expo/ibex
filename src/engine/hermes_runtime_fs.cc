@@ -3056,7 +3056,12 @@ class FsWorkerPool {
             // This is the irreversible scheduling edge. Teardown can remove
             // a Queued record under this same mutex, but once commit wins it
             // must wait for the native pin and cannot pretend the effect was
-            // canceled.
+            // canceled. This skip must stay unreachable for jobs still in
+            // queue_: cancelQueued erases canceled nodes under this mutex and
+            // destroys them on the runtime owner thread. `continue` here
+            // destroys job.work — and the JSI resolve/reject owners it
+            // captures — on this worker thread, which is only harmless while
+            // no live path can take it.
             if (!job.lease || !job.lease->acquireForWorker()) {
               continue;
             }

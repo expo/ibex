@@ -53,12 +53,79 @@ the reviewed-side review id to
 the review id must be recomputed again after the lockdown digest is fixed
 (it hashes the taming digest together with the profiles).
 
-## Resolution
+## Resolution — 2026-07-26
 
-The CapSec completion branch reviewed the error-prototype lockdown change,
-updated both reviewed taming digests, and refreshed the host-ABI count. After
-rebasing the Hermes 0010/0011 classification-header repair from main, the
-combined live inventory exports and the classifier accepts
-`hermes-evaluators.08bb542867d4d29fabe8e67c64eae3b78d5605fc9259dafda2e0044c41c2beae`.
-The inventory/classifier tests and complete generated-drift gate pass with that
-composed identity.
+**1. Lockdown drift reviewed and restamped.** The entire delta between the
+reviewed snapshot (pinned at 9e1e5d8e) and the live `lockdownJS` is commit
+`4c6ac052` ("Repair the override mistake for error prototypes under
+lockdown", 2026-07-26, documented in LLP 0013 and
+`issues/closed/20260726-hermes-error-prototype-name-not-writable.md`).
+Review findings, affirming the change:
+
+- The delta adds only the SES-reference override-mistake repair for the
+  error-intrinsic family (`constructor`/`message`/`name` on the error
+  prototypes, plus `toString` on `Error.prototype`), converting configurable
+  data properties into accessor pairs before the freeze walk, plus the
+  `hasOwn` capture it uses. Evaluator taming (`Function`, `GeneratorFunction`,
+  `AsyncFunction`, `eval`), the `process.umask` seal, and the freeze walk are
+  byte-identical to the reviewed snapshot.
+- No shared mutability is reintroduced: the setter only shadows on the
+  receiver (throws on the frozen prototype itself, now in sloppy mode too);
+  the getter always returns the original captured value and never reassigns
+  it; the accessor pair is frozen directly (literal accessors have no
+  `.prototype` own property); and displaced object/function values are queued
+  in `overrideValueRoots` and explicitly frozen, so the repair leaves no
+  mutable intrinsic outside both freeze walks.
+- Fail-closed semantics are preserved (`if (failClosed) throw` on every
+  repair step), and no new globals or rendezvous names are introduced.
+
+`REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST` is now
+`sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c` in
+both `capsec-surface-inventory.mjs` and `capsec-coverage-model.mjs` (and the
+coverage-model test's fixture copy).
+
+**2. Evaluator review id recomputed.** Restamping also required affirming one
+more profile-identity field this branch had drifted:
+`sourceBuildAuthorityDigests["scripts/build-hermes-linux.sh"]` moved to
+`sha256-af521ddda077302b82de42a024eba5e708b9072462d2c4e53c742d8cc473ea92` for
+commit `69e28bb7` ("perf: precompile Linux runtime bundle") — reviewed: the
+script change only adds the Hermes VM CLI as a built/published artifact (the
+HBC-version compatibility probe for build.rs) and does not alter patch
+application or the runtime library build. With both fields live-accurate the
+exported `HERMES_EVALUATOR_REVIEW_ID` recomputes to
+`hermes-evaluators.dbce0074a95aa698966c1d6d1b8bd465118956c7f1f66afead03d2a5356a3880`,
+matching live discovery exactly; `REVIEWED_HERMES_EVALUATOR_REVIEW_ID` in
+`capsec-coverage-model.mjs` is set to that value.
+
+**3. Host-ABI count updated to 362.** The added surface is
+`ex_hermes_activate_webgpu_runtime_v1` from commit `1407af0e` ("Defer WebGPU
+runtime activation", 2026-07-25), which already carried its reviewed
+classification (`REVIEWED_HOST_ABI_NAMES` row, coverage edge, non-capability
+WP4 in the generated inventory) — only the reviewed count assertion was
+missed. The companion output-catalog pins move with it, each +1 from the new
+surface's `int32_t (ExactHermesRuntime*)` contract: 312 output-bearing / 50
+structural-only, return channels 294, `value:scalar` returns 226, `input`
+parameters 916.
+
+**4. Startup env row completed.** The live-vs-reviewed startup-name check
+also surfaced the fetch owner-race fix's `env:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS`
+(registered in the runtime-environment registry but absent from
+`REVIEWED_STARTUP_NAMES` / `HARNESS_STARTUP_ENVIRONMENT_CONTROLS`); both rows
+added, mirroring `IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS`.
+
+Both `capsec-surface-inventory.test.mjs` and `capsec-coverage-model.test.mjs`
+pass. Item 2 of
+[20260726-capsec-regen-chain-broken](../20260726-capsec-regen-chain-broken.md)
+is discharged by this fix; that ticket stays open on item 3 (the
+`runtime.rs#authenticated-file-ingress` range repin) before the full regen
+chain can run.
+
+### Completion-branch reconciliation
+
+The CapSec completion branch also carries the source-built Hermes profile and
+additional reviewed host ABIs. After merging the restamp above, live discovery
+therefore exports
+`hermes-evaluators.3e6954de6300cf7cbd32f27af9077c4a0a55dc951e106a44a991791846e9971f`
+and 375 host ABIs: 325 output-bearing / 50 structural-only, with 306 return,
+66 callback, and 235 out channels. The classifier pins that composed identity;
+the inventory/classifier tests and complete generated-drift gate pass.

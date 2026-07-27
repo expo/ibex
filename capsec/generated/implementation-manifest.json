@@ -276566,6 +276566,37 @@
       ]
     },
     {
+      "edgeId": "surface.startup.env.ibex.test.runtime.producer.hold.ms.11ehh7l",
+      "observedKey": "startup:env:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS",
+      "branchId": "surface.startup.env.ibex.test.runtime.producer.hold.ms.11ehh7l.main",
+      "enforcementBranchId": "surface.startup.env.ibex.test.runtime.producer.hold.ms.11ehh7l.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_internal.h#getenv:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS:read"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_internal.h#getenv:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS:read"
+        ],
+        "terminalObservedKey": "startup:env:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_internal.h#getenv:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS:read"
+      ],
+      "implementationOwner": "WP9",
+      "fixtureObligations": [
+        "surface.startup.env.ibex.test.runtime.producer.hold.ms.11ehh7l.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.startup.env.ibex.test.transpile.input.barrier.07svevo",
       "observedKey": "startup:env:IBEX_TEST_TRANSPILE_INPUT_BARRIER",
       "branchId": "surface.startup.env.ibex.test.transpile.input.barrier.07svevo.main",
@@ -286754,7 +286785,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-1JFKAmcKy2XBtTJdtkRekjqCOQPLQwg09oCOmuE2BpQ"
+      "rawContentDigest": "sha256-nDm3wl94jQ5IdsEJph1quDldZQz1rIEaszMEQo77wC4"
     },
     {
       "kind": "output-disposition-dataset",
@@ -286769,44 +286800,44 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-WaqHLogDbBeia7ckROy8TN256hSnAlknqi54jJFnBAM"
+      "rawContentDigest": "sha256-iloSwu3g8ESRhaYuMiMjB_XQrk3VeeiV5G3y8bE2ei8"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-qpc4hLUhD28JZkPabZI0HkcoTc15tfgXIZzmLM214iU"
+      "rawContentDigest": "sha256-teFw1UuQfwtU6TiCc9FOBDy-Zb95ApzzMO5LpHk6AhQ"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-zpWX85oyy8aN8qjQ7sLnrc-kd3MUHqOM5pOeRiA4okk"
+      "rawContentDigest": "sha256-HUM_y30HeTBvB4ouk9fJarEuDtaZZ1w3TpobJ9YZMJ8"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-FvN1JT5DnzLw5QX26ocYqaUs1-K31PZJcG4hVviqA6s"
+      "rawContentDigest": "sha256-jcH-OysnglP0uvjbtR1znM-ADLwSERYD_4DDuq07AEY"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-gSGnAB04u5cCBH2L3RqnlfJ2qiDGwO4rS_yaauKVWR0"
+      "rawContentDigest": "sha256-fNYeECqH68TZ4aWS9BLh9JnpvrHGG_z_m3viC8WI0yM"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-gC33z3RYnW_zmz0T7iiCr-3WX-oynORqMejjNOCQUaA"
+      "rawContentDigest": "sha256-Br0ddg37a_DmWvIIpNdC-K8BeGjLhl2yPJdywgaglpk"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-F3OB-4tIZeUYwPnXc-9HAE87nvCj2E6MZF3tG_kyOa0"
+      "rawContentDigest": "sha256-EZW6uNSwwhzk9dwxouj69i2OJS-XYDilj-NAEV5z2HE"
     }
   ],
   "counts": {
-    "observedReferences": 13610,
-    "logicalSurfaces": 7657,
-    "enforcementBranches": 7958,
-    "coverageEdges": 7657,
-    "targetCells": 15314
+    "observedReferences": 13611,
+    "logicalSurfaces": 7658,
+    "enforcementBranches": 7959,
+    "coverageEdges": 7658,
+    "targetCells": 15316
   }
 }

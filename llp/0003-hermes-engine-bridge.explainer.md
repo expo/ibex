@@ -257,6 +257,24 @@ releasing the fetch entry, so a runtime that drained the newly queued callback
 during the overlap cannot park on a keepalive that disappeared immediately afterward `[observed]`
 (`src/engine/hermes_runtime_fetch.cc`; `src/engine/hermes_runtime.cc`).
 
+A cross-thread producer that enqueues a JSI-owning completion must also make
+the queued callback the SOLE owner of those JSI values — move-captured, never
+copy-captured. The runtime thread may execute and release the queued callback
+before the producer's own frame unwinds, so any copy left in producer-thread
+locals can become the final owner and run the `jsi::Function` destructor off
+the Hermes owner thread (a macOS `SIGSEGV` on the NSURLSession-delegate thread
+in Snapback verification; the runtime does not need to be tearing down).
+Producers that genuinely need a post-enqueue reference (the GPU decoded-image
+completion's rejection fallback) must instead guarantee that every strong
+owner's release path drains the JSI-bearing state on the runtime thread first.
+Observer builds enforce the rule end to end: fetch and host-call promise
+closures are allocated through a deleter that records which thread ran the
+final release, and regression tests park the producer after enqueue
+(`IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS`) to force the drain-before-return
+ordering `[observed]` (`src/engine/hermes_runtime_fetch.cc`;
+`src/engine/hermes_runtime.cc`; `src/engine/hermes_runtime_internal.h`;
+`issues/20260726-native-fetch-jsi-last-owner-race.md`).
+
 Cross-thread callback identity is the pair `(ExactHermesRuntime*,
 runtime_nonce)`, never the address alone. Destruction changes the registry row
 from `Running` to `Closing`, unregisters or cancels event sources, and keeps

@@ -1,10 +1,16 @@
 # Audit graph admission
 
 **Type:** Spec
-**Status:** Draft
+**Status:** Accepted
 **Systems:** Security, Module Loader, Runtime, CI
 **Author:** Codex, directed by Charlie Cheever
 **Date:** 2026-07-17
+**Revised:** 2026-07-26 (accepted by the author, per the direction to close
+issues/20260717-oxc-audit-admission-spec.md; round-1 Fable re-review returned
+READY — `llp/reviews/0030-audit-graph-admission.fable.md` — and its four
+wording notes are reconciled here and in LLP 0028's risk register; the
+post-READY wording edits themselves carry no recorded reviewer spot-check,
+which the reviewer pre-authorized)
 **Revised:** 2026-07-18 (round-1 Fable review: foreground-vs-armed audit
 separated; complete diagnostic decision context and protected baseline added;
 builtin/candidate rules, byte retention, evidence overflow, verified-target
