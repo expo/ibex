@@ -2876,6 +2876,52 @@ ticket closes.
   open: both exact catalogs still have large honest residual sets, and both
   advertisement sets remain empty.
 
+### 2026-07-26 — executed get-only stream state evidence
+
+- Added the next operation-scoped captured-output tranche: **41** property
+  reads on harness-owned `Duplex`, `PassThrough`, `Readable`, `Transform`, and
+  `Writable` instances. The policy admits only `get` routes for `node_stream`;
+  its 44 remaining call routes and constructor route stay residual. Each read
+  binds the exact inherited/exported property descriptor, destroys the owned
+  stream, reaches one-second quiescence, and observes zero CapSec decisions.
+- The 41 rows cover the eight readable state properties on each of four
+  readable owners and the nine writable state properties on `Writable`. Data,
+  accessor, and source-unknown inventory shapes are accepted only when the
+  authored operation is a property get and the physical descriptor proof
+  matches the exact access path.
+- Apple catalog digest
+  `sha256-Be18qOUto6Lq0UJzVt90w2uy9vtqZR57JwgdZ7OsUnI` reports 23,846 required /
+  **3,456 fully executable** / 3,136 internally verified / 17,254 unresolved.
+  The M5 MacBook Air batch passes **1,176/1,176**: 34 isolated imports, 1,047
+  established exports, and 95 captured routes including all 41 stream gets.
+  It binds engine digest
+  `sha256-GY41wqT-o2FQKLtIAN_Jvaepc4b0fhdgo4wRqbzVwtc`; the evidence-file
+  SHA-256 is
+  `7db3b44aa3de5bf5a2edc92f86316d2e1a18aaa3f65df687d09fb0eb0be0e65d`,
+  and independent validation produced execution digest
+  `sha256-EkuhWUnNa_tZIgJC8VBR7O4zf9bwBODphTVV2Y_9SVU`.
+- Windows catalog digest
+  `sha256-HTO17Y6uyDgmUyL1OuGT8IuelzzYD48brJ31RDu4wek` reports 23,505 required /
+  **3,115 fully executable** / 3,122 internally verified / 17,268 unresolved.
+  The physical strict stale-vendored batch passes **1,140/1,140**: 34 isolated
+  imports, 1,011 established exports, and the same 95 captured routes. It binds
+  engine digest
+  `sha256-xqWHmqF0mGjVqhS8bUI7Av9fiP84rE8Zj23kOq9JJw8`; the evidence-file
+  SHA-256 is
+  `34ace5cedaffcd6debc8ed15e25831bb494ac33f9ef86201b27c2bab4a58b5c9`,
+  and independent validation produced execution digest
+  `sha256-XvsHLKUe2vxHL4K7qUahQ3YfgHke-_96eEJ1E17_xU4`.
+- The focused recipe/template/evidence suite remains **152/152** and now
+  performs 125,016 assertions.
+- Hard part: a source-family allowlist would also have opened stream
+  composition, piping, async iteration, and deferred promise routes. The
+  conformance policy therefore binds both source family and operation class;
+  physical proof for passive state reads cannot promote lifecycle-changing
+  calls that happen to share the same module.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

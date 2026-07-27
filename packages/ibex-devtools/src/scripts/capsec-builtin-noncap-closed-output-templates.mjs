@@ -46,17 +46,23 @@ const PROTOTYPE_IDIOMS = new Set([
 ]);
 const KNOWN_CLASSIFICATIONS = new Set(["non-capability", "closed"]);
 const KNOWN_PLATFORMS = new Set(["android", "darwin", "linux"]);
-const CONFORMANCE_CAPTURED_SOURCE_KEYS = new Set([
-  "exact_process",
-  "node_buffer",
-  "node_console",
-  "node_events",
-  "node_perf_hooks",
-  "node_string_decoder",
-  "node_timers",
-  "node_timers_promises",
-  "node_url",
-  "node_util",
+const CONFORMANCE_CAPTURED_SOURCE_OPERATIONS = new Map([
+  ...[
+    "exact_process",
+    "node_buffer",
+    "node_console",
+    "node_events",
+    "node_perf_hooks",
+    "node_string_decoder",
+    "node_timers",
+    "node_timers_promises",
+    "node_url",
+    "node_util",
+  ].map((sourceKey) => [
+    sourceKey,
+    new Set(["call", "construct", "get"]),
+  ]),
+  ["node_stream", new Set(["get"])],
 ]);
 const DESCRIPTOR_ROOT_RETURN_ALIASES = new Set([
   "_stream_duplex",
@@ -2270,7 +2276,11 @@ export function authoredNonCapabilityBuiltinCapturedProbe({
     return null;
   }
   const descriptor = capturedOutputInvocation.sourceDescriptor;
-  if (!CONFORMANCE_CAPTURED_SOURCE_KEYS.has(descriptor.sourceKey)) {
+  if (
+    !CONFORMANCE_CAPTURED_SOURCE_OPERATIONS.get(descriptor.sourceKey)?.has(
+      capturedOutputInvocation.route.operation,
+    )
+  ) {
     return null;
   }
   return {

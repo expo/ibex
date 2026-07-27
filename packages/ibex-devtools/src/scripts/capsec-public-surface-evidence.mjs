@@ -2235,7 +2235,9 @@ function validateRuntimeInvocation(observation, recipe) {
           descriptor.valueShape,
         )) ||
       (route.operation === "get" &&
-        new Set(["accessor", "unknown"]).has(descriptor.valueShape));
+        new Set(["accessor", "data", "unknown"]).has(
+          descriptor.valueShape,
+        ));
     if (
       recipe.classification !== "non-capability" ||
       recipe.scenario !== "non-capability" ||

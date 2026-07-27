@@ -349,18 +349,20 @@ describe("exact-target CapSec executable recipes", () => {
     // contribute four retained-descriptor scenarios apiece. Descriptor denial
     // remains residual because the harness cannot prepare its source descriptor
     // under a denied matching floor.
-    // Fifty-four output-authored builtin routes now execute their exact inner
-    // source operation as decision-free evidence. Physical Apple execution
-    // also retired stale crypto and zlib recipes that crashed or deliberately
-    // threw instead of returning; residual accounting must reflect both.
+    // Ninety-five output-authored builtin routes now execute their exact inner
+    // source operation as decision-free evidence. This includes 41 get-only
+    // reads on harness-owned stream instances; stream calls and constructors
+    // remain residual. Physical Apple execution also retired stale crypto and
+    // zlib recipes that crashed or deliberately threw instead of returning;
+    // residual accounting must reflect both.
     // The principal environment Proxy adds the complete exact read/write
     // scenario matrix through its captured native bridges.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_415);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_456);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_295);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_254);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -469,12 +471,13 @@ describe("exact-target CapSec executable recipes", () => {
     // descriptor denial remains residual because its prerequisite handle needs
     // the same floor that the scenario denies. Typed synchronous TCP connect
     // adds its five staged public scenarios, and its exact typed setup promotes
-    // the three ownership-only lifecycle consumers. The same 54 captured
-    // output routes execute here; target-local physical evidence also retires
-    // the unsafe or deliberately throwing crypto/zlib claims.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_074);
+    // the three ownership-only lifecycle consumers. The same 95 captured
+    // output routes execute here, including the 41 get-only stream reads;
+    // target-local physical evidence also retires the unsafe or deliberately
+    // throwing crypto/zlib claims.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_115);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_309);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_268);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5175,7 +5178,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-builtin-noncap-captured-invocation/1",
     );
-    expect(captured).toHaveLength(54);
+    expect(captured).toHaveLength(95);
     expect(windowsCaptured.map((recipe) => recipe.fixtureId)).toEqual(
       captured.map((recipe) => recipe.fixtureId),
     );
@@ -5193,6 +5196,7 @@ describe("exact-target CapSec executable recipes", () => {
         "node_console",
         "node_events",
         "node_perf_hooks",
+        "node_stream",
         "node_string_decoder",
         "node_timers",
         "node_timers_promises",
@@ -5211,7 +5215,22 @@ describe("exact-target CapSec executable recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ call: 38, construct: 9, get: 7 });
+    ).toEqual({ call: 38, construct: 9, get: 48 });
+    const streamCaptured = captured.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+        "node_stream",
+    );
+    expect(streamCaptured).toHaveLength(41);
+    expect(
+      streamCaptured.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.capturedOutputInvocation.route
+            .operation === "get" &&
+          recipe.publicSurfaceProbe.invocation.capturedOutputInvocation.route
+            .cleanup.kind === "stream-owned-destroy",
+      ),
+    ).toBe(true);
     for (const recipe of captured) {
       const probe = recipe.publicSurfaceProbe;
       const invocation = probe.invocation;
