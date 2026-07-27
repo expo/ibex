@@ -2018,7 +2018,7 @@ mod tests {
         assert_eq!(
             root_builtins
                 .iter()
-                .filter(|specifier| *specifier == "ibex:conformance")
+                .filter(|specifier| *specifier == "@ibex/conformance")
                 .count(),
             1,
             "the authenticated selected extension module must be exact-allowlisted"
@@ -2095,11 +2095,11 @@ mod tests {
         }
         .unwrap();
         assert!(
-            host.check_import("0", "ibex:conformance"),
+            host.check_import("0", "@ibex/conformance"),
             "the production Host must classify and allow the selected extension module exactly"
         );
         assert!(
-            !host.check_import("0", "ibex:unselected"),
+            !host.check_import("0", "@ibex/unselected"),
             "an unselected extension-like spelling must remain outside the builtin allowlist"
         );
         let root = host.typed_principal_for_module("0").unwrap();

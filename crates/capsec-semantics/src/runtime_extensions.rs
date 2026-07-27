@@ -955,6 +955,16 @@ fn validate_descriptor<'a>(
             module.specifier.as_str(),
             "runtime-extension module specifier",
         )?;
+        if module.specifier.as_str().contains('#') {
+            return refused(
+                "runtime-extension module specifier contains reserved export separator",
+            );
+        }
+        if !is_module_specifier(module.specifier.as_str()) {
+            return refused(
+                "runtime-extension module specifier does not use canonical module-specifier grammar",
+            );
+        }
         if !module_specifiers.insert(module.specifier.as_str().to_owned()) {
             return refused("runtime-extension module specifiers collide");
         }
@@ -1064,6 +1074,36 @@ fn is_dotted_identifier_path(path: &str) -> bool {
     })
 }
 
+fn is_module_specifier_segment(segment: &str) -> bool {
+    let Some((&first, rest)) = segment.as_bytes().split_first() else {
+        return false;
+    };
+    (first.is_ascii_lowercase() || first.is_ascii_digit())
+        && rest.iter().all(|byte| {
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || matches!(*byte, b'.' | b'_' | b'-')
+        })
+}
+
+fn is_module_specifier(specifier: &str) -> bool {
+    let mut segments = specifier.split('/');
+    let Some(first) = segments.next() else {
+        return false;
+    };
+    if let Some(scope) = first.strip_prefix('@') {
+        if !is_module_specifier_segment(scope) {
+            return false;
+        }
+        let Some(package) = segments.next() else {
+            return false;
+        };
+        is_module_specifier_segment(package) && segments.all(is_module_specifier_segment)
+    } else {
+        is_module_specifier_segment(first) && segments.all(is_module_specifier_segment)
+    }
+}
+
 fn is_owned_operation_entry_path(
     path: &str,
     globals: &[RuntimeExtensionGlobal],
@@ -1156,7 +1196,7 @@ pub(crate) fn test_authority_capsule() -> RuntimeExtensionAuthorityCapsule {
                 kind: RuntimeExtensionGlobalKind::Object,
             }],
             modules: vec![RuntimeExtensionModule {
-                specifier: NonEmptyString::new("acme:echo").unwrap(),
+                specifier: NonEmptyString::new("@acme/echo").unwrap(),
             }],
             callbacks: vec![RuntimeExtensionCallback {
                 id: StableId::new("completion").unwrap(),
@@ -1297,7 +1337,7 @@ mod tests {
                     kind: RuntimeExtensionGlobalKind::Object,
                 }],
                 modules: vec![RuntimeExtensionModule {
-                    specifier: NonEmptyString::new("acme:echo").unwrap(),
+                    specifier: NonEmptyString::new("@acme/echo").unwrap(),
                 }],
                 callbacks: vec![RuntimeExtensionCallback {
                     id: StableId::new("completion").unwrap(),
@@ -1424,9 +1464,9 @@ mod tests {
             "AcmeEcho.echo",
             "AcmeEcho#echo",
             "AcmeEcho#$private.nested",
-            "acme:echo",
-            "acme:echo#echo",
-            "acme:echo#echo.nested",
+            "@acme/echo",
+            "@acme/echo#echo",
+            "@acme/echo#echo.nested",
         ] {
             let mut capsule = unsigned_capsule();
             capsule.descriptors[0].authority_fragment.operations[0].js_entry_path =
@@ -1442,10 +1482,10 @@ mod tests {
             "AcmeEcho.foo-bar",
             "AcmeEcho.1bad",
             "AcmeEcho.child#echo",
-            "acme:echo#bad..export",
-            "acme:echo#bad.",
-            "acme:echo#",
-            "acme:echo##echo",
+            "@acme/echo#bad..export",
+            "@acme/echo#bad.",
+            "@acme/echo#",
+            "@acme/echo##echo",
             "undeclared:module#echo",
             "Undeclared.echo",
         ] {
@@ -1473,11 +1513,46 @@ mod tests {
         .to_string();
         assert!(error.contains("dotted identifier path"), "{error}");
 
+        let mut reserved_module_separator = unsigned_capsule();
+        reserved_module_separator.descriptors[0].modules[0].specifier =
+            NonEmptyString::new("acme#echo").unwrap();
+        let error = validate_authority_contents(
+            &reserved_module_separator.descriptors,
+            &reserved_module_separator.linked_artifacts,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("reserved export separator"), "{error}");
+
+        for malformed in [
+            "bad module",
+            "é",
+            "/leading",
+            "bad//module",
+            "Bad/module",
+            "@scope",
+            "@scope//module",
+        ] {
+            let mut malformed_module = unsigned_capsule();
+            malformed_module.descriptors[0].modules[0].specifier =
+                NonEmptyString::new(malformed).unwrap();
+            let error = validate_authority_contents(
+                &malformed_module.descriptors,
+                &malformed_module.linked_artifacts,
+            )
+            .unwrap_err()
+            .to_string();
+            assert!(
+                error.contains("canonical module-specifier grammar"),
+                "invalid module specifier {malformed}: {error}"
+            );
+        }
+
         let mut authenticated_malformed = signed_capsule();
         authenticated_malformed.descriptors[0]
             .authority_fragment
             .operations[0]
-            .js_entry_path = NonEmptyString::new("acme:echo#bad..export").unwrap();
+            .js_entry_path = NonEmptyString::new("@acme/echo#bad..export").unwrap();
         let error = authenticated_malformed.validate().unwrap_err().to_string();
         assert!(error.contains("operation JS entry path"), "{error}");
     }

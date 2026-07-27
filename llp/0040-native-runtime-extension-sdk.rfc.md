@@ -123,10 +123,15 @@ An operation entry names either a dot-separated global/member path, the exact
 declared module specifier, or a declared global/module owner followed by `#`
 and a dot-separated export path. Registry admission rejects empty or repeated
 `#` separators, malformed export segments, and fragments whose owner is not a
-declared global or module. Module/export entries remain outside the global-key
-seal projection; their authority comes from the authenticated module and
-operation inventories. CapSec authority-template/capsule validation applies
-the same owner and segment grammar before authenticating those inventories.
+declared global or module. A module specifier uses the closed Exact grammar
+`(?:@segment/)?segment(?:/segment)*`, where every segment begins with an ASCII
+lowercase letter or digit and continues only with ASCII lowercase letters,
+digits, `.`, `_`, or `-`. The `#` byte is reserved for the operation boundary
+and therefore cannot occur inside a declared module specifier. Module/export
+entries remain outside the global-key seal projection; their authority comes
+from the authenticated module and operation inventories. CapSec
+authority-template/capsule validation applies the same module, owner, and
+export-segment grammar before authenticating those inventories.
 
 The registry declares an extension-set digest, authority-capsule digest, and
 executable-selection identity. Ibex rejects the complete registry before
@@ -612,7 +617,8 @@ Tests must cover:
 28. CapSec authority-template/capsule validation using the same ASCII
     global/member, exact-module, and owner/export grammar as native registry
     admission, including malformed global descendants, malformed export
-    segments, and cross-owner borrowing.
+    segments, cross-owner borrowing, and refusal of the reserved `#` separator
+    inside module declarations.
 
 Before any extension bootstrap or installer runs, Ibex retains the pristine
 `Object.getOwnPropertyNames`, `Object.getOwnPropertySymbols`,

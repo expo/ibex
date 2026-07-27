@@ -83,6 +83,8 @@ const REGISTRY_UNDECLARED_BOOTSTRAP_MODULE: u32 = 15;
 const REGISTRY_DECLARED_MODULE_ENTRY: u32 = 16;
 const REGISTRY_UNDECLARED_MODULE_ENTRY: u32 = 17;
 const REGISTRY_MALFORMED_MODULE_ENTRY: u32 = 18;
+const REGISTRY_RESERVED_MODULE_SEPARATOR: u32 = 19;
+const REGISTRY_INVALID_MODULE_GRAMMAR: u32 = 20;
 
 unsafe extern "C" {
     fn ibex_runtime_extension_conformance_registry_v1() -> *const c_void;
@@ -526,6 +528,14 @@ fn malformed_registries_are_refused_before_installation() {
         (REGISTRY_PROVIDER_MISMATCH, "provider mismatch"),
         (REGISTRY_UNDECLARED_MODULE_ENTRY, "undeclared module entry"),
         (REGISTRY_MALFORMED_MODULE_ENTRY, "malformed module entry"),
+        (
+            REGISTRY_RESERVED_MODULE_SEPARATOR,
+            "reserved export separator",
+        ),
+        (
+            REGISTRY_INVALID_MODULE_GRAMMAR,
+            "invalid module specifier grammar",
+        ),
     ] {
         reset();
         let registry = unsafe { ibex_runtime_extension_conformance_registry_variant_v1(variant) };
@@ -800,7 +810,7 @@ fn native_identity_sync_enqueue_async_delivery_and_buffers_execute() {
                   var f = __ibexRuntimeExtensionFixture;
                   var object = f.nativeObject;
                   return String(
-                    require("ibex:conformance") === f &&
+                    require("@ibex/conformance") === f &&
                     object === f.getNativeObject() &&
                     Object.getPrototypeOf(object) === f.prototype &&
                     f.prototype.kind === "native-fixture" &&

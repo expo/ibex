@@ -627,7 +627,7 @@ int32_t installFixture(void *opaque_context, void **output) {
 #endif
 
   auto module_exports = facebook::jsi::Value(runtime, api);
-  context.defineModule("ibex:conformance", std::move(module_exports));
+  context.defineModule("@ibex/conformance", std::move(module_exports));
   context.defineGlobal("__ibexRuntimeExtensionFixture", std::move(api), false,
                        false);
   *output = instance.release();
@@ -741,7 +741,7 @@ int32_t installModuleEntry(void *opaque_context, void **output) {
   auto &runtime = context.runtime();
   auto exports = facebook::jsi::Object(runtime);
   exports.setProperty(runtime, "fixtureModuleExport", 1.0);
-  context.defineModule("ibex:conformance", std::move(exports));
+  context.defineModule("@ibex/conformance", std::move(exports));
   *output = nullptr;
   g_installCount.fetch_add(1, std::memory_order_relaxed);
   return IBEX_RUNTIME_EXTENSION_OK;
@@ -872,7 +872,7 @@ constexpr IbexRuntimeExtensionOperationV1 kOperations[] = {
 
 constexpr IbexRuntimeExtensionOperationV1 kDeclaredModuleEntryOperations[] = {
     IBEX_CONFORMANCE_OPERATION("module-export", "fixture.module-export",
-                               "ibex:conformance#fixtureModuleExport"),
+                               "@ibex/conformance#fixtureModuleExport"),
 };
 
 constexpr IbexRuntimeExtensionOperationV1 kUndeclaredModuleEntryOperations[] = {
@@ -882,7 +882,7 @@ constexpr IbexRuntimeExtensionOperationV1 kUndeclaredModuleEntryOperations[] = {
 
 constexpr IbexRuntimeExtensionOperationV1 kMalformedModuleEntryOperations[] = {
     IBEX_CONFORMANCE_OPERATION("module-export", "fixture.module-export",
-                               "ibex:conformance#fixture..moduleExport"),
+                               "@ibex/conformance#fixture..moduleExport"),
 };
 
 #undef IBEX_CONFORMANCE_OPERATION
@@ -915,7 +915,15 @@ constexpr IbexRuntimeExtensionCallbackV1 kCallbacks[] = {
 };
 
 constexpr const char *kModules[] = {
-    "ibex:conformance",
+    "@ibex/conformance",
+};
+
+constexpr const char *kReservedSeparatorModules[] = {
+    "@ibex/conformance#fixture",
+};
+
+constexpr const char *kInvalidGrammarModules[] = {
+    "bad module",
 };
 
 constexpr IbexRuntimeExtensionLifecycleVTableV1 kLifecycle = {
@@ -1110,6 +1118,35 @@ constexpr IbexRuntimeExtensionDescriptorV1 kUndeclaredModuleEntryDescriptor =
 constexpr IbexRuntimeExtensionDescriptorV1 kMalformedModuleEntryDescriptor =
     makeModuleEntryDescriptor("ibex.conformance.malformed-module-entry",
                               kMalformedModuleEntryOperations);
+
+constexpr IbexRuntimeExtensionDescriptorV1
+makeReservedModuleSeparatorDescriptor() {
+  auto descriptor = makeModuleEntryDescriptor(
+      "ibex.conformance.reserved-module-separator",
+      kDeclaredModuleEntryOperations);
+  descriptor.module_specifiers = kReservedSeparatorModules;
+  descriptor.module_specifier_count =
+      sizeof(kReservedSeparatorModules) / sizeof(kReservedSeparatorModules[0]);
+  return descriptor;
+}
+
+constexpr IbexRuntimeExtensionDescriptorV1
+    kReservedModuleSeparatorDescriptor =
+        makeReservedModuleSeparatorDescriptor();
+
+constexpr IbexRuntimeExtensionDescriptorV1
+makeInvalidModuleGrammarDescriptor() {
+  auto descriptor = makeModuleEntryDescriptor(
+      "ibex.conformance.invalid-module-grammar",
+      kDeclaredModuleEntryOperations);
+  descriptor.module_specifiers = kInvalidGrammarModules;
+  descriptor.module_specifier_count =
+      sizeof(kInvalidGrammarModules) / sizeof(kInvalidGrammarModules[0]);
+  return descriptor;
+}
+
+constexpr IbexRuntimeExtensionDescriptorV1 kInvalidModuleGrammarDescriptor =
+    makeInvalidModuleGrammarDescriptor();
 
 constexpr IbexRuntimeExtensionDescriptorV1 kOverlapDescriptor =
     makeBareDescriptor(
@@ -1358,6 +1395,12 @@ constexpr IbexRuntimeExtensionRegistryV1 kUndeclaredModuleEntryRegistry =
 constexpr IbexRuntimeExtensionRegistryV1 kMalformedModuleEntryRegistry =
     makeRegistry(&kMalformedModuleEntryDescriptor, 1);
 
+constexpr IbexRuntimeExtensionRegistryV1 kReservedModuleSeparatorRegistry =
+    makeRegistry(&kReservedModuleSeparatorDescriptor, 1);
+
+constexpr IbexRuntimeExtensionRegistryV1 kInvalidModuleGrammarRegistry =
+    makeRegistry(&kInvalidModuleGrammarDescriptor, 1);
+
 constexpr IbexRuntimeExtensionRegistryV1 makeSuccessfulRegistry() {
   auto registry = makeRegistry(kSuccessfulDescriptors,
                                sizeof(kSuccessfulDescriptors) /
@@ -1475,6 +1518,10 @@ ibex_runtime_extension_conformance_registry_variant_v1(uint32_t variant) {
     return &kUndeclaredModuleEntryRegistry;
   case 18:
     return &kMalformedModuleEntryRegistry;
+  case 19:
+    return &kReservedModuleSeparatorRegistry;
+  case 20:
+    return &kInvalidModuleGrammarRegistry;
   default:
     return nullptr;
   }

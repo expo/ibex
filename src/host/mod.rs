@@ -8270,7 +8270,7 @@ mod tests {
                     "name": "__ibexRuntimeExtensionFixture",
                     "kind": "object"
                 }],
-                "modules": [{"specifier": "ibex:conformance"}],
+                "modules": [{"specifier": "@ibex/conformance"}],
                 "callbacks": [
                     {
                         "id": "delayed",
@@ -8487,7 +8487,7 @@ mod tests {
                 .iter_mut()
                 .find(|row| row["principal"]["kind"] == "root")
                 .unwrap();
-            root["imports"]["builtins"] = serde_json::json!(["ibex:conformance"]);
+            root["imports"]["builtins"] = serde_json::json!(["@ibex/conformance"]);
             for authority_class in authority_classes {
                 root["floor"]
                     .as_array_mut()

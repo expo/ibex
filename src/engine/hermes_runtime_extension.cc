@@ -180,6 +180,44 @@ bool validIdentifierSegment(const std::string &segment) {
                      });
 }
 
+bool validModuleSpecifierSegment(const std::string &segment) {
+  if (segment.empty())
+    return false;
+  const auto validFirst = [](unsigned char byte) {
+    return (byte >= 'a' && byte <= 'z') || (byte >= '0' && byte <= '9');
+  };
+  const auto validRest = [&validFirst](unsigned char byte) {
+    return validFirst(byte) || byte == '.' || byte == '_' || byte == '-';
+  };
+  return validFirst(static_cast<unsigned char>(segment.front())) &&
+         std::all_of(segment.begin() + 1, segment.end(), validRest);
+}
+
+bool validModuleSpecifier(const std::string &specifier) {
+  size_t start = 0;
+  bool scoped = false;
+  if (!specifier.empty() && specifier.front() == '@') {
+    scoped = true;
+    start = 1;
+  }
+  size_t segment_count = 0;
+  while (start <= specifier.size()) {
+    const size_t separator = specifier.find('/', start);
+    const auto segment =
+        specifier.substr(start,
+                         separator == std::string::npos
+                             ? std::string::npos
+                             : separator - start);
+    if (!validModuleSpecifierSegment(segment))
+      return false;
+    ++segment_count;
+    if (separator == std::string::npos)
+      break;
+    start = separator + 1;
+  }
+  return !scoped || segment_count >= 2;
+}
+
 std::vector<std::string> splitPath(const std::string &path) {
   std::vector<std::string> segments;
   size_t start = 0;
@@ -838,6 +876,24 @@ bool copyDescriptor(const IbexRuntimeExtensionRegistryV1 *registry,
                       descriptor.module_specifier_count, false,
                       &instance->module_specifiers, error)) {
     return false;
+  }
+  for (const auto &specifier : instance->module_specifiers) {
+    if (specifier.find('#') != std::string::npos) {
+      if (error) {
+        *error =
+            "runtime extension module specifier contains reserved export "
+            "separator";
+      }
+      return false;
+    }
+    if (!validModuleSpecifier(specifier)) {
+      if (error) {
+        *error =
+            "runtime extension module specifier does not use canonical "
+            "module-specifier grammar";
+      }
+      return false;
+    }
   }
   if (descriptor.bootstrap_count > kMaxListItems ||
       (descriptor.bootstrap_count != 0 && descriptor.bootstraps == nullptr)) {

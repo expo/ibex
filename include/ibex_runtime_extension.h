@@ -201,6 +201,13 @@ typedef struct IbexRuntimeExtensionDescriptorV1 {
   uint32_t provider_struct_size;
   const IbexRuntimeExtensionGlobalV1* globals;
   size_t global_count;
+  /*
+   * Exact canonical non-relative module names: an optional @scope/ followed
+   * by one or more slash-separated segments. Each scope/name segment starts
+   * with an ASCII lowercase letter or digit and then uses only ASCII
+   * lowercase letters, digits, '.', '_', or '-'. The '#' byte is reserved as
+   * the operation-entry module/export separator and is forbidden here.
+   */
   const char* const* module_specifiers;
   size_t module_specifier_count;
   const IbexRuntimeExtensionBootstrapV1* bootstraps;
