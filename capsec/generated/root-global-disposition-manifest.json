@@ -2,7 +2,7 @@
   "rootGlobalDispositionManifestSchema": "ibex/root-global-disposition-manifest/1",
   "profile": "ibex/capsec/1",
   "status": "enforced-by-armed-live-sweep",
-  "sourceDigest": "sha256-19pbQbsXDYkvVWIUB-LdtHA719LPOpo1mVQC9J6ZpmU",
+  "sourceDigest": "sha256-xvCquMkZUuEFtuZ2R4XaGG5SBKcr6ENkUzXDjyyn51M",
   "sweep": {
     "roots": [
       "globalThis"

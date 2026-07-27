@@ -149079,6 +149079,16 @@
             "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
           },
           {
+            "id": "surface.host.abi.ex.hermes.interrupt.eval.0k38m1d",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_interrupt_eval"
+            },
+            "rationaleId": "authority-release",
+            "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
             "classification": "non-capability",
             "surface": {
@@ -149649,6 +149659,16 @@
             "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
           },
           {
+            "id": "surface.host.abi.ex.hermes.unwatch.time.limit.14lkxq1",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_unwatch_time_limit"
+            },
+            "rationaleId": "authority-release",
+            "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.value.kind.1p2efiz",
             "classification": "closed",
             "surface": {
@@ -149697,6 +149717,16 @@
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.watch.time.limit.1wx5to6",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_watch_time_limit"
+            },
+            "rationaleId": "authority-release",
+            "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
           },
           {
             "id": "surface.host.abi.ex.host.armed.bootstrap.compatibility.flags.1m94svg",

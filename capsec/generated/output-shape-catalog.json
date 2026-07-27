@@ -39092,6 +39092,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.interrupt.eval.0k38m1d",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_interrupt_eval"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -39796,6 +39807,15 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.unwatch.time.limit.14lkxq1",
+      "status": "structural-only",
+      "reasonCode": "source-derived-void-all-input-abi",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_unwatch_time_limit"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.value.kind.1p2efiz",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -39851,6 +39871,17 @@
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#ex_hermes_verify_prepared_native_startup_absent_v1"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.watch.time.limit.1wx5to6",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_watch_time_limit"
       ],
       "outputKinds": [
         "[[return]]"
@@ -85025,15 +85056,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-eevsOpdJsXBYnVzzWn9SbmXR3FBD2lAfPAmIVyPR7pg",
+  "catalogKeyDigest": "sha256-YlYnG1DLUSIj9JTuZlQ1074ZNWSld2eTObvrPWI7GjQ",
   "counts": {
-    "coverageSurfaces": 7480,
-    "outputBearingSurfaces": 5799,
-    "structuralOnlySurfaces": 1674,
+    "coverageSurfaces": 7483,
+    "outputBearingSurfaces": 5801,
+    "structuralOnlySurfaces": 1675,
     "unresolvedSurfaces": 7,
-    "catalogRows": 6478,
+    "catalogRows": 6480,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6071,
+    "sourceInventoryRows": 6073,
     "structuredRows": 407
   },
   "rows": [
@@ -150834,6 +150865,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.interrupt.eval.0k38m1d",
+        "output": "[[return]]",
+        "alias": "ex_hermes_interrupt_eval",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_interrupt_eval"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_interrupt_eval"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
         "output": "[[return]]",
         "alias": "ex_hermes_module_compile_factory",
@@ -153999,6 +154051,27 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#ex_hermes_verify_prepared_native_startup_absent_v1"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.watch.time.limit.1wx5to6",
+        "output": "[[return]]",
+        "alias": "ex_hermes_watch_time_limit",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_watch_time_limit"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_watch_time_limit"
         ]
       },
       "requiredValueProof": "live-value-observation"

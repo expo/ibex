@@ -628,6 +628,37 @@ int ex_hermes_eval(
     int is_bytecode,
     char** out_value);
 
+/// Arm Hermes' interruptible-eval time-limit monitor for this runtime.
+/// JavaScript evaluated through ex_hermes_eval is compiled with async-break
+/// checks by the default RuntimeConfig, so a CPU-bound loop is terminated and
+/// returned as an evaluation error. Hermes' watchTimeLimit is not documented
+/// as any-thread, so this must be called on the runtime-owning thread; use
+/// ex_hermes_interrupt_eval to stop an eval already running elsewhere.
+/// @return 0 on success, non-zero for invalid input or setup failure.
+/// @ref LLP 0002#runtime-driving-thread-contract
+int ex_hermes_watch_time_limit(
+    ExactHermesRuntime* runtime,
+    uint32_t timeout_ms);
+
+/// Disarm a time limit previously armed with ex_hermes_watch_time_limit.
+/// Safe to call when no limit is armed. Call on the runtime-owning thread.
+/// @ref LLP 0002#runtime-driving-thread-contract
+void ex_hermes_unwatch_time_limit(ExactHermesRuntime* runtime);
+
+/// Interrupt an eval that is already executing, from any thread.
+///
+/// Hermes documents asyncTriggerTimeout as any-thread, so unlike
+/// ex_hermes_watch_time_limit this takes the nonce-authenticated control
+/// lease rather than the owner-thread drive guard: a foreign thread may stop
+/// a runaway eval, while a stale caller cannot interrupt a different runtime
+/// that later reused the same address.
+/// @return 0 when the interrupt was delivered, non-zero otherwise (including
+/// when the linked Hermes lacks async-break support).
+/// @ref LLP 0002#runtime-driving-thread-contract
+int ex_hermes_interrupt_eval(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce);
+
 // Versioned, length-bearing evaluation values. The only source evaluator
 // exposed here is explicitly diagnostic and rejects armed runtimes. Armed
 // operator source uses the authenticated session-submit route; it must never

@@ -5176,6 +5176,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_graph_context_create",
     "ex_hermes_graph_context_retain",
     "ex_hermes_has_pending_tasks",
+    "ex_hermes_interrupt_eval",
     "ex_hermes_module_compile_factory",
     "ex_hermes_module_create_record",
     "ex_hermes_module_load_carrier_factory",
@@ -5233,11 +5234,13 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_take_cancellation_event",
     "ex_hermes_take_work_unit_event",
     "ex_hermes_try_destroy",
+    "ex_hermes_unwatch_time_limit",
     "ex_hermes_value_kind",
     "ex_hermes_value_release",
     "ex_hermes_value_safe_throw_metadata",
     "ex_hermes_value_stage1_text",
     "ex_hermes_verify_prepared_native_startup_absent_v1",
+    "ex_hermes_watch_time_limit",
     "ex_host_armed_bootstrap_compatibility_flags",
     "ex_host_armed_endowments",
     "ex_host_authorize_embedder_capability_set",
@@ -13597,6 +13600,19 @@ function classifyConcreteSurface(surface) {
       return nonCapabilitySpec("terminal-session-control", "WP7");
     }
     if (surface.name === "ex_hermes_cancel_structured_work_target") {
+      return nonCapabilitySpec("authority-release", "WP7");
+    }
+    if (
+      new Set([
+        // Arming, disarming, and delivering an eval interruption is execution
+        // control: it can only stop work some other decision already
+        // authorized, and it grants nothing.
+        // @ref LLP 0002#runtime-driving-thread-contract
+        "ex_hermes_interrupt_eval",
+        "ex_hermes_unwatch_time_limit",
+        "ex_hermes_watch_time_limit",
+      ]).has(surface.name)
+    ) {
       return nonCapabilitySpec("authority-release", "WP7");
     }
     if (surface.name === "ex_hermes_finish_bootstrap") {

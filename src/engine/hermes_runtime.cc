@@ -10140,6 +10140,15 @@ extern "C" int32_t ex_hermes_try_destroy(
   uint64_t hostContext = runtime->host_context_id;
   ScopedRuntimeSecurityContext securityContext(runtime);
 
+  // Hermes' monitor retains this runtime until explicitly unwatched. Retire it
+  // only after the owner-thread teardown gate has been acquired and before any
+  // runtime-owned state is released.
+  // @ref LLP 0002#runtime-driving-thread-contract
+  if (runtime->time_limit_watched && runtime->runtime) {
+    runtime->runtime->unwatchTimeLimit();
+    runtime->time_limit_watched = false;
+  }
+
   // Revoke extension work first. Newly scheduled completions now observe
   // Quiescing/Closing; already admitted producer pins drain through the
   // ordinary runtime callback queue below. @ref LLP 0040
@@ -10232,6 +10241,60 @@ extern "C" int32_t ex_hermes_try_destroy(
 #endif
   ex_host_release_context(hostContext);
   return EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int ex_hermes_watch_time_limit(
+    ExactHermesRuntime* runtime,
+    uint32_t timeout_ms) {
+  if (timeout_ms == 0) {
+    return 1;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || runtime->runtime == nullptr) {
+    return 1;
+  }
+  try {
+    if (runtime->time_limit_watched) {
+      runtime->runtime->unwatchTimeLimit();
+    }
+    runtime->runtime->watchTimeLimit(timeout_ms);
+    runtime->time_limit_watched = true;
+    return 0;
+  } catch (...) {
+    runtime->time_limit_watched = false;
+    return 1;
+  }
+}
+
+extern "C" void ex_hermes_unwatch_time_limit(ExactHermesRuntime* runtime) {
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || runtime->runtime == nullptr || !runtime->time_limit_watched) {
+    return;
+  }
+  runtime->runtime->unwatchTimeLimit();
+  runtime->time_limit_watched = false;
+}
+
+extern "C" int ex_hermes_interrupt_eval(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce) {
+#if !defined(EXACT_HAVE_HERMES_ASYNC_TRIGGER_TIMEOUT)
+  (void)runtime;
+  (void)runtime_nonce;
+  return 1;
+#else
+  // Any-thread by construction: Hermes documents asyncTriggerTimeout as
+  // callable from a foreign thread, so this takes the nonce-authenticated
+  // control lease instead of the owner-thread drive guard. The lease is what
+  // keeps a stale caller from interrupting a different runtime that reused
+  // this address. @ref LLP 0002#runtime-driving-thread-contract
+  ScopedRuntimeControlLease lease(runtime, runtime_nonce);
+  if (!lease || runtime->runtime == nullptr) {
+    return 1;
+  }
+  runtime->runtime->asyncTriggerTimeout();
+  return 0;
+#endif
 }
 
 namespace {
