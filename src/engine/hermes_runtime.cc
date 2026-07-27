@@ -30,6 +30,8 @@
 #if defined(__APPLE__)
 #include <crt_externs.h>
 #include <TargetConditionals.h>
+#include <mach-o/dyld.h>
+#include <mach-o/loader.h>
 #if TARGET_OS_OSX
 #include <libproc.h>
 #include <sys/proc_info.h>
@@ -6993,6 +6995,101 @@ extern "C" int32_t ibex_private_hermes_macos_mapping_observation_v1(
 #endif
 }
 
+#if defined(IBEX_CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER) && \
+    defined(__APPLE__) && TARGET_OS_SIMULATOR
+namespace {
+
+bool simulatorHermesMappedObject(uint64_t* outDevice, uint64_t* outInode) {
+  using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
+      const ::hermes::vm::RuntimeConfig&);
+  auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
+  Dl_info info = {};
+  if (dladdr(reinterpret_cast<void*>(factory), &info) == 0 ||
+      info.dli_fname == nullptr || info.dli_fbase == nullptr) {
+    return false;
+  }
+
+  const auto* header =
+      reinterpret_cast<const mach_header_64*>(info.dli_fbase);
+  if (header->magic != MH_MAGIC_64 ||
+      header->sizeofcmds > 16 * 1024 * 1024) {
+    return false;
+  }
+
+  intptr_t slide = 0;
+  bool loaderImageMatched = false;
+  for (uint32_t index = 0; index < _dyld_image_count(); ++index) {
+    if (_dyld_get_image_header(index) ==
+        reinterpret_cast<const mach_header*>(header)) {
+      slide = _dyld_get_image_vmaddr_slide(index);
+      loaderImageMatched = true;
+      break;
+    }
+  }
+  if (!loaderImageMatched) return false;
+
+  const segment_command_64* text = nullptr;
+  const uint8_t* commandBytes =
+      reinterpret_cast<const uint8_t*>(header + 1);
+  const uint8_t* commandLimit = commandBytes + header->sizeofcmds;
+  for (uint32_t index = 0; index < header->ncmds; ++index) {
+    if (commandBytes + sizeof(load_command) > commandLimit) return false;
+    const auto* command =
+        reinterpret_cast<const load_command*>(commandBytes);
+    if (command->cmdsize < sizeof(load_command) ||
+        commandBytes + command->cmdsize > commandLimit) {
+      return false;
+    }
+    if (command->cmd == LC_SEGMENT_64 &&
+        command->cmdsize >= sizeof(segment_command_64)) {
+      const auto* segment =
+          reinterpret_cast<const segment_command_64*>(command);
+      if (std::strncmp(segment->segname, "__TEXT", 16) == 0) {
+        text = segment;
+      }
+    }
+    commandBytes += command->cmdsize;
+  }
+  if (text == nullptr || text->filesize == 0 ||
+      text->filesize > SIZE_MAX) {
+    return false;
+  }
+
+  const int fd = open(info.dli_fname, O_RDONLY | O_CLOEXEC);
+  if (fd < 0) return false;
+  struct stat opened = {};
+  bool matched =
+      fstat(fd, &opened) == 0 && S_ISREG(opened.st_mode) &&
+      opened.st_size >= 0 &&
+      text->fileoff <= static_cast<uint64_t>(opened.st_size) &&
+      text->filesize <=
+          static_cast<uint64_t>(opened.st_size) - text->fileoff;
+  std::vector<uint8_t> fileBytes(64 * 1024);
+  const auto* mappedBytes = reinterpret_cast<const uint8_t*>(
+      static_cast<uintptr_t>(text->vmaddr) + slide);
+  uint64_t compared = 0;
+  while (matched && compared < text->filesize) {
+    const size_t requested = static_cast<size_t>(
+        std::min<uint64_t>(fileBytes.size(), text->filesize - compared));
+    const ssize_t read =
+        pread(fd, fileBytes.data(), requested, text->fileoff + compared);
+    if (read != static_cast<ssize_t>(requested) ||
+        std::memcmp(fileBytes.data(), mappedBytes + compared, requested) != 0) {
+      matched = false;
+      break;
+    }
+    compared += requested;
+  }
+  close(fd);
+  if (!matched || opened.st_ino == 0) return false;
+  *outDevice = static_cast<uint64_t>(opened.st_dev);
+  *outInode = static_cast<uint64_t>(opened.st_ino);
+  return true;
+}
+
+}  // namespace
+#endif
+
 extern "C" int32_t ex_hermes_engine_mapped_object(
     uint64_t* out_device, uint64_t* out_inode) {
   if (out_device == nullptr || out_inode == nullptr) return -1;
@@ -7035,6 +7132,9 @@ extern "C" int32_t ex_hermes_engine_mapped_object(
   *out_device = observation.device;
   *out_inode = observation.inode;
   return 1;
+#elif defined(IBEX_CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER) && \
+    defined(__APPLE__) && TARGET_OS_SIMULATOR
+  return simulatorHermesMappedObject(out_device, out_inode) ? 1 : -1;
 #elif defined(__linux__) || defined(__ANDROID__)
   // Identify the file object backing the mapping that contains Hermes' runtime
   // factory. This binds device/inode identity only; it does not hash the

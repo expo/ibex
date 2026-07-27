@@ -32,6 +32,7 @@ extern "C" {
         target_os = "linux",
         target_os = "android",
         target_os = "macos",
+        all(target_os = "ios", feature = "capsec-simulator-performance-observer"),
         windows
     ))]
     fn ex_hermes_engine_mapped_object(out_device: *mut u64, out_inode: *mut u64) -> i32;
@@ -294,6 +295,27 @@ fn verify_loaded_mapping_object(
     Ok(())
 }
 
+#[cfg(all(target_os = "ios", feature = "capsec-simulator-performance-observer"))]
+fn verify_loaded_mapping_object(
+    metadata: &std::fs::Metadata,
+    _object: &capsec_semantics::model::ObjectIdentity,
+) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let mut device = 0u64;
+    let mut inode = 0u64;
+    if unsafe { ex_hermes_engine_mapped_object(&mut device, &mut inode) } != 1 {
+        return Err("failed to authenticate the mapped Hermes simulator __TEXT image".into());
+    }
+    if device != metadata.dev() || inode != metadata.ino() {
+        return Err(
+            "loaded Hermes path names a different object than the authenticated simulator image"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 #[cfg(windows)]
 fn verify_loaded_mapping_object(
     _metadata: &std::fs::Metadata,
@@ -324,6 +346,7 @@ fn verify_loaded_mapping_object(
     target_os = "linux",
     target_os = "android",
     target_os = "macos",
+    all(target_os = "ios", feature = "capsec-simulator-performance-observer"),
     windows
 )))]
 fn verify_loaded_mapping_object(
