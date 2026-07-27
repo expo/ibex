@@ -51535,10 +51535,10 @@
       },
       "aliases": [],
       "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "exposed",
+      "privateConsumer": "runtime-extension-loader",
+      "disposition": "private",
       "traversal": "descend",
-      "liveExpectation": "reachable",
+      "liveExpectation": "absent",
       "resolution": "static",
       "nativeImplementation": false
     },
@@ -105449,7 +105449,7 @@
     "installBranches": 2807,
     "logicalGlobals": 2578,
     "registryEdges": 2578,
-    "sealedOrPrivate": 350,
-    "permittedReachable": 2457
+    "sealedOrPrivate": 351,
+    "permittedReachable": 2456
   }
 }
