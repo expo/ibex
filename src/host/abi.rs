@@ -1305,15 +1305,20 @@ pub(crate) unsafe extern "C" fn private_take_process_ipc_bootstrap(
 /// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
 pub fn install_armed_host(snapshot: &[u8], expected_json: &[u8]) -> Result<(), String> {
     use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
+    let mut phase = super::HostStartupPhaseTrace::begin();
     super::reject_closed_startup_environment().map_err(|error| error.to_string())?;
+    phase.mark("install_environment");
     let expected_text = std::str::from_utf8(expected_json)
         .map_err(|error| format!("expected arming identity is not UTF-8: {error}"))?;
     let expected_value = capsec_semantics::strict_json::parse_strict(expected_text)
         .map_err(|error| error.to_string())?;
     let expected: ExpectedArmingIdentity = serde_json::from_value(expected_value)
         .map_err(|error| format!("invalid expected arming identity: {error}"))?;
+    phase.mark("install_expected_identity");
     let armed = ArmedSnapshot::load(snapshot, &expected).map_err(|error| error.to_string())?;
+    phase.mark("install_snapshot_load");
     validate_dev_served_project_root_pairing(&armed)?;
+    phase.mark("install_dev_root_pairing");
     #[cfg(not(feature = "capsec-simulator-performance-observer"))]
     let host = Host::new_armed(
         super::HostConfig {
@@ -1332,9 +1337,11 @@ pub fn install_armed_host(snapshot: &[u8], expected_json: &[u8]) -> Result<(), S
         Arc::new(armed),
     )
     .map_err(|error| error.to_string())?;
+    phase.mark("install_host_construct");
     if install_host(host) == 0 {
         return Err("failed to allocate an armed Host context token".into());
     }
+    phase.mark("install_publish");
     Ok(())
 }
 

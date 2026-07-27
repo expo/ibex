@@ -6408,15 +6408,14 @@ struct MaterializedProtectedArtifact {
     content_digest: capsec_semantics::model::Digest,
 }
 
-/// Build-time SHA-256 of the armed registry-record JCS bytes (and their
-/// length), computed by build.rs from the same checked-in registry inputs and
-/// the same capsec-semantics canonicalization the cold path uses.
+/// Shared build-time SHA-256, length, and canonical bytes for the armed
+/// registry record. Native and CLI startup use one embedded copy.
 const CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST: &str =
-    include_str!(concat!(env!("OUT_DIR"), "/capsec-registry-record.digest"));
+    ibex_runtime::host::embedder_artifacts::CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST;
 const CAPSEC_REGISTRY_RECORD_CONTENT_LEN: &str =
-    include_str!(concat!(env!("OUT_DIR"), "/capsec-registry-record.len"));
+    ibex_runtime::host::embedder_artifacts::CAPSEC_REGISTRY_RECORD_CONTENT_LEN;
 const CAPSEC_REGISTRY_RECORD_JCS: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/capsec-registry-record.jcs"));
+    ibex_runtime::host::embedder_artifacts::CAPSEC_REGISTRY_RECORD_JCS;
 
 /// Warm-start fast path for the registry protected artifact: authenticate an
 /// already-pinned cache file against the build-time content digest instead of

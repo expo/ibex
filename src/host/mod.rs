@@ -874,9 +874,13 @@ impl Host {
         config: HostConfig,
         armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
     ) -> capsec_semantics::Result<Self> {
+        let mut phase = HostStartupPhaseTrace::begin();
         validate_loaded_engine_identity(&armed_snapshot)?;
+        phase.mark("observer_engine_identity");
         validate_snapshot_protected_artifacts(&armed_snapshot)?;
+        phase.mark("observer_protected_objects");
         let authenticated_package_sources = validate_snapshot_root_bindings(&armed_snapshot)?;
+        phase.mark("observer_root_bindings");
         let target_cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
             .iter()
             .map(|edge| {
@@ -886,6 +890,7 @@ impl Host {
                 )
             })
             .collect();
+        phase.mark("observer_target_cells");
         let host = Self::new_armed_with_target_cells(
             config,
             armed_snapshot,
@@ -894,6 +899,7 @@ impl Host {
             capsec_semantics::decision::TargetArmState::CompleteAdvertised,
             BTreeMap::new(),
         )?;
+        phase.mark("observer_host_construct");
         eprintln!(
             "[Ibex] CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER_V1: authenticated artifacts; report target cells substituted"
         );
