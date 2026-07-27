@@ -13671,6 +13671,9 @@ pub(crate) mod tests {
         std::env::set_var("EXACT_COMPAT_TEST", "1");
         std::env::set_var("IBEX_LEGACY_MODULE_LOADER", "0");
 
+        // A missing literal call-time target must not move Node's failure to
+        // graph preparation. If the guarded site stays dead, the program
+        // completes without resolving, authorizing, linking, or evaluating it.
         for (entry_name, package_type, source) in [
             (
                 "entry.mjs",
@@ -13723,6 +13726,15 @@ pub(crate) mod tests {
                 entry_name == "entry.cjs",
                 entry.commonjs_require_specifiers.contains("./missing.cjs")
             );
+            drop(graph);
+            drop(ingress);
+            runtime.load_runtime().await.unwrap();
+            assert_eq!(
+                runtime.run_authenticated_file_program(&[]).await.unwrap(),
+                AuthenticatedFileProgramOutcome::Completed,
+                "dead call-time edge changed the program outcome for {entry_name}"
+            );
+            assert_eq!(runtime.lifecycle_exit_code(), 0);
         }
     }
 

@@ -1695,6 +1695,12 @@ initialized to `undefined`.
 
 `$_` is a **reserved session binding** with its own row rather than the matrix's: the
 runtime installs it as a **configurable accessor property it owns** on `globalThis`.
+Because binding may legitimately postdate the armed boot baseline, the root-global
+disposition sweep (which re-runs on a post-boot embedder-capability finalize) accounts
+for `$_` under exactly one shape: a bound session whose descriptor still holds the
+runtime's **own intact getter/setter pair** — the same identity check auto-update uses.
+A replaced, deleted-and-restored, or unbound `$_` fails the sweep closed like any other
+unaccounted root.
 Auto-update disables permanently on the first **observed mutation from user code**, and
 the observation is structural rather than syntactic:
 

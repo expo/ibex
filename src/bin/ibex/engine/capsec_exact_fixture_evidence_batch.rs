@@ -367,9 +367,13 @@ fn portable_fixture_domain_matches_the_frozen_cross_language_vector() {
         ],
         "portable fixture evidence",
     );
+    // Re-frozen 2026-07-27 after the reviewed ccheever/ibex -> expo/ibex
+    // repository-identity flip changed the shared provenance vector
+    // (63181c76, e92b8338); the vector is the cross-language input, so the
+    // frozen output digest moves with it.
     assert_eq!(
         artifact["artifactDigest"],
-        "sha256-swK95uvOY_8ch8RLuQDEVKtG2PPRIpsay-nUU6dUAEw"
+        "sha256-kWrfSYj6t1fD1xc6dMEmD_sJLSd1oJ7KytBj3M5VJ6M"
     );
 }
 

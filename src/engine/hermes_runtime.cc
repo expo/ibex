@@ -8418,6 +8418,24 @@ struct RootGlobalSweepNode {
         value(std::move(valueValue)) {}
 };
 
+namespace {
+bool structuredLastValueAccessorIntact(ExactHermesRuntime* handle);
+}  // namespace
+
+// @ref LLP 0024#78-the-last-value-binding — `$_` is the reserved session
+// binding: a runtime-owned configurable accessor installed at
+// structured-session bind, which may legitimately postdate the boot baseline
+// (an embedder capability finalize re-runs the disposition sweep after a
+// session is already bound). Account for it ONLY as the runtime's own intact
+// accessor pair on a bound session; a replaced, deleted-and-restored, or
+// unbound `$_` still fails closed like any other unaccounted root.
+static bool rootGlobalReservedSessionBindingAccounted(
+    ExactHermesRuntime* handle,
+    const std::string& key) {
+  return key == "$_" && handle->structured_session_bound &&
+      structuredLastValueAccessorIntact(handle);
+}
+
 static bool verifyRootGlobalDisposition(ExactHermesRuntime* handle) {
   if (handle == nullptr || !handle->runtime ||
       !handle->root_global_get_own_property_names ||
@@ -8483,6 +8501,7 @@ static bool verifyRootGlobalDisposition(ExactHermesRuntime* handle) {
     for (const auto& [key, count] : currentCounts) {
       const size_t baselineCount = baselineCounts[key];
       if (count > baselineCount && reachableRoots.count(key) == 0) {
+        if (rootGlobalReservedSessionBindingAccounted(handle, key)) continue;
         extraRoots.push_back(key);
       }
     }
@@ -8581,6 +8600,13 @@ static bool verifyRootGlobalDisposition(ExactHermesRuntime* handle) {
                 "root-global descriptor budget exceeded");
           }
           foundKeys.insert(rootGlobalKeyPair(text, text));
+          // The reserved session binding's accessor pair is identity-checked
+          // (its own getter/setter function objects) by the accounting
+          // predicate, so its host-backed accessors are not un-dispositioned
+          // natives; do not descend into them.
+          if (rootGlobalReservedSessionBindingAccounted(handle, text)) {
+            return;
+          }
           auto descriptorValue = rootGlobalOwnDescriptor(
               handle, rt.global(), key);
           if (!descriptorValue.isObject()) {
