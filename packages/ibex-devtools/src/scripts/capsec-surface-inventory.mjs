@@ -14602,7 +14602,7 @@ const REVIEWED_REACHABLE_HERMES_EVALUATORS = [
   "eval",
 ];
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
-  "sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c";
+  "sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c";
 
 // These are reviewed reachability claims for exact checked-in artifact
 // identities, not a floating statement about Hermes releases. Source discovery
@@ -14653,7 +14653,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
         "sha256-cd3dd1da3755030de039f6c08d4b9116fd85da6a46aace96706e0fa1f1aa0329",
       sourceBuildAuthorityDigests: {
         "scripts/build-hermes-linux.sh":
-          "sha256-4f6a4476f40096067fb0ed6c93f8f9bb8cf05a3e9f3f6edb0efe5915d7e28988",
+          "sha256-af521ddda077302b82de42a024eba5e708b9072462d2c4e53c742d8cc473ea92",
         "scripts/build-hermes.sh":
           "sha256-45d927d725f28145e7299283e8c9ea298c190aac83050484e63accad187036ae",
       },

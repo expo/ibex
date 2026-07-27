@@ -8013,7 +8013,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           row.name === "ex_host_install_armed_experimental_webgpu_pre1a",
       ),
     ).toBe(true);
-    expect(first.hostAbi).toHaveLength(361);
+    expect(first.hostAbi).toHaveLength(362);
     for (const [name, sourceRef] of [
       [
         "evaluation:installGlobals:native-freeze-conformance-observation",
@@ -8088,7 +8088,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .sort(),
       ),
     ).toEqual({
-      "output-bearing": 311,
+      "output-bearing": 312,
       "structural-only": 50,
     });
     expect(
@@ -8121,7 +8121,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .map(([role, channels]) => [role, channels.length])
           .sort(),
       ),
-    ).toEqual({ callback: 59, out: 219, return: 293 });
+    ).toEqual({ callback: 59, out: 219, return: 294 });
     expect(
       Object.fromEntries(
         [
@@ -8137,7 +8137,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       "none:void": 68,
       "value:aggregate": 17,
       "value:pointer": 51,
-      "value:scalar": 225,
+      "value:scalar": 226,
     });
     expect(
       Object.fromEntries(
@@ -8153,7 +8153,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual({
       "callback-payload": 38,
       inout: 9,
-      input: 915,
+      input: 916,
       output: 90,
     });
 

@@ -2984,9 +2984,9 @@ const REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES = Object.freeze([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.7049b7fa9469481a0cd2efa914f77dc8ff58508c622d1f4a81f253cbe5aa09f2";
+  "hermes-evaluators.dbce0074a95aa698966c1d6d1b8bd465118956c7f1f66afead03d2a5356a3880";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
-  "sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c";
+  "sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
   "android-maven",
   "source-patched",
@@ -5612,6 +5612,7 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "argument-parser:ibex%20capsec%20audit:file:utf8-string",
     "argument-parser:ibex%20compat:jobs:unsigned-integer-usize",
     "argument-parser:ibex%20compat:module:utf8-string",
+    "argument-parser:ibex%20compat:probe:utf8-string",
     "argument-parser:ibex%20compat:section:utf8-string",
     "argument-parser:ibex%20compat:test:utf8-string",
     "argument-parser:ibex%20compat:timeout:unsigned-integer-u64",
@@ -5703,6 +5704,7 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "option-name:ibex%20compat:log_no_skip:--log-no-skip",
     "option-name:ibex%20compat:module:--module",
     "option-name:ibex%20compat:no_retry:--no-retry",
+    "option-name:ibex%20compat:probe:--probe",
     "option-name:ibex%20compat:quick:--quick",
     "option-name:ibex%20compat:report:--report",
     "option-name:ibex%20compat:section:--section",
@@ -5825,6 +5827,10 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "option:ibex%20compat:no_retry:default-missing:true",
     "option:ibex%20compat:no_retry:default:false",
     "option:ibex%20compat:no_retry:value-name:NO_RETRY",
+    "option:ibex%20compat:probe",
+    "option:ibex%20compat:probe:action:Set",
+    "option:ibex%20compat:probe:arity:1:1",
+    "option:ibex%20compat:probe:value-name:EXPR",
     "option:ibex%20compat:quick",
     "option:ibex%20compat:quick:action:SetTrue",
     "option:ibex%20compat:quick:arity:0:0",
@@ -6930,6 +6936,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:IBEX_TEST_HBC_COMPILE_BARRIER",
     "env:IBEX_TEST_HTTP_WAIT_IDLE_DELAY_MS",
     "env:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS",
+    "env:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS",
     "env:IBEX_TEST_TRANSPILE_INPUT_BARRIER",
     "env:IBEX_TRANSPILE_CACHE_MAX_BYTES",
     "env:IBEX_WATCH_SHUTDOWN_TIMEOUT_MS",
@@ -10928,6 +10935,7 @@ const HARNESS_STARTUP_ENVIRONMENT_CONTROLS = new Set([
   "IBEX_TEST_HBC_COMPILE_BARRIER",
   "IBEX_TEST_HTTP_WAIT_IDLE_DELAY_MS",
   "IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS",
+  "IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS",
   "IBEX_TEST_TRANSPILE_INPUT_BARRIER",
 ]);
 
