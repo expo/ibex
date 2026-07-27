@@ -3490,6 +3490,65 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — rebound loader evidence after moving-main reconciliation
+
+- Reconciled two more concurrent `main` advances as merge checkpoints
+  `32188426` and `94cde9e5`, through upstream `02d271a1`. The combined source
+  retains the simulator diagnostic observer, time-limited evaluations,
+  generated root-disposition updates, and the source-bound loader observer.
+  The runtime-extension registrar is now correctly sealed/private rather than
+  reachable, and the dynamic activation completion guard uses the generic
+  runtime-extension host-task type instead of the unrelated WebGPU type.
+- Regeneration on the combined tree reports 7,520 coverage edges, 7,821
+  enforcement branches, 15,040 target cells, 13,371 observed references, 22
+  ingress surfaces, and 14 output channels. The output catalog digest
+  `sha256-4ZHxs7x5qrn-g184uGRtXN3SsZT2tNwb0YERJCxac00` contains 6,516 rows:
+  5,815 output-bearing, 1,700 structural, and 5 unresolved. The broad Hetzner
+  JavaScript gate passes **1,228 tests**, with 10 expected Hermes skips, zero
+  failures, 231,163 assertions, and 82 files.
+- Apple catalog digest
+  `sha256-Om5RoZdNwzsVbqoN42HKfMoUQ20vUHh3jgNS4RqQbOo` reports 23,583 required /
+  **3,531 fully executable** / 3,036 internally verified / 17,016 unresolved.
+  The local M5 strict provenance and stale-vendored loader batch passes the
+  same exact **13/13** routes against current no-debugger Hermes, binds engine
+  digest `sha256-hp_73KCVTIaojyc6G9nbvv1yGAHdPeS0ZBIucL_k2kQ`, and has
+  evidence-file SHA-256
+  `177802454e20826062f87511a15a3b5f252cd70b90275e1bb9a8baf455f735a3`.
+  Independent validation accepts 13 unique nonces, one exact private match per
+  route, zero decisions, and execution digest
+  `sha256-0MxyinBnfH3s3g0lq1R8KjSN9ZfeYdIoXlUp78PkGtM`.
+- Windows catalog digest
+  `sha256-5HcOFAOvZ-SjuUPJ6JywvW1c9y6ugaQb1fF8PkjIniY` reports 23,242 required /
+  **3,190 fully executable** / 3,022 internally verified / 17,030 unresolved.
+  The NucBox rebuilt the current 13-patch no-debugger Hermes SDK and its strict
+  isolated-target loader batch passes the same exact **13/13** routes, binding
+  engine digest
+  `sha256-c83EWIx-kLld5RMwgXnP2eetL6NLcgHT-P6oWqocWP8`; the evidence-file
+  SHA-256 is
+  `58ffdda69d1462b35d4dc69c3ab8a0ed0a2cae7c57d1e4fd457f7865babcb48e`.
+  Independent validation again accepts 13 unique nonces, one match per route,
+  zero decisions, and execution digest
+  `sha256-sJ2lojGaWJvVJW3TiSzndoQXBiSWVPGPPN2SwmM2-Ok`.
+- Both fresh aggregates bind source revision
+  `fdbe39e25ab3e95b48898c753b90d9ea7e5409ea` and tree digest
+  `sha256-kgZfd_RW6f7a2M5NukcUPVLYuWfHn0kJ4UommwLm4UU`. `cargo check --lib
+  --tests`, the Windows secure-feature compile/link, `cargo fmt --check`, and
+  `git diff --check` pass.
+- Hard parts: the older M4 framework honestly failed current provenance and
+  SDK-root checks, so it was not reused. Windows then exposed three separate
+  stale-state hazards: the newly built Hermes DLL was hidden from `dumpbin`
+  when PATH was replaced in the wrong order; Cargo correctly refused a target
+  directory bound to the old DLL; and a source helper still passed a removed
+  sixth argument to `Host::new_armed_with_target_cells`. A dedicated Cargo
+  target, the canonical secure binary-test command, and compile fix
+  `fdbe39e2` produced the final receipt. A library-only warm command exited
+  successfully but emitted no evidence; the missing-file check prevented that
+  zero-test run from being mistaken for conformance.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. This checkpoint
+  refreshes platform confidence without promoting another family; criterion 7
+  remains open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
