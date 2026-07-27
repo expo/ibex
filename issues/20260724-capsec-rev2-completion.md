@@ -3275,6 +3275,56 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — executed exact bounded crypto helpers
+
+- Added exactly two captured `exact_crypto` calls: `getRandomValues` fills a
+  bounded harness-owned `Uint8Array`, and `randomUUID` returns one UUID. Both
+  routes bind the inventoried source descriptor, prove a normal return and
+  owned cleanup, reach quiescence, and record zero decisions.
+- The policy remains export-and-operation scoped. A first physical Apple
+  tranche also tried the apparently bounded `publicEncrypt`/`privateDecrypt`
+  pair, but the loaded public descriptor reported `publicEncrypt is not
+  available`. Both RSA aliases therefore remain residual rather than turning
+  inventory into fictitious execution. The captured set is now **138** routes:
+  65 calls, 17 constructions, and 56 property gets across 20 source families.
+- Apple catalog digest
+  `sha256-TdENMbDTN58mfq_s1v0KquySugnuRfMHWKVd3xw5f4o` reports 23,847 required /
+  **3,511 fully executable** / 3,136 internally verified / 17,200 unresolved.
+  The M5 MacBook Air static-Hermes batch passes **1,219/1,219**: 34 isolated
+  module imports, 1,047 established exports, and all 138 captured routes. It
+  binds engine digest
+  `sha256-3_7KDIgLCqYJI7BYS4h1rMub5L7IkAyMPBsC3IZi4yk`; the evidence-file
+  SHA-256 is
+  `583162092c16143577cf90541d86550772dd6bf03abeb2b3acc8979b58de0396`,
+  and independent validation produced execution digest
+  `sha256-Aghi2pZd7-VKmRTyzAzVUhdDJVMhwyvEnJxeKARXQ8I`.
+- Windows catalog digest
+  `sha256-wZzTndsVzBT9qdACu_Ezmncg9q9Zs039tK4wyF1ACs8` reports 23,506 required /
+  **3,170 fully executable** / 3,122 internally verified / 17,214 unresolved.
+  The NucBox strict stale-vendored batch passes **1,183/1,183**: 34 isolated
+  imports, 1,011 established exports, and the same 138 captured routes. It
+  binds engine digest
+  `sha256-X3YZyvzEJ1RgMNkEPjbfLC1X4hkKzmmw_82UQKV854Q`; the evidence-file
+  SHA-256 is
+  `94f67ac1c10fa371c8b2f1778b66e32d379ce29cfbf438679fb4228c7f8c291e`,
+  and independent validation produced execution digest
+  `sha256-XQCdNtrND8ahLwi5LvDWes1lGabxggRqnaagMyILS6g`.
+- Both independent aggregates bind source revision
+  `16e61c1f408aabb20a507431839b878757f30bcf` and tree digest
+  `sha256-tySbVnk07oNNtjP4MGdHH1hjOeZjRXjiEHAMmoEUF3o`. The focused evidence
+  suite passes **152/152** with 125,828 assertions; the complete generated
+  drift gate, `cargo fmt --check`, `git diff --check`, and `ref-check` all
+  pass.
+- Hard part: the source inventory offered a matched RSA key/cipher fixture,
+  and the static recipe tests proved that the pair was internally coherent.
+  Only the loaded-engine execution revealed that the public alias itself was
+  absent. The exact allowlist now records only the two helpers that physically
+  returned, preventing both a family-wide promotion and an absence-as-success
+  overclaim.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

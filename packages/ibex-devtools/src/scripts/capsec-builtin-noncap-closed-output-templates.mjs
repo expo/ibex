@@ -65,6 +65,16 @@ const CONFORMANCE_CAPTURED_SOURCE_OPERATIONS = new Map([
   ["node_stream", new Set(["get"])],
 ]);
 const CONFORMANCE_CAPTURED_EXACT_EXPORT_OPERATIONS = new Map([
+  // Physical Apple execution proves these helpers are loaded and return
+  // normally. The inventoried publicEncrypt/privateDecrypt names are absent
+  // from the loaded public descriptor and therefore remain residual.
+  [
+    "exact_crypto",
+    new Map([
+      ["getRandomValues", new Set(["call"])],
+      ["randomUUID", new Set(["call"])],
+    ]),
+  ],
   [
     "node_assert",
     new Map([
