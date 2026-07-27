@@ -8955,7 +8955,6 @@ mod tests {
             complete_test_target_cells(),
             authenticated_package_sources,
             capsec_semantics::decision::TargetArmState::CompleteAdvertised,
-            BTreeMap::new(),
         )
         .unwrap();
         (fixture, host, package_root, integrity)
