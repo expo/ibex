@@ -1327,6 +1327,7 @@ fn assert_overlay_decision_stages(
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[cfg(not(feature = "insecure"))]
 async fn loaded_hermes_isolates_principal_environment_overlays() {
     let _lock = hermes_engine_test_lock().lock().await;
     let fixture = prepare_two_package_overlay_fixture();

@@ -14,13 +14,19 @@
 # stale bytes" gap without relying on checkout mtimes (LLP 0018 item 5).
 #
 # Usage: scripts/run-tests.sh [--scope lib|bin|test|all] [--test NAME] [--allow-zero]
-#                             [--features LIST] [FILTER]
+#                             [--secure] [--features LIST] [FILTER]
 #                             [-- <extra cargo/harness args>]
 #   Default scope is `all` (the whole package). Narrowing is explicit and
 #   opt-in. FILTER is a cargo test name substring, applied within the scope.
 #   --features forwards a cargo feature list so feature-gated suites (e.g.
 #   `--features openssl-crypto` for tests/crypto_rsa_pss.rs) can run through
 #   this entry point instead of a bare `cargo test`.
+#   --secure builds without default features (LLP 0039 puts `insecure` in the
+#   default set) using `--no-default-features --features standard,...`; the
+#   armed/capsec conformance suites assert secure-armed semantics and only
+#   compile into such builds, e.g.
+#     scripts/run-tests.sh --secure --features capsec-conformance-observer \
+#       --scope bin -- --test-threads=1
 #
 #   Examples:
 #     scripts/run-tests.sh deep_freeze          # every matching test, all targets
@@ -123,12 +129,13 @@ bind_windows_openssl_perl || exit $?
 
 scope="all"
 allow_zero=0
+secure=0
 filter=""
 features=""
 test_target=""
 passthrough=()
 
-usage() { sed -n '2,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,37p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -140,6 +147,7 @@ while [ "$#" -gt 0 ]; do
     --features) features="${features:+$features,}${2:-}"; shift 2 ;;
     --features=*) features="${features:+$features,}${1#--features=}"; shift ;;
     --allow-zero) allow_zero=1; shift ;;
+    --secure) secure=1; shift ;;
     --) shift; passthrough=("$@"); break ;;
     -*) echo "error: unknown option '$1'" >&2; usage >&2; exit 2 ;;
     *) if [ -z "$filter" ]; then filter="$1"; else passthrough+=("$1"); fi; shift ;;
@@ -163,6 +171,12 @@ fi
 # treats "${empty[@]}" as an unbound-variable error).
 cmd=(cargo test)
 [ "${#targets[@]}" -gt 0 ] && cmd+=("${targets[@]}")
+# A secure run drops the default set (LLP 0039 deliberately defaults
+# `insecure` on) and restores the ordinary runtime features via `standard`.
+if [ "$secure" -eq 1 ]; then
+  cmd+=(--no-default-features)
+  features="standard${features:+,$features}"
+fi
 [ -n "$features" ] && cmd+=(--features "$features")
 [ -n "$filter" ] && cmd+=("$filter")
 [ "${#passthrough[@]}" -gt 0 ] && cmd+=(-- "${passthrough[@]}")
