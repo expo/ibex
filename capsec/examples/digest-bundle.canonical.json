@@ -166511,6 +166511,16 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.loader.function.rust.is.bootstrap.internal.module.specifier.0zbp3gp",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "function:rust:is_bootstrap_internal_module_specifier"
+            },
+            "rationaleId": "module-reachability-only",
+            "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
+          },
+          {
             "id": "surface.loader.function.rust.is.builtin.specifier.036pq2l",
             "classification": "non-capability",
             "surface": {

@@ -1219,14 +1219,43 @@ fn build_authenticated_source_graph_v1_with_host(
                 {
                     bail!("generated builtin has a non-CommonJS or attributed private edge");
                 }
-                host.resolve_manifest_builtin_internal(&key.specifier)?
+                match host.resolve_manifest_builtin_internal(&key.specifier) {
+                    Ok(target) => target,
+                    // Bootstrap-internal specifiers are served by the shared
+                    // runtime's bootstrap module cache, or are intentionally
+                    // absent and guarded at the require site (fs's optional
+                    // `internal/test/binding`). The manifest resolver refuses
+                    // them by design, so they are call-time edges, not eager
+                    // host-resolvable materialization edges; leave them out of
+                    // the binding table instead of failing the graph.
+                    Err(_)
+                        if crate::module_loader::is_bootstrap_internal_module_specifier(
+                            &key.specifier,
+                        ) =>
+                    {
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                }
             } else {
-                host.resolve(
-                    &key.specifier,
-                    Some(&path),
-                    key.resolution_kind,
-                    &attributes,
-                )?
+                match host.resolve(&key.specifier, Some(&path), key.resolution_kind, &attributes) {
+                    Ok(target) => target,
+                    // Call-time edges (literal dynamic imports and CommonJS
+                    // requires) preserve Node error timing: a target that does
+                    // not resolve is left unbound, and the engine rejects the
+                    // import promise / throws a catchable require error if the
+                    // site actually runs. Link-time (ESM static) resolution
+                    // failures still fail the graph here.
+                    Err(_)
+                        if matches!(
+                            key.resolution_kind,
+                            ResolutionKind::CommonJsRequire | ResolutionKind::DynamicImport
+                        ) =>
+                    {
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                }
             };
             let target_id = target
                 .artifact_source_id

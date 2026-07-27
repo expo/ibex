@@ -45461,6 +45461,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.loader.function.rust.is.bootstrap.internal.module.specifier.0zbp3gp",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#is_bootstrap_internal_module_specifier"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.loader.function.rust.is.builtin.specifier.036pq2l",
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
@@ -86468,9 +86477,9 @@
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
   "catalogKeyDigest": "sha256-rWwfIsorazR219OL2R1VEBf16hyc1jGc8HoxkZ129RI",
   "counts": {
-    "coverageSurfaces": 7617,
+    "coverageSurfaces": 7618,
     "outputBearingSurfaces": 5850,
-    "structuralOnlySurfaces": 1678,
+    "structuralOnlySurfaces": 1679,
     "unresolvedSurfaces": 89,
     "catalogRows": 6533,
     "parameterizedBindings": 1,

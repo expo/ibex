@@ -142559,6 +142559,37 @@
       ]
     },
     {
+      "edgeId": "surface.loader.function.rust.is.bootstrap.internal.module.specifier.0zbp3gp",
+      "observedKey": "loader:function:rust:is_bootstrap_internal_module_specifier",
+      "branchId": "surface.loader.function.rust.is.bootstrap.internal.module.specifier.0zbp3gp.main",
+      "enforcementBranchId": "surface.loader.function.rust.is.bootstrap.internal.module.specifier.0zbp3gp.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:rust:is_bootstrap_internal_module_specifier"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#is_bootstrap_internal_module_specifier"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#is_bootstrap_internal_module_specifier"
+        ],
+        "terminalObservedKey": "loader:function:rust:is_bootstrap_internal_module_specifier"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#is_bootstrap_internal_module_specifier"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.loader.function.rust.is.bootstrap.internal.module.specifier.0zbp3gp.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.loader.function.rust.is.builtin.specifier.036pq2l",
       "observedKey": "loader:function:rust:is_builtin_specifier",
       "branchId": "surface.loader.function.rust.is.builtin.specifier.036pq2l.main",
@@ -283024,7 +283055,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-yTT418qzXKUDHIwNzQPlGJrDca0i1bRJC1aRKIEdH1M"
+      "rawContentDigest": "sha256-JKKnRDIVe2AdLpOskZJDv_GP6G1gXXVQzaR_4FM0CQk"
     },
     {
       "kind": "output-disposition-dataset",
@@ -283039,44 +283070,44 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-VGXBkNd4CyfI0yWWp6LQ8t5ijq8cj6T758EaiHzI2QI"
+      "rawContentDigest": "sha256-caI2mVs5FE661eApRx4KUxdtYKWW3bZ3sHEdZ83rv1o"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-8dAj466EqSVolJvC6cnVOjUPC0tpt57SgWrRYS6nLYE"
+      "rawContentDigest": "sha256-QbEI0YE5R-8gg4HoiMGV3BHTZrjo_orv0f_ZfsiQXjo"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-lxqgCfcePIU8ilPGKx1mFj48FTPVl3dBbYf7QnXPEAw"
+      "rawContentDigest": "sha256-Ammclor6pQ04I2xSrCahqKHzU3u_NI74Aoi3LHRTdKg"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-BOU4vDlOBp4h-pRqfn9DL_VNPppLxDGmeaPsbaWm6A8"
+      "rawContentDigest": "sha256-saW4inCQ-2rUVsP5Pl6NbdsChZg7zXTjucJ_R9Tfy6g"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-oXhX1ZlrsgK80nVDvHQycZCk_fC-J6YVJshwS45dK8c"
+      "rawContentDigest": "sha256-sGuW4AMQdF_uQl4QdwLGkkLj7jL6F5Ucry1UIMg-59o"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-zwHYvzaQyeb5UNVuec9QAlq02Gm3_p8snbCHNHGu47o"
+      "rawContentDigest": "sha256-YcrbLQ51unqDmv2jR90D73PSS3HRCJSGThzlFGy7tvM"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-_SGErHMMyrCUwMpF3BEFCb9MW94SWee20yiMkTc8jhA"
+      "rawContentDigest": "sha256-1OoNgMusxCaSJTRAlnGfzBqzXHfy7PESUWyka8JzltU"
     }
   ],
   "counts": {
-    "observedReferences": 13358,
-    "logicalSurfaces": 7617,
-    "enforcementBranches": 7837,
-    "coverageEdges": 7617,
-    "targetCells": 15234
+    "observedReferences": 13359,
+    "logicalSurfaces": 7618,
+    "enforcementBranches": 7838,
+    "coverageEdges": 7618,
+    "targetCells": 15236
   }
 }

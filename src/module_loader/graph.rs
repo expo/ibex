@@ -234,9 +234,28 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             let expected: BTreeSet<_> = artifact_edge_keys(artifact).collect();
             let observed: BTreeSet<_> = edges.keys().cloned().collect();
             if expected != observed {
-                return Err(GraphError::link(format!(
-                    "artifact/resolver graph disagreement for {source_id:?}: expected {expected:?}, observed {observed:?}"
-                )));
+                // Call-time edges (literal dynamic imports and CommonJS
+                // requires) may be deliberately unbound: a target that did not
+                // resolve — or a builtin's bootstrap-internal edge, served by
+                // the bootstrap cache or intentionally absent and guarded at
+                // the require site — defers to the engine's call-time
+                // rejection/throw, preserving Node error timing. Tolerate
+                // exactly that difference: missing bindings only, call-time
+                // resolution kinds only. Every other disagreement (extra or
+                // renamed bindings, missing link-time ESM edges) still refuses
+                // so inter-step artifact/edge mutation stays closed.
+                let tolerated = observed.is_subset(&expected)
+                    && expected.difference(&observed).all(|key| {
+                        matches!(
+                            key.resolution_kind,
+                            ResolutionKind::CommonJsRequire | ResolutionKind::DynamicImport
+                        )
+                    });
+                if !tolerated {
+                    return Err(GraphError::link(format!(
+                        "artifact/resolver graph disagreement for {source_id:?}: expected {expected:?}, observed {observed:?}"
+                    )));
+                }
             }
             if planned
                 .insert(source_id.clone(), PlannedRecord { artifact, edges })
@@ -405,11 +424,15 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         let mut bindings = Vec::new();
         for edge in &record.artifact.artifact().semantics.static_edges {
             if let StaticEdgeV1::CommonJsRequire { specifier } = edge {
-                bindings.push((
-                    specifier.as_str().to_owned(),
-                    self.edge_target(record, specifier.as_str(), ResolutionKind::CommonJsRequire)?
-                        .clone(),
-                ));
+                match self.edge_target(record, specifier.as_str(), ResolutionKind::CommonJsRequire)
+                {
+                    Ok(target) => bindings.push((specifier.as_str().to_owned(), target.clone())),
+                    // Unbound require edges are call-time: the engine throws a
+                    // catchable "target is not linked" error if the site
+                    // actually runs (a missing target, or a builtin's
+                    // bootstrap-internal edge served outside the graph).
+                    Err(_) => {}
+                }
             }
         }
         Ok(bindings)
@@ -443,11 +466,16 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         }
         let mut bindings = Vec::new();
         for (specifier, attributes) in declared {
+            // An unbound literal dynamic-import edge is call-time: the engine
+            // rejects the import promise if the site actually runs, preserving
+            // Node error timing for missing targets.
+            let Ok(target) = self.edge_target(record, &specifier, ResolutionKind::DynamicImport)
+            else {
+                continue;
+            };
             bindings.push(DynamicImportBindingPlan {
                 site: None,
-                target: self
-                    .edge_target(record, &specifier, ResolutionKind::DynamicImport)?
-                    .clone(),
+                target: target.clone(),
                 specifier,
                 attributes,
             });
@@ -683,6 +711,20 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                 // @ref LLP 0021#module-initialization-and-trusted-source-acquisition
                 if artifact.semantics.source_goal == SourceGoalV1::Builtin {
                     if let StaticEdgeV1::CommonJsRequire { specifier } = edge {
+                        // Bootstrap-internal edges are deliberately unbound
+                        // (call-time); see commonjs_require_bindings.
+                        if crate::module_loader::is_bootstrap_internal_module_specifier(
+                            specifier.as_str(),
+                        ) && self
+                            .edge_target(
+                                record,
+                                specifier.as_str(),
+                                ResolutionKind::CommonJsRequire,
+                            )
+                            .is_err()
+                        {
+                            continue;
+                        }
                         let target = self.edge_target(
                             record,
                             specifier.as_str(),
@@ -753,9 +795,21 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                         ResolutionKind::EsmStatic,
                     ),
                 };
-                let target = self
-                    .edge_target(record, specifier.as_str(), resolution_kind)?
-                    .clone();
+                let target = match self.edge_target(record, specifier.as_str(), resolution_kind) {
+                    Ok(target) => target.clone(),
+                    // Unbound call-time edges (literal requires whose target
+                    // did not resolve) consume no authority: the engine throws
+                    // at the call site, so there is no decision to mint.
+                    Err(_)
+                        if matches!(
+                            resolution_kind,
+                            ResolutionKind::CommonJsRequire | ResolutionKind::DynamicImport
+                        ) =>
+                    {
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
+                };
                 let decision = GraphDecisionSet::new(
                     kind,
                     context.clone(),
@@ -986,8 +1040,13 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             .map(|name| name.as_str().to_owned())
             .collect::<BTreeSet<_>>();
         for specifier in &commonjs.reexports {
-            let target =
-                self.edge_target(record, specifier.as_str(), ResolutionKind::CommonJsRequire)?;
+            // An unbound re-export require contributes no names; the record
+            // itself throws catchably when the require actually runs.
+            let Ok(target) =
+                self.edge_target(record, specifier.as_str(), ResolutionKind::CommonJsRequire)
+            else {
+                continue;
+            };
             names.extend(self.commonjs_export_names(target, visiting)?);
         }
         visiting.remove(source_id);
@@ -1212,6 +1271,18 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         let record = self.record(source_id)?;
         let mut targets = BTreeSet::new();
         for edge in &record.artifact.artifact().semantics.static_edges {
+            // Unbound call-time require edges contribute nothing to linkage;
+            // the engine throws catchably at the call site.
+            if matches!(edge, StaticEdgeV1::CommonJsRequire { .. }) {
+                let key = static_edge_key(edge);
+                match self.edge_target(record, &key.specifier, key.resolution_kind) {
+                    Ok(target) => {
+                        targets.insert(target.clone());
+                    }
+                    Err(_) => {}
+                }
+                continue;
+            }
             targets.insert(self.static_edge_target(record, edge)?.clone());
         }
         let allowed = allowed_dynamic_bindings.get(source_id);

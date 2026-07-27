@@ -45,7 +45,7 @@ seven fail identically on pre-landing main (3c1f24b3, verified in a clean
 worktree with the same secure feature set), so they are pre-existing red
 tests, not identity drift and not introduced by the 2026-07-26/27 landings —
 tracked separately in
-[20260727-secure-observer-suite-seven-red-tests](./20260727-secure-observer-suite-seven-red-tests.md).
+[20260727-secure-observer-suite-seven-red-tests](./closed/20260727-secure-observer-suite-seven-red-tests.md).
 So: 36 of the 44 are the insecure-default artifact this ticket covers.
 
 ## Fix options (pick one)

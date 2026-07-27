@@ -12936,12 +12936,15 @@ pub(crate) mod tests {
         let preflight = ingress
             .prepare_authenticated_module_graph(&request)
             .unwrap_or_else(|error| panic!("CommonJS VFS graph preflight failed: {error:#}"));
+        // Literal CommonJS entries are natively supported since the LLP 0027
+        // revision landed native call-time edges; the compat loader is no
+        // longer required for this shape.
         assert!(
             matches!(
                 preflight,
-                crate::engine::AuthenticatedModuleGraphPreparation::LegacyRequired
+                crate::engine::AuthenticatedModuleGraphPreparation::Native(_)
             ),
-            "an authored CommonJS require entered the eager native graph"
+            "an authored CommonJS require no longer prepares natively"
         );
 
         let session = ingress.session.clone();
@@ -12953,11 +12956,14 @@ pub(crate) mod tests {
             )
             .await
             .expect("the CommonJS VFS graph failed");
-        let crate::engine::AuthenticatedEvaluation::Value { receipt, .. } = evaluation else {
-            panic!("unexpected compatibility CommonJS VFS evaluation: {evaluation:?}")
-        };
-        if let Some(receipt) = receipt {
-            engine.release_undisplayed_value(receipt).await.unwrap();
+        match evaluation {
+            crate::engine::AuthenticatedEvaluation::Value { receipt, .. } => {
+                if let Some(receipt) = receipt {
+                    engine.release_undisplayed_value(receipt).await.unwrap();
+                }
+            }
+            crate::engine::AuthenticatedEvaluation::Empty => {}
+            other => panic!("unexpected compatibility CommonJS VFS evaluation: {other:?}"),
         }
         assert_eq!(runtime.lifecycle_exit_code(), 47);
     }
@@ -12971,7 +12977,7 @@ pub(crate) mod tests {
         )
     ))]
     #[tokio::test(flavor = "current_thread")]
-    async fn closed_compatibility_window_fails_loudly_for_authored_call_time_edges() {
+    async fn authored_call_time_edges_to_missing_targets_stay_call_time() {
         use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
 
         let _lock = crate::engine::hermes::hermes_engine_test_lock()
@@ -12981,18 +12987,22 @@ pub(crate) mod tests {
         std::env::set_var("EXACT_COMPAT_TEST", "1");
         std::env::set_var("IBEX_LEGACY_MODULE_LOADER", "0");
 
-        for (entry_name, package_type, source, expected_reason) in [
+        // Since the LLP 0027 revision landed native call-time edges, authored
+        // literal dynamic imports and CommonJS requires no longer need the
+        // legacy loader window: their targets materialize eagerly when they
+        // resolve, and a missing target stays a call-time failure (rejected
+        // promise / catchable throw), so a dead guarded edge to a missing
+        // module must not affect the program at all — matching Node.
+        for (entry_name, package_type, source) in [
             (
                 "entry.mjs",
                 "module",
                 "if (false) import('./missing.mjs');\nexport const reached = true;\n",
-                "dynamic-import activation",
             ),
             (
                 "entry.cjs",
                 "commonjs",
                 "if (false) require('./missing.cjs');\nmodule.exports = true;\n",
-                "CommonJS require activation",
             ),
         ] {
             let directory = tempdir().unwrap();
@@ -13012,18 +13022,29 @@ pub(crate) mod tests {
                 ArmedExecutionMode::Program,
             )
             .unwrap();
-            let mut ingress = runtime.authenticated_file_ingress().unwrap();
-            let request = ingress.file_request(&[]).unwrap();
-            let error = ingress
-                .prepare_authenticated_module_graph(&request)
-                .err()
-                .expect("a closed compatibility window accepted an authored call-time edge");
-            assert!(
-                error.to_string().contains(
-                    "native module runner does not support this graph and the bounded legacy loader window is closed"
-                ) && error.to_string().contains(expected_reason),
-                "unexpected closed-window refusal for {entry_name}: {error:#}"
+            {
+                let mut ingress = runtime.authenticated_file_ingress().unwrap();
+                let request = ingress.file_request(&[]).unwrap();
+                let preflight = ingress
+                    .prepare_authenticated_module_graph(&request)
+                    .unwrap_or_else(|error| {
+                        panic!("dead call-time edge failed graph preparation for {entry_name}: {error:#}")
+                    });
+                assert!(
+                    matches!(
+                        preflight,
+                        crate::engine::AuthenticatedModuleGraphPreparation::Native(_)
+                    ),
+                    "a dead call-time edge kept {entry_name} off the native graph"
+                );
+            }
+            runtime.load_runtime().await.unwrap();
+            assert_eq!(
+                runtime.run_authenticated_file_program(&[]).await.unwrap(),
+                AuthenticatedFileProgramOutcome::Completed,
+                "dead call-time edge changed the program outcome for {entry_name}"
             );
+            assert_eq!(runtime.lifecycle_exit_code(), 0);
         }
     }
 
@@ -13305,12 +13326,15 @@ pub(crate) mod tests {
             let preflight = ingress
                 .prepare_authenticated_module_graph(&request)
                 .unwrap_or_else(|error| panic!("delayed-import preflight failed: {error:#}"));
+            // Literal dynamic imports are natively supported since the LLP
+            // 0027 revision landed native call-time edges: the target is
+            // authenticated and materialized eagerly, evaluated at call time.
             assert!(
                 matches!(
                     preflight,
-                    crate::engine::AuthenticatedModuleGraphPreparation::LegacyRequired
+                    crate::engine::AuthenticatedModuleGraphPreparation::Native(_)
                 ),
-                "an authored dynamic import entered the eager native graph"
+                "an authored literal dynamic import no longer prepares natively"
             );
         }
         runtime.load_runtime().await.unwrap();

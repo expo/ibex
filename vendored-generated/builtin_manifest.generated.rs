@@ -179,6 +179,34 @@ pub const RUNTIME_GATED_NODE_BUILTINS: &[&str] = &[
     r"zlib",
 ];
 
+// Specifiers builtins require between themselves that the shared runtime's
+// bootstrap module cache serves (or that are intentionally absent and guarded
+// at the require site). The host manifest resolver refuses them by design, so
+// graph materialization must treat such edges as call-time, not eager.
+#[rustfmt::skip]
+pub(crate) const BOOTSTRAP_INTERNAL_MODULE_SPECIFIERS: &[&str] = &[
+    r"internal/util/debuglog",
+    r"internal/linkedlist",
+    r"internal/util",
+    r"internal/util/inspect",
+    r"internal/options",
+    r"internal/http",
+    r"internal/net",
+    r"internal/async_hooks",
+    r"internal/timers",
+    r"internal/assert/myers_diff",
+    r"internal/crypto/util",
+    r"internal/crypto/x509",
+    r"internal/url",
+    r"internal/fs/utils",
+    r"internal/test/binding",
+    r"internal/child_process",
+    r"stream/consumers",
+    r"node:stream/consumers",
+    r"stream/promises",
+    r"node:stream/promises",
+];
+
 #[rustfmt::skip]
 pub(crate) const BUILTIN_MANIFEST_DEBUG_ENTRIES: &[BuiltinManifestDebugEntry] = &[
     BuiltinManifestDebugEntry { specifier: r"exact:process", source_key: r"exact_process", source_kind: r"generated", source_path: Some(r"builtins/process.js"), platform_availability: r"all", module_builtin: false, bundle_external: true },

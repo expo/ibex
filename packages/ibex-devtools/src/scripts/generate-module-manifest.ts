@@ -268,6 +268,9 @@ export function renderRustBuiltinManifest(): string {
   const gatedBuiltinLines = manifest.runtimeGatedNodeBuiltins.map(
     (name) => `    ${rustStringLiteral(name)},`,
   );
+  const bootstrapInternalLines = manifest.staticBootstrapInternalModules.map(
+    (name) => `    ${rustStringLiteral(name)},`,
+  );
   const sourceLines = Object.entries(sources).map(
     ([sourceKey, source]) =>
       `        ${rustStringLiteral(sourceKey)} => ${renderRustSourceExpression(source)},`,
@@ -284,6 +287,15 @@ ${registrationLines.join('\n')}
 #[rustfmt::skip]
 pub const RUNTIME_GATED_NODE_BUILTINS: &[&str] = &[
 ${gatedBuiltinLines.join('\n')}
+];
+
+// Specifiers builtins require between themselves that the shared runtime's
+// bootstrap module cache serves (or that are intentionally absent and guarded
+// at the require site). The host manifest resolver refuses them by design, so
+// graph materialization must treat such edges as call-time, not eager.
+#[rustfmt::skip]
+pub(crate) const BOOTSTRAP_INTERNAL_MODULE_SPECIFIERS: &[&str] = &[
+${bootstrapInternalLines.join('\n')}
 ];
 
 #[rustfmt::skip]

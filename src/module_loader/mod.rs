@@ -1092,6 +1092,15 @@ pub struct BuiltinManifestDebugEntry {
 
 include!(concat!(env!("OUT_DIR"), "/builtin_manifest.generated.rs"));
 
+/// True for specifiers that builtins require between themselves and that the
+/// shared runtime's bootstrap module cache serves (or that are intentionally
+/// absent and guarded at the require site, e.g. `fs`'s optional
+/// `internal/test/binding`). The generated host manifest refuses these by
+/// design, so graph materialization treats such edges as call-time.
+pub(crate) fn is_bootstrap_internal_module_specifier(specifier: &str) -> bool {
+    BOOTSTRAP_INTERNAL_MODULE_SPECIFIERS.contains(&specifier.trim())
+}
+
 impl Default for ModuleLoader {
     fn default() -> Self {
         Self::new()

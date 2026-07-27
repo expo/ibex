@@ -5118,7 +5118,9 @@ impl Host {
             anyhow::bail!("unarmed host cannot resolve executable modules");
         }
         if !self.module_loader.is_builtin_specifier(specifier) {
-            anyhow::bail!("internal builtin resolution requires an exact manifest specifier");
+            anyhow::bail!(
+                "internal builtin resolution requires an exact manifest specifier: {specifier:?}"
+            );
         }
         let meta = self.module_loader.resolve_meta(specifier, None)?;
         if meta.kind != crate::module_loader::ModuleKind::Builtin {

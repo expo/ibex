@@ -6289,6 +6289,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:rust:build_builtin_registry",
     "function:rust:builtin_module_debug_entries",
     "function:rust:duplicate_resolver_fd",
+    "function:rust:is_bootstrap_internal_module_specifier",
     "function:rust:is_builtin_specifier",
     "function:rust:is_registered_builtin_specifier",
     "function:rust:lexical_absolute_path_for_resolver",
@@ -10326,7 +10327,7 @@ function loaderClassification(surface) {
       return nonCapabilitySpec("authority-control-plane", "WP7");
     }
     if (
-      /^(?:cache_tag|contains_using_keyword|format_oxc_errors|from_value|is_builtin_specifier|module_kind_from_path|needs_js_downlevel|needs_transpile|normalize_windows_verbatim_path_text|output_has_esm_module_syntax|oxc_target|parse_replacement_expr|package_name_and_root_in_node_modules|package_name_from_bare_specifier|package_root_in_node_modules|pick_package_import_path|program_has_top_level_await|scan_balanced_region|scan_block_scoped_loop_closures|sha256_hex|skip_ws_and_comments|source_needs_async_downlevel|source_needs_downlevel|source_needs_for_of_scoping_fix|source_needs_loop_scope_downlevel|strip_file_module_decorations|strip_file_specifier_decorations|transpile_source_to_cjs|transpile_target_for_source|transpile_to_cjs|transpile_with_oxc|transpile_with_swc|unique_staged_transpile_input|unique_tmp_path|validate_import_attributes)$/u.test(
+      /^(?:cache_tag|contains_using_keyword|format_oxc_errors|from_value|is_bootstrap_internal_module_specifier|is_builtin_specifier|module_kind_from_path|needs_js_downlevel|needs_transpile|normalize_windows_verbatim_path_text|output_has_esm_module_syntax|oxc_target|parse_replacement_expr|package_name_and_root_in_node_modules|package_name_from_bare_specifier|package_root_in_node_modules|pick_package_import_path|program_has_top_level_await|scan_balanced_region|scan_block_scoped_loop_closures|sha256_hex|skip_ws_and_comments|source_needs_async_downlevel|source_needs_downlevel|source_needs_for_of_scoping_fix|source_needs_loop_scope_downlevel|strip_file_module_decorations|strip_file_specifier_decorations|transpile_source_to_cjs|transpile_target_for_source|transpile_to_cjs|transpile_with_oxc|transpile_with_swc|unique_staged_transpile_input|unique_tmp_path|validate_import_attributes)$/u.test(
         functionName,
       )
     ) {
@@ -10518,7 +10519,12 @@ function loaderClassification(surface) {
     ) {
       return nonCapabilitySpec("authority-control-plane", "WP8");
     }
-    if (name === "function:rust:is_builtin_specifier") {
+    if (
+      new Set([
+        "function:rust:is_bootstrap_internal_module_specifier",
+        "function:rust:is_builtin_specifier",
+      ]).has(name)
+    ) {
       return nonCapabilitySpec("module-reachability-only", "WP7");
     }
     if (name === "function:rust:is_private_runtime_source") {
