@@ -205,6 +205,56 @@ const STARTUP_ENVIRONMENT_SOURCES = new Map([
       supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
     }),
   ],
+  [
+    "startup:env:NO_COLOR",
+    Object.freeze({
+      environmentName: "NO_COLOR",
+      sourceRef: "src/builtins/tty.js#process.env:NO_COLOR:read",
+      mechanism: "tty-color-depth",
+      moduleSpecifier: "node:tty",
+      preloadModuleSpecifiers: ["node:tty"],
+      observedEnvironmentNames: [
+        "COLORTERM",
+        "FORCE_COLOR",
+        "NO_COLOR",
+        "TERM",
+      ],
+      observedEnvironmentAccesses: [
+        "NO_COLOR",
+        "FORCE_COLOR",
+        "COLORTERM",
+        "COLORTERM",
+        "TERM",
+      ],
+      selectedBranchId: "absent",
+      supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
+    }),
+  ],
+  [
+    "startup:env:TERM",
+    Object.freeze({
+      environmentName: "TERM",
+      sourceRef: "src/builtins/tty.js#process.env:TERM:read",
+      mechanism: "tty-color-depth",
+      moduleSpecifier: "node:tty",
+      preloadModuleSpecifiers: ["node:tty"],
+      observedEnvironmentNames: [
+        "COLORTERM",
+        "FORCE_COLOR",
+        "NO_COLOR",
+        "TERM",
+      ],
+      observedEnvironmentAccesses: [
+        "NO_COLOR",
+        "FORCE_COLOR",
+        "COLORTERM",
+        "COLORTERM",
+        "TERM",
+      ],
+      selectedBranchId: "absent",
+      supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
+    }),
+  ],
 ]);
 
 const taggedDigest = (value) =>

@@ -359,17 +359,19 @@ describe("exact-target CapSec executable recipes", () => {
     // connection lifecycles, handshakes, deliberately throwing `assert.fail`,
     // invalid-descriptor closes, absent FileHandle members, and unsupported
     // SQLite deserialization remain residual.
+    // Sixty-six startup environment rows now bind eleven exact public source
+    // carriers to their pure absent env:read branches.
     // Physical Apple execution also retired stale crypto and zlib recipes that
     // crashed or deliberately threw instead of returning; residual accounting
     // must reflect both.
     // The principal environment Proxy adds the complete exact read/write
     // scenario matrix through its captured native bridges.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_497);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_509);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_214);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_202);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -485,9 +487,9 @@ describe("exact-target CapSec executable recipes", () => {
     // exact assert promise validators, and five harness-owned filesystem
     // object lifecycle routes; target-local physical evidence also retires the
     // unsafe or deliberately throwing crypto/zlib claims.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_156);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_168);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_228);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_216);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -3704,7 +3706,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-startup-environment-invocation/1",
     );
-    expect(authored).toHaveLength(54);
+    expect(authored).toHaveLength(66);
     expect(
       authored.map((recipe) => [recipe.terminalObservedKey, recipe.scenario]),
     ).toEqual([
@@ -3726,6 +3728,18 @@ describe("exact-target CapSec executable recipes", () => {
       ["startup:env:EXACT_DEBUG_EMIT_LISTENER", "malformed"],
       ["startup:env:EXACT_DEBUG_EMIT_LISTENER", "missing-attribution"],
       ["startup:env:EXACT_DEBUG_EMIT_LISTENER", "wrong-principal"],
+      ["startup:env:NO_COLOR", "allow"],
+      ["startup:env:NO_COLOR", "branch-selection"],
+      ["startup:env:NO_COLOR", "deny"],
+      ["startup:env:NO_COLOR", "malformed"],
+      ["startup:env:NO_COLOR", "missing-attribution"],
+      ["startup:env:NO_COLOR", "wrong-principal"],
+      ["startup:env:TERM", "allow"],
+      ["startup:env:TERM", "branch-selection"],
+      ["startup:env:TERM", "deny"],
+      ["startup:env:TERM", "malformed"],
+      ["startup:env:TERM", "missing-attribution"],
+      ["startup:env:TERM", "wrong-principal"],
       ["startup:env:NODE_DEBUG", "allow"],
       ["startup:env:NODE_DEBUG", "branch-selection"],
       ["startup:env:NODE_DEBUG", "deny"],
@@ -3901,6 +3915,50 @@ describe("exact-target CapSec executable recipes", () => {
           ],
         },
       ],
+      [
+        "NO_COLOR",
+        {
+          sourceRef: "src/builtins/tty.js#process.env:NO_COLOR:read",
+          mechanism: "tty-color-depth",
+          moduleSpecifier: "node:tty",
+          preloads: ["node:tty"],
+          observedEnvironmentNames: [
+            "COLORTERM",
+            "FORCE_COLOR",
+            "NO_COLOR",
+            "TERM",
+          ],
+          observedEnvironmentAccesses: [
+            "NO_COLOR",
+            "FORCE_COLOR",
+            "COLORTERM",
+            "COLORTERM",
+            "TERM",
+          ],
+        },
+      ],
+      [
+        "TERM",
+        {
+          sourceRef: "src/builtins/tty.js#process.env:TERM:read",
+          mechanism: "tty-color-depth",
+          moduleSpecifier: "node:tty",
+          preloads: ["node:tty"],
+          observedEnvironmentNames: [
+            "COLORTERM",
+            "FORCE_COLOR",
+            "NO_COLOR",
+            "TERM",
+          ],
+          observedEnvironmentAccesses: [
+            "NO_COLOR",
+            "FORCE_COLOR",
+            "COLORTERM",
+            "COLORTERM",
+            "TERM",
+          ],
+        },
+      ],
     ]);
     for (const recipe of authored) {
       expect(() =>
@@ -3969,7 +4027,7 @@ describe("exact-target CapSec executable recipes", () => {
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.status === "unresolved",
       ),
-    ).toHaveLength(616);
+    ).toHaveLength(604);
     for (const environmentName of expectedSources.keys()) {
       const residual = startupEnvironmentRecipes.filter(
         (recipe) =>

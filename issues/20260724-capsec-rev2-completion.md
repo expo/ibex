@@ -3227,6 +3227,54 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — executed exact tty color startup reads
+
+- Added `NO_COLOR` and `TERM` to the source-bound startup environment program.
+  The authored probe follows the loaded implementation's exact five-read
+  sequence (`NO_COLOR`, `FORCE_COLOR`, `COLORTERM`, `COLORTERM`, `TERM`) across
+  the terminal session, `node:tty`, and stream-enhancement carriers. Only the
+  absent branches are promoted; present values remain residual because their
+  public route continues into a stdio write.
+- The startup environment inventory now has **66 rows across 11 exact
+  sources**. The two new names add 12 fully executable fixtures per target
+  without conflating repeated reads, carrier scope, or a missing value with a
+  successful present-value route.
+- Apple catalog digest
+  `sha256-z046jImK8Be8u8tNGBsSesRpxrpnIRJoyvGCD2Cmc0U` reports 23,847 required /
+  **3,509 fully executable** / 3,136 internally verified / 17,202 unresolved.
+  The M5 MacBook Air static-Hermes batch passes **78/78** and binds engine
+  digest `sha256-o4tWWlzgtrgmMRENGmb_yk7zgGNYMU--7x8QoufNBso`; the
+  evidence-file SHA-256 is
+  `d14fc7f4b938d9e51bb2ee3b502a4aab1b3c4ecb206800c97dea9e36ffe849e5`,
+  and independent validation produced execution digest
+  `sha256-byqQMYpblXKyFXYQ2_jIdE22RblDPcpH1xCs4qh_tqw`.
+- Windows catalog digest
+  `sha256-CTx7jcaihqQ7463W6-hnoJHNZtnaUY-lFNsg4Ao7sO8` reports 23,506 required /
+  **3,168 fully executable** / 3,122 internally verified / 17,216 unresolved.
+  The NucBox strict stale-vendored batch passes **78/78** and binds engine
+  digest `sha256-X3YZyvzEJ1RgMNkEPjbfLC1X4hkKzmmw_82UQKV854Q`; the
+  evidence-file SHA-256 is
+  `f6fbe66c92884ce38311a8237ac9ad1f8317faba272152d2d25b7ca3b84be88d`,
+  and independent validation produced execution digest
+  `sha256-RRSwJPvRhyYwNuN7QJ-ondQPIIYIv9MZcPlYn_i1kAo`.
+- Both independent aggregates bind source revision
+  `33e5ee7ea4c01b45d122351548afbe7c90784e2d` and tree digest
+  `sha256-cvNxbm97_YjlX9drkDwkTohaJpyD1taz-1yZxIVIQ0g`. The focused evidence
+  suite passes **148/148** with 117,130 assertions; the complete generated
+  drift gate, module-manifest check, `cargo fmt --check`, `git diff --check`,
+  and `ref-check` all pass.
+- Hard part: concurrent old-worktree commits on `main` duplicated the
+  bootstrap-internal module predicate and generated vocabulary. Reconciliation
+  retained the newer exact, non-trimming definition and removed the duplicate
+  source and generated blocks. Windows then required rebuilding the pinned
+  patched no-debugger Hermes SDK from source; Cargo correctly refused a target
+  directory bound to a different bundle, and the final run used a fresh target
+  plus an explicitly pinned MSVC `dumpbin` path so the required package-id
+  export was physically verified.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

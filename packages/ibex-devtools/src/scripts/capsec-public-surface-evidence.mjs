@@ -528,6 +528,60 @@ const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
       ],
     },
   ],
+  [
+    "NO_COLOR",
+    {
+      sourceRef: "src/builtins/tty.js#process.env:NO_COLOR:read",
+      liveSourceRefs: [
+        "src/bin/ibex/terminal_session.rs#env::var_os:NO_COLOR:read",
+        "src/builtins/tty.js#process.env:NO_COLOR:read",
+        "src/engine/bootstrap/stream-enhance.js#process.env:NO_COLOR:read",
+      ],
+      mechanism: "tty-color-depth",
+      moduleSpecifier: "node:tty",
+      preloadModuleSpecifiers: ["node:tty"],
+      observedEnvironmentNames: [
+        "COLORTERM",
+        "FORCE_COLOR",
+        "NO_COLOR",
+        "TERM",
+      ],
+      observedEnvironmentAccesses: [
+        "NO_COLOR",
+        "FORCE_COLOR",
+        "COLORTERM",
+        "COLORTERM",
+        "TERM",
+      ],
+    },
+  ],
+  [
+    "TERM",
+    {
+      sourceRef: "src/builtins/tty.js#process.env:TERM:read",
+      liveSourceRefs: [
+        "src/bin/ibex/terminal_session.rs#env::var_os:TERM:read",
+        "src/builtins/tty.js#process.env:TERM:read",
+        "src/engine/bootstrap/stream-enhance.js#process.env:TERM:read",
+      ],
+      mechanism: "tty-color-depth",
+      moduleSpecifier: "node:tty",
+      preloadModuleSpecifiers: ["node:tty"],
+      observedEnvironmentNames: [
+        "COLORTERM",
+        "FORCE_COLOR",
+        "NO_COLOR",
+        "TERM",
+      ],
+      observedEnvironmentAccesses: [
+        "NO_COLOR",
+        "FORCE_COLOR",
+        "COLORTERM",
+        "COLORTERM",
+        "TERM",
+      ],
+    },
+  ],
 ]);
 
 const PRINCIPAL_ENVIRONMENT_SURFACE =

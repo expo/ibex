@@ -173,7 +173,7 @@ struct ExpectedSource {
     observed_environment_accesses: &'static [&'static str],
 }
 
-const EXPECTED_SOURCES: [ExpectedSource; 9] = [
+const EXPECTED_SOURCES: [ExpectedSource; 11] = [
     ExpectedSource {
         environment_name: "NODE_DEBUG",
         source_ref: "src/builtins/http.js#process.env:NODE_DEBUG:read",
@@ -261,6 +261,36 @@ const EXPECTED_SOURCES: [ExpectedSource; 9] = [
     ExpectedSource {
         environment_name: "COLORTERM",
         source_ref: "src/builtins/tty.js#process.env:COLORTERM:read",
+        mechanism: "tty-color-depth",
+        module_specifier: Some("node:tty"),
+        preload_module_specifiers: &["node:tty"],
+        observed_environment_names: &["COLORTERM", "FORCE_COLOR", "NO_COLOR", "TERM"],
+        observed_environment_accesses: &[
+            "NO_COLOR",
+            "FORCE_COLOR",
+            "COLORTERM",
+            "COLORTERM",
+            "TERM",
+        ],
+    },
+    ExpectedSource {
+        environment_name: "NO_COLOR",
+        source_ref: "src/builtins/tty.js#process.env:NO_COLOR:read",
+        mechanism: "tty-color-depth",
+        module_specifier: Some("node:tty"),
+        preload_module_specifiers: &["node:tty"],
+        observed_environment_names: &["COLORTERM", "FORCE_COLOR", "NO_COLOR", "TERM"],
+        observed_environment_accesses: &[
+            "NO_COLOR",
+            "FORCE_COLOR",
+            "COLORTERM",
+            "COLORTERM",
+            "TERM",
+        ],
+    },
+    ExpectedSource {
+        environment_name: "TERM",
+        source_ref: "src/builtins/tty.js#process.env:TERM:read",
         mechanism: "tty-color-depth",
         module_specifier: Some("node:tty"),
         preload_module_specifiers: &["node:tty"],
@@ -1615,8 +1645,8 @@ async fn capsec_public_startup_environment_batch() {
         .collect::<Vec<_>>();
     assert_eq!(
         recipes.len(),
-        54,
-        "expected the complete matrix for nine startup environment absent slices"
+        66,
+        "expected the complete matrix for eleven startup environment absent slices"
     );
     assert_eq!(
         principal_environment_recipes.len(),
@@ -1667,7 +1697,9 @@ async fn capsec_public_startup_environment_batch() {
             "startup:env:EXACT_PIPELINE_STATE_DEBUG",
             "startup:env:FORCE_COLOR",
             "startup:env:LINES",
+            "startup:env:NO_COLOR",
             "startup:env:NODE_DEBUG",
+            "startup:env:TERM",
             "startup:env:TZ",
         ])
     );

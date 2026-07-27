@@ -299,11 +299,6 @@ ${bootstrapInternalLines.join('\n')}
 ];
 
 #[rustfmt::skip]
-pub(crate) const BOOTSTRAP_INTERNAL_MODULE_SPECIFIERS: &[&str] = &[
-${bootstrapInternalLines.join('\n')}
-];
-
-#[rustfmt::skip]
 pub(crate) const BUILTIN_MANIFEST_DEBUG_ENTRIES: &[BuiltinManifestDebugEntry] = &[
 ${debugLines.join('\n')}
 ];
