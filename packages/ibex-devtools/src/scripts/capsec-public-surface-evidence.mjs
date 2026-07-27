@@ -398,6 +398,18 @@ const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
   ],
 ]);
 
+const PRINCIPAL_ENVIRONMENT_SURFACE =
+  "native-op:global:process.env.[[dynamic-table:principal-environment-overlay-properties]]";
+const PRINCIPAL_ENVIRONMENT_NAME = "IBEX_CAPSEC_PUBLIC_ENV_PROPERTY";
+const PRINCIPAL_ENVIRONMENT_SOURCE_REFS = [
+  "packages/ibex-runtime-js/src/node/process.ts#Process.prototype.env",
+  "packages/ibex-runtime-js/src/node/process.ts#createEnvProxy",
+  "packages/ibex-runtime-js/src/node/process.ts#createEnvProxy:Proxy.deleteProperty",
+  "packages/ibex-runtime-js/src/node/process.ts#createEnvProxy:Proxy.get",
+  "packages/ibex-runtime-js/src/node/process.ts#createEnvProxy:Proxy.ownKeys",
+  "packages/ibex-runtime-js/src/node/process.ts#createEnvProxy:Proxy.set",
+];
+
 function hasExactKeys(value, keys) {
   return (
     value &&
@@ -1494,6 +1506,107 @@ export function validateStartupEnvironmentRecipeDescriptor(recipe) {
   return recipe;
 }
 
+export function validatePrincipalEnvironmentRecipeDescriptor(recipe) {
+  const authored = recipe?.publicSurfaceProbe?.invocation;
+  if (
+    authored?.invocationSchema !==
+    "ibex/capsec-principal-environment-invocation/1"
+  ) {
+    throw new Error(
+      `${recipe?.fixtureId ?? "unknown fixture"}: not a principal environment recipe`,
+    );
+  }
+  const descriptor = authored.sourceDescriptor;
+  const operation = authored.operation;
+  exactKeys(
+    descriptor,
+    [
+      "kind",
+      "surfaceObservedKey",
+      "carrierEdgeId",
+      "implementationBranchIds",
+      "enforcementBranchIds",
+      "selectedBranch",
+      "sourceContract",
+      "selectedProxyTrap",
+      "auxiliaryObservedKey",
+      "auxiliaryDecisionEdgeId",
+      "principalMode",
+    ],
+    `${recipe.fixtureId}: principal environment source descriptor`,
+  );
+  exactKeys(
+    operation,
+    ["kind", "environmentName", "value", "principalMode"],
+    `${recipe.fixtureId}: principal environment operation`,
+  );
+  const actionId =
+    operation.kind === "read"
+      ? "env:read"
+      : operation.kind === "write"
+        ? "env:write"
+        : null;
+  const expectedTrap = operation.kind === "read" ? "get" : "set";
+  const expectedBridge =
+    operation.kind === "read" ? "__exactGetEnv" : "__exactSetEnv";
+  const expectedAuxiliaryObservedKey = `native-op:${expectedBridge}`;
+  const expectedPrincipalMode =
+    authored.scenario === "deny" ? "package-denied" : "root-authorized";
+  const contract = descriptor.sourceContract;
+  if (
+    authored.kind !== "principal-environment-property" ||
+    !["allow", "deny", "branch-selection"].includes(authored.scenario) ||
+    descriptor.kind !== "principal-environment-property" ||
+    descriptor.surfaceObservedKey !== PRINCIPAL_ENVIRONMENT_SURFACE ||
+    descriptor.carrierEdgeId !== recipe.edgeIds?.[0] ||
+    canonicalJson(descriptor.implementationBranchIds) !==
+      canonicalJson(recipe.implementationBranchIds) ||
+    canonicalJson(descriptor.enforcementBranchIds) !==
+      canonicalJson(recipe.enforcementBranchIds) ||
+    descriptor.selectedBranch?.id !== operation.kind ||
+    canonicalJson(descriptor.selectedBranch?.when) !==
+      canonicalJson([
+        {
+          fact: "environment.property.operation",
+          equals: operation.kind,
+        },
+      ]) ||
+    contract?.schema !==
+      "ibex/principal-environment-overlay-source-contract/1" ||
+    contract.surfaceName !==
+      PRINCIPAL_ENVIRONMENT_SURFACE.slice("native-op:".length) ||
+    contract.dynamicMember !==
+      "[[dynamic-table:principal-environment-overlay-properties]]" ||
+    contract.globalPath !== "process.env" ||
+    contract.binding?.factory !== "createEnvProxy" ||
+    contract.binding?.member !== "Process.prototype.env" ||
+    contract.factory?.name !== "createEnvProxy" ||
+    canonicalJson(contract.nativeBridges) !==
+      canonicalJson(["__exactGetAllEnv", "__exactGetEnv", "__exactSetEnv"]) ||
+    canonicalJson(contract.sourceRefs) !==
+      canonicalJson(PRINCIPAL_ENVIRONMENT_SOURCE_REFS) ||
+    contract.proxyTraps?.length !== 4 ||
+    descriptor.selectedProxyTrap?.name !== expectedTrap ||
+    descriptor.selectedProxyTrap?.sourceRef !==
+      `packages/ibex-runtime-js/src/node/process.ts#createEnvProxy:Proxy.${expectedTrap}` ||
+    !descriptor.selectedProxyTrap?.nativeBridges?.includes(expectedBridge) ||
+    descriptor.auxiliaryObservedKey !== expectedAuxiliaryObservedKey ||
+    typeof descriptor.auxiliaryDecisionEdgeId !== "string" ||
+    descriptor.principalMode !== expectedPrincipalMode ||
+    operation.principalMode !== expectedPrincipalMode ||
+    operation.environmentName !== PRINCIPAL_ENVIRONMENT_NAME ||
+    operation.value !==
+      (operation.kind === "write" ? "ibex-capsec-value" : null) ||
+    actionId === null ||
+    canonicalJson(recipe.actionIds) !== canonicalJson([actionId])
+  ) {
+    throw new Error(
+      `${recipe.fixtureId}: principal environment runtime invocation descriptor drift`,
+    );
+  }
+  return recipe;
+}
+
 function validateRuntimeInvocation(observation, recipe) {
   const invocation = observation.invocation;
   const authored = recipe.publicSurfaceProbe?.invocation;
@@ -1980,6 +2093,24 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: startup environment runtime invocation descriptor drift`,
+      );
+    }
+  } else if (
+    invocation?.invocationSchema ===
+    "ibex/capsec-principal-environment-invocation/1"
+  ) {
+    exactKeys(
+      invocation,
+      [...commonKeys, "scenario"],
+      `${recipe.fixtureId}: principal environment runtime invocation`,
+    );
+    validatePrincipalEnvironmentRecipeDescriptor(recipe);
+    if (
+      invocation.kind !== "principal-environment-property" ||
+      invocation.scenario !== authored.scenario
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: principal environment runtime invocation descriptor drift`,
       );
     }
   } else if (
@@ -2992,13 +3123,17 @@ function validateRuntimeInvocation(observation, recipe) {
   const startupEnvironment =
     authored.invocationSchema ===
     "ibex/capsec-startup-environment-invocation/1";
+  const principalEnvironment =
+    authored.invocationSchema ===
+    "ibex/capsec-principal-environment-invocation/1";
   const effectBuiltinModuleImport =
     authored.invocationSchema ===
     "ibex/capsec-builtin-module-import-invocation/1";
   const noncapBuiltinModuleImport =
     authored.invocationSchema ===
     "ibex/capsec-builtin-module-import-no-effect-invocation/1";
-  const outcomeDeclaredCarrier = callbackInvariant || startupEnvironment;
+  const outcomeDeclaredCarrier =
+    callbackInvariant || startupEnvironment || principalEnvironment;
   const auxiliaryCarrier =
     outcomeDeclaredCarrier || effectBuiltinModuleImport;
   if (
@@ -3062,6 +3197,19 @@ function validateRuntimeInvocation(observation, recipe) {
   ) {
     throw new Error(
       `${recipe.fixtureId}: malformed startup environment resource binding`,
+    );
+  }
+  if (
+    principalEnvironment &&
+    (!Array.isArray(authored.expectedResourceNames) ||
+      canonicalJson(authored.expectedResourceNames) !==
+        canonicalJson(canonicalSet(authored.expectedResourceNames)) ||
+      authored.expectedResourceNames.length !== 1 ||
+      authored.expectedResourceNames[0] !==
+        authored.operation.environmentName)
+  ) {
+    throw new Error(
+      `${recipe.fixtureId}: malformed principal environment resource binding`,
     );
   }
   if (!invocation.result || typeof invocation.result !== "object") {
@@ -3561,6 +3709,57 @@ function validateRuntimeInvocation(observation, recipe) {
           `${recipe.fixtureId}: loaded engine did not prove the startup environment source outcome`,
         );
       }
+    } else if (principalEnvironment) {
+      exactKeys(
+        invocation.result,
+        [
+          "kind",
+          "surfaceKind",
+          "surfaceName",
+          "mechanism",
+          "operationKind",
+          "environmentName",
+          "principalMode",
+          "engineExecuted",
+          "projectCodeExecuted",
+          "sourceOutcome",
+          "errorName",
+          "errorMessage",
+        ],
+        `${recipe.fixtureId}: principal environment runtime result`,
+      );
+      const operation = authored.operation;
+      const denial = authored.scenario === "deny";
+      const deniedWrite = denial && operation.kind === "write";
+      if (
+        invocation.result.kind !== (deniedWrite ? "throw" : "return") ||
+        invocation.result.surfaceKind !== "native-op" ||
+        invocation.result.surfaceName !==
+          PRINCIPAL_ENVIRONMENT_SURFACE.slice("native-op:".length) ||
+        invocation.result.mechanism !== "process-env-proxy" ||
+        invocation.result.operationKind !== operation.kind ||
+        invocation.result.environmentName !== operation.environmentName ||
+        invocation.result.principalMode !== operation.principalMode ||
+        invocation.result.engineExecuted !== true ||
+        invocation.result.projectCodeExecuted !== true ||
+        invocation.result.sourceOutcome !==
+          (denial
+            ? operation.kind === "read"
+              ? "denied-as-absent"
+              : "permission-denied"
+            : "source-observed") ||
+        (deniedWrite
+          ? typeof invocation.result.errorMessage !== "string" ||
+            !invocation.result.errorMessage.includes("Permission denied") ||
+            typeof invocation.result.errorName !== "string" ||
+            invocation.result.errorName.length === 0
+          : invocation.result.errorName !== null ||
+            invocation.result.errorMessage !== null)
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: loaded engine did not prove the principal environment source outcome`,
+        );
+      }
     }
   } else if (authored.expectedResult === "boolean-return") {
     exactKeys(
@@ -3627,6 +3826,47 @@ function validateRuntimeInvocation(observation, recipe) {
       !fragmentMatched
     ) {
       throw new Error(`${recipe.fixtureId}: public invocation did not deny`);
+    }
+    if (principalEnvironment) {
+      exactKeys(
+        invocation.result,
+        [
+          "kind",
+          "surfaceKind",
+          "surfaceName",
+          "mechanism",
+          "operationKind",
+          "environmentName",
+          "principalMode",
+          "engineExecuted",
+          "projectCodeExecuted",
+          "sourceOutcome",
+          "errorName",
+          "errorMessage",
+        ],
+        `${recipe.fixtureId}: denied principal environment runtime result`,
+      );
+      if (
+        authored.scenario !== "deny" ||
+        authored.operation.kind !== "write" ||
+        invocation.result.surfaceKind !== "native-op" ||
+        invocation.result.surfaceName !==
+          PRINCIPAL_ENVIRONMENT_SURFACE.slice("native-op:".length) ||
+        invocation.result.mechanism !== "process-env-proxy" ||
+        invocation.result.operationKind !== "write" ||
+        invocation.result.environmentName !==
+          authored.operation.environmentName ||
+        invocation.result.principalMode !== "package-denied" ||
+        invocation.result.engineExecuted !== true ||
+        invocation.result.projectCodeExecuted !== true ||
+        invocation.result.sourceOutcome !== "permission-denied" ||
+        typeof invocation.result.errorName !== "string" ||
+        invocation.result.errorName.length === 0
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: denied principal environment source outcome drift`,
+        );
+      }
     }
   } else if (authored.expectedResult === "invalid-handle") {
     exactKeys(
@@ -4101,6 +4341,9 @@ export function validatePublicFixtureRuntimeObservation(
   const startupEnvironment =
     authored.invocationSchema ===
     "ibex/capsec-startup-environment-invocation/1";
+  const principalEnvironment =
+    authored.invocationSchema ===
+    "ibex/capsec-principal-environment-invocation/1";
   const effectBuiltinModuleImport =
     authored.invocationSchema ===
     "ibex/capsec-builtin-module-import-invocation/1";
@@ -4164,7 +4407,8 @@ export function validatePublicFixtureRuntimeObservation(
           canonicalJson(actions) ===
           canonicalJson(authored.expectedActionIds),
       ));
-  const outcomeDeclaredCarrier = callbackInvariant || startupEnvironment;
+  const outcomeDeclaredCarrier =
+    callbackInvariant || startupEnvironment || principalEnvironment;
   const auxiliaryCarrier =
     outcomeDeclaredCarrier ||
     effectBuiltinModuleImport ||
@@ -4365,6 +4609,71 @@ export function validatePublicFixtureRuntimeObservation(
     ) {
       throw new Error(
         `${recipe.fixtureId}: startup environment auxiliary decision is not coverage-bound`,
+      );
+    }
+  }
+  if (principalEnvironment) {
+    const descriptor = authored.sourceDescriptor;
+    const auxiliaryEdgeId = descriptor?.auxiliaryDecisionEdgeId ?? null;
+    const auxiliaryEdge = coverage?.edges?.find(
+      (edge) => edge.id === auxiliaryEdgeId,
+    );
+    const carrierEdge = coverage?.edges?.find(
+      (edge) => edge.id === descriptor?.carrierEdgeId,
+    );
+    const selectedBranch = carrierEdge?.logicalBranches?.find(
+      (branch) => branch.id === descriptor?.selectedBranch?.id,
+    );
+    const actionId =
+      authored.operation?.kind === "read" ? "env:read" : "env:write";
+    const expectedAuxiliaryName =
+      authored.operation?.kind === "read"
+        ? "__exactGetEnv"
+        : "__exactSetEnv";
+    const auxiliaryActions = canonicalSet(
+      (auxiliaryEdge?.effects ?? []).map((effect) => effect.cap),
+    );
+    const auxiliaryStages = new Set(
+      (auxiliaryEdge?.effects ?? []).flatMap((effect) => effect.stages ?? []),
+    );
+    if (
+      auxiliaryEdge?.classification !== "effects" ||
+      auxiliaryEdge?.surface?.kind !== "native-op" ||
+      auxiliaryEdge?.surface?.name !== expectedAuxiliaryName ||
+      descriptor.auxiliaryObservedKey !==
+        `native-op:${expectedAuxiliaryName}` ||
+      canonicalJson(auxiliaryActions) !== canonicalJson([actionId]) ||
+      !authored.expectedTypedStages.every((stage) =>
+        auxiliaryStages.has(stage),
+      ) ||
+      canonicalJson(authored.allowedCoverageEdgeIds) !==
+        canonicalJson([auxiliaryEdgeId]) ||
+      canonicalJson(authored.expectedActionIds) !==
+        canonicalJson([actionId]) ||
+      carrierEdge?.classification !== "effects" ||
+      carrierEdge?.surface?.kind !== "native-op" ||
+      `native-op:${carrierEdge?.surface?.name}` !==
+        PRINCIPAL_ENVIRONMENT_SURFACE ||
+      carrierEdge?.id !== recipe.edgeIds?.[0] ||
+      canonicalJson(selectedBranch) !==
+        canonicalJson(descriptor.selectedBranch) ||
+      canonicalJson(selectedBranch?.when) !==
+        canonicalJson([
+          {
+            fact: "environment.property.operation",
+            equals: authored.operation.kind,
+          },
+        ]) ||
+      canonicalJson(
+        canonicalSet(
+          (selectedBranch?.effects ?? []).map((effect) => effect.cap),
+        ),
+      ) !== canonicalJson(recipe.actionIds) ||
+      recipe.terminalObservedKey !== PRINCIPAL_ENVIRONMENT_SURFACE ||
+      descriptor.surfaceObservedKey !== recipe.terminalObservedKey
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: principal environment auxiliary decision is not coverage-bound`,
       );
     }
   }
@@ -4640,6 +4949,49 @@ export function validatePublicFixtureRuntimeObservation(
       ) {
         throw new Error(
           `${recipe.fixtureId}: startup environment decision lost its exact resource or principal binding`,
+        );
+      }
+    }
+    if (principalEnvironment) {
+      const environmentName = authored.operation.environmentName;
+      const actionId =
+        authored.operation.kind === "read" ? "env:read" : "env:write";
+      const actor = set.context.actor;
+      const packageMode =
+        authored.operation.principalMode === "package-denied";
+      const expectedActor = packageMode
+        ? actor?.kind === "package" &&
+          actor.name === "image-lib" &&
+          actor.locator === "image-lib@2.4.1" &&
+          typeof actor.integrity === "string" &&
+          /^sha256-[A-Za-z0-9_-]{43}$/.test(actor.integrity)
+        : canonicalJson(actor) ===
+          canonicalJson({ kind: "root", identity: "project-root" });
+      const expectedConstrained = packageMode
+        ? [{ kind: "root", identity: "project-root" }, actor]
+        : [actor];
+      const effect = set.effects[0];
+      if (
+        set.effects.length !== 1 ||
+        decision.gates.length !== 1 ||
+        expectedActor !== true ||
+        canonicalJson(set.context.constrainedPrincipals) !==
+          canonicalJson(expectedConstrained) ||
+        canonicalJson(effect?.effectOwner) !== canonicalJson(actor) ||
+        effect?.cap !== actionId ||
+        canonicalJson(effect?.resource) !==
+          canonicalJson({
+            kind: "environment-occurrence",
+            requested: {
+              kind: "environment-name",
+              target: "principal-overlay",
+              name: environmentName,
+            },
+            valueOrigin: "principal-overlay",
+          })
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: principal environment decision lost its exact resource or principal binding`,
         );
       }
     }

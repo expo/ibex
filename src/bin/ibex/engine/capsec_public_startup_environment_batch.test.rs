@@ -7,9 +7,16 @@ use std::ffi::OsString;
 #[cfg(not(feature = "host-http-server"))]
 use std::io::Write as _;
 
-const STARTUP_ENVIRONMENT_INVOCATION_SCHEMA: &str =
-    "ibex/capsec-startup-environment-invocation/1";
+const STARTUP_ENVIRONMENT_INVOCATION_SCHEMA: &str = "ibex/capsec-startup-environment-invocation/1";
+const PRINCIPAL_ENVIRONMENT_INVOCATION_SCHEMA: &str =
+    "ibex/capsec-principal-environment-invocation/1";
 const ENV_AUXILIARY_EDGE_ID: &str = "surface.native.op.exactgetenv.0k6bv7a";
+const ENV_WRITE_AUXILIARY_EDGE_ID: &str = "surface.native.op.exactsetenv.1785yh6";
+const PRINCIPAL_ENVIRONMENT_SURFACE: &str =
+    "native-op:global:process.env.[[dynamic-table:principal-environment-overlay-properties]]";
+const PRINCIPAL_ENVIRONMENT_CARRIER_EDGE_ID: &str =
+    "surface.native.op.global.process.env.dynamic.table.principal.environment.overlay.propertie.0sncb00";
+const PRINCIPAL_ENVIRONMENT_NAME: &str = "IBEX_CAPSEC_PUBLIC_ENV_PROPERTY";
 const STARTUP_ENVIRONMENT_BATCH_COMMAND: [&str; 10] = [
     "cargo",
     "test",
@@ -55,6 +62,43 @@ struct PublicSurfaceProbe {
     surface_observed_key: String,
     command: Vec<String>,
     invocation: StartupEnvironmentInvocation,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PrincipalEnvironmentProbe {
+    kind: String,
+    surface_observed_key: String,
+    command: Vec<String>,
+    invocation: PrincipalEnvironmentInvocation,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PrincipalEnvironmentInvocation {
+    invocation_schema: String,
+    kind: String,
+    scenario: String,
+    source_descriptor: serde_json::Value,
+    source_descriptor_digest: String,
+    operation: PrincipalEnvironmentOperation,
+    expected_result: String,
+    expected_typed_decision_count: usize,
+    expected_typed_stages: Vec<String>,
+    expected_typed_outcomes: Vec<String>,
+    expected_typed_reasons: Vec<String>,
+    allowed_coverage_edge_ids: Vec<String>,
+    expected_action_ids: Vec<String>,
+    expected_resource_names: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PrincipalEnvironmentOperation {
+    kind: String,
+    environment_name: String,
+    value: Option<String>,
+    principal_mode: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -227,12 +271,34 @@ fn startup_environment_probe(recipe: &Recipe) -> Option<PublicSurfaceProbe> {
     )
 }
 
+fn principal_environment_probe(recipe: &Recipe) -> Option<PrincipalEnvironmentProbe> {
+    let value = recipe.public_surface_probe.as_ref()?;
+    if value["invocation"]["invocationSchema"] != PRINCIPAL_ENVIRONMENT_INVOCATION_SCHEMA {
+        return None;
+    }
+    Some(
+        serde_json::from_value(value.clone())
+            .expect("principal environment public probe must match its typed schema"),
+    )
+}
+
 fn environment_selector(name: &str) -> serde_json::Value {
     // @ref LLP 0022#7-capabilities-principals-and-affordance-parity — armed
     // process.env reads only the current principal's exact-name overlay;
     // startup-source classification does not reopen the broker base.
     serde_json::json!({
         "cap": "env:read",
+        "resource": {
+            "kind": "environment-name",
+            "target": "principal-overlay",
+            "name": name,
+        },
+    })
+}
+
+fn principal_environment_selector(action: &str, name: &str) -> serde_json::Value {
+    serde_json::json!({
+        "cap": action,
         "resource": {
             "kind": "environment-name",
             "target": "principal-overlay",
@@ -293,7 +359,7 @@ fn prepare_package_fixture(operation: &StartupEnvironmentOperation) -> PackageFi
         other => panic!("unsupported package startup environment mechanism {other}"),
     };
     std::fs::write(package_root.join("index.js"), source)
-    .expect("write startup environment package source");
+        .expect("write startup environment package source");
     let integrity = crate::module_loader::package_tree_integrity(&package_root)
         .expect("digest startup environment package tree");
     let principal_value = serde_json::json!({
@@ -304,6 +370,58 @@ fn prepare_package_fixture(operation: &StartupEnvironmentOperation) -> PackageFi
     });
     let principal = serde_json::from_value(principal_value.clone())
         .expect("startup environment package principal must be valid");
+    PackageFixture {
+        _directory: directory,
+        root,
+        package_root,
+        principal_value,
+        principal,
+    }
+}
+
+fn prepare_principal_environment_package(
+    operation: &PrincipalEnvironmentOperation,
+) -> PackageFixture {
+    let directory = tempfile::tempdir().expect("create principal environment package fixture");
+    let root = std::fs::canonicalize(directory.path())
+        .expect("canonicalize principal environment fixture root");
+    let package_root = root.join("node_modules/image-lib");
+    std::fs::create_dir_all(&package_root).expect("create principal environment package root");
+    std::fs::write(
+        package_root.join("package.json"),
+        r#"{"name":"image-lib","version":"2.4.1","main":"index.js"}"#,
+    )
+    .expect("write principal environment package manifest");
+    let name = serde_json::to_string(&operation.environment_name)
+        .expect("serialize principal environment name");
+    let source = match operation.kind.as_str() {
+        "read" => format!(
+            "module.exports = function(environment) {{ return environment[{name}] === undefined; }};\n"
+        ),
+        "write" => format!(
+            "module.exports = function(environment) {{ environment[{name}] = {}; return true; }};\n",
+            serde_json::to_string(
+                operation
+                    .value
+                    .as_deref()
+                    .expect("principal environment write requires a value"),
+            )
+            .expect("serialize principal environment value")
+        ),
+        other => panic!("unsupported principal environment operation {other}"),
+    };
+    std::fs::write(package_root.join("index.js"), source)
+        .expect("write principal environment package source");
+    let integrity = crate::module_loader::package_tree_integrity(&package_root)
+        .expect("digest principal environment package tree");
+    let principal_value = serde_json::json!({
+        "kind": "package",
+        "name": "image-lib",
+        "integrity": integrity,
+        "locator": "image-lib@2.4.1",
+    });
+    let principal = serde_json::from_value(principal_value.clone())
+        .expect("principal environment package principal must be valid");
     PackageFixture {
         _directory: directory,
         root,
@@ -358,8 +476,50 @@ fn build_environment_host(
             snapshot["principals"][1]["escalationCeiling"] = serde_json::json!([]);
             snapshot["principals"][1]["imports"]["builtins"] =
                 serde_json::to_value(&builtin_imports).unwrap();
-            snapshot["packageGraph"]["nodes"][0]["principal"] =
+            snapshot["packageGraph"]["nodes"][0]["principal"] = package.principal_value.clone();
+            snapshot["packageGraph"]["importEdges"][0]["imported"] =
                 package.principal_value.clone();
+        },
+    )
+}
+
+fn build_principal_environment_host(
+    package: Option<&PackageFixture>,
+    operation: &PrincipalEnvironmentOperation,
+) -> (crate::host::Host, String) {
+    let action = match operation.kind.as_str() {
+        "read" => "env:read",
+        "write" => "env:write",
+        other => panic!("unsupported principal environment operation {other}"),
+    };
+    let selector = principal_environment_selector(action, &operation.environment_name);
+    build_armed_test_host_control(
+        package.map(|fixture| fixture.root.as_path()),
+        false,
+        false,
+        false,
+        vec![selector.clone()],
+        Vec::new(),
+        false,
+        0,
+        None,
+        |snapshot| {
+            let Some(package) = package else {
+                return;
+            };
+            snapshot["rootBindings"][0]["owner"] = package.principal_value.clone();
+            snapshot["rootBindings"][0]["hostPath"] = serde_json::json!({
+                "root": "absolute",
+                "components": package_components(&package.package_root),
+                "hostBound": true,
+            });
+            snapshot["rootBindings"][0]["object"] = object_identity(&package.package_root);
+            snapshot["principals"][1]["principal"] = package.principal_value.clone();
+            snapshot["principals"][1]["floor"] = serde_json::json!([]);
+            snapshot["principals"][1]["denials"] = serde_json::json!([selector]);
+            snapshot["principals"][1]["escalationCeiling"] = serde_json::json!([]);
+            snapshot["principals"][1]["imports"]["builtins"] = serde_json::json!([]);
+            snapshot["packageGraph"]["nodes"][0]["principal"] = package.principal_value.clone();
             snapshot["packageGraph"]["importEdges"][0]["imported"] =
                 package.principal_value.clone();
         },
@@ -406,14 +566,15 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         "allow" | "deny" | "branch-selection"
     ));
     assert_eq!(probe.kind, "public-surface-invocation");
-    assert!(
-        probe
-            .command
-            .iter()
-            .map(String::as_str)
-            .eq(STARTUP_ENVIRONMENT_BATCH_COMMAND)
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(STARTUP_ENVIRONMENT_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        STARTUP_ENVIRONMENT_INVOCATION_SCHEMA
     );
-    assert_eq!(invocation.invocation_schema, STARTUP_ENVIRONMENT_INVOCATION_SCHEMA);
     assert_eq!(invocation.kind, "startup-environment-source");
     assert_eq!(invocation.scenario, recipe.scenario);
     assert_eq!(invocation.surface_kind, "startup");
@@ -423,7 +584,10 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         format!("{}:{}", invocation.surface_kind, invocation.surface_name)
     );
     assert_eq!(probe.surface_observed_key, recipe.terminal_observed_key);
-    assert_eq!(recipe.edge_ids, [descriptor["carrierEdgeId"].as_str().unwrap()]);
+    assert_eq!(
+        recipe.edge_ids,
+        [descriptor["carrierEdgeId"].as_str().unwrap()]
+    );
     assert_eq!(
         recipe.implementation_branch_ids,
         serde_json::from_value::<Vec<String>>(descriptor["implementationBranchIds"].clone())
@@ -431,8 +595,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
     );
     assert_eq!(
         recipe.enforcement_branch_ids,
-        serde_json::from_value::<Vec<String>>(descriptor["enforcementBranchIds"].clone())
-            .unwrap()
+        serde_json::from_value::<Vec<String>>(descriptor["enforcementBranchIds"].clone()).unwrap()
     );
     assert_eq!(recipe.action_ids, ["env:read"]);
     assert_eq!(recipe.expected_observation["kind"], "enforcement-branch");
@@ -507,6 +670,213 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
     );
 }
 
+fn validate_principal_environment_probe(recipe: &Recipe, probe: &PrincipalEnvironmentProbe) {
+    let invocation = &probe.invocation;
+    let descriptor = &invocation.source_descriptor;
+    let operation = &invocation.operation;
+    let (action, auxiliary_observed_key, auxiliary_edge_id, bridge) = match operation.kind.as_str()
+    {
+        "read" => (
+            "env:read",
+            "native-op:__exactGetEnv",
+            ENV_AUXILIARY_EDGE_ID,
+            "__exactGetEnv",
+        ),
+        "write" => (
+            "env:write",
+            "native-op:__exactSetEnv",
+            ENV_WRITE_AUXILIARY_EDGE_ID,
+            "__exactSetEnv",
+        ),
+        other => panic!("unsupported principal environment operation {other}"),
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "effects");
+    assert!(matches!(
+        recipe.scenario.as_str(),
+        "allow" | "deny" | "branch-selection"
+    ));
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(STARTUP_ENVIRONMENT_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        PRINCIPAL_ENVIRONMENT_INVOCATION_SCHEMA
+    );
+    assert_eq!(invocation.kind, "principal-environment-property");
+    assert_eq!(invocation.scenario, recipe.scenario);
+    assert_eq!(probe.surface_observed_key, PRINCIPAL_ENVIRONMENT_SURFACE);
+    assert_eq!(probe.surface_observed_key, recipe.terminal_observed_key);
+    assert_eq!(recipe.edge_ids, [PRINCIPAL_ENVIRONMENT_CARRIER_EDGE_ID]);
+    assert_eq!(recipe.action_ids, [action]);
+    assert_eq!(recipe.expected_observation["kind"], "enforcement-branch");
+    assert_eq!(descriptor["kind"], "principal-environment-property");
+    assert_eq!(
+        descriptor["surfaceObservedKey"],
+        PRINCIPAL_ENVIRONMENT_SURFACE
+    );
+    assert_eq!(
+        descriptor["carrierEdgeId"],
+        PRINCIPAL_ENVIRONMENT_CARRIER_EDGE_ID
+    );
+    assert_eq!(
+        recipe.implementation_branch_ids,
+        serde_json::from_value::<Vec<String>>(descriptor["implementationBranchIds"].clone())
+            .unwrap()
+    );
+    assert_eq!(
+        recipe.enforcement_branch_ids,
+        serde_json::from_value::<Vec<String>>(descriptor["enforcementBranchIds"].clone()).unwrap()
+    );
+    assert_eq!(descriptor["selectedBranch"]["id"], operation.kind);
+    assert_eq!(
+        descriptor["selectedBranch"]["when"],
+        serde_json::json!([{
+            "fact": "environment.property.operation",
+            "equals": operation.kind,
+        }])
+    );
+    assert_eq!(
+        descriptor["sourceContract"]["schema"],
+        "ibex/principal-environment-overlay-source-contract/1"
+    );
+    assert_eq!(descriptor["sourceContract"]["globalPath"], "process.env");
+    assert_eq!(
+        descriptor["sourceContract"]["binding"]["member"],
+        "Process.prototype.env"
+    );
+    assert_eq!(
+        descriptor["selectedProxyTrap"]["name"],
+        if operation.kind == "read" {
+            "get"
+        } else {
+            "set"
+        }
+    );
+    assert!(descriptor["selectedProxyTrap"]["nativeBridges"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::Value::String(bridge.into())));
+    assert_eq!(descriptor["auxiliaryObservedKey"], auxiliary_observed_key);
+    assert_eq!(descriptor["auxiliaryDecisionEdgeId"], auxiliary_edge_id);
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_jcs_digest(descriptor)
+    );
+    assert_eq!(operation.environment_name, PRINCIPAL_ENVIRONMENT_NAME);
+    assert_eq!(
+        operation.value.as_deref(),
+        (operation.kind == "write").then_some("ibex-capsec-value")
+    );
+    let denial = recipe.scenario == "deny";
+    let expected_principal_mode = if denial {
+        "package-denied"
+    } else {
+        "root-authorized"
+    };
+    assert_eq!(operation.principal_mode, expected_principal_mode);
+    assert_eq!(descriptor["principalMode"], expected_principal_mode);
+    assert_eq!(
+        invocation.expected_result,
+        if denial && operation.kind == "write" {
+            "permission-denied"
+        } else {
+            "return"
+        }
+    );
+    assert_eq!(invocation.allowed_coverage_edge_ids, [auxiliary_edge_id]);
+    assert_eq!(invocation.expected_action_ids, [action]);
+    assert_eq!(
+        invocation.expected_resource_names,
+        [PRINCIPAL_ENVIRONMENT_NAME]
+    );
+    assert_eq!(
+        invocation.expected_typed_decision_count,
+        invocation.expected_typed_stages.len()
+    );
+    assert_eq!(
+        invocation.expected_typed_decision_count,
+        invocation.expected_typed_outcomes.len()
+    );
+    assert_eq!(
+        invocation.expected_typed_decision_count,
+        invocation.expected_typed_reasons.len()
+    );
+}
+
+fn validate_principal_environment_decisions(
+    recipe: &Recipe,
+    invocation: &PrincipalEnvironmentInvocation,
+    expected_principal: &capsec_semantics::model::Principal,
+    decisions: &[serde_json::Value],
+) {
+    assert_eq!(
+        decisions.len(),
+        invocation.expected_typed_decision_count,
+        "{} observed unexpected typed decisions: {decisions:#?}",
+        recipe.fixture_id
+    );
+    let expected_principal =
+        serde_json::to_value(expected_principal).expect("expected principal must serialize");
+    let package_mode = invocation.operation.principal_mode == "package-denied";
+    let expected_constrained = if package_mode {
+        serde_json::json!([
+            {"kind": "root", "identity": "project-root"},
+            expected_principal,
+        ])
+    } else {
+        serde_json::json!([expected_principal])
+    };
+    let action = invocation.expected_action_ids[0].as_str();
+    let edge_id = invocation.allowed_coverage_edge_ids[0].as_str();
+    for (index, decision) in decisions.iter().enumerate() {
+        let set = &decision["decisionSet"];
+        assert_eq!(set["context"]["actor"], expected_principal);
+        assert_eq!(
+            set["context"]["constrainedPrincipals"],
+            expected_constrained
+        );
+        assert_eq!(
+            set["context"]["stage"],
+            invocation.expected_typed_stages[index]
+        );
+        assert_eq!(set["atomicityGroup"], format!("{edge_id}.decision"));
+        assert_eq!(set["effects"].as_array().unwrap().len(), 1);
+        assert_eq!(set["effects"][0]["cap"], action);
+        assert_eq!(set["effects"][0]["effectOwner"], expected_principal);
+        assert_eq!(
+            set["effects"][0]["resource"],
+            serde_json::json!({
+                "kind": "environment-occurrence",
+                "requested": {
+                    "kind": "environment-name",
+                    "target": "principal-overlay",
+                    "name": invocation.operation.environment_name,
+                },
+                "valueOrigin": "principal-overlay",
+            })
+        );
+        assert_eq!(decision["gates"].as_array().unwrap().len(), 1);
+        assert_eq!(decision["gates"][0]["coverageEdgeId"], edge_id);
+        assert_eq!(decision["gates"][0]["targetCell"], "complete");
+        assert_eq!(
+            decision["gates"][0]["definitionAndEdgePredicatesSatisfied"],
+            true
+        );
+        assert_eq!(
+            decision["evidence"]["outcome"],
+            invocation.expected_typed_outcomes[index]
+        );
+        assert_eq!(
+            actor_reason(decision),
+            Some(invocation.expected_typed_reasons[index].as_str())
+        );
+    }
+}
+
 fn validate_typed_decisions(
     recipe: &Recipe,
     invocation: &StartupEnvironmentInvocation,
@@ -533,9 +903,18 @@ fn validate_typed_decisions(
     for (index, decision) in decisions.iter().enumerate() {
         let set = &decision["decisionSet"];
         assert_eq!(set["context"]["actor"], expected_principal);
-        assert_eq!(set["context"]["constrainedPrincipals"], expected_constrained);
-        assert_eq!(set["context"]["stage"], invocation.expected_typed_stages[index]);
-        assert_eq!(set["atomicityGroup"], format!("{ENV_AUXILIARY_EDGE_ID}.decision"));
+        assert_eq!(
+            set["context"]["constrainedPrincipals"],
+            expected_constrained
+        );
+        assert_eq!(
+            set["context"]["stage"],
+            invocation.expected_typed_stages[index]
+        );
+        assert_eq!(
+            set["atomicityGroup"],
+            format!("{ENV_AUXILIARY_EDGE_ID}.decision")
+        );
         assert_eq!(set["effects"].as_array().unwrap().len(), 1);
         assert_eq!(set["effects"][0]["cap"], "env:read");
         assert_eq!(set["effects"][0]["effectOwner"], expected_principal);
@@ -552,7 +931,10 @@ fn validate_typed_decisions(
             })
         );
         assert_eq!(decision["gates"].as_array().unwrap().len(), 1);
-        assert_eq!(decision["gates"][0]["coverageEdgeId"], ENV_AUXILIARY_EDGE_ID);
+        assert_eq!(
+            decision["gates"][0]["coverageEdgeId"],
+            ENV_AUXILIARY_EDGE_ID
+        );
         assert_eq!(decision["gates"][0]["targetCell"], "complete");
         assert_eq!(
             decision["gates"][0]["definitionAndEdgePredicatesSatisfied"],
@@ -675,10 +1057,7 @@ async fn invoke_source(
     (result, legacy.len(), typed)
 }
 
-async fn execute_recipe(
-    recipe: &Recipe,
-    engine_binary_digest: &str,
-) -> serde_json::Value {
+async fn execute_recipe(recipe: &Recipe, engine_binary_digest: &str) -> serde_json::Value {
     let probe = startup_environment_probe(recipe)
         .expect("startup environment recipe has no typed public probe");
     validate_probe(recipe, &probe);
@@ -715,21 +1094,13 @@ async fn execute_recipe(
         .await
         .expect("load exact startup environment probe runtime");
     let session_id = format!("startup-environment-observation:{}", recipe.plan_digest);
-    let (source_result, legacy_count, typed_decisions) = invoke_source(
-        &engine,
-        &host,
-        invocation,
-        package.as_ref(),
-        &session_id,
-    )
-    .await;
-    assert_eq!(legacy_count, 0, "startup environment source consulted legacy policy");
-    validate_typed_decisions(
-        recipe,
-        invocation,
-        &expected_principal,
-        &typed_decisions,
+    let (source_result, legacy_count, typed_decisions) =
+        invoke_source(&engine, &host, invocation, package.as_ref(), &session_id).await;
+    assert_eq!(
+        legacy_count, 0,
+        "startup environment source consulted legacy policy"
     );
+    validate_typed_decisions(recipe, invocation, &expected_principal, &typed_decisions);
     assert!(std::env::var_os(&invocation.operation.environment.name).is_none());
 
     let source_outcome = if invocation.expected_typed_outcomes == ["deny"] {
@@ -799,12 +1170,222 @@ async fn execute_recipe(
     })
 }
 
+async fn invoke_principal_environment_property(
+    engine: &HermesEngine,
+    host: &crate::host::Host,
+    invocation: &PrincipalEnvironmentInvocation,
+    package: Option<&PackageFixture>,
+    session_id: &str,
+) -> (serde_json::Value, usize, Vec<serde_json::Value>) {
+    let mut evaluator = AuthenticatedStartupEvaluator::new(host);
+    if package.is_some() {
+        assert_eq!(
+            evaluator
+                .eval_string(engine, "require('image-lib'); 'ready'")
+                .await
+                .expect("preload principal environment package")
+                .as_deref(),
+            Some("ready")
+        );
+    }
+    assert!(
+        ibex_runtime::host::abi::begin_installed_conformance_observation(session_id),
+        "install principal environment observation {session_id}"
+    );
+    let name = serde_json::to_string(&invocation.operation.environment_name).unwrap();
+    let root_expression = match invocation.operation.kind.as_str() {
+        "read" => format!("process.env[{name}] === undefined"),
+        "write" => format!(
+            "((process.env[{name}] = {}) === {})",
+            serde_json::to_string(
+                invocation
+                    .operation
+                    .value
+                    .as_deref()
+                    .expect("principal environment write requires a value"),
+            )
+            .unwrap(),
+            serde_json::to_string(
+                invocation
+                    .operation
+                    .value
+                    .as_deref()
+                    .expect("principal environment write requires a value"),
+            )
+            .unwrap(),
+        ),
+        other => panic!("unsupported principal environment operation {other}"),
+    };
+    let expression = if package.is_some() {
+        "(function(environment) { return require('image-lib')(environment); })(process.env)"
+            .to_owned()
+    } else {
+        root_expression
+    };
+    let project_marker = serde_json::to_string(session_id).unwrap();
+    let script = format!(
+        "JSON.stringify((function(projectMarker){{try{{var value={expression};return {{kind:'return',value:value===true,projectMarker:projectMarker}};}}catch(error){{return {{kind:'throw',errorName:String(error&&error.name||'Error'),errorMessage:String(error&&error.message||error),projectMarker:projectMarker}};}}}})({project_marker}))"
+    );
+    let encoded = evaluator
+        .eval_string(engine, &script)
+        .await
+        .expect("execute principal environment public source")
+        .expect("principal environment public source returned no result");
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    let result: serde_json::Value = serde_json::from_str(&encoded)
+        .expect("principal environment public source returned invalid JSON");
+    assert_eq!(result["projectMarker"], session_id);
+    let typed = typed_decision_values(session_id, typed);
+    match invocation.expected_result.as_str() {
+        "return" => {
+            assert_eq!(
+                result["kind"], "return",
+                "principal environment {} {} returned {result}",
+                invocation.operation.kind, invocation.operation.principal_mode
+            );
+            assert_eq!(
+                result["value"], true,
+                "principal environment {} {} returned {result}",
+                invocation.operation.kind, invocation.operation.principal_mode
+            );
+        }
+        "permission-denied" => {
+            assert_eq!(result["kind"], "throw");
+            assert!(result["errorMessage"]
+                .as_str()
+                .is_some_and(|message| message.contains("Permission denied")));
+        }
+        other => panic!("unsupported principal environment result {other}"),
+    }
+    evaluator
+        .finish(engine, "principal environment public source")
+        .expect("finish authenticated principal environment publications");
+    (result, legacy.len(), typed)
+}
+
+async fn execute_principal_environment_recipe(
+    recipe: &Recipe,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    let probe = principal_environment_probe(recipe)
+        .expect("principal environment recipe has no typed public probe");
+    validate_principal_environment_probe(recipe, &probe);
+    let invocation = &probe.invocation;
+    let package = (invocation.operation.principal_mode == "package-denied")
+        .then(|| prepare_principal_environment_package(&invocation.operation));
+    let expected_principal = package
+        .as_ref()
+        .map(|fixture| fixture.principal.clone())
+        .unwrap_or_else(|| {
+            serde_json::from_value(serde_json::json!({
+                "kind": "root",
+                "identity": "project-root",
+            }))
+            .expect("root principal environment principal must be valid")
+        });
+    let (host, snapshot_digest) =
+        build_principal_environment_host(package.as_ref(), &invocation.operation);
+    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+    let _reset = HostResetGuard;
+    let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+        .expect("create exact principal environment probe engine");
+    engine
+        .load_runtime()
+        .await
+        .expect("load exact principal environment probe runtime");
+    let session_id = format!("principal-environment-observation:{}", recipe.plan_digest);
+    let (source_result, legacy_count, typed_decisions) = invoke_principal_environment_property(
+        &engine,
+        &host,
+        invocation,
+        package.as_ref(),
+        &session_id,
+    )
+    .await;
+    assert_eq!(
+        legacy_count, 0,
+        "principal environment source consulted legacy policy"
+    );
+    validate_principal_environment_decisions(
+        recipe,
+        invocation,
+        &expected_principal,
+        &typed_decisions,
+    );
+
+    let denial = invocation.expected_typed_outcomes == ["deny"];
+    let source_outcome = if denial {
+        if invocation.operation.kind == "read" {
+            "denied-as-absent"
+        } else {
+            "permission-denied"
+        }
+    } else {
+        "source-observed"
+    };
+    let project_code_executed = source_result["projectMarker"] == session_id;
+    assert!(project_code_executed);
+    let result = serde_json::json!({
+        "kind": source_result["kind"],
+        "surfaceKind": "native-op",
+        "surfaceName": "global:process.env.[[dynamic-table:principal-environment-overlay-properties]]",
+        "mechanism": "process-env-proxy",
+        "operationKind": invocation.operation.kind,
+        "environmentName": invocation.operation.environment_name,
+        "principalMode": invocation.operation.principal_mode,
+        "engineExecuted": true,
+        "projectCodeExecuted": project_code_executed,
+        "sourceOutcome": source_outcome,
+        "errorName": source_result.get("errorName").cloned().unwrap_or(serde_json::Value::Null),
+        "errorMessage": source_result.get("errorMessage").cloned().unwrap_or(serde_json::Value::Null),
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": probe.surface_observed_key,
+            "scenario": invocation.scenario,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": legacy_count,
+        "typedDecisions": typed_decisions,
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected principal environment observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": recipe.terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-startup-environment-public-source-harness",
+        "evidence": evidence,
+    })
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn capsec_public_startup_environment_batch() {
     let Ok(recipe_path) = std::env::var("IBEX_CAPSEC_RECIPE_CATALOG") else {
-        eprintln!(
-            "IBEX_CAPSEC_RECIPE_CATALOG is unset; skipping startup environment public batch"
-        );
+        eprintln!("IBEX_CAPSEC_RECIPE_CATALOG is unset; skipping startup environment public batch");
         return;
     };
     let output_path = std::env::var("IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT").ok();
@@ -816,11 +1397,31 @@ async fn capsec_public_startup_environment_batch() {
         .iter()
         .filter(|recipe| startup_environment_probe(recipe).is_some())
         .collect::<Vec<_>>();
+    let principal_environment_recipes = catalog
+        .recipes
+        .iter()
+        .filter(|recipe| principal_environment_probe(recipe).is_some())
+        .collect::<Vec<_>>();
     assert_eq!(
         recipes.len(),
         9,
         "expected three curated startup environment absent slices"
     );
+    assert_eq!(
+        principal_environment_recipes.len(),
+        6,
+        "expected read and write principal environment slices"
+    );
+    assert_eq!(
+        principal_environment_recipes
+            .iter()
+            .map(|recipe| recipe.scenario.as_str())
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from(["allow", "branch-selection", "deny"])
+    );
+    assert!(principal_environment_recipes
+        .iter()
+        .all(|recipe| recipe.terminal_observed_key == PRINCIPAL_ENVIRONMENT_SURFACE));
     assert_eq!(
         recipes
             .iter()
@@ -851,9 +1452,14 @@ async fn capsec_public_startup_environment_batch() {
         portable.is_some(),
         "startup environment batch requires exactly one legacy output or portable plan"
     );
-    let mut executions = Vec::with_capacity(recipes.len());
+    let mut executions = Vec::with_capacity(recipes.len() + principal_environment_recipes.len());
     for recipe in recipes {
         executions.push(execute_recipe(recipe, &identity_before.binary_digest).await);
+    }
+    for recipe in principal_environment_recipes {
+        executions.push(
+            execute_principal_environment_recipe(recipe, &identity_before.binary_digest).await,
+        );
     }
     executions.sort_by(|left, right| left["fixtureId"].as_str().cmp(&right["fixtureId"].as_str()));
     let identity_after = HermesEngine::loaded_engine_identity()
@@ -1223,9 +1829,7 @@ impl AuthenticatedStartupEvaluator {
                 anyhow::bail!("authenticated startup source was cancelled")
             }
             AuthenticatedEvaluation::Lifecycle(code) => {
-                anyhow::bail!(
-                    "authenticated startup source exited with lifecycle code {code}"
-                )
+                anyhow::bail!("authenticated startup source exited with lifecycle code {code}")
             }
         }
     }
@@ -1486,12 +2090,12 @@ async fn loaded_hermes_isolates_principal_environment_overlays() {
             .eval_string(
                 &engine,
                 &format!(
-                r#"globalThis.__overlayAsyncResult = null;
+                    r#"globalThis.__overlayAsyncResult = null;
 require('env-alpha').scheduleAsync({:?}, 'async-alpha', function(result) {{
   globalThis.__overlayAsyncResult = result;
 }});
 'scheduled'"#,
-                OVERLAY_ASYNC_NAME,
+                    OVERLAY_ASYNC_NAME,
                 ),
             )
             .await
@@ -1503,12 +2107,8 @@ require('env-alpha').scheduleAsync({:?}, 'async-alpha', function(result) {{
         .drive_event_loop(&engine, "package-owned environment mutation")
         .await
         .expect("drive package-owned environment mutation");
-    let async_result = eval_overlay_json(
-        &mut overlay,
-        &engine,
-        "globalThis.__overlayAsyncResult",
-    )
-    .await;
+    let async_result =
+        eval_overlay_json(&mut overlay, &engine, "globalThis.__overlayAsyncResult").await;
     assert_eq!(
         async_result,
         serde_json::json!({

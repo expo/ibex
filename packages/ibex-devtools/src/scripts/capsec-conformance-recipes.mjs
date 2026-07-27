@@ -28,6 +28,7 @@ import { authoredBuiltinPublicProbe } from "./capsec-public-probe-templates.mjs"
 import { authoredCallbackInvariantProbe } from "./capsec-callback-invariant-probe-templates.mjs";
 import { authoredClosedPublicProbe } from "./capsec-closed-probe-templates.mjs";
 import { authoredGlobalCallableOutputInvocation } from "./capsec-global-callable-probe-templates.mjs";
+import { authoredPrincipalEnvironmentProbe } from "./capsec-principal-environment-probe-templates.mjs";
 import { authoredStartupPublicProbe } from "./capsec-startup-probe-templates.mjs";
 import { authoredStartupEnvironmentProbe } from "./capsec-startup-environment-probe-templates.mjs";
 import { authoredTargetAbsenceProbe } from "./capsec-target-absence-probe-templates.mjs";
@@ -4631,6 +4632,14 @@ export function buildConformanceRecipeCatalog({
         liveByObservedKey,
         coverageByObservedKey,
       });
+    const principalEnvironmentPublicSurfaceProbe =
+      authoredPrincipalEnvironmentProbe({
+        plan,
+        scenario,
+        route,
+        liveByObservedKey,
+        coverageByObservedKey,
+      });
     const callbackInvariantProbe = authoredCallbackInvariantProbe({
       plan,
       scenario,
@@ -4718,6 +4727,7 @@ export function buildConformanceRecipeCatalog({
             closedPublicSurfaceProbe,
             startupPublicSurfaceProbe,
             startupEnvironmentPublicSurfaceProbe,
+            principalEnvironmentPublicSurfaceProbe,
             effectBuiltinPublicSurfaceProbe,
             nonCapabilityBuiltinPublicSurfaceProbe,
             conditionalHostAbiProbe,

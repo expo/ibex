@@ -23,7 +23,10 @@ import {
   internalInvariantProofPlan,
 } from "./capsec-internal-invariant-evidence.mjs";
 import { canonicalOutputDispositionKey } from "./capsec-output-dispositions.mjs";
-import { validateStartupEnvironmentRecipeDescriptor } from "./capsec-public-surface-evidence.mjs";
+import {
+  validatePrincipalEnvironmentRecipeDescriptor,
+  validateStartupEnvironmentRecipeDescriptor,
+} from "./capsec-public-surface-evidence.mjs";
 import { CAPSEC_SECURE_TEST_FEATURES } from "./capsec-secure-test-command.mjs";
 import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
 import {
@@ -347,13 +350,15 @@ describe("exact-target CapSec executable recipes", () => {
     // remains residual because the harness cannot prepare its source descriptor
     // under a denied matching floor.
     // Six hundred source-bound callable globals now execute their exact
-    // decision-free call/construct/get route through the loaded engine.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_405);
+    // decision-free call/construct/get route through the loaded engine. The
+    // principal environment Proxy adds exact read/write allow, denial, and
+    // branch-selection executions through its captured native bridges.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_411);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_305);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_299);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -463,9 +468,9 @@ describe("exact-target CapSec executable recipes", () => {
     // the same floor that the scenario denies. Typed synchronous TCP connect
     // adds its five staged public scenarios, and its exact typed setup promotes
     // the three ownership-only lifecycle consumers.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_045);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_051);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_338);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_332);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -3788,6 +3793,91 @@ describe("exact-target CapSec executable recipes", () => {
         residual.every((recipe) => recipe.publicSurfaceProbe === null),
       ).toBe(true);
     }
+  });
+
+  test("binds principal environment property branches to the reviewed Proxy traps", () => {
+    const authored = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
+        "ibex/capsec-principal-environment-invocation/1",
+    );
+    expect(authored).toHaveLength(6);
+    expect(
+      authored.map((recipe) => [
+        recipe.publicSurfaceProbe.invocation.operation.kind,
+        recipe.scenario,
+      ]),
+    ).toEqual([
+      ["read", "allow"],
+      ["read", "branch-selection"],
+      ["read", "deny"],
+      ["write", "allow"],
+      ["write", "branch-selection"],
+      ["write", "deny"],
+    ]);
+    for (const recipe of authored) {
+      expect(() =>
+        validatePrincipalEnvironmentRecipeDescriptor(recipe),
+      ).not.toThrow();
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      const action =
+        invocation.operation.kind === "read" ? "env:read" : "env:write";
+      const bridge =
+        invocation.operation.kind === "read"
+          ? "__exactGetEnv"
+          : "__exactSetEnv";
+      expect(recipe).toMatchObject({
+        status: "fully-executable",
+        residualReasons: [],
+        actionIds: [action],
+      });
+      expect(invocation).toMatchObject({
+        kind: "principal-environment-property",
+        expectedActionIds: [action],
+        expectedResourceNames: ["IBEX_CAPSEC_PUBLIC_ENV_PROPERTY"],
+        allowedCoverageEdgeIds: [
+          invocation.sourceDescriptor.auxiliaryDecisionEdgeId,
+        ],
+        operation: {
+          environmentName: "IBEX_CAPSEC_PUBLIC_ENV_PROPERTY",
+          principalMode:
+            recipe.scenario === "deny"
+              ? "package-denied"
+              : "root-authorized",
+        },
+        sourceDescriptor: {
+          kind: "principal-environment-property",
+          auxiliaryObservedKey: `native-op:${bridge}`,
+          selectedBranch: { id: invocation.operation.kind },
+          selectedProxyTrap: {
+            name: invocation.operation.kind === "read" ? "get" : "set",
+          },
+        },
+      });
+    }
+    const wrongTrap = structuredClone(authored[0]);
+    wrongTrap.publicSurfaceProbe.invocation.sourceDescriptor.selectedProxyTrap =
+      structuredClone(
+        authored[3].publicSurfaceProbe.invocation.sourceDescriptor
+          .selectedProxyTrap,
+      );
+    expect(() =>
+      validatePrincipalEnvironmentRecipeDescriptor(wrongTrap),
+    ).toThrow(/principal environment runtime invocation descriptor drift/u);
+
+    const wrongPrincipalMode = structuredClone(authored[2]);
+    wrongPrincipalMode.publicSurfaceProbe.invocation.operation.principalMode =
+      "root-authorized";
+    expect(() =>
+      validatePrincipalEnvironmentRecipeDescriptor(wrongPrincipalMode),
+    ).toThrow(/principal environment runtime invocation descriptor drift/u);
+
+    const wrongAuxiliary = structuredClone(authored[3]);
+    wrongAuxiliary.publicSurfaceProbe.invocation.sourceDescriptor.auxiliaryObservedKey =
+      "native-op:__exactGetEnv";
+    expect(() =>
+      validatePrincipalEnvironmentRecipeDescriptor(wrongAuxiliary),
+    ).toThrow(/principal environment runtime invocation descriptor drift/u);
   });
 
   test("leaves legacy extension guards residual without a source-bound executor", () => {

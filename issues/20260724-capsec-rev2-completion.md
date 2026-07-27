@@ -2543,13 +2543,65 @@ ticket closes.
   obligation for at least one exact target is source-, engine-, and
   report-bound.
 
+### 2026-07-26 — authenticated principal environment overlay evidence
+
+- Promoted the dynamic `process.env` property surface only through the
+  source-derived `Process.prototype.env` / `createEnvProxy` contract. The six
+  new exact-target recipes cover read and write across allow, deny, and
+  branch-selection. Reads bind `env:read` to `__exactGetEnv`; writes bind
+  `env:write` to `__exactSetEnv`. The package-denied read must return the
+  proxy's deliberate absent value, while the package-denied write must throw
+  the production permission error.
+- This slice does not generalize from an environment variable name or a native
+  bridge label. Its authoring verifies the committed Proxy traps, source refs,
+  selected bridge, carrier edge, exact overlay name, typed resource,
+  constrained principal, and outcome. Malformed, missing-attribution,
+  wrong-principal, and other unexecuted variants remain residual. The
+  `NODE_PENDING_DEPRECATION` startup read was considered and rejected because
+  its current use is reachable only through bootstrap-internal
+  `internal/options`, not an honest production public route.
+- The M5 MacBook Air generated Apple catalog digest
+  `sha256-WWGvnH8dWs0jgjOez0klXutau66P6hSSUrsL32KQExs`: 23,846 required /
+  **3,411 fully executable** / 3,136 internally verified / 17,299 unresolved.
+  Its static-Hermes loaded-engine startup-environment batch passes **15/15**,
+  including all **6/6** principal-overlay rows, with engine digest
+  `sha256-6QbQa9TGsqzL8nSNcr0dd533hlfzk-sFoA16Nc5xYXc`. The evidence file
+  SHA-256 is
+  `1fc1f8556ab4d0179b07c5d3f33e419b0f01e8ee90020c265ed5004120bde424`;
+  independent JavaScript validation produced execution digest
+  `sha256-iIAcEA0hm2lB7F6SE-pw0AWyw7GvarGkv5POYmJ8s3Y`.
+- The physical Windows NucBox generated catalog digest
+  `sha256-NJWgX5eqErZul0u83h3GiJA0NFMF_W1JnZafEPRA1Rs`: 23,505 required /
+  **3,051 fully executable** / 3,122 internally verified / 17,332 unresolved.
+  Its strict stale-vendored, no-debugger patched-Hermes batch also passes
+  **15/15**, including all **6/6** new rows, with engine digest
+  `sha256-xqWHmqF0mGjVqhS8bUI7Av9fiP84rE8Zj23kOq9JJw8`. The evidence file
+  SHA-256 is
+  `a65ac848f69e4f4a43efc56f306a89e67ce027e8e6bd4bacaf53cc179747175c`;
+  independent validation produced execution digest
+  `sha256-evVn8Y8Kg_REeYGRsmTPW3NHw3WNwjZjsqr53tBAz1s`.
+- The focused recipe/evidence suite passes 146 tests with 114,802 assertions.
+  Generated drift validates 7,657 coverage edges and 15,314 target cells;
+  Rust formatting, diff hygiene, and all local LLP references pass.
+- Hard part: evaluating `require('image-lib')` before the `process.env`
+  argument activates the package frame before argument evaluation, making the
+  package-scoped global intentionally unavailable. The public harness must
+  capture the real `process.env` facade first, then pass it into package code;
+  the Proxy trap still derives the actual read or write principal from that
+  package frame. This preserves both the public source route and exact
+  principal attribution.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open: the six new physical rows reduce the residual corpus but do not make
+  either exact target complete, and advertisements remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
 select the highest-leverage residual public-evidence family, add a
 source-bound executor only where it reaches the real production route, and
-regenerate both target catalogs. Prioritize startup environment and loader
-families after separating operations that can be safely executed from those
-that must remain closed. Do not treat the empty advertisement set as criterion
-7 completion, and do not convert catalog labels or generic failed imports into
+regenerate both target catalogs. Continue separating the remaining startup
+environment and loader operations that can be safely executed from those that
+must remain closed. Do not treat the empty advertisement set as criterion 7
+completion, and do not convert catalog labels or generic failed imports into
 public execution evidence.
