@@ -6901,8 +6901,6 @@ fn validate_snapshot_protected_artifacts(
 ) -> capsec_semantics::Result<()> {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine as _;
-    use sha2::{Digest as _, Sha256};
-    use std::io::Read as _;
 
     for artifact in snapshot.protected_artifacts() {
         let path = host_path_from_logical_path(&artifact.host_path, "protected artifact path")?;
@@ -6956,21 +6954,19 @@ fn validate_snapshot_protected_artifacts(
             )));
         }
 
-        let mut hash = Sha256::new();
-        let mut buffer = [0u8; 64 * 1024];
-        loop {
-            let read = file.read(&mut buffer).map_err(|error| {
+        // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+        // — re-authenticate every byte at each boundary. Apple uses the
+        // platform SHA-256 implementation; other targets retain the same Rust
+        // digest implementation.
+        let hash = crate::engine::hash_open_file_sha256(&mut file, before.len()).map_err(
+            |error| {
                 capsec_semantics::Error::ArmRefused(format!(
                     "cannot hash protected artifact {}: {error}",
                     path.display()
                 ))
-            })?;
-            if read == 0 {
-                break;
-            }
-            hash.update(&buffer[..read]);
-        }
-        let observed = format!("sha256-{}", URL_SAFE_NO_PAD.encode(hash.finalize()));
+            },
+        )?;
+        let observed = format!("sha256-{}", URL_SAFE_NO_PAD.encode(hash));
         if observed != artifact.content_digest.as_str() {
             return Err(capsec_semantics::Error::ArmRefused(format!(
                 "protected artifact content digest changed: {}",

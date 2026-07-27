@@ -51,6 +51,7 @@
 #include <mutex>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -90,6 +91,7 @@
 #endif
 #include <sys/ioctl.h>
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/uio.h>
@@ -6957,6 +6959,61 @@ struct IbexPrivateHermesMacOsMappingObservationV1 {
 static_assert(sizeof(IbexPrivateHermesMacOsMappingObservationV1) == 40,
               "macOS mapping observation ABI layout changed");
 
+#if defined(__APPLE__)
+// Hash the already pinned file descriptor with CommonCrypto's platform-
+// accelerated SHA-256 implementation. The caller retains the descriptor and
+// revalidates its required object metadata after this returns.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+// engine authentication still covers every byte of the linked artifact; this
+// helper changes only the implementation of that exact digest.
+#if defined(__GNUC__)
+__attribute__((visibility("hidden")))
+#endif
+extern "C" int32_t ibex_private_apple_sha256_fd_v1(
+    int fd, uint64_t expected_size, uint8_t* output) {
+  if (fd < 0 || output == nullptr || expected_size > SIZE_MAX) {
+    return -1;
+  }
+  struct stat before = {};
+  if (fstat(fd, &before) != 0 || !S_ISREG(before.st_mode) ||
+      before.st_size < 0 ||
+      static_cast<uint64_t>(before.st_size) != expected_size) {
+    return -1;
+  }
+  void* mapped = nullptr;
+  if (expected_size != 0) {
+    mapped = mmap(
+        nullptr, static_cast<size_t>(expected_size), PROT_READ, MAP_PRIVATE,
+        fd, 0);
+    if (mapped == MAP_FAILED) return -1;
+  }
+
+  CC_SHA256_CTX context = {};
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
+  bool hashed = CC_SHA256_Init(&context) == 1;
+  const auto* bytes = static_cast<const uint8_t*>(mapped);
+  uint64_t consumed = 0;
+  while (hashed && consumed < expected_size) {
+    const CC_LONG chunk = static_cast<CC_LONG>(std::min<uint64_t>(
+        expected_size - consumed,
+        static_cast<uint64_t>(std::numeric_limits<CC_LONG>::max())));
+    hashed = chunk > 0 &&
+        CC_SHA256_Update(&context, bytes + consumed, chunk) == 1;
+    consumed += chunk;
+  }
+  hashed = hashed && CC_SHA256_Final(output, &context) == 1;
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
+  const bool unmapped = expected_size == 0 ||
+      munmap(mapped, static_cast<size_t>(expected_size)) == 0;
+  return hashed && unmapped ? 1 : -1;
+}
+#endif
+
 #if defined(__GNUC__)
 __attribute__((visibility("hidden")))
 #endif
@@ -7092,7 +7149,8 @@ bool simulatorHermesMappedObject(uint64_t* outDevice, uint64_t* outInode) {
   struct stat opened = {};
   const bool openedValid =
       fstat(fd, &opened) == 0 && S_ISREG(opened.st_mode) &&
-      opened.st_size >= 0;
+      opened.st_size >= 0 &&
+      static_cast<uint64_t>(opened.st_size) <= SIZE_MAX;
   uint64_t sliceOffset = 0;
   uint64_t sliceSize = 0;
   uint32_t fileMagic = 0;
@@ -7139,29 +7197,31 @@ bool simulatorHermesMappedObject(uint64_t* outDevice, uint64_t* outInode) {
       textFileOffset <= static_cast<uint64_t>(opened.st_size) &&
       textCode->size <=
           static_cast<uint64_t>(opened.st_size) - textFileOffset;
-  std::vector<uint8_t> fileBytes(64 * 1024);
   const auto* mappedBytes =
       reinterpret_cast<const uint8_t*>(mappedTextAddress);
-  uint64_t compared = 0;
-  while (matched && compared < textCode->size) {
-    const size_t requested = static_cast<size_t>(
-        std::min<uint64_t>(fileBytes.size(), textCode->size - compared));
-    const ssize_t read =
-        pread(fd, fileBytes.data(), requested, textFileOffset + compared);
-    if (read != static_cast<ssize_t>(requested) ||
-        std::memcmp(fileBytes.data(), mappedBytes + compared, requested) != 0) {
+  void* fileMapping = MAP_FAILED;
+  if (matched) {
+    fileMapping = mmap(
+        nullptr, static_cast<size_t>(opened.st_size), PROT_READ, MAP_PRIVATE,
+        fd, 0);
+    matched = fileMapping != MAP_FAILED;
+  }
+  if (matched) {
+    const auto* fileBytes = static_cast<const uint8_t*>(fileMapping);
+    matched = std::memcmp(
+        fileBytes + textFileOffset,
+        mappedBytes,
+        static_cast<size_t>(textCode->size)) == 0;
+    if (!matched) {
       std::fprintf(
           stderr,
           "[Ibex] CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER_V1 "
-          "stage=hermes-image-auth-failed detail=text-bytes offset=%llu "
-          "requested=%zu read=%lld\n",
-          static_cast<unsigned long long>(compared),
-          requested,
-          static_cast<long long>(read));
-      matched = false;
-      break;
+          "stage=hermes-image-auth-failed detail=text-bytes\n");
     }
-    compared += requested;
+  }
+  if (fileMapping != MAP_FAILED &&
+      munmap(fileMapping, static_cast<size_t>(opened.st_size)) != 0) {
+    matched = false;
   }
   close(fd);
   if (!matched) return fail("file-slice");
