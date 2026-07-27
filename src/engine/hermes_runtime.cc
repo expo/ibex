@@ -30,7 +30,9 @@
 #if defined(__APPLE__)
 #include <crt_externs.h>
 #include <TargetConditionals.h>
+#include <libkern/OSByteOrder.h>
 #include <mach-o/dyld.h>
+#include <mach-o/fat.h>
 #include <mach-o/loader.h>
 #if TARGET_OS_OSX
 #include <libproc.h>
@@ -7078,12 +7080,55 @@ bool simulatorHermesMappedObject(uint64_t* outDevice, uint64_t* outInode) {
   const int fd = open(info.dli_fname, O_RDONLY | O_CLOEXEC);
   if (fd < 0) return false;
   struct stat opened = {};
-  bool matched =
+  const bool openedValid =
       fstat(fd, &opened) == 0 && S_ISREG(opened.st_mode) &&
-      opened.st_size >= 0 &&
-      textCode->offset <= static_cast<uint64_t>(opened.st_size) &&
+      opened.st_size >= 0;
+  uint64_t sliceOffset = 0;
+  uint64_t sliceSize = 0;
+  uint32_t fileMagic = 0;
+  bool sliceMatched = openedValid &&
+      pread(fd, &fileMagic, sizeof(fileMagic), 0) == sizeof(fileMagic);
+  if (sliceMatched && fileMagic == FAT_CIGAM) {
+    fat_header fat = {};
+    sliceMatched =
+        pread(fd, &fat, sizeof(fat), 0) == sizeof(fat);
+    const uint32_t count = OSSwapBigToHostInt32(fat.nfat_arch);
+    sliceMatched = sliceMatched && count > 0 && count <= 64;
+    for (uint32_t index = 0; sliceMatched && index < count; ++index) {
+      fat_arch arch = {};
+      const off_t offset =
+          sizeof(fat_header) + static_cast<off_t>(index * sizeof(fat_arch));
+      if (pread(fd, &arch, sizeof(arch), offset) != sizeof(arch)) {
+        sliceMatched = false;
+        break;
+      }
+      const cpu_type_t cpuType =
+          static_cast<cpu_type_t>(OSSwapBigToHostInt32(arch.cputype));
+      const cpu_subtype_t cpuSubtype =
+          static_cast<cpu_subtype_t>(OSSwapBigToHostInt32(arch.cpusubtype));
+      if (cpuType == header->cputype &&
+          cpuSubtype == header->cpusubtype) {
+        sliceOffset = OSSwapBigToHostInt32(arch.offset);
+        sliceSize = OSSwapBigToHostInt32(arch.size);
+        break;
+      }
+    }
+    sliceMatched = sliceMatched && sliceSize != 0;
+  } else if (sliceMatched && fileMagic == MH_MAGIC_64) {
+    sliceSize = static_cast<uint64_t>(opened.st_size);
+  } else {
+    sliceMatched = false;
+  }
+  const uint64_t textFileOffset = sliceOffset + textCode->offset;
+  bool matched =
+      openedValid && sliceMatched &&
+      sliceOffset <= static_cast<uint64_t>(opened.st_size) &&
+      sliceSize <= static_cast<uint64_t>(opened.st_size) - sliceOffset &&
+      textCode->offset <= sliceSize &&
+      textCode->size <= sliceSize - textCode->offset &&
+      textFileOffset <= static_cast<uint64_t>(opened.st_size) &&
       textCode->size <=
-          static_cast<uint64_t>(opened.st_size) - textCode->offset;
+          static_cast<uint64_t>(opened.st_size) - textFileOffset;
   std::vector<uint8_t> fileBytes(64 * 1024);
   const auto* mappedBytes =
       reinterpret_cast<const uint8_t*>(mappedTextAddress);
@@ -7092,7 +7137,7 @@ bool simulatorHermesMappedObject(uint64_t* outDevice, uint64_t* outInode) {
     const size_t requested = static_cast<size_t>(
         std::min<uint64_t>(fileBytes.size(), textCode->size - compared));
     const ssize_t read =
-        pread(fd, fileBytes.data(), requested, textCode->offset + compared);
+        pread(fd, fileBytes.data(), requested, textFileOffset + compared);
     if (read != static_cast<ssize_t>(requested) ||
         std::memcmp(fileBytes.data(), mappedBytes + compared, requested) != 0) {
       matched = false;
