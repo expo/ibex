@@ -2293,14 +2293,53 @@ ticket closes.
   remains about **93% complete** pending moving-main replay, Windows route
   audit, stale-corpus reconciliation, and the LLP 0021 completion audit.
 
+### 2026-07-26 — replayed the complete branch onto startup-performance main
+
+- Checkpointed the Apple shard reconciliation as `aac37a02`, created the local
+  safety ref `codex/capsec-rev2-pre-main-e4e9bca9`, and replayed all 67 branch
+  commits onto `origin/main` `e4e9bca9`. Four conflict sites were semantic
+  compositions rather than winner selection: authenticated entry joins,
+  call-time dynamic activation, synchronous CommonJS activation, and prepared
+  activation retain main's startup phase markers; Windows mapped-producer
+  authentication retains main's secure/insecure compile-time split and the
+  combined LLP 0005 revision history.
+- Main's Linux Hermes builder now publishes the matching VM CLI beside
+  `hermesc`, while the download path requires their HBC versions to agree.
+  Reviewed that authority rotation: it changes only the Linux source-build
+  digest to
+  `sha256-af521ddda077302b82de42a024eba5e708b9072462d2c4e53c742d8cc473ea92`.
+  The 12-patch stack, lockdown bytes, Android and Windows identities, and exact
+  reachable evaluator set remain unchanged. The reviewed evaluator identity is
+  now
+  `hermes-evaluators.3e6954de6300cf7cbd32f27af9077c4a0a55dc951e106a44a991791846e9971f`.
+- Re-reviewed the two authenticated-ingress ranges changed by startup timing
+  instrumentation. The file-graph range still validates and consumes the
+  authenticated entry join before cache selection; the native execution range
+  still links before evaluation and retains both dynamic and CommonJS
+  invocation-time activation. Their exact source digests are
+  `sha256-CFLFhkyRPRa2_Eu2bZJMb3O57Ulo8LeD7fTM5Inc2ZA` and
+  `sha256-bA65eLY2kZALZnUkHwbNyg-teFvNI0-xYiJ3wpGEBCw`.
+- Regenerated the complete registry, root-global dispositions, runtime
+  inventory, policies, contract fixtures, embedded bundles, WebGPU identity
+  artifacts, and source fingerprint. Generated drift passes with 7,657
+  coverage edges, 15,314 target cells, 225 host-task ingress sites, and 22
+  authenticated-ingress obligations. The focused recipe/public/evaluator
+  suites pass 172 tests with 111,284 assertions; all 114 live source-inventory
+  tests pass; `cargo fmt`, diff hygiene, and `ref-check` pass.
+- Hard part: a performance-only build or timing change can still alter a
+  reviewed security identity. The correct replay preserves both control flows,
+  reviews the exact authority-byte change, and rotates every derived artifact;
+  it does not copy an old trust pin because evaluator reachability happened to
+  stay constant. Important enforcement mechanisms remain about **99.3%
+  complete** and the overall requested task remains about **93% complete**.
+
 ## Next milestone
 
 Continue criterion 4 by auditing the remaining installed Windows filesystem
 routes, starting with synchronous vector/positional descriptor mutation and
-write-capable whole-file families. First replay the branch onto the current
-`origin/main` startup-performance landing and rerun the exact generated and
-native checks whose identities it changes. Reconcile the 15 remaining stale
-branch-wide JavaScript corpus tests during the final generated-corpus audit.
-Do not advertise Windows while installed legacy routes or 17,930 exact-target
-public-evidence rows remain unresolved, and do not convert catalog labels into
-completion evidence.
+write-capable whole-file families. First generate the rebased exact Apple
+catalog and rerun both complete physical native shards, then rerun the broad
+M5 Air corpus to remeasure its 15 remaining stale tests. Do not advertise
+Windows while installed legacy routes or 17,930 exact-target public-evidence
+rows remain unresolved, and do not convert catalog labels into completion
+evidence.

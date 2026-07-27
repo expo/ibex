@@ -1493,7 +1493,7 @@ Integrating the lockdown error-prototype override repair changed the
 source-derived taming digest to
 `sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c`
 and the reviewed evaluator identity to
-`hermes-evaluators.08bb542867d4d29fabe8e67c64eae3b78d5605fc9259dafda2e0044c41c2beae`.
+`hermes-evaluators.3e6954de6300cf7cbd32f27af9077c4a0a55dc951e106a44a991791846e9971f`.
 The reachable evaluator family and all three reviewed engine profiles remain
 unchanged. The identity composition changes catalog digests but not semantic
 counts; the six landed CLI surfaces account for the count increase above.

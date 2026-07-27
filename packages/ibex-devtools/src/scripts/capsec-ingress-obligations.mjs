@@ -750,7 +750,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-file-ingress",
       "impl AuthenticatedFileIngress {",
       "fn expected_identity_from_snapshot(",
-      "sha256-FRoDfs_tGPgQoij3mjsGgYiUELTZrI1lwyt-sD1mBGE",
+      "sha256-CFLFhkyRPRa2_Eu2bZJMb3O57Ulo8LeD7fTM5Inc2ZA",
     ),
     freezeReviewedRange(
       "runtime-file-execution",
@@ -764,7 +764,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-native-graph-join",
       "    async fn evaluate_native_module_graph(",
       "    async fn install_capsec_context_test_observer(",
-      "sha256-1mc4V0V3qe59d2lMJV8lqCNuLjdXSebchEcrOjMwpZs",
+      "sha256-bA65eLY2kZALZnUkHwbNyg-teFvNI0-xYiJ3wpGEBCw",
     ),
   ]),
   "src/bin/ibex/terminal_session.rs": Object.freeze([
