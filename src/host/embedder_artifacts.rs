@@ -27,6 +27,19 @@ use std::path::Path;
 const PRODUCTION_RUN_NONCE_BYTES: usize = 16;
 const CONTRACT_FIXTURE_RUN_NONCE: &str = "AQIDBAUGBwgJCgsMDQ4PEA";
 
+/// Build-time canonical bytes for the immutable CapSec registry protected
+/// artifact. The CLI and native embedder share these constants so the ~17 MB
+/// checked record is embedded once and neither startup path reparses it.
+#[doc(hidden)]
+pub const CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST: &str =
+    include_str!(concat!(env!("OUT_DIR"), "/capsec-registry-record.digest"));
+#[doc(hidden)]
+pub const CAPSEC_REGISTRY_RECORD_CONTENT_LEN: &str =
+    include_str!(concat!(env!("OUT_DIR"), "/capsec-registry-record.len"));
+#[doc(hidden)]
+pub const CAPSEC_REGISTRY_RECORD_JCS: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/capsec-registry-record.jcs"));
+
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreparedEmbedderArtifacts {
@@ -450,6 +463,74 @@ fn materialize_protected_artifact(
     })
 }
 
+/// Authenticate an existing immutable registry artifact against the
+/// build-time digest of the exact canonical bytes. Any missing or doubtful
+/// artifact falls back to byte-identical materialization; a present but
+/// mismatched artifact is then rejected by that path.
+/// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+/// — reuse is permitted only after full byte and object authentication.
+fn pin_precomputed_registry_artifact(
+    cache_root: &Path,
+    digest_name: &Digest,
+) -> Result<Option<MaterializedArtifact>> {
+    let Ok(expected_len) = CAPSEC_REGISTRY_RECORD_CONTENT_LEN.trim().parse::<u64>() else {
+        return Ok(None);
+    };
+    let Ok(expected_digest) = Digest::new(CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST.trim()) else {
+        return Ok(None);
+    };
+    let Ok(directory) = std::fs::canonicalize(cache_root.join("capsec-artifacts")) else {
+        return Ok(None);
+    };
+    let filename = format!(
+        "{}.registry.json",
+        digest_name.as_str().trim_start_matches("sha256-")
+    );
+    let path = directory.join(filename);
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    let Ok(mut file) = options.open(&path) else {
+        return Ok(None);
+    };
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.len() != expected_len {
+        return Ok(None);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        if metadata.permissions().mode() & 0o222 != 0 {
+            return Ok(None);
+        }
+    }
+    #[cfg(not(unix))]
+    if !metadata.permissions().readonly() {
+        return Ok(None);
+    }
+    let observed = crate::engine::hash_open_file_sha256(&mut file, expected_len)
+        .map_err(anyhow::Error::msg)?;
+    let observed_digest = Digest::new(format!(
+        "sha256-{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(observed)
+    ))
+    .map_err(anyhow::Error::msg)?;
+    if observed_digest != expected_digest {
+        return Ok(None);
+    }
+    let object = super::object_identity_for_open_file(&file).map_err(anyhow::Error::msg)?;
+    let path = std::fs::canonicalize(path)?;
+    Ok(Some(MaterializedArtifact {
+        host_path: absolute_artifact_path(&path)?,
+        object,
+        content_digest: expected_digest,
+    }))
+}
+
 fn runtime_target_triple() -> String {
     let architecture = match std::env::consts::ARCH {
         "aarch64" => "aarch64",
@@ -678,6 +759,7 @@ fn build_exact_embedder_artifacts_with_gpu(
     webgpu_profile_bytes: Option<&[u8]>,
     experimental_webgpu_pre1a: bool,
 ) -> Result<PreparedEmbedderArtifacts> {
+    let mut phase = super::HostStartupPhaseTrace::begin();
     anyhow::ensure!(
         gpu_provider_binding_bytes.is_some() == webgpu_profile_bytes.is_some(),
         "Exact GPU provider binding and WebGPU profile must be supplied together"
@@ -689,6 +771,7 @@ fn build_exact_embedder_artifacts_with_gpu(
         );
     }
     super::reject_closed_startup_environment()?;
+    phase.mark("builder_environment");
     let installed_project_root = std::fs::canonicalize(project_root).with_context(|| {
         format!(
             "failed to authenticate Exact project root {}",
@@ -713,6 +796,7 @@ fn build_exact_embedder_artifacts_with_gpu(
         anyhow::ensure!(root.is_dir(), "Exact dev project root is not a directory");
     }
     let project_root = dev_project_root.as_ref().unwrap_or(&installed_project_root);
+    phase.mark("builder_roots");
 
     let (vocab_digest, registry_digest) = checked_identity_digests()?;
     let expected_policy_identity = capsec_semantics::policy::ExpectedPolicyIdentity {
@@ -731,6 +815,7 @@ fn build_exact_embedder_artifacts_with_gpu(
             "/capsec/registry/policy-rules.json"
         )),
     )?;
+    phase.mark("builder_profile");
     let entry_identity = serde_json::json!({
         "root": "project",
         "components": [{"encoding": "utf8", "value": "exact-operation-manifest.json"}],
@@ -800,8 +885,10 @@ fn build_exact_embedder_artifacts_with_gpu(
         "target-local Exact builder accepts only the canonical empty package policy"
     );
     policy = serde_json::to_value(&canonical_policy)?;
+    phase.mark("builder_policy");
 
     let engine = crate::engine::loaded_engine_binary_identity().map_err(anyhow::Error::msg)?;
+    phase.mark("builder_engine_identity");
     let binding = parse_exact_operation_manifest(operation_manifest_bytes)?;
     let gpu_binding = gpu_provider_binding_bytes
         .map(parse_exact_gpu_provider_binding)
@@ -828,6 +915,7 @@ fn build_exact_embedder_artifacts_with_gpu(
     } else {
         None
     };
+    phase.mark("builder_manifests");
     let mut root_builtins = crate::module_loader::RUNTIME_GATED_NODE_BUILTINS
         .iter()
         .map(|name| format!("node:{name}"))
@@ -931,25 +1019,11 @@ fn build_exact_embedder_artifacts_with_gpu(
     if let Some(gpu_binding) = gpu_binding.as_ref() {
         document["exactGpuProvider"] = serde_json::to_value(gpu_binding)?;
     }
+    phase.mark("builder_snapshot_fields");
 
     let policy_bytes = capsec_semantics::canonical::to_jcs_bytes(&policy)?;
     let graph_bytes = capsec_semantics::canonical::to_jcs_bytes(&document["packageGraph"])?;
-    let registry_record = serde_json::json!({
-        "registryDigest": document["registryDigest"],
-        "capabilityDefinitions": serde_json::from_str::<serde_json::Value>(
-            crate::capsec_registry_generated::CAPSEC_CAPABILITY_DEFINITIONS_JSON,
-        )?,
-        "coverageEdges": serde_json::from_str::<serde_json::Value>(
-            crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGES_JSON,
-        )?,
-        "targetCells": serde_json::from_str::<serde_json::Value>(
-            crate::capsec_registry_generated::CAPSEC_TARGET_CELLS_JSON,
-        )?,
-        "policyRules": serde_json::from_str::<serde_json::Value>(
-            crate::capsec_registry_generated::CAPSEC_POLICY_RULES_JSON,
-        )?,
-    });
-    let registry_bytes = capsec_semantics::canonical::to_jcs_bytes(&registry_record)?;
+    phase.mark("builder_canonical_bytes");
     let policy_artifact = materialize_protected_artifact(
         "armed-policy",
         &policy_bytes,
@@ -960,8 +1034,15 @@ fn build_exact_embedder_artifacts_with_gpu(
         &graph_bytes,
         &Digest::new(&graph_digest).map_err(anyhow::Error::msg)?,
     )?;
-    let registry_artifact =
-        materialize_protected_artifact("registry", &registry_bytes, &registry_digest)?;
+    let registry_artifact = match pin_precomputed_registry_artifact(&cache_root, &registry_digest)?
+    {
+        Some(artifact) => artifact,
+        None => materialize_protected_artifact(
+            "registry",
+            CAPSEC_REGISTRY_RECORD_JCS,
+            &registry_digest,
+        )?,
+    };
     let manifest_artifact = materialize_protected_artifact(
         "exact-operation-manifest",
         operation_manifest_bytes,
@@ -976,6 +1057,7 @@ fn build_exact_embedder_artifacts_with_gpu(
         (None, None) => None,
         _ => unreachable!("GPU artifact inputs were checked as a pair"),
     };
+    phase.mark("builder_materialize");
     let mut protected_objects = vec![
         serde_json::json!({"role": "armed-policy", "object": policy_artifact.object, "deniedActions": ["fs:write"]}),
         serde_json::json!({"role": "engine-binary", "object": engine.object, "deniedActions": ["fs:write"]}),
@@ -992,6 +1074,7 @@ fn build_exact_embedder_artifacts_with_gpu(
     }
     document["protectedObjects"] = serde_json::Value::Array(protected_objects);
     let armed_digest = freshen_document(&mut document, fresh_production_nonce()?)?;
+    phase.mark("builder_freshen");
 
     let mut expected = ExpectedArmingIdentity {
         profile: crate::capsec_registry_generated::CAPSEC_PROFILE.into(),
@@ -1052,11 +1135,16 @@ fn build_exact_embedder_artifacts_with_gpu(
             });
     }
     let snapshot_bytes = serde_json::to_vec(&document)?;
+    phase.mark("builder_expected_identity");
     let snapshot = ArmedSnapshot::load(&snapshot_bytes, &expected)
         .map_err(|error| anyhow::anyhow!("built Exact snapshot authentication refused: {error}"))?;
+    phase.mark("builder_snapshot_load");
     super::validate_loaded_engine_identity(&snapshot)?;
+    phase.mark("builder_engine_revalidate");
     super::validate_snapshot_protected_artifacts(&snapshot)?;
+    phase.mark("builder_artifact_revalidate");
     super::validate_snapshot_root_bindings(&snapshot)?;
+    phase.mark("builder_root_revalidate");
 
     Ok(PreparedEmbedderArtifacts {
         artifact_schema: "ibex/armed-embedder-artifacts/1",
@@ -1201,6 +1289,122 @@ mod tests {
             super::super::object_identity_for_host_path(&path).unwrap(),
             content_digest(bytes),
         )
+    }
+
+    fn precomputed_registry_cache_path(
+        cache_root: &std::path::Path,
+        digest: &Digest,
+    ) -> std::path::PathBuf {
+        let directory = cache_root.join("capsec-artifacts");
+        std::fs::create_dir_all(&directory).unwrap();
+        directory.join(format!(
+            "{}.registry.json",
+            digest.as_str().trim_start_matches("sha256-")
+        ))
+    }
+
+    fn freeze_test_artifact(path: &std::path::Path) {
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            permissions.set_mode(0o400);
+        }
+        #[cfg(not(unix))]
+        permissions.set_readonly(true);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[test]
+    fn precomputed_registry_constants_are_self_consistent() {
+        let expected_len = CAPSEC_REGISTRY_RECORD_CONTENT_LEN
+            .trim()
+            .parse::<usize>()
+            .unwrap();
+        assert_eq!(CAPSEC_REGISTRY_RECORD_JCS.len(), expected_len);
+        assert_eq!(
+            content_digest(CAPSEC_REGISTRY_RECORD_JCS).as_str(),
+            CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST.trim()
+        );
+        let record: serde_json::Value = serde_json::from_slice(CAPSEC_REGISTRY_RECORD_JCS).unwrap();
+        let (_, checked_registry_digest) = checked_identity_digests().unwrap();
+        assert_eq!(
+            record["registryDigest"].as_str(),
+            Some(checked_registry_digest.as_str())
+        );
+    }
+
+    #[test]
+    fn precomputed_registry_cache_hit_reauthenticates_immutable_bytes() {
+        let temp = tempfile::tempdir().unwrap();
+        let (_, registry_digest) = checked_identity_digests().unwrap();
+        let content_digest = Digest::new(CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST.trim()).unwrap();
+        let path = precomputed_registry_cache_path(temp.path(), &registry_digest);
+        std::fs::write(&path, CAPSEC_REGISTRY_RECORD_JCS).unwrap();
+        freeze_test_artifact(&path);
+
+        let pinned = pin_precomputed_registry_artifact(temp.path(), &registry_digest)
+            .unwrap()
+            .expect("valid immutable registry cache hit");
+        let canonical_path = std::fs::canonicalize(&path).unwrap();
+        assert_eq!(pinned.host_path, absolute_host_path(&canonical_path));
+        assert_eq!(
+            pinned.object,
+            super::super::object_identity_for_host_path(&canonical_path).unwrap()
+        );
+        assert_eq!(pinned.content_digest, content_digest);
+    }
+
+    #[test]
+    fn precomputed_registry_cache_rejects_mutable_or_mismatched_files() {
+        let (_, registry_digest) = checked_identity_digests().unwrap();
+
+        let mutable = tempfile::tempdir().unwrap();
+        let mutable_path = precomputed_registry_cache_path(mutable.path(), &registry_digest);
+        std::fs::write(&mutable_path, CAPSEC_REGISTRY_RECORD_JCS).unwrap();
+        assert!(
+            pin_precomputed_registry_artifact(mutable.path(), &registry_digest)
+                .unwrap()
+                .is_none()
+        );
+
+        let mismatched = tempfile::tempdir().unwrap();
+        let mismatched_path = precomputed_registry_cache_path(mismatched.path(), &registry_digest);
+        let file = std::fs::File::create(&mismatched_path).unwrap();
+        file.set_len(
+            CAPSEC_REGISTRY_RECORD_CONTENT_LEN
+                .trim()
+                .parse::<u64>()
+                .unwrap(),
+        )
+        .unwrap();
+        drop(file);
+        freeze_test_artifact(&mismatched_path);
+        assert!(
+            pin_precomputed_registry_artifact(mismatched.path(), &registry_digest)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn precomputed_registry_cache_rejects_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let (_, registry_digest) = checked_identity_digests().unwrap();
+        let path = precomputed_registry_cache_path(temp.path(), &registry_digest);
+        let target = temp.path().join("registry-target");
+        std::fs::write(&target, CAPSEC_REGISTRY_RECORD_JCS).unwrap();
+        freeze_test_artifact(&target);
+        symlink(&target, &path).unwrap();
+
+        assert!(
+            pin_precomputed_registry_artifact(temp.path(), &registry_digest)
+                .unwrap()
+                .is_none()
+        );
     }
 
     fn real_embedder_fixture() -> RealEmbedderFixture {
