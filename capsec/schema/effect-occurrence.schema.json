@@ -41,7 +41,7 @@
         { "$ref": "#/$defs/storageOccurrence" },
         { "$ref": "#/$defs/lifecycleOccurrence" },
         { "$ref": "#/$defs/sessionStateOccurrence" },
-        { "$ref": "#/$defs/gpuOperationOccurrence" },
+        { "$ref": "#/$defs/runtimeExtensionOccurrence" },
         { "$ref": "#/$defs/closedOccurrence" }
       ]
     }
@@ -434,41 +434,19 @@
       },
       "additionalProperties": false
     },
-    "gpuOperationOccurrence": {
+    "runtimeExtensionOccurrence": {
       "type": "object",
-      "required": [
-        "kind",
-        "requested",
-        "realmIdentity",
-        "accountIdentity",
-        "receiverIdentity"
-      ],
+      "required": ["kind", "requested", "operationId", "resourceDigest"],
       "properties": {
-        "kind": { "const": "gpu-operation-occurrence" },
+        "kind": { "const": "runtime-extension-occurrence" },
         "requested": {
-          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/gpuOperation"
+          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/runtimeExtension"
         },
-        "realmIdentity": {
+        "operationId": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "resourceDigest": {
           "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
-        },
-        "accountIdentity": {
-          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
-        },
-        "deviceIdentity": {
-          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
-        },
-        "receiverIdentity": {
-          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
-        },
-        "targetIdentity": {
-          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
-        },
-        "presentedHandleIdentities": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
-          }
         }
       },
       "additionalProperties": false

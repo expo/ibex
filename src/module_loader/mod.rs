@@ -1725,7 +1725,6 @@ impl ModuleLoader {
             .path
             .as_ref()
             .ok_or_else(|| anyhow!("Module path missing"))?;
-        ensure_public_runtime_source(path)?;
         let (source, lowered) = self.load_module_source(path)?;
         if lowered {
             module.kind = ModuleKind::CommonJs;
@@ -1748,7 +1747,6 @@ impl ModuleLoader {
             .path
             .as_ref()
             .ok_or_else(|| anyhow!("Module path missing"))?;
-        ensure_public_runtime_source(path)?;
         module.source =
             Some(String::from_utf8(bytes).with_context(|| {
                 format!("Module source is not valid UTF-8: {}", path.display())
@@ -1768,7 +1766,6 @@ impl ModuleLoader {
             .path
             .as_ref()
             .ok_or_else(|| anyhow!("Module path missing"))?;
-        ensure_public_runtime_source(path)?;
         module.source = Some(
             std::fs::read_to_string(path)
                 .with_context(|| format!("Failed to read module {}", path.display()))?,
@@ -1802,7 +1799,6 @@ impl ModuleLoader {
             .path
             .as_ref()
             .ok_or_else(|| anyhow!("Module path missing"))?;
-        ensure_public_runtime_source(path)?;
         let source = String::from_utf8(bytes)
             .with_context(|| format!("Module source is not valid UTF-8: {}", path.display()))?;
         let lowered = Self::needs_transpile(path) || Self::needs_js_downlevel(path, &source);
@@ -2414,7 +2410,6 @@ impl ModuleLoader {
                 full_path.display()
             )
         })?;
-        ensure_public_runtime_source(&full_path)?;
         // Oxc reports addon/Wasm candidates inconsistently across direct-file
         // and package resolution (a direct `.node` file can arrive as
         // CommonJS). The filename is therefore an independent fail-closed
@@ -2517,38 +2512,6 @@ impl ModuleLoader {
             private_resolver_package_root: None,
         })
     }
-}
-
-fn is_private_runtime_source(path: &Path) -> bool {
-    let components = path
-        .components()
-        .filter_map(|component| match component {
-            std::path::Component::Normal(value) => value.to_str(),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    components
-        .windows(3)
-        .any(|window| window[0] == "ibex-runtime-js" && window[1] == "src" && window[2] == "webgpu")
-        || components.windows(4).any(|window| {
-            window[0] == "@ibex"
-                && window[1] == "runtime-js"
-                && window[2] == "src"
-                && window[3] == "webgpu"
-        })
-}
-
-fn ensure_public_runtime_source(path: &Path) -> Result<()> {
-    let private_webgpu_source = is_private_runtime_source(path)
-        || std::fs::canonicalize(path)
-            .ok()
-            .is_some_and(|canonical| is_private_runtime_source(&canonical));
-    if private_webgpu_source {
-        anyhow::bail!(
-            "Ibex runtime WebGPU bridge modules are construction-private and cannot be loaded by app graphs"
-        );
-    }
-    Ok(())
 }
 
 fn authenticated_resolver_base_dir(
@@ -7704,57 +7667,6 @@ if (scenario === 'success') {
         assert!(loader
             .resolve_meta_from_bound_package("pkg/private", "pkg", &authenticated)
             .is_err());
-    }
-
-    #[test]
-    fn runtime_gpu_bridge_is_closed_to_bare_and_filesystem_app_imports() {
-        let package_root =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("packages/ibex-runtime-js");
-        let manifest: Value = serde_json::from_str(
-            &std::fs::read_to_string(package_root.join("package.json")).unwrap(),
-        )
-        .unwrap();
-        let exports = manifest["exports"].as_object().unwrap();
-        assert!(
-            exports.keys().all(|key| !key.starts_with("./webgpu")),
-            "the construction-private bridge must not be package-exported"
-        );
-
-        let loader = test_loader();
-        let deep = loader.resolve_meta_from_bound_package(
-            "@ibex/runtime-js/webgpu/native-bridge",
-            "@ibex/runtime-js",
-            &package_root,
-        );
-        assert!(deep.is_err(), "package exports must reject the deep import");
-
-        for private_source in ["native-bridge.ts", "runtime-internal.ts"] {
-            let absolute = package_root
-                .join("src/webgpu")
-                .join(private_source)
-                .to_string_lossy()
-                .into_owned();
-            let error = loader.resolve_meta(&absolute, None).unwrap_err();
-            assert!(
-                error.to_string().contains("construction-private"),
-                "filesystem import should fail closed for {private_source}: {error:#}"
-            );
-        }
-
-        #[cfg(unix)]
-        {
-            let app = tempdir().unwrap();
-            let alias = app.path().join("gpu-helper.ts");
-            std::os::unix::fs::symlink(package_root.join("src/webgpu/native-bridge.ts"), &alias)
-                .unwrap();
-            let error = loader
-                .resolve_meta(&alias.to_string_lossy(), None)
-                .unwrap_err();
-            assert!(
-                error.to_string().contains("construction-private"),
-                "symlink alias should not bypass the private-source fence: {error:#}"
-            );
-        }
     }
 
     #[test]

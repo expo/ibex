@@ -7,6 +7,15 @@
 **Date:** 2026-07-23
 **Related:** LLP 0021 (capsec registry / WP10 target proof); LLP 0032 (conformance execution and evidence sharding); LLP 0035 (portable engine artifact provenance); ENG-24933; ENG-24578; ENG-24580; ENG-24579
 
+**2026-07-25 amendment (LLP 0040):** the six WebGPU-specific gate-1 residual
+routes and the `Host::new_exact_experimental_webgpu_pre1a`,
+`webgpu-binding`, and GPU bridge test-hook paths named below were removed by
+the runtime-extension extraction. The instructions to reopen those rows are
+historical and must not be executed. Current target advertisement remains
+empty and must be decided from the regenerated catalogs and the remaining
+physical-evidence gates; deleting a retired surface is not target-promotion
+evidence.
+
 ## Summary
 
 ENG-24933 landed the promotion *machinery* — portable promotion bundles,

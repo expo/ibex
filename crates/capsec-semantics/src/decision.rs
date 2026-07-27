@@ -51,11 +51,6 @@ pub struct SemanticIdentity {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TargetArmState {
     CompleteAdvertised,
-    /// A named embedder experiment supplied a complete private target-cell
-    /// projection while leaving the canonical public advertisement plane
-    /// untouched. Product adapters, not app input, must authenticate this
-    /// state before calling the neutral evaluator.
-    CompleteExperimentalPrivate,
     Incomplete,
     Unadvertised,
 }
@@ -231,10 +226,7 @@ impl VerifiedDecisionContext {
         {
             return arm_refused("loaded profile or semantic-core identity is unknown");
         }
-        if !matches!(
-            inputs.target,
-            TargetArmState::CompleteAdvertised | TargetArmState::CompleteExperimentalPrivate
-        ) {
+        if !matches!(inputs.target, TargetArmState::CompleteAdvertised) {
             return arm_refused("target is incomplete or unadvertised");
         }
         validate_authority_state(&inputs.loaded_identity, &definitions, &authority)?;
@@ -1938,25 +1930,6 @@ mod tests {
             authority,
             path_canonicalizers,
         )
-    }
-
-    #[test]
-    fn neutral_arm_accepts_a_product_authenticated_complete_private_target() {
-        let authority = empty_authority();
-        let identity = identity();
-        let path_canonicalizers = test_path_canonicalizers(&authority);
-        VerifiedDecisionContext::arm_with_path_canonicalizers(
-            ArmInputs {
-                expected_identity: identity.clone(),
-                loaded_identity: identity,
-                target: TargetArmState::CompleteExperimentalPrivate,
-                structure_valid: true,
-            },
-            definitions(),
-            authority,
-            path_canonicalizers,
-        )
-        .unwrap();
     }
 
     #[test]

@@ -5,7 +5,14 @@
 **Systems:** CLI Runtime, REPL, Runtime, Module Loader, Security
 **Author:** Charlie Cheever / Codex / Claude
 **Date:** 2026-07-11
-**Revised:** 2026-07-25 (distinguishes a dormant authenticated GPU provider from a live wrapper projection: ordinary bootstrap proves the no-WebGPU root set, and the owner-thread deferred activation transaction invalidates that witness, excludes user/debugger ingress, publishes the reviewed roots from a separately embedded trusted artifact, performs a generated-path-only compartment refresh, and must pass the descriptor-only conditional sweep before execution resumes)
+**Revised:** 2026-07-25 (LLP 0040 removes deferred WebGPU activation and
+conditional WebGPU rows from Ibex. Selected runtime-extension globals/modules
+are authenticated descriptor facts installed in the fixed pre-user-code
+construction window and included in the one final descriptor-only baseline
+sweep; unselected and standalone Ibex runtimes keep the core-only projection.)
+**Revised:** 2026-07-25 (historical pre-LLP-0040 revision: distinguished a
+dormant authenticated GPU provider from a live wrapper projection and defined
+the now-removed deferred activation transaction)
 **Revised:** 2026-07-19 (extends the generated three-set root-global join with authenticated conditional WebGPU paths, requires a descriptor-only post-publication sweep before armed user execution in either bootstrap order, and revokes the wrapper plus fails closed on any missing or extra path)
 **Revised:** 2026-07-15 (ENG-25066 switched file-module execution to the
 authenticated runner while preserving this document's script/prompt goals and
@@ -810,30 +817,21 @@ Red-team fixtures address bridges by name; an unresolved dynamic sentinel is not
 admissible for a root-reachable global on a conformant target; and a new bridge
 that is neither sealed nor converted fails the check and the build.
 
-Conditional provider projections are part of the same exact join, not an
-exception to it. The manifest names every full logical path installed by the
-authenticated WebGPU wrapper. An authenticated but dormant provider has no open
-realm and therefore requires the no-WebGPU projection. Provider paths become
-required only after the explicit activation transaction opens the authenticated
-V2 provider session and captures/seals its wrapper; `createImageBitmap` is
-independently required only while decoded-image authority is attached. In all
-other states those paths are forbidden. The engine evaluates presence through
-pristine property descriptors along the complete path (including
-`navigator.gpu`) and never invokes an accessor.
+Selected runtime-extension projections participate in the same exact join, not
+an exception to it. Their authenticated descriptors name every complete global
+path and module specifier. Ibex evaluates package-owned source/HBC payloads and
+invokes installers only inside the fixed trusted construction window, then
+compares the live descriptor delta with pristine property-descriptor
+intrinsics, without invoking accessors, before the final baseline and hardening
+seal. Missing, extra, overlapping, or wrong-kind properties refuse
+construction before package or project code can run.
 
-Activation may occur before or after the ordinary bootstrap sweep. It
-invalidates the previous final-projection witness before evaluating the
-separately embedded trusted WebGPU artifact, excludes ordinary and debugger
-ingress until completion, and refreshes package compartments only from the
-generated active conditional path set rather than recapturing arbitrary
-application globals. A bootstrap-open activation is covered by
-`finish_bootstrap`; a bootstrap-closed activation re-sweeps immediately. Any
-missing or extra conditional path, targeted-refresh mismatch, partial
-publication, or debugger-restoration ambiguity revokes the complete wrapper
-installation and terminally fails the runtime before package or project code
-can resume. Before successful activation, feature detection truthfully reports
-WebGPU absent; the embedder must activate before importing code that requires
-that surface.
+There is no deferred extension activation or post-baseline compartment refresh
+in SDK v1. The selected set is immutable for the runtime generation; changing
+it requires a native rebuild and runtime reconstruction. An unselected or
+standalone Ibex runtime therefore retains the core-only projection, while a
+selected extension is either fully installed before user code or the runtime
+is not published.
 
 **Affordance parity.** No REPL feature — command, completion, hint, banner, or
 error report — may read or disclose runtime state or host information that the

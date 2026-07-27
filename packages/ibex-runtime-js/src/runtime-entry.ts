@@ -9,7 +9,6 @@
  */
 
 import { installGlobals, areGlobalsInstalled, getRuntimeVersion, detectEngine, detectPlatform, runtimeInfo } from './bootstrap.js';
-import { installNativeGpuBridgeCapture } from './webgpu/runtime-internal';
 
 // Agent runtime is loaded on demand (when EXACT_AGENT_BOOT=1), not during
 // core runtime startup.  Importing it here pulled in the renderer/inspector
@@ -18,12 +17,6 @@ import { installNativeGpuBridgeCapture } from './webgpu/runtime-internal';
 // The agent bootstrap is now loaded lazily by the CLI when agent mode is
 // explicitly requested.
 // import '../agent/runtime-bootstrap.js';
-
-// Install the construction-only bridge handoff only in this trusted embedded
-// entry graph, never when an app imports the public `./bootstrap` subpath. The
-// C++ finalizer invokes it directly and it deletes itself; the common runtime
-// entry gate closes an unused handoff before app/module/debugger execution.
-installNativeGpuBridgeCapture(globalThis);
 
 // Install globals immediately when the runtime loads
 installGlobals();

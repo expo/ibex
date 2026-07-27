@@ -1102,7 +1102,7 @@ extern "C" int ex_hermes_dispatch_worklet_calls(
   if (!exactRuntimeEnterUserExecution(handle)) {
     return EX_WORKLET_ERROR;
   }
-  ScopedGpuHostTask hostTask(handle);
+  ScopedRuntimeExtensionHostTask hostTask(handle);
   if (!hostTask) return EX_WORKLET_ERROR;
   try {
     auto& rt = *handle->runtime;
@@ -1176,7 +1176,7 @@ extern "C" int ex_hermes_dispatch_worklet_json_batch(
   if (!exactRuntimeEnterUserExecution(handle)) {
     return EX_WORKLET_ERROR;
   }
-  ScopedGpuHostTask hostTask(handle);
+  ScopedRuntimeExtensionHostTask hostTask(handle);
   if (!hostTask) return EX_WORKLET_ERROR;
   try {
     auto& rt = *handle->runtime;
@@ -1211,7 +1211,7 @@ extern "C" int ex_hermes_dispatch_motion_rated_publish(
   if (!exactRuntimeEnterUserExecution(handle)) {
     return EX_WORKLET_ERROR;
   }
-  ScopedGpuHostTask hostTask(handle);
+  ScopedRuntimeExtensionHostTask hostTask(handle);
   if (!hostTask) return EX_WORKLET_ERROR;
   for (uint32_t index = 0; index < sample->value_count; index++) {
     if (!std::isfinite(sample->values[index])) {

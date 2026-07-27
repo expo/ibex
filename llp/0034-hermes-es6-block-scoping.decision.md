@@ -5,7 +5,7 @@
 **Systems:** Engine, Runtime, Build, Module Loader, Devtools, Verification
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19
+**Revised:** 2026-07-19; 2026-07-26 (tracked non-linkable Windows cross-compile exception)
 **Related:** LLP 0003 (engine bridge); LLP 0005 (build pipeline); LLP 0007 (Vite/Rolldown/Oxc convergence); LLP 0019 (Hermes-compat transform authority); Exact LLP 0312 (Ibex transform authority); Exact LLP 0368 (TUI target); ENG-22558; ENG-22559; ENG-22569; ENG-25278; ENG-25279; ENG-25280; ENG-25281
 
 ## Context
@@ -96,6 +96,29 @@ The rollback is a migration control, not a permanent public language mode. It
 may be removed after the adoption and cleanup Linear issues close and at least
 one checkpoint cycle has exercised the default on supported platforms.
 
+### Tracked legacy Windows cross-compile exception
+
+Exact's non-Windows `x86_64-pc-windows-msvc` compile gate has one explicit
+exception while it cannot consume the authenticated source-patched Windows
+Hermes bundle. Its strict authority is
+`scripts/windows-hermes-cross-compile-profile.json` in the Exact repository,
+and its retirement is tracked by
+`issues/20260726-retire-legacy-windows-cross-compile-hermes.md`. The profile
+digest-pins the deprecated `ReactNative.Hermes.Windows` 0.71.1 headers and
+import library and must set both
+`IBEX_WINDOWS_COMPILE_ONLY_PROFILE=1` and
+`IBEX_LEGACY_HERMES_BLOCK_SCOPING=1`.
+
+This is a cross-target metadata/type/lint fixture, not another supported
+semantic or runtime profile. Its binary directory is empty, runtime provenance
+is forbidden, runtime DLLs and compiler tools are absent, and Ibex poisons any
+code-generation/final-link attempt. Consequently it is ineligible for native
+link, runtime-extension, CapSec, WebGPU, lifecycle, or platform-qualification
+evidence. Native Windows execution and conformance still require the
+authenticated Ibex `windows-source-patched` profile with block scoping enabled.
+The exception ends by deleting the Exact profile and its Ibex admission path,
+not by generalizing `IBEX_LEGACY_HERMES_BLOCK_SCOPING`.
+
 ## Compatibility-transform transition
 
 LLP 0019 remains the authority for the two existing `for...of` transforms
@@ -148,7 +171,8 @@ The default may ship only when all of the following are green:
 If a platform's Hermes artifact lacks `withES6BlockScoping`, that target must
 fail configuration clearly or remain on the legacy profile with an explicit
 tracked exception. It must not silently compile HBC in one mode and evaluate
-source in another.
+source in another. The only current tracked exception is the non-linkable
+Windows cross-compile fixture above; it does not qualify a native platform.
 
 ## Consequences
 

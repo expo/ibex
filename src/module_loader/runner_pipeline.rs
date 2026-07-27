@@ -2395,12 +2395,12 @@ mod tests {
                     ProtectedArtifactRole::ExactOperationManifest => {
                         digest_at(&["exactEmbedder", "operationManifestDigest"])
                     }
-                    ProtectedArtifactRole::ExactWebgpuProfile => {
-                        digest_at(&["exactGpuProvider", "profileDigest"])
-                    }
                     ProtectedArtifactRole::ArmedPolicy => digest_at(&["policyDigest"]),
                     ProtectedArtifactRole::PackageGraph => digest_at(&["packageGraph", "digest"]),
                     ProtectedArtifactRole::Registry => digest_at(&["registryDigest"]),
+                    ProtectedArtifactRole::RuntimeExtensionAuthorityCapsule => {
+                        digest_at(&["runtimeExtensions", "authorityCapsuleDigest"])
+                    }
                 };
                 ExpectedProtectedArtifact {
                     role,
@@ -2441,6 +2441,8 @@ mod tests {
                 .unwrap(),
             protected_artifacts,
             embedded_protected_artifacts: Vec::new(),
+            runtime_extension_authority_digest: None,
+            runtime_extension_mapped_executable: None,
         };
         let snapshot =
             ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();

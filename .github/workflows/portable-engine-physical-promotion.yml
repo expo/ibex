@@ -104,11 +104,7 @@ jobs:
 
       - name: Install exact Rust toolchain
         timeout-minutes: 10
-        run: |
-          set -euo pipefail
-          rustup toolchain install 1.93.1 --profile minimal
-          rustup default 1.93.1
-          [[ "$(rustc --version)" == "rustc 1.93.1 (01f6ddf75 2026-02-11)" ]]
+        run: scripts/install-rust-toolchain.sh
 
       - name: Install locked JavaScript dependencies
         timeout-minutes: 10
@@ -297,7 +293,7 @@ jobs:
             --expected-source-revision "$GITHUB_SHA" \
             -- \
             test --locked --no-run --all-targets \
-            --features capsec-conformance-observer,cli-notify,default,host-http-server,module-runner,openssl-crypto \
+            --features capsec-conformance-observer,cli-notify,default,host-http-server,insecure,module-runner,openssl-crypto,standard,tls-client-identity-openssl,unadvertised-dev-arming \
             --message-format=json \
             | tee "$cargo_messages"
           test -s "$cargo_messages"

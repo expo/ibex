@@ -1222,13 +1222,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
     ).toBe(false);
     expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(59);
     expect(executionPartition.hostAbi.rows).toHaveLength(508);
-    // The 20 residual rows are the remaining GPU authority and presentation
-    // routes without a bounded output fixture: decoded-image and receipt
-    // delivery, authority/session/presentation capture, recheck, retirement,
-    // and the borrowed-pointer session API. The sweep plan must keep failing
-    // bidirectionality until a reviewed armed GPU-authority fixture closes them.
-    // @ref LLP 0035#host-abi-output-shape-residuals-the-classified-remainder
-    expect(executionPartition.hostAbi.residuals).toHaveLength(20);
+    expect(executionPartition.hostAbi.residuals).toHaveLength(0);
 
     const baseBindings = fixture().bindings;
     const targetAbsenceProbes = buildTargetAbsenceOutputShapeProbes({

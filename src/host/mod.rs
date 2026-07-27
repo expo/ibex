@@ -15,7 +15,6 @@ pub mod abi;
 pub mod capability;
 pub mod capability_bits;
 pub mod embedder_artifacts;
-pub(crate) mod gpu_authority;
 pub mod handles;
 // @ref LLP 0005#c-compilation — the hyper-based `ex_host_http_*` server is
 // feature-gated; without it the C++ adapter links no-op stubs.
@@ -38,15 +37,6 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 const MAX_TYPED_EVIDENCE_ENTRIES: usize = 1024;
 
 static NEXT_MODULE_RESOLVER_SESSION_ID: AtomicU64 = AtomicU64::new(1);
-
-pub(crate) enum TypedDecisionBatchAndThenResult<R> {
-    StalePolicyGeneration,
-    StaleAuthorityGenerations,
-    Evaluated {
-        decisions: Vec<capsec_semantics::decision::Decision>,
-        continuation_result: Option<R>,
-    },
-}
 
 /// Resolve one exact surface through the committed generated registry.
 ///
@@ -271,11 +261,6 @@ pub struct Host {
     /// Exact authenticated disposition for every coverage edge on the armed
     /// target. Call sites never manufacture `Complete` locally.
     target_cells: Arc<BTreeMap<String, capsec_semantics::decision::TargetCellDisposition>>,
-    /// Exact construction-private WebGPU cells admitted only by the named
-    /// Exact Pre-1A constructor. Canonical public arming and every unarmed
-    /// host keep this map empty.
-    private_gpu_target_cells:
-        Arc<BTreeMap<String, capsec_semantics::decision::TargetCellDisposition>>,
     unarmed_closed: bool,
 }
 
@@ -397,6 +382,39 @@ enum ManifestSearchBase {
 pub struct TypedDecisionResult {
     pub decision: capsec_semantics::decision::Decision,
     pub evidence: capsec_semantics::decision::StructuredDecisionEvidence,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RuntimeExtensionLeaseGrant {
+    pub authority_capsule_digest: capsec_semantics::model::Digest,
+    pub profile: String,
+    pub vocab_digest: capsec_semantics::model::Digest,
+    pub registry_digest: capsec_semantics::model::Digest,
+    pub policy_digest: capsec_semantics::model::Digest,
+    pub armed_snapshot_digest: capsec_semantics::model::Digest,
+    pub policy_generation: u64,
+    pub negative_generation: u64,
+    pub dynamic_generation: u64,
+    pub handle_generation: u64,
+    pub runtime_nonce: u64,
+    pub extension_generation: u64,
+    pub extension_id: capsec_semantics::model::StableId,
+    pub operation_id: capsec_semantics::model::StableId,
+    pub authority_class: capsec_semantics::model::StableId,
+    pub effect_semantics: capsec_semantics::model::StableId,
+    pub stage: capsec_semantics::model::Stage,
+    pub atomicity_group: capsec_semantics::model::StableId,
+    pub resource_kinds: Vec<capsec_semantics::model::NonEmptyString>,
+    pub resource_digest: capsec_semantics::model::Digest,
+    pub presented_lease_ids: Vec<u64>,
+    pub constrained_principals: Vec<capsec_semantics::model::Principal>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RuntimeExtensionLeaseStatus {
+    Current,
+    Stale,
+    Busy,
 }
 
 #[cfg(any(test, feature = "capsec-conformance-observer"))]
@@ -532,48 +550,6 @@ fn merge_authenticated_manifest_capture(
     Ok(changed)
 }
 
-fn validate_exact_experimental_webgpu_pre1a_floor(
-    snapshot: &capsec_semantics::arming::ArmedSnapshot,
-    expected_selectors: &[capsec_semantics::model::AuthoritySelector],
-) -> capsec_semantics::Result<()> {
-    let authority = snapshot.authority_state()?;
-    let mut expected_selectors = expected_selectors.to_vec();
-    if snapshot_admits_dev_served(snapshot) {
-        expected_selectors.push(exact_dev_served_agent_listener_selector()?);
-    }
-    validate_exact_experimental_webgpu_pre1a_authority(&authority, &expected_selectors)
-}
-
-const EXACT_DEV_SERVED_AGENT_HTTP_SERVE_EDGE: &str = "surface.native.op.exacthttpserve.1eq8wio";
-
-fn snapshot_admits_dev_served(snapshot: &capsec_semantics::arming::ArmedSnapshot) -> bool {
-    snapshot
-        .bootstrap_compatibility_modes()
-        .iter()
-        .any(|mode| mode == "dev-served")
-}
-
-fn exact_experimental_target_cells(
-    dev_served: bool,
-) -> BTreeMap<String, capsec_semantics::decision::TargetCellDisposition> {
-    let mut cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
-        .iter()
-        .map(|edge| {
-            (
-                (*edge).to_owned(),
-                capsec_semantics::decision::TargetCellDisposition::Closed,
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
-    if dev_served {
-        cells.insert(
-            EXACT_DEV_SERVED_AGENT_HTTP_SERVE_EDGE.to_owned(),
-            capsec_semantics::decision::TargetCellDisposition::Complete,
-        );
-    }
-    cells
-}
-
 fn exact_dev_served_agent_listener_selector(
 ) -> capsec_semantics::Result<capsec_semantics::model::AuthoritySelector> {
     serde_json::from_value(serde_json::json!({
@@ -592,67 +568,6 @@ fn exact_dev_served_agent_listener_selector(
             "invalid built-in dev-served agent listener selector: {error}"
         ))
     })
-}
-
-fn validate_exact_experimental_webgpu_pre1a_authority(
-    authority: &capsec_semantics::decision::DecisionAuthorityState,
-    expected_selectors: &[capsec_semantics::model::AuthoritySelector],
-) -> capsec_semantics::Result<()> {
-    if authority.principal_policies.len() != 1 {
-        return Err(capsec_semantics::Error::ArmRefused(
-            "experimental WebGPU Pre-1A requires exactly one root principal".into(),
-        ));
-    }
-    let Some((principal, policy)) = authority.principal_policies.iter().next() else {
-        return Err(capsec_semantics::Error::ArmRefused(
-            "experimental WebGPU Pre-1A root principal is absent".into(),
-        ));
-    };
-    if !matches!(principal, capsec_semantics::model::Principal::Root { .. })
-        || !policy.denials.is_empty()
-        || !policy.implicit_package_self.is_empty()
-        || !matches!(
-            &policy.escalation_ceiling,
-            capsec_semantics::decision::AuthorityCeiling::Bounded(rows) if rows.is_empty()
-        )
-    {
-        return Err(capsec_semantics::Error::ArmRefused(
-            "experimental WebGPU Pre-1A authority is not the exact closed root profile".into(),
-        ));
-    }
-    let actual_floor = policy
-        .static_floor
-        .iter()
-        .map(|authority| authority.selector.clone())
-        .collect::<BTreeSet<_>>();
-    let expected = expected_selectors.iter().cloned().collect::<BTreeSet<_>>();
-    if actual_floor.len() != policy.static_floor.len()
-        || expected.len() != expected_selectors.len()
-        || actual_floor != expected
-    {
-        return Err(capsec_semantics::Error::ArmRefused(
-            "experimental WebGPU Pre-1A selector floor differs from the checked private registry"
-                .into(),
-        ));
-    }
-    let capsec_semantics::decision::AuthorityCeiling::Bounded(root_ceiling) =
-        &*authority.root_ceiling
-    else {
-        return Err(capsec_semantics::Error::ArmRefused(
-            "experimental WebGPU Pre-1A root authority ceiling is not bounded".into(),
-        ));
-    };
-    let actual_ceiling = root_ceiling
-        .iter()
-        .map(|authority| authority.selector.clone())
-        .collect::<BTreeSet<_>>();
-    if actual_ceiling.len() != root_ceiling.len() || actual_ceiling != expected {
-        return Err(capsec_semantics::Error::ArmRefused(
-            "experimental WebGPU Pre-1A root authority ceiling differs from the checked private registry"
-                .into(),
-        ));
-    }
-    Ok(())
 }
 
 /// Fine-grained host-construction marks nested under the CLI's startup trace.
@@ -754,7 +669,6 @@ impl Host {
             private_resolver_sequence: Arc::new(AtomicU64::new(1)),
             session_lifecycle,
             target_cells: Arc::new(BTreeMap::new()),
-            private_gpu_target_cells: Arc::new(BTreeMap::new()),
             unarmed_closed: false,
         }
     }
@@ -803,7 +717,6 @@ impl Host {
             target_cells,
             authenticated_package_sources,
             capsec_semantics::decision::TargetArmState::CompleteAdvertised,
-            BTreeMap::new(),
         )
     }
 
@@ -840,7 +753,6 @@ impl Host {
             target_cells,
             authenticated_package_sources,
             capsec_semantics::decision::TargetArmState::CompleteAdvertised,
-            BTreeMap::new(),
         )
     }
 
@@ -860,14 +772,12 @@ impl Host {
             target_cells,
             authenticated_package_sources,
             capsec_semantics::decision::TargetArmState::CompleteAdvertised,
-            BTreeMap::new(),
         )
     }
 
     /// Ratified iOS-Simulator carrier-cost observer. This preserves every
     /// production authenticator and substitutes only the report-derived target
-    /// cell join. It is absent from ordinary artifacts and cannot compile for
-    /// devices, desktop, or Debug.
+    /// cell join. It is absent from ordinary artifacts.
     #[cfg(feature = "capsec-simulator-performance-observer")]
     #[doc(hidden)]
     pub fn new_armed_for_capsec_simulator_performance_observer(
@@ -897,7 +807,6 @@ impl Host {
             target_cells,
             authenticated_package_sources,
             capsec_semantics::decision::TargetArmState::CompleteAdvertised,
-            BTreeMap::new(),
         )?;
         phase.mark("observer_host_construct");
         eprintln!(
@@ -907,59 +816,12 @@ impl Host {
         Ok(host)
     }
 
-    /// Construct the closed-world Exact WebGPU Pre-1A product profile. This
-    /// is deliberately separate from canonical public arming: the checked
-    /// private registry supplies every admitted selector/cell, all other
-    /// product cells remain closed, and no advertisement is synthesized.
-    /// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
-    pub fn new_exact_experimental_webgpu_pre1a(
-        config: HostConfig,
-        armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
-    ) -> capsec_semantics::Result<Self> {
-        validate_loaded_engine_identity(&armed_snapshot)?;
-        validate_snapshot_protected_artifacts(&armed_snapshot)?;
-        let authenticated_package_sources = validate_snapshot_root_bindings(&armed_snapshot)?;
-        let binding = armed_snapshot
-            .exact_gpu_provider_binding()?
-            .ok_or_else(|| {
-                capsec_semantics::Error::ArmRefused(
-                    "experimental WebGPU Pre-1A arming requires an authenticated Exact GPU provider binding"
-                        .into(),
-                )
-            })?;
-        let private_arming =
-            gpu_authority::experimental_webgpu_pre1a_arming(&binding).ok_or_else(|| {
-                capsec_semantics::Error::ArmRefused(
-                    "experimental WebGPU Pre-1A registry or provider identity is unavailable"
-                        .into(),
-                )
-            })?;
-        validate_exact_experimental_webgpu_pre1a_floor(
-            &armed_snapshot,
-            &private_arming.positive_selectors,
-        )?;
-        let target_cells =
-            exact_experimental_target_cells(snapshot_admits_dev_served(&armed_snapshot));
-        Self::new_armed_with_target_cells(
-            config,
-            armed_snapshot,
-            target_cells,
-            authenticated_package_sources,
-            capsec_semantics::decision::TargetArmState::CompleteExperimentalPrivate,
-            private_arming.private_target_cells,
-        )
-    }
-
     fn new_armed_with_target_cells(
         config: HostConfig,
         armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
         target_cells: BTreeMap<String, capsec_semantics::decision::TargetCellDisposition>,
         authenticated_package_sources: AuthenticatedPackageSourceState,
         target_arm_state: capsec_semantics::decision::TargetArmState,
-        private_gpu_target_cells: BTreeMap<
-            String,
-            capsec_semantics::decision::TargetCellDisposition,
-        >,
     ) -> capsec_semantics::Result<Self> {
         let mut phase = HostStartupPhaseTrace::begin();
         validate_armed_alias_volume_topology(&armed_snapshot)?;
@@ -983,16 +845,18 @@ impl Host {
                 "HostConfig fences are not yet representable in the typed armed ceiling".into(),
             ));
         }
-        let profile = capsec_semantics::registry::ValidatedProfile::from_json(
-            include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/capsec/registry/capability-definitions.json"
-            )),
-            include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/capsec/registry/policy-rules.json"
-            )),
-        )?;
+        let profile =
+            capsec_semantics::registry::ValidatedProfile::from_json_with_runtime_extensions(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/capsec/registry/capability-definitions.json"
+                )),
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/capsec/registry/policy-rules.json"
+                )),
+                armed_snapshot.runtime_extension_authority().is_some(),
+            )?;
         phase.mark("host_validated_profile");
         // `ArmedSnapshot::load` authenticates the claimed target identity, but
         // only the checked advertisement/cell join proves that this exact
@@ -1016,7 +880,6 @@ impl Host {
             || !matches!(
                 target_arm_state,
                 capsec_semantics::decision::TargetArmState::CompleteAdvertised
-                    | capsec_semantics::decision::TargetArmState::CompleteExperimentalPrivate
             )
         {
             return Err(capsec_semantics::Error::ArmRefused(
@@ -1053,7 +916,6 @@ impl Host {
         host.authenticated_package_sources = Arc::new(authenticated_package_sources);
         host.typed_imports = typed_imports;
         host.target_cells = Arc::new(target_cells);
-        host.private_gpu_target_cells = Arc::new(private_gpu_target_cells);
         Ok(host)
     }
 
@@ -1066,82 +928,12 @@ impl Host {
         config: HostConfig,
         armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
     ) -> capsec_semantics::Result<Self> {
-        // V2 GPU fixtures must exercise the same closed-world private target
-        // cells as the named product constructor. A merely descriptor-valid
-        // provider with an empty private-cell map would authenticate at
-        // registration and then fail every operation before service entry.
-        // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
-        if let Some(binding) = armed_snapshot.exact_gpu_provider_binding()? {
-            if binding.abi_version == 0x0002_0000 {
-                let private_arming = gpu_authority::experimental_webgpu_pre1a_arming(&binding)
-                    .ok_or_else(|| {
-                        capsec_semantics::Error::ArmRefused(
-                            "test WebGPU V2 registry or provider identity is unavailable".into(),
-                        )
-                    })?;
-                return Self::new_armed_with_target_cells(
-                    config,
-                    armed_snapshot,
-                    complete_test_target_cells(),
-                    AuthenticatedPackageSourceState::default(),
-                    capsec_semantics::decision::TargetArmState::CompleteAdvertised,
-                    private_arming.private_target_cells,
-                );
-            }
-        }
         Self::new_armed_with_target_cells(
             config,
             armed_snapshot,
             complete_test_target_cells(),
             AuthenticatedPackageSourceState::default(),
             capsec_semantics::decision::TargetArmState::CompleteAdvertised,
-            BTreeMap::new(),
-        )
-    }
-
-    /// Test-harness equivalent of the named experimental WebGPU constructor.
-    /// It preserves the production source-derived private cell set and floor
-    /// validation while bypassing only filesystem-backed artifact checks.
-    #[cfg(any(test, feature = "capsec-conformance-observer"))]
-    #[doc(hidden)]
-    pub unsafe fn new_exact_experimental_webgpu_pre1a_for_test(
-        config: HostConfig,
-        armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
-    ) -> capsec_semantics::Result<Self> {
-        let binding = armed_snapshot
-            .exact_gpu_provider_binding()?
-            .ok_or_else(|| {
-                capsec_semantics::Error::ArmRefused(
-                    "experimental WebGPU Pre-1A test arming requires an authenticated provider"
-                        .into(),
-                )
-            })?;
-        let private_arming =
-            gpu_authority::experimental_webgpu_pre1a_arming(&binding).ok_or_else(|| {
-                capsec_semantics::Error::ArmRefused(
-                    "experimental WebGPU Pre-1A test registry is unavailable".into(),
-                )
-            })?;
-        validate_exact_experimental_webgpu_pre1a_floor(
-            &armed_snapshot,
-            &private_arming.positive_selectors,
-        )?;
-        let target_cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
-            .iter()
-            .map(|edge| {
-                (
-                    (*edge).to_owned(),
-                    capsec_semantics::decision::TargetCellDisposition::Closed,
-                )
-            })
-            .collect();
-        Self::new_armed_with_target_cells(
-            config,
-            armed_snapshot,
-            target_cells,
-            AuthenticatedPackageSourceState::default(),
-            capsec_semantics::decision::TargetArmState::CompleteExperimentalPrivate,
-            private_arming.private_target_cells,
         )
     }
 
@@ -1162,7 +954,6 @@ impl Host {
             complete_test_target_cells(),
             authenticated_package_sources,
             capsec_semantics::decision::TargetArmState::CompleteAdvertised,
-            BTreeMap::new(),
         )
     }
 
@@ -1201,7 +992,6 @@ impl Host {
             cells,
             authenticated_package_sources,
             capsec_semantics::decision::TargetArmState::CompleteAdvertised,
-            BTreeMap::new(),
         )
     }
 
@@ -1212,23 +1002,388 @@ impl Host {
             .unwrap_or(capsec_semantics::decision::TargetCellDisposition::Incomplete)
     }
 
-    pub(crate) fn private_gpu_target_cell(
-        &self,
-        edge: &str,
-    ) -> capsec_semantics::decision::TargetCellDisposition {
-        self.private_gpu_target_cells
-            .get(edge)
-            .copied()
-            .unwrap_or(capsec_semantics::decision::TargetCellDisposition::Incomplete)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn private_gpu_target_cell_count_for_test(&self) -> usize {
-        self.private_gpu_target_cells.len()
-    }
-
     pub fn armed_snapshot(&self) -> Option<&Arc<capsec_semantics::arming::ArmedSnapshot>> {
         self.armed_snapshot.as_ref()
+    }
+
+    /// Construction-time exact claim for the authenticated runtime-extension
+    /// authority projection. Unarmed and canonical-empty hosts never match a
+    /// non-empty digest.
+    pub fn matches_runtime_extension_authority_digest(&self, digest: &str) -> bool {
+        self.armed_snapshot()
+            .is_some_and(|snapshot| snapshot.matches_runtime_extension_authority_digest(digest))
+    }
+
+    /// Exact pre-Hermes comparison of the structurally validated native
+    /// registry against the authenticated capsule. A matching capsule digest
+    /// attached to a different descriptor table is refused here.
+    pub fn matches_runtime_extension_registry_projection(&self, projection_json: &str) -> bool {
+        self.armed_snapshot()
+            .and_then(|snapshot| snapshot.runtime_extension_authority())
+            .is_some_and(|capsule| {
+                capsule
+                    .matches_registry_projection_json(projection_json.as_bytes())
+                    .unwrap_or(false)
+            })
+    }
+
+    /// Revalidate every mutable and immutable authority component captured by
+    /// a runtime-extension lease. A retained lease is an acquisition
+    /// constraint, not ambient authority: policy/profile replacement,
+    /// revocation generations, snapshot replacement, or extension selection
+    /// drift makes it stale before a later commit/repeat/delivery.
+    pub(crate) fn runtime_extension_lease_is_current(
+        &self,
+        grant: &RuntimeExtensionLeaseGrant,
+    ) -> bool {
+        let Some(snapshot) = self.armed_snapshot() else {
+            return false;
+        };
+        let Ok(identity) = snapshot.semantic_identity() else {
+            return false;
+        };
+        let Some(generations) = self.typed_generations() else {
+            return false;
+        };
+        snapshot
+            .runtime_extension_authority()
+            .is_some_and(|capsule| {
+                capsule.authority_capsule_digest == grant.authority_capsule_digest
+                    && capsule
+                        .operation(grant.extension_id.as_str(), grant.operation_id.as_str())
+                        .is_some_and(|operation| {
+                            operation.authority_class == grant.authority_class
+                                && operation.semantics == grant.effect_semantics
+                                && operation.stage == grant.stage
+                                && operation.atomicity_group == grant.atomicity_group
+                                && operation.resource_kinds == grant.resource_kinds
+                        })
+            })
+            && identity.profile == grant.profile
+            && identity.vocab_digest == grant.vocab_digest
+            && identity.registry_digest == grant.registry_digest
+            && identity.policy_digest == grant.policy_digest
+            && identity.armed_snapshot_digest == grant.armed_snapshot_digest
+            && snapshot.generations().policy.get() == grant.policy_generation
+            && generations.negative.get() == grant.negative_generation
+            && generations.dynamic.get() == grant.dynamic_generation
+            && generations.handle.get() == grant.handle_generation
+    }
+
+    /// Producer-thread authority revalidation for runtime-extension completion
+    /// admission. Unlike the owner-thread helper above, this never waits for a
+    /// concurrent policy/generation writer: contention is an explicit
+    /// fail-fast `Busy` result which the SDK maps to queue capacity refusal.
+    /// @ref LLP 0040#5-owner-executor-and-completion-tokens
+    pub(crate) fn try_runtime_extension_lease_is_current(
+        &self,
+        grant: &RuntimeExtensionLeaseGrant,
+    ) -> RuntimeExtensionLeaseStatus {
+        let Some(snapshot) = self.armed_snapshot() else {
+            return RuntimeExtensionLeaseStatus::Stale;
+        };
+        let Some(context) = self.decision_context.as_deref() else {
+            return RuntimeExtensionLeaseStatus::Stale;
+        };
+        let context = match context.try_read() {
+            Ok(context) => context,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return RuntimeExtensionLeaseStatus::Busy;
+            }
+            Err(std::sync::TryLockError::Poisoned(_)) => {
+                return RuntimeExtensionLeaseStatus::Stale;
+            }
+        };
+        let identity = context.identity();
+        let generations = context.authority().generations;
+        let current = snapshot
+            .runtime_extension_authority()
+            .is_some_and(|capsule| {
+                capsule.authority_capsule_digest == grant.authority_capsule_digest
+                    && capsule
+                        .operation(grant.extension_id.as_str(), grant.operation_id.as_str())
+                        .is_some_and(|operation| {
+                            operation.authority_class == grant.authority_class
+                                && operation.semantics == grant.effect_semantics
+                                && operation.stage == grant.stage
+                                && operation.atomicity_group == grant.atomicity_group
+                                && operation.resource_kinds == grant.resource_kinds
+                        })
+            })
+            && identity.profile == grant.profile
+            && identity.vocab_digest == grant.vocab_digest
+            && identity.registry_digest == grant.registry_digest
+            && identity.policy_digest == grant.policy_digest
+            && identity.armed_snapshot_digest == grant.armed_snapshot_digest
+            && snapshot.generations().policy.get() == grant.policy_generation
+            && generations.negative.get() == grant.negative_generation
+            && generations.dynamic.get() == grant.dynamic_generation
+            && generations.handle.get() == grant.handle_generation;
+        if current {
+            RuntimeExtensionLeaseStatus::Current
+        } else {
+            RuntimeExtensionLeaseStatus::Stale
+        }
+    }
+
+    #[cfg(all(test, feature = "runtime-extension-conformance"))]
+    pub(crate) fn with_runtime_extension_generation_write_lock_for_test<R>(
+        &self,
+        body: impl FnOnce() -> R,
+    ) -> R {
+        let context = self
+            .decision_context
+            .as_deref()
+            .expect("runtime-extension contention fixture requires an armed Host");
+        let _guard = context
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        body()
+    }
+
+    /// Authorize one operation admitted by the authenticated extension
+    /// capsule and return the immutable facts an opaque host lease must bind.
+    /// The registry supplies only capsule-authenticated data; Ibex validates
+    /// the fixed action/resource shape and consumes the authenticated
+    /// semantics, stage, atomicity group, and canonical resource-kind list.
+    pub(crate) fn authorize_runtime_extension_operation(
+        &self,
+        runtime_nonce: u64,
+        extension_generation: u64,
+        extension_id: &str,
+        operation_id: &str,
+        authority_class: &str,
+        effect_semantics: &str,
+        stage: &str,
+        atomicity_group: &str,
+        resource_kinds: &[&str],
+        resource_json: &str,
+        actor: capsec_semantics::model::Principal,
+        constrained_principals: Vec<capsec_semantics::model::Principal>,
+        presented_lease_ids: Vec<u64>,
+    ) -> capsec_semantics::Result<RuntimeExtensionLeaseGrant> {
+        use capsec_semantics::decision::{DecisionOutcome, EffectGate, TargetCellDisposition};
+        use capsec_semantics::model::{
+            ActionId, AuthoritySelector, DecisionContext, DecisionSet, DecisionSetSchema, Effect,
+            EffectCombination, NonEmptyString, OccurrenceResource, SelectorResource, StableId,
+            Stage,
+        };
+
+        const MAX_RESOURCE_JSON_BYTES: usize = 64 * 1024;
+        if runtime_nonce == 0
+            || extension_generation == 0
+            || resource_json.is_empty()
+            || resource_json.len() > MAX_RESOURCE_JSON_BYTES
+        {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "runtime-extension identity is zero or resource JSON is invalid".into(),
+            ));
+        }
+        if constrained_principals.is_empty()
+            || !capsec_semantics::model::principal_set_is_canonical(&constrained_principals)
+            || !constrained_principals.contains(&actor)
+        {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "runtime-extension principal set is empty, noncanonical, or omits its actor".into(),
+            ));
+        }
+
+        let snapshot = self.armed_snapshot().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "runtime-extension operation requested without an armed snapshot".into(),
+            )
+        })?;
+        let capsule = snapshot.runtime_extension_authority().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "runtime-extension operation requested for the canonical empty projection".into(),
+            )
+        })?;
+        let semantic_identity = snapshot.semantic_identity()?;
+        let authority_generations = self.typed_generations().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "runtime-extension operation has no typed authority generations".into(),
+            )
+        })?;
+        if presented_lease_ids.len() > 256
+            || presented_lease_ids
+                .windows(2)
+                .any(|pair| pair[0] >= pair[1])
+        {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "runtime-extension presented lease set is noncanonical or exceeds its bound".into(),
+            ));
+        }
+        let extension_id =
+            StableId::new(extension_id).map_err(capsec_semantics::Error::InvalidModel)?;
+        let operation_id =
+            StableId::new(operation_id).map_err(capsec_semantics::Error::InvalidModel)?;
+        let authority_class =
+            StableId::new(authority_class).map_err(capsec_semantics::Error::InvalidModel)?;
+        let effect_semantics =
+            StableId::new(effect_semantics).map_err(capsec_semantics::Error::InvalidModel)?;
+        let stage = match stage {
+            "requested" => Stage::Requested,
+            "discovery" => Stage::Discovery,
+            "candidate" => Stage::Candidate,
+            "commit" => Stage::Commit,
+            "delivery" => Stage::Delivery,
+            "repeat" => Stage::Repeat,
+            "cleanup" => Stage::Cleanup,
+            _ => {
+                return Err(capsec_semantics::Error::ArmRefused(
+                    "runtime-extension operation stage is not Ibex-owned".into(),
+                ))
+            }
+        };
+        let atomicity_group =
+            StableId::new(atomicity_group).map_err(capsec_semantics::Error::InvalidModel)?;
+        let resource_kinds = resource_kinds
+            .iter()
+            .map(|kind| NonEmptyString::new(*kind).map_err(capsec_semantics::Error::InvalidModel))
+            .collect::<capsec_semantics::Result<Vec<_>>>()?;
+        let Some(authenticated_operation) =
+            capsule.operation(extension_id.as_str(), operation_id.as_str())
+        else {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "runtime-extension operation is not authenticated".into(),
+            ));
+        };
+        if authenticated_operation.authority_class != authority_class
+            || authenticated_operation.semantics != effect_semantics
+            || authenticated_operation.stage != stage
+            || authenticated_operation.atomicity_group != atomicity_group
+            || authenticated_operation.resource_kinds != resource_kinds
+        {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "runtime-extension operation effect descriptor is not authenticated".into(),
+            ));
+        }
+
+        let resource_value = capsec_semantics::strict_json::parse_strict(resource_json)?;
+        if !resource_value.is_object() {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "runtime-extension resource must be a JSON object".into(),
+            ));
+        }
+        let resource_digest =
+            capsec_semantics::model::Digest::new(capsec_semantics::digest::compute_domain_digest(
+                "ibex:runtime-extension-operation-resource:1",
+                &serde_json::json!({
+                    "resourceKinds": resource_kinds,
+                    "facts": resource_value,
+                }),
+                &[],
+            )?)
+            .map_err(capsec_semantics::Error::InvalidModel)?;
+        let selector = AuthoritySelector {
+            action: ActionId::new("runtime-extension:invoke")
+                .map_err(capsec_semantics::Error::InvalidModel)?,
+            resource: SelectorResource::RuntimeExtension {
+                extension_id: extension_id.clone(),
+                authority_class: authority_class.clone(),
+            },
+        };
+
+        {
+            let context = self.decision_context.as_deref().ok_or_else(|| {
+                capsec_semantics::Error::ArmRefused(
+                    "runtime-extension operation has no typed decision context".into(),
+                )
+            })?;
+            let context = context.read().map_err(|_| {
+                capsec_semantics::Error::ArmRefused(
+                    "runtime-extension decision context lock is poisoned".into(),
+                )
+            })?;
+            for principal in &constrained_principals {
+                if !context.static_authority_covers(principal, &selector, None)? {
+                    return Err(capsec_semantics::Error::ArmRefused(
+                        "runtime-extension authority is not covered by every constrained principal's static floor"
+                            .into(),
+                    ));
+                }
+            }
+        }
+
+        let coverage_edge_id = effect_semantics.clone();
+        let decision_set = DecisionSet {
+            decision_set_schema: DecisionSetSchema::V1,
+            operation_id: NonEmptyString::new(format!(
+                "runtime-extension:{}:{}:{}",
+                extension_id.as_str(),
+                operation_id.as_str(),
+                resource_digest.as_str()
+            ))
+            .map_err(capsec_semantics::Error::InvalidModel)?,
+            atomicity_group: atomicity_group.clone(),
+            combination: EffectCombination::Conjunction,
+            context: DecisionContext {
+                stage,
+                actor: actor.clone(),
+                constrained_principals: constrained_principals.clone(),
+                // Runtime-extension lease IDs are context-local opaque
+                // capabilities, not entries in the snapshot's bearer-handle
+                // table. The ABI layer has already revalidated every parent
+                // lease and intersected its captured principals above. Feeding
+                // those opaque IDs into the semantic bearer-handle field would
+                // either make every derived decision fail attribution or,
+                // worse, require manufacturing unauthenticated bearer rows.
+                // Keep the semantic decision on the complete constrained set;
+                // the returned grant separately binds the canonical parent
+                // lease IDs and recursively rechecks them at every use.
+                presented_handle_ids: Vec::new(),
+            },
+            effects: vec![Effect {
+                action: selector.action,
+                effect_owner: actor,
+                resource: OccurrenceResource::RuntimeExtensionOccurrence {
+                    requested: Box::new(selector.resource),
+                    operation_id: operation_id.clone(),
+                    resource_digest: resource_digest.clone(),
+                },
+            }],
+        };
+        let decision = self.evaluate_typed_decision(
+            &decision_set,
+            &[EffectGate {
+                coverage_edge_id,
+                target_cell: TargetCellDisposition::Complete,
+                definition_and_edge_predicates_satisfied: true,
+            }],
+        )?;
+        if !matches!(
+            decision.outcome,
+            DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+        ) {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "runtime-extension operation is not authorized".into(),
+            ));
+        }
+
+        Ok(RuntimeExtensionLeaseGrant {
+            authority_capsule_digest: capsule.authority_capsule_digest.clone(),
+            profile: semantic_identity.profile,
+            vocab_digest: semantic_identity.vocab_digest,
+            registry_digest: semantic_identity.registry_digest,
+            policy_digest: semantic_identity.policy_digest,
+            armed_snapshot_digest: semantic_identity.armed_snapshot_digest,
+            policy_generation: snapshot.generations().policy.get(),
+            negative_generation: authority_generations.negative.get(),
+            dynamic_generation: authority_generations.dynamic.get(),
+            handle_generation: authority_generations.handle.get(),
+            runtime_nonce,
+            extension_generation,
+            extension_id,
+            operation_id,
+            authority_class,
+            effect_semantics,
+            stage,
+            atomicity_group,
+            resource_kinds,
+            resource_digest,
+            presented_lease_ids,
+            constrained_principals,
+        })
     }
 
     /// Construct the session-local VFS exclusively from this Host's immutable
@@ -2292,45 +2447,6 @@ impl Host {
         expected == operations
     }
 
-    /// Authenticate the complete optional GPU service descriptor before the
-    /// engine retains native state or invokes the service. Diagnostic hosts are
-    /// explicitly unarmed; armed hosts require an exact snapshot binding.
-    #[allow(clippy::too_many_arguments)]
-    pub fn authorizes_exact_gpu_provider(
-        &self,
-        abi_version: u32,
-        profile_id: &str,
-        profile_digest: &capsec_semantics::model::Digest,
-        webgpu_c_vocabulary_digest: &capsec_semantics::model::Digest,
-        operation_set_digest: &capsec_semantics::model::Digest,
-        semantic_program_digest: &capsec_semantics::model::Digest,
-        runtime_routing_digest: Option<&capsec_semantics::model::Digest>,
-        operations: &[u32],
-        topology_id: u32,
-    ) -> bool {
-        let Some(snapshot) = self.armed_snapshot() else {
-            return true;
-        };
-        let Ok(Some(binding)) = snapshot.exact_gpu_provider_binding() else {
-            return false;
-        };
-        if abi_version == 0x0002_0000
-            && !gpu_authority::provider_binding_matches_source_registry(&binding)
-        {
-            return false;
-        }
-        binding.abi_version == abi_version
-            && binding.profile_id == profile_id
-            && &binding.profile_digest == profile_digest
-            && &binding.webgpu_c_vocabulary_digest == webgpu_c_vocabulary_digest
-            && &binding.operation_set_digest == operation_set_digest
-            && &binding.semantic_program_digest == semantic_program_digest
-            && binding.runtime_routing_digest.as_ref() == runtime_routing_digest
-            && binding.operation_ids == operations
-            && topology_id == 1
-            && binding.topology == "isolated-per-logical-v1"
-    }
-
     /// The explicit construction transaction finalizes only when its installed
     /// native capability set exactly equals the immutable armed snapshot.
     pub fn authorizes_embedder_capability_set(&self, installed_flags: u32) -> bool {
@@ -2338,20 +2454,11 @@ impl Host {
             return true;
         };
         const EXACT_INGRESS: u32 = 1 << 0;
-        const GPU_PROVIDER: u32 = 1 << 1;
         let mut expected = 0;
         if snapshot.exact_embedder_binding().ok().flatten().is_some() {
             expected |= EXACT_INGRESS;
         }
-        if snapshot
-            .exact_gpu_provider_binding()
-            .ok()
-            .flatten()
-            .is_some()
-        {
-            expected |= GPU_PROVIDER;
-        }
-        installed_flags & !(EXACT_INGRESS | GPU_PROVIDER) == 0 && installed_flags == expected
+        installed_flags & !EXACT_INGRESS == 0 && installed_flags == expected
     }
 
     pub fn decision_context(
@@ -3654,79 +3761,6 @@ impl Host {
             .map(|(decision, ())| decision)
     }
 
-    /// Evaluate one registry-pinned ordered decision batch and run an affine
-    /// continuation only when every decision allows, without releasing the
-    /// decision-context read guard between receipts or before the
-    /// continuation returns.
-    pub(crate) fn evaluate_typed_decision_batch_and_then<R>(
-        &self,
-        requests: &[(
-            &capsec_semantics::model::DecisionSet,
-            &[capsec_semantics::decision::EffectGate],
-        )],
-        expected_policy_generation: u64,
-        expected_generations: capsec_semantics::cache::GenerationSet,
-        on_allowed: impl FnOnce() -> R,
-    ) -> capsec_semantics::Result<TypedDecisionBatchAndThenResult<R>> {
-        if requests.is_empty() || requests.len() > 2 {
-            return Err(capsec_semantics::Error::ArmRefused(
-                "typed decision batch must contain one or two decisions".into(),
-            ));
-        }
-        let context = self.decision_context.as_deref().ok_or_else(|| {
-            capsec_semantics::Error::ArmRefused(
-                "typed decision batch requested without an armed context".into(),
-            )
-        })?;
-        let context = context.read().map_err(|_| {
-            capsec_semantics::Error::ArmRefused("typed decision context lock is poisoned".into())
-        })?;
-        let Some(snapshot) = self.armed_snapshot() else {
-            return Ok(TypedDecisionBatchAndThenResult::StalePolicyGeneration);
-        };
-        if snapshot.generations().policy.get() != expected_policy_generation {
-            return Ok(TypedDecisionBatchAndThenResult::StalePolicyGeneration);
-        }
-        if context.authority().generations != expected_generations {
-            return Ok(TypedDecisionBatchAndThenResult::StaleAuthorityGenerations);
-        }
-        let mut decisions = Vec::with_capacity(requests.len());
-        let mut all_allowed = true;
-        for (set, gates) in requests {
-            let decision = capsec_semantics::decision::evaluate_decision_set(
-                &context,
-                set,
-                gates,
-                capsec_semantics::decision::Workflow::ProductionEnforce,
-                &classify_network_peer,
-            )?;
-            self.typed_decision_count.fetch_add(1, Ordering::Relaxed);
-            #[cfg(any(test, feature = "capsec-conformance-observer"))]
-            {
-                let evidence = capsec_semantics::decision::structure_decision_evidence(
-                    &context, set, &decision,
-                );
-                #[cfg(any(test, feature = "capsec-conformance-observer"))]
-                self.record_typed_decision_for_tests(evidence.clone());
-                self.record_typed_conformance_decision(set, gates, evidence);
-            }
-            all_allowed &= matches!(
-                decision.outcome,
-                capsec_semantics::decision::DecisionOutcome::Allow
-                    | capsec_semantics::decision::DecisionOutcome::AllowWithWouldDenyEvidence
-            );
-            decisions.push(decision);
-            if !all_allowed {
-                break;
-            }
-        }
-        let continuation_result = all_allowed.then(on_allowed);
-        Ok(TypedDecisionBatchAndThenResult::Evaluated {
-            decisions,
-            continuation_result,
-        })
-    }
-
     fn evaluate_typed_decision_inner_and_then<R>(
         &self,
         set: &capsec_semantics::model::DecisionSet,
@@ -4621,6 +4655,35 @@ impl Host {
             .check_stack_no_follow_final(stack, capability)
     }
 
+    /// Check an authenticated async-continuation carrier. Unlike the optional
+    /// synchronous deputy policy, every carried principal constrains the
+    /// decision even when the capability class is not configured as a deputy.
+    pub fn check_capability_constrained_stack(&self, stack: &[&str], capability: &str) -> bool {
+        if cfg!(feature = "insecure") {
+            return true;
+        }
+        if self.unarmed_closed || self.decision_context.is_some() {
+            return false;
+        }
+        self.capability_manager
+            .check_constrained_stack(stack, capability)
+    }
+
+    pub fn check_capability_constrained_stack_no_follow_final(
+        &self,
+        stack: &[&str],
+        capability: &str,
+    ) -> bool {
+        if cfg!(feature = "insecure") {
+            return true;
+        }
+        if self.unarmed_closed || self.decision_context.is_some() {
+            return false;
+        }
+        self.capability_manager
+            .check_constrained_stack_no_follow_final(stack, capability)
+    }
+
     /// Whether any deputy capability classes are configured. When none are, the
     /// engine skips the (slightly more expensive) stack collection and uses the
     /// single-frame check. @ref LLP 0013#phase-5
@@ -4749,6 +4812,26 @@ impl Host {
                 // every package's own `require('./submodule')` before that
                 // authoritative post-resolution check could run.
                 return true;
+            }
+            // Runtime-extension modules are authenticated builtins even though
+            // their source-linked specifiers cannot appear in Ibex's static
+            // builtin manifest. Classify from the armed capsule, not from a
+            // string prefix; otherwise they fall onto the package axis and an
+            // allowlist cannot grant or confine them honestly.
+            // @ref LLP 0040#6-capability-mediation
+            if self
+                .armed_snapshot()
+                .and_then(|snapshot| snapshot.runtime_extension_authority())
+                .is_some_and(|capsule| {
+                    capsule.descriptors.iter().any(|descriptor| {
+                        descriptor
+                            .modules
+                            .iter()
+                            .any(|module| module.specifier.as_str() == specifier)
+                    })
+                })
+            {
+                return policy.builtins.iter().any(|allowed| allowed == specifier);
             }
             return typed_import_allowed(policy, specifier);
         }
@@ -5161,9 +5244,7 @@ impl Host {
             anyhow::bail!("unarmed host cannot resolve executable modules");
         }
         if !self.module_loader.is_builtin_specifier(specifier) {
-            anyhow::bail!(
-                "internal builtin resolution requires an exact manifest specifier: {specifier:?}"
-            );
+            anyhow::bail!("internal builtin resolution requires an exact manifest specifier");
         }
         let meta = self.module_loader.resolve_meta(specifier, None)?;
         if meta.kind != crate::module_loader::ModuleKind::Builtin {
@@ -6907,6 +6988,8 @@ fn validate_snapshot_protected_artifacts(
 ) -> capsec_semantics::Result<()> {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine as _;
+    use sha2::{Digest as _, Sha256};
+    use std::io::Read as _;
 
     for artifact in snapshot.protected_artifacts() {
         let path = host_path_from_logical_path(&artifact.host_path, "protected artifact path")?;
@@ -6960,18 +7043,21 @@ fn validate_snapshot_protected_artifacts(
             )));
         }
 
-        // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
-        // — re-authenticate every byte at each boundary. Apple uses the
-        // platform SHA-256 implementation; other targets retain the same Rust
-        // digest implementation.
-        let hash =
-            crate::engine::hash_open_file_sha256(&mut file, before.len()).map_err(|error| {
+        let mut hash = Sha256::new();
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let read = file.read(&mut buffer).map_err(|error| {
                 capsec_semantics::Error::ArmRefused(format!(
                     "cannot hash protected artifact {}: {error}",
                     path.display()
                 ))
             })?;
-        let observed = format!("sha256-{}", URL_SAFE_NO_PAD.encode(hash));
+            if read == 0 {
+                break;
+            }
+            hash.update(&buffer[..read]);
+        }
+        let observed = format!("sha256-{}", URL_SAFE_NO_PAD.encode(hash.finalize()));
         if observed != artifact.content_digest.as_str() {
             return Err(capsec_semantics::Error::ArmRefused(format!(
                 "protected artifact content digest changed: {}",
@@ -7863,6 +7949,11 @@ pub(crate) fn module_runner_attribution_test_host() -> Host {
     tests::example_armed_host()
 }
 
+#[cfg(all(test, feature = "runtime-extension-conformance"))]
+pub(crate) fn runtime_extension_conformance_test_host() -> Host {
+    tests::example_runtime_extension_armed_host()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -8005,7 +8096,6 @@ mod tests {
             complete_test_target_cells(),
             package_sources,
             capsec_semantics::decision::TargetArmState::CompleteAdvertised,
-            BTreeMap::new(),
         )
         .unwrap();
         let root = host.typed_principal_for_module("0").unwrap();
@@ -8177,6 +8267,394 @@ mod tests {
     fn example_armed_host_with(mutator: impl FnOnce(&mut serde_json::Value)) -> Host {
         let snapshot = example_armed_snapshot_with(mutator);
         unsafe { Host::new_armed_for_test(HostConfig::default(), Arc::new(snapshot)).unwrap() }
+    }
+
+    pub(crate) fn runtime_extension_test_capsule(
+    ) -> capsec_semantics::runtime_extensions::RuntimeExtensionAuthorityCapsule {
+        let placeholder = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let mut capsule_value = serde_json::json!({
+            "schema": "ibex/runtime-extension-authority-capsule/1",
+            "authorityCapsuleDigest": placeholder,
+            "target": "macos",
+            "profile": "production",
+            "sdkVersion": 1,
+            "runtimeFeatures": [
+                "copied-buffers",
+                "introspection",
+                "native-modules",
+                "operation-membrane",
+                "owner-executor"
+            ],
+            "extensionSetDigest": placeholder,
+            "declaredExecutableSelectionIdentity": placeholder,
+            "executableSelectionIdentity": placeholder,
+            "descriptors": [{
+                "id": "ibex.conformance",
+                "version": "1",
+                "sdkVersion": "1",
+                "manifestDigest": placeholder,
+                "trustedBootstrap": {
+                    "realm": "app",
+                    "installPhase": "pre-user-code"
+                },
+                "bootstrap": [],
+                "requiredFeatureBits": 55,
+                "providerAbi": {
+                    "id": "ibex.conformance.provider",
+                    "minVersion": 1,
+                    "selectedVersion": 1,
+                    "structSize": 8,
+                    "identityDigest": placeholder,
+                    "linkedArtifactId": "ibex.conformance.image"
+                },
+                "globals": [{
+                    "name": "__ibexRuntimeExtensionFixture",
+                    "kind": "object"
+                }],
+                "modules": [{"specifier": "@ibex/conformance"}],
+                "callbacks": [
+                    {
+                        "id": "delayed",
+                        "operationId": "complete-after",
+                        "producerAffinity": "background-producer",
+                        "delivery": "runtime-thread",
+                        "maxPending": 8
+                    },
+                    {
+                        "id": "event",
+                        "operationId": "subscribe",
+                        "producerAffinity": "background-producer",
+                        "delivery": "runtime-thread",
+                        "maxPending": 8
+                    },
+                    {
+                        "id": "promise",
+                        "operationId": "complete",
+                        "producerAffinity": "background-producer",
+                        "delivery": "runtime-thread",
+                        "maxPending": 8
+                    }
+                ],
+                "linkedArtifactIds": ["ibex.conformance.image"],
+                "authorityFragment": {
+                    "schema": "ibex/runtime-extension-authority-fragment/1",
+                    "namespace": "ibex.conformance",
+                    "operations": [
+                        {
+                            "operationId": "complete",
+                            "authorityClass": "fixture.complete",
+                            "semantics": "runtime-extension.invoke.authenticated-v1",
+                            "stage": "requested",
+                            "atomicityGroup": "fixture.operation.decision",
+                            "resourceKinds": ["runtime-extension"],
+                            "jsEntryPath": "__ibexRuntimeExtensionFixture.complete",
+                            "flags": 0
+                        },
+                        {
+                            "operationId": "complete-after",
+                            "authorityClass": "fixture.complete-after",
+                            "semantics": "runtime-extension.invoke.authenticated-v1",
+                            "stage": "requested",
+                            "atomicityGroup": "fixture.operation.decision",
+                            "resourceKinds": ["runtime-extension"],
+                            "jsEntryPath": "__ibexRuntimeExtensionFixture.completeAfter",
+                            "flags": 0
+                        },
+                        {
+                            "operationId": "copy-buffer",
+                            "authorityClass": "fixture.copy-buffer",
+                            "semantics": "runtime-extension.invoke.authenticated-v1",
+                            "stage": "requested",
+                            "atomicityGroup": "fixture.operation.decision",
+                            "resourceKinds": ["runtime-extension"],
+                            "jsEntryPath": "__ibexRuntimeExtensionFixture.copyBuffer",
+                            "flags": 0
+                        },
+                        {
+                            "operationId": "emit",
+                            "authorityClass": "fixture.emit",
+                            "semantics": "runtime-extension.invoke.authenticated-v1",
+                            "stage": "requested",
+                            "atomicityGroup": "fixture.operation.decision",
+                            "resourceKinds": ["runtime-extension"],
+                            "jsEntryPath": "__ibexRuntimeExtensionFixture.emit",
+                            "flags": 0
+                        },
+                        {
+                            "operationId": "enqueue",
+                            "authorityClass": "fixture.enqueue",
+                            "semantics": "runtime-extension.invoke.authenticated-v1",
+                            "stage": "requested",
+                            "atomicityGroup": "fixture.operation.decision",
+                            "resourceKinds": ["runtime-extension"],
+                            "jsEntryPath": "__ibexRuntimeExtensionFixture.enqueue",
+                            "flags": 0
+                        },
+                        {
+                            "operationId": "retire-lease",
+                            "authorityClass": "fixture.retire-lease",
+                            "semantics": "runtime-extension.invoke.authenticated-v1",
+                            "stage": "requested",
+                            "atomicityGroup": "fixture.operation.decision",
+                            "resourceKinds": ["runtime-extension"],
+                            "jsEntryPath": "__ibexRuntimeExtensionFixture.retireLeaseOffOwner",
+                            "flags": 0
+                        },
+                        {
+                            "operationId": "subscribe",
+                            "authorityClass": "fixture.subscribe",
+                            "semantics": "runtime-extension.invoke.authenticated-v1",
+                            "stage": "requested",
+                            "atomicityGroup": "fixture.operation.decision",
+                            "resourceKinds": ["runtime-extension"],
+                            "jsEntryPath": "__ibexRuntimeExtensionFixture.subscribe",
+                            "flags": 0
+                        }
+                    ]
+                }
+            }],
+            "linkedArtifacts": [{
+                "artifactId": "ibex.conformance.image",
+                "extensionId": "ibex.conformance",
+                "executableObject": {
+                    "platform": "unix",
+                    "volume": "runtime-extension-fixture",
+                    "file": "linked-image"
+                },
+                "range": {"offset": 4096, "length": 512},
+                "contentDigest": placeholder
+            }],
+            "mappedExecutable": {
+                "schema": "ibex/runtime-extension-mapped-executable/1",
+                "executableObject": {
+                    "platform": "unix",
+                    "volume": "runtime-extension-fixture",
+                    "file": "mapped-executable"
+                },
+                "range": {"offset": 0, "length": 16384},
+                "contentDigest": placeholder,
+                "anchors": [
+                    {"label": "ibex.conformance.lifecycle.checkpoint", "imageOffset": 1024},
+                    {"label": "ibex.conformance.lifecycle.close", "imageOffset": 1025},
+                    {"label": "ibex.conformance.lifecycle.install", "imageOffset": 1026},
+                    {"label": "ibex.conformance.lifecycle.quiesce", "imageOffset": 1027},
+                    {"label": "ibex.conformance.lifecycle.table", "imageOffset": 1028},
+                    {"label": "ibex.conformance.provider.factory", "imageOffset": 1029},
+                    {"label": "registry.build", "imageOffset": 1030},
+                    {"label": "registry.descriptors", "imageOffset": 1031},
+                    {"label": "registry.table", "imageOffset": 1032}
+                ]
+            }
+        });
+        unsafe extern "C" {
+            fn ibex_runtime_extension_supported_features_v1() -> u64;
+        }
+        const KEYED_EXTERNAL_BUFFERS: u64 = 1 << 3;
+        if unsafe { ibex_runtime_extension_supported_features_v1() } & KEYED_EXTERNAL_BUFFERS != 0 {
+            capsule_value["descriptors"][0]["requiredFeatureBits"] =
+                serde_json::json!(55 | KEYED_EXTERNAL_BUFFERS);
+            capsule_value["runtimeFeatures"]
+                .as_array_mut()
+                .unwrap()
+                .insert(2, serde_json::json!("keyed-external-buffers"));
+            let operations = capsule_value["descriptors"][0]["authorityFragment"]["operations"]
+                .as_array_mut()
+                .unwrap();
+            operations.insert(
+                5,
+                serde_json::json!({
+                    "operationId": "external-range",
+                    "authorityClass": "fixture.external-range",
+                    "semantics": "runtime-extension.invoke.authenticated-v1",
+                    "stage": "requested",
+                    "atomicityGroup": "fixture.operation.decision",
+                    "resourceKinds": ["runtime-extension"],
+                    "jsEntryPath": "__ibexRuntimeExtensionFixture.externalRange",
+                    "flags": 0
+                }),
+            );
+            operations.insert(
+                7,
+                serde_json::json!({
+                    "operationId": "revoke-external",
+                    "authorityClass": "fixture.revoke-external",
+                    "semantics": "runtime-extension.invoke.authenticated-v1",
+                    "stage": "requested",
+                    "atomicityGroup": "fixture.operation.decision",
+                    "resourceKinds": ["runtime-extension"],
+                    "jsEntryPath": "__ibexRuntimeExtensionFixture.revokeExternal",
+                    "flags": 0
+                }),
+            );
+        }
+        let mut capsule: capsec_semantics::runtime_extensions::RuntimeExtensionAuthorityCapsule =
+            serde_json::from_value(capsule_value).unwrap();
+        capsule.extension_set_digest = capsule.compute_extension_set_digest().unwrap();
+        capsule.declared_executable_selection_identity = capsule
+            .compute_declared_executable_selection_identity()
+            .unwrap();
+        capsule.executable_selection_identity =
+            capsule.compute_executable_selection_identity().unwrap();
+        capsule.authority_capsule_digest = capsule.compute_authority_capsule_digest().unwrap();
+        capsule.validate().unwrap();
+        capsule
+    }
+
+    pub(crate) fn example_runtime_extension_armed_host() -> Host {
+        example_armed_host_with(|value| {
+            let capsule = runtime_extension_test_capsule();
+            let authority_classes = capsule.descriptors[0]
+                .authority_fragment
+                .operations
+                .iter()
+                .map(|operation| operation.authority_class.as_str().to_owned())
+                .collect::<Vec<_>>();
+            value["runtimeExtensions"] = serde_json::to_value(&capsule).unwrap();
+            value["protectedObjects"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({
+                    "role": "runtime-extension-authority-capsule",
+                    "object": {
+                        "platform": "unix",
+                        "volume": "runtime-extension-fixture",
+                        "file": "authority-capsule"
+                    },
+                    "deniedActions": ["fs:write"]
+                }));
+            let root = value["principals"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|row| row["principal"]["kind"] == "root")
+                .unwrap();
+            root["imports"]["builtins"] = serde_json::json!(["@ibex/conformance"]);
+            for authority_class in authority_classes {
+                root["floor"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({
+                        "cap": "runtime-extension:invoke",
+                        "resource": {
+                            "kind": "runtime-extension",
+                            "extensionId": "ibex.conformance",
+                            "authorityClass": authority_class
+                        }
+                    }));
+            }
+            let compromised_package = value["principals"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|row| row["principal"]["kind"] == "package")
+                .unwrap();
+            compromised_package["floor"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({
+                    "cap": "runtime-extension:invoke",
+                    "resource": {
+                        "kind": "runtime-extension",
+                        "extensionId": "ibex.conformance",
+                        "authorityClass": "fixture.complete"
+                    }
+                }));
+        })
+    }
+
+    #[test]
+    fn runtime_extension_operation_uses_authenticated_capsule_and_static_floor() {
+        let host = example_runtime_extension_armed_host();
+        let root = host.typed_principal_for_module("0").unwrap();
+        let grant = host
+            .authorize_runtime_extension_operation(
+                11,
+                17,
+                "ibex.conformance",
+                "complete",
+                "fixture.complete",
+                "runtime-extension.invoke.authenticated-v1",
+                "requested",
+                "fixture.operation.decision",
+                &["runtime-extension"],
+                r#"{"input":"hello"}"#,
+                root.clone(),
+                vec![root.clone()],
+                vec![],
+            )
+            .unwrap();
+        assert_eq!(grant.extension_id.as_str(), "ibex.conformance");
+        assert_eq!(grant.operation_id.as_str(), "complete");
+        assert_eq!(grant.authority_class.as_str(), "fixture.complete");
+        assert_eq!(
+            grant.effect_semantics.as_str(),
+            "runtime-extension.invoke.authenticated-v1"
+        );
+        assert_eq!(grant.stage, capsec_semantics::model::Stage::Requested);
+        assert_eq!(grant.atomicity_group.as_str(), "fixture.operation.decision");
+        assert_eq!(
+            grant
+                .resource_kinds
+                .iter()
+                .map(capsec_semantics::model::NonEmptyString::as_str)
+                .collect::<Vec<_>>(),
+            vec!["runtime-extension"]
+        );
+        assert_eq!(grant.constrained_principals, vec![root.clone()]);
+        assert!(host
+            .matches_runtime_extension_authority_digest(grant.authority_capsule_digest.as_str()));
+
+        assert!(host
+            .authorize_runtime_extension_operation(
+                11,
+                17,
+                "ibex.conformance",
+                "complete",
+                "fixture.subscribe",
+                "runtime-extension.invoke.authenticated-v1",
+                "requested",
+                "fixture.operation.decision",
+                &["runtime-extension"],
+                r#"{"input":"hello"}"#,
+                root.clone(),
+                vec![root.clone()],
+                vec![],
+            )
+            .is_err());
+        assert!(host
+            .authorize_runtime_extension_operation(
+                11,
+                17,
+                "ibex.conformance",
+                "complete",
+                "fixture.complete",
+                "runtime-extension.invoke.authenticated-v1",
+                "commit",
+                "fixture.operation.decision",
+                &["runtime-extension"],
+                r#"{"input":"hello"}"#,
+                root.clone(),
+                vec![root.clone()],
+                vec![],
+            )
+            .is_err());
+        assert!(host
+            .authorize_runtime_extension_operation(
+                11,
+                17,
+                "ibex.conformance",
+                "complete",
+                "fixture.complete",
+                "runtime-extension.invoke.authenticated-v1",
+                "requested",
+                "fixture.operation.decision",
+                &["runtime-extension"],
+                r#"["not-an-object"]"#,
+                root.clone(),
+                vec![root],
+                vec![],
+            )
+            .is_err());
     }
 
     #[test]
@@ -9395,169 +9873,6 @@ mod tests {
     }
 
     #[test]
-    fn canonical_hosts_have_no_experimental_private_gpu_cells() {
-        assert_eq!(
-            Host::new(HostConfig::default()).private_gpu_target_cell_count_for_test(),
-            0
-        );
-        assert_eq!(
-            example_armed_host().private_gpu_target_cell_count_for_test(),
-            0
-        );
-    }
-
-    #[test]
-    fn experimental_webgpu_authority_requires_exact_duplicate_free_root_ceiling_and_floor() {
-        use capsec_semantics::decision::AuthorityCeiling;
-
-        let snapshot = example_armed_snapshot_with(|_| {});
-        let mut authority = snapshot.authority_state().unwrap();
-        let (root, mut policy) = authority
-            .principal_policies
-            .iter()
-            .find(|(principal, _)| {
-                matches!(principal, capsec_semantics::model::Principal::Root { .. })
-            })
-            .map(|(principal, policy)| (principal.clone(), policy.clone()))
-            .unwrap();
-        let retained = policy.static_floor[0].clone();
-        let selector = retained.selector.clone();
-        let widened_selector = authority
-            .principal_policies
-            .values()
-            .flat_map(|policy| policy.static_floor.iter())
-            .map(|authority| authority.selector.clone())
-            .find(|candidate| candidate != &selector)
-            .unwrap();
-        policy.static_floor = vec![retained.clone()];
-        policy.denials.clear();
-        policy.implicit_package_self.clear();
-        policy.escalation_ceiling = AuthorityCeiling::Bounded(Vec::new());
-        authority.principal_policies = BTreeMap::from([(root.clone(), policy)]).into();
-        authority.root_ceiling = AuthorityCeiling::Bounded(vec![retained.clone()]).into();
-
-        validate_exact_experimental_webgpu_pre1a_authority(
-            &authority,
-            std::slice::from_ref(&selector),
-        )
-        .unwrap();
-        authority.root_ceiling = AuthorityCeiling::Bounded(Vec::new()).into();
-        assert!(validate_exact_experimental_webgpu_pre1a_authority(
-            &authority,
-            std::slice::from_ref(&selector),
-        )
-        .is_err());
-        authority.root_ceiling = AuthorityCeiling::Bounded(vec![retained.clone()]).into();
-        assert!(validate_exact_experimental_webgpu_pre1a_authority(
-            &authority,
-            &[selector.clone(), widened_selector],
-        )
-        .is_err());
-
-        let dev_listener_selector = exact_dev_served_agent_listener_selector().unwrap();
-        let mut dev_listener = retained.clone();
-        dev_listener.selector = dev_listener_selector.clone();
-        authority
-            .principal_policies
-            .get_mut(&root)
-            .unwrap()
-            .static_floor
-            .push(dev_listener.clone());
-        let AuthorityCeiling::Bounded(root_ceiling) = &mut *authority.root_ceiling else {
-            unreachable!("test installed a bounded root ceiling");
-        };
-        root_ceiling.push(dev_listener);
-        validate_exact_experimental_webgpu_pre1a_authority(
-            &authority,
-            &[selector.clone(), dev_listener_selector],
-        )
-        .unwrap();
-        assert!(validate_exact_experimental_webgpu_pre1a_authority(
-            &authority,
-            std::slice::from_ref(&selector),
-        )
-        .is_err());
-        authority
-            .principal_policies
-            .get_mut(&root)
-            .unwrap()
-            .static_floor
-            .pop();
-        let AuthorityCeiling::Bounded(root_ceiling) = &mut *authority.root_ceiling else {
-            unreachable!("test installed a bounded root ceiling");
-        };
-        root_ceiling.pop();
-
-        authority
-            .principal_policies
-            .get_mut(&root)
-            .unwrap()
-            .static_floor
-            .push(retained);
-        assert!(validate_exact_experimental_webgpu_pre1a_authority(
-            &authority,
-            std::slice::from_ref(&selector),
-        )
-        .is_err());
-    }
-
-    #[test]
-    fn experimental_webgpu_dev_target_cells_open_only_the_agent_http_listener() {
-        use capsec_semantics::decision::{DecisionOutcome, TargetCellDisposition};
-        use capsec_semantics::model::{
-            IpAddress, ListenBind, ListenPort, ListenTransport, PeerClass,
-        };
-
-        let installed = exact_experimental_target_cells(false);
-        assert_eq!(
-            installed.get(EXACT_DEV_SERVED_AGENT_HTTP_SERVE_EDGE),
-            Some(&TargetCellDisposition::Closed)
-        );
-
-        let dev_served = exact_experimental_target_cells(true);
-        assert_eq!(
-            dev_served.get(EXACT_DEV_SERVED_AGENT_HTTP_SERVE_EDGE),
-            Some(&TargetCellDisposition::Complete)
-        );
-        assert_eq!(
-            dev_served
-                .values()
-                .filter(|disposition| **disposition == TargetCellDisposition::Complete)
-                .count(),
-            1
-        );
-
-        let selector =
-            serde_json::to_value(exact_dev_served_agent_listener_selector().unwrap()).unwrap();
-        let mut host = example_armed_host_with(|value| {
-            value["principals"][0]["floor"] = serde_json::json!([selector]);
-            value["principals"][0]["denials"] = serde_json::json!([]);
-        });
-        host.target_cells = Arc::new(dev_served);
-        let root = host.typed_principal_for_module("0").unwrap();
-        let decision = host
-            .authorize_typed_listen_stage(
-                "0",
-                "http-serve",
-                EXACT_DEV_SERVED_AGENT_HTTP_SERVE_EDGE,
-                vec![root],
-                ListenTransport::Tcp,
-                ListenBind::Address {
-                    address: IpAddress::new("127.0.0.1".parse().unwrap()),
-                },
-                ListenPort::Ephemeral,
-                false,
-                vec![PeerClass::Loopback],
-                capsec_semantics::model::Stage::Requested,
-                None,
-                None,
-                None,
-            )
-            .unwrap();
-        assert_eq!(decision.outcome, DecisionOutcome::Allow);
-    }
-
-    #[test]
     fn armed_host_mints_only_an_opaque_snapshot_derived_session_token() {
         let host = example_vfs_armed_host();
         let token = host.mint_armed_session_token().unwrap();
@@ -10335,6 +10650,12 @@ mod tests {
         .unwrap();
         value["armedSnapshotDigest"] = serde_json::Value::String(digest);
         let bytes = serde_json::to_vec(&value).unwrap();
+        let runtime_extension_authority = value
+            .get("runtimeExtensions")
+            .cloned()
+            .map(capsec_semantics::runtime_extensions::RuntimeExtensionAuthorityCapsule::from_value)
+            .transpose()
+            .unwrap();
         let digest_at = |path: &[&str]| {
             let value = path
                 .iter()
@@ -10376,9 +10697,6 @@ mod tests {
                         capsec_semantics::arming::ProtectedArtifactRole::ExactOperationManifest => {
                             digest_at(&["exactEmbedder", "operationManifestDigest"])
                         }
-                        capsec_semantics::arming::ProtectedArtifactRole::ExactWebgpuProfile => {
-                            digest_at(&["exactGpuProvider", "profileDigest"])
-                        }
                         capsec_semantics::arming::ProtectedArtifactRole::ArmedPolicy => {
                             digest_at(&["policyDigest"])
                         }
@@ -10387,6 +10705,9 @@ mod tests {
                         }
                         capsec_semantics::arming::ProtectedArtifactRole::Registry => {
                             digest_at(&["registryDigest"])
+                        }
+                        capsec_semantics::arming::ProtectedArtifactRole::RuntimeExtensionAuthorityCapsule => {
+                            digest_at(&["runtimeExtensions", "authorityCapsuleDigest"])
                         }
                     };
                     capsec_semantics::arming::ExpectedProtectedArtifact {
@@ -10406,6 +10727,11 @@ mod tests {
                 })
                 .collect(),
             embedded_protected_artifacts: Vec::new(),
+            runtime_extension_authority_digest: runtime_extension_authority
+                .as_ref()
+                .map(|capsule| capsule.authority_capsule_digest.clone()),
+            runtime_extension_mapped_executable: runtime_extension_authority
+                .map(|capsule| capsule.mapped_executable),
         };
         ArmedSnapshot::load(&bytes, &expected).unwrap()
     }
@@ -10447,81 +10773,6 @@ mod tests {
             &[7, 11]
         ));
         assert!(!host.authorizes_exact_endowment(1, None, &[7, 11]));
-    }
-
-    #[test]
-    fn armed_gpu_authorization_binds_every_descriptor_identity_field() {
-        use capsec_semantics::model::Digest;
-
-        let digest = |letter: char| {
-            Digest::new(format!("sha256-{}A", letter.to_string().repeat(42))).unwrap()
-        };
-        let profile = digest('A');
-        let vocabulary = digest('B');
-        let operations = digest('C');
-        let semantics = digest('D');
-        let host = example_armed_host_with(|value| {
-            value["exactGpuProvider"] = serde_json::json!({
-                "schema": "exact/webgpu-provider/1",
-                "abiVersion": 65536,
-                "profileId": "exact-webgpu-phase1a-draft",
-                "profileDigest": profile,
-                "webgpuCVocabularyDigest": vocabulary,
-                "operationSetDigest": operations,
-                "semanticProgramDigest": semantics,
-                "operationIds": [7, 11, 19],
-                "topology": "isolated-per-logical-v1"
-            });
-            value["protectedObjects"]
-                .as_array_mut()
-                .unwrap()
-                .push(serde_json::json!({
-                    "role": "exact-webgpu-profile",
-                    "object": {
-                        "platform": "unix",
-                        "volume": "fixture-volume",
-                        "file": "exact-webgpu-profile"
-                    },
-                    "deniedActions": ["fs:write"]
-                }));
-        });
-
-        assert!(host.authorizes_exact_gpu_provider(
-            65536,
-            "exact-webgpu-phase1a-draft",
-            &profile,
-            &vocabulary,
-            &operations,
-            &semantics,
-            None,
-            &[7, 11, 19],
-            1,
-        ));
-        assert!(!host.authorizes_exact_gpu_provider(
-            65536,
-            "exact-webgpu-phase1a-draft",
-            &profile,
-            &vocabulary,
-            &operations,
-            &semantics,
-            None,
-            &[7, 19],
-            1,
-        ));
-        assert!(!host.authorizes_exact_gpu_provider(
-            65536,
-            "exact-webgpu-phase1a-draft",
-            &profile,
-            &vocabulary,
-            &operations,
-            &semantics,
-            None,
-            &[7, 11, 19],
-            9,
-        ));
-        assert!(host.authorizes_embedder_capability_set(1 << 1));
-        assert!(!host.authorizes_embedder_capability_set(0));
-        assert!(!host.authorizes_embedder_capability_set((1 << 0) | (1 << 1)));
     }
 
     #[test]

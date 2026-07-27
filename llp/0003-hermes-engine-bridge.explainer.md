@@ -5,7 +5,8 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-25 (makes the startup shared-runtime artifact WebGPU-free even in `webgpu-binding` builds and moves the production wrapper/codecs into a separately embedded source/HBC artifact evaluated only by the owner-thread WebGPU activation transaction; registered providers remain dormant through ordinary startup, late activation excludes debugger/user ingress, performs a targeted compartment refresh, and repeats the conditional root sweep before resuming)
+**Revised:** 2026-07-25 (LLP 0040 replaces the retired WebGPU-specific mailbox and activation bundle with the generic runtime-extension registry, fixed install phase, owner executor, completion tokens, and package-owned authenticated bootstrap inputs)
+**Revised:** 2026-07-25 (historical: separated the core bundle from an Ibex-owned WebGPU activation bundle; superseded by LLP 0040)
 **Revised:** 2026-07-19 (makes authenticated V2 capture publish the exact source-derived WebGPU wrapper roots, gates `createImageBitmap` on attached decoded-image authority, and fences all armed user execution on a post-publication descriptor-only root sweep with revocation and terminal rollback on mismatch; no target advertisement or platform-support claim is added)
 **Revised:** 2026-07-19 (completes construction-private GPU V2 composition: pinned Hermes promotes internal ArrayBuffer storage to shared external ownership in place before aliasing, the two mapping HostFunctions preserve overlap/OOB/source/key/transfer invariants, operation-result bytes get one wrapper backing and an undefined success receipt, and forced compile-time/live-cast capability failures prove finalization rollback)
 **Revised:** 2026-07-17 (projects ASSIGNED_DETACHED requestDevice results while preserving both admission forms); 2026-07-17 (records native-or-absent FinalizationRegistry ownership and persistent-runtime `FsHandle` reclamation coverage); 2026-07-16 (projects self-contained detached-loss requestDevice terminals to the wrapper before outer receipt settlement); 2026-07-16 (adds the additive Exact GPU ABI V2 typed mailbox, lifecycle replay authority, construction-private four-method bridge, and close/service-entry race fences); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded Promise receipt drain, and cancellation/retirement lifecycle without publishing a WebGPU JS API); 2026-07-16 (adds the optional Exact GPU service mailbox and non-waiting detached teardown); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native ModuleRecords); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
@@ -177,13 +178,11 @@ available and falls back to the generated source header `[observed]`
   output of the core `packages/ibex-runtime-js` entry) is installed via
   `installSharedRuntimeBundle` `[observed]`
   (`src/engine/hermes_bootstrap.cc:71-154`).
-- A separately embedded **WebGPU activation bundle**
-  (`embedded_runtime_webgpu_bundle.js`) contains the production wrapper,
-  generated codecs, and activation-only private capture. A `webgpu-binding`
-  build carries its source and compatible HBC but does not evaluate either at
-  ordinary runtime creation. The owner-thread activation ABI evaluates it only
-  for an authenticated registered provider; HBC sanity failure alone may fall
-  back to source before any instruction executes.
+- A selected native runtime extension may carry package-owned, digest-bound
+  source or HBC bootstrap entries in its immutable descriptor. The generic
+  runtime-extension installer evaluates those bytes only in the fixed trusted
+  pre-user-code window. Ibex has no feature-specific secondary runtime bundle
+  or late activation evaluator (LLP 0040).
 - The per-file **bootstrap scripts** under `src/engine/bootstrap/*.js` install
   the module loader, compatibility globals, process/exact globals, and legacy
   lazy getters `[observed]` (`src/engine/hermes_bootstrap.cc:156-302, 413-797`).
@@ -305,7 +304,13 @@ throwing timer). Likewise the JS-side `unhandledrejection` default action sets
 crashing mid-run. Before ENG-23130, all of these logged and exited 0 — a
 silent green for any CI or agent using the exit code as the pass/fail signal.
 
-### Optional GPU service mailbox
+### Historical optional GPU service mailbox (superseded by LLP 0040)
+
+This subsection records the removed one-off implementation. Current code uses
+the generic descriptor lifecycle, operation membrane, owner executor, bounded
+completion tokens, and keyed external-buffer feature in
+`hermes_runtime_extension.cc`. WebGPU-specific service and wrapper behavior is
+owned by Exact and is not part of the Ibex engine bridge.
 
 The optional Exact GPU service differs from ordinary fetch/filesystem workers:
 backend work may legitimately outlive the Hermes realm, so it must not retain a
@@ -441,7 +446,7 @@ revokes every wrapper global, closes the GPU realm, and leaves the capability
 transaction terminally failed.
 
 The two V2 mapping methods are present only when the compiled and live pinned
-Hermes runtime exposes `IExactWebGpuArrayBuffer`; otherwise finalization
+Hermes runtime exposes `IKeyedExternalArrayBuffer`; otherwise finalization
 withholds the whole V2 object and the capability transaction rolls back the
 opened realm and retained service. Map completion decoding retains the exact
 owned `Uint8Array` view instead of copying it. Mapped-at-creation starts with an
@@ -567,7 +572,7 @@ functions / globals for one subsystem and carries per-OS implementations behind
 | Console/IPC/timers | `hermes_runtime_console.cc`, `_ipc.cc`, `_timers.cc` | |
 | OS info / iOS | `hermes_runtime_osinfo.cc`, `hermes_runtime_ios.cc` | |
 | Debugger | `hermes_runtime_debugger.cc` | gated on `HERMES_ENABLE_DEBUGGER` |
-| Optional Exact GPU service | `hermes_runtime_gpu.cc`, `hermes_runtime_gpu_v2.cc` | additive V1/V2 service + construction-private bridge/typed receipt mailbox; authenticated V2 conditionally publishes the source-derived wrapper roots, without a target advertisement or support claim |
+| Native runtime extensions | `hermes_runtime_extension.cc` | generic descriptor validation, fixed-phase installation, operation membrane, owner callbacks, lifecycle, and optional keyed external buffers; feature-specific providers live in embedder packages |
 
 The `native_fetch_*` / `native_websocket_*` files are per-OS. macOS/iOS use
 Foundation/NSURLSession implementations `[observed]`

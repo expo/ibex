@@ -10,5 +10,6 @@
 #define IBEX_RUNTIME_H
 
 #include "exact_runtime.h"
+#include "ibex_runtime_extension.h"
 
 #endif // IBEX_RUNTIME_H

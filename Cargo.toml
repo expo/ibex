@@ -215,23 +215,14 @@ host-http-server = []
 # recipe harness. The production decision path is unchanged; the observer is
 # inert until a test explicitly scopes one terminal branch.
 capsec-conformance-observer = []
+# Compiles the source-linked LLP 0040 SDK conformance extension and its
+# fixture-only C ABI. Ordinary Ibex artifacts contain neither the fixture
+# installer nor its registry.
+runtime-extension-conformance = []
 # Release/iOS-Simulator-only observer for the ratified Partitime carrier-cost
 # lane. It substitutes only report-derived target cells plus authenticated-root
 # IPv4-loopback fetch; every ordinary build omits the constructor and C++ seam.
 capsec-simulator-performance-observer = []
-# Compiles the optional, provider-independent Exact GPU service registration
-# seam. The public version/query/install ABI remains present without this
-# feature and deterministically reports unsupported; no wgpu dependency is
-# added. With an authenticated V2 provider, runtime bootstrap may publish only
-# the source-reviewed wrapper globals; this does not advertise platform support.
-# @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
-webgpu-binding = []
-# Test-only visibility into the private GPU bridge and receipt mailbox. This
-# feature is intentionally separate from both `webgpu-binding` and the CapSec
-# conformance observer so ordinary feature-on builds expose no observer ABI.
-# Bridge tests enable both features explicitly; keeping this independent also
-# lets the feature-off matrix exercise construction-capture failure paths.
-gpu-bridge-test-hooks = []
 openssl-crypto = ["dep:openssl-sys"]
 # OpenSSL decodes the PKCS#12 and encrypted-PKCS#8 client identity formats.
 # Keep it default-on for native/CLI builds, but explicit so compile-only cross

@@ -3137,6 +3137,12 @@ fn expected_identity_from_snapshot(
         path_canonicalizers: snapshot.path_canonicalizers().rows().to_vec(),
         protected_artifacts: snapshot.protected_artifacts().to_vec(),
         embedded_protected_artifacts: snapshot.embedded_protected_artifacts().to_vec(),
+        runtime_extension_authority_digest: snapshot
+            .runtime_extension_authority()
+            .map(|capsule| capsule.authority_capsule_digest.clone()),
+        runtime_extension_mapped_executable: snapshot
+            .runtime_extension_authority()
+            .map(|capsule| capsule.mapped_executable.clone()),
     })
 }
 
@@ -5129,6 +5135,8 @@ fn build_default_armed_host(
             },
         ],
         embedded_protected_artifacts: vec![],
+        runtime_extension_authority_digest: None,
+        runtime_extension_mapped_executable: None,
     };
     phase.mark("arm_snapshot_build");
     let snapshot = Arc::new(ArmedSnapshot::load(
@@ -12244,12 +12252,12 @@ pub(crate) mod tests {
                     ProtectedArtifactRole::ExactOperationManifest => {
                         digest_at(&["exactEmbedder", "operationManifestDigest"])
                     }
-                    ProtectedArtifactRole::ExactWebgpuProfile => {
-                        digest_at(&["exactGpuProvider", "profileDigest"])
-                    }
                     ProtectedArtifactRole::ArmedPolicy => digest_at(&["policyDigest"]),
                     ProtectedArtifactRole::PackageGraph => digest_at(&["packageGraph", "digest"]),
                     ProtectedArtifactRole::Registry => digest_at(&["registryDigest"]),
+                    ProtectedArtifactRole::RuntimeExtensionAuthorityCapsule => {
+                        digest_at(&["runtimeExtensions", "authorityCapsuleDigest"])
+                    }
                 };
                 ExpectedProtectedArtifact {
                     role,
@@ -12290,6 +12298,8 @@ pub(crate) mod tests {
                 .unwrap(),
             protected_artifacts,
             embedded_protected_artifacts: Vec::new(),
+            runtime_extension_authority_digest: None,
+            runtime_extension_mapped_executable: None,
         };
         let snapshot =
             ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
@@ -14703,6 +14713,8 @@ pub(crate) mod tests {
                 },
             ],
             embedded_protected_artifacts: vec![],
+            runtime_extension_authority_digest: None,
+            runtime_extension_mapped_executable: None,
         };
         let snapshot_path = directory.join("armed.json");
         let identity_path = directory.join("identity.json");
