@@ -365,6 +365,7 @@ const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
       mechanism: "builtin-module-load",
       moduleSpecifier: "node:http",
       preloadModuleSpecifiers: ["node:events", "node:stream", "node:util"],
+      observedEnvironmentNames: ["NODE_DEBUG"],
     },
   ],
   [
@@ -378,6 +379,7 @@ const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
       mechanism: "event-emitter-emit",
       moduleSpecifier: "node:events",
       preloadModuleSpecifiers: [],
+      observedEnvironmentNames: ["EXACT_DEBUG_EMIT_LISTENER"],
     },
   ],
   [
@@ -394,6 +396,49 @@ const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
       mechanism: "date-to-string",
       moduleSpecifier: null,
       preloadModuleSpecifiers: [],
+      observedEnvironmentNames: ["TZ"],
+    },
+  ],
+  [
+    "EXACT_PIPELINE_DEBUG",
+    {
+      sourceRef:
+        "src/builtins/stream.js#process.env:EXACT_PIPELINE_DEBUG:read",
+      liveSourceRefs: [
+        "src/builtins/stream.js#process.env:EXACT_PIPELINE_DEBUG:read",
+      ],
+      mechanism: "builtin-module-load",
+      moduleSpecifier: "node:stream",
+      preloadModuleSpecifiers: [
+        "node:events",
+        "node:string_decoder",
+        "node:util",
+      ],
+      observedEnvironmentNames: [
+        "EXACT_PIPELINE_DEBUG",
+        "EXACT_PIPELINE_STATE_DEBUG",
+      ],
+    },
+  ],
+  [
+    "EXACT_PIPELINE_STATE_DEBUG",
+    {
+      sourceRef:
+        "src/builtins/stream.js#process.env:EXACT_PIPELINE_STATE_DEBUG:read",
+      liveSourceRefs: [
+        "src/builtins/stream.js#process.env:EXACT_PIPELINE_STATE_DEBUG:read",
+      ],
+      mechanism: "builtin-module-load",
+      moduleSpecifier: "node:stream",
+      preloadModuleSpecifiers: [
+        "node:events",
+        "node:string_decoder",
+        "node:util",
+      ],
+      observedEnvironmentNames: [
+        "EXACT_PIPELINE_DEBUG",
+        "EXACT_PIPELINE_STATE_DEBUG",
+      ],
     },
   ],
 ]);
@@ -1442,6 +1487,7 @@ export function validateStartupEnvironmentRecipeDescriptor(recipe) {
       "executionMechanism",
       "moduleSpecifier",
       "preloadModuleSpecifiers",
+      "observedEnvironmentNames",
       "principalMode",
       "auxiliaryDecisionEdgeId",
     ],
@@ -1453,6 +1499,7 @@ export function validateStartupEnvironmentRecipeDescriptor(recipe) {
       "kind",
       "moduleSpecifier",
       "preloadModuleSpecifiers",
+      "observedEnvironmentNames",
       "environment",
       "principalMode",
     ],
@@ -1501,6 +1548,13 @@ export function validateStartupEnvironmentRecipeDescriptor(recipe) {
       canonicalJson(sourceExpectation?.preloadModuleSpecifiers) ||
     canonicalJson(operation.preloadModuleSpecifiers) !==
       canonicalJson(sourceExpectation?.preloadModuleSpecifiers) ||
+    canonicalJson(descriptor.observedEnvironmentNames) !==
+      canonicalJson(sourceExpectation?.observedEnvironmentNames) ||
+    canonicalJson(operation.observedEnvironmentNames) !==
+      canonicalJson(sourceExpectation?.observedEnvironmentNames) ||
+    canonicalJson(authored.expectedResourceNames) !==
+      canonicalJson(sourceExpectation?.observedEnvironmentNames) ||
+    !sourceExpectation?.observedEnvironmentNames.includes(environmentName) ||
     descriptor.principalMode !== expectedPrincipalMode ||
     operation.principalMode !== expectedPrincipalMode ||
     operation.environment.presence !== "absent" ||
@@ -3206,8 +3260,10 @@ function validateRuntimeInvocation(observation, recipe) {
     (!Array.isArray(authored.expectedResourceNames) ||
       canonicalJson(authored.expectedResourceNames) !==
         canonicalJson(canonicalSet(authored.expectedResourceNames)) ||
-      authored.expectedResourceNames.length !== 1 ||
-      authored.expectedResourceNames[0] !== authored.operation.environment.name)
+      authored.expectedResourceNames.length === 0 ||
+      !authored.expectedResourceNames.includes(
+        authored.operation.environment.name,
+      ))
   ) {
     throw new Error(
       `${recipe.fixtureId}: malformed startup environment resource binding`,
@@ -3692,6 +3748,7 @@ function validateRuntimeInvocation(observation, recipe) {
           "mechanism",
           "moduleSpecifier",
           "environmentName",
+          "observedEnvironmentNames",
           "environmentPresence",
           "principalMode",
           "engineExecuted",
@@ -3710,6 +3767,8 @@ function validateRuntimeInvocation(observation, recipe) {
         invocation.result.mechanism !== operation.kind ||
         invocation.result.moduleSpecifier !== operation.moduleSpecifier ||
         invocation.result.environmentName !== operation.environment.name ||
+        canonicalJson(invocation.result.observedEnvironmentNames) !==
+          canonicalJson(operation.observedEnvironmentNames) ||
         invocation.result.environmentPresence !== "absent" ||
         invocation.result.principalMode !== operation.principalMode ||
         invocation.result.engineExecuted !== true ||
@@ -4927,9 +4986,13 @@ export function validatePublicFixtureRuntimeObservation(
       );
     }
     if (startupEnvironment) {
-      const environmentName = authored.operation.environment.name;
       const actor = set.context.actor;
       const packageMode = authored.operation.principalMode === "package-denied";
+      const decisionsPerResource = packageMode ? 1 : 2;
+      const environmentName =
+        authored.expectedResourceNames[
+          Math.floor(decisionIndex / decisionsPerResource)
+        ];
       const expectedActor = packageMode
         ? actor?.kind === "package" &&
           actor.name === "image-lib" &&

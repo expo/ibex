@@ -41,6 +41,7 @@ const STARTUP_ENVIRONMENT_SOURCES = new Map([
       mechanism: "builtin-module-load",
       moduleSpecifier: "node:http",
       preloadModuleSpecifiers: ["node:events", "node:stream", "node:util"],
+      observedEnvironmentNames: ["NODE_DEBUG"],
       selectedBranchId: "absent",
       supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
     }),
@@ -54,6 +55,7 @@ const STARTUP_ENVIRONMENT_SOURCES = new Map([
       mechanism: "event-emitter-emit",
       moduleSpecifier: "node:events",
       preloadModuleSpecifiers: [],
+      observedEnvironmentNames: ["EXACT_DEBUG_EMIT_LISTENER"],
       selectedBranchId: "absent",
       supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
     }),
@@ -67,6 +69,49 @@ const STARTUP_ENVIRONMENT_SOURCES = new Map([
       mechanism: "date-to-string",
       moduleSpecifier: null,
       preloadModuleSpecifiers: [],
+      observedEnvironmentNames: ["TZ"],
+      selectedBranchId: "absent",
+      supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
+    }),
+  ],
+  [
+    "startup:env:EXACT_PIPELINE_DEBUG",
+    Object.freeze({
+      environmentName: "EXACT_PIPELINE_DEBUG",
+      sourceRef:
+        "src/builtins/stream.js#process.env:EXACT_PIPELINE_DEBUG:read",
+      mechanism: "builtin-module-load",
+      moduleSpecifier: "node:stream",
+      preloadModuleSpecifiers: [
+        "node:events",
+        "node:string_decoder",
+        "node:util",
+      ],
+      observedEnvironmentNames: [
+        "EXACT_PIPELINE_DEBUG",
+        "EXACT_PIPELINE_STATE_DEBUG",
+      ],
+      selectedBranchId: "absent",
+      supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
+    }),
+  ],
+  [
+    "startup:env:EXACT_PIPELINE_STATE_DEBUG",
+    Object.freeze({
+      environmentName: "EXACT_PIPELINE_STATE_DEBUG",
+      sourceRef:
+        "src/builtins/stream.js#process.env:EXACT_PIPELINE_STATE_DEBUG:read",
+      mechanism: "builtin-module-load",
+      moduleSpecifier: "node:stream",
+      preloadModuleSpecifiers: [
+        "node:events",
+        "node:string_decoder",
+        "node:util",
+      ],
+      observedEnvironmentNames: [
+        "EXACT_PIPELINE_DEBUG",
+        "EXACT_PIPELINE_STATE_DEBUG",
+      ],
       selectedBranchId: "absent",
       supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
     }),
@@ -140,6 +185,18 @@ export function authoredStartupEnvironmentProbe({
 
   const publicDenial = scenario === "deny";
   const principalMode = publicDenial ? "package-denied" : "root-authorized";
+  const observedEnvironmentNames = [...template.observedEnvironmentNames].sort(
+    compareText,
+  );
+  const expectedStagesPerResource = publicDenial
+    ? ["requested"]
+    : ["requested", "commit"];
+  const expectedOutcomesPerResource = publicDenial
+    ? ["deny"]
+    : ["allow", "allow"];
+  const expectedReasonsPerResource = publicDenial
+    ? ["principal-denial"]
+    : ["static-floor", "static-floor"];
   const sourceDescriptor = {
     kind: "startup-environment-source",
     surfaceObservedKey,
@@ -153,6 +210,7 @@ export function authoredStartupEnvironmentProbe({
     executionMechanism: template.mechanism,
     moduleSpecifier: template.moduleSpecifier,
     preloadModuleSpecifiers: clone(template.preloadModuleSpecifiers),
+    observedEnvironmentNames,
     principalMode,
     auxiliaryDecisionEdgeId: auxiliaryEdge.id,
   };
@@ -172,6 +230,7 @@ export function authoredStartupEnvironmentProbe({
         kind: template.mechanism,
         moduleSpecifier: template.moduleSpecifier,
         preloadModuleSpecifiers: clone(template.preloadModuleSpecifiers),
+        observedEnvironmentNames,
         environment: {
           name: template.environmentName,
           presence: "absent",
@@ -184,17 +243,20 @@ export function authoredStartupEnvironmentProbe({
       // independently records the requested-stage denial.
       // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
       expectedResult: "return",
-      expectedTypedDecisionCount: publicDenial ? 1 : 2,
-      expectedTypedStages: publicDenial
-        ? ["requested"]
-        : ["requested", "commit"],
-      expectedTypedOutcomes: publicDenial ? ["deny"] : ["allow", "allow"],
-      expectedTypedReasons: publicDenial
-        ? ["principal-denial"]
-        : ["static-floor", "static-floor"],
+      expectedTypedDecisionCount:
+        observedEnvironmentNames.length * expectedStagesPerResource.length,
+      expectedTypedStages: observedEnvironmentNames.flatMap(
+        () => expectedStagesPerResource,
+      ),
+      expectedTypedOutcomes: observedEnvironmentNames.flatMap(
+        () => expectedOutcomesPerResource,
+      ),
+      expectedTypedReasons: observedEnvironmentNames.flatMap(
+        () => expectedReasonsPerResource,
+      ),
       allowedCoverageEdgeIds: [auxiliaryEdge.id],
       expectedActionIds: ["env:read"],
-      expectedResourceNames: [template.environmentName],
+      expectedResourceNames: observedEnvironmentNames,
     },
   };
 }

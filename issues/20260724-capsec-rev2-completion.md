@@ -2679,13 +2679,59 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-26 — bound paired stream-debug environment reads
+
+- Promoted the absent branches for `startup:env:EXACT_PIPELINE_DEBUG` and
+  `startup:env:EXACT_PIPELINE_STATE_DEBUG` through the real `node:stream`
+  module initialization. That source unavoidably reads both names in order, so
+  every recipe binds the complete two-name source-owned resource set and every
+  typed decision rather than presenting either read as an isolated operation.
+  All **12/12** absent-branch rows now have executable evidence.
+- The source descriptor pins both committed `stream.js` occurrences, the exact
+  module and preloads, both environment selectors, the native
+  `__exactGetEnv` carrier, and the package/root principal mode. A new negative
+  validator regression replaces the companion resource on the third typed
+  decision and proves the evidence is rejected. The two present branches
+  remain residual because they also select `stdio:write`; the pure-read source
+  proof is not reused for that effect.
+- Apple catalog digest
+  `sha256-zJsybqnXCKiaWdYWYwUq5a6LGIYFU3t8T2oPmbyRxhw` reports 23,846 required /
+  **3,438 fully executable** / 3,136 internally verified / 17,272 unresolved.
+  The physical M5 MacBook Air batch passes **42/42**, including all 12 paired
+  stream rows and the prior 30 startup/principal rows, with engine digest
+  `sha256-KheKyPAs4QTgQqDiiy-5NMRjU8US9QwenE9JSe69nPs`. The evidence-file
+  SHA-256 is
+  `3bb7652659aba3ee7a5db4f3a53d8f9983969ed75fbe86e4ff9a4c5c2da49908`;
+  independent validation produced execution digest
+  `sha256-IBW9SEkjOKanKXmnwF8ggN39R99UD-uRQ0d6QHL05T8`.
+- Windows catalog digest
+  `sha256-Y6lmlPVOGp9OY8yiqO9emGhSe9-3j_F9hEd_7zuqt-8` reports 23,505 required /
+  **3,078 fully executable** / 3,122 internally verified / 17,305 unresolved.
+  The physical NucBox strict stale-vendored batch passes **42/42** against
+  engine digest
+  `sha256-xqWHmqF0mGjVqhS8bUI7Av9fiP84rE8Zj23kOq9JJw8`. Its evidence-file
+  SHA-256 is
+  `2485a04ff7a93a49555788f6f00f19c23076eb20a6f82f08dbe49334394226d7`,
+  and independent validation produced execution digest
+  `sha256-eylc8N4abHt50jOYBdKEzgbX5dmq2LUSw1NcFL7cxpM`.
+- The focused recipe/evidence suite passes 146 tests with 115,139 assertions.
+  Hard part: the paired denial legitimately emits two denial outcomes. The
+  first physical artifact exposed a harness label that recognized only the
+  old one-element denial vector; independent artifact validation rejected it.
+  The corrected harness requires every outcome to be denied, and the
+  regenerated physical artifacts pass. This is why execution generation and
+  independently implemented validation remain separate gates.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
 select the highest-leverage residual public-evidence family, add a
 source-bound executor only where it reaches the real production route, and
-regenerate both target catalogs. Continue separating the remaining mixed-action
-startup environment and loader operations that can be safely executed from
-those that must remain closed. Do not treat the empty advertisement set as
-criterion 7 completion, and do not convert catalog labels or generic failed
-imports into public execution evidence.
+regenerate both target catalogs. Continue separating remaining startup,
+environment, and loader operations that can be safely executed from those that
+must remain closed. Do not treat the empty advertisement set as criterion 7
+completion, and do not convert catalog labels or generic failed imports into
+public execution evidence.

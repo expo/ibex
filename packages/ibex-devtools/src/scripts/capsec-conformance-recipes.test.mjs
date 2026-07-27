@@ -353,12 +353,12 @@ describe("exact-target CapSec executable recipes", () => {
     // decision-free call/construct/get route through the loaded engine. The
     // principal environment Proxy adds the complete exact read/write scenario
     // matrix through its captured native bridges.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_426);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_438);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_284);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_272);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -468,9 +468,9 @@ describe("exact-target CapSec executable recipes", () => {
     // the same floor that the scenario denies. Typed synchronous TCP connect
     // adds its five staged public scenarios, and its exact typed setup promotes
     // the three ownership-only lifecycle consumers.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_066);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_078);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_317);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_305);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -3670,7 +3670,7 @@ describe("exact-target CapSec executable recipes", () => {
     ).toBe(true);
   });
 
-  test("promotes the exact absent-read matrix for three isolated startup environment sources", () => {
+  test("promotes exact absent reads only with their complete source-owned environment set", () => {
     const startupEnvironmentRecipes = recipes.recipes.filter(
       (recipe) =>
         recipe.classification === "effects" &&
@@ -3687,10 +3687,16 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-startup-environment-invocation/1",
     );
-    expect(authored).toHaveLength(18);
+    expect(authored).toHaveLength(30);
     expect(
       authored.map((recipe) => [recipe.terminalObservedKey, recipe.scenario]),
     ).toEqual([
+      ["startup:env:EXACT_PIPELINE_STATE_DEBUG", "allow"],
+      ["startup:env:EXACT_PIPELINE_STATE_DEBUG", "branch-selection"],
+      ["startup:env:EXACT_PIPELINE_STATE_DEBUG", "deny"],
+      ["startup:env:EXACT_PIPELINE_STATE_DEBUG", "malformed"],
+      ["startup:env:EXACT_PIPELINE_STATE_DEBUG", "missing-attribution"],
+      ["startup:env:EXACT_PIPELINE_STATE_DEBUG", "wrong-principal"],
       ["startup:env:TZ", "allow"],
       ["startup:env:TZ", "branch-selection"],
       ["startup:env:TZ", "deny"],
@@ -3709,6 +3715,12 @@ describe("exact-target CapSec executable recipes", () => {
       ["startup:env:NODE_DEBUG", "malformed"],
       ["startup:env:NODE_DEBUG", "missing-attribution"],
       ["startup:env:NODE_DEBUG", "wrong-principal"],
+      ["startup:env:EXACT_PIPELINE_DEBUG", "allow"],
+      ["startup:env:EXACT_PIPELINE_DEBUG", "branch-selection"],
+      ["startup:env:EXACT_PIPELINE_DEBUG", "deny"],
+      ["startup:env:EXACT_PIPELINE_DEBUG", "malformed"],
+      ["startup:env:EXACT_PIPELINE_DEBUG", "missing-attribution"],
+      ["startup:env:EXACT_PIPELINE_DEBUG", "wrong-principal"],
     ]);
     const expectedSources = new Map([
       [
@@ -3719,6 +3731,7 @@ describe("exact-target CapSec executable recipes", () => {
           mechanism: "date-to-string",
           moduleSpecifier: null,
           preloads: [],
+          observedEnvironmentNames: ["TZ"],
         },
       ],
       [
@@ -3729,6 +3742,7 @@ describe("exact-target CapSec executable recipes", () => {
           mechanism: "event-emitter-emit",
           moduleSpecifier: "node:events",
           preloads: [],
+          observedEnvironmentNames: ["EXACT_DEBUG_EMIT_LISTENER"],
         },
       ],
       [
@@ -3738,6 +3752,35 @@ describe("exact-target CapSec executable recipes", () => {
           mechanism: "builtin-module-load",
           moduleSpecifier: "node:http",
           preloads: ["node:events", "node:stream", "node:util"],
+          observedEnvironmentNames: ["NODE_DEBUG"],
+        },
+      ],
+      [
+        "EXACT_PIPELINE_DEBUG",
+        {
+          sourceRef:
+            "src/builtins/stream.js#process.env:EXACT_PIPELINE_DEBUG:read",
+          mechanism: "builtin-module-load",
+          moduleSpecifier: "node:stream",
+          preloads: ["node:events", "node:string_decoder", "node:util"],
+          observedEnvironmentNames: [
+            "EXACT_PIPELINE_DEBUG",
+            "EXACT_PIPELINE_STATE_DEBUG",
+          ],
+        },
+      ],
+      [
+        "EXACT_PIPELINE_STATE_DEBUG",
+        {
+          sourceRef:
+            "src/builtins/stream.js#process.env:EXACT_PIPELINE_STATE_DEBUG:read",
+          mechanism: "builtin-module-load",
+          moduleSpecifier: "node:stream",
+          preloads: ["node:events", "node:string_decoder", "node:util"],
+          observedEnvironmentNames: [
+            "EXACT_PIPELINE_DEBUG",
+            "EXACT_PIPELINE_STATE_DEBUG",
+          ],
         },
       ],
     ]);
@@ -3760,11 +3803,12 @@ describe("exact-target CapSec executable recipes", () => {
         expectedResult: "return",
         allowedCoverageEdgeIds: ["surface.native.op.exactgetenv.0k6bv7a"],
         expectedActionIds: ["env:read"],
-        expectedResourceNames: [name],
+        expectedResourceNames: expected.observedEnvironmentNames,
         operation: {
           kind: expected.mechanism,
           moduleSpecifier: expected.moduleSpecifier,
           preloadModuleSpecifiers: expected.preloads,
+          observedEnvironmentNames: expected.observedEnvironmentNames,
           environment: { name, presence: "absent" },
         },
       });
@@ -3776,21 +3820,36 @@ describe("exact-target CapSec executable recipes", () => {
         auxiliaryDecisionEdgeId: "surface.native.op.exactgetenv.0k6bv7a",
       });
       const denial = recipe.scenario === "deny";
+      const expectedStagesPerResource = denial
+        ? ["requested"]
+        : ["requested", "commit"];
+      const expectedOutcomesPerResource = denial
+        ? ["deny"]
+        : ["allow", "allow"];
+      const expectedReasonsPerResource = denial
+        ? ["principal-denial"]
+        : ["static-floor", "static-floor"];
       expect(invocation.expectedTypedStages).toEqual(
-        denial ? ["requested"] : ["requested", "commit"],
+        expected.observedEnvironmentNames.flatMap(
+          () => expectedStagesPerResource,
+        ),
       );
       expect(invocation.expectedTypedOutcomes).toEqual(
-        denial ? ["deny"] : ["allow", "allow"],
+        expected.observedEnvironmentNames.flatMap(
+          () => expectedOutcomesPerResource,
+        ),
       );
       expect(invocation.expectedTypedReasons).toEqual(
-        denial ? ["principal-denial"] : ["static-floor", "static-floor"],
+        expected.observedEnvironmentNames.flatMap(
+          () => expectedReasonsPerResource,
+        ),
       );
     }
     expect(
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.status === "unresolved",
       ),
-    ).toHaveLength(652);
+    ).toHaveLength(640);
     for (const environmentName of expectedSources.keys()) {
       const residual = startupEnvironmentRecipes.filter(
         (recipe) =>

@@ -128,6 +128,7 @@ struct StartupEnvironmentOperation {
     kind: String,
     module_specifier: Option<String>,
     preload_module_specifiers: Vec<String>,
+    observed_environment_names: Vec<String>,
     environment: StartupEnvironment,
     principal_mode: String,
 }
@@ -167,15 +168,17 @@ struct ExpectedSource {
     mechanism: &'static str,
     module_specifier: Option<&'static str>,
     preload_module_specifiers: &'static [&'static str],
+    observed_environment_names: &'static [&'static str],
 }
 
-const EXPECTED_SOURCES: [ExpectedSource; 3] = [
+const EXPECTED_SOURCES: [ExpectedSource; 5] = [
     ExpectedSource {
         environment_name: "NODE_DEBUG",
         source_ref: "src/builtins/http.js#process.env:NODE_DEBUG:read",
         mechanism: "builtin-module-load",
         module_specifier: Some("node:http"),
         preload_module_specifiers: &["node:events", "node:stream", "node:util"],
+        observed_environment_names: &["NODE_DEBUG"],
     },
     ExpectedSource {
         environment_name: "EXACT_DEBUG_EMIT_LISTENER",
@@ -183,6 +186,7 @@ const EXPECTED_SOURCES: [ExpectedSource; 3] = [
         mechanism: "event-emitter-emit",
         module_specifier: Some("node:events"),
         preload_module_specifiers: &[],
+        observed_environment_names: &["EXACT_DEBUG_EMIT_LISTENER"],
     },
     ExpectedSource {
         environment_name: "TZ",
@@ -190,6 +194,23 @@ const EXPECTED_SOURCES: [ExpectedSource; 3] = [
         mechanism: "date-to-string",
         module_specifier: None,
         preload_module_specifiers: &[],
+        observed_environment_names: &["TZ"],
+    },
+    ExpectedSource {
+        environment_name: "EXACT_PIPELINE_DEBUG",
+        source_ref: "src/builtins/stream.js#process.env:EXACT_PIPELINE_DEBUG:read",
+        mechanism: "builtin-module-load",
+        module_specifier: Some("node:stream"),
+        preload_module_specifiers: &["node:events", "node:string_decoder", "node:util"],
+        observed_environment_names: &["EXACT_PIPELINE_DEBUG", "EXACT_PIPELINE_STATE_DEBUG"],
+    },
+    ExpectedSource {
+        environment_name: "EXACT_PIPELINE_STATE_DEBUG",
+        source_ref: "src/builtins/stream.js#process.env:EXACT_PIPELINE_STATE_DEBUG:read",
+        mechanism: "builtin-module-load",
+        module_specifier: Some("node:stream"),
+        preload_module_specifiers: &["node:events", "node:string_decoder", "node:util"],
+        observed_environment_names: &["EXACT_PIPELINE_DEBUG", "EXACT_PIPELINE_STATE_DEBUG"],
     },
 ];
 
@@ -434,9 +455,12 @@ fn prepare_principal_environment_package(
 fn build_environment_host(
     package: Option<&PackageFixture>,
     operation: &StartupEnvironmentOperation,
-    environment_name: &str,
+    environment_names: &[String],
 ) -> (crate::host::Host, String) {
-    let root_floor = vec![environment_selector(environment_name)];
+    let root_floor = environment_names
+        .iter()
+        .map(|name| environment_selector(name))
+        .collect::<Vec<_>>();
     let mut builtin_imports = operation
         .module_specifier
         .iter()
@@ -471,8 +495,13 @@ fn build_environment_host(
             snapshot["rootBindings"][0]["object"] = object_identity(&package.package_root);
             snapshot["principals"][1]["principal"] = package.principal_value.clone();
             snapshot["principals"][1]["floor"] = serde_json::json!([]);
-            snapshot["principals"][1]["denials"] =
-                serde_json::json!([environment_selector(environment_name)]);
+            snapshot["principals"][1]["denials"] = serde_json::to_value(
+                environment_names
+                    .iter()
+                    .map(|name| environment_selector(name))
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
             snapshot["principals"][1]["escalationCeiling"] = serde_json::json!([]);
             snapshot["principals"][1]["imports"]["builtins"] =
                 serde_json::to_value(&builtin_imports).unwrap();
@@ -649,6 +678,19 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         expected.preload_module_specifiers
     );
     assert_eq!(
+        invocation
+            .operation
+            .observed_environment_names
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        expected.observed_environment_names
+    );
+    assert_eq!(
+        descriptor["observedEnvironmentNames"],
+        serde_json::json!(expected.observed_environment_names)
+    );
+    assert_eq!(
         invocation.operation.environment,
         StartupEnvironment {
             name: environment_name.into(),
@@ -660,7 +702,14 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         [ENV_AUXILIARY_EDGE_ID]
     );
     assert_eq!(invocation.expected_action_ids, ["env:read"]);
-    assert_eq!(invocation.expected_resource_names, [environment_name]);
+    assert_eq!(
+        invocation
+            .expected_resource_names
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        expected.observed_environment_names
+    );
     assert_eq!(
         invocation.expected_typed_decision_count,
         invocation.expected_typed_stages.len()
@@ -901,7 +950,6 @@ fn validate_typed_decisions(
     );
     let expected_principal =
         serde_json::to_value(expected_principal).expect("expected principal must serialize");
-    let environment_name = invocation.operation.environment.name.as_str();
     let expected_constrained = if invocation.operation.principal_mode == "package-denied" {
         serde_json::json!([
             {"kind": "root", "identity": "project-root"},
@@ -910,6 +958,17 @@ fn validate_typed_decisions(
     } else {
         serde_json::json!([expected_principal])
     };
+    let decisions_per_resource = if invocation.operation.principal_mode == "package-denied" {
+        1
+    } else {
+        2
+    };
+    let expected_decision_resource_names = invocation
+        .expected_resource_names
+        .iter()
+        .flat_map(|name| std::iter::repeat(name.as_str()).take(decisions_per_resource))
+        .collect::<Vec<_>>();
+    assert_eq!(expected_decision_resource_names.len(), decisions.len());
     for (index, decision) in decisions.iter().enumerate() {
         let set = &decision["decisionSet"];
         assert_eq!(set["context"]["actor"], expected_principal);
@@ -935,7 +994,7 @@ fn validate_typed_decisions(
                 "requested": {
                     "kind": "environment-name",
                     "target": "principal-overlay",
-                    "name": environment_name,
+                    "name": expected_decision_resource_names[index],
                 },
                 "valueOrigin": "principal-overlay",
             })
@@ -1088,12 +1147,19 @@ async fn execute_recipe(recipe: &Recipe, engine_binary_digest: &str) -> serde_js
         invocation.source_descriptor["principalMode"],
         invocation.operation.principal_mode
     );
-    let _environment = EnvironmentRestore::absent(&invocation.operation.environment.name);
-    assert!(std::env::var_os(&invocation.operation.environment.name).is_none());
+    let _environments = invocation
+        .expected_resource_names
+        .iter()
+        .map(|name| EnvironmentRestore::absent(name))
+        .collect::<Vec<_>>();
+    assert!(invocation
+        .expected_resource_names
+        .iter()
+        .all(|name| std::env::var_os(name).is_none()));
     let (host, snapshot_digest) = build_environment_host(
         package.as_ref(),
         &invocation.operation,
-        &invocation.operation.environment.name,
+        &invocation.expected_resource_names,
     );
     assert_ne!(crate::host::abi::install_host(host.clone()), 0);
     let _reset = HostResetGuard;
@@ -1111,9 +1177,16 @@ async fn execute_recipe(recipe: &Recipe, engine_binary_digest: &str) -> serde_js
         "startup environment source consulted legacy policy"
     );
     validate_typed_decisions(recipe, invocation, &expected_principal, &typed_decisions);
-    assert!(std::env::var_os(&invocation.operation.environment.name).is_none());
+    assert!(invocation
+        .expected_resource_names
+        .iter()
+        .all(|name| std::env::var_os(name).is_none()));
 
-    let source_outcome = if invocation.expected_typed_outcomes == ["deny"] {
+    let source_outcome = if invocation
+        .expected_typed_outcomes
+        .iter()
+        .all(|outcome| outcome == "deny")
+    {
         "denied-as-absent"
     } else {
         "source-observed"
@@ -1127,6 +1200,7 @@ async fn execute_recipe(recipe: &Recipe, engine_binary_digest: &str) -> serde_js
         "mechanism": invocation.operation.kind,
         "moduleSpecifier": invocation.operation.module_specifier,
         "environmentName": invocation.operation.environment.name,
+        "observedEnvironmentNames": invocation.operation.observed_environment_names,
         "environmentPresence": invocation.operation.environment.presence,
         "principalMode": invocation.operation.principal_mode,
         "engineExecuted": true,
@@ -1414,8 +1488,8 @@ async fn capsec_public_startup_environment_batch() {
         .collect::<Vec<_>>();
     assert_eq!(
         recipes.len(),
-        18,
-        "expected the complete matrix for three startup environment absent slices"
+        30,
+        "expected the complete matrix for five startup environment absent slices"
     );
     assert_eq!(
         principal_environment_recipes.len(),
@@ -1460,6 +1534,8 @@ async fn capsec_public_startup_environment_batch() {
             .collect::<BTreeSet<_>>(),
         BTreeSet::from([
             "startup:env:EXACT_DEBUG_EMIT_LISTENER",
+            "startup:env:EXACT_PIPELINE_DEBUG",
+            "startup:env:EXACT_PIPELINE_STATE_DEBUG",
             "startup:env:NODE_DEBUG",
             "startup:env:TZ",
         ])

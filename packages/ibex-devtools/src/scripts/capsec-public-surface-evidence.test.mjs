@@ -2817,6 +2817,7 @@ function completeStartupEnvironmentCatalog(scenario = "allow") {
     executionMechanism: "builtin-module-load",
     moduleSpecifier: "node:http",
     preloadModuleSpecifiers: ["node:events", "node:stream", "node:util"],
+    observedEnvironmentNames: ["NODE_DEBUG"],
     principalMode: scenario === "deny" ? "package-denied" : "root-authorized",
     auxiliaryDecisionEdgeId: "edge.callback-terminal",
   };
@@ -2859,6 +2860,7 @@ function completeStartupEnvironmentCatalog(scenario = "allow") {
         kind: "builtin-module-load",
         moduleSpecifier: "node:http",
         preloadModuleSpecifiers: ["node:events", "node:stream", "node:util"],
+        observedEnvironmentNames: ["NODE_DEBUG"],
         environment: { name: "NODE_DEBUG", presence: "absent" },
         principalMode: sourceDescriptor.principalMode,
       },
@@ -2879,6 +2881,76 @@ function completeStartupEnvironmentCatalog(scenario = "allow") {
   return catalog;
 }
 
+function completePairedStartupEnvironmentCatalog(scenario = "allow") {
+  const catalog = completeStartupEnvironmentCatalog(scenario);
+  const recipe = catalog.recipes[0];
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  const sourceDescriptor = invocation.sourceDescriptor;
+  const environmentName = "EXACT_PIPELINE_DEBUG";
+  const observedEnvironmentNames = [
+    "EXACT_PIPELINE_DEBUG",
+    "EXACT_PIPELINE_STATE_DEBUG",
+  ];
+  const preloadModuleSpecifiers = [
+    "node:events",
+    "node:string_decoder",
+    "node:util",
+  ];
+  recipe.fixtureId = `fixture.startup.env.exact-pipeline-debug.absent.${scenario}`;
+  recipe.terminalObservedKey = `startup:env:${environmentName}`;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.route.alternatives[0].proofPaths = [recipe.terminalObservedKey];
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(sourceDescriptor, {
+    surfaceObservedKey: recipe.terminalObservedKey,
+    environmentName,
+    sourceRef:
+      "src/builtins/stream.js#process.env:EXACT_PIPELINE_DEBUG:read",
+    liveSourceRefs: [
+      "src/builtins/stream.js#process.env:EXACT_PIPELINE_DEBUG:read",
+    ],
+    moduleSpecifier: "node:stream",
+    preloadModuleSpecifiers,
+    observedEnvironmentNames,
+  });
+  sourceDescriptor.selectedBranch.when = [
+    {
+      fact: "environment.startup.exact_pipeline_debug",
+      equals: "absent",
+    },
+  ];
+  invocation.surfaceName = `env:${environmentName}`;
+  invocation.sourceDescriptorDigest = taggedDigest(sourceDescriptor);
+  Object.assign(invocation.operation, {
+    moduleSpecifier: "node:stream",
+    preloadModuleSpecifiers,
+    observedEnvironmentNames,
+    environment: { name: environmentName, presence: "absent" },
+  });
+  const denial = scenario === "deny";
+  const stages = denial ? ["requested"] : ["requested", "commit"];
+  const outcomes = denial ? ["deny"] : ["allow", "allow"];
+  const reasons = denial
+    ? ["principal-denial"]
+    : ["static-floor", "static-floor"];
+  invocation.expectedTypedStages = observedEnvironmentNames.flatMap(
+    () => stages,
+  );
+  invocation.expectedTypedOutcomes = observedEnvironmentNames.flatMap(
+    () => outcomes,
+  );
+  invocation.expectedTypedReasons = observedEnvironmentNames.flatMap(
+    () => reasons,
+  );
+  invocation.expectedTypedDecisionCount =
+    invocation.expectedTypedStages.length;
+  invocation.expectedResourceNames = observedEnvironmentNames;
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
 function startupEnvironmentRuntimeObservation(recipe) {
   const invocation = recipe.publicSurfaceProbe.invocation;
   const denial = invocation.scenario === "deny";
@@ -2893,6 +2965,7 @@ function startupEnvironmentRuntimeObservation(recipe) {
   const constrainedPrincipals = denial
     ? [{ kind: "root", identity: "project-root" }, actor]
     : [actor];
+  const decisionsPerResource = denial ? 1 : 2;
   const decision = (stage, index) => ({
     decisionSet: {
       decisionSetSchema: "ibex/capsec-decision-set/1",
@@ -2914,7 +2987,10 @@ function startupEnvironmentRuntimeObservation(recipe) {
             requested: {
               kind: "environment-name",
               target: "principal-overlay",
-              name: "NODE_DEBUG",
+              name:
+                invocation.expectedResourceNames[
+                  Math.floor(index / decisionsPerResource)
+                ],
             },
             valueOrigin: "principal-overlay",
           },
@@ -2956,6 +3032,8 @@ function startupEnvironmentRuntimeObservation(recipe) {
         mechanism: invocation.operation.kind,
         moduleSpecifier: invocation.operation.moduleSpecifier,
         environmentName: invocation.operation.environment.name,
+        observedEnvironmentNames:
+          invocation.operation.observedEnvironmentNames,
         environmentPresence: "absent",
         principalMode: invocation.operation.principalMode,
         engineExecuted: true,
@@ -6304,6 +6382,53 @@ describe("CapSec public-surface promotion evidence", () => {
         "startup:env:NODE_DEBUG",
       );
     }
+
+    const pairedCoverage = structuredClone(coverage);
+    const pairedCarrier = pairedCoverage.edges.find(
+      (edge) => edge.id === "edge.startup-env-node-debug",
+    );
+    pairedCarrier.surface.name = "env:EXACT_PIPELINE_DEBUG";
+    pairedCarrier.logicalBranches.find(
+      (branch) => branch.id === "absent",
+    ).when = [
+      {
+        fact: "environment.startup.exact_pipeline_debug",
+        equals: "absent",
+      },
+    ];
+    for (const scenario of ["allow", "deny"]) {
+      const pairedCatalog =
+        completePairedStartupEnvironmentCatalog(scenario);
+      const pairedRecipe = pairedCatalog.recipes[0];
+      const pairedObserved =
+        startupEnvironmentRuntimeObservation(pairedRecipe);
+      const execution = buildPublicFixtureEvidence({
+        recipe: pairedRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: pairedObserved,
+        coverage: pairedCoverage,
+      });
+      expect(
+        execution.evidence.runtimeObservation.invocation.result
+          .observedEnvironmentNames,
+      ).toEqual([
+        "EXACT_PIPELINE_DEBUG",
+        "EXACT_PIPELINE_STATE_DEBUG",
+      ]);
+    }
+    const pairedCatalog = completePairedStartupEnvironmentCatalog("allow");
+    const pairedRecipe = pairedCatalog.recipes[0];
+    const missingCompanion = startupEnvironmentRuntimeObservation(pairedRecipe);
+    missingCompanion.typedDecisions[2].decisionSet.effects[0].resource.requested.name =
+      "EXACT_PIPELINE_DEBUG";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: pairedRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: missingCompanion,
+        coverage: pairedCoverage,
+      }),
+    ).toThrow(/lost its exact resource or principal binding/);
 
     const catalog = completeStartupEnvironmentCatalog("allow");
     const recipe = catalog.recipes[0];
