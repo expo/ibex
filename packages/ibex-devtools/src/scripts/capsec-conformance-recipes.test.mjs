@@ -351,14 +351,14 @@ describe("exact-target CapSec executable recipes", () => {
     // under a denied matching floor.
     // Six hundred source-bound callable globals now execute their exact
     // decision-free call/construct/get route through the loaded engine. The
-    // principal environment Proxy adds exact read/write allow, denial, and
-    // branch-selection executions through its captured native bridges.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_411);
+    // principal environment Proxy adds the complete exact read/write scenario
+    // matrix through its captured native bridges.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_417);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_299);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_293);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -468,9 +468,9 @@ describe("exact-target CapSec executable recipes", () => {
     // the same floor that the scenario denies. Typed synchronous TCP connect
     // adds its five staged public scenarios, and its exact typed setup promotes
     // the three ownership-only lifecycle consumers.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_051);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_057);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_332);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_326);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -3801,7 +3801,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-principal-environment-invocation/1",
     );
-    expect(authored).toHaveLength(6);
+    expect(authored).toHaveLength(12);
     expect(
       authored.map((recipe) => [
         recipe.publicSurfaceProbe.invocation.operation.kind,
@@ -3811,9 +3811,15 @@ describe("exact-target CapSec executable recipes", () => {
       ["read", "allow"],
       ["read", "branch-selection"],
       ["read", "deny"],
+      ["read", "malformed"],
+      ["read", "missing-attribution"],
+      ["read", "wrong-principal"],
       ["write", "allow"],
       ["write", "branch-selection"],
       ["write", "deny"],
+      ["write", "malformed"],
+      ["write", "missing-attribution"],
+      ["write", "wrong-principal"],
     ]);
     for (const recipe of authored) {
       expect(() =>
@@ -3855,24 +3861,42 @@ describe("exact-target CapSec executable recipes", () => {
         },
       });
     }
-    const wrongTrap = structuredClone(authored[0]);
+    const readAllow = authored.find(
+      (recipe) =>
+        recipe.scenario === "allow" &&
+        recipe.publicSurfaceProbe.invocation.operation.kind === "read",
+    );
+    const writeAllow = authored.find(
+      (recipe) =>
+        recipe.scenario === "allow" &&
+        recipe.publicSurfaceProbe.invocation.operation.kind === "write",
+    );
+    const readDeny = authored.find(
+      (recipe) =>
+        recipe.scenario === "deny" &&
+        recipe.publicSurfaceProbe.invocation.operation.kind === "read",
+    );
+    expect(readAllow).toBeDefined();
+    expect(writeAllow).toBeDefined();
+    expect(readDeny).toBeDefined();
+    const wrongTrap = structuredClone(readAllow);
     wrongTrap.publicSurfaceProbe.invocation.sourceDescriptor.selectedProxyTrap =
       structuredClone(
-        authored[3].publicSurfaceProbe.invocation.sourceDescriptor
+        writeAllow.publicSurfaceProbe.invocation.sourceDescriptor
           .selectedProxyTrap,
       );
     expect(() =>
       validatePrincipalEnvironmentRecipeDescriptor(wrongTrap),
     ).toThrow(/principal environment runtime invocation descriptor drift/u);
 
-    const wrongPrincipalMode = structuredClone(authored[2]);
+    const wrongPrincipalMode = structuredClone(readDeny);
     wrongPrincipalMode.publicSurfaceProbe.invocation.operation.principalMode =
       "root-authorized";
     expect(() =>
       validatePrincipalEnvironmentRecipeDescriptor(wrongPrincipalMode),
     ).toThrow(/principal environment runtime invocation descriptor drift/u);
 
-    const wrongAuxiliary = structuredClone(authored[3]);
+    const wrongAuxiliary = structuredClone(writeAllow);
     wrongAuxiliary.publicSurfaceProbe.invocation.sourceDescriptor.auxiliaryObservedKey =
       "native-op:__exactGetEnv";
     expect(() =>

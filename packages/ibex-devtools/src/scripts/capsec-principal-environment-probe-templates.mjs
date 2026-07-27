@@ -29,7 +29,14 @@ const SOURCE_CONTRACT_SCHEMA =
 const DYNAMIC_MEMBER =
   "[[dynamic-table:principal-environment-overlay-properties]]";
 const ENVIRONMENT_NAME = "IBEX_CAPSEC_PUBLIC_ENV_PROPERTY";
-const SUPPORTED_SCENARIOS = new Set(["allow", "deny", "branch-selection"]);
+const SUPPORTED_SCENARIOS = new Set([
+  "allow",
+  "deny",
+  "malformed",
+  "missing-attribution",
+  "wrong-principal",
+  "branch-selection",
+]);
 const AUXILIARY_OBSERVED_KEYS = new Map([
   ["env:read", "native-op:__exactGetEnv"],
   ["env:write", "native-op:__exactSetEnv"],

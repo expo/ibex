@@ -694,7 +694,12 @@ fn validate_principal_environment_probe(recipe: &Recipe, probe: &PrincipalEnviro
     assert_eq!(recipe.classification, "effects");
     assert!(matches!(
         recipe.scenario.as_str(),
-        "allow" | "deny" | "branch-selection"
+        "allow"
+            | "deny"
+            | "malformed"
+            | "missing-attribution"
+            | "wrong-principal"
+            | "branch-selection"
     ));
     assert_eq!(probe.kind, "public-surface-invocation");
     assert!(probe
@@ -1409,15 +1414,22 @@ async fn capsec_public_startup_environment_batch() {
     );
     assert_eq!(
         principal_environment_recipes.len(),
-        6,
-        "expected read and write principal environment slices"
+        12,
+        "expected the complete read and write principal environment matrix"
     );
     assert_eq!(
         principal_environment_recipes
             .iter()
             .map(|recipe| recipe.scenario.as_str())
             .collect::<BTreeSet<_>>(),
-        BTreeSet::from(["allow", "branch-selection", "deny"])
+        BTreeSet::from([
+            "allow",
+            "branch-selection",
+            "deny",
+            "malformed",
+            "missing-attribution",
+            "wrong-principal",
+        ])
     );
     assert!(principal_environment_recipes
         .iter()

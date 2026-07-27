@@ -1555,7 +1555,14 @@ export function validatePrincipalEnvironmentRecipeDescriptor(recipe) {
   const contract = descriptor.sourceContract;
   if (
     authored.kind !== "principal-environment-property" ||
-    !["allow", "deny", "branch-selection"].includes(authored.scenario) ||
+    ![
+      "allow",
+      "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
+      "branch-selection",
+    ].includes(authored.scenario) ||
     descriptor.kind !== "principal-environment-property" ||
     descriptor.surfaceObservedKey !== PRINCIPAL_ENVIRONMENT_SURFACE ||
     descriptor.carrierEdgeId !== recipe.edgeIds?.[0] ||

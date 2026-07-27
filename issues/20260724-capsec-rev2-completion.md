@@ -2595,6 +2595,45 @@ ticket closes.
   open: the six new physical rows reduce the residual corpus but do not make
   either exact target complete, and advertisements remain empty.
 
+### 2026-07-26 — completed the principal environment scenario matrix
+
+- Extended the same source-bound dynamic `process.env` carrier to the three
+  remaining adapter scenarios for both actions: malformed attribution,
+  missing attribution, and wrong principal. The typed adapter continues to own
+  and test those invalid-input semantics. Each corresponding public receipt
+  independently executes the real root-authorized Proxy route and observes its
+  exact typed read or write terminal, matching the established split used by
+  the effect-builtin matrix. No invalid adapter input is relabeled as a public
+  engine outcome.
+- The dynamic principal-overlay terminal now has executable evidence for all
+  **12/12** required rows. Apple catalog digest
+  `sha256-J0jMB8q7NYkDuznFOIimnFc2MpitYipuhrR9ON7OQtY` reports 23,846 required /
+  **3,417 fully executable** / 3,136 internally verified / 17,293 unresolved.
+  Its M5 Air batch passes **21/21**, binds engine digest
+  `sha256-UN1zcVKAP0pi3H5IQblR23RMkf4d8xgueRUvege2GF4`, and has evidence-file
+  SHA-256
+  `544933e293f1015afbe10ec3b5cdaa98a16c668cf9c23a5329775a82dd92563b`.
+  Independent validation produced execution digest
+  `sha256-b1PjMQLfBma9p1jHOEN9V8RQoRGa5GIkiYz-PW1tcXo`.
+- Windows catalog digest
+  `sha256-_xEeVmEtfn8vN7Gxsh-5vQW-nqBl-xRAQLgVFw-AG78` reports 23,505 required /
+  **3,057 fully executable** / 3,122 internally verified / 17,326 unresolved.
+  The physical strict stale-vendored batch passes **21/21**, including all
+  **12/12** overlay rows, against engine digest
+  `sha256-xqWHmqF0mGjVqhS8bUI7Av9fiP84rE8Zj23kOq9JJw8`. Its evidence-file
+  SHA-256 is
+  `d68f380482f5def6767a37643eebcf7cf947b2d28ec723a1fc63293ef915ceb5`,
+  and independent validation produced execution digest
+  `sha256-1hx2YA4ejH2ueYl6TxfqqTCABhdezARoZINBAOVN73U`.
+- The focused recipe/evidence suite remains 146/146 and now performs 114,859
+  assertions. Hard part: adapter-case coverage and loaded-engine public
+  execution are complementary proofs, not interchangeable labels. Promotion
+  requires both the scenario's adapter fixture and a separately authenticated
+  execution of the source-selected public terminal.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
