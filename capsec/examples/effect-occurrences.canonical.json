@@ -269,40 +269,6 @@
       }
     },
     {
-      "cap": "gpu:operation",
-      "stage": "requested",
-      "actor": {
-        "kind": "root",
-        "identity": "project-root"
-      },
-      "effectOwner": {
-        "kind": "root",
-        "identity": "project-root"
-      },
-      "constrainedPrincipals": [
-        {
-          "kind": "root",
-          "identity": "project-root"
-        }
-      ],
-      "resource": {
-        "kind": "gpu-operation-occurrence",
-        "requested": {
-          "kind": "gpu-operation",
-          "profileId": "exact-webgpu-v1-draft",
-          "profileDigest": "sha256-7tqDeE_0KXdgYZy331Tw4vInpwViVhkJxH7MncMjLZU",
-          "webgpuCVocabularyDigest": "sha256-LQX5IbUTGfNs4TdV4mCH0cPfdvS-ozh0Y9pAW82rmD8",
-          "operationSetDigest": "sha256--xIQesQthJUGflDwlrTWxK7Z4_KvZNbRR_nJnvyqZoc",
-          "semanticProgramDigest": "sha256-qblwPVmzuQa6iI_zP6yFMT-vwnhfDdNk5rVkim70atY",
-          "runtimeRoutingDigest": "sha256-189MIB-1igoFzWXNULDrPrKmTMF8RyTgB56DWbPmO_c",
-          "operationId": "GPUBuffer.mapAsync"
-        },
-        "realmIdentity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-        "accountIdentity": "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA",
-        "receiverIdentity": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA"
-      }
-    },
-    {
       "cap": "lifecycle:exit",
       "stage": "commit",
       "actor": {

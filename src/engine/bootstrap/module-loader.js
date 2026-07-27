@@ -2703,6 +2703,40 @@
       },
     }
   };
+  // @ref LLP 0040 — construction-only, descriptor-closed runtime-extension
+  // module publication. Native owns the declaration check; this private
+  // closure owns collision checks against the loader's actual registry. The
+  // capability-hardening stage deletes the only global reference before user
+  // code, while `internalModules` retains the selected exports privately.
+  var runtimeExtensionModuleOwnKeys = Object.keys;
+  var runtimeExtensionModuleRegistrar = function(specifier, exportsValue) {
+      if (typeof specifier !== 'string' || specifier.length === 0 ||
+          specifier.indexOf('\0') !== -1 ||
+          normalizeSpecifier(specifier) !== specifier ||
+          Object.prototype.hasOwnProperty.call(internalModules, specifier) ||
+          Object.prototype.hasOwnProperty.call(cache, specifier) ||
+          exportsValue === undefined) {
+        return false;
+      }
+      internalModules[specifier] = exportsValue;
+      return true;
+    };
+  // Native retains this non-global inspector together with the registrar.
+  // Its intrinsic capture prevents a bootstrap from falsifying the inventory.
+  Object.defineProperty(runtimeExtensionModuleRegistrar, 'inspectModules', {
+    value: function() {
+      return runtimeExtensionModuleOwnKeys(internalModules);
+    },
+    writable: false,
+    enumerable: false,
+    configurable: false
+  });
+  Object.defineProperty(g, '__ibexRegisterRuntimeExtensionModule', {
+    value: runtimeExtensionModuleRegistrar,
+    writable: false,
+    enumerable: false,
+    configurable: true
+  });
   // Public builtins always resolve through the authenticated manifest. The
   // target-specific crypto profile is expressed by its installed native hooks;
   // reduced profiles therefore retain the full validation and honest-error

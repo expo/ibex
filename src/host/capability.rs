@@ -861,6 +861,58 @@ impl CapabilityManager {
         self.check_stack_with_fs_mode(stack, capability_str, FsNormalizationMode::NoFollowFinal)
     }
 
+    /// Intersect every principal in an authenticated async-continuation
+    /// carrier, independently of the optional synchronous deputy-class policy.
+    ///
+    /// A Promise job can execute a root-authored callback while retaining a
+    /// package or no-user acquisition constraint. Treating that carrier like an
+    /// ordinary synchronous frame stack would consult only the root for a
+    /// non-deputy capability and erase the hidden constraint.
+    pub fn check_constrained_stack(&self, stack: &[&str], capability_str: &str) -> bool {
+        self.check_constrained_stack_with_fs_mode(
+            stack,
+            capability_str,
+            FsNormalizationMode::FollowFinal,
+        )
+    }
+
+    pub fn check_constrained_stack_no_follow_final(
+        &self,
+        stack: &[&str],
+        capability_str: &str,
+    ) -> bool {
+        self.check_constrained_stack_with_fs_mode(
+            stack,
+            capability_str,
+            FsNormalizationMode::NoFollowFinal,
+        )
+    }
+
+    fn check_constrained_stack_with_fs_mode(
+        &self,
+        stack: &[&str],
+        capability_str: &str,
+        fs_mode: FsNormalizationMode,
+    ) -> bool {
+        self.authorization_check_count
+            .fetch_add(1, Ordering::Relaxed);
+        let normalized = normalize_capability_value_with_fs_mode(capability_str, fs_mode);
+        let top = stack.first().copied().unwrap_or("");
+        if stack.is_empty() {
+            return self.gate_and_record(top, normalized, false);
+        }
+        for principal in stack {
+            if self.fence_denies(principal, &normalized) {
+                return false;
+            }
+        }
+        let decision = self.mode == SecurityMode::Permissive
+            || stack
+                .iter()
+                .all(|principal| self.decide(principal, &normalized, fs_mode));
+        self.gate_and_record(top, normalized, decision)
+    }
+
     fn check_stack_with_fs_mode(
         &self,
         stack: &[&str],
@@ -2457,6 +2509,140 @@ mod tests {
         // No deputy classes configured → stack intersection is off; the top
         // principal's grant is what matters.
         assert!(manager.check_stack(&["deputy", "caller"], "fs:write:/tmp/x"));
+    }
+
+    #[test]
+    fn async_constraint_carrier_intersects_every_principal_without_deputy_opt_in() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        manager.grant("root-callback", "network:fetch", None);
+
+        assert!(
+            manager.check_stack(
+                &["root-callback", "ungranted-acquirer"],
+                "network:fetch:https://example.com"
+            ),
+            "ordinary non-deputy synchronous stacks retain top-principal semantics"
+        );
+        assert!(
+            !manager.check_constrained_stack(
+                &["root-callback", "ungranted-acquirer"],
+                "network:fetch:https://example.com"
+            ),
+            "an async acquisition constraint must not be erased by a root callback"
+        );
+        assert!(
+            !manager.check_constrained_stack(
+                &["root-callback", NO_USER_PRINCIPAL],
+                "network:fetch:https://example.com"
+            ),
+            "an explicit no-user carrier member must fail closed"
+        );
+
+        manager.grant("ungranted-acquirer", "network:fetch", None);
+        assert!(manager.check_constrained_stack(
+            &["root-callback", "ungranted-acquirer"],
+            "network:fetch:https://example.com"
+        ));
+    }
+
+    #[test]
+    fn async_constraint_carrier_respects_host_fences_in_every_mode() {
+        for mode in [
+            SecurityMode::Permissive,
+            SecurityMode::Audit,
+            SecurityMode::Enforce,
+        ] {
+            let mut manager = CapabilityManager::new(mode);
+            manager.set_host_boundary(Some(Path::new("/fence-root")), None);
+            manager.grant("root-callback", "fs:read", None);
+            manager.grant("package-acquirer", "fs:read", None);
+
+            assert!(
+                manager.check_constrained_stack(
+                    &["root-callback", "package-acquirer"],
+                    "fs:read:/fence-root/data.txt"
+                ),
+                "an in-fence carrier was denied under {mode:?}"
+            );
+            assert!(
+                !manager.check_constrained_stack(
+                    &["root-callback", "package-acquirer"],
+                    "fs:read:/outside/data.txt"
+                ),
+                "a constrained carrier bypassed the root-dir fence under {mode:?}"
+            );
+            assert!(
+                !manager.check_constrained_stack(
+                    &["package-acquirer", "root-callback"],
+                    "fs:read:/outside/data.txt"
+                ),
+                "reordering the carrier bypassed the root-dir fence under {mode:?}"
+            );
+
+            let fence_denials = manager
+                .audit_log()
+                .into_iter()
+                .filter(|entry| entry.constraint.as_deref() == Some("host-boundary:root_dir"))
+                .collect::<Vec<_>>();
+            assert_eq!(fence_denials.len(), 2);
+            assert_eq!(fence_denials[0].module_id, "root-callback");
+            assert_eq!(fence_denials[1].module_id, "package-acquirer");
+            assert!(fence_denials.iter().all(|entry| !entry.allowed));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn async_constraint_carrier_preserves_no_follow_final_for_every_principal() {
+        use std::process::id;
+        use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+        let base = std::env::temp_dir().join(format!(
+            "ibex-carrier-no-follow-{}-{}",
+            id(),
+            COUNTER.fetch_add(1, AtomicOrdering::SeqCst)
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("links")).unwrap();
+        std::fs::create_dir_all(base.join("targets")).unwrap();
+        let base = base.canonicalize().unwrap();
+        let target = base.join("targets").join("file.txt");
+        let link = base.join("links").join("file.link");
+        std::fs::write(&target, "target").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let capability = format!("fs:write:{}", link.to_string_lossy());
+
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        manager.grant("root-callback", &capability, None);
+        manager.grant(
+            "package-acquirer",
+            &format!("fs:write:{}", target.to_string_lossy()),
+            None,
+        );
+
+        assert!(
+            manager.check_constrained_stack(&["root-callback", "package-acquirer"], &capability),
+            "follow-final must compare both principals against the target"
+        );
+        assert!(
+            !manager.check_constrained_stack_no_follow_final(
+                &["root-callback", "package-acquirer"],
+                &capability
+            ),
+            "the package's target grant must not authorize the link entry"
+        );
+
+        manager.grant("package-acquirer", &capability, None);
+        assert!(
+            manager.check_constrained_stack_no_follow_final(
+                &["root-callback", "package-acquirer"],
+                &capability
+            ),
+            "no-follow-final must allow only after every principal holds the link grant"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

@@ -1,15 +1,14 @@
 /**
  * Generate the reviewed host-task ingress inventory required by LLP 0002.
  *
- * Discovery is deliberately broader than the known WebGPU call paths. It
- * finds every user-execution gate, Hermes eval/prepare operation, and JSI
+ * Discovery finds every user-execution gate, Hermes eval/prepare operation, and JSI
  * Function call in the engine files participating in the checkpoint change.
  * Each discovered site must belong to a reviewed function classification;
  * sites in a new function fail closed instead of inheriting a file-wide
  * default. The checked artifact then makes additions inside an already
  * reviewed function visible as ordinary generated drift.
  *
- * @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+ * @ref LLP 0040
  */
 
 import fs from "node:fs";
@@ -37,20 +36,17 @@ export const HOST_TASK_INGRESS_FILES = Object.freeze([
   "src/engine/hermes_module_runner.cc",
   "src/engine/hermes_runtime.cc",
   "src/engine/hermes_runtime_debugger.cc",
-  "src/engine/hermes_runtime_gpu.cc",
-  "src/engine/hermes_runtime_gpu_v2.cc",
   "src/engine/hermes_runtime_ios.cc",
   "src/engine/hermes_runtime_worklet.cc",
 ]);
 
 const VALID_DISPOSITIONS = new Set([
   "admission-no-app-code",
-  "construction-no-app-webgpu",
+  "construction-no-app-code",
   "internal-checkpoint",
   "joins-outer-host-task",
   "outer-host-task",
-  "restricted-no-app-webgpu",
-  "terminal-cleanup",
+  "restricted-no-app-code",
   "test-only",
   "trusted-bootstrap-no-app-code",
 ]);
@@ -73,19 +69,17 @@ function classificationsFor(pathname, disposition, rationale, functions) {
 
 const RATIONALE = Object.freeze({
   construction:
-    "Construction/bootstrap code runs before app WebGPU publication and invokes only captured bootstrap or pristine intrinsic functions.",
+    "Construction/bootstrap code runs before app execution and invokes only captured bootstrap or pristine intrinsic functions.",
   namedSeal:
     "The named owner transition evaluates fixed native-owned seal bytes before any user-execution ingress; no app-controlled source or callback can run, and any failure quarantines the generation.",
   internal:
-    "The helper runs only while an existing outer host task is finalizing its nextTick/microtask or GPU checkpoint closure.",
+    "The helper runs only while an existing outer host task is finalizing its nextTick/microtask or runtime-extension checkpoint closure.",
   nested:
     "The helper or retained callback is reached only from an already classified outer host task and joins that task identity.",
   outer:
-    "The runtime-owner ingress creates and explicitly finishes an outer ScopedGpuHostTask before publishing its result.",
+    "The runtime-owner ingress creates and explicitly finishes an outer ScopedRuntimeExtensionHostTask before publishing its result.",
   restricted:
-    "The restricted UI-worklet runtime is structurally denied the app runtime's GPU bridge and Canvas objects.",
-  terminal:
-    "Terminal cleanup may invoke the construction-captured wrapper revoker but cannot admit a successor app task.",
+    "The restricted UI-worklet runtime is structurally denied the app runtime's extension projections.",
   testOnly:
     "The call exists only behind an Ibex test-hook build and is absent from production artifacts.",
   admission:
@@ -162,7 +156,7 @@ export const HOST_TASK_INGRESS_CLASSIFICATIONS = Object.freeze([
   ),
   ...classificationsFor(
     "src/engine/hermes_runtime.cc",
-    "construction-no-app-webgpu",
+    "construction-no-app-code",
     RATIONALE.construction,
     [
       "capturePrivateBridgeConsumers",
@@ -177,7 +171,6 @@ export const HOST_TASK_INGRESS_CLASSIFICATIONS = Object.freeze([
       "installGlobals",
       "installStructuredLastValueAccessor",
       "installStructuredLifecycleAccessors",
-      "refreshCompartmentBaselineForDeferredWebGpu",
       "removeProvisionalExactCapability",
       "rootGlobalDescriptorField",
       "rootGlobalOwnDescriptor",
@@ -243,109 +236,6 @@ export const HOST_TASK_INGRESS_CLASSIFICATIONS = Object.freeze([
   ),
 
   ...classificationsFor(
-    "src/engine/hermes_runtime_gpu.cc",
-    "construction-no-app-webgpu",
-    RATIONALE.construction,
-    [
-      "closeGpuConstructionCaptureImpl",
-      "defineGpuProperty",
-      "exactGpuPublishPrivateBridge",
-      "exactGpuRetainConstructionCaptureForBootstrapSeal",
-    ],
-  ),
-  ...classificationsFor(
-    "src/engine/hermes_runtime_gpu.cc",
-    "joins-outer-host-task",
-    RATIONALE.nested,
-    ["drainGpuMailbox", "makeGpuError", "makeGpuPromise", "rejectGpuReceipt"],
-  ),
-  ...classificationsFor(
-    "src/engine/hermes_runtime_gpu.cc",
-    "terminal-cleanup",
-    RATIONALE.terminal,
-    ["ExactGpuRuntimeBinding::detach"],
-  ),
-  ...classificationsFor(
-    "src/engine/hermes_runtime_gpu.cc",
-    "test-only",
-    RATIONALE.testOnly,
-    [
-      "ibex_test_gpu_install_nonconfigurable_capture",
-      "ibex_test_gpu_private_bridge_cancel",
-      "ibex_test_gpu_private_bridge_retire",
-      "ibex_test_gpu_private_bridge_submit",
-      "ibex_test_gpu_private_bridge_submit_plain_object",
-    ],
-  ),
-
-  ...classificationsFor(
-    "src/engine/hermes_runtime_gpu_v2.cc",
-    "outer-host-task",
-    RATIONALE.outer,
-    [
-      "ex_hermes_begin_gpu_canvas_app_bundle_v1",
-      "ex_hermes_deliver_gpu_canvas_attachment_receipt_v1",
-      "ex_hermes_finish_gpu_canvas_app_bundle_v1",
-    ],
-  ),
-  ...classificationsFor(
-    "src/engine/hermes_runtime_gpu_v2.cc",
-    "internal-checkpoint",
-    RATIONALE.internal,
-    ["exactGpuV2CheckpointHostTask"],
-  ),
-  ...classificationsFor(
-    "src/engine/hermes_runtime_gpu_v2.cc",
-    "construction-no-app-webgpu",
-    RATIONALE.construction,
-    [
-      "exactGpuV2CaptureResultFunctions",
-      "exactGpuV2PublishPrivateBridge",
-      "gpuCanvasAppBundleCaptureDescriptorV1",
-      "gpuCanvasDescriptorFieldV1",
-    ],
-  ),
-  ...classificationsFor(
-    "src/engine/hermes_runtime_gpu_v2.cc",
-    "joins-outer-host-task",
-    RATIONALE.nested,
-    [
-      "canvasReceiptValueMatchesV1",
-      "captureGpuPresentationAuthorityBridgeCall",
-      "closeGpuCanvasAppBundleCaptureRootV1",
-      "defineGpuV2Property",
-      "deliverGpuV2WrapperEvent",
-      "drainGpuMailboxV2",
-      "exactGpuDecodedImageAttachAuthorityV1",
-      "makeCanvasAttachmentReceiptValueV1",
-      "makeDecodedImageErrorV1",
-      "makeDecodedImagePromiseV1",
-      "makeGpuV2Error",
-      "makeGpuV2Promise",
-      "rejectDecodedImageV1",
-      "rejectGpuV2Receipt",
-      "settleDecodedImageV1",
-    ],
-  ),
-  ...classificationsFor(
-    "src/engine/hermes_runtime_gpu_v2.cc",
-    "terminal-cleanup",
-    RATIONALE.terminal,
-    ["ExactGpuRuntimeBindingV2::detach", "revokeGpuV2BridgeCapture"],
-  ),
-  ...classificationsFor(
-    "src/engine/hermes_runtime_gpu_v2.cc",
-    "test-only",
-    RATIONALE.testOnly,
-    [
-      "ibex_test_gpu_v2_consume_canvas_app_bundle_integration",
-      "ibex_test_gpu_v2_immediate_eval_markers",
-      "ibex_test_gpu_v2_install_event_observer",
-      "ibex_test_gpu_v2_mapped_range_bridge_roundtrip",
-    ],
-  ),
-
-  ...classificationsFor(
     "src/engine/hermes_runtime_ios.cc",
     "outer-host-task",
     RATIONALE.outer,
@@ -353,7 +243,7 @@ export const HOST_TASK_INGRESS_CLASSIFICATIONS = Object.freeze([
   ),
   ...classificationsFor(
     "src/engine/hermes_runtime_ios.cc",
-    "construction-no-app-webgpu",
+    "construction-no-app-code",
     RATIONALE.construction,
     [
       "ex_hermes_set_dispatch_with_debug_context_callback",
@@ -363,7 +253,7 @@ export const HOST_TASK_INGRESS_CLASSIFICATIONS = Object.freeze([
 
   ...classificationsFor(
     "src/engine/hermes_runtime_worklet.cc",
-    "restricted-no-app-webgpu",
+    "restricted-no-app-code",
     RATIONALE.restricted,
     [
       "ex_worklet_install",
@@ -441,37 +331,6 @@ export const REQUIRED_HOST_TASK_INGRESS_ROWS = Object.freeze([
     "outer-host-task",
     RATIONALE.outer,
   ),
-  classification(
-    "src/engine/hermes_runtime_gpu.cc",
-    "drainGpuMailbox",
-    "joins-outer-host-task",
-    RATIONALE.nested,
-  ),
-  ...classificationsFor(
-    "src/engine/hermes_runtime_gpu_v2.cc",
-    "outer-host-task",
-    RATIONALE.outer,
-    [
-      "evalGpuCanvasAppBundleImmediateV1",
-      "ex_hermes_begin_gpu_canvas_app_bundle_v1",
-      "ex_hermes_deliver_gpu_canvas_attachment_receipt_v1",
-      "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1",
-      "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1",
-      "ex_hermes_finish_gpu_canvas_app_bundle_v1",
-    ],
-  ),
-  ...classificationsFor(
-    "src/engine/hermes_runtime_gpu_v2.cc",
-    "joins-outer-host-task",
-    RATIONALE.nested,
-    ["deliverGpuV2WrapperEvent", "drainGpuMailboxV2"],
-  ),
-  classification(
-    "src/engine/hermes_runtime_gpu_v2.cc",
-    "exactGpuV2CheckpointHostTask",
-    "internal-checkpoint",
-    RATIONALE.internal,
-  ),
   ...classificationsFor(
     "src/engine/hermes_runtime_ios.cc",
     "outer-host-task",
@@ -485,7 +344,7 @@ export const REQUIRED_HOST_TASK_INGRESS_ROWS = Object.freeze([
   ),
   ...classificationsFor(
     "src/engine/hermes_runtime_worklet.cc",
-    "restricted-no-app-webgpu",
+    "restricted-no-app-code",
     RATIONALE.restricted,
     [
       "ex_worklet_install",

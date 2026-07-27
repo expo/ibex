@@ -470,13 +470,13 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-shape-catalog/2",
     );
     expect(catalog.counts).toEqual({
-      coverageSurfaces: 7_658,
-      outputBearingSurfaces: 5_864,
-      structuralOnlySurfaces: 1_705,
-      unresolvedSurfaces: 89,
-      catalogRows: 6_569,
+      coverageSurfaces: 7_517,
+      outputBearingSurfaces: 5_813,
+      structuralOnlySurfaces: 1_699,
+      unresolvedSurfaces: 5,
+      catalogRows: 6_514,
       parameterizedBindings: 1,
-      sourceInventoryRows: 6_162,
+      sourceInventoryRows: 6_107,
       structuredRows: 407,
     });
     expect(catalog.surfaceAccounts).toHaveLength(coverage.edges.length);
@@ -491,9 +491,9 @@ describe("LLP 0023 output-disposition dataset", () => {
         parameterizedOutputBindings: catalog.parameterizedOutputBindings,
       }),
     ).toEqual({
-      "output-bearing": 5_864,
-      "structural-only": 1_705,
-      unresolved: 89,
+      "output-bearing": 5_813,
+      "structural-only": 1_699,
+      unresolved: 5,
     });
     expect(
       catalog.rows.filter(
@@ -601,7 +601,7 @@ describe("LLP 0023 output-disposition dataset", () => {
         surface.metadata?.callbackOutputContractSchema ===
         CALLBACK_OUTPUT_CONTRACT_SCHEMA,
     );
-    expect(producerCallbacks).toHaveLength(15);
+    expect(producerCallbacks).toHaveLength(14);
     expect(controlCallbacks).toHaveLength(9);
     expect(outputCallbacks).toHaveLength(21);
     expect(
@@ -611,8 +611,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       }),
     ).toEqual({
       "output-bearing": 21,
-      "structural-only": 24,
-      unresolved: 2,
+      "structural-only": 23,
     });
     for (const [surfaces, reasonCode] of [
       [producerCallbacks, "callback-producer-provenance"],
@@ -696,8 +695,8 @@ describe("LLP 0023 output-disposition dataset", () => {
       ...fixture.catalog.counts,
       outputBearingSurfaces: fixture.catalog.counts.outputBearingSurfaces - 1,
       structuralOnlySurfaces:
-        fixture.catalog.counts.structuralOnlySurfaces - 24,
-      unresolvedSurfaces: fixture.catalog.counts.unresolvedSurfaces + 25,
+        fixture.catalog.counts.structuralOnlySurfaces - 23,
+      unresolvedSurfaces: fixture.catalog.counts.unresolvedSurfaces + 24,
       catalogRows: fixture.catalog.counts.catalogRows - 1,
       sourceInventoryRows: fixture.catalog.counts.sourceInventoryRows - 1,
     });
@@ -1296,16 +1295,16 @@ describe("LLP 0023 output-disposition dataset", () => {
       return derived;
     });
 
-    expect(hostEdges).toHaveLength(375);
+    expect(hostEdges).toHaveLength(359);
     expect(countsBy(derivedAccounts, (account) => account.status)).toEqual({
-      "output-bearing": 325,
+      "output-bearing": 309,
       "structural-only": 50,
     });
     expect(
       derivedAccounts
         .filter((account) => account.status === "output-bearing")
         .flatMap((account) => account.outputChannels),
-    ).toHaveLength(607);
+    ).toHaveLength(587);
     expect(
       derivedAccounts.some(
         (account) =>
@@ -1379,7 +1378,7 @@ describe("LLP 0023 output-disposition dataset", () => {
           },
         },
       }),
-    ).toThrow(/verified output catalog has 89 unresolved surface accounts/);
+    ).toThrow(/verified output catalog has 5 unresolved surface accounts/);
   }, 120_000);
 
   test("rejects incomplete accounts and registrar-only value evidence", async () => {
@@ -1466,7 +1465,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-disposition-policy/2",
     );
     expect(policy.catalogKeyDigest).toBe(
-      "sha256-P-BHTGCLB9pukvnrgyw0K0W88BExZ-CLrwnvY06paHg",
+      "sha256-s5NV4BsVa52WGgnMPJWbOvaGoEWiEJom5rxsQyl2_Ro",
     );
     expect(policy.catalogKeyDigest).toBe(catalog.catalogKeyDigest);
     expect(policy.overrides).toHaveLength(369);
@@ -1500,12 +1499,12 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-dispositions/2",
     );
     expect(dataset.counts).toEqual({
-      catalogRows: 6_569,
-      dispositionRows: 6_569,
+      catalogRows: 6_514,
+      dispositionRows: 6_514,
       byDisposition: {
         absent: 152,
         closed: 28,
-        "non-path": 6_241,
+        "non-path": 6_186,
         "private-native-path": 5,
         refused: 12,
         "reserved-constant": 1,

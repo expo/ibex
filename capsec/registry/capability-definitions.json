@@ -205,20 +205,6 @@
       "description": "Create or mutate the checked filesystem object and required parent entries."
     },
     {
-      "id": "gpu:operation",
-      "lifecycle": "authorable",
-      "stability": "provisional",
-      "globality": "resource",
-      "resourceKinds": ["gpu-operation"],
-      "selectorSchema": "ibex/capsec-selector/1",
-      "occurrenceSchema": "ibex/capsec-occurrence/1",
-      "normalizationProfile": "gpu.operation.v1",
-      "channels": { "dynamic": false, "handle": false, "synthesis": false },
-      "staticOnly": true,
-      "risk": { "baseTier": 4, "reasons": ["gpu.shared-service-work"] },
-      "description": "Execute one exact operation from an authenticated WebGPU profile through a generation-fenced GPUAccount session."
-    },
-    {
       "id": "inspector:activate",
       "lifecycle": "deny-only",
       "stability": "stable",

@@ -1212,23 +1212,21 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         "ibex/capsec-output-shape-execution-partition/1",
       completeCatalogKeyDigest: completeCatalog.catalogKeyDigest,
     });
-    expect(completeCatalog.rows).toHaveLength(6569);
-    expect(executionPartition.genericCatalog.rows).toHaveLength(5946);
-    expect(executionPartition.genericProbes).toHaveLength(5946);
+    expect(completeCatalog.rows).toHaveLength(6514);
+    expect(executionPartition.genericCatalog.rows).toHaveLength(5911);
+    expect(executionPartition.genericProbes).toHaveLength(5911);
     expect(
       executionPartition.genericCatalog.rows.some(
         (row) => row.key.sourceKind === "host-abi",
       ),
     ).toBe(false);
     expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(59);
-    expect(executionPartition.hostAbi.rows).toHaveLength(508);
-    // The 56 residual rows are the remaining GPU authority and presentation
-    // routes without a bounded output fixture: decoded-image and receipt
-    // delivery, authority/session/presentation capture, recheck, retirement,
-    // and the borrowed-pointer session API. The sweep plan must keep failing
-    // bidirectionality until a reviewed armed GPU-authority fixture closes them.
-    // @ref LLP 0035#host-abi-output-shape-residuals-the-classified-remainder
-    expect(executionPartition.hostAbi.residuals).toHaveLength(56);
+    expect(executionPartition.hostAbi.rows).toHaveLength(485);
+    // Thirty-five module-activation ABI rows need an owned graph/runtime
+    // fixture; twenty-four runtime-extension/ambient-environment rows need an
+    // authenticated extension Host fixture. Neither family may borrow a
+    // descriptor-only result.
+    expect(executionPartition.hostAbi.residuals).toHaveLength(59);
 
     const baseBindings = fixture().bindings;
     const targetAbsenceProbes = buildTargetAbsenceOutputShapeProbes({
@@ -1348,12 +1346,12 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       shifted.hostAbi.targetAbsenceBindings.length,
       shifted.hostAbi.rows.length,
       shifted.hostAbi.residuals.length,
-    ]).not.toEqual([59, 508, 56]);
+    ]).not.toEqual([59, 485, 59]);
     expect([
       executionPartition.hostAbi.targetAbsenceBindings.length,
       executionPartition.hostAbi.rows.length,
       executionPartition.hostAbi.residuals.length,
-    ]).toEqual([59, 508, 56]);
+    ]).toEqual([59, 485, 59]);
   }, 180_000);
 
   test("routes and exactly validates the complete builtin-effects tranche", async () => {

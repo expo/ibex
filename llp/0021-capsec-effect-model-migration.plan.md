@@ -36,6 +36,11 @@
 **Revised:** 2026-07-25 (deletes the legacy `PolicyFile` parser, public module, `HostConfig` policy/path/allow/deny seams, policy-string mode parser, and runtime readiness dependency; foreground audit remains an explicitly policyless diagnostic host and historical compatibility-manager algebra is covered only through private test setup)
 **Revised:** 2026-07-25 (removes `insecure` from Cargo defaults: plain builds enforce the supported profile and refuse before project code while no exact target is advertised; unadvertised secure development and no-sandbox execution require explicit compile-time features; invocation-time ESM import and CommonJS require now cover source and prepared targets)
 **Revised:** 2026-07-24 (production native-graph dependency source reads authorize the exact typed edge and retain a digest-bound receipt; dependency carriers derive a carrier receipt from that continuation, while entry-only carriers require an opaque graph/request join minted before any cache discovery; armed transpilation has no persistent cache-read path; every promotion-facing conformance Cargo executor now disables defaults and selects the production observer feature set explicitly)
+**Revised:** 2026-07-25 (adds the product-neutral native runtime-extension
+authority capsule projection, fixed exact extension resource semantics,
+launcher-observed linked-artifact identity binding, construction-time
+authority-digest and exact native-registry projection claims, and context-local
+operation leases)
 **Revised:** 2026-07-20 (extends authenticated fresh-engine, zero-decision source receipts to 30 additional reviewed public builtin spellings, binds their exact root value types, and leaves both `stream/consumers` spellings residual because compatibility loading shadows their manifest source)
 **Revised:** 2026-07-19 (binds the exact `dns/promises` carrier/provider callable shape to independent inventory and classifier review pins while leaving all 45 derived routes residual; strengthens four DNS no-effect alias receipts with exact cache-miss, VFS source, body-completion, alias, and runtime-nonce evidence)
 **Revised:** 2026-07-18 (ENG-25076 adds the target-local Exact GPU binding/profile producer and independently executed preparation evidence while preserving empty advertisements)
@@ -379,6 +384,20 @@ digest refuses arming. Duplicate keys, unknown positive actions, unresolved
 selectors, aliases, macros, and machine-specific unbound paths may not reach
 the armed snapshot.
 
+`runtimeExtensions`, when present, is a closed
+`ibex/runtime-extension-authority-capsule/1` projection. Its
+`extensionSetDigest` uses domain `ibex:runtime-extension-set:1` over the sorted
+selection tuple `(id, version, sdkVersion, manifestDigest)`. Its complete
+`authorityCapsuleDigest` uses domain
+`ibex:runtime-extension-authority-capsule:1` and omits only the digest field
+itself. Both use the existing canonical `sha256-` plus unpadded-base64url
+encoding. The capsule binds required SDK feature bits; full operation entry
+paths and flags; callback producer affinity, owner-thread delivery, and queue
+bounds; selected provider ABI version, size, and identity; and optional
+source/Hermes-bytecode bootstrap content digests, lengths, source URLs, and
+the closed `script-global` evaluation mode. Absence is the canonical empty
+extension projection.
+
 ### Default execution contract
 
 Normal project-code execution uses enforce mode. Absence of authored grants
@@ -483,6 +502,17 @@ The product profile is `ibex/capsec/1`; the neutral semantic-core contract is
 `capsec/semantics/1`. Profile suffixes are product-local compatibility versions,
 not cross-runtime marketing generations.
 
+An authenticated native runtime-extension capsule may add only namespaced data:
+extension/operation IDs, authority classes, trusted-bootstrap surface names,
+callback identities and bounded delivery facts, provider ABI identities, and
+protected bootstrap/native linked-artifact identities. The neutral crate owns the single
+`runtime-extension:invoke` definition and
+`runtime-extension.identity.v1` exact normalization behavior. Extension
+fragments are closed data objects and cannot provide matchers, normalizers,
+precedence, action definitions, target predicates, or executable semantic
+logic. Their authority exists only while the complete capsule is digest-bound
+into the armed snapshot.
+
 ### Typed resources and initial vocabulary
 
 Canonical positive rows contain one explicit two-part action and one typed
@@ -535,6 +565,16 @@ Initial authorable resource kinds are:
   `stdio:write` only stdout/stderr, and `stdio:raw` only terminal-backed stdin;
   plus explicit system-information kinds, typed location/camera/microphone
   acquisition, and native system clipboard formats.
+
+The optional native runtime-extension profile adds one product-neutral,
+equality-only resource:
+`{"kind":"runtime-extension","extensionId":...,"authorityClass":...}`.
+It has no wildcard, family, prefix, or manifest-defined containment. The
+authenticated capsule separately proves that an exact operation ID belongs to
+that extension and authority class; opaque operation resource data contributes
+only a canonical digest to the occurrence/lease identity. Every constrained
+principal must already hold the exact selector in its immutable static floor,
+so ambient-root fallback cannot manufacture extension authority.
 
 `fs:list`, `fs:read`, `fs:write`, and `fs:watch` are independent. A matcher
 never derives one action from another. SQLite file operations decompose into
@@ -816,12 +856,14 @@ while Windows re-flushes the still-pinned file object because Rust's ordinary
 file API cannot open a directory for `sync_all`. Both paths validate the
 read-only file and its exact bytes before publication; this portability split
 does not relax artifact identity or immutability. Exact's bundled-root producer
-is complete and now also has an additive GPU path that
-validates the complete `exactGpuProvider` identity, verifies the exact profile
-bytes before cache publication, and protects that profile as the sixth
-artifact. The non-GPU path cannot acquire this binding, while package-bearing
-policy input remains a separate future contract. Apple/Windows conformance
-reports and target
+is complete. The former additive `exactGpuProvider` builder/profile path was a
+WebGPU-specific one-off and was removed by LLP 0040. Selected runtime
+extensions now enter through the generic, product-neutral authority
+template/capsule projection: the launcher binds the complete descriptor,
+linked-artifact, provider-ABI, global/module, operation, callback, and
+loaded-executable facts before arming. An unselected build has no
+runtime-extension capsule or extension library. Package-bearing policy input
+remains a separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The merge reconciles both per-target
 catalogs from the source registry before retaining evidence; point counts from
 either pre-merge catalog are not publication authority. Windows differences
@@ -1219,6 +1261,34 @@ seal-before-application transition, nonempty-floor semantics, and
 retained-context denial remain covered by mechanism tests; any future
 root-attributed bootstrap effect must add its exact selector and a real
 application-level retained-callback fixture in the same change.
+
+Implementation update (2026-07-25): `ArmedSnapshot` strictly ingests the
+optional runtime-extension authority capsule and requires a
+`runtime-extension-authority-capsule` protected role. `ExpectedArmingIdentity`
+independently binds the capsule digest and the launcher's actual sorted linked
+object/range/content identities; descriptor or linked-artifact substitution
+therefore refuses even when an attacker recomputes the outer armed digest. The
+protected artifact's `contentDigest` is the ordinary SHA-256 of the exact
+materialized capsule bytes; it is intentionally distinct from the
+domain-separated semantic `authorityCapsuleDigest`, which is independently
+recomputed after strict parsing.
+Legacy armed construction may claim only the empty projection. Extension-aware
+construction supplies the exact snapshot and authority digests, and the Host
+rechecks the latter against the claimed context before any operation. Before
+Hermes allocation, the structurally validated C registry must also serialize
+its closed identity/surface projection; the Host strictly parses and
+exact-compares it with the capsule, so attaching the correct authority digest
+to a changed operation, callback, provider, module, global, feature, or
+bootstrap table still refuses construction. A
+successful generic typed decision mints a random nonzero context-local opaque
+lease bound to capsule, namespace, operation, class, canonical resource
+digest, and constrained principals; check/revoke and context release cannot
+transfer it across constructions. Diagnostic/unarmed Host construction does
+not authenticate extensions. Each copied nonempty bootstrap payload is
+SHA-256 checked against its capsule-bound canonical digest through a bounded
+generic Host ABI before Hermes allocation; invalid, oversized, or mismatched
+inputs refuse. Conformance fixtures use an armed test profile through this
+same path rather than a permissive bypass.
 
 ### WP5 — Convert filesystem effects and checked-object execution
 

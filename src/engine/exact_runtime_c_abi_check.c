@@ -92,36 +92,6 @@ IBEX_C_ABI_ASSERT(vfs_result_input_too_large_value,
                   EX_HOST_VFS_RESULT_INPUT_TOO_LARGE == 12u);
 IBEX_C_ABI_ASSERT(vfs_result_host_error_value,
                   EX_HOST_VFS_RESULT_HOST_ERROR == 13u);
-IBEX_C_ABI_ASSERT(decoded_image_version,
-                  EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1 == 0x00010000u);
-IBEX_C_ABI_ASSERT(decoded_image_png_value,
-                  EXACT_GPU_DECODED_IMAGE_MIME_PNG_V1 == 1u);
-IBEX_C_ABI_ASSERT(canvas_receipt_version,
-                  EXACT_GPU_CANVAS_ATTACHMENT_RECEIPT_ABI_VERSION_V1 ==
-                      0x00010000u);
-IBEX_C_ABI_ASSERT(canvas_receipt_attached_value,
-                  EXACT_GPU_CANVAS_ATTACHMENT_ATTACHED_V1 == 1u);
-IBEX_C_ABI_ASSERT(canvas_receipt_rejected_value,
-                  EXACT_GPU_CANVAS_ATTACHMENT_REJECTED_V1 == 2u);
-IBEX_C_ABI_ASSERT(canvas_receipt_failure_first_value,
-                  EXACT_GPU_CANVAS_ATTACHMENT_STALE_GENERATION_V1 == 1u);
-IBEX_C_ABI_ASSERT(canvas_receipt_failure_last_value,
-                  EXACT_GPU_CANVAS_ATTACHMENT_INTERNAL_V1 == 6u);
-IBEX_C_ABI_ASSERT(canvas_receipt_sink_unavailable_value,
-                  EXACT_GPU_CANVAS_RECEIPT_SINK_UNAVAILABLE_V1 == -6);
-IBEX_C_ABI_ASSERT(canvas_bundle_unused_value,
-                  EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_V1 == 1);
-IBEX_C_ABI_ASSERT(canvas_bundle_cleanup_failed_value,
-                  EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_FAILED_V1 == -9);
-IBEX_C_ABI_ASSERT(canvas_bundle_required_not_consumed_value,
-                  EXACT_GPU_CANVAS_APP_BUNDLE_REQUIRED_NOT_CONSUMED_V1 ==
-                      -10);
-IBEX_C_ABI_ASSERT(canvas_bundle_cleanup_pending_value,
-                  EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_PENDING_V1 == -11);
-IBEX_C_ABI_ASSERT(canvas_bundle_consume_required_value,
-                  EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1 == 1u);
-IBEX_C_ABI_ASSERT(canvas_bundle_unused_valid_value,
-                  EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_VALID_V1 == 2u);
 IBEX_C_ABI_ASSERT(owned_bytes_data_first,
                   offsetof(ExHermesOwnedBytes, data) == 0u);
 IBEX_C_ABI_ASSERT(value_handle_nonce_first,
@@ -273,140 +243,6 @@ IBEX_C_ABI_ASSERT(result_position_count_offset_64,
                   offsetof(ExHermesEvaluationResult, position_count) == 104u);
 IBEX_C_ABI_ASSERT(result_size_64,
                   sizeof(ExHermesEvaluationResult) == 112u);
-IBEX_C_ABI_ASSERT(decoded_image_identity_size_64,
-                  sizeof(ExactGpuDecodedImageIdentityV1) == 32u);
-IBEX_C_ABI_ASSERT(decoded_image_request_identity_offset_64,
-                  offsetof(ExactGpuDecodedImageRequestV1, identity) == 24u);
-IBEX_C_ABI_ASSERT(decoded_image_request_bytes_offset_64,
-                  offsetof(ExactGpuDecodedImageRequestV1, encoded_bytes) ==
-                      56u);
-IBEX_C_ABI_ASSERT(decoded_image_request_size_64,
-                  sizeof(ExactGpuDecodedImageRequestV1) == 72u);
-IBEX_C_ABI_ASSERT(decoded_image_plane_identity_offset_64,
-                  offsetof(ExactGpuDecodedImagePlaneV1, identity) == 48u);
-IBEX_C_ABI_ASSERT(decoded_image_plane_decoded_offset_64,
-                  offsetof(ExactGpuDecodedImagePlaneV1, decoded_bytes) == 96u);
-IBEX_C_ABI_ASSERT(decoded_image_plane_hash_offset_64,
-                  offsetof(ExactGpuDecodedImagePlaneV1, encoded_sha256) ==
-                      112u);
-IBEX_C_ABI_ASSERT(decoded_image_plane_size_64,
-                  sizeof(ExactGpuDecodedImagePlaneV1) == 176u);
-IBEX_C_ABI_ASSERT(decoded_image_host_api_size_64,
-                  sizeof(ExactGpuDecodedImageHostApiV1) == 48u);
-IBEX_C_ABI_ASSERT(decoded_image_descriptor_size_64,
-                  sizeof(ExactHermesGpuDecodedImageDescriptorV1) == 24u);
-IBEX_C_ABI_ASSERT(canvas_receipt_struct_size_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1, struct_size) ==
-                      0u);
-IBEX_C_ABI_ASSERT(canvas_receipt_version_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1, abi_version) ==
-                      4u);
-IBEX_C_ABI_ASSERT(canvas_receipt_outcome_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1, outcome) == 8u);
-IBEX_C_ABI_ASSERT(canvas_receipt_failure_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1, failure) == 12u);
-IBEX_C_ABI_ASSERT(canvas_receipt_protocol_root_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1,
-                           protocol_root_id) == 16u);
-IBEX_C_ABI_ASSERT(canvas_receipt_view_id_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1, view_id) == 20u);
-IBEX_C_ABI_ASSERT(canvas_receipt_runtime_generation_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1,
-                           runtime_generation) == 24u);
-IBEX_C_ABI_ASSERT(canvas_receipt_root_instance_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1,
-                           root_instance_id) == 32u);
-IBEX_C_ABI_ASSERT(canvas_receipt_root_generation_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1,
-                           root_generation) == 40u);
-IBEX_C_ABI_ASSERT(canvas_receipt_commit_sequence_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1,
-                           commit_sequence) == 48u);
-IBEX_C_ABI_ASSERT(canvas_receipt_view_generation_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1,
-                           view_generation) == 56u);
-IBEX_C_ABI_ASSERT(canvas_receipt_handle_id_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1, handle_id) ==
-                      64u);
-IBEX_C_ABI_ASSERT(canvas_receipt_handle_generation_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1,
-                           handle_generation) == 72u);
-IBEX_C_ABI_ASSERT(canvas_receipt_attachment_id_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1, attachment_id) ==
-                      80u);
-IBEX_C_ABI_ASSERT(canvas_receipt_attachment_generation_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1,
-                           attachment_generation) == 88u);
-IBEX_C_ABI_ASSERT(canvas_receipt_context_id_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1, context_id) ==
-                      96u);
-IBEX_C_ABI_ASSERT(canvas_receipt_context_generation_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1,
-                           context_generation) == 104u);
-IBEX_C_ABI_ASSERT(canvas_receipt_width_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1,
-                           drawing_buffer_width) == 112u);
-IBEX_C_ABI_ASSERT(canvas_receipt_height_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1,
-                           drawing_buffer_height) == 116u);
-IBEX_C_ABI_ASSERT(canvas_receipt_digest_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1,
-                           target_authority_digest) == 120u);
-IBEX_C_ABI_ASSERT(canvas_receipt_account_token_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1,
-                           surface_account_token) == 152u);
-IBEX_C_ABI_ASSERT(canvas_receipt_account_generation_offset_64,
-                  offsetof(ExactGpuCanvasAttachmentReceiptV1,
-                           surface_account_generation) == 160u);
-IBEX_C_ABI_ASSERT(canvas_receipt_size_64,
-                  sizeof(ExactGpuCanvasAttachmentReceiptV1) == 168u);
-IBEX_C_ABI_ASSERT(gpu_authority_facts_session_offset_64,
-                  offsetof(ExactGpuAuthoritySessionFactsV2,
-                           authority_session_id) == 16u);
-IBEX_C_ABI_ASSERT(gpu_authority_facts_digest_offset_64,
-                  offsetof(ExactGpuAuthoritySessionFactsV2,
-                           authority_context_digest) == 184u);
-IBEX_C_ABI_ASSERT(gpu_authority_facts_size_64,
-                  sizeof(ExactGpuAuthoritySessionFactsV2) == 264u);
-IBEX_C_ABI_ASSERT(gpu_authority_presented_handle_size_64,
-                  sizeof(ExactGpuAuthorityPresentedHandleV2) == 104u);
-IBEX_C_ABI_ASSERT(gpu_authority_decision_facts_offset_64,
-                  offsetof(ExactGpuAuthorityDecisionRequestV2, facts) == 16u);
-IBEX_C_ABI_ASSERT(gpu_authority_decision_size_64,
-                  sizeof(ExactGpuAuthorityDecisionRequestV2) == 296u);
-IBEX_C_ABI_ASSERT(gpu_authority_retire_size_64,
-                  sizeof(ExactGpuAuthorityRetireV2) == 280u);
-IBEX_C_ABI_ASSERT(gpu_authority_batch_decisions_offset_64,
-                  offsetof(ExactGpuAuthorityDecisionBatchV2, decisions) ==
-                      16u);
-IBEX_C_ABI_ASSERT(gpu_authority_batch_count_offset_64,
-                  offsetof(ExactGpuAuthorityDecisionBatchV2,
-                           decision_count) == 24u);
-IBEX_C_ABI_ASSERT(gpu_authority_batch_size_64,
-                  sizeof(ExactGpuAuthorityDecisionBatchV2) == 32u);
-IBEX_C_ABI_ASSERT(gpu_authority_batch_callback_offset_64,
-                  offsetof(ExactGpuAuthoritySessionApiV2,
-                           evaluate_batch_and_then) == 32u);
-IBEX_C_ABI_ASSERT(gpu_authority_api_size_64,
-                  sizeof(ExactGpuAuthoritySessionApiV2) == 40u);
-IBEX_C_ABI_ASSERT(gpu_realm_open_authority_api_offset_64,
-                  offsetof(ExactGpuRealmOpenV2, authority_session_api) == 96u);
-IBEX_C_ABI_ASSERT(gpu_realm_open_size_64,
-                  sizeof(ExactGpuRealmOpenV2) == 104u);
-IBEX_C_ABI_ASSERT(gpu_semantic_call_authority_session_offset_64,
-                  offsetof(ExactGpuSemanticCallV2, authority_session_id) ==
-                      216u);
-IBEX_C_ABI_ASSERT(gpu_semantic_call_size_64,
-                  sizeof(ExactGpuSemanticCallV2) == 288u);
-IBEX_C_ABI_ASSERT(gpu_provenance_authority_session_offset_64,
-                  offsetof(ExactGpuOperationProvenanceV2,
-                           authority_session_id) == 248u);
-IBEX_C_ABI_ASSERT(gpu_provenance_size_64,
-                  sizeof(ExactGpuOperationProvenanceV2) == 304u);
-IBEX_C_ABI_ASSERT(gpu_cancel_authority_session_offset_64,
-                  offsetof(ExactGpuCancelV2, authority_session_id) == 216u);
-IBEX_C_ABI_ASSERT(gpu_cancel_size_64,
-                  sizeof(ExactGpuCancelV2) == 272u);
 #endif
 IBEX_C_ABI_ASSERT(work_unit_target_offset,
                   offsetof(ExHermesWorkUnitEvent, target_id) == 16u);
@@ -469,8 +305,6 @@ IBEX_C_ABI_ASSERT(dynamic_activation_specifier_length_after_pointer,
 /* Function-pointer assignments type-check the callable C surface without
  * creating an executable ingress or requiring a link-time call. */
 void ibex_exact_runtime_c_abi_typecheck(void) {
-  int32_t (*activate_webgpu_runtime)(ExactHermesRuntime*) =
-      ex_hermes_activate_webgpu_runtime_v1;
   uint32_t (*bind_session)(ExactHermesRuntime*, const uint8_t*, size_t) =
       ex_hermes_structured_session_bind;
   uint32_t (*admit_submission)(ExactHermesRuntime*,
@@ -677,24 +511,6 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
       ex_hermes_finish_bootstrap;
   uint32_t (*seal_armed_shared_runtime_globals)(ExactHermesRuntime*) =
       ex_hermes_seal_armed_shared_runtime_globals_v1;
-  int32_t (*evaluate_gpu_canvas_immediate)(ExactHermesRuntime*,
-                                           const uint8_t*,
-                                           size_t,
-                                           const char*,
-                                           int,
-                                           char**) =
-      ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1;
-  int32_t (*evaluate_gpu_canvas_with_prelude_immediate)(
-      ExactHermesRuntime*,
-      const uint8_t*,
-      size_t,
-      const char*,
-      const uint8_t*,
-      size_t,
-      const char*,
-      int,
-      char**) =
-      ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1;
   int32_t (*begin_app_bundle_evaluation)(ExactHermesRuntime*, uint32_t) =
       ex_hermes_begin_app_bundle_evaluation_v1;
   int32_t (*finish_app_bundle_evaluation)(ExactHermesRuntime*, uint32_t) =
@@ -791,7 +607,6 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
       ex_host_terminal_session_stdio_query;
   void (*console_log_bytes)(int32_t, const uint8_t*, size_t) =
       ex_host_console_log_bytes;
-  (void)activate_webgpu_runtime;
   (void)bind_session;
   (void)admit_submission;
   (void)settle_submission;
@@ -822,8 +637,6 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
   (void)resume_structured_session;
   (void)finish_bootstrap;
   (void)seal_armed_shared_runtime_globals;
-  (void)evaluate_gpu_canvas_immediate;
-  (void)evaluate_gpu_canvas_with_prelude_immediate;
   (void)begin_app_bundle_evaluation;
   (void)finish_app_bundle_evaluation;
   (void)classify_prepared_startup;

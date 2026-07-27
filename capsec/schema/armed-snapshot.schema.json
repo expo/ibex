@@ -93,64 +93,8 @@
       },
       "additionalProperties": false
     },
-    "exactGpuProvider": {
-      "type": "object",
-      "required": [
-        "schema",
-        "abiVersion",
-        "profileId",
-        "profileDigest",
-        "webgpuCVocabularyDigest",
-        "operationSetDigest",
-        "semanticProgramDigest",
-        "operationIds",
-        "topology"
-      ],
-      "properties": {
-        "schema": { "const": "exact/webgpu-provider/1" },
-        "abiVersion": { "enum": [65536, 131072] },
-        "profileId": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[a-z0-9][a-z0-9._/-]*$"
-        },
-        "profileDigest": {
-          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
-        },
-        "webgpuCVocabularyDigest": {
-          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
-        },
-        "operationSetDigest": {
-          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
-        },
-        "semanticProgramDigest": {
-          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
-        },
-        "runtimeRoutingDigest": {
-          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
-        },
-        "operationIds": { "$ref": "#/$defs/exactGpuOperationSet" },
-        "topology": { "const": "isolated-per-logical-v1" }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": { "abiVersion": { "const": 131072 } },
-            "required": ["abiVersion"]
-          },
-          "then": {
-            "properties": {
-              "runtimeRoutingDigest": {
-                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
-              }
-            },
-            "required": ["runtimeRoutingDigest"]
-          },
-          "else": { "properties": { "runtimeRoutingDigest": false } }
-        }
-      ],
-      "additionalProperties": false
+    "runtimeExtensions": {
+      "$ref": "#/$defs/runtimeExtensionAuthorityCapsule"
     },
     "runNonce": {
       "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/base64url"
@@ -270,7 +214,7 @@
         "required": ["role", "object", "deniedActions"],
         "properties": {
           "role": {
-            "enum": ["armed-policy", "engine-binary", "exact-operation-manifest", "exact-webgpu-profile", "package-graph", "registry"]
+            "enum": ["armed-policy", "engine-binary", "exact-operation-manifest", "package-graph", "registry", "runtime-extension-authority-capsule"]
           },
           "object": {
             "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
@@ -344,6 +288,446 @@
   ],
   "additionalProperties": false,
   "$defs": {
+    "runtimeExtensionAuthorityCapsule": {
+      "type": "object",
+      "required": [
+        "schema",
+        "authorityCapsuleDigest",
+        "target",
+        "profile",
+        "sdkVersion",
+        "runtimeFeatures",
+        "extensionSetDigest",
+        "declaredExecutableSelectionIdentity",
+        "executableSelectionIdentity",
+        "descriptors",
+        "linkedArtifacts",
+        "mappedExecutable"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ibex/runtime-extension-authority-capsule/1"
+        },
+        "authorityCapsuleDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "target": {
+          "enum": ["ios", "macos", "windows", "android"]
+        },
+        "profile": {
+          "enum": ["development", "production"]
+        },
+        "sdkVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "runtimeFeatures": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "copied-buffers",
+              "introspection",
+              "keyed-external-buffers",
+              "native-modules",
+              "operation-membrane",
+              "owner-executor"
+            ]
+          }
+        },
+        "extensionSetDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "declaredExecutableSelectionIdentity": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "executableSelectionIdentity": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "descriptors": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/runtimeExtensionDescriptor" }
+        },
+        "linkedArtifacts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4096,
+          "items": { "$ref": "#/$defs/runtimeExtensionLinkedArtifact" }
+        },
+        "mappedExecutable": {
+          "$ref": "#/$defs/runtimeExtensionMappedExecutable"
+        }
+      },
+      "additionalProperties": false
+    },
+    "runtimeExtensionDescriptor": {
+      "type": "object",
+      "required": [
+        "id",
+        "version",
+        "sdkVersion",
+        "manifestDigest",
+        "trustedBootstrap",
+        "bootstrap",
+        "requiredFeatureBits",
+        "globals",
+        "modules",
+        "callbacks",
+        "linkedArtifactIds",
+        "authorityFragment"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "version": { "$ref": "#/$defs/runtimeExtensionWireString" },
+        "sdkVersion": { "$ref": "#/$defs/runtimeExtensionWireString" },
+        "manifestDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "trustedBootstrap": {
+          "type": "object",
+          "required": ["realm", "installPhase"],
+          "properties": {
+            "realm": { "const": "app" },
+            "installPhase": { "const": "pre-user-code" }
+          },
+          "additionalProperties": false
+        },
+        "bootstrap": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "$ref": "#/$defs/runtimeExtensionBootstrapArtifact"
+          }
+        },
+        "requiredFeatureBits": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "globals": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "required": ["name", "kind"],
+            "properties": {
+              "name": { "$ref": "#/$defs/runtimeExtensionWireString" },
+              "kind": { "enum": ["function", "object"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "modules": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "required": ["specifier"],
+            "properties": {
+              "specifier": { "$ref": "#/$defs/runtimeExtensionWireString" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "callbacks": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "operationId",
+              "producerAffinity",
+              "delivery",
+              "maxPending"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "operationId": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "producerAffinity": {
+                "enum": [
+                  "runtime-owner",
+                  "background-producer",
+                  "provider-thread"
+                ]
+              },
+              "delivery": { "const": "runtime-thread" },
+              "maxPending": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65536
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "providerAbi": {
+          "type": "object",
+          "required": [
+            "id",
+            "minVersion",
+            "selectedVersion",
+            "structSize",
+            "identityDigest",
+            "linkedArtifactId"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+            },
+            "minVersion": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            },
+            "selectedVersion": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            },
+            "structSize": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            },
+            "identityDigest": {
+              "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+            },
+            "linkedArtifactId": {
+              "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+            }
+          },
+          "additionalProperties": false
+        },
+        "linkedArtifactIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+          }
+        },
+        "authorityFragment": {
+          "$ref": "#/$defs/runtimeExtensionAuthorityFragment"
+        }
+      },
+      "additionalProperties": false
+    },
+    "runtimeExtensionBootstrapArtifact": {
+      "type": "object",
+      "required": [
+        "id",
+        "format",
+        "evaluationMode",
+        "contentDigest",
+        "sourceUrl",
+        "byteLength"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "format": {
+          "enum": ["source", "hermes-bytecode"]
+        },
+        "evaluationMode": {
+          "const": "script-global"
+        },
+        "contentDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "sourceUrl": {
+          "$ref": "#/$defs/runtimeExtensionWireString"
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    },
+    "runtimeExtensionAuthorityFragment": {
+      "type": "object",
+      "required": ["schema", "namespace", "operations"],
+      "properties": {
+        "schema": {
+          "const": "ibex/runtime-extension-authority-fragment/1"
+        },
+        "namespace": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "required": [
+              "operationId",
+              "authorityClass",
+              "semantics",
+              "stage",
+              "atomicityGroup",
+              "resourceKinds",
+              "jsEntryPath",
+              "flags"
+            ],
+            "properties": {
+              "operationId": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "authorityClass": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "semantics": {
+                "const": "runtime-extension.invoke.authenticated-v1"
+              },
+              "stage": {
+                "enum": [
+                  "requested",
+                  "discovery",
+                  "candidate",
+                  "commit",
+                  "delivery",
+                  "repeat",
+                  "cleanup"
+                ]
+              },
+              "atomicityGroup": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "resourceKinds": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "uniqueItems": true,
+                "items": { "const": "runtime-extension" }
+              },
+              "jsEntryPath": {
+                "$ref": "#/$defs/runtimeExtensionWireString"
+              },
+              "flags": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4294967295
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "runtimeExtensionLinkedArtifact": {
+      "type": "object",
+      "required": [
+        "artifactId",
+        "extensionId",
+        "executableObject",
+        "range",
+        "contentDigest"
+      ],
+      "properties": {
+        "artifactId": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "extensionId": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "executableObject": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
+        },
+        "range": {
+          "type": "object",
+          "required": ["offset", "length"],
+          "properties": {
+            "offset": { "$ref": "#/$defs/generation" },
+            "length": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
+        },
+        "contentDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        }
+      },
+      "additionalProperties": false
+    },
+    "runtimeExtensionMappedExecutable": {
+      "type": "object",
+      "required": [
+        "schema",
+        "executableObject",
+        "range",
+        "contentDigest",
+        "anchors"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ibex/runtime-extension-mapped-executable/1"
+        },
+        "executableObject": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
+        },
+        "range": {
+          "type": "object",
+          "required": ["offset", "length"],
+          "properties": {
+            "offset": { "const": 0 },
+            "length": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
+        },
+        "contentDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "anchors": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "required": ["label", "imageOffset"],
+            "properties": {
+              "label": { "$ref": "#/$defs/runtimeExtensionWireString" },
+              "imageOffset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "runtimeExtensionWireString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^\\S(?:.*\\S)?$"
+    },
     "projectRootDiscovery": {
       "type": "object",
       "required": [
@@ -439,13 +823,6 @@
     },
     "exactOperationEndowment": {
       "type": "array",
-      "maxItems": 4096,
-      "uniqueItems": true,
-      "items": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
-    },
-    "exactGpuOperationSet": {
-      "type": "array",
-      "minItems": 1,
       "maxItems": 4096,
       "uniqueItems": true,
       "items": { "type": "integer", "minimum": 1, "maximum": 4294967295 }

@@ -5,7 +5,7 @@
 **Systems:** Engine, Host ABI, Build, CapSec
 **Author:** Codex, directed by Charlie Cheever
 **Date:** 2026-07-27
-**Related:** LLP 0039 (secure/insecure modes and observer boundary); LLP 0040
+**Related:** LLP 0039 (secure/insecure modes and observer boundary); LLP 0041
 (main-lineage consumer pins)
 
 ## Problem
@@ -13,7 +13,7 @@
 Exact's native performance instrumentation has executable evidence against
 Ibex commit `45dc954a`, but that commit is reachable only from
 `codex/llp0373-partitime-observer`. Committing that side-branch SHA as Exact's
-`vendor/ibex` pin would violate LLP 0040's main-lineage and upstream-first
+`vendor/ibex` pin would violate LLP 0041's main-lineage and upstream-first
 rules.
 
 The required work is the seven-commit observer closure:

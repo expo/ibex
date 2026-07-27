@@ -1,4 +1,4 @@
-# LLP 0040: How Exact and Snapback Consume Ibex
+# LLP 0041: How Exact and Snapback Consume Ibex
 
 **Type:** Decision
 **Status:** Review

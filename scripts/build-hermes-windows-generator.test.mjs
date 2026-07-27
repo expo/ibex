@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import fs from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -19,13 +19,15 @@ const installer = path.join(
   "scripts",
   "install-windows-hermes.ps1",
 );
+const powershellExecutable =
+  process.platform === "win32" ? "powershell" : "pwsh";
 
 function selectGenerator(version) {
   const env = { ...process.env };
   if (version === null) delete env.VisualStudioVersion;
   else env.VisualStudioVersion = version;
   return spawnSync(
-    "pwsh",
+    powershellExecutable,
     [
       "-NoLogo",
       "-NoProfile",
@@ -36,6 +38,72 @@ function selectGenerator(version) {
     { cwd: repoRoot, encoding: "utf8", env },
   );
 }
+
+test("formats reviewed digests with the PowerShell 5.1-compatible API", () => {
+  const helpers = [];
+  for (const file of [script, installer]) {
+    const source = readFileSync(file, "utf8");
+    assert.doesNotMatch(source, /\bToHexString\b/u);
+    const helper = source.match(
+      /^function ConvertTo-LowerHex \{[\s\S]*?^\}/mu,
+    );
+    assert.ok(helper, `${file} is missing ConvertTo-LowerHex`);
+    helpers.push(helper[0]);
+  }
+  assert.equal(helpers[0], helpers[1]);
+
+  const probe = spawnSync(
+    powershellExecutable,
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `${helpers[0]}
+$bytes = [byte[]](0, 1, 15, 16, 171, 255)
+ConvertTo-LowerHex $bytes`,
+    ],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
+  assert.equal(probe.status, 0, probe.stderr);
+  assert.equal(probe.stdout.trim(), "00010f10abff");
+});
+
+test("writes reviewed JSON as BOM-free UTF-8 with one trailing newline", () => {
+  const source = readFileSync(script, "utf8");
+  assert.doesNotMatch(source, /-Encoding\s+utf8NoBOM\b/iu);
+  const helper = source.match(
+    /^function Write-Utf8NoBomFile \{[\s\S]*?^\}/mu,
+  );
+  assert.ok(helper, `${script} is missing Write-Utf8NoBomFile`);
+
+  const probe = spawnSync(
+    powershellExecutable,
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `${helper[0]}
+$path = [System.IO.Path]::GetTempFileName()
+try {
+  $content = "h" + [char]0x00e9
+  Write-Utf8NoBomFile -Path $path -Content $content
+  [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($path))
+}
+finally {
+  Remove-Item -LiteralPath $path -Force
+}`,
+    ],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
+  assert.equal(probe.status, 0, probe.stderr);
+  const newline = process.platform === "win32" ? "\r\n" : "\n";
+  assert.equal(
+    Buffer.from(probe.stdout.trim(), "base64").toString("hex"),
+    Buffer.from(`h\u00e9${newline}`, "utf8").toString("hex"),
+  );
+});
 
 test("selects the exact CMake generator for each supported hosted MSVC major", () => {
   const vs2022 = selectGenerator("17.9");
@@ -71,14 +139,14 @@ test(
 
 test("keeps Windows authority digests compatible with Windows PowerShell 5", () => {
   for (const authority of [script, installer]) {
-    const source = fs.readFileSync(authority, "utf8");
+    const source = readFileSync(authority, "utf8");
     assert.doesNotMatch(source, /\[Convert\]::ToHexString/u);
     assert.match(
       source,
       /\[System\.BitConverter\]::ToString\(\$Bytes\)\.Replace\("-", ""\)/u,
     );
   }
-  const builderSource = fs.readFileSync(script, "utf8");
+  const builderSource = readFileSync(script, "utf8");
   assert.doesNotMatch(builderSource, /-Encoding utf8NoBOM/u);
   assert.match(
     builderSource,

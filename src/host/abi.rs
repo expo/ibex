@@ -993,10 +993,83 @@ struct HostContextRecord {
     host: Arc<Host>,
     claimed: bool,
     runtime_nonce: Option<u64>,
+    runtime_extension_leases: HashMap<u64, super::RuntimeExtensionLeaseGrant>,
+}
+
+impl HostContextRecord {
+    fn runtime_extension_lease_is_current(&self, lease: u64) -> bool {
+        fn visit(
+            record: &HostContextRecord,
+            lease: u64,
+            visiting: &mut std::collections::BTreeSet<u64>,
+        ) -> bool {
+            if lease == 0 || !visiting.insert(lease) || visiting.len() > 256 {
+                return false;
+            }
+            let current = record
+                .runtime_extension_leases
+                .get(&lease)
+                .is_some_and(|grant| {
+                    record.host.runtime_extension_lease_is_current(grant)
+                        && grant
+                            .presented_lease_ids
+                            .iter()
+                            .all(|presented| visit(record, *presented, visiting))
+                });
+            visiting.remove(&lease);
+            current
+        }
+
+        visit(self, lease, &mut std::collections::BTreeSet::new())
+    }
+
+    fn try_runtime_extension_lease_is_current(
+        &self,
+        lease: u64,
+    ) -> super::RuntimeExtensionLeaseStatus {
+        fn visit(
+            record: &HostContextRecord,
+            lease: u64,
+            visiting: &mut [u64; 256],
+            depth: usize,
+        ) -> super::RuntimeExtensionLeaseStatus {
+            if lease == 0 || depth >= visiting.len() || visiting[..depth].contains(&lease) {
+                return super::RuntimeExtensionLeaseStatus::Stale;
+            }
+            let Some(grant) = record.runtime_extension_leases.get(&lease) else {
+                return super::RuntimeExtensionLeaseStatus::Stale;
+            };
+            visiting[depth] = lease;
+            match record.host.try_runtime_extension_lease_is_current(grant) {
+                super::RuntimeExtensionLeaseStatus::Current => {}
+                status => return status,
+            }
+            for presented in &grant.presented_lease_ids {
+                match visit(record, *presented, visiting, depth + 1) {
+                    super::RuntimeExtensionLeaseStatus::Current => {}
+                    status => return status,
+                }
+            }
+            super::RuntimeExtensionLeaseStatus::Current
+        }
+
+        visit(self, lease, &mut [0; 256], 0)
+    }
 }
 
 static HOST_CONTEXTS: OnceLock<RwLock<HashMap<u64, HostContextRecord>>> = OnceLock::new();
 static PROCESS_IPC_BOOTSTRAP_LEASE: OnceLock<Mutex<ProcessIpcBootstrapLease>> = OnceLock::new();
+
+#[cfg(all(test, feature = "runtime-extension-conformance"))]
+pub(crate) fn with_runtime_extension_host_contexts_write_lock_for_test<R>(
+    body: impl FnOnce() -> R,
+) -> R {
+    let contexts = HOST_CONTEXTS.get_or_init(|| RwLock::new(HashMap::new()));
+    let _guard = contexts
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    body()
+}
 
 fn process_ipc_bootstrap_lease() -> &'static Mutex<ProcessIpcBootstrapLease> {
     PROCESS_IPC_BOOTSTRAP_LEASE.get_or_init(|| Mutex::new(ProcessIpcBootstrapLease::default()))
@@ -1194,6 +1267,7 @@ fn allocate_host_context(host: Arc<Host>, claimed: bool) -> u64 {
                 host: Arc::clone(&host),
                 claimed,
                 runtime_nonce: None,
+                runtime_extension_leases: HashMap::new(),
             },
         );
         return context_id;
@@ -1342,38 +1416,6 @@ pub fn install_armed_host(snapshot: &[u8], expected_json: &[u8]) -> Result<(), S
         return Err("failed to allocate an armed Host context token".into());
     }
     phase.mark("install_publish");
-    Ok(())
-}
-
-/// Install the named, closed-world Exact WebGPU Pre-1A host profile. This is
-/// not a target advertisement and cannot be selected through the canonical
-/// `ex_host_install_armed` path.
-/// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
-pub fn install_exact_experimental_webgpu_pre1a_armed_host(
-    snapshot: &[u8],
-    expected_json: &[u8],
-) -> Result<(), String> {
-    use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
-    super::reject_closed_startup_environment().map_err(|error| error.to_string())?;
-    let expected_text = std::str::from_utf8(expected_json)
-        .map_err(|error| format!("expected arming identity is not UTF-8: {error}"))?;
-    let expected_value = capsec_semantics::strict_json::parse_strict(expected_text)
-        .map_err(|error| error.to_string())?;
-    let expected: ExpectedArmingIdentity = serde_json::from_value(expected_value)
-        .map_err(|error| format!("invalid expected arming identity: {error}"))?;
-    let armed = ArmedSnapshot::load(snapshot, &expected).map_err(|error| error.to_string())?;
-    validate_dev_served_project_root_pairing(&armed)?;
-    let host = Host::new_exact_experimental_webgpu_pre1a(
-        super::HostConfig {
-            mode: super::SecurityMode::Enforce,
-            ..Default::default()
-        },
-        Arc::new(armed),
-    )
-    .map_err(|error| error.to_string())?;
-    if install_host(host) == 0 {
-        return Err("failed to allocate an armed Host context token".into());
-    }
     Ok(())
 }
 
@@ -1566,41 +1608,43 @@ pub unsafe extern "C" fn ex_host_build_exact_armed_embedder_artifacts(
         .unwrap_or(std::ptr::null_mut())
 }
 
-/// Build a complete target-local Exact artifact pair with the authenticated
-/// optional GPU provider binding and its independently protected WebGPU
-/// profile. All byte inputs are copied or consumed synchronously.
+/// Build a complete target-local Exact artifact pair with one authenticated,
+/// statically linked runtime-extension set. The authority capsule and
+/// launcher-observed loaded-executable file identity are separate strict JSON
+/// inputs (the latter retains a historical mapped-executable schema name);
+/// descriptor labels cannot authenticate their own executable.
 ///
 /// # Safety
 ///
-/// Each non-null pointer must reference its declared byte length for this call.
-/// The project-root bytes are UTF-8 and need not be NUL terminated.
-/// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam — the
-/// provider identity and profile are bound into the armed pair before runtime
-/// construction can install the optional service.
+/// Each non-null pointer must reference its declared byte length for this
+/// call. Inputs are copied or consumed synchronously and are not retained.
+/// The optional dev-project-root pair is valid only as `(NULL, 0)` or a
+/// non-empty UTF-8 byte string.
+/// @ref LLP 0040#authenticated-construction-projection
 #[no_mangle]
-pub unsafe extern "C" fn ex_host_build_exact_gpu_armed_embedder_artifacts(
+pub unsafe extern "C" fn ex_host_build_exact_runtime_extension_armed_embedder_artifacts(
     project_root_utf8: *const u8,
     project_root_utf8_len: usize,
     dev_project_root_utf8: *const u8,
     dev_project_root_utf8_len: usize,
     operation_manifest: *const u8,
     operation_manifest_len: usize,
-    gpu_provider_binding: *const u8,
-    gpu_provider_binding_len: usize,
-    webgpu_profile: *const u8,
-    webgpu_profile_len: usize,
+    authority_capsule: *const u8,
+    authority_capsule_len: usize,
+    launcher_mapped_executable: *const u8,
+    launcher_mapped_executable_len: usize,
 ) -> *mut c_char {
     let result = if project_root_utf8.is_null()
         || project_root_utf8_len == 0
         || operation_manifest.is_null()
         || operation_manifest_len == 0
-        || gpu_provider_binding.is_null()
-        || gpu_provider_binding_len == 0
-        || webgpu_profile.is_null()
-        || webgpu_profile_len == 0
+        || authority_capsule.is_null()
+        || authority_capsule_len == 0
+        || launcher_mapped_executable.is_null()
+        || launcher_mapped_executable_len == 0
     {
         Err(anyhow::anyhow!(
-            "Exact project root, operation manifest, GPU provider binding, and WebGPU profile are required"
+            "Exact project root, operation manifest, runtime-extension authority capsule, and launcher loaded-executable file identity are required"
         ))
     } else {
         let root_bytes =
@@ -1610,9 +1654,11 @@ pub unsafe extern "C" fn ex_host_build_exact_gpu_armed_embedder_artifacts(
             .map_err(|error| anyhow::anyhow!("Exact project root is not UTF-8: {error}"));
         let manifest =
             unsafe { std::slice::from_raw_parts(operation_manifest, operation_manifest_len) };
-        let binding =
-            unsafe { std::slice::from_raw_parts(gpu_provider_binding, gpu_provider_binding_len) };
-        let profile = unsafe { std::slice::from_raw_parts(webgpu_profile, webgpu_profile_len) };
+        let capsule =
+            unsafe { std::slice::from_raw_parts(authority_capsule, authority_capsule_len) };
+        let mapped_executable = unsafe {
+            std::slice::from_raw_parts(launcher_mapped_executable, launcher_mapped_executable_len)
+        };
         let dev_root = unsafe {
             optional_utf8_path(
                 dev_project_root_utf8,
@@ -1622,8 +1668,12 @@ pub unsafe extern "C" fn ex_host_build_exact_gpu_armed_embedder_artifacts(
         };
         root.and_then(|root| {
             dev_root.and_then(|dev_root| {
-                super::embedder_artifacts::build_exact_gpu_embedder_artifacts(
-                    root, dev_root, manifest, binding, profile,
+                super::embedder_artifacts::build_exact_runtime_extension_embedder_artifacts(
+                    root,
+                    dev_root,
+                    manifest,
+                    capsule,
+                    mapped_executable,
                 )
             })
         })
@@ -1637,72 +1687,90 @@ pub unsafe extern "C" fn ex_host_build_exact_gpu_armed_embedder_artifacts(
         .unwrap_or(std::ptr::null_mut())
 }
 
-/// Build the target-local artifacts for the named Exact WebGPU Pre-1A
-/// experiment. The checked registry supplies the selector set; callers cannot
-/// pass operation names, selectors, target cells, or wildcards.
+/// Finalize a generated runtime-extension authority template against a
+/// launcher-observed loaded executable before Hermes construction.
 ///
 /// # Safety
 ///
-/// Each non-null pointer must reference its declared byte length for this call.
-/// All inputs are consumed synchronously and are not retained.
+/// Both byte pointers must reference their declared lengths. All four output
+/// pointers must be non-null and are initialized to null before any fallible
+/// work. Successful outputs are independent C strings released through
+/// `ex_host_free_string`.
+/// @abi-output ex_host_finalize_runtime_extension_authority_v1 out_authority_capsule role=output kind=pointer ownership=caller-frees:ex_host_free_string
+/// @abi-output ex_host_finalize_runtime_extension_authority_v1 out_authority_capsule_digest role=output kind=pointer ownership=caller-frees:ex_host_free_string
+/// @abi-output ex_host_finalize_runtime_extension_authority_v1 out_executable_selection_identity role=output kind=pointer ownership=caller-frees:ex_host_free_string
+/// @abi-output ex_host_finalize_runtime_extension_authority_v1 out_mapped_executable role=output kind=pointer ownership=caller-frees:ex_host_free_string
 #[no_mangle]
-pub unsafe extern "C" fn ex_host_build_exact_experimental_webgpu_pre1a_armed_embedder_artifacts(
-    project_root_utf8: *const u8,
-    project_root_utf8_len: usize,
-    dev_project_root_utf8: *const u8,
-    dev_project_root_utf8_len: usize,
-    operation_manifest: *const u8,
-    operation_manifest_len: usize,
-    gpu_provider_binding: *const u8,
-    gpu_provider_binding_len: usize,
-    webgpu_profile: *const u8,
-    webgpu_profile_len: usize,
-) -> *mut c_char {
-    let result = if project_root_utf8.is_null()
-        || project_root_utf8_len == 0
-        || operation_manifest.is_null()
-        || operation_manifest_len == 0
-        || gpu_provider_binding.is_null()
-        || gpu_provider_binding_len == 0
-        || webgpu_profile.is_null()
-        || webgpu_profile_len == 0
+pub unsafe extern "C" fn ex_host_finalize_runtime_extension_authority_v1(
+    authority_template: *const u8,
+    authority_template_len: usize,
+    loaded_image_observation: *const u8,
+    loaded_image_observation_len: usize,
+    out_authority_capsule: *mut *mut c_char,
+    out_authority_capsule_digest: *mut *mut c_char,
+    out_executable_selection_identity: *mut *mut c_char,
+    out_mapped_executable: *mut *mut c_char,
+) -> i32 {
+    const INVALID_ARGUMENT: i32 = 1;
+    const AUTHENTICATION_FAILED: i32 = 5;
+    if out_authority_capsule.is_null()
+        || out_authority_capsule_digest.is_null()
+        || out_executable_selection_identity.is_null()
+        || out_mapped_executable.is_null()
     {
-        Err(anyhow::anyhow!(
-            "Exact project root, operation manifest, GPU provider binding, and WebGPU profile are required"
-        ))
-    } else {
-        let root_bytes =
-            unsafe { std::slice::from_raw_parts(project_root_utf8, project_root_utf8_len) };
-        let root = std::str::from_utf8(root_bytes)
-            .map(std::path::Path::new)
-            .map_err(|error| anyhow::anyhow!("Exact project root is not UTF-8: {error}"));
-        let manifest =
-            unsafe { std::slice::from_raw_parts(operation_manifest, operation_manifest_len) };
-        let binding =
-            unsafe { std::slice::from_raw_parts(gpu_provider_binding, gpu_provider_binding_len) };
-        let profile = unsafe { std::slice::from_raw_parts(webgpu_profile, webgpu_profile_len) };
-        let dev_root = unsafe {
-            optional_utf8_path(
-                dev_project_root_utf8,
-                dev_project_root_utf8_len,
-                "Exact dev project root",
-            )
-        };
-        root.and_then(|root| {
-            dev_root.and_then(|dev_root| {
-                super::embedder_artifacts::build_exact_experimental_webgpu_pre1a_embedder_artifacts(
-                    root, dev_root, manifest, binding, profile,
-                )
-            })
-        })
+        return INVALID_ARGUMENT;
+    }
+    unsafe {
+        *out_authority_capsule = std::ptr::null_mut();
+        *out_authority_capsule_digest = std::ptr::null_mut();
+        *out_executable_selection_identity = std::ptr::null_mut();
+        *out_mapped_executable = std::ptr::null_mut();
+    }
+    if authority_template.is_null()
+        || authority_template_len == 0
+        || loaded_image_observation.is_null()
+        || loaded_image_observation_len == 0
+    {
+        return INVALID_ARGUMENT;
+    }
+    let template =
+        unsafe { std::slice::from_raw_parts(authority_template, authority_template_len) };
+    let observation = unsafe {
+        std::slice::from_raw_parts(loaded_image_observation, loaded_image_observation_len)
     };
-    let envelope = match result {
-        Ok(artifacts) => serde_json::json!({"ok": true, "artifacts": artifacts}),
-        Err(error) => serde_json::json!({"ok": false, "error": error.to_string()}),
+    let finalized = match super::embedder_artifacts::finalize_runtime_extension_authority(
+        template,
+        observation,
+    ) {
+        Ok(finalized) => finalized,
+        Err(error) => {
+            eprintln!("Ibex runtime-extension authority finalization refused: {error:#}");
+            return AUTHENTICATION_FAILED;
+        }
     };
-    CString::new(envelope.to_string())
-        .map(CString::into_raw)
-        .unwrap_or(std::ptr::null_mut())
+    let capsule = match CString::new(finalized.authority_capsule_bytes) {
+        Ok(value) => value,
+        Err(_) => return AUTHENTICATION_FAILED,
+    };
+    let authority_digest = match CString::new(finalized.authority_capsule_digest) {
+        Ok(value) => value,
+        Err(_) => return AUTHENTICATION_FAILED,
+    };
+    let selection_identity = match CString::new(finalized.executable_selection_identity) {
+        Ok(value) => value,
+        Err(_) => return AUTHENTICATION_FAILED,
+    };
+    let mapped_executable = match CString::new(finalized.mapped_executable_bytes) {
+        Ok(value) => value,
+        Err(_) => return AUTHENTICATION_FAILED,
+    };
+    unsafe {
+        *out_authority_capsule = capsule.into_raw();
+        *out_authority_capsule_digest = authority_digest.into_raw();
+        *out_executable_selection_identity = selection_identity.into_raw();
+        *out_mapped_executable = mapped_executable.into_raw();
+    }
+    0
 }
 
 unsafe fn optional_utf8_path<'a>(
@@ -1872,13 +1940,25 @@ pub(crate) fn authenticate_prepared_module_record(
     )
 }
 
-fn claim_pending_host_context(require_armed_digest: Option<&str>) -> u64 {
+#[derive(Clone, Copy)]
+enum RuntimeExtensionAuthorityClaim<'a> {
+    Ignore,
+    RequireEmpty,
+    RequireExact(&'a str),
+}
+
+fn claim_pending_host_context(
+    require_armed_digest: Option<&str>,
+    extension_claim: RuntimeExtensionAuthorityClaim<'_>,
+) -> u64 {
     let context_id = PENDING_HOST_CONTEXT.with(|pending| pending.0.get());
     if context_id == 0 {
         // Diagnostic construction is explicit and may be used without an
         // embedder-installed Host. Its fallback is a fresh audit context;
         // armed construction never has a fallback.
-        return if require_armed_digest.is_none() {
+        return if require_armed_digest.is_none()
+            && matches!(extension_claim, RuntimeExtensionAuthorityClaim::Ignore)
+        {
             insert_host_context(
                 Arc::new(Host::new(super::HostConfig {
                     mode: super::SecurityMode::Audit,
@@ -1911,6 +1991,19 @@ fn claim_pending_host_context(require_armed_digest: Option<&str>) -> u64 {
         None => context.host.armed_snapshot().is_none(),
     };
     if !kind_matches {
+        return 0;
+    }
+    let extension_matches = match extension_claim {
+        RuntimeExtensionAuthorityClaim::Ignore => true,
+        RuntimeExtensionAuthorityClaim::RequireEmpty => context
+            .host
+            .armed_snapshot()
+            .is_some_and(|snapshot| snapshot.runtime_extension_authority().is_none()),
+        RuntimeExtensionAuthorityClaim::RequireExact(authority_digest) => context
+            .host
+            .matches_runtime_extension_authority_digest(authority_digest),
+    };
+    if !extension_matches {
         return 0;
     }
     context.claimed = true;
@@ -2071,13 +2164,45 @@ pub unsafe extern "C" fn ex_host_claim_armed_context(digest: *const c_char) -> u
     if digest.is_null() {
         return 0;
     }
-    let digest = unsafe { CStr::from_ptr(digest) }.to_string_lossy();
-    claim_pending_host_context(Some(&digest))
+    let Ok(digest) = unsafe { CStr::from_ptr(digest) }.to_str() else {
+        return 0;
+    };
+    claim_pending_host_context(Some(digest), RuntimeExtensionAuthorityClaim::RequireEmpty)
+}
+
+/// Claim an armed Host while binding the engine construction to the exact
+/// runtime-extension authority capsule. A null `authority_digest` means the
+/// canonical empty projection; it never matches a non-empty capsule.
+///
+/// # Safety
+///
+/// Non-null pointers must address readable NUL-terminated UTF-8 strings for
+/// the duration of this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_claim_armed_context_with_runtime_extensions(
+    snapshot_digest: *const c_char,
+    authority_digest: *const c_char,
+) -> u64 {
+    if snapshot_digest.is_null() {
+        return 0;
+    }
+    let Ok(snapshot_digest) = unsafe { CStr::from_ptr(snapshot_digest) }.to_str() else {
+        return 0;
+    };
+    let extension_claim = if authority_digest.is_null() {
+        RuntimeExtensionAuthorityClaim::RequireEmpty
+    } else {
+        let Ok(authority_digest) = unsafe { CStr::from_ptr(authority_digest) }.to_str() else {
+            return 0;
+        };
+        RuntimeExtensionAuthorityClaim::RequireExact(authority_digest)
+    };
+    claim_pending_host_context(Some(snapshot_digest), extension_claim)
 }
 
 #[no_mangle]
 pub extern "C" fn ex_host_claim_diagnostic_context() -> u64 {
-    claim_pending_host_context(None)
+    claim_pending_host_context(None, RuntimeExtensionAuthorityClaim::Ignore)
 }
 
 #[no_mangle]
@@ -2104,7 +2229,6 @@ pub extern "C" fn ex_host_restore_context(previous: u64) {
 
 #[no_mangle]
 pub extern "C" fn ex_host_release_context(context_id: u64) {
-    super::gpu_authority::purge_context(context_id);
     let mut removed_sessions = Vec::new();
     if let Some(sessions) = RUNTIME_VFS_SESSIONS.get() {
         let mut sessions = match sessions.write() {
@@ -4291,751 +4415,6 @@ pub unsafe extern "C" fn ex_host_authorize_exact_endowment(
     }) as i32
 }
 
-fn digest_from_raw_sha256(bytes: *const u8) -> Option<capsec_semantics::model::Digest> {
-    if bytes.is_null() {
-        return None;
-    }
-    let bytes = unsafe { std::slice::from_raw_parts(bytes, 32) };
-    let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
-    capsec_semantics::model::Digest::new(format!("sha256-{encoded}")).ok()
-}
-
-/// Authenticate one complete optional Exact GPU service descriptor against the
-/// runtime-scoped armed snapshot. All pointer data is borrowed for this call.
-/// No service state has been retained when this function runs.
-///
-/// # Safety
-///
-/// Non-null digest pointers address exactly 32 readable bytes, `profile_id`
-/// addresses `profile_id_len` bytes, and `operation_ids` addresses
-/// `operation_count` readable `u32` values.
-#[no_mangle]
-#[allow(clippy::too_many_arguments)]
-pub unsafe extern "C" fn ex_host_authorize_exact_gpu_provider(
-    context_id: u64,
-    abi_version: u32,
-    profile_id: *const u8,
-    profile_id_len: usize,
-    profile_digest: *const u8,
-    webgpu_c_vocabulary_digest: *const u8,
-    operation_set_digest: *const u8,
-    semantic_program_digest: *const u8,
-    operation_ids: *const u32,
-    operation_count: usize,
-    topology_id: u32,
-) -> i32 {
-    if context_id == 0
-        || profile_id.is_null()
-        || profile_id_len == 0
-        || profile_id_len > 256
-        || operation_ids.is_null()
-        || operation_count == 0
-        || operation_count > 4096
-    {
-        return 0;
-    }
-    let Ok(profile_id) =
-        std::str::from_utf8(unsafe { std::slice::from_raw_parts(profile_id, profile_id_len) })
-    else {
-        return 0;
-    };
-    let Some(profile_digest) = digest_from_raw_sha256(profile_digest) else {
-        return 0;
-    };
-    let Some(webgpu_c_vocabulary_digest) = digest_from_raw_sha256(webgpu_c_vocabulary_digest)
-    else {
-        return 0;
-    };
-    let Some(operation_set_digest) = digest_from_raw_sha256(operation_set_digest) else {
-        return 0;
-    };
-    let Some(semantic_program_digest) = digest_from_raw_sha256(semantic_program_digest) else {
-        return 0;
-    };
-    let operations = unsafe { std::slice::from_raw_parts(operation_ids, operation_count) };
-    let host = HOST_CONTEXTS.get().and_then(|contexts| {
-        contexts.read().ok().and_then(|contexts| {
-            contexts
-                .get(&context_id)
-                .filter(|record| record.claimed)
-                .map(|record| Arc::clone(&record.host))
-        })
-    });
-    host.is_some_and(|host| {
-        host.authorizes_exact_gpu_provider(
-            abi_version,
-            profile_id,
-            &profile_digest,
-            &webgpu_c_vocabulary_digest,
-            &operation_set_digest,
-            &semantic_program_digest,
-            None,
-            operations,
-            topology_id,
-        )
-    }) as i32
-}
-
-#[doc(hidden)]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn exact_gpu_provider_authority_digest_v2(
-    abi_version: u32,
-    profile_id: &str,
-    profile_digest: &capsec_semantics::model::Digest,
-    webgpu_c_vocabulary_digest: &capsec_semantics::model::Digest,
-    operation_set_digest: &capsec_semantics::model::Digest,
-    semantic_program_digest: &capsec_semantics::model::Digest,
-    runtime_routing_digest: &capsec_semantics::model::Digest,
-    operations: &[u32],
-    topology_id: u32,
-) -> [u8; 32] {
-    use sha2::{Digest as _, Sha256};
-    let mut digest = Sha256::new();
-    digest.update(b"ibex:exact-gpu-provider-authority:v2\0");
-    let mut field = |label: &[u8], bytes: &[u8]| {
-        digest.update((label.len() as u64).to_le_bytes());
-        digest.update(label);
-        digest.update((bytes.len() as u64).to_le_bytes());
-        digest.update(bytes);
-    };
-    field(b"abi-version", &abi_version.to_le_bytes());
-    field(b"profile-id", profile_id.as_bytes());
-    field(b"profile-digest", profile_digest.as_str().as_bytes());
-    field(
-        b"webgpu-c-vocabulary-digest",
-        webgpu_c_vocabulary_digest.as_str().as_bytes(),
-    );
-    field(
-        b"operation-set-digest",
-        operation_set_digest.as_str().as_bytes(),
-    );
-    field(
-        b"semantic-program-digest",
-        semantic_program_digest.as_str().as_bytes(),
-    );
-    field(
-        b"runtime-routing-digest",
-        runtime_routing_digest.as_str().as_bytes(),
-    );
-    let mut operation_bytes = Vec::with_capacity(operations.len() * 4);
-    for operation in operations {
-        operation_bytes.extend_from_slice(&operation.to_le_bytes());
-    }
-    field(b"sorted-operation-ids", &operation_bytes);
-    field(b"topology-id", &topology_id.to_le_bytes());
-    drop(field);
-    digest.finalize().into()
-}
-
-/// Authenticate the additive GPU ABI V2 descriptor, including the independent
-/// domain-separated operation-to-runtime routing plan digest. Keeping this a
-/// distinct symbol prevents the V1 call shape from silently treating a newly
-/// appended digest as prefix-compatible authority.
-///
-/// # Safety
-///
-/// The pointer and length requirements are the V1 requirements above, plus
-/// `runtime_routing_digest` addressing exactly 32 readable bytes and
-/// `out_authority_digest` addressing exactly 32 writable bytes.
-#[no_mangle]
-#[allow(clippy::too_many_arguments)]
-pub unsafe extern "C" fn ex_host_authorize_exact_gpu_provider_v2(
-    context_id: u64,
-    abi_version: u32,
-    profile_id: *const u8,
-    profile_id_len: usize,
-    profile_digest: *const u8,
-    webgpu_c_vocabulary_digest: *const u8,
-    operation_set_digest: *const u8,
-    semantic_program_digest: *const u8,
-    runtime_routing_digest: *const u8,
-    operation_ids: *const u32,
-    operation_count: usize,
-    topology_id: u32,
-    out_authority_digest: *mut u8,
-) -> i32 {
-    if abi_version != 0x0002_0000
-        || context_id == 0
-        || profile_id.is_null()
-        || profile_id_len == 0
-        || profile_id_len > 256
-        || operation_ids.is_null()
-        || operation_count == 0
-        || operation_count > 4096
-        || out_authority_digest.is_null()
-    {
-        return 0;
-    }
-    let Ok(profile_id) =
-        std::str::from_utf8(unsafe { std::slice::from_raw_parts(profile_id, profile_id_len) })
-    else {
-        return 0;
-    };
-    let Some(profile_digest) = digest_from_raw_sha256(profile_digest) else {
-        return 0;
-    };
-    let Some(webgpu_c_vocabulary_digest) = digest_from_raw_sha256(webgpu_c_vocabulary_digest)
-    else {
-        return 0;
-    };
-    let Some(operation_set_digest) = digest_from_raw_sha256(operation_set_digest) else {
-        return 0;
-    };
-    let Some(semantic_program_digest) = digest_from_raw_sha256(semantic_program_digest) else {
-        return 0;
-    };
-    let Some(runtime_routing_digest) = digest_from_raw_sha256(runtime_routing_digest) else {
-        return 0;
-    };
-    let operations = unsafe { std::slice::from_raw_parts(operation_ids, operation_count) };
-    let host = HOST_CONTEXTS.get().and_then(|contexts| {
-        contexts.read().ok().and_then(|contexts| {
-            contexts
-                .get(&context_id)
-                .filter(|record| record.claimed)
-                .map(|record| Arc::clone(&record.host))
-        })
-    });
-    let authorized = host.is_some_and(|host| {
-        host.authorizes_exact_gpu_provider(
-            abi_version,
-            profile_id,
-            &profile_digest,
-            &webgpu_c_vocabulary_digest,
-            &operation_set_digest,
-            &semantic_program_digest,
-            Some(&runtime_routing_digest),
-            operations,
-            topology_id,
-        )
-    });
-    if !authorized {
-        return 0;
-    }
-
-    let digest = exact_gpu_provider_authority_digest_v2(
-        abi_version,
-        profile_id,
-        &profile_digest,
-        &webgpu_c_vocabulary_digest,
-        &operation_set_digest,
-        &semantic_program_digest,
-        &runtime_routing_digest,
-        operations,
-        topology_id,
-    );
-    unsafe { std::ptr::copy_nonoverlapping(digest.as_ptr(), out_authority_digest, digest.len()) };
-    1
-}
-
-// Selects which generation-fenced authority tuple the shared capture helper
-// authenticates and reserves.
-enum ExactGpuAuthorityCaptureDestinationV2 {
-    Operation,
-    Presentation,
-    PresentationRecheck {
-        retained: super::gpu_authority::CapturedPresentationAuthorityV2,
-        retained_authority_context_digest: [u8; 32],
-    },
-}
-
-unsafe fn capture_exact_gpu_authority_context_v2_inner(
-    context_id: u64,
-    runtime_address: u64,
-    runtime_nonce: u64,
-    context_kind: u32,
-    actor_principal: u64,
-    effect_owner_principal: u64,
-    scheduler_principal: u64,
-    has_scheduler_principal: u32,
-    principals: *const u64,
-    principal_count: usize,
-    facts: *const super::gpu_authority::ExactGpuAuthoritySessionFactsV2,
-    out_digest: *mut u8,
-    out_authority_session_id: *mut u64,
-    out_present_authority_session_id: *mut u64,
-    destination: ExactGpuAuthorityCaptureDestinationV2,
-) -> i32 {
-    if !out_authority_session_id.is_null() {
-        unsafe { *out_authority_session_id = 0 };
-    }
-    if !out_present_authority_session_id.is_null() {
-        unsafe { *out_present_authority_session_id = 0 };
-    }
-    let output_shape_is_valid = match &destination {
-        ExactGpuAuthorityCaptureDestinationV2::Operation => {
-            !out_authority_session_id.is_null() && out_present_authority_session_id.is_null()
-        }
-        ExactGpuAuthorityCaptureDestinationV2::Presentation => {
-            !out_authority_session_id.is_null() && !out_present_authority_session_id.is_null()
-        }
-        ExactGpuAuthorityCaptureDestinationV2::PresentationRecheck { .. } => {
-            out_authority_session_id.is_null() && out_present_authority_session_id.is_null()
-        }
-    };
-    let capture_failure_status = if matches!(
-        &destination,
-        ExactGpuAuthorityCaptureDestinationV2::PresentationRecheck { .. }
-    ) {
-        super::gpu_authority::GPU_AUTHORITY_INVALID
-    } else {
-        super::gpu_authority::GPU_AUTHORITY_DENIED
-    };
-    if context_id == 0
-        || runtime_address == 0
-        || runtime_nonce == 0
-        || !matches!(context_kind, 1 | 2)
-        || !matches!(has_scheduler_principal, 0 | 1)
-        || principals.is_null()
-        || principal_count == 0
-        || principal_count > 257
-        || facts.is_null()
-        || out_digest.is_null()
-        || !output_shape_is_valid
-    {
-        return capture_failure_status;
-    }
-    let facts = unsafe { *facts };
-    if facts.struct_size
-        != std::mem::size_of::<super::gpu_authority::ExactGpuAuthoritySessionFactsV2>() as u32
-        || facts.abi_version != 0x0002_0000
-        || facts.authority_session_id != 0
-        || facts.operation_id == 0
-        || facts.topology_id != 1
-        || facts.realm.runtime.runtime_address != runtime_address
-        || facts.realm.runtime.runtime_nonce != runtime_nonce
-        || facts.authority_context_digest != [0; 32]
-    {
-        return capture_failure_status;
-    }
-    let principals = unsafe { std::slice::from_raw_parts(principals, principal_count) };
-    // Principal 0 is the authenticated application-root projection in Ibex,
-    // not an absence sentinel. Every numeric value, including 0, is resolved
-    // against this armed Host below; unknown values and both engine sentinels
-    // therefore fail closed. Duplicate values would make the stack encoding
-    // non-canonical and are rejected as well.
-    const RUNTIME_PRINCIPAL: u64 = u32::MAX as u64;
-    const NO_USER_PRINCIPAL: u64 = (u32::MAX - 1) as u64;
-    if actor_principal > u32::MAX as u64
-        || effect_owner_principal > u32::MAX as u64
-        || scheduler_principal > u32::MAX as u64
-        || matches!(actor_principal, RUNTIME_PRINCIPAL | NO_USER_PRINCIPAL)
-        || matches!(
-            effect_owner_principal,
-            RUNTIME_PRINCIPAL | NO_USER_PRINCIPAL
-        )
-        || (has_scheduler_principal == 0 && scheduler_principal != 0)
-        || (has_scheduler_principal == 1
-            && matches!(scheduler_principal, RUNTIME_PRINCIPAL | NO_USER_PRINCIPAL))
-        || principals[0] != actor_principal
-        || effect_owner_principal != actor_principal
-        || !principals.contains(&actor_principal)
-        || (has_scheduler_principal == 1 && !principals.contains(&scheduler_principal))
-        || principals.iter().any(|principal| {
-            *principal > u32::MAX as u64
-                || matches!(*principal, RUNTIME_PRINCIPAL | NO_USER_PRINCIPAL)
-        })
-        || principals
-            .iter()
-            .enumerate()
-            .any(|(index, principal)| principals[..index].contains(principal))
-    {
-        return capture_failure_status;
-    }
-    let host = HOST_CONTEXTS.get().and_then(|contexts| {
-        contexts.read().ok().and_then(|contexts| {
-            contexts
-                .get(&context_id)
-                .filter(|record| record.claimed)
-                .map(|record| Arc::clone(&record.host))
-        })
-    });
-    let Some(host) = host else {
-        return capture_failure_status;
-    };
-    let Some(snapshot) = host.armed_snapshot() else {
-        // Diagnostic/allow-all contexts cannot satisfy V2 provenance.
-        return capture_failure_status;
-    };
-    let Some(generations) = host.typed_generations() else {
-        return capture_failure_status;
-    };
-    let Some(actor) = host.typed_principal_for_module(&actor_principal.to_string()) else {
-        return capture_failure_status;
-    };
-    let Some(effect_owner) = host.typed_principal_for_module(&effect_owner_principal.to_string())
-    else {
-        return capture_failure_status;
-    };
-    let scheduler = if has_scheduler_principal == 1 {
-        let Some(scheduler) = host.typed_principal_for_module(&scheduler_principal.to_string())
-        else {
-            return capture_failure_status;
-        };
-        Some(scheduler)
-    } else {
-        None
-    };
-    let Some(constrained_principals) = principals
-        .iter()
-        .map(|principal| host.typed_principal_for_module(&principal.to_string()))
-        .collect::<Option<Vec<_>>>()
-        .and_then(|principals| {
-            capsec_semantics::model::canonicalize_principal_set(principals).ok()
-        })
-    else {
-        return capture_failure_status;
-    };
-
-    use sha2::{Digest as _, Sha256};
-    let mut digest = Sha256::new();
-    digest.update(b"ibex:exact-gpu-caller-attribution:ordered-stack:v2\0");
-    let snapshot_digest = snapshot.digest().as_str().as_bytes();
-    digest.update((snapshot_digest.len() as u64).to_le_bytes());
-    digest.update(snapshot_digest);
-    digest.update(context_id.to_le_bytes());
-    digest.update(runtime_address.to_le_bytes());
-    digest.update(runtime_nonce.to_le_bytes());
-    digest.update(context_kind.to_le_bytes());
-    digest.update(facts.operation_id.to_le_bytes());
-    digest.update(facts.topology_id.to_le_bytes());
-    digest.update(b"actor\0");
-    digest.update(actor_principal.to_le_bytes());
-    digest.update(b"caller-effect-owner\0");
-    digest.update(effect_owner_principal.to_le_bytes());
-    digest.update(b"scheduler\0");
-    digest.update(has_scheduler_principal.to_le_bytes());
-    digest.update(scheduler_principal.to_le_bytes());
-    digest.update(b"constrained-principals-innermost-first\0");
-    digest.update((principal_count as u64).to_le_bytes());
-    for principal in principals {
-        digest.update(principal.to_le_bytes());
-    }
-    digest.update(snapshot.generations().policy.get().to_le_bytes());
-    digest.update(generations.negative.get().to_le_bytes());
-    digest.update(generations.dynamic.get().to_le_bytes());
-    digest.update(generations.handle.get().to_le_bytes());
-    let digest: [u8; 32] = digest.finalize().into();
-    let carrier_facts = super::gpu_authority::GpuAuthorityCarrierFacts {
-        operation_id: facts.operation_id,
-        topology_id: facts.topology_id,
-        realm: facts.realm,
-        account: facts.account,
-        ingress_device: facts.ingress_device,
-        provider_generation: facts.provider_generation,
-        operation_instance_id: facts.operation_instance_id,
-        promise_id: facts.promise_id,
-        captured_scope_id: facts.captured_scope_id,
-        adapter_ordinal: facts.adapter_ordinal,
-        device_ingress_ordinal: facts.device_ingress_ordinal,
-        queue_ingress_ordinal: facts.queue_ingress_ordinal,
-        authority_context_digest: digest,
-        receiver: facts.receiver,
-        target: facts.target,
-    };
-    let attribution = super::gpu_authority::GpuAuthorityAttribution {
-        context_kind,
-        actor,
-        effect_owner,
-        scheduler,
-        constrained_principals,
-        policy_generation: snapshot.generations().policy.get(),
-        negative_generation: generations.negative.get(),
-        dynamic_generation: generations.dynamic.get(),
-        handle_generation: generations.handle.get(),
-    };
-    let captured = match destination {
-        ExactGpuAuthorityCaptureDestinationV2::Operation => {
-            let Some(authority_session_id) = super::gpu_authority::capture_session(
-                context_id,
-                Arc::clone(&host),
-                attribution,
-                carrier_facts,
-            ) else {
-                return capture_failure_status;
-            };
-            Some((authority_session_id, None))
-        }
-        ExactGpuAuthorityCaptureDestinationV2::Presentation => {
-            let Some(presentation) = super::gpu_authority::capture_presentation_authority(
-                context_id,
-                Arc::clone(&host),
-                attribution,
-                carrier_facts,
-            ) else {
-                return capture_failure_status;
-            };
-            Some((
-                presentation.acquire_session_id,
-                Some(presentation.present_session_id),
-            ))
-        }
-        ExactGpuAuthorityCaptureDestinationV2::PresentationRecheck {
-            retained,
-            retained_authority_context_digest,
-        } => {
-            let status = super::gpu_authority::recheck_presentation_acquire_entry(
-                context_id,
-                Arc::clone(&host),
-                attribution,
-                carrier_facts,
-                retained,
-                retained_authority_context_digest,
-            );
-            if status != super::gpu_authority::GPU_AUTHORITY_ALLOWED {
-                return status;
-            }
-            None
-        }
-    };
-    unsafe { std::ptr::copy_nonoverlapping(digest.as_ptr(), out_digest, digest.len()) };
-    if let Some((authority_session_id, present_authority_session_id)) = captured {
-        unsafe { *out_authority_session_id = authority_session_id };
-        if let Some(present_authority_session_id) = present_authority_session_id {
-            unsafe { *out_present_authority_session_id = present_authority_session_id };
-        }
-    }
-    1
-}
-
-/// Capture one operation's generation-fenced caller attribution.
-///
-/// The returned digest is provenance, not a positive WebGPU authority
-/// decision. The semantic service must still authorize the selected effects,
-/// stages, targets, and handle lineage before provider admission.
-///
-/// # Safety
-///
-/// `principals` must address `principal_count` readable `u64` values, `facts`
-/// must address one readable `ExactGpuAuthoritySessionFactsV2`, `out_digest`
-/// must address 32 writable bytes, and `out_authority_session_id` must address
-/// one writable `u64`.
-#[no_mangle]
-#[allow(clippy::too_many_arguments)]
-pub unsafe extern "C" fn ex_host_capture_exact_gpu_authority_context_v2(
-    context_id: u64,
-    runtime_address: u64,
-    runtime_nonce: u64,
-    context_kind: u32,
-    actor_principal: u64,
-    effect_owner_principal: u64,
-    scheduler_principal: u64,
-    has_scheduler_principal: u32,
-    principals: *const u64,
-    principal_count: usize,
-    facts: *const super::gpu_authority::ExactGpuAuthoritySessionFactsV2,
-    out_digest: *mut u8,
-    out_authority_session_id: *mut u64,
-) -> i32 {
-    unsafe {
-        capture_exact_gpu_authority_context_v2_inner(
-            context_id,
-            runtime_address,
-            runtime_nonce,
-            context_kind,
-            actor_principal,
-            effect_owner_principal,
-            scheduler_principal,
-            has_scheduler_principal,
-            principals,
-            principal_count,
-            facts,
-            out_digest,
-            out_authority_session_id,
-            std::ptr::null_mut(),
-            ExactGpuAuthorityCaptureDestinationV2::Operation,
-        )
-    }
-}
-
-/// Capture the paired acquire/present authority reserved for one presentation.
-///
-/// # Safety
-///
-/// `principals` must address `principal_count` readable `u64` values, `facts`
-/// must address one readable `ExactGpuAuthoritySessionFactsV2`, `out_digest`
-/// must address 32 writable bytes, and both authority-session outputs must
-/// each address one writable `u64`.
-#[no_mangle]
-#[allow(clippy::too_many_arguments)]
-pub unsafe extern "C" fn ex_host_capture_exact_gpu_presentation_authority_v2(
-    context_id: u64,
-    runtime_address: u64,
-    runtime_nonce: u64,
-    context_kind: u32,
-    actor_principal: u64,
-    effect_owner_principal: u64,
-    scheduler_principal: u64,
-    has_scheduler_principal: u32,
-    principals: *const u64,
-    principal_count: usize,
-    facts: *const super::gpu_authority::ExactGpuAuthoritySessionFactsV2,
-    out_digest: *mut u8,
-    out_acquire_authority_session_id: *mut u64,
-    out_present_authority_session_id: *mut u64,
-) -> i32 {
-    unsafe {
-        capture_exact_gpu_authority_context_v2_inner(
-            context_id,
-            runtime_address,
-            runtime_nonce,
-            context_kind,
-            actor_principal,
-            effect_owner_principal,
-            scheduler_principal,
-            has_scheduler_principal,
-            principals,
-            principal_count,
-            facts,
-            out_digest,
-            out_acquire_authority_session_id,
-            out_present_authority_session_id,
-            ExactGpuAuthorityCaptureDestinationV2::Presentation,
-        )
-    }
-}
-
-/// Recheck a retained presentation pair against current attribution.
-///
-/// # Safety
-///
-/// `principals` must address `principal_count` readable `u64` values, `facts`
-/// must address one readable `ExactGpuAuthoritySessionFactsV2`,
-/// `retained_authority_context_digest` must address 32 readable bytes, and
-/// `out_recheck_digest` must address 32 writable bytes.
-#[no_mangle]
-#[allow(clippy::too_many_arguments)]
-pub unsafe extern "C" fn ex_host_recheck_exact_gpu_presentation_authority_v2(
-    context_id: u64,
-    runtime_address: u64,
-    runtime_nonce: u64,
-    context_kind: u32,
-    actor_principal: u64,
-    effect_owner_principal: u64,
-    scheduler_principal: u64,
-    has_scheduler_principal: u32,
-    principals: *const u64,
-    principal_count: usize,
-    facts: *const super::gpu_authority::ExactGpuAuthoritySessionFactsV2,
-    retained_acquire_authority_session_id: u64,
-    retained_present_authority_session_id: u64,
-    retained_authority_context_digest: *const u8,
-    out_recheck_digest: *mut u8,
-) -> i32 {
-    if retained_acquire_authority_session_id == 0
-        || retained_present_authority_session_id == 0
-        || retained_acquire_authority_session_id == retained_present_authority_session_id
-        || retained_authority_context_digest.is_null()
-    {
-        return super::gpu_authority::GPU_AUTHORITY_INVALID;
-    }
-    let mut digest = [0u8; 32];
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            retained_authority_context_digest,
-            digest.as_mut_ptr(),
-            digest.len(),
-        );
-    }
-    if digest == [0; 32] {
-        return super::gpu_authority::GPU_AUTHORITY_INVALID;
-    }
-    unsafe {
-        capture_exact_gpu_authority_context_v2_inner(
-            context_id,
-            runtime_address,
-            runtime_nonce,
-            context_kind,
-            actor_principal,
-            effect_owner_principal,
-            scheduler_principal,
-            has_scheduler_principal,
-            principals,
-            principal_count,
-            facts,
-            out_recheck_digest,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            ExactGpuAuthorityCaptureDestinationV2::PresentationRecheck {
-                retained: super::gpu_authority::CapturedPresentationAuthorityV2 {
-                    acquire_session_id: retained_acquire_authority_session_id,
-                    present_session_id: retained_present_authority_session_id,
-                },
-                retained_authority_context_digest: digest,
-            },
-        )
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn ex_host_exact_gpu_authority_session_requested_v2(
-    context_id: u64,
-    authority_session_id: u64,
-) -> i32 {
-    i32::from(super::gpu_authority::requested_or_later(
-        context_id,
-        authority_session_id,
-    ))
-}
-
-/// Returns a borrowed pointer to an immutable process-lifetime table. The
-/// caller must neither mutate nor release it.
-#[no_mangle]
-pub extern "C" fn ex_host_exact_gpu_authority_session_api_v2(
-) -> *const super::gpu_authority::ExactGpuAuthoritySessionApiV2 {
-    let api: &'static super::gpu_authority::ExactGpuAuthoritySessionApiV2 =
-        super::gpu_authority::authority_session_api_v2();
-    std::ptr::from_ref(api)
-}
-
-#[no_mangle]
-pub extern "C" fn ex_host_force_retire_exact_gpu_authority_session_v2(
-    context_id: u64,
-    authority_session_id: u64,
-) -> i32 {
-    i32::from(super::gpu_authority::force_retire(
-        context_id,
-        authority_session_id,
-    ))
-}
-
-/// Retire an exact retained presentation authority pair.
-///
-/// # Safety
-///
-/// `authority_context_digest` must address exactly 32 readable bytes.
-#[no_mangle]
-pub unsafe extern "C" fn ex_host_retire_exact_gpu_presentation_authority_v2(
-    context_id: u64,
-    acquire_authority_session_id: u64,
-    present_authority_session_id: u64,
-    authority_context_digest: *const u8,
-) -> i32 {
-    if context_id == 0
-        || acquire_authority_session_id == 0
-        || present_authority_session_id == 0
-        || acquire_authority_session_id == present_authority_session_id
-        || authority_context_digest.is_null()
-    {
-        return super::gpu_authority::GPU_AUTHORITY_INVALID;
-    }
-    let mut digest = [0u8; 32];
-    unsafe {
-        std::ptr::copy_nonoverlapping(authority_context_digest, digest.as_mut_ptr(), digest.len());
-    }
-    if digest == [0; 32] {
-        return super::gpu_authority::GPU_AUTHORITY_INVALID;
-    }
-    super::gpu_authority::retire_presentation_authority(
-        context_id,
-        super::gpu_authority::CapturedPresentationAuthorityV2 {
-            acquire_session_id: acquire_authority_session_id,
-            present_session_id: present_authority_session_id,
-        },
-        digest,
-    )
-}
-
 /// Verify that an explicit construction transaction installed exactly the
 /// capability roles named by its runtime-scoped armed snapshot.
 #[no_mangle]
@@ -5895,35 +5274,6 @@ pub unsafe extern "C" fn ex_host_install_armed(
     }
 }
 
-/// Opt into the named Exact WebGPU Pre-1A private-cell profile. This call is
-/// synchronous, must run on the same creating thread as the subsequent armed
-/// Hermes constructor, and accepts no selector or target-cell input.
-///
-/// # Safety
-///
-/// Each pointer must reference its declared byte length for this call. Inputs
-/// are copied before return.
-#[no_mangle]
-pub unsafe extern "C" fn ex_host_install_armed_experimental_webgpu_pre1a(
-    snapshot: *const u8,
-    snapshot_len: usize,
-    expected_identity: *const u8,
-    expected_identity_len: usize,
-) -> i32 {
-    if snapshot.is_null() || expected_identity.is_null() {
-        return -1;
-    }
-    let snapshot = unsafe { std::slice::from_raw_parts(snapshot, snapshot_len) };
-    let expected = unsafe { std::slice::from_raw_parts(expected_identity, expected_identity_len) };
-    match install_exact_experimental_webgpu_pre1a_armed_host(snapshot, expected) {
-        Ok(()) => 0,
-        Err(error) => {
-            eprintln!("error: refusing experimental WebGPU Pre-1A host arming: {error}");
-            -1
-        }
-    }
-}
-
 /// Engine/host handshake: exact digest equality proves the runtime being
 /// created is attached to the decision context the caller authenticated.
 ///
@@ -5947,6 +5297,483 @@ pub unsafe extern "C" fn ex_host_matches_armed_snapshot_digest(digest: *const c_
         },
         0,
     )
+}
+
+/// Return 1 only when `context_id` names the claimed Host whose authenticated
+/// runtime-extension capsule has exactly `digest`.
+///
+/// # Safety
+///
+/// `digest` must address a readable NUL-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_matches_runtime_extension_authority_digest(
+    context_id: u64,
+    digest: *const c_char,
+) -> i32 {
+    if context_id == 0 || digest.is_null() {
+        return 0;
+    }
+    let Ok(digest) = unsafe { CStr::from_ptr(digest) }.to_str() else {
+        return 0;
+    };
+    HOST_CONTEXTS
+        .get()
+        .and_then(|contexts| contexts.read().ok())
+        .and_then(|contexts| {
+            contexts
+                .get(&context_id)
+                .filter(|record| record.claimed)
+                .map(|record| {
+                    i32::from(
+                        record
+                            .host
+                            .matches_runtime_extension_authority_digest(digest),
+                    )
+                })
+        })
+        .unwrap_or(0)
+}
+
+/// Hash one copied runtime-extension bootstrap payload and return 1 only when
+/// its bytes exactly match the canonical textual SHA-256 digest. This is a
+/// context-free structural integrity check; authority still comes from a
+/// claimed armed Host and an exactly matching registry projection.
+///
+/// # Safety
+///
+/// `bytes` must address `len` readable bytes and `digest` must address a
+/// readable NUL-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_runtime_extension_bootstrap_digest_matches_v1(
+    bytes: *const u8,
+    len: usize,
+    digest: *const c_char,
+) -> i32 {
+    const MAX_RUNTIME_EXTENSION_BOOTSTRAP_BYTES: usize = 64 * 1024 * 1024;
+    if bytes.is_null()
+        || digest.is_null()
+        || len == 0
+        || len > MAX_RUNTIME_EXTENSION_BOOTSTRAP_BYTES
+    {
+        return 0;
+    }
+    let Ok(expected) = unsafe { CStr::from_ptr(digest) }.to_str() else {
+        return 0;
+    };
+    let Ok(expected) = capsec_semantics::model::Digest::new(expected) else {
+        return 0;
+    };
+    let payload = unsafe { std::slice::from_raw_parts(bytes, len) };
+    use sha2::{Digest as _, Sha256};
+    let observed = format!(
+        "sha256-{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(payload))
+    );
+    i32::from(observed == expected.as_str())
+}
+
+/// Return 1 only when a strict data-only projection of the structurally
+/// validated native registry exactly matches the authenticated capsule.
+///
+/// # Safety
+///
+/// `projection_json` must address a readable NUL-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_matches_runtime_extension_registry_projection_v1(
+    context_id: u64,
+    projection_json: *const c_char,
+) -> i32 {
+    const MAX_REGISTRY_PROJECTION_BYTES: usize = 4 * 1024 * 1024;
+    if context_id == 0 || projection_json.is_null() {
+        return 0;
+    }
+    let Ok(projection_json) = unsafe { CStr::from_ptr(projection_json) }.to_str() else {
+        return 0;
+    };
+    if projection_json.is_empty() || projection_json.len() > MAX_REGISTRY_PROJECTION_BYTES {
+        return 0;
+    }
+    HOST_CONTEXTS
+        .get()
+        .and_then(|contexts| contexts.read().ok())
+        .and_then(|contexts| {
+            contexts
+                .get(&context_id)
+                .filter(|record| record.claimed)
+                .map(|record| {
+                    i32::from(
+                        record
+                            .host
+                            .matches_runtime_extension_registry_projection(projection_json),
+                    )
+                })
+        })
+        .unwrap_or(0)
+}
+
+/// Authorize one authenticated native extension operation and mint an opaque
+/// context-local lease. The lease binds the capsule, exact namespace/class,
+/// canonical resource digest, and full constrained principal set.
+///
+/// # Safety
+///
+/// String pointers must address readable NUL-terminated UTF-8 strings;
+/// `constrained_principals` must address `count` readable `u64` values; and
+/// `presented_leases` must be null for a zero count or address the declared
+/// sorted, duplicate-free opaque lease IDs; `out_lease` must address one
+/// writable `u64`.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn ex_host_authorize_runtime_extension_operation_v1(
+    host_context_id: u64,
+    runtime_nonce: u64,
+    extension_generation: u64,
+    extension_id: *const c_char,
+    operation_id: *const c_char,
+    authority_class: *const c_char,
+    semantics: *const c_char,
+    stage: *const c_char,
+    atomicity_group: *const c_char,
+    resource_kinds: *const *const c_char,
+    resource_kind_count: usize,
+    resource_json: *const c_char,
+    constrained_principals: *const u64,
+    count: usize,
+    presented_leases: *const u64,
+    presented_lease_count: usize,
+    out_lease: *mut u64,
+) -> i32 {
+    const MAX_CONSTRAINED_PRINCIPALS: usize = 256;
+    const MAX_PRESENTED_LEASES: usize = 256;
+    const MAX_RESOURCE_KINDS: usize = 256;
+    if out_lease.is_null() {
+        return 0;
+    }
+    unsafe { *out_lease = 0 };
+    if host_context_id == 0
+        || runtime_nonce == 0
+        || extension_generation == 0
+        || extension_id.is_null()
+        || operation_id.is_null()
+        || authority_class.is_null()
+        || semantics.is_null()
+        || stage.is_null()
+        || atomicity_group.is_null()
+        || resource_kinds.is_null()
+        || resource_kind_count == 0
+        || resource_kind_count > MAX_RESOURCE_KINDS
+        || resource_json.is_null()
+        || constrained_principals.is_null()
+        || count == 0
+        || count > MAX_CONSTRAINED_PRINCIPALS
+        || presented_lease_count > MAX_PRESENTED_LEASES
+        || (presented_lease_count == 0) != presented_leases.is_null()
+    {
+        return 0;
+    }
+    let Ok(extension_id) = unsafe { CStr::from_ptr(extension_id) }.to_str() else {
+        return 0;
+    };
+    let Ok(operation_id) = unsafe { CStr::from_ptr(operation_id) }.to_str() else {
+        return 0;
+    };
+    let Ok(authority_class) = unsafe { CStr::from_ptr(authority_class) }.to_str() else {
+        return 0;
+    };
+    let Ok(semantics) = unsafe { CStr::from_ptr(semantics) }.to_str() else {
+        return 0;
+    };
+    let Ok(stage) = unsafe { CStr::from_ptr(stage) }.to_str() else {
+        return 0;
+    };
+    let Ok(atomicity_group) = unsafe { CStr::from_ptr(atomicity_group) }.to_str() else {
+        return 0;
+    };
+    let resource_kind_pointers =
+        unsafe { std::slice::from_raw_parts(resource_kinds, resource_kind_count) };
+    let Some(resource_kinds) = resource_kind_pointers
+        .iter()
+        .map(|pointer| {
+            if pointer.is_null() {
+                return None;
+            }
+            unsafe { CStr::from_ptr(*pointer) }.to_str().ok()
+        })
+        .collect::<Option<Vec<_>>>()
+    else {
+        return 0;
+    };
+    if resource_kinds.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return 0;
+    }
+    let Ok(resource_json) = unsafe { CStr::from_ptr(resource_json) }.to_str() else {
+        return 0;
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(constrained_principals, count) };
+    let presented_lease_ids = if presented_lease_count == 0 {
+        &[][..]
+    } else {
+        unsafe { std::slice::from_raw_parts(presented_leases, presented_lease_count) }
+    };
+    if presented_lease_ids.iter().any(|lease| *lease == 0)
+        || presented_lease_ids
+            .windows(2)
+            .any(|pair| pair[0] >= pair[1])
+    {
+        return 0;
+    }
+    let Some((host, presented_grants)) = HOST_CONTEXTS.get().and_then(|contexts| {
+        contexts.read().ok().and_then(|contexts| {
+            let record = contexts
+                .get(&host_context_id)
+                .filter(|record| record.claimed)?;
+            let grants = presented_lease_ids
+                .iter()
+                .map(|lease| {
+                    record
+                        .runtime_extension_lease_is_current(*lease)
+                        .then(|| record.runtime_extension_leases.get(lease).cloned())
+                        .flatten()
+                })
+                .collect::<Option<Vec<_>>>()?;
+            Some((Arc::clone(&record.host), grants))
+        })
+    }) else {
+        return 0;
+    };
+    let Some(actor) = module_ids
+        .first()
+        .and_then(|id| host.typed_principal_for_module(&id.to_string()))
+    else {
+        return 0;
+    };
+    let Some(mut principals) = typed_principals_for_ids(&host, module_ids) else {
+        return 0;
+    };
+    for grant in &presented_grants {
+        if grant.runtime_nonce != runtime_nonce
+            || grant.extension_generation != extension_generation
+            || grant.extension_id.as_str() != extension_id
+        {
+            return 0;
+        }
+        principals.extend(grant.constrained_principals.iter().cloned());
+    }
+    if capsec_semantics::model::sort_and_dedup_principals(&mut principals).is_err()
+        || principals.len() > MAX_CONSTRAINED_PRINCIPALS
+    {
+        return 0;
+    }
+    let Ok(grant) = host.authorize_runtime_extension_operation(
+        runtime_nonce,
+        extension_generation,
+        extension_id,
+        operation_id,
+        authority_class,
+        semantics,
+        stage,
+        atomicity_group,
+        &resource_kinds,
+        resource_json,
+        actor,
+        principals,
+        presented_lease_ids.to_vec(),
+    ) else {
+        return 0;
+    };
+
+    let Some(contexts) = HOST_CONTEXTS.get() else {
+        return 0;
+    };
+    let mut contexts = match contexts.write() {
+        Ok(contexts) => contexts,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let Some(record) = contexts.get_mut(&host_context_id).filter(|record| {
+        record.claimed
+            && Arc::ptr_eq(&record.host, &host)
+            && record
+                .host
+                .matches_runtime_extension_authority_digest(grant.authority_capsule_digest.as_str())
+            && presented_lease_ids
+                .iter()
+                .all(|lease| record.runtime_extension_lease_is_current(*lease))
+    }) else {
+        return 0;
+    };
+    let mut fresh_lease = None;
+    for _ in 0..32 {
+        let mut bytes = [0u8; std::mem::size_of::<u64>()];
+        if getrandom(&mut bytes).is_err() {
+            return 0;
+        }
+        let lease = u64::from_ne_bytes(bytes);
+        if lease == 0 || record.runtime_extension_leases.contains_key(&lease) {
+            continue;
+        }
+        fresh_lease = Some(lease);
+        break;
+    }
+    let Some(lease) = fresh_lease else {
+        return 0;
+    };
+    record.runtime_extension_leases.insert(lease, grant);
+    unsafe { *out_lease = lease };
+    1
+}
+
+/// Try to check that an opaque runtime-extension operation lease remains live
+/// and is bound to this exact runtime nonce, extension generation, namespace,
+/// and operation. Returns 1 for current, 0 for stale/malformed, and -1 when a
+/// concurrent Host-context or typed-generation writer owns the relevant lock.
+/// This is the producer-thread admission path and never waits.
+///
+/// # Safety
+///
+/// String pointers must address readable NUL-terminated UTF-8 strings.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_check_runtime_extension_lease_binding_v1(
+    host_context_id: u64,
+    lease: u64,
+    runtime_nonce: u64,
+    extension_generation: u64,
+    extension_id: *const c_char,
+    operation_id: *const c_char,
+) -> i32 {
+    if host_context_id == 0
+        || lease == 0
+        || runtime_nonce == 0
+        || extension_generation == 0
+        || extension_id.is_null()
+        || operation_id.is_null()
+    {
+        return 0;
+    }
+    let Ok(extension_id) = unsafe { CStr::from_ptr(extension_id) }.to_str() else {
+        return 0;
+    };
+    let Ok(operation_id) = unsafe { CStr::from_ptr(operation_id) }.to_str() else {
+        return 0;
+    };
+    let Some(contexts) = HOST_CONTEXTS.get() else {
+        return 0;
+    };
+    let contexts = match contexts.try_read() {
+        Ok(contexts) => contexts,
+        Err(std::sync::TryLockError::WouldBlock) => return -1,
+        Err(std::sync::TryLockError::Poisoned(_)) => return 0,
+    };
+    let Some(record) = contexts
+        .get(&host_context_id)
+        .filter(|record| record.claimed)
+    else {
+        return 0;
+    };
+    let Some(grant) = record.runtime_extension_leases.get(&lease) else {
+        return 0;
+    };
+    if grant.runtime_nonce != runtime_nonce
+        || grant.extension_generation != extension_generation
+        || grant.extension_id.as_str() != extension_id
+        || grant.operation_id.as_str() != operation_id
+    {
+        return 0;
+    }
+    match record.try_runtime_extension_lease_is_current(lease) {
+        super::RuntimeExtensionLeaseStatus::Current => 1,
+        super::RuntimeExtensionLeaseStatus::Stale => 0,
+        super::RuntimeExtensionLeaseStatus::Busy => -1,
+    }
+}
+
+/// Recheck an admitted runtime-extension completion on the runtime owner.
+///
+/// Producer admission uses the try-lock ABI above and must return immediately
+/// on contention. Once a completion is in the owner queue, transient Host lock
+/// contention is not revocation and must not silently discard an accepted
+/// callback, so this delivery-side check waits for the exact context and typed
+/// generation snapshots before deciding current versus stale.
+///
+/// Lock invariant: the caller is the runtime owner; while the Host-context
+/// read guard is held this function performs only context-local lease lookup
+/// and immutable Host policy/generation comparison. It invokes no extension
+/// provider, external callback, worker, runtime drive, or effectful Host API.
+/// No producer or other cross-thread SDK path calls this entry point.
+///
+/// # Safety
+///
+/// String pointers must address readable NUL-terminated UTF-8 strings.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_check_runtime_extension_lease_binding_owner_v1(
+    host_context_id: u64,
+    lease: u64,
+    runtime_nonce: u64,
+    extension_generation: u64,
+    extension_id: *const c_char,
+    operation_id: *const c_char,
+) -> i32 {
+    if host_context_id == 0
+        || lease == 0
+        || runtime_nonce == 0
+        || extension_generation == 0
+        || extension_id.is_null()
+        || operation_id.is_null()
+    {
+        return 0;
+    }
+    let Ok(extension_id) = unsafe { CStr::from_ptr(extension_id) }.to_str() else {
+        return 0;
+    };
+    let Ok(operation_id) = unsafe { CStr::from_ptr(operation_id) }.to_str() else {
+        return 0;
+    };
+    let Some(contexts) = HOST_CONTEXTS.get() else {
+        return 0;
+    };
+    let Ok(contexts) = contexts.read() else {
+        return 0;
+    };
+    let Some(record) = contexts
+        .get(&host_context_id)
+        .filter(|record| record.claimed)
+    else {
+        return 0;
+    };
+    let Some(grant) = record.runtime_extension_leases.get(&lease) else {
+        return 0;
+    };
+    if grant.runtime_nonce != runtime_nonce
+        || grant.extension_generation != extension_generation
+        || grant.extension_id.as_str() != extension_id
+        || grant.operation_id.as_str() != operation_id
+    {
+        return 0;
+    }
+    i32::from(record.runtime_extension_lease_is_current(lease))
+}
+
+/// Revoke a context-local runtime-extension operation lease. A stale, forged,
+/// or cross-context token returns 0.
+#[no_mangle]
+pub extern "C" fn ex_host_revoke_runtime_extension_lease_v1(
+    host_context_id: u64,
+    lease: u64,
+) -> i32 {
+    if host_context_id == 0 || lease == 0 {
+        return 0;
+    }
+    HOST_CONTEXTS
+        .get()
+        .and_then(|contexts| contexts.write().ok())
+        .and_then(|mut contexts| {
+            contexts
+                .get_mut(&host_context_id)
+                .filter(|record| record.claimed)?
+                .runtime_extension_leases
+                .remove(&lease)
+                .map(|_| 1)
+        })
+        .unwrap_or(0)
 }
 
 /// Irreversibly consume the active armed Host's evaluator-owned bootstrap
@@ -8229,6 +8056,51 @@ pub extern "C" fn ex_host_check_capability_stack_no_follow_final(
     } else {
         0
     }
+}
+
+/// Complete intersection for an authenticated async-continuation carrier.
+/// This is intentionally distinct from `ex_host_check_capability_stack`:
+/// ordinary synchronous stacks retain LLP 0013's opt-in deputy-class
+/// semantics, while every Promise/native-completion carrier member is a
+/// mandatory authority constraint.
+#[no_mangle]
+pub extern "C" fn ex_host_check_capability_constrained_stack(
+    module_ids: *const u64,
+    len: usize,
+    capability: *const c_char,
+) -> i32 {
+    if capability.is_null() || module_ids.is_null() || len == 0 {
+        return 0;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }.to_string_lossy();
+    let ids = unsafe { std::slice::from_raw_parts(module_ids, len) };
+    let allowed = with_rendered_principal_stack(ids, |stack_refs| {
+        with_host(
+            |host| host.check_capability_constrained_stack(stack_refs, &cap),
+            false,
+        )
+    });
+    i32::from(allowed)
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_check_capability_constrained_stack_no_follow_final(
+    module_ids: *const u64,
+    len: usize,
+    capability: *const c_char,
+) -> i32 {
+    if capability.is_null() || module_ids.is_null() || len == 0 {
+        return 0;
+    }
+    let cap = unsafe { CStr::from_ptr(capability) }.to_string_lossy();
+    let ids = unsafe { std::slice::from_raw_parts(module_ids, len) };
+    let allowed = with_rendered_principal_stack(ids, |stack_refs| {
+        with_host(
+            |host| host.check_capability_constrained_stack_no_follow_final(stack_refs, &cap),
+            false,
+        )
+    });
+    i32::from(allowed)
 }
 
 /// Whether any deputy capability classes are configured. The engine only
@@ -10587,195 +10459,6 @@ mod tests {
     use crate::host::{Host, HostConfig, SecurityMode};
     use std::io::{self, Write};
 
-    #[test]
-    fn gpu_v2_authority_digest_binds_every_descriptor_input() {
-        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-        use capsec_semantics::model::Digest;
-
-        let digest = |encoded: &str| Digest::new(format!("sha256-{encoded}")).unwrap();
-        let profile = digest("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-        let vocabulary = digest("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA");
-        let operation_set = digest("CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA");
-        let semantic = digest("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA");
-        let routing = digest("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA");
-        let operations = [7_u32, 11, 19];
-        let authority = |abi,
-                         profile_id: &str,
-                         profile_digest: &Digest,
-                         vocabulary_digest: &Digest,
-                         operation_set_digest: &Digest,
-                         semantic_digest: &Digest,
-                         routing_digest: &Digest,
-                         operation_ids: &[u32],
-                         topology| {
-            exact_gpu_provider_authority_digest_v2(
-                abi,
-                profile_id,
-                profile_digest,
-                vocabulary_digest,
-                operation_set_digest,
-                semantic_digest,
-                routing_digest,
-                operation_ids,
-                topology,
-            )
-        };
-        let baseline = authority(
-            0x0002_0000,
-            "exact-webgpu-phase1a-draft",
-            &profile,
-            &vocabulary,
-            &operation_set,
-            &semantic,
-            &routing,
-            &operations,
-            1,
-        );
-        let alternate =
-            Digest::new(format!("sha256-{}", URL_SAFE_NO_PAD.encode([0x5a; 32]))).unwrap();
-        let mutations = [
-            authority(
-                0x0002_0001,
-                "exact-webgpu-phase1a-draft",
-                &profile,
-                &vocabulary,
-                &operation_set,
-                &semantic,
-                &routing,
-                &operations,
-                1,
-            ),
-            authority(
-                0x0002_0000,
-                "exact-webgpu-phase1a-draft-mutated",
-                &profile,
-                &vocabulary,
-                &operation_set,
-                &semantic,
-                &routing,
-                &operations,
-                1,
-            ),
-            authority(
-                0x0002_0000,
-                "exact-webgpu-phase1a-draft",
-                &alternate,
-                &vocabulary,
-                &operation_set,
-                &semantic,
-                &routing,
-                &operations,
-                1,
-            ),
-            authority(
-                0x0002_0000,
-                "exact-webgpu-phase1a-draft",
-                &profile,
-                &alternate,
-                &operation_set,
-                &semantic,
-                &routing,
-                &operations,
-                1,
-            ),
-            authority(
-                0x0002_0000,
-                "exact-webgpu-phase1a-draft",
-                &profile,
-                &vocabulary,
-                &alternate,
-                &semantic,
-                &routing,
-                &operations,
-                1,
-            ),
-            authority(
-                0x0002_0000,
-                "exact-webgpu-phase1a-draft",
-                &profile,
-                &vocabulary,
-                &operation_set,
-                &alternate,
-                &routing,
-                &operations,
-                1,
-            ),
-            authority(
-                0x0002_0000,
-                "exact-webgpu-phase1a-draft",
-                &profile,
-                &vocabulary,
-                &operation_set,
-                &semantic,
-                &alternate,
-                &operations,
-                1,
-            ),
-            authority(
-                0x0002_0000,
-                "exact-webgpu-phase1a-draft",
-                &profile,
-                &vocabulary,
-                &operation_set,
-                &semantic,
-                &routing,
-                &[7, 12, 19],
-                1,
-            ),
-            authority(
-                0x0002_0000,
-                "exact-webgpu-phase1a-draft",
-                &profile,
-                &vocabulary,
-                &operation_set,
-                &semantic,
-                &routing,
-                &[7, 11],
-                1,
-            ),
-            authority(
-                0x0002_0000,
-                "exact-webgpu-phase1a-draft",
-                &profile,
-                &vocabulary,
-                &operation_set,
-                &semantic,
-                &routing,
-                &[11, 7, 19],
-                1,
-            ),
-            authority(
-                0x0002_0000,
-                "exact-webgpu-phase1a-draft",
-                &profile,
-                &vocabulary,
-                &operation_set,
-                &semantic,
-                &routing,
-                &operations,
-                2,
-            ),
-        ];
-        for mutation in mutations {
-            assert_ne!(baseline, mutation);
-        }
-        assert_eq!(
-            baseline,
-            authority(
-                0x0002_0000,
-                "exact-webgpu-phase1a-draft",
-                &profile,
-                &vocabulary,
-                &operation_set,
-                &semantic,
-                &routing,
-                &operations,
-                1,
-            ),
-            "the exact descriptor must derive a stable root-account authority"
-        );
-    }
-
     #[cfg(unix)]
     #[test]
     fn final_sealed_console_observation_excludes_a_new_producer() {
@@ -10879,6 +10562,7 @@ mod tests {
                     host: Arc::clone(&audit),
                     claimed: false,
                     runtime_nonce: None,
+                    runtime_extension_leases: HashMap::new(),
                 },
             ),
             (
@@ -10887,6 +10571,7 @@ mod tests {
                     host: Arc::clone(&audit),
                     claimed: true,
                     runtime_nonce: None,
+                    runtime_extension_leases: HashMap::new(),
                 },
             ),
             (
@@ -10895,6 +10580,7 @@ mod tests {
                     host: Arc::clone(&audit),
                     claimed: true,
                     runtime_nonce: None,
+                    runtime_extension_leases: HashMap::new(),
                 },
             ),
             (
@@ -10903,6 +10589,7 @@ mod tests {
                     host: armed,
                     claimed: true,
                     runtime_nonce: None,
+                    runtime_extension_leases: HashMap::new(),
                 },
             ),
         ]));
@@ -10934,6 +10621,7 @@ mod tests {
                     host: Arc::clone(&audit),
                     claimed: false,
                     runtime_nonce: None,
+                    runtime_extension_leases: HashMap::new(),
                 },
             );
         }
@@ -13001,6 +12689,435 @@ mod tests {
         assert!(!with_host(|host| host.is_allow_all(), true));
     }
 
+    #[test]
+    fn runtime_extension_claim_operation_and_lease_are_exact_context_local() {
+        let _guard = host_test_lock();
+        struct ResetHost;
+        impl Drop for ResetHost {
+            fn drop(&mut self) {
+                install_host(Host::default_legacy());
+            }
+        }
+        let _reset = ResetHost;
+
+        let host = crate::host::tests::example_runtime_extension_armed_host();
+        let snapshot_digest = host.armed_snapshot().unwrap().digest().as_str().to_owned();
+        let authority_digest = host
+            .armed_snapshot()
+            .unwrap()
+            .runtime_extension_authority()
+            .unwrap()
+            .authority_capsule_digest
+            .as_str()
+            .to_owned();
+        let registry_projection = host
+            .armed_snapshot()
+            .unwrap()
+            .runtime_extension_authority()
+            .unwrap()
+            .registry_projection();
+        let projection_c =
+            CString::new(serde_json::to_string(&registry_projection).unwrap()).unwrap();
+        let mut mismatched_projection = serde_json::to_value(registry_projection).unwrap();
+        mismatched_projection["descriptors"][0]["authorityFragment"]["operations"][0]["flags"] =
+            serde_json::json!(1);
+        let mismatched_projection_c =
+            CString::new(serde_json::to_string(&mismatched_projection).unwrap()).unwrap();
+        let pending = install_host(host);
+        assert_ne!(pending, 0);
+        let snapshot_c = CString::new(snapshot_digest).unwrap();
+        let authority_c = CString::new(authority_digest).unwrap();
+        let wrong_c = CString::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+
+        assert_eq!(
+            unsafe { ex_host_claim_armed_context(snapshot_c.as_ptr()) },
+            0,
+            "legacy armed claim must refuse a non-empty extension projection"
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_claim_armed_context_with_runtime_extensions(
+                    snapshot_c.as_ptr(),
+                    ptr::null(),
+                )
+            },
+            0,
+            "null authority means canonical empty and must refuse non-empty"
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_claim_armed_context_with_runtime_extensions(
+                    snapshot_c.as_ptr(),
+                    wrong_c.as_ptr(),
+                )
+            },
+            0
+        );
+        let context_id = unsafe {
+            ex_host_claim_armed_context_with_runtime_extensions(
+                snapshot_c.as_ptr(),
+                authority_c.as_ptr(),
+            )
+        };
+        assert_eq!(context_id, pending);
+        assert_eq!(
+            unsafe {
+                ex_host_matches_runtime_extension_authority_digest(context_id, authority_c.as_ptr())
+            },
+            1
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_matches_runtime_extension_authority_digest(context_id, wrong_c.as_ptr())
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_matches_runtime_extension_registry_projection_v1(
+                    context_id,
+                    projection_c.as_ptr(),
+                )
+            },
+            1
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_matches_runtime_extension_registry_projection_v1(
+                    context_id,
+                    mismatched_projection_c.as_ptr(),
+                )
+            },
+            0,
+            "a matching capsule digest cannot authenticate a different native table"
+        );
+
+        let extension = CString::new("ibex.conformance").unwrap();
+        let operation = CString::new("complete").unwrap();
+        let authority_class = CString::new("fixture.complete").unwrap();
+        let semantics = CString::new("runtime-extension.invoke.authenticated-v1").unwrap();
+        let stage = CString::new("requested").unwrap();
+        let atomicity_group = CString::new("fixture.operation.decision").unwrap();
+        let resource_kind = CString::new("runtime-extension").unwrap();
+        let resource_kinds = [resource_kind.as_ptr()];
+        let resource = CString::new(r#"{"input":"hello"}"#).unwrap();
+        let principals = [0_u64];
+        let runtime_nonce = 11;
+        let extension_generation = 17;
+        let mut lease = 0;
+        assert_eq!(
+            unsafe {
+                ex_host_authorize_runtime_extension_operation_v1(
+                    context_id,
+                    runtime_nonce,
+                    extension_generation,
+                    extension.as_ptr(),
+                    operation.as_ptr(),
+                    authority_class.as_ptr(),
+                    semantics.as_ptr(),
+                    stage.as_ptr(),
+                    atomicity_group.as_ptr(),
+                    resource_kinds.as_ptr(),
+                    resource_kinds.len(),
+                    resource.as_ptr(),
+                    principals.as_ptr(),
+                    principals.len(),
+                    ptr::null(),
+                    0,
+                    &mut lease,
+                )
+            },
+            1
+        );
+        assert_ne!(lease, 0);
+        assert_eq!(
+            unsafe {
+                ex_host_check_runtime_extension_lease_binding_v1(
+                    context_id,
+                    lease,
+                    runtime_nonce,
+                    extension_generation,
+                    extension.as_ptr(),
+                    operation.as_ptr(),
+                )
+            },
+            1
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_check_runtime_extension_lease_binding_v1(
+                    context_id ^ 1,
+                    lease,
+                    runtime_nonce,
+                    extension_generation,
+                    extension.as_ptr(),
+                    operation.as_ptr(),
+                )
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_check_runtime_extension_lease_binding_v1(
+                    context_id,
+                    lease,
+                    runtime_nonce ^ 1,
+                    extension_generation,
+                    extension.as_ptr(),
+                    operation.as_ptr(),
+                )
+            },
+            0,
+            "a lease cannot cross runtime instances"
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_check_runtime_extension_lease_binding_v1(
+                    context_id,
+                    lease,
+                    runtime_nonce,
+                    extension_generation + 1,
+                    extension.as_ptr(),
+                    operation.as_ptr(),
+                )
+            },
+            0,
+            "a lease cannot cross extension generations"
+        );
+        let wrong_extension = CString::new("ibex.other").unwrap();
+        assert_eq!(
+            unsafe {
+                ex_host_check_runtime_extension_lease_binding_v1(
+                    context_id,
+                    lease,
+                    runtime_nonce,
+                    extension_generation,
+                    wrong_extension.as_ptr(),
+                    operation.as_ptr(),
+                )
+            },
+            0,
+            "a lease cannot cross extension namespaces"
+        );
+        let wrong_operation = CString::new("copyBuffer").unwrap();
+        assert_eq!(
+            unsafe {
+                ex_host_check_runtime_extension_lease_binding_v1(
+                    context_id,
+                    lease,
+                    runtime_nonce,
+                    extension_generation,
+                    extension.as_ptr(),
+                    wrong_operation.as_ptr(),
+                )
+            },
+            0,
+            "a lease cannot cross operation scopes"
+        );
+        let presented = [lease];
+        let mut derived_lease = 0;
+        assert_eq!(
+            unsafe {
+                ex_host_authorize_runtime_extension_operation_v1(
+                    context_id,
+                    runtime_nonce,
+                    extension_generation,
+                    extension.as_ptr(),
+                    operation.as_ptr(),
+                    authority_class.as_ptr(),
+                    semantics.as_ptr(),
+                    stage.as_ptr(),
+                    atomicity_group.as_ptr(),
+                    resource_kinds.as_ptr(),
+                    resource_kinds.len(),
+                    resource.as_ptr(),
+                    principals.as_ptr(),
+                    principals.len(),
+                    presented.as_ptr(),
+                    presented.len(),
+                    &mut derived_lease,
+                )
+            },
+            1,
+            "a current acquisition lease can constrain a later operation"
+        );
+        assert_ne!(derived_lease, 0);
+        assert_eq!(
+            unsafe {
+                ex_host_check_runtime_extension_lease_binding_v1(
+                    context_id,
+                    derived_lease,
+                    runtime_nonce,
+                    extension_generation,
+                    extension.as_ptr(),
+                    operation.as_ptr(),
+                )
+            },
+            1
+        );
+        let forged_presented = [lease ^ u64::MAX];
+        let mut forged_derived = 0;
+        assert_eq!(
+            unsafe {
+                ex_host_authorize_runtime_extension_operation_v1(
+                    context_id,
+                    runtime_nonce,
+                    extension_generation,
+                    extension.as_ptr(),
+                    operation.as_ptr(),
+                    authority_class.as_ptr(),
+                    semantics.as_ptr(),
+                    stage.as_ptr(),
+                    atomicity_group.as_ptr(),
+                    resource_kinds.as_ptr(),
+                    resource_kinds.len(),
+                    resource.as_ptr(),
+                    principals.as_ptr(),
+                    principals.len(),
+                    forged_presented.as_ptr(),
+                    forged_presented.len(),
+                    &mut forged_derived,
+                )
+            },
+            0
+        );
+        assert_eq!(forged_derived, 0);
+        assert_eq!(
+            ex_host_revoke_runtime_extension_lease_v1(context_id, lease),
+            1
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_check_runtime_extension_lease_binding_v1(
+                    context_id,
+                    lease,
+                    runtime_nonce,
+                    extension_generation,
+                    extension.as_ptr(),
+                    operation.as_ptr(),
+                )
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_check_runtime_extension_lease_binding_v1(
+                    context_id,
+                    derived_lease,
+                    runtime_nonce,
+                    extension_generation,
+                    extension.as_ptr(),
+                    operation.as_ptr(),
+                )
+            },
+            0,
+            "revoking an acquisition lease invalidates every derived lease"
+        );
+        assert_eq!(
+            ex_host_revoke_runtime_extension_lease_v1(context_id, derived_lease),
+            1
+        );
+        ex_host_release_context(context_id);
+    }
+
+    #[test]
+    fn runtime_extension_bootstrap_digest_matcher_is_strict_and_bounded() {
+        use sha2::{Digest as _, Sha256};
+
+        let payload = b"authenticated runtime-extension bootstrap";
+        let digest = CString::new(format!(
+            "sha256-{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(payload))
+        ))
+        .unwrap();
+        let wrong_digest =
+            CString::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let malformed_digest = CString::new("sha256-not-a-canonical-digest").unwrap();
+        let non_utf8_digest = [0xff_u8, 0];
+
+        assert_eq!(
+            unsafe {
+                ex_host_runtime_extension_bootstrap_digest_matches_v1(
+                    payload.as_ptr(),
+                    payload.len(),
+                    digest.as_ptr(),
+                )
+            },
+            1
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_runtime_extension_bootstrap_digest_matches_v1(
+                    payload.as_ptr(),
+                    payload.len(),
+                    wrong_digest.as_ptr(),
+                )
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_runtime_extension_bootstrap_digest_matches_v1(
+                    payload.as_ptr(),
+                    payload.len(),
+                    malformed_digest.as_ptr(),
+                )
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_runtime_extension_bootstrap_digest_matches_v1(
+                    payload.as_ptr(),
+                    payload.len(),
+                    non_utf8_digest.as_ptr().cast(),
+                )
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_runtime_extension_bootstrap_digest_matches_v1(
+                    ptr::null(),
+                    payload.len(),
+                    digest.as_ptr(),
+                )
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_runtime_extension_bootstrap_digest_matches_v1(
+                    payload.as_ptr(),
+                    0,
+                    digest.as_ptr(),
+                )
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_runtime_extension_bootstrap_digest_matches_v1(
+                    payload.as_ptr(),
+                    (64 * 1024 * 1024) + 1,
+                    digest.as_ptr(),
+                )
+            },
+            0,
+            "oversize must refuse before forming a slice from the caller pointer"
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_runtime_extension_bootstrap_digest_matches_v1(
+                    payload.as_ptr(),
+                    payload.len(),
+                    ptr::null(),
+                )
+            },
+            0
+        );
+    }
+
     // Asserts armed-refusal semantics, which an `insecure` build
     // deliberately does not have. @ref LLP 0039#secure-mode-must-stay-exercised
     #[cfg(not(feature = "insecure"))]
@@ -13519,26 +13636,6 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("Exact project root and operation manifest are required"));
-
-        let gpu_build_envelope = take_json(unsafe {
-            ex_host_build_exact_gpu_armed_embedder_artifacts(
-                ptr::null(),
-                0,
-                ptr::null(),
-                0,
-                ptr::null(),
-                0,
-                ptr::null(),
-                0,
-                ptr::null(),
-                0,
-            )
-        });
-        assert_eq!(gpu_build_envelope["ok"], false);
-        assert!(gpu_build_envelope["error"]
-            .as_str()
-            .unwrap()
-            .contains("GPU provider binding, and WebGPU profile are required"));
     }
 
     #[cfg(feature = "capsec-simulator-performance-observer")]

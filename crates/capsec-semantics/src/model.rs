@@ -1136,17 +1136,13 @@ pub enum SelectorResource {
     SessionState {
         name: SessionStateName,
     },
-    /// One exact operation from an authenticated WebGPU profile. Every digest
-    /// is part of the selector so authority for one generated routing program
-    /// cannot be replayed after a profile or codec-plan change.
-    GpuOperation {
-        profile_id: NonEmptyString,
-        profile_digest: Digest,
-        webgpu_c_vocabulary_digest: Digest,
-        operation_set_digest: Digest,
-        semantic_program_digest: Digest,
-        runtime_routing_digest: Digest,
-        operation_id: NonEmptyString,
+    /// One exact, authenticated extension namespace and authority class. The
+    /// extension capsule authenticates operation membership separately; this
+    /// selector deliberately has no wildcard, prefix, matcher, or manifest-
+    /// supplied normalization behavior.
+    RuntimeExtension {
+        extension_id: StableId,
+        authority_class: StableId,
     },
     ClosedSurface {
         surface_class: ClosedSurfaceClass,
@@ -1175,7 +1171,7 @@ impl SelectorResource {
             Self::StorageNamespace { .. } => "storage-namespace",
             Self::SessionLifecycle { .. } => "session-lifecycle",
             Self::SessionState { .. } => "session-state",
-            Self::GpuOperation { .. } => "gpu-operation",
+            Self::RuntimeExtension { .. } => "runtime-extension",
             Self::ClosedSurface { .. } => "closed-surface",
         }
     }
@@ -1467,20 +1463,13 @@ pub enum OccurrenceResource {
     SessionStateOccurrence {
         requested: Box<SelectorResource>,
     },
-    /// Native-only identities for one GPU authority session. The host adapter
-    /// derives each digest from the exact C carrier; JavaScript never supplies
-    /// these facts or chooses the operation effect.
-    GpuOperationOccurrence {
+    /// Runtime-extension operation facts authenticated by the closed capsule
+    /// and the host adapter. Opaque resource data participates only through its
+    /// canonical digest and never becomes executable semantic configuration.
+    RuntimeExtensionOccurrence {
         requested: Box<SelectorResource>,
-        realm_identity: Digest,
-        account_identity: Digest,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        device_identity: Option<Digest>,
-        receiver_identity: Digest,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        target_identity: Option<Digest>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        presented_handle_identities: Vec<Digest>,
+        operation_id: StableId,
+        resource_digest: Digest,
     },
     ClosedOccurrence {
         requested: Box<SelectorResource>,
@@ -1529,7 +1518,7 @@ impl OccurrenceResource {
             | Self::StorageOccurrence { requested, .. }
             | Self::LifecycleOccurrence { requested }
             | Self::SessionStateOccurrence { requested }
-            | Self::GpuOperationOccurrence { requested, .. }
+            | Self::RuntimeExtensionOccurrence { requested, .. }
             | Self::ClosedOccurrence { requested, .. } => Some((**requested).clone()),
         }
     }
@@ -1554,7 +1543,7 @@ impl OccurrenceResource {
             | Self::StorageOccurrence { requested, .. }
             | Self::LifecycleOccurrence { requested }
             | Self::SessionStateOccurrence { requested }
-            | Self::GpuOperationOccurrence { requested, .. }
+            | Self::RuntimeExtensionOccurrence { requested, .. }
             | Self::ClosedOccurrence { requested, .. } => Some(requested.kind_name()),
         }
     }

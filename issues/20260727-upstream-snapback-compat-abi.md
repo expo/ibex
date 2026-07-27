@@ -1,11 +1,11 @@
-# Upstream the snapback compat ABI to main (LLP 0040 remediation steps 1–2)
+# Upstream the snapback compat ABI to main (LLP 0041 remediation steps 1–2)
 
 **Status:** Open (step-1 audit complete; step-2 upstreaming not started)
 **Severity:** P2
 **Systems:** Engine, Build, CapSec
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-07-27
-**Related:** LLP 0040 (consuming ibex — remediation steps 1–2); snapback
+**Related:** LLP 0041 (consuming ibex — remediation steps 1–2); snapback
 `issues/20260727-vendor-ibex-advance-blocked-on-compat-abi.md`;
 [20260727-schedule-time-capture-security-delta](./20260727-schedule-time-capture-security-delta.md)
 
@@ -58,10 +58,10 @@ exactly three symbols: `ex_hermes_create_no_eval`,
    latch).
 3. Then snapback's prepared `chore/advance-vendor-ibex-jsi-owner-fix`
    branch links (or needs the one-line `signal()` adaptation), the SIGSEGV
-   verification rerun unblocks, and LLP 0040 steps 3–4 (pin advance, ref
+   verification rerun unblocks, and LLP 0041 steps 3–4 (pin advance, ref
    retirement after recorded dispositions — this table is that record for
    four of six) proceed.
 
 **Done when:** both capabilities land on `main` through the full review
 discipline; snapback links against a `main` pin; the compat refs retire per
-LLP 0040 step 4.
+LLP 0041 step 4.

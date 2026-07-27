@@ -4,26 +4,23 @@
     "src/engine/hermes_module_runner.cc",
     "src/engine/hermes_runtime.cc",
     "src/engine/hermes_runtime_debugger.cc",
-    "src/engine/hermes_runtime_gpu.cc",
-    "src/engine/hermes_runtime_gpu_v2.cc",
     "src/engine/hermes_runtime_ios.cc",
     "src/engine/hermes_runtime_worklet.cc"
   ],
   "dispositions": {
     "admission-no-app-code": "The entry performs admission/gating only and executes no app JavaScript; the later execution entry owns the task boundary.",
-    "construction-no-app-webgpu": "Construction/bootstrap code runs before app WebGPU publication and invokes only captured bootstrap or pristine intrinsic functions.",
-    "internal-checkpoint": "The helper runs only while an existing outer host task is finalizing its nextTick/microtask or GPU checkpoint closure.",
+    "construction-no-app-code": "Construction/bootstrap code runs before app execution and invokes only captured bootstrap or pristine intrinsic functions.",
+    "internal-checkpoint": "The helper runs only while an existing outer host task is finalizing its nextTick/microtask or runtime-extension checkpoint closure.",
     "joins-outer-host-task": "The helper or retained callback is reached only from an already classified outer host task and joins that task identity.",
-    "outer-host-task": "The runtime-owner ingress creates and explicitly finishes an outer ScopedGpuHostTask before publishing its result.",
-    "restricted-no-app-webgpu": "The restricted UI-worklet runtime is structurally denied the app runtime's GPU bridge and Canvas objects.",
-    "terminal-cleanup": "Terminal cleanup may invoke the construction-captured wrapper revoker but cannot admit a successor app task.",
+    "outer-host-task": "The runtime-owner ingress creates and explicitly finishes an outer ScopedRuntimeExtensionHostTask before publishing its result.",
+    "restricted-no-app-code": "The restricted UI-worklet runtime is structurally denied the app runtime's extension projections.",
     "test-only": "The call exists only behind an Ibex test-hook build and is absent from production artifacts.",
     "trusted-bootstrap-no-app-code": "The named owner transition evaluates fixed native-owned seal bytes before any user-execution ingress; no app-controlled source or callback can run, and any failure quarantines the generation."
   },
   "counts": {
-    "user-execution-gate": 23,
+    "user-execution-gate": 22,
     "engine-eval-or-prepare": 28,
-    "jsi-function-call": 174
+    "jsi-function-call": 109
   },
   "ingressRows": [
     {
@@ -181,76 +178,6 @@
       "discoveredSiteCount": 5
     },
     {
-      "id": "src/engine/hermes_runtime_gpu.cc#drainGpuMailbox",
-      "path": "src/engine/hermes_runtime_gpu.cc",
-      "function": "drainGpuMailbox",
-      "disposition": "joins-outer-host-task",
-      "discoveredSiteCount": 1
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#deliverGpuV2WrapperEvent",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "deliverGpuV2WrapperEvent",
-      "disposition": "joins-outer-host-task",
-      "discoveredSiteCount": 2
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#drainGpuMailboxV2",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "drainGpuMailboxV2",
-      "disposition": "joins-outer-host-task",
-      "discoveredSiteCount": 1
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#evalGpuCanvasAppBundleImmediateV1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "evalGpuCanvasAppBundleImmediateV1",
-      "disposition": "outer-host-task",
-      "discoveredSiteCount": 0
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_begin_gpu_canvas_app_bundle_v1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "ex_hermes_begin_gpu_canvas_app_bundle_v1",
-      "disposition": "outer-host-task",
-      "discoveredSiteCount": 4
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_deliver_gpu_canvas_attachment_receipt_v1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "ex_hermes_deliver_gpu_canvas_attachment_receipt_v1",
-      "disposition": "outer-host-task",
-      "discoveredSiteCount": 1
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1",
-      "disposition": "outer-host-task",
-      "discoveredSiteCount": 0
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1",
-      "disposition": "outer-host-task",
-      "discoveredSiteCount": 0
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_finish_gpu_canvas_app_bundle_v1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "ex_hermes_finish_gpu_canvas_app_bundle_v1",
-      "disposition": "outer-host-task",
-      "discoveredSiteCount": 1
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#exactGpuV2CheckpointHostTask",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "exactGpuV2CheckpointHostTask",
-      "disposition": "internal-checkpoint",
-      "discoveredSiteCount": 1
-    },
-    {
       "id": "src/engine/hermes_runtime_ios.cc#emit_module_event_impl",
       "path": "src/engine/hermes_runtime_ios.cc",
       "function": "emit_module_event_impl",
@@ -303,35 +230,35 @@
       "id": "src/engine/hermes_runtime_worklet.cc#ex_worklet_install",
       "path": "src/engine/hermes_runtime_worklet.cc",
       "function": "ex_worklet_install",
-      "disposition": "restricted-no-app-webgpu",
+      "disposition": "restricted-no-app-code",
       "discoveredSiteCount": 1
     },
     {
       "id": "src/engine/hermes_runtime_worklet.cc#ex_worklet_install_typed",
       "path": "src/engine/hermes_runtime_worklet.cc",
       "function": "ex_worklet_install_typed",
-      "disposition": "restricted-no-app-webgpu",
+      "disposition": "restricted-no-app-code",
       "discoveredSiteCount": 1
     },
     {
       "id": "src/engine/hermes_runtime_worklet.cc#ex_worklet_invoke",
       "path": "src/engine/hermes_runtime_worklet.cc",
       "function": "ex_worklet_invoke",
-      "disposition": "restricted-no-app-webgpu",
+      "disposition": "restricted-no-app-code",
       "discoveredSiteCount": 2
     },
     {
       "id": "src/engine/hermes_runtime_worklet.cc#ex_worklet_invoke_typed",
       "path": "src/engine/hermes_runtime_worklet.cc",
       "function": "ex_worklet_invoke_typed",
-      "disposition": "restricted-no-app-webgpu",
+      "disposition": "restricted-no-app-code",
       "discoveredSiteCount": 1
     },
     {
       "id": "src/engine/hermes_runtime_worklet.cc#installWorkletGlobals",
       "path": "src/engine/hermes_runtime_worklet.cc",
       "function": "installWorkletGlobals",
-      "disposition": "restricted-no-app-webgpu",
+      "disposition": "restricted-no-app-code",
       "discoveredSiteCount": 1
     }
   ],
@@ -668,12 +595,12 @@
       "id": "src/engine/hermes_runtime.cc#capturePrivateBridgeConsumers",
       "path": "src/engine/hermes_runtime.cc",
       "function": "capturePrivateBridgeConsumers",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 8587,
+          "line": 8705,
           "column": 67,
           "source": "auto captured = handle->structured_session_import_materializer->call("
         }
@@ -688,7 +615,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 3252,
+          "line": 3280,
           "column": 13,
           "source": "reject->call(*runtime->runtime,"
         }
@@ -703,7 +630,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 15251,
+          "line": 15576,
           "column": 16,
           "source": "out = parseFn.call(rt, facebook::jsi::String::createFromUtf8(rt, json));"
         }
@@ -713,12 +640,12 @@
       "id": "src/engine/hermes_runtime.cc#defineExactCapability",
       "path": "src/engine/hermes_runtime.cc",
       "function": "defineExactCapability",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4245,
+          "line": 4366,
           "column": 17,
           "source": "defineProperty.call("
         }
@@ -733,7 +660,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 10720,
+          "line": 11103,
           "column": 44,
           "source": "handle->structured_object_define_property->call("
         }
@@ -748,7 +675,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 11425,
+          "line": 11808,
           "column": 44,
           "source": "handle->structured_object_define_property->call("
         }
@@ -758,12 +685,12 @@
       "id": "src/engine/hermes_runtime.cc#deleteRootGlobalOwnProperty",
       "path": "src/engine/hermes_runtime.cc",
       "function": "deleteRootGlobalOwnProperty",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7956,
+          "line": 8087,
           "column": 61,
           "source": "auto deleted = handle->root_global_reflect_delete_property->call("
         }
@@ -778,7 +705,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 11502,
+          "line": 11885,
           "column": 63,
           "source": "auto result = handle->structured_session_import_materializer->call("
         }
@@ -793,7 +720,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 8119,
+          "line": 8250,
           "column": 61,
           "source": "auto result = runtime->dev_served_module_table_lifecycle->call("
         }
@@ -808,42 +735,42 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 14788,
+          "line": 15113,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) {"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 14882,
+          "line": 15207,
           "column": 32,
           "source": "result = runtime->runtime->evaluateJavaScript(source_buffer, source);"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 14888,
+          "line": 15213,
           "column": 32,
           "source": "result = runtime->runtime->evaluateJavaScript(source_buffer, source);"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 14941,
+          "line": 15266,
           "column": 22,
           "source": "auto check = rt.evaluateJavaScript(ubuf, \"<promise-unwrap>\");"
         },
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 15104,
+          "line": 15429,
           "column": 13,
           "source": ".callAsConstructor(rt, facebook::jsi::String::createFromUtf8(rt, err.getMessage()));"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 15105,
+          "line": 15430,
           "column": 58,
           "source": "auto result = handler.asObject(rt).asFunction(rt).call(rt, std::move(errObj));"
         }
@@ -858,14 +785,14 @@
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluatePreparedJavaScript",
-          "line": 12046,
+          "line": 12429,
           "column": 13,
           "source": ": rt.evaluatePreparedJavaScript(prepared);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 12055,
+          "line": 12438,
           "column": 30,
           "source": "auto invocation = wrapper.call(rt, hooks);"
         }
@@ -880,7 +807,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 11522,
+          "line": 11905,
           "column": 56,
           "source": "return handle->structured_session_import_materializer->call("
         }
@@ -895,7 +822,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 11545,
+          "line": 11928,
           "column": 56,
           "source": "return handle->structured_session_import_materializer->call("
         }
@@ -910,7 +837,7 @@
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 10577,
+          "line": 10960,
           "column": 36,
           "source": "auto value = runtime->runtime->evaluateJavaScript(source_buffer, label);"
         }
@@ -925,7 +852,7 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 8165,
+          "line": 8294,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime) ||"
         }
@@ -935,12 +862,12 @@
       "id": "src/engine/hermes_runtime.cc#ex_hermes_create_impl",
       "path": "src/engine/hermes_runtime.cc",
       "function": "ex_hermes_create_impl",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "engine-eval-or-prepare",
           "operation": "prepareJavaScript",
-          "line": 9315,
+          "line": 9658,
           "column": 24,
           "source": "handle->runtime->prepareJavaScript("
         }
@@ -955,7 +882,7 @@
         {
           "kind": "engine-eval-or-prepare",
           "operation": "prepareJavaScript",
-          "line": 13954,
+          "line": 14345,
           "column": 39,
           "source": "auto prepared = runtime->runtime->prepareJavaScript(sourceBuffer, label);"
         }
@@ -970,7 +897,7 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 13496,
+          "line": 13887,
           "column": 8,
           "source": "!exactRuntimeEnterUserExecution(runtime)) {"
         }
@@ -985,7 +912,7 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 16477,
+          "line": 16689,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) return 0;"
         }
@@ -1000,7 +927,7 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 16489,
+          "line": 16701,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) return 0;"
         }
@@ -1015,21 +942,21 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 15975,
+          "line": 16193,
           "column": 20,
           "source": "resolve->call(rt, makeUint8Array(rt, std::move(payloadCopy)));"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 15980,
+          "line": 16198,
           "column": 17,
           "source": "reject->call(rt, facebook::jsi::JSError(rt, message).value());"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 15983,
+          "line": 16201,
           "column": 19,
           "source": "reject->call("
         }
@@ -1044,21 +971,21 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 15511,
+          "line": 15836,
           "column": 20,
           "source": "resolve->call(rt, value);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 15513,
+          "line": 15838,
           "column": 19,
           "source": "reject->call(rt, facebook::jsi::JSError(rt, errorMessage).value());"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 15517,
+          "line": 15842,
           "column": 19,
           "source": "reject->call(rt, facebook::jsi::JSError(rt, e.what()).value());"
         }
@@ -1073,7 +1000,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 8506,
+          "line": 8624,
           "column": 17,
           "source": "(void)runApp->call(*runtime->runtime);"
         }
@@ -1088,7 +1015,7 @@
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 9767,
+          "line": 10144,
           "column": 27,
           "source": "(void)runtime->runtime->evaluateJavaScript("
         }
@@ -1103,7 +1030,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 15887,
+          "line": 16105,
           "column": 36,
           "source": "return promiseConstructor.callAsConstructor(rt, executor);"
         }
@@ -1118,7 +1045,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 15456,
+          "line": 15781,
           "column": 27,
           "source": "return promiseCtor.callAsConstructor(rt, executor);"
         }
@@ -1133,7 +1060,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 8414,
+          "line": 8534,
           "column": 20,
           "source": "(void)consume->call(rt);"
         }
@@ -1148,7 +1075,7 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 12320,
+          "line": 12703,
           "column": 10,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) {"
         }
@@ -1163,7 +1090,7 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 12485,
+          "line": 12868,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) {"
         }
@@ -1178,7 +1105,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 600,
+          "line": 589,
           "column": 20,
           "source": ".callAsConstructor("
         }
@@ -1193,7 +1120,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 615,
+          "line": 604,
           "column": 20,
           "source": ".callAsConstructor("
         }
@@ -1208,7 +1135,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 585,
+          "line": 574,
           "column": 20,
           "source": ".callAsConstructor("
         }
@@ -1223,14 +1150,14 @@
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 14654,
+          "line": 15045,
           "column": 29,
           "source": "(void)runtime->runtime->evaluateJavaScript("
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 14657,
+          "line": 15048,
           "column": 27,
           "source": "(void)runtime->runtime->evaluateJavaScript(sourceBuffer, source);"
         }
@@ -1240,12 +1167,12 @@
       "id": "src/engine/hermes_runtime.cc#finalizeCompartmentBaselineForEmbedder",
       "path": "src/engine/hermes_runtime.cc",
       "function": "finalizeCompartmentBaselineForEmbedder",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4221,
+          "line": 4342,
           "column": 41,
           "source": "handle->compartment_baseline_refresher->call(rt);"
         }
@@ -1255,12 +1182,12 @@
       "id": "src/engine/hermes_runtime.cc#findRootGlobalDescriptorWithoutGet",
       "path": "src/engine/hermes_runtime.cc",
       "function": "findRootGlobalDescriptorWithoutGet",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7857,
+          "line": 7988,
           "column": 58,
           "source": "auto prototype = handle->root_global_get_prototype_of->call(rt, current);"
         }
@@ -1275,7 +1202,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 2363,
+          "line": 2364,
           "column": 60,
           "source": "runtime->structured_unhandled_rejection_handler->call("
         }
@@ -1285,12 +1212,12 @@
       "id": "src/engine/hermes_runtime.cc#forEachRootGlobalOwnKey",
       "path": "src/engine/hermes_runtime.cc",
       "function": "forEachRootGlobalOwnKey",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7495,
+          "line": 7687,
           "column": 28,
           "source": "auto result = intrinsic.call(rt, object);"
         }
@@ -1305,7 +1232,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 2332,
+          "line": 2333,
           "column": 50,
           "source": "runtime->structured_rejection_handled_handler->call("
         }
@@ -1320,7 +1247,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 15185,
+          "line": 15510,
           "column": 32,
           "source": "auto serialized = stringifyFn.call(rt, args[1]);"
         }
@@ -1335,7 +1262,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 15215,
+          "line": 15540,
           "column": 30,
           "source": "auto coerced = stringCtor.call(rt, args[0]);"
         }
@@ -1350,7 +1277,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 8683,
+          "line": 8797,
           "column": 46,
           "source": "handle->structured_object_define_property->call("
         }
@@ -1360,19 +1287,19 @@
       "id": "src/engine/hermes_runtime.cc#installBootstrapCompatibilityModes",
       "path": "src/engine/hermes_runtime.cc",
       "function": "installBootstrapCompatibilityModes",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4326,
+          "line": 4451,
           "column": 28,
           "source": "auto frozenModes = freeze.call(rt, modes);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4402,
+          "line": 4527,
           "column": 17,
           "source": "(void)freeze.call(rt, ipcBootstrap);"
         }
@@ -1382,12 +1309,12 @@
       "id": "src/engine/hermes_runtime.cc#installCompartmentRegistry",
       "path": "src/engine/hermes_runtime.cc",
       "function": "installCompartmentRegistry",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 4109,
+          "line": 4232,
           "column": 20,
           "source": "handle->runtime->evaluateJavaScript(buffer, \"<compartment-registry>\");"
         }
@@ -1397,96 +1324,103 @@
       "id": "src/engine/hermes_runtime.cc#installGlobals",
       "path": "src/engine/hermes_runtime.cc",
       "function": "installGlobals",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 5172,
+          "line": 5297,
           "column": 36,
           "source": "auto serialized = stringify.call(runtime, args[0]);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 5198,
+          "line": 5323,
           "column": 36,
           "source": "auto serialized = stringify.call(runtime, args[0]);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 5222,
+          "line": 5347,
           "column": 36,
           "source": "auto serialized = stringify.call(runtime, args[0]);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 5256,
+          "line": 5381,
           "column": 36,
           "source": "auto serialized = stringify.call(runtime, args[0]);"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 5394,
+          "line": 5519,
           "column": 9,
           "source": "rt.evaluateJavaScript(buffer, \"<web-crypto>\");"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 5413,
+          "line": 5538,
           "column": 9,
           "source": "rt.evaluateJavaScript(buffer, \"<web-storage>\");"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 5441,
+          "line": 5566,
           "column": 9,
           "source": "rt.evaluateJavaScript(buffer, \"<form-data>\");"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 6088,
+          "line": 6213,
           "column": 22,
           "source": "handle->runtime->evaluateJavaScript(buffer, \"<fs-handle>\");"
         },
         {
+          "kind": "jsi-function-call",
+          "operation": "call",
+          "line": 6282,
+          "column": 35,
+          "source": "auto result = deleteFunction.call("
+        },
+        {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 6180,
+          "line": 6364,
           "column": 22,
           "source": "handle->runtime->evaluateJavaScript(buffer, \"<capability-hardening>\");"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 6255,
+          "line": 6439,
           "column": 22,
           "source": "handle->runtime->evaluateJavaScript(buffer, \"<eager-install-seal>\");"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 6495,
+          "line": 6679,
           "column": 22,
           "source": "handle->runtime->evaluateJavaScript(buffer, \"<lockdown>\");"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 6554,
+          "line": 6738,
           "column": 41,
           "source": "auto observation = handle->runtime->evaluateJavaScript("
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 6582,
+          "line": 6766,
           "column": 22,
           "source": "handle->runtime->evaluateJavaScript(buffer, \"<freeze-seal>\");"
         }
@@ -1496,12 +1430,12 @@
       "id": "src/engine/hermes_runtime.cc#installStructuredLastValueAccessor",
       "path": "src/engine/hermes_runtime.cc",
       "function": "installStructuredLastValueAccessor",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 10772,
+          "line": 11155,
           "column": 46,
           "source": "handle->structured_object_define_property->call("
         }
@@ -1511,19 +1445,19 @@
       "id": "src/engine/hermes_runtime.cc#installStructuredLifecycleAccessors",
       "path": "src/engine/hermes_runtime.cc",
       "function": "installStructuredLifecycleAccessors",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 9661,
+          "line": 10038,
           "column": 46,
           "source": "handle->structured_object_define_property->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 9667,
+          "line": 10044,
           "column": 62,
           "source": "auto deleted = handle->structured_reflect_delete_property->call("
         }
@@ -1538,7 +1472,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 2463,
+          "line": 2464,
           "column": 44,
           "source": "handler.asObject(rt).asFunction(rt).call(rt, std::move(errVal));"
         }
@@ -1553,14 +1487,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 11047,
+          "line": 11430,
           "column": 66,
           "source": "auto deleted = handle->structured_reflect_delete_property->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 11079,
+          "line": 11462,
           "column": 62,
           "source": "return handle->structured_session_import_materializer->call("
         }
@@ -1575,7 +1509,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 11747,
+          "line": 12130,
           "column": 65,
           "source": "auto result = handle->structured_session_import_materializer->call("
         }
@@ -1590,14 +1524,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 1176,
+          "line": 1165,
           "column": 38,
           "source": "? handle->structured_number->call(runtime, value)"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 1177,
+          "line": 1166,
           "column": 70,
           "source": ": runtime.global().getPropertyAsFunction(runtime, \"Number\").call("
         }
@@ -1612,14 +1546,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 16335,
+          "line": 16547,
           "column": 30,
           "source": "it->second.callback.call(*runtime->runtime);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 16337,
+          "line": 16549,
           "column": 30,
           "source": "it->second.callback.call("
         }
@@ -1634,7 +1568,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 16048,
+          "line": 16266,
           "column": 43,
           "source": "callback.asObject(rt).asFunction(rt).call("
         }
@@ -1649,7 +1583,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 8054,
+          "line": 8185,
           "column": 54,
           "source": "auto frozen = runtime->root_global_object_is_frozen->call(rt, prepared);"
         }
@@ -1664,31 +1598,16 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7991,
+          "line": 8122,
           "column": 64,
           "source": "auto namesValue = runtime->root_global_get_own_property_names->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7993,
+          "line": 8124,
           "column": 68,
           "source": "auto symbolsValue = runtime->root_global_get_own_property_symbols->call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime.cc#refreshCompartmentBaselineForDeferredWebGpu",
-      "path": "src/engine/hermes_runtime.cc",
-      "function": "refreshCompartmentBaselineForDeferredWebGpu",
-      "disposition": "construction-no-app-webgpu",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 7792,
-          "column": 55,
-          "source": "auto result = handle->compartment_baseline_refresher->call(rt, paths);"
         }
       ]
     },
@@ -1696,19 +1615,19 @@
       "id": "src/engine/hermes_runtime.cc#removeProvisionalExactCapability",
       "path": "src/engine/hermes_runtime.cc",
       "function": "removeProvisionalExactCapability",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4263,
+          "line": 4384,
           "column": 27,
           "source": ".call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4273,
+          "line": 4394,
           "column": 9,
           "source": ".call("
         }
@@ -1718,12 +1637,12 @@
       "id": "src/engine/hermes_runtime.cc#rootGlobalDescriptorField",
       "path": "src/engine/hermes_runtime.cc",
       "function": "rootGlobalDescriptorField",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7538,
+          "line": 7730,
           "column": 49,
           "source": "handle->root_global_get_own_property_names->call(rt, descriptor);"
         }
@@ -1733,12 +1652,12 @@
       "id": "src/engine/hermes_runtime.cc#rootGlobalOwnDescriptor",
       "path": "src/engine/hermes_runtime.cc",
       "function": "rootGlobalOwnDescriptor",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 7528,
+          "line": 7720,
           "column": 57,
           "source": "return handle->root_global_get_own_property_descriptor->call("
         }
@@ -1753,14 +1672,14 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6750,
+          "line": 6934,
           "column": 23,
           "source": "entry.callback.call(rt);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 6752,
+          "line": 6936,
           "column": 23,
           "source": "entry.callback.call("
         }
@@ -1775,7 +1694,7 @@
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluatePreparedJavaScript",
-          "line": 1520,
+          "line": 1519,
           "column": 34,
           "source": "auto value = runtime->runtime->evaluatePreparedJavaScript("
         }
@@ -1785,19 +1704,19 @@
       "id": "src/engine/hermes_runtime.cc#sealUnarmedProcessExitCodeDescriptor",
       "path": "src/engine/hermes_runtime.cc",
       "function": "sealUnarmedProcessExitCodeDescriptor",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4150,
+          "line": 4271,
           "column": 50,
           "source": "auto descriptorValue = getOwnPropertyDescriptor.call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4163,
+          "line": 4284,
           "column": 17,
           "source": "defineProperty.call("
         }
@@ -1812,7 +1731,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 10706,
+          "line": 11089,
           "column": 55,
           "source": "auto value = handle->structured_object_is_extensible->call(rt, rt.global());"
         }
@@ -1827,7 +1746,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 10797,
+          "line": 11180,
           "column": 70,
           "source": "auto descriptorValue = handle->structured_object_get_own_descriptor->call("
         }
@@ -1842,7 +1761,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 10683,
+          "line": 11066,
           "column": 70,
           "source": "auto descriptorValue = handle->structured_object_get_own_descriptor->call("
         }
@@ -1857,7 +1776,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 1092,
+          "line": 1081,
           "column": 30,
           "source": "auto pretty = stringify.call(rt, value, facebook::jsi::Value::null(), facebook::jsi::Value(2.0));"
         }
@@ -1867,12 +1786,12 @@
       "id": "src/engine/hermes_runtime.cc#verifyRootGlobalDisposition",
       "path": "src/engine/hermes_runtime.cc",
       "function": "verifyRootGlobalDisposition",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 9016,
+          "line": 9151,
           "column": 47,
           "source": "handle->root_global_get_prototype_of->call(rt, current);"
         }
@@ -1887,7 +1806,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 10894,
+          "line": 11277,
           "column": 48,
           "source": "auto written = handle->structured_reflect_set->call("
         }
@@ -1933,812 +1852,6 @@
           "line": 601,
           "column": 23,
           "source": "auto result = rt.evaluateJavaScript(buffer, \"<cdp>\");"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu.cc#ExactGpuRuntimeBinding::detach",
-      "path": "src/engine/hermes_runtime_gpu.cc",
-      "function": "ExactGpuRuntimeBinding::detach",
-      "disposition": "terminal-cleanup",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 1398,
-          "column": 21,
-          "source": "revoke_capture->call(*runtime->runtime);"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu.cc#closeGpuConstructionCaptureImpl",
-      "path": "src/engine/hermes_runtime_gpu.cc",
-      "function": "closeGpuConstructionCaptureImpl",
-      "disposition": "construction-no-app-webgpu",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 59,
-          "column": 40,
-          "source": "runtime->gpu_construction_capture->call(rt);"
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 71,
-          "column": 45,
-          "source": "capture.getObject(rt).asFunction(rt).call(rt);"
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 92,
-          "column": 26,
-          "source": ".call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu.cc#defineGpuProperty",
-      "path": "src/engine/hermes_runtime_gpu.cc",
-      "function": "defineGpuProperty",
-      "disposition": "construction-no-app-webgpu",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 381,
-          "column": 17,
-          "source": "defineProperty.call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu.cc#drainGpuMailbox",
-      "path": "src/engine/hermes_runtime_gpu.cc",
-      "function": "drainGpuMailbox",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 705,
-          "column": 24,
-          "source": "receipt.resolve->call(rt, makeGpuReceipt(rt, std::move(*event)));"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu.cc#exactGpuPublishPrivateBridge",
-      "path": "src/engine/hermes_runtime_gpu.cc",
-      "function": "exactGpuPublishPrivateBridge",
-      "disposition": "construction-no-app-webgpu",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 1738,
-          "column": 9,
-          "source": ".call(rt, gpuNativeBridge);"
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 1754,
-          "column": 31,
-          "source": "auto revokeValue = capture.call(rt, *privateGpuNativeBridge);"
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 1768,
-          "column": 49,
-          "source": "revokeValue.getObject(rt).asFunction(rt).call(rt);"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu.cc#exactGpuRetainConstructionCaptureForBootstrapSeal",
-      "path": "src/engine/hermes_runtime_gpu.cc",
-      "function": "exactGpuRetainConstructionCaptureForBootstrapSeal",
-      "disposition": "construction-no-app-webgpu",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 1834,
-          "column": 64,
-          "source": "auto deleted = runtime->root_global_reflect_delete_property->call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu.cc#ibex_test_gpu_install_nonconfigurable_capture",
-      "path": "src/engine/hermes_runtime_gpu.cc",
-      "function": "ibex_test_gpu_install_nonconfigurable_capture",
-      "disposition": "test-only",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 2264,
-          "column": 9,
-          "source": ".call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu.cc#ibex_test_gpu_private_bridge_cancel",
-      "path": "src/engine/hermes_runtime_gpu.cc",
-      "function": "ibex_test_gpu_private_bridge_cancel",
-      "disposition": "test-only",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 2166,
-          "column": 25,
-          "source": "auto result = cancel.call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu.cc#ibex_test_gpu_private_bridge_retire",
-      "path": "src/engine/hermes_runtime_gpu.cc",
-      "function": "ibex_test_gpu_private_bridge_retire",
-      "disposition": "test-only",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 2225,
-          "column": 25,
-          "source": "auto result = retire.call(rt, array);"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu.cc#ibex_test_gpu_private_bridge_submit",
-      "path": "src/engine/hermes_runtime_gpu.cc",
-      "function": "ibex_test_gpu_private_bridge_submit",
-      "disposition": "test-only",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 2113,
-          "column": 25,
-          "source": "auto result = submit.call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu.cc#ibex_test_gpu_private_bridge_submit_plain_object",
-      "path": "src/engine/hermes_runtime_gpu.cc",
-      "function": "ibex_test_gpu_private_bridge_submit_plain_object",
-      "disposition": "test-only",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "callAsConstructor",
-          "line": 2190,
-          "column": 23,
-          "source": ".callAsConstructor(rt, 4);"
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 2194,
-          "column": 17,
-          "source": "(void)submit.call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu.cc#makeGpuError",
-      "path": "src/engine/hermes_runtime_gpu.cc",
-      "function": "makeGpuError",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "callAsConstructor",
-          "line": 430,
-          "column": 20,
-          "source": ".callAsConstructor("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu.cc#makeGpuPromise",
-      "path": "src/engine/hermes_runtime_gpu.cc",
-      "function": "makeGpuPromise",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "callAsConstructor",
-          "line": 1053,
-          "column": 36,
-          "source": "auto promise = promiseConstructor.callAsConstructor(rt, executor).getObject(rt);"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu.cc#rejectGpuReceipt",
-      "path": "src/engine/hermes_runtime_gpu.cc",
-      "function": "rejectGpuReceipt",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 505,
-          "column": 19,
-          "source": "receipt.reject->call(rt, error);"
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 512,
-          "column": 21,
-          "source": "receipt.reject->call(rt, facebook::jsi::Value::undefined());"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#ExactGpuRuntimeBindingV2::detach",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "ExactGpuRuntimeBindingV2::detach",
-      "disposition": "terminal-cleanup",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 5315,
-          "column": 21,
-          "source": "revoke_capture->call(*runtime->runtime);"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#canvasReceiptValueMatchesV1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "canvasReceiptValueMatchesV1",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 2644,
-          "column": 64,
-          "source": "auto namesValue = runtime->root_global_get_own_property_names->call("
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 2646,
-          "column": 68,
-          "source": "auto symbolsValue = runtime->root_global_get_own_property_symbols->call("
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 2665,
-          "column": 57,
-          "source": "runtime->root_global_get_own_property_descriptor->call("
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 2686,
-          "column": 21,
-          "source": ".call(rt, object);"
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 2688,
-          "column": 62,
-          "source": "auto prototypeValue = runtime->root_global_get_prototype_of->call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#captureGpuPresentationAuthorityBridgeCall",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "captureGpuPresentationAuthorityBridgeCall",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 4286,
-          "column": 9,
-          "source": ".call(rt, result);"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#closeGpuCanvasAppBundleCaptureRootV1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "closeGpuCanvasAppBundleCaptureRootV1",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 5948,
-          "column": 64,
-          "source": "auto deleted = runtime->root_global_reflect_delete_property->call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#defineGpuV2Property",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "defineGpuV2Property",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 2479,
-          "column": 7,
-          "source": ".call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#deliverGpuV2WrapperEvent",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "deliverGpuV2WrapperEvent",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 3587,
-          "column": 31,
-          "source": "binding.wrapper_event_sink->call(rt, event);"
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 3590,
-          "column": 34,
-          "source": "binding.test_event_observer->call(rt, event);"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#drainGpuMailboxV2",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "drainGpuMailboxV2",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 3839,
-          "column": 26,
-          "source": "receipt.resolve->call(rt, facebook::jsi::Value::undefined());"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_begin_gpu_canvas_app_bundle_v1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "ex_hermes_begin_gpu_canvas_app_bundle_v1",
-      "disposition": "outer-host-task",
-      "sites": [
-        {
-          "kind": "user-execution-gate",
-          "operation": "exactRuntimeEnterUserExecution",
-          "line": 6046,
-          "column": 35,
-          "source": "if (!outerEvaluationOpen && (!exactRuntimeEnterUserExecution(runtime) ||"
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 6063,
-          "column": 43,
-          "source": "binding->canvas_app_bundle_begin->call(*runtime->runtime, 0.0);"
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 6100,
-          "column": 57,
-          "source": "auto captureValue = binding->canvas_app_bundle_begin->call("
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 6133,
-          "column": 42,
-          "source": "binding->canvas_app_bundle_finish->call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_deliver_gpu_canvas_attachment_receipt_v1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "ex_hermes_deliver_gpu_canvas_attachment_receipt_v1",
-      "disposition": "outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 6482,
-          "column": 33,
-          "source": "binding->canvas_receipt_sink->call(*runtime->runtime, value);"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_finish_gpu_canvas_app_bundle_v1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "ex_hermes_finish_gpu_canvas_app_bundle_v1",
-      "disposition": "outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 6381,
-          "column": 52,
-          "source": "auto result = binding->canvas_app_bundle_finish->call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#exactGpuDecodedImageAttachAuthorityV1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "exactGpuDecodedImageAttachAuthorityV1",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 5691,
-          "column": 9,
-          "source": ".call(rt, authority);"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#exactGpuV2CaptureResultFunctions",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "exactGpuV2CaptureResultFunctions",
-      "disposition": "construction-no-app-webgpu",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 6606,
-          "column": 21,
-          "source": ".call(rt, object);"
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 6609,
-          "column": 64,
-          "source": "auto namesValue = runtime->root_global_get_own_property_names->call("
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 6611,
-          "column": 68,
-          "source": "auto symbolsValue = runtime->root_global_get_own_property_symbols->call("
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 6649,
-          "column": 62,
-          "source": "auto prototypeValue = runtime->root_global_get_prototype_of->call("
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 6664,
-          "column": 57,
-          "source": "runtime->root_global_get_own_property_descriptor->call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#exactGpuV2CheckpointHostTask",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "exactGpuV2CheckpointHostTask",
-      "disposition": "internal-checkpoint",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 7047,
-          "column": 15,
-          "source": "checkpoint->call(*runtime->runtime);"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#exactGpuV2PublishPrivateBridge",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "exactGpuV2PublishPrivateBridge",
-      "disposition": "construction-no-app-webgpu",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 6922,
-          "column": 9,
-          "source": ".call(rt, gpuNativeBridgeV2);"
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 6938,
-          "column": 31,
-          "source": "auto revokeValue = capture.call(rt, *captured);"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#gpuCanvasAppBundleCaptureDescriptorV1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "gpuCanvasAppBundleCaptureDescriptorV1",
-      "disposition": "construction-no-app-webgpu",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 5907,
-          "column": 58,
-          "source": "return runtime->root_global_get_own_property_descriptor->call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#gpuCanvasDescriptorFieldV1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "gpuCanvasDescriptorFieldV1",
-      "disposition": "construction-no-app-webgpu",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 5884,
-          "column": 64,
-          "source": "auto namesValue = runtime->root_global_get_own_property_names->call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#ibex_test_gpu_v2_consume_canvas_app_bundle_integration",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "ibex_test_gpu_v2_consume_canvas_app_bundle_integration",
-      "disposition": "test-only",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 7596,
-          "column": 9,
-          "source": ".call(rt, integration);"
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 7597,
-          "column": 55,
-          "source": "runtime->gpu_binding_v2->canvas_app_bundle_capture->call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#ibex_test_gpu_v2_immediate_eval_markers",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "ibex_test_gpu_v2_immediate_eval_markers",
-      "disposition": "test-only",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 7508,
-          "column": 73,
-          "source": "auto descriptor = runtime->root_global_get_own_property_descriptor->call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#ibex_test_gpu_v2_install_event_observer",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "ibex_test_gpu_v2_install_event_observer",
-      "disposition": "test-only",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 7725,
-          "column": 43,
-          "source": "lossResolvers->resolve->call("
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 7751,
-          "column": 45,
-          "source": "lossResolvers->resolve->call("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#ibex_test_gpu_v2_mapped_range_bridge_roundtrip",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "ibex_test_gpu_v2_mapped_range_bridge_roundtrip",
-      "disposition": "test-only",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "callAsConstructor",
-          "line": 7869,
-          "column": 29,
-          "source": ".callAsConstructor(rt, 16)"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#makeCanvasAttachmentReceiptValueV1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "makeCanvasAttachmentReceiptValueV1",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 2597,
-          "column": 7,
-          "source": ".call(rt, value);"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#makeDecodedImageErrorV1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "makeDecodedImageErrorV1",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "callAsConstructor",
-          "line": 2253,
-          "column": 20,
-          "source": ".callAsConstructor("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#makeDecodedImagePromiseV1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "makeDecodedImagePromiseV1",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "callAsConstructor",
-          "line": 2240,
-          "column": 22,
-          "source": ".callAsConstructor(rt, executor)"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#makeGpuV2Error",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "makeGpuV2Error",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "callAsConstructor",
-          "line": 2976,
-          "column": 20,
-          "source": ".callAsConstructor("
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#makeGpuV2Promise",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "makeGpuV2Promise",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "callAsConstructor",
-          "line": 2944,
-          "column": 22,
-          "source": ".callAsConstructor(rt, executor)"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#rejectDecodedImageV1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "rejectDecodedImageV1",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 2268,
-          "column": 22,
-          "source": "resolvers->reject->call(rt, makeDecodedImageErrorV1(rt, message));"
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 2271,
-          "column": 24,
-          "source": "resolvers->reject->call(rt, facebook::jsi::Value::undefined());"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#rejectGpuV2Receipt",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "rejectGpuV2Receipt",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 3010,
-          "column": 19,
-          "source": "receipt.reject->call("
-        },
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 3023,
-          "column": 21,
-          "source": "receipt.reject->call(rt, facebook::jsi::Value::undefined());"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#revokeGpuV2BridgeCapture",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "revokeGpuV2BridgeCapture",
-      "disposition": "terminal-cleanup",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 3076,
-          "column": 29,
-          "source": "binding.revoke_capture->call(rt);"
-        }
-      ]
-    },
-    {
-      "id": "src/engine/hermes_runtime_gpu_v2.cc#settleDecodedImageV1",
-      "path": "src/engine/hermes_runtime_gpu_v2.cc",
-      "function": "settleDecodedImageV1",
-      "disposition": "joins-outer-host-task",
-      "sites": [
-        {
-          "kind": "jsi-function-call",
-          "operation": "call",
-          "line": 2348,
-          "column": 23,
-          "source": "resolvers->resolve->call(rt, std::move(result));"
         }
       ]
     },
@@ -2825,7 +1938,7 @@
       "id": "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
       "path": "src/engine/hermes_runtime_ios.cc",
       "function": "ex_hermes_set_dispatch_with_debug_context_callback",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
@@ -2840,7 +1953,7 @@
       "id": "src/engine/hermes_runtime_ios.cc#ex_hermes_set_kernel_handle",
       "path": "src/engine/hermes_runtime_ios.cc",
       "function": "ex_hermes_set_kernel_handle",
-      "disposition": "construction-no-app-webgpu",
+      "disposition": "construction-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
@@ -2921,7 +2034,7 @@
       "id": "src/engine/hermes_runtime_worklet.cc#ex_worklet_install",
       "path": "src/engine/hermes_runtime_worklet.cc",
       "function": "ex_worklet_install",
-      "disposition": "restricted-no-app-webgpu",
+      "disposition": "restricted-no-app-code",
       "sites": [
         {
           "kind": "engine-eval-or-prepare",
@@ -2936,7 +2049,7 @@
       "id": "src/engine/hermes_runtime_worklet.cc#ex_worklet_install_typed",
       "path": "src/engine/hermes_runtime_worklet.cc",
       "function": "ex_worklet_install_typed",
-      "disposition": "restricted-no-app-webgpu",
+      "disposition": "restricted-no-app-code",
       "sites": [
         {
           "kind": "engine-eval-or-prepare",
@@ -2951,7 +2064,7 @@
       "id": "src/engine/hermes_runtime_worklet.cc#ex_worklet_invoke",
       "path": "src/engine/hermes_runtime_worklet.cc",
       "function": "ex_worklet_invoke",
-      "disposition": "restricted-no-app-webgpu",
+      "disposition": "restricted-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
@@ -2973,7 +2086,7 @@
       "id": "src/engine/hermes_runtime_worklet.cc#ex_worklet_invoke_typed",
       "path": "src/engine/hermes_runtime_worklet.cc",
       "function": "ex_worklet_invoke_typed",
-      "disposition": "restricted-no-app-webgpu",
+      "disposition": "restricted-no-app-code",
       "sites": [
         {
           "kind": "jsi-function-call",
@@ -2988,7 +2101,7 @@
       "id": "src/engine/hermes_runtime_worklet.cc#installWorkletGlobals",
       "path": "src/engine/hermes_runtime_worklet.cc",
       "function": "installWorkletGlobals",
-      "disposition": "restricted-no-app-webgpu",
+      "disposition": "restricted-no-app-code",
       "sites": [
         {
           "kind": "engine-eval-or-prepare",

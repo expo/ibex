@@ -338,40 +338,14 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_844);
-    // Invocation-time require activation adds source-derived obligations; the
-    // six eager dynamic/require-link ABIs remain residual because the
-    // production graph deliberately uses deferred call-time links. The net-new
-    // WebGPU obligations remain unresolved until their public-surface probes
-    // are authored.
-    // Async whole-file read contributes six exact-path scenarios and five
-    // retained-descriptor scenarios. Async scalar/vector reads and writes
-    // contribute four retained-descriptor scenarios apiece. Descriptor denial
-    // remains residual because the harness cannot prepare its source descriptor
-    // under a denied matching floor.
-    // One hundred forty-five output-authored builtin routes now execute their
-    // exact inner source operation as decision-free evidence. This includes 41
-    // get-only reads on harness-owned stream instances, two exact stream/web
-    // conversions, nine exact HTTP helper/constructor routes, 17 exact
-    // in-memory SQLite routes, six exact TLS value/context helpers, two exact
-    // assert promise validators, and five harness-owned filesystem object
-    // lifecycle routes; stream composition/iteration calls, servers, sockets,
-    // connection lifecycles, handshakes, deliberately throwing `assert.fail`,
-    // invalid-descriptor closes, absent FileHandle members, and unsupported
-    // SQLite deserialization remain residual.
-    // Sixty-six startup environment rows now bind eleven exact public source
-    // carriers to their pure absent env:read branches.
-    // Physical Apple execution also retired stale crypto and zlib recipes that
-    // crashed or deliberately threw instead of returning; residual accounting
-    // must reflect both.
-    // The principal environment Proxy adds the complete exact read/write
-    // scenario matrix through its captured native bridges.
+    expect(recipes.summary.requiredFixtures).toBe(23_580);
+    // The merged catalog retains every source-bound Apple probe while removing
+    // the superseded WebGPU-specific Ibex surface under LLP 0040.
     expect(recipes.summary.fullyExecutableFixtures).toBe(3_531);
     // Six internal callback-security invariant scenarios have owning Rust
-    // mechanisms. Registry-owned branch-predicate validation is not expanded
-    // into a fictitious per-public-surface malformed-input scenario.
-    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_134);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_179);
+    // mechanisms; the remaining scenario families stay explicit residuals.
+    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_013);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -468,7 +442,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_503);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_239);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch. The
@@ -489,8 +463,8 @@ describe("exact-target CapSec executable recipes", () => {
     // absent RSA aliases and the unsafe or deliberately throwing crypto/zlib
     // claims.
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_190);
-    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_120);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_193);
+    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_027);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -1746,7 +1720,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(3_134);
+    expect(rationaleOnly).toHaveLength(3_036);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -1755,12 +1729,12 @@ describe("exact-target CapSec executable recipes", () => {
         ]),
       ),
     ).toEqual({
-      "attribution-missing-deny": 517,
-      "generation-recheck": 517,
-      "principal-restore": 517,
-      "snapshot-mismatch-deny": 517,
-      "cannot-widen-authority": 533,
-      "post-lockdown-invariant": 533,
+      "attribution-missing-deny": 511,
+      "generation-recheck": 511,
+      "principal-restore": 511,
+      "snapshot-mismatch-deny": 511,
+      "cannot-widen-authority": 496,
+      "post-lockdown-invariant": 496,
     });
     // These are internal callback-security invariant scenarios: attested by
     // internal Rust proofs, not public-surface probes, so they carry the

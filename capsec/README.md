@@ -181,19 +181,6 @@ report format and fail-closed generator now exist; the candidate remains
 unadvertised while its report is incomplete. Canonical policy and armed examples carry
 recomputed self-digests and exact cross-links.
 
-`generated/webgpu-private-operation-registry.json` is a narrower construction
-record, not a WP1 target claim. The CapSec generator authenticates the Exact
-WebGPU production plan against its wrapper authority, derives one ordinary
-coverage edge and one private route cell per active operation, and joins routes
-that cross the provider boundary to the existing construction-private GPU V2
-bridge edge. Provider-capable edges remain `closed`; wrapper-local, recording,
-control-plane, and authority-reducing operations are `non-capability` and do
-not acquire provider authority. The private cells never advertise a platform,
-install `navigator.gpu`, arm executable codecs or a native factory, or create a
-positive grant issuer. Their corresponding WP1 target cells remain
-`unsupported` until the ordinary report-derived conformance process promotes
-the complete target.
-
 Durable policy is enforce-only. Audit is the ephemeral, separately named
 `ibex capsec audit` workflow. The `contract-fixture` armed snapshot is
 schema-only, uses the synthetic `capsec-contract-fixture` target, and is never

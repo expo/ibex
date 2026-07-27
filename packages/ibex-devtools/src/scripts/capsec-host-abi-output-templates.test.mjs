@@ -144,10 +144,10 @@ describe("source-bound Host ABI output templates", () => {
     const legacyScalarAuthored = scalarAuthored.filter(({ edge }) =>
       legacyNames.has(edge.surface.name),
     );
-    expect(ordinaryScalarAuthored).toHaveLength(259);
+    expect(ordinaryScalarAuthored).toHaveLength(239);
     expect(
       new Set(ordinaryScalarAuthored.map(({ edge }) => edge.surface.name)).size,
-    ).toBe(254);
+    ).toBe(234);
     expect(legacyScalarAuthored.length).toBe(
       catalog.rows.filter(
         (row) =>
@@ -172,24 +172,22 @@ describe("source-bound Host ABI output templates", () => {
     ).toEqual({
       "native-hermes-authenticated-armed-create": 1,
       "native-hermes-authenticated-session-runtime": 10,
-      "rust-host-bounded-basic": 26,
+      "rust-host-bounded-basic": 27,
       "rust-host-authenticated-typed-authority": 17,
-      "rust-host-authenticated-stateful-output": 14,
+      "rust-host-authenticated-stateful-output": 13,
       "rust-host-fs-sandbox": 25,
       "rust-host-authenticated-vfs-output": 5,
       "rust-host-authenticated-javascript-absence": 5,
       "rust-host-http-live-server": 24,
       "rust-host-sqlite-memory": 13,
       "rust-host-terminal-inert": 8,
-      "native-hermes-diagnostic-runtime": 32,
-      "native-hermes-app-bundle-transaction": 10,
-      "rust-host-gpu-authority-refusal": 6,
-      "rust-host-gpu-authority-success": 1,
+      "native-hermes-diagnostic-runtime": 29,
+      "native-hermes-app-bundle-transaction": 6,
       "native-hermes-bounded-dispatch-runtime": 3,
       "native-hermes-module-runner-runtime": 27,
       "native-hermes-owned-runtime-teardown": 1,
       "native-hermes-owned-value-runtime": 5,
-      "native-hermes-stateless-current-target": 14,
+      "native-hermes-stateless-current-target": 8,
       "native-hermes-worklet-runtime": 12,
     });
     if (legacyScalarAuthored.length > 0) {

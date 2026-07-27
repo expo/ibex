@@ -1,8 +1,13 @@
-# Reviews of LLP 0040 — How Exact and Snapback Consume Ibex (Claude/Fable family)
+# Reviews of LLP 0041 — How Exact and Snapback Consume Ibex (Claude/Fable family)
 
-Review artifacts for `llp/0040-consuming-ibex.decision.md`, recorded per
+Review artifacts for `llp/0041-consuming-ibex.decision.md`, recorded per
 [LLP 0005](https://github.com/ccheever/llp/blob/main/llp/0005-rfc-process.guide.md).
 One `## Round N` section per round, appended, never overwritten.
+
+Administrative renumbering note: this decision and its reviews were
+originally authored as LLP 0040. They became LLP 0041 when a separately
+authored LLP 0040 landed on `main`; recorded digests and quoted review text
+retain that original identity as historical provenance.
 
 ---
 
@@ -25,7 +30,7 @@ One `## Round N` section per round, appended, never overwritten.
 - **Redacted:** No. The reviewer ran read-only against the repository
   working tree.
 - **Independence:** Fresh agent session with no access to the orchestrator's
-  conversation, the concurrent Codex review, or any prior LLP 0040 review
+  conversation, the concurrent Codex review, or any prior LLP 0041 review
   artifact (none existed — this is round 1). Instructed not to read
   `llp/reviews/` or scratchpad notes. Structural exclusion of this session's
   context is real (fresh agent); exclusion of the on-disk review artifacts is

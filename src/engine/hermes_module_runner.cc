@@ -1775,7 +1775,7 @@ extern "C" int32_t ex_hermes_module_compile_factory(
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
 
-  ScopedGpuHostTask hostTask(runtime);
+  ScopedRuntimeExtensionHostTask hostTask(runtime);
   if (!hostTask) {
     writeError(out_error, "module factory host-task boundary is unavailable");
     return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
@@ -1983,7 +1983,7 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
 
-  ScopedGpuHostTask hostTask(runtime);
+  ScopedRuntimeExtensionHostTask hostTask(runtime);
   if (!hostTask) {
     writeError(out_error, "module carrier host-task boundary is unavailable");
     return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
@@ -2530,7 +2530,7 @@ extern "C" int32_t ex_hermes_commonjs_record_evaluate(
   if (out_evicted == nullptr) return EXACT_RUNTIME_DRIVE_INVALID;
   auto* entry = commonJsRecordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
-  ScopedGpuHostTask hostTask(runtime);
+  ScopedRuntimeExtensionHostTask hostTask(runtime);
   if (!hostTask) {
     writeError(out_error, "CommonJS host-task boundary is unavailable");
     return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
@@ -2597,7 +2597,7 @@ extern "C" int32_t ex_hermes_commonjs_record_create_esm_adapter(
       context->second.references == std::numeric_limits<uint32_t>::max()) {
     return EXACT_RUNTIME_DRIVE_STALE;
   }
-  ScopedGpuHostTask hostTask(runtime);
+  ScopedRuntimeExtensionHostTask hostTask(runtime);
   if (!hostTask) {
     writeError(out_error, "CommonJS adapter host-task boundary is unavailable");
     return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
@@ -3537,7 +3537,7 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
 
-  ScopedGpuHostTask hostTask(runtime);
+  ScopedRuntimeExtensionHostTask hostTask(runtime);
   if (!hostTask) {
     writeError(out_error,
                "module instantiate host-task boundary is unavailable");
@@ -3898,7 +3898,7 @@ extern "C" int32_t ex_hermes_module_record_run_declare(
       !entry->declare_function) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
-  ScopedGpuHostTask hostTask(runtime);
+  ScopedRuntimeExtensionHostTask hostTask(runtime);
   if (!hostTask) {
     writeError(out_error,
                "module declaration host-task boundary is unavailable");
@@ -3959,7 +3959,7 @@ extern "C" int32_t ex_hermes_module_record_run_execute(
       !entry->execute_function || out_async == nullptr) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
-  ScopedGpuHostTask hostTask(runtime);
+  ScopedRuntimeExtensionHostTask hostTask(runtime);
   if (!hostTask) {
     writeError(out_error, "module execution host-task boundary is unavailable");
     return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
@@ -4058,7 +4058,7 @@ extern "C" int32_t ex_hermes_module_record_namespace_json(
   if (!entry->namespace_object || out_json == nullptr) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
-  ScopedGpuHostTask hostTask(runtime);
+  ScopedRuntimeExtensionHostTask hostTask(runtime);
   if (!hostTask) {
     writeError(out_error, "module namespace host-task boundary is unavailable");
     return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;

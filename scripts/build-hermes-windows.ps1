@@ -36,18 +36,16 @@ if (-not $Ref) {
 
 function ConvertTo-LowerHex {
   param([byte[]]$Bytes)
-
   # @ref LLP 0001#4-what-ci-must-handle-per-cell — the reviewed Windows
   # artifact path must run in the platform's default PowerShell 5 host.
   return [System.BitConverter]::ToString($Bytes).Replace("-", "").ToLowerInvariant()
 }
 
-function Set-Utf8NoBomContent {
+function Write-Utf8NoBomFile {
   param(
     [string]$Path,
     [string]$Content
   )
-
   $encoding = New-Object System.Text.UTF8Encoding($false)
   [System.IO.File]::WriteAllText(
     $Path,
@@ -363,7 +361,7 @@ try {
     debugger = [bool]$Debug
     binarySha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $binDir "hermesvm.dll")).Hash.ToLowerInvariant()
   }
-  Set-Utf8NoBomContent `
+  Write-Utf8NoBomFile `
     -Path (Join-Path $installDir "artifact.json") `
     -Content ($manifest | ConvertTo-Json)
 
@@ -419,7 +417,7 @@ try {
         reviewedProfileIdentity = $reviewedProfileIdentity
       }
     }
-    Set-Utf8NoBomContent `
+    Write-Utf8NoBomFile `
       -Path (Join-Path $binDir "hermes-profile-provenance.json") `
       -Content ($receipt | ConvertTo-Json -Depth 8)
   }

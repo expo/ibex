@@ -25,8 +25,14 @@ use crate::path_alias::{
     BoundVolumePathCanonicalizer, PathAliasCanonicalizers, PathCanonicalizerRootBinding,
 };
 use crate::registry::DefinitionSet;
+use crate::runtime_extensions::{
+    RuntimeExtensionAuthorityCapsule, RuntimeExtensionMappedExecutableIdentity,
+};
 use crate::strict_json::parse_strict;
 use crate::{Error, Result};
+
+#[cfg(test)]
+use crate::model::StableId;
 
 pub const ARMED_SNAPSHOT_SCHEMA: &str = "ibex/capsec-armed/1";
 pub const ARMING_ABI: &str = "ibex-capsec-arming-2-root-ceiling-embedded-ranges-bootstrap-seal";
@@ -64,6 +70,14 @@ pub struct ExpectedArmingIdentity {
     /// These have no host path; identity is the mapped object plus byte range,
     /// semantic role, and section digest.
     pub embedded_protected_artifacts: Vec<ExpectedEmbeddedProtectedArtifact>,
+    /// Launcher-observed digest of the complete native extension authority
+    /// capsule. Absence means the canonical empty extension set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_extension_authority_digest: Option<Digest>,
+    /// Final executable object/range/content identity observed by the launcher
+    /// and independently hashed before the capsule was finalized.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_extension_mapped_executable: Option<RuntimeExtensionMappedExecutableIdentity>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -209,9 +223,9 @@ pub enum ProtectedArtifactRole {
     ArmedPolicy,
     EngineBinary,
     ExactOperationManifest,
-    ExactWebgpuProfile,
     PackageGraph,
     Registry,
+    RuntimeExtensionAuthorityCapsule,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -255,24 +269,6 @@ pub struct ExactEmbedderBinding {
     pub endowments: ExactEmbedderEndowments,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ExactGpuProviderBinding {
-    pub schema: String,
-    pub abi_version: u32,
-    pub profile_id: String,
-    pub profile_digest: Digest,
-    pub webgpu_c_vocabulary_digest: Digest,
-    pub operation_set_digest: Digest,
-    pub semantic_program_digest: Digest,
-    /// Present only for ABI V2. This independently binds the generated
-    /// operation-to-runtime routing/codec/timing plan.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub runtime_routing_digest: Option<Digest>,
-    pub operation_ids: Vec<u32>,
-    pub topology: String,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SnapshotGenerations {
     pub policy: Generation,
@@ -310,6 +306,7 @@ pub struct ArmedSnapshot {
     module_edges: Arc<[SnapshotImportEdge]>,
     protected_artifacts: Arc<[ExpectedProtectedArtifact]>,
     embedded_protected_artifacts: Arc<[ExpectedEmbeddedProtectedArtifact]>,
+    runtime_extension_authority: Option<Arc<RuntimeExtensionAuthorityCapsule>>,
     bootstrap_compatibility_modes: Arc<[String]>,
     armed_snapshot_digest: Digest,
     generations: SnapshotGenerations,
@@ -359,6 +356,15 @@ impl ArmedSnapshot {
         if features != expected.features {
             return refused("engine feature set differs from the armed snapshot");
         }
+        let runtime_extension_authority = document
+            .get("runtimeExtensions")
+            .cloned()
+            .map(RuntimeExtensionAuthorityCapsule::from_value)
+            .transpose()?;
+        validate_expected_runtime_extension_authority(
+            runtime_extension_authority.as_ref(),
+            expected,
+        )?;
         for field in [
             "lockdown",
             "frameAttribution",
@@ -465,6 +471,7 @@ impl ArmedSnapshot {
             module_edges: graph.import_edges.into(),
             protected_artifacts: expected.protected_artifacts.clone().into(),
             embedded_protected_artifacts: expected.embedded_protected_artifacts.clone().into(),
+            runtime_extension_authority: runtime_extension_authority.map(Arc::new),
             bootstrap_compatibility_modes: bootstrap_compatibility_modes.into(),
             armed_snapshot_digest: claimed,
             generations,
@@ -584,6 +591,17 @@ impl ArmedSnapshot {
         &self.embedded_protected_artifacts
     }
 
+    /// Complete authenticated native-extension projection. `None` is the
+    /// canonical empty extension set.
+    pub fn runtime_extension_authority(&self) -> Option<&RuntimeExtensionAuthorityCapsule> {
+        self.runtime_extension_authority.as_deref()
+    }
+
+    pub fn matches_runtime_extension_authority_digest(&self, digest: &str) -> bool {
+        self.runtime_extension_authority()
+            .is_some_and(|capsule| capsule.authority_capsule_digest.as_str() == digest)
+    }
+
     /// Optional Exact-specific ingress identity authenticated by the armed
     /// snapshot and its protected operation-manifest artifact. Generic Ibex
     /// snapshots omit this binding; an armed Exact ingress may not.
@@ -594,19 +612,6 @@ impl ArmedSnapshot {
         let binding: ExactEmbedderBinding = serde_json::from_value(value.clone())
             .map_err(|error| invalid(format!("invalid Exact embedder binding: {error}")))?;
         validate_exact_embedder_binding(&binding)?;
-        Ok(Some(binding))
-    }
-
-    /// Optional Exact GPU service identity authenticated by the snapshot and
-    /// its independently protected profile artifact. This authorizes only the
-    /// native registration seam; it does not advertise a WebGPU JS surface.
-    pub fn exact_gpu_provider_binding(&self) -> Result<Option<ExactGpuProviderBinding>> {
-        let Some(value) = self.document.get("exactGpuProvider") else {
-            return Ok(None);
-        };
-        let binding: ExactGpuProviderBinding = serde_json::from_value(value.clone())
-            .map_err(|error| invalid(format!("invalid Exact GPU provider binding: {error}")))?;
-        validate_exact_gpu_provider_binding(&binding)?;
         Ok(Some(binding))
     }
 
@@ -1064,12 +1069,6 @@ fn validate_snapshot_invariants(
             .map_err(|error| invalid(format!("invalid Exact embedder binding: {error}")))?;
         validate_exact_embedder_binding(&binding)?;
     }
-    if let Some(value) = document.get("exactGpuProvider") {
-        let binding: ExactGpuProviderBinding = serde_json::from_value(value.clone())
-            .map_err(|error| invalid(format!("invalid Exact GPU provider binding: {error}")))?;
-        validate_exact_gpu_provider_binding(&binding)?;
-    }
-
     let root_identity: Principal =
         serde_json::from_value(value_at(document, &["rootIdentity"])?.clone())
             .map_err(|error| invalid(format!("invalid root identity: {error}")))?;
@@ -1489,8 +1488,8 @@ fn validate_protected_object_rows(document: &Value) -> Result<()> {
     if document.get("exactEmbedder").is_some() {
         required.push(ProtectedArtifactRole::ExactOperationManifest);
     }
-    if document.get("exactGpuProvider").is_some() {
-        required.push(ProtectedArtifactRole::ExactWebgpuProfile);
+    if document.get("runtimeExtensions").is_some() {
+        required.push(ProtectedArtifactRole::RuntimeExtensionAuthorityCapsule);
     }
     required.sort();
     if rows.len() != required.len() {
@@ -1569,18 +1568,16 @@ fn validate_expected_protected_artifacts(
                 .map_err(|error| invalid(format!("invalid Exact embedder binding: {error}")))
         })
         .transpose()?;
-    let gpu_binding = document
-        .get("exactGpuProvider")
-        .map(|value| {
-            serde_json::from_value::<ExactGpuProviderBinding>(value.clone())
-                .map_err(|error| invalid(format!("invalid Exact GPU provider binding: {error}")))
-        })
-        .transpose()?;
     if exact_binding.is_some() {
         required.push(ProtectedArtifactRole::ExactOperationManifest);
     }
-    if gpu_binding.is_some() {
-        required.push(ProtectedArtifactRole::ExactWebgpuProfile);
+    let runtime_extension_binding = document
+        .get("runtimeExtensions")
+        .cloned()
+        .map(RuntimeExtensionAuthorityCapsule::from_value)
+        .transpose()?;
+    if runtime_extension_binding.is_some() {
+        required.push(ProtectedArtifactRole::RuntimeExtensionAuthorityCapsule);
     }
     required.sort();
     if expected.protected_artifacts.len() + expected.embedded_protected_artifacts.len()
@@ -1637,13 +1634,6 @@ fn validate_expected_protected_artifacts(
                 "protected Exact operation manifest digest differs from its armed binding",
             );
         }
-        if artifact.role == ProtectedArtifactRole::ExactWebgpuProfile
-            && gpu_binding
-                .as_ref()
-                .is_none_or(|binding| artifact.content_digest != binding.profile_digest)
-        {
-            return refused("protected Exact WebGPU profile digest differs from its armed binding");
-        }
     }
 
     let mut embedded = expected.embedded_protected_artifacts.clone();
@@ -1674,15 +1664,6 @@ fn validate_expected_protected_artifacts(
         {
             return refused(
                 "protected embedded Exact operation manifest digest differs from its armed binding",
-            );
-        }
-        if artifact.role == ProtectedArtifactRole::ExactWebgpuProfile
-            && gpu_binding
-                .as_ref()
-                .is_none_or(|binding| artifact.content_digest != binding.profile_digest)
-        {
-            return refused(
-                "protected embedded Exact WebGPU profile digest differs from its armed binding",
             );
         }
     }
@@ -1723,6 +1704,43 @@ fn validate_expected_protected_artifacts(
     Ok(())
 }
 
+fn validate_expected_runtime_extension_authority(
+    capsule: Option<&RuntimeExtensionAuthorityCapsule>,
+    expected: &ExpectedArmingIdentity,
+) -> Result<()> {
+    match capsule {
+        Some(capsule) => {
+            if expected.runtime_extension_authority_digest.as_ref()
+                != Some(&capsule.authority_capsule_digest)
+            {
+                return refused(
+                    "runtime-extension authority digest differs from the trusted arming identity",
+                );
+            }
+            capsule.validate_launcher_mapped_executable(
+                expected
+                    .runtime_extension_mapped_executable
+                    .as_ref()
+                    .ok_or_else(|| {
+                        Error::ArmRefused(
+                            "trusted arming identity omitted the mapped executable".into(),
+                        )
+                    })?,
+            )?;
+        }
+        None => {
+            if expected.runtime_extension_authority_digest.is_some()
+                || expected.runtime_extension_mapped_executable.is_some()
+            {
+                return refused(
+                    "trusted arming identity supplies runtime extensions for an empty projection",
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validate_exact_embedder_binding(binding: &ExactEmbedderBinding) -> Result<()> {
     if binding.schema != "exact/host-operation-endowments/1" {
         return refused("Exact embedder binding schema is unsupported");
@@ -1751,52 +1769,6 @@ fn validate_exact_embedder_binding(binding: &ExactEmbedderBinding) -> Result<()>
     }
     if !binding.endowments.ui_worklet.is_empty() {
         return refused("Exact UI worklet endowment must remain empty");
-    }
-    Ok(())
-}
-
-/// Validate the complete identity carried by Exact's optional GPU provider
-/// binding. Artifact producers use the same validator before materializing the
-/// profile that armed-snapshot ingestion uses before accepting it.
-pub fn validate_exact_gpu_provider_binding(binding: &ExactGpuProviderBinding) -> Result<()> {
-    if binding.schema != "exact/webgpu-provider/1" {
-        return refused("Exact GPU provider binding schema is unsupported");
-    }
-    if binding.abi_version != 0x0001_0000 && binding.abi_version != 0x0002_0000 {
-        return refused("Exact GPU provider ABI version is unsupported");
-    }
-    if (binding.abi_version == 0x0001_0000 && binding.runtime_routing_digest.is_some())
-        || (binding.abi_version == 0x0002_0000 && binding.runtime_routing_digest.is_none())
-    {
-        return refused("Exact GPU runtime-routing digest does not match the ABI version");
-    }
-    if binding.profile_id.is_empty()
-        || binding.profile_id.len() > 256
-        || !binding
-            .profile_id
-            .bytes()
-            .next()
-            .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
-        || !binding.profile_id.bytes().all(|byte| {
-            byte.is_ascii_lowercase()
-                || byte.is_ascii_digit()
-                || matches!(byte, b'.' | b'_' | b'/' | b'-')
-        })
-    {
-        return refused("Exact GPU profile ID is not a bounded stable identifier");
-    }
-    if binding.operation_ids.is_empty()
-        || binding.operation_ids.len() > 4096
-        || binding.operation_ids.contains(&0)
-        || binding
-            .operation_ids
-            .windows(2)
-            .any(|pair| pair[0] >= pair[1])
-    {
-        return refused("Exact GPU operation set is not a bounded sorted unique uint32 set");
-    }
-    if binding.topology != "isolated-per-logical-v1" {
-        return refused("Exact GPU provider topology is unsupported");
     }
     Ok(())
 }
@@ -2334,12 +2306,12 @@ mod tests {
                     ProtectedArtifactRole::ExactOperationManifest => {
                         digest_at(&["exactEmbedder", "operationManifestDigest"])
                     }
-                    ProtectedArtifactRole::ExactWebgpuProfile => {
-                        digest_at(&["exactGpuProvider", "profileDigest"])
-                    }
                     ProtectedArtifactRole::ArmedPolicy => digest_at(&["policyDigest"]),
                     ProtectedArtifactRole::PackageGraph => digest_at(&["packageGraph", "digest"]),
                     ProtectedArtifactRole::Registry => digest_at(&["registryDigest"]),
+                    ProtectedArtifactRole::RuntimeExtensionAuthorityCapsule => {
+                        digest_at(&["runtimeExtensions", "authorityCapsuleDigest"])
+                    }
                 };
                 ExpectedProtectedArtifact {
                     role,
@@ -2380,6 +2352,8 @@ mod tests {
                 .unwrap(),
             protected_artifacts,
             embedded_protected_artifacts: Vec::new(),
+            runtime_extension_authority_digest: None,
+            runtime_extension_mapped_executable: None,
         };
         (serde_json::to_vec_pretty(&value).unwrap(), expected)
     }
@@ -2389,6 +2363,125 @@ mod tests {
             compute_checked_contract_digest(DigestKind::ArmedSnapshot, value).unwrap(),
         );
         serde_json::to_vec(value).unwrap()
+    }
+
+    fn fixture_with_runtime_extensions() -> (Vec<u8>, ExpectedArmingIdentity) {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine as _;
+        use sha2::{Digest as _, Sha256};
+
+        let (bytes, mut expected) = fixture();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        let capsule = crate::runtime_extensions::test_authority_capsule();
+        let capsule_file_digest = Digest::new(format!(
+            "sha256-{}",
+            URL_SAFE_NO_PAD.encode(Sha256::digest(serde_json::to_vec(&capsule).unwrap()))
+        ))
+        .unwrap();
+        assert_ne!(
+            capsule_file_digest, capsule.authority_capsule_digest,
+            "raw artifact bytes and domain-separated semantic identity are distinct bindings"
+        );
+        value["runtimeExtensions"] = serde_json::to_value(&capsule).unwrap();
+        let capsule_object: ObjectIdentity = serde_json::from_value(serde_json::json!({
+            "platform": "unix",
+            "volume": "fixture-extension-volume",
+            "file": "fixture-extension-capsule"
+        }))
+        .unwrap();
+        value["protectedObjects"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "role": "runtime-extension-authority-capsule",
+                "object": capsule_object,
+                "deniedActions": ["fs:write"]
+            }));
+        value["armedSnapshotDigest"] = Value::String(
+            compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap(),
+        );
+        expected.armed_snapshot_digest =
+            Digest::new(value["armedSnapshotDigest"].as_str().unwrap()).unwrap();
+        expected.runtime_extension_authority_digest =
+            Some(capsule.authority_capsule_digest.clone());
+        expected.runtime_extension_mapped_executable = Some(capsule.mapped_executable.clone());
+        expected
+            .protected_artifacts
+            .push(ExpectedProtectedArtifact {
+                role: ProtectedArtifactRole::RuntimeExtensionAuthorityCapsule,
+                host_path: serde_json::from_value(serde_json::json!({
+                    "root": "absolute",
+                    "components": [
+                        {"encoding": "utf8", "value": "fixture"},
+                        {"encoding": "utf8", "value": "runtime-extension-authority-capsule"}
+                    ],
+                    "hostBound": true
+                }))
+                .unwrap(),
+                object: capsule_object,
+                content_digest: capsule_file_digest,
+            });
+        (serde_json::to_vec(&value).unwrap(), expected)
+    }
+
+    #[test]
+    fn arms_runtime_extension_capsule_and_launcher_linked_identities() {
+        let (bytes, expected) = fixture_with_runtime_extensions();
+        let armed = ArmedSnapshot::load(&bytes, &expected).unwrap();
+        let capsule = armed.runtime_extension_authority().unwrap();
+        assert_eq!(
+            capsule
+                .authority_class("acme.echo", "echo")
+                .map(StableId::as_str),
+            Some("local.transform")
+        );
+        assert!(armed
+            .matches_runtime_extension_authority_digest(capsule.authority_capsule_digest.as_str()));
+    }
+
+    #[test]
+    fn refuses_runtime_extension_digest_drift_swap_and_linked_identity_mismatch() {
+        let (bytes, expected) = fixture_with_runtime_extensions();
+        let mut stale_value: Value = serde_json::from_slice(&bytes).unwrap();
+        stale_value["runtimeExtensions"]["descriptors"][0]["version"] = serde_json::json!("9.0.0");
+        stale_value["armedSnapshotDigest"] = Value::String(
+            compute_checked_contract_digest(DigestKind::ArmedSnapshot, &stale_value).unwrap(),
+        );
+        let mut stale_expected = expected.clone();
+        stale_expected.armed_snapshot_digest =
+            Digest::new(stale_value["armedSnapshotDigest"].as_str().unwrap()).unwrap();
+        assert!(
+            ArmedSnapshot::load(&serde_json::to_vec(&stale_value).unwrap(), &stale_expected)
+                .is_err()
+        );
+
+        let mut swapped_value: Value = serde_json::from_slice(&bytes).unwrap();
+        let mut swapped: crate::runtime_extensions::RuntimeExtensionAuthorityCapsule =
+            serde_json::from_value(swapped_value["runtimeExtensions"].clone()).unwrap();
+        swapped.descriptors[0].globals[0].name = NonEmptyString::new("ReplacementEcho").unwrap();
+        swapped.extension_set_digest = swapped.compute_extension_set_digest().unwrap();
+        swapped.authority_capsule_digest = swapped.compute_authority_capsule_digest().unwrap();
+        swapped_value["runtimeExtensions"] = serde_json::to_value(swapped).unwrap();
+        swapped_value["armedSnapshotDigest"] = Value::String(
+            compute_checked_contract_digest(DigestKind::ArmedSnapshot, &swapped_value).unwrap(),
+        );
+        let mut swapped_expected = expected.clone();
+        swapped_expected.armed_snapshot_digest =
+            Digest::new(swapped_value["armedSnapshotDigest"].as_str().unwrap()).unwrap();
+        assert!(ArmedSnapshot::load(
+            &serde_json::to_vec(&swapped_value).unwrap(),
+            &swapped_expected
+        )
+        .is_err());
+
+        let mut mapped_expected = expected;
+        mapped_expected
+            .runtime_extension_mapped_executable
+            .as_mut()
+            .unwrap()
+            .anchors[0]
+            .image_offset = SafeUint::new(8192).unwrap();
+        assert!(ArmedSnapshot::load(&bytes, &mapped_expected).is_err());
     }
 
     #[test]
@@ -3307,124 +3400,6 @@ mod tests {
                 .to_string()
                 .contains("manifest digest differs")
         );
-    }
-
-    #[test]
-    fn authenticates_exact_gpu_provider_identity_and_profile_artifact() {
-        let (bytes, mut expected) = fixture();
-        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
-        let profile_digest =
-            Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
-        let vocabulary_digest =
-            Digest::new("sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA").unwrap();
-        let operation_set_digest =
-            Digest::new("sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA").unwrap();
-        let semantic_program_digest =
-            Digest::new("sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA").unwrap();
-        value["exactGpuProvider"] = serde_json::json!({
-            "schema": "exact/webgpu-provider/1",
-            "abiVersion": 65536,
-            "profileId": "exact-webgpu-phase1a-draft",
-            "profileDigest": profile_digest,
-            "webgpuCVocabularyDigest": vocabulary_digest,
-            "operationSetDigest": operation_set_digest,
-            "semanticProgramDigest": semantic_program_digest,
-            "operationIds": [7, 11, 19],
-            "topology": "isolated-per-logical-v1"
-        });
-        let object = serde_json::json!({
-            "platform": "unix",
-            "volume": "fixture-volume",
-            "file": "exact-webgpu-profile"
-        });
-        value["protectedObjects"]
-            .as_array_mut()
-            .unwrap()
-            .push(serde_json::json!({
-                "role": "exact-webgpu-profile",
-                "object": object,
-                "deniedActions": ["fs:write"]
-            }));
-        expected
-            .protected_artifacts
-            .push(ExpectedProtectedArtifact {
-                role: ProtectedArtifactRole::ExactWebgpuProfile,
-                host_path: serde_json::from_value(serde_json::json!({
-                    "root": "absolute",
-                    "components": [
-                        {"encoding": "utf8", "value": "fixture"},
-                        {"encoding": "utf8", "value": "exact-webgpu-profile"}
-                    ],
-                    "hostBound": true
-                }))
-                .unwrap(),
-                object: serde_json::from_value(object).unwrap(),
-                content_digest: profile_digest.clone(),
-            });
-        let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
-        value["armedSnapshotDigest"] = Value::String(digest.clone());
-        expected.armed_snapshot_digest = Digest::new(digest).unwrap();
-
-        let armed = ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
-        let binding = armed.exact_gpu_provider_binding().unwrap().unwrap();
-        assert_eq!(binding.profile_id, "exact-webgpu-phase1a-draft");
-        assert_eq!(binding.profile_digest, profile_digest);
-        assert_eq!(binding.operation_ids, [7, 11, 19]);
-
-        let routing_digest =
-            Digest::new("sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA").unwrap();
-        let mut v2 = value.clone();
-        v2["exactGpuProvider"]["abiVersion"] = serde_json::json!(131072);
-        v2["exactGpuProvider"]["runtimeRoutingDigest"] = serde_json::json!(routing_digest.clone());
-        let v2_bytes = redigest(&mut v2);
-        let mut v2_expected = expected.clone();
-        v2_expected.armed_snapshot_digest =
-            Digest::new(v2["armedSnapshotDigest"].as_str().unwrap()).unwrap();
-        let v2_armed = ArmedSnapshot::load(&v2_bytes, &v2_expected).unwrap();
-        let v2_binding = v2_armed.exact_gpu_provider_binding().unwrap().unwrap();
-        assert_eq!(v2_binding.abi_version, 0x0002_0000);
-        assert_eq!(
-            v2_binding.runtime_routing_digest.as_ref(),
-            Some(&routing_digest)
-        );
-
-        let mut v2_missing_routing = v2.clone();
-        v2_missing_routing["exactGpuProvider"]
-            .as_object_mut()
-            .unwrap()
-            .remove("runtimeRoutingDigest");
-        assert!(ArmedSnapshot::load(
-            &serde_json::to_vec(&v2_missing_routing).unwrap(),
-            &v2_expected
-        )
-        .is_err());
-
-        let mut v1_with_routing = value.clone();
-        v1_with_routing["exactGpuProvider"]["runtimeRoutingDigest"] =
-            serde_json::json!(routing_digest.clone());
-        assert!(
-            ArmedSnapshot::load(&serde_json::to_vec(&v1_with_routing).unwrap(), &expected).is_err()
-        );
-
-        let mut unsorted = value.clone();
-        unsorted["exactGpuProvider"]["operationIds"] = serde_json::json!([11, 7]);
-        assert!(ArmedSnapshot::load(&redigest(&mut unsorted), &expected).is_err());
-
-        let mut wrong_profile_artifact = expected;
-        wrong_profile_artifact
-            .protected_artifacts
-            .iter_mut()
-            .find(|artifact| artifact.role == ProtectedArtifactRole::ExactWebgpuProfile)
-            .unwrap()
-            .content_digest =
-            Digest::new("sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA").unwrap();
-        assert!(ArmedSnapshot::load(
-            &serde_json::to_vec(&value).unwrap(),
-            &wrong_profile_artifact
-        )
-        .unwrap_err()
-        .to_string()
-        .contains("WebGPU profile digest differs"));
     }
 
     #[test]

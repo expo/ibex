@@ -8,6 +8,11 @@
 **Revised:** 2026-07-24 (adds the dedicated portable mapped-process producer
 for runtime-owned internal-invariant evidence and binds the conformance-runner
 identity in the Rust portable plan parsers.)
+**Revised:** 2026-07-25 (LLP 0040 removes the six historical
+GPU-authority/bridge output-shape residual routes together with the
+WebGPU-specific builder and Hermes patch name. Their removal refreshes the
+generated catalogs but does not itself advertise a target or replace any
+remaining physical promotion evidence.)
 **Revised:** 2026-07-23 (public flip: the repository transferred to
 `expo/ibex` and became public. Every repository-identity pin moved to
 `expo/ibex`/owner `12504344`/visibility `public`, and artifact attestation
@@ -2072,7 +2077,12 @@ checkpoint the rich recipe catalog still has unresolved fixtures and the
 output-shape executor still has honest residual rows, so target-cell derivation
 or the following proof gate fails before a bundle can be uploaded.
 
-### Host-ABI output-shape residuals: the classified remainder
+### Historical host-ABI output-shape residual campaign
+
+The six-row terminal state below records the pre-LLP-0040 WebGPU one-off.
+Those routes and their feature gates no longer exist in current source or
+generated catalogs. They must not be reopened with the removed builders, and
+their deletion is not a physical target-promotion receipt.
 
 The host-ABI output residual campaign is **closed by author decision as of
 2026-07-23**. Successive physically proven tranches took the partition from 41

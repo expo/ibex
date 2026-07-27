@@ -55,10 +55,6 @@ import {
   assertConfinedGeneratedFile,
   writeGeneratedFilesTransactionally,
 } from "./generated-output-io.mjs";
-import {
-  buildWebGpuPrivateOperationRegistry,
-  loadAuthenticatedWebGpuProductionPlan,
-} from "./capsec-webgpu-operation-registry.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -74,11 +70,6 @@ export const generatedRegistryPaths = Object.freeze({
     capsecRoot,
     "generated",
     "implementation-manifest.json",
-  ),
-  webgpuOperations: path.join(
-    capsecRoot,
-    "generated",
-    "webgpu-private-operation-registry.json",
   ),
   idsSchema: path.join(
     capsecRoot,
@@ -133,11 +124,6 @@ export const generatedRegistryOutputCatalog = Object.freeze([
   Object.freeze({
     path: "capsec/generated/implementation-manifest.json",
     kind: "implementation-manifest",
-    digestBound: false,
-  }),
-  Object.freeze({
-    path: "capsec/generated/webgpu-private-operation-registry.json",
-    kind: "webgpu-private-operation-registry",
     digestBound: false,
   }),
   Object.freeze({
@@ -292,8 +278,6 @@ pub const CAPSEC_COVERAGE_EDGES_JSON: &str = include_str!("../capsec/registry/co
 pub const CAPSEC_TARGET_CELLS_JSON: &str = include_str!("../capsec/registry/target-cells.json");
 pub const CAPSEC_TARGET_ADVERTISEMENTS_JSON: &str =
     include_str!("../capsec/generated/target-advertisements.json");
-pub const CAPSEC_WEBGPU_PRIVATE_OPERATION_REGISTRY_JSON: &str =
-    include_str!("../capsec/generated/webgpu-private-operation-registry.json");
 pub const CAPSEC_POLICY_RULES_JSON: &str = include_str!("../capsec/registry/policy-rules.json");
 
 #[rustfmt::skip]
@@ -1400,18 +1384,6 @@ export async function renderCapsecRegistry() {
     renderTargetDocs(targetCells, coverage, targetAdvertisements),
   );
   rendered.set(
-    generatedRegistryPaths.webgpuOperations,
-    prettyJson(
-      buildWebGpuPrivateOperationRegistry({
-        authenticated: inventory.authenticatedWebGpuProductionPlan,
-        coverage,
-        implementationRows,
-        targetCells,
-        targetAdvertisements,
-      }),
-    ),
-  );
-  rendered.set(
     generatedRegistryPaths.implementationManifest,
     prettyJson(implementationManifest),
   );
@@ -1482,65 +1454,14 @@ export async function runCapsecRegistryGenerator({ write = false } = {}) {
   };
 }
 
-export function runWebGpuPrivateRegistryGenerator({ write = false } = {}) {
-  const authenticated = loadAuthenticatedWebGpuProductionPlan(repoRoot);
-  const coverage = readJsonStrict(generatedRegistryPaths.coverage);
-  const implementationManifest = readJsonStrict(
-    generatedRegistryPaths.implementationManifest,
-  );
-  const targetCells = readJsonStrict(generatedRegistryPaths.targetCells);
-  const targetAdvertisements = readJsonStrict(
-    generatedRegistryPaths.targetAdvertisements,
-  );
-  const content = prettyJson(
-    buildWebGpuPrivateOperationRegistry({
-      authenticated,
-      coverage,
-      implementationRows: implementationManifest.surfaces,
-      targetCells,
-      targetAdvertisements,
-    }),
-  );
-  const outputPath = generatedRegistryPaths.webgpuOperations;
-  if (write) {
-    writeGeneratedFilesTransactionally(repoRoot, [
-      {
-        path: outputPath,
-        content,
-        label: `generated WebGPU CapSec registry output ${relativeOutputPath(outputPath)}`,
-      },
-    ]);
-  } else if (
-    !fs.existsSync(outputPath) ||
-    fs.readFileSync(outputPath, "utf8") !== content
-  ) {
-    throw new Error(
-      `generated WebGPU CapSec registry is stale: ${relativeOutputPath(outputPath)}\n` +
-        "Run: bun run generate:webgpu-capsec-registry",
-    );
-  }
-  return {
-    operations: authenticated.routes.length,
-    output: relativeOutputPath(outputPath),
-  };
-}
-
 if (path.resolve(process.argv[1] ?? "") === __filename) {
   const write = process.argv.includes("--write");
   const check = process.argv.includes("--check");
-  const webgpuOnly = process.argv.includes("--webgpu-only");
   if (write === check) {
     console.error("usage: generate-capsec-registry.mjs (--write | --check)");
     process.exit(2);
   }
   try {
-    if (webgpuOnly) {
-      const counts = runWebGpuPrivateRegistryGenerator({ write });
-      console.log(
-        `${write ? "Generated" : "Validated"} WebGPU private CapSec registry: ${counts.operations} operations, ${counts.output}.`,
-      );
-      process.exit(0);
-    }
     const counts = await runCapsecRegistryGenerator({ write });
     console.log(
       `${write ? "Generated" : "Validated"} capsec registry: ${counts.coverageEdges} coverage edges, ${counts.enforcementBranches} enforcement branches, ${counts.targetCells} target cells, ${counts.observedReferences} observed source references, ${counts.ingressObligations} authenticated-ingress obligations, ${counts.outputs} outputs; output-disposition evidence ${counts.outputDispositionEvidence}.`,

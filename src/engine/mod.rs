@@ -20,14 +20,17 @@ pub mod sourcemap;
 // itself is sans-I/O and shared across Unix and Windows.
 pub mod tls_bridge;
 
+#[cfg(all(test, feature = "runtime-extension-conformance"))]
+mod runtime_extension_conformance_tests;
+
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
 extern "C" {
     fn ex_hermes_bytecode_version() -> u32;
     fn ex_hermes_engine_binary_path(out: *mut std::ffi::c_char, out_len: usize) -> i32;
-    #[cfg(unix)]
-    fn ex_open_pinned_self_image(error: *mut std::ffi::c_char, error_len: usize) -> i32;
+    #[cfg(any(unix, windows))]
+    fn ex_open_pinned_self_image(error: *mut std::ffi::c_char, error_len: usize) -> isize;
     #[cfg(any(
         target_os = "linux",
         target_os = "android",
@@ -65,10 +68,29 @@ pub fn open_pinned_self_image() -> Result<std::fs::File, String> {
             message
         });
     }
-    Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+    Ok(unsafe { std::fs::File::from_raw_fd(fd as i32) })
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+pub fn open_pinned_self_image() -> Result<std::fs::File, String> {
+    use std::os::windows::io::FromRawHandle;
+
+    let mut error = [0i8; 512];
+    let handle = unsafe { ex_open_pinned_self_image(error.as_mut_ptr(), error.len()) };
+    if handle < 0 {
+        let message = unsafe { std::ffi::CStr::from_ptr(error.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
+        return Err(if message.is_empty() {
+            "failed to pin the running executable image".into()
+        } else {
+            message
+        });
+    }
+    Ok(unsafe { std::fs::File::from_raw_handle(handle as *mut std::ffi::c_void) })
+}
+
+#[cfg(not(any(unix, windows)))]
 pub fn open_pinned_self_image() -> Result<std::fs::File, String> {
     Err("pinned self-image acquisition is unsupported on this target".into())
 }

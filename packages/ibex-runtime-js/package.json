@@ -14,6 +14,22 @@
       "import": "./src/bootstrap.ts",
       "types": "./src/bootstrap.ts"
     },
+    "./abort": {
+      "import": "./src/abort/index.ts",
+      "types": "./src/abort/index.ts"
+    },
+    "./arraybuffer-detach": {
+      "import": "./src/arraybuffer-detach.ts",
+      "types": "./src/arraybuffer-detach.ts"
+    },
+    "./blob": {
+      "import": "./src/blob/index.ts",
+      "types": "./src/blob/index.ts"
+    },
+    "./clone": {
+      "import": "./src/clone/index.ts",
+      "types": "./src/clone/index.ts"
+    },
     "./camera": {
       "import": "./src/camera/index.ts",
       "types": "./src/camera/index.ts"

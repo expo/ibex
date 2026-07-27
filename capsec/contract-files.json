@@ -24,6 +24,7 @@
     "schema/policy-rules.schema.json",
     "schema/root-global-disposition-manifest.schema.json",
     "schema/runtime-environment-inventory.schema.json",
+    "schema/runtime-extension-registry-projection.schema.json",
     "schema/target-advertisements.schema.json",
     "schema/target-attestations.schema.json",
     "schema/target-cell.schema.json"
@@ -94,7 +95,6 @@
     "generated/root-global-disposition-manifest.json",
     "generated/surface-inventory.md",
     "generated/target-advertisements.json",
-    "generated/target-matrix.md",
-    "generated/webgpu-private-operation-registry.json"
+    "generated/target-matrix.md"
   ]
 }

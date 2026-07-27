@@ -11,14 +11,22 @@
 use anyhow::{Context as _, Result};
 use base64::Engine as _;
 use capsec_semantics::arming::{
-    ArmedSnapshot, ExactEmbedderBinding, ExactEmbedderEndowments, ExactGpuProviderBinding,
-    ExpectedArmingIdentity, ExpectedProtectedArtifact, ProtectedArtifactRole,
+    ArmedSnapshot, ExactEmbedderBinding, ExactEmbedderEndowments, ExpectedArmingIdentity,
+    ExpectedProtectedArtifact, ProtectedArtifactRole,
 };
 use capsec_semantics::digest::{
     compute_checked_contract_digest, compute_domain_digest, DigestKind,
 };
-use capsec_semantics::model::{Digest, LogicalPath, LogicalRoot, ObjectIdentity, ObjectPlatform};
+use capsec_semantics::model::{
+    ActionId, AuthoritySelector, Digest, LogicalPath, LogicalRoot, ObjectIdentity, ObjectPlatform,
+    SelectorResource,
+};
 use capsec_semantics::path_alias::{BoundVolumePathCanonicalizer, PathAliasCanonicalizerIdentity};
+use capsec_semantics::runtime_extensions::{
+    RuntimeExtensionAuthorityCapsule, RuntimeExtensionAuthorityTemplate,
+    RuntimeExtensionLinkedArtifactRange, RuntimeExtensionMappedExecutableAnchor,
+    RuntimeExtensionMappedExecutableIdentity, RUNTIME_EXTENSION_MAPPED_EXECUTABLE_SCHEMA,
+};
 use sha2::{Digest as _, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read as _, Seek as _, Write as _};
@@ -28,8 +36,8 @@ const PRODUCTION_RUN_NONCE_BYTES: usize = 16;
 const CONTRACT_FIXTURE_RUN_NONCE: &str = "AQIDBAUGBwgJCgsMDQ4PEA";
 
 /// Build-time canonical bytes for the immutable CapSec registry protected
-/// artifact. The CLI and native embedder share these constants so the ~17 MB
-/// checked record is embedded once and neither startup path reparses it.
+/// artifact. The CLI and native embedder share these constants so the checked
+/// record is embedded once and startup does not reparse it.
 #[doc(hidden)]
 pub const CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST: &str =
     include_str!(concat!(env!("OUT_DIR"), "/capsec-registry-record.digest"));
@@ -79,6 +87,77 @@ struct MaterializedArtifact {
     host_path: LogicalPath,
     object: capsec_semantics::model::ObjectIdentity,
     content_digest: Digest,
+}
+
+const RUNTIME_EXTENSION_LOADED_IMAGE_OBSERVATION_SCHEMA: &str =
+    "exact/runtime-extension-loaded-image-observation/1";
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RuntimeExtensionLoadedImageObservation {
+    schema: String,
+    path: String,
+    file_size: capsec_semantics::model::SafeUint,
+    executable_object: capsec_semantics::model::ObjectIdentity,
+    anchors: Vec<RuntimeExtensionMappedExecutableAnchor>,
+}
+
+fn hash_pinned_executable(file: &mut std::fs::File, path: &Path) -> Result<(u64, [u8; 32])> {
+    file.rewind().with_context(|| {
+        format!(
+            "cannot rewind launcher-observed executable {}",
+            path.display()
+        )
+    })?;
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    let mut bytes_read = 0_u64;
+    loop {
+        let read = file.read(&mut buffer).with_context(|| {
+            format!(
+                "cannot hash launcher-observed executable {}",
+                path.display()
+            )
+        })?;
+        if read == 0 {
+            break;
+        }
+        bytes_read = bytes_read
+            .checked_add(read as u64)
+            .context("runtime-extension executable length overflow")?;
+        hash.update(&buffer[..read]);
+    }
+    Ok((bytes_read, hash.finalize().into()))
+}
+
+#[cfg(unix)]
+fn executable_metadata_version(metadata: &std::fs::Metadata) -> (i64, i64, i64, i64) {
+    use std::os::unix::fs::MetadataExt as _;
+    (
+        metadata.mtime(),
+        metadata.mtime_nsec(),
+        metadata.ctime(),
+        metadata.ctime_nsec(),
+    )
+}
+
+#[cfg(windows)]
+fn executable_metadata_version(metadata: &std::fs::Metadata) -> (u64, u64) {
+    use std::os::windows::fs::MetadataExt as _;
+    (metadata.creation_time(), metadata.last_write_time())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn executable_metadata_version(metadata: &std::fs::Metadata) -> Option<std::time::SystemTime> {
+    metadata.modified().ok()
+}
+
+#[derive(Debug)]
+pub struct FinalizedRuntimeExtensionAuthority {
+    pub authority_capsule_bytes: Vec<u8>,
+    pub authority_capsule_digest: String,
+    pub executable_selection_identity: String,
+    pub mapped_executable_bytes: Vec<u8>,
 }
 
 fn valid_operation_name(name: &str) -> bool {
@@ -218,26 +297,6 @@ fn parse_exact_operation_manifest(bytes: &[u8]) -> Result<ExactEmbedderBinding> 
             ui_worklet: manifest.endowments.ui_worklet,
         },
     })
-}
-
-fn parse_exact_gpu_provider_binding(bytes: &[u8]) -> Result<ExactGpuProviderBinding> {
-    let text = std::str::from_utf8(bytes).context("Exact GPU provider binding is not UTF-8")?;
-    let value = capsec_semantics::strict_json::parse_strict(text)
-        .context("Exact GPU provider binding is not strict JSON")?;
-    let binding: ExactGpuProviderBinding =
-        serde_json::from_value(value).context("invalid Exact GPU provider binding")?;
-    capsec_semantics::arming::validate_exact_gpu_provider_binding(&binding)
-        .map_err(anyhow::Error::msg)
-        .context("Exact GPU provider binding refused")?;
-    Ok(binding)
-}
-
-fn digest_bytes(bytes: &[u8]) -> Result<Digest> {
-    Digest::new(format!(
-        "sha256-{}",
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))
-    ))
-    .map_err(anyhow::Error::msg)
 }
 
 fn absolute_artifact_path(path: &Path) -> Result<LogicalPath> {
@@ -464,11 +523,7 @@ fn materialize_protected_artifact(
 }
 
 /// Authenticate an existing immutable registry artifact against the
-/// build-time digest of the exact canonical bytes. Any missing or doubtful
-/// artifact falls back to byte-identical materialization; a present but
-/// mismatched artifact is then rejected by that path.
-/// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
-/// — reuse is permitted only after full byte and object authentication.
+/// build-time digest of the exact canonical bytes.
 fn pin_precomputed_registry_artifact(
     cache_root: &Path,
     digest_name: &Digest,
@@ -692,84 +747,236 @@ pub fn build_exact_embedder_artifacts(
     dev_project_root: Option<&Path>,
     operation_manifest_bytes: &[u8],
 ) -> Result<PreparedEmbedderArtifacts> {
-    build_exact_embedder_artifacts_with_gpu(
+    build_exact_embedder_artifacts_inner(
         project_root,
         dev_project_root,
         operation_manifest_bytes,
         None,
         None,
-        false,
     )
 }
 
-/// Build the target-local Exact artifact pair with the optional GPU service
-/// identity and its exact, independently protected WebGPU profile.
+/// Combine one non-armable generated template with an independently observed
+/// loaded executable. The observation is launcher-authored and contains no
+/// digest: Ibex independently acquires a descriptor proven to back the mapped
+/// main executable and hashes only through that descriptor before producing
+/// the only capsule that an armed Host will accept. The observation pathname is
+/// diagnostic and is never reopened. The historical mapped-executable wire
+/// name does not claim a hash of relocated memory pages.
 ///
-/// The binding is strict JSON and the profile bytes must hash to its declared
-/// `profileDigest`. The existing non-GPU builder remains unchanged so clients
-/// cannot accidentally acquire the provider seam by calling the legacy path.
-/// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam — the
-/// provider identity and profile artifact are authenticated before runtime
-/// construction can install the optional service.
-pub fn build_exact_gpu_embedder_artifacts(
-    project_root: &Path,
-    dev_project_root: Option<&Path>,
-    operation_manifest_bytes: &[u8],
-    gpu_provider_binding_bytes: &[u8],
-    webgpu_profile_bytes: &[u8],
-) -> Result<PreparedEmbedderArtifacts> {
-    build_exact_embedder_artifacts_with_gpu(
-        project_root,
-        dev_project_root,
-        operation_manifest_bytes,
-        Some(gpu_provider_binding_bytes),
-        Some(webgpu_profile_bytes),
-        false,
+/// @ref LLP 0040#authenticated-construction-projection
+pub fn finalize_runtime_extension_authority(
+    authority_template_bytes: &[u8],
+    loaded_image_observation_bytes: &[u8],
+) -> Result<FinalizedRuntimeExtensionAuthority> {
+    let pinned_image = crate::engine::open_pinned_self_image()
+        .map_err(anyhow::Error::msg)
+        .context("cannot pin the file object backing the mapped executable")?;
+    finalize_runtime_extension_authority_with_pinned_image(
+        authority_template_bytes,
+        loaded_image_observation_bytes,
+        pinned_image,
     )
 }
 
-/// Build the named Exact WebGPU Pre-1A artifact pair. Unlike the ordinary GPU
-/// builder, this path writes the checked private registry's exact positive
-/// selectors into both the authenticated root ceiling and floor. The
-/// companion experimental installer re-proves that exact set and installs the
-/// private cells while keeping every ordinary target cell closed.
-/// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
-pub fn build_exact_experimental_webgpu_pre1a_embedder_artifacts(
+fn finalize_runtime_extension_authority_with_pinned_image(
+    authority_template_bytes: &[u8],
+    loaded_image_observation_bytes: &[u8],
+    mut file: std::fs::File,
+) -> Result<FinalizedRuntimeExtensionAuthority> {
+    let template = RuntimeExtensionAuthorityTemplate::parse_json(authority_template_bytes)
+        .context("invalid runtime-extension authority template")?;
+    let observation_text = std::str::from_utf8(loaded_image_observation_bytes)
+        .context("runtime-extension loaded-image observation is not UTF-8")?;
+    let observation_value = capsec_semantics::strict_json::parse_strict(observation_text)
+        .context("runtime-extension loaded-image observation is not strict JSON")?;
+    let observation: RuntimeExtensionLoadedImageObservation =
+        serde_json::from_value(observation_value)
+            .context("invalid runtime-extension loaded-image observation")?;
+    anyhow::ensure!(
+        observation.schema == RUNTIME_EXTENSION_LOADED_IMAGE_OBSERVATION_SCHEMA,
+        "runtime-extension loaded-image observation schema is unsupported"
+    );
+    anyhow::ensure!(
+        !observation.path.is_empty()
+            && !observation.path.chars().any(char::is_control)
+            && observation.file_size != capsec_semantics::model::SafeUint::ZERO,
+        "runtime-extension loaded-image observation is incomplete"
+    );
+
+    let observed_path = Path::new(&observation.path);
+    anyhow::ensure!(
+        observed_path.is_absolute(),
+        "runtime-extension loaded-image path is not absolute"
+    );
+    let before = file.metadata().with_context(|| {
+        format!(
+            "cannot inspect pinned mapped executable ({})",
+            observed_path.display()
+        )
+    })?;
+    anyhow::ensure!(
+        before.is_file() && before.len() == observation.file_size.get(),
+        "runtime-extension executable changed after launcher observation"
+    );
+    let executable_object = super::object_identity_for_open_file(&file)
+        .map_err(anyhow::Error::msg)
+        .context("cannot identify pinned mapped executable")?;
+    anyhow::ensure!(
+        executable_object == observation.executable_object,
+        "runtime-extension executable object changed after launcher observation"
+    );
+
+    let before_version = executable_metadata_version(&before);
+    let (bytes_read, first_hash) = hash_pinned_executable(&mut file, observed_path)?;
+    anyhow::ensure!(
+        bytes_read == observation.file_size.get(),
+        "runtime-extension executable length changed while hashing"
+    );
+    let after = file.metadata().with_context(|| {
+        format!(
+            "cannot revalidate pinned mapped executable ({})",
+            observed_path.display()
+        )
+    })?;
+    let after_object = super::object_identity_for_open_file(&file)
+        .map_err(anyhow::Error::msg)
+        .context("cannot re-identify pinned mapped executable")?;
+    anyhow::ensure!(
+        after.len() == before.len()
+            && after_object == executable_object
+            && executable_metadata_version(&after) == before_version,
+        "runtime-extension executable changed while it was authenticated"
+    );
+    let (second_bytes_read, second_hash) = hash_pinned_executable(&mut file, observed_path)?;
+    let final_metadata = file.metadata().with_context(|| {
+        format!(
+            "cannot revalidate pinned mapped executable ({})",
+            observed_path.display()
+        )
+    })?;
+    let final_object = super::object_identity_for_open_file(&file)
+        .map_err(anyhow::Error::msg)
+        .context("cannot re-identify pinned mapped executable")?;
+    anyhow::ensure!(
+        second_bytes_read == bytes_read
+            && second_hash == first_hash
+            && final_metadata.len() == before.len()
+            && final_object == executable_object
+            && executable_metadata_version(&final_metadata) == before_version,
+        "runtime-extension executable was not stable across authentication"
+    );
+
+    let content_digest = Digest::new(format!(
+        "sha256-{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(first_hash)
+    ))
+    .map_err(anyhow::Error::msg)?;
+    let mapped_executable = RuntimeExtensionMappedExecutableIdentity {
+        schema: RUNTIME_EXTENSION_MAPPED_EXECUTABLE_SCHEMA.into(),
+        executable_object,
+        range: RuntimeExtensionLinkedArtifactRange {
+            offset: capsec_semantics::model::SafeUint::ZERO,
+            length: observation.file_size,
+        },
+        content_digest,
+        anchors: observation.anchors,
+    };
+    mapped_executable
+        .validate()
+        .map_err(anyhow::Error::msg)
+        .context("invalid runtime-extension executable anchor inventory")?;
+    let capsule = template
+        .finalize(mapped_executable.clone())
+        .map_err(anyhow::Error::msg)
+        .context("cannot finalize runtime-extension authority capsule")?;
+    let authority_capsule_bytes =
+        capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(&capsule)?)?;
+    let mapped_executable_bytes =
+        capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(&mapped_executable)?)?;
+    Ok(FinalizedRuntimeExtensionAuthority {
+        authority_capsule_digest: capsule.authority_capsule_digest.as_str().to_owned(),
+        executable_selection_identity: capsule.executable_selection_identity.as_str().to_owned(),
+        authority_capsule_bytes,
+        mapped_executable_bytes,
+    })
+}
+
+/// Build a target-local Exact artifact pair with one statically selected
+/// native runtime-extension authority capsule.
+///
+/// `launcher_mapped_executable_bytes` is the independently observed, strict
+/// loaded-executable file identity returned by
+/// `finalize_runtime_extension_authority` (under the historical
+/// mapped-executable wire schema).
+/// It is deliberately separate from the capsule: descriptor-authored labels
+/// never authenticate their own code.
+/// Both inputs are copied and validated before the armed snapshot is produced.
+///
+/// @ref LLP 0040#authenticated-construction-projection
+pub fn build_exact_runtime_extension_embedder_artifacts(
     project_root: &Path,
     dev_project_root: Option<&Path>,
     operation_manifest_bytes: &[u8],
-    gpu_provider_binding_bytes: &[u8],
-    webgpu_profile_bytes: &[u8],
+    authority_capsule_bytes: &[u8],
+    launcher_mapped_executable_bytes: &[u8],
 ) -> Result<PreparedEmbedderArtifacts> {
-    build_exact_embedder_artifacts_with_gpu(
+    build_exact_embedder_artifacts_inner(
         project_root,
         dev_project_root,
         operation_manifest_bytes,
-        Some(gpu_provider_binding_bytes),
-        Some(webgpu_profile_bytes),
-        true,
+        Some(authority_capsule_bytes),
+        Some(launcher_mapped_executable_bytes),
     )
 }
 
-fn build_exact_embedder_artifacts_with_gpu(
+fn admit_exact_production_policy(
+    policy: capsec_semantics::policy::CanonicalPolicy,
+) -> Result<capsec_semantics::policy::CanonicalPolicy> {
+    anyhow::ensure!(
+        policy.principals.is_empty(),
+        "target-local Exact builder refuses package-bearing production policies; only the canonical empty package policy is accepted"
+    );
+    Ok(policy)
+}
+
+fn build_exact_embedder_artifacts_inner(
     project_root: &Path,
     dev_project_root: Option<&Path>,
     operation_manifest_bytes: &[u8],
-    gpu_provider_binding_bytes: Option<&[u8]>,
-    webgpu_profile_bytes: Option<&[u8]>,
-    experimental_webgpu_pre1a: bool,
+    runtime_extension_authority_capsule_bytes: Option<&[u8]>,
+    launcher_mapped_executable_bytes: Option<&[u8]>,
 ) -> Result<PreparedEmbedderArtifacts> {
     let mut phase = super::HostStartupPhaseTrace::begin();
     anyhow::ensure!(
-        gpu_provider_binding_bytes.is_some() == webgpu_profile_bytes.is_some(),
-        "Exact GPU provider binding and WebGPU profile must be supplied together"
+        runtime_extension_authority_capsule_bytes.is_some()
+            == launcher_mapped_executable_bytes.is_some(),
+        "runtime-extension authority capsule and launcher mapped-executable identity must be supplied together"
     );
-    if let Some(profile_bytes) = webgpu_profile_bytes {
-        anyhow::ensure!(
-            !profile_bytes.is_empty(),
-            "Exact WebGPU profile must not be empty"
-        );
-    }
+    let runtime_extension = match (
+        runtime_extension_authority_capsule_bytes,
+        launcher_mapped_executable_bytes,
+    ) {
+        (Some(capsule_bytes), Some(observed_bytes)) => {
+            let capsule = RuntimeExtensionAuthorityCapsule::parse_json(capsule_bytes)
+                .context("invalid runtime-extension authority capsule")?;
+            let observed_text = std::str::from_utf8(observed_bytes)
+                .context("runtime-extension mapped-executable identity is not UTF-8")?;
+            let observed_value = capsec_semantics::strict_json::parse_strict(observed_text)
+                .context("runtime-extension mapped-executable identity is not strict JSON")?;
+            let observed: RuntimeExtensionMappedExecutableIdentity =
+                serde_json::from_value(observed_value)
+                    .context("invalid runtime-extension launcher mapped executable")?;
+            capsule
+                .validate_launcher_mapped_executable(&observed)
+                .map_err(anyhow::Error::msg)?;
+            let canonical_bytes =
+                capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(&capsule)?)?;
+            Some((capsule, observed, canonical_bytes))
+        }
+        (None, None) => None,
+        _ => unreachable!("runtime-extension inputs were checked as a pair"),
+    };
     super::reject_closed_startup_environment()?;
     phase.mark("builder_environment");
     let installed_project_root = std::fs::canonicalize(project_root).with_context(|| {
@@ -796,7 +1003,6 @@ fn build_exact_embedder_artifacts_with_gpu(
         anyhow::ensure!(root.is_dir(), "Exact dev project root is not a directory");
     }
     let project_root = dev_project_root.as_ref().unwrap_or(&installed_project_root);
-    phase.mark("builder_roots");
 
     let (vocab_digest, registry_digest) = checked_identity_digests()?;
     let expected_policy_identity = capsec_semantics::policy::ExpectedPolicyIdentity {
@@ -805,16 +1011,18 @@ fn build_exact_embedder_artifacts_with_gpu(
         vocab_digest: vocab_digest.clone(),
         registry_digest: registry_digest.clone(),
     };
-    let policy_profile = capsec_semantics::registry::ValidatedProfile::from_json(
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/capsec/registry/capability-definitions.json"
-        )),
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/capsec/registry/policy-rules.json"
-        )),
-    )?;
+    let policy_profile =
+        capsec_semantics::registry::ValidatedProfile::from_json_with_runtime_extensions(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/capsec/registry/capability-definitions.json"
+            )),
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/capsec/registry/policy-rules.json"
+            )),
+            runtime_extension.is_some(),
+        )?;
     phase.mark("builder_profile");
     let entry_identity = serde_json::json!({
         "root": "project",
@@ -862,16 +1070,54 @@ fn build_exact_embedder_artifacts_with_gpu(
         "rootImports": [],
         "principals": [],
     });
+    let mut root_ceiling_rows = Vec::new();
     if dev_project_root.is_some() {
-        policy["rootCeiling"] = serde_json::json!([{
-            "authority": super::exact_dev_served_agent_listener_selector()
-                .map_err(|error| anyhow::anyhow!(error))?,
-            "provenance": [{
-                "kind": "direct",
-                "source": "Exact dev-served agent listener"
-            }]
-        }]);
+        root_ceiling_rows.push((
+            super::exact_dev_served_agent_listener_selector().map_err(anyhow::Error::msg)?,
+            "Exact dev-served agent listener",
+        ));
     }
+    if let Some((capsule, _, _)) = runtime_extension.as_ref() {
+        for descriptor in &capsule.descriptors {
+            for operation in &descriptor.authority_fragment.operations {
+                root_ceiling_rows.push((
+                    AuthoritySelector {
+                        action: ActionId::new("runtime-extension:invoke")
+                            .map_err(anyhow::Error::msg)?,
+                        resource: SelectorResource::RuntimeExtension {
+                            extension_id: descriptor.id.clone(),
+                            authority_class: operation.authority_class.clone(),
+                        },
+                    },
+                    "authenticated runtime-extension authority capsule",
+                ));
+            }
+        }
+    }
+    let mut keyed_root_ceiling_rows = root_ceiling_rows
+        .into_iter()
+        .map(|(authority, source)| {
+            let key =
+                capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(&authority)?)?;
+            Ok((key, authority, source))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    keyed_root_ceiling_rows.sort_by(|left, right| left.0.cmp(&right.0));
+    keyed_root_ceiling_rows.dedup_by(|left, right| left.0 == right.0);
+    policy["rootCeiling"] = serde_json::Value::Array(
+        keyed_root_ceiling_rows
+            .into_iter()
+            .map(|(_, authority, source)| {
+                serde_json::json!({
+                    "authority": authority,
+                    "provenance": [{
+                        "kind": "direct",
+                        "source": source
+                    }]
+                })
+            })
+            .collect(),
+    );
     let policy_digest = compute_checked_contract_digest(DigestKind::Policy, &policy)?;
     policy["policyDigest"] = serde_json::json!(policy_digest);
     let canonical_policy = capsec_semantics::policy::CanonicalPolicy::load(
@@ -880,47 +1126,30 @@ fn build_exact_embedder_artifacts_with_gpu(
         &policy_profile.definitions,
     )
     .context("default Exact production policy failed typed validation")?;
-    anyhow::ensure!(
-        canonical_policy.principals.is_empty(),
-        "target-local Exact builder accepts only the canonical empty package policy"
-    );
+    let canonical_policy = admit_exact_production_policy(canonical_policy)?;
     policy = serde_json::to_value(&canonical_policy)?;
-    phase.mark("builder_policy");
 
     let engine = crate::engine::loaded_engine_binary_identity().map_err(anyhow::Error::msg)?;
-    phase.mark("builder_engine_identity");
     let binding = parse_exact_operation_manifest(operation_manifest_bytes)?;
-    let gpu_binding = gpu_provider_binding_bytes
-        .map(parse_exact_gpu_provider_binding)
-        .transpose()?;
-    if let (Some(gpu_binding), Some(profile_bytes)) = (gpu_binding.as_ref(), webgpu_profile_bytes) {
-        anyhow::ensure!(
-            digest_bytes(profile_bytes)? == gpu_binding.profile_digest,
-            "Exact WebGPU profile bytes do not match the provider profile digest"
-        );
-    }
-    let experimental_private_arming = if experimental_webgpu_pre1a {
-        let binding = gpu_binding.as_ref().ok_or_else(|| {
-            anyhow::anyhow!(
-                "experimental WebGPU Pre-1A construction requires a GPU provider binding"
-            )
-        })?;
-        Some(
-            super::gpu_authority::experimental_webgpu_pre1a_arming(binding).ok_or_else(|| {
-                anyhow::anyhow!(
-                    "experimental WebGPU Pre-1A provider or checked private registry is unavailable"
-                )
-            })?,
-        )
-    } else {
-        None
-    };
     phase.mark("builder_manifests");
     let mut root_builtins = crate::module_loader::RUNTIME_GATED_NODE_BUILTINS
         .iter()
         .map(|name| format!("node:{name}"))
         .collect::<Vec<_>>();
+    if let Some((capsule, _, _)) = runtime_extension.as_ref() {
+        for descriptor in &capsule.descriptors {
+            for module in &descriptor.modules {
+                let specifier = module.specifier.as_str();
+                anyhow::ensure!(
+                    !crate::module_loader::is_registered_builtin_specifier(specifier),
+                    "runtime-extension module specifier {specifier:?} collides with an Ibex core builtin"
+                );
+                root_builtins.push(specifier.to_owned());
+            }
+        }
+    }
     root_builtins.sort();
+    root_builtins.dedup();
 
     let mut document: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -929,19 +1158,11 @@ fn build_exact_embedder_artifacts_with_gpu(
     document["workflow"] = serde_json::json!("production");
     document["effectiveMode"] = serde_json::json!("enforce");
     document["policyDigest"] = serde_json::to_value(&canonical_policy.policy_digest)?;
-    let mut root_authorities = canonical_policy
+    let root_authorities = canonical_policy
         .root_ceiling
         .iter()
         .map(|row| row.authority.clone())
         .collect::<Vec<_>>();
-    if let Some(arming) = experimental_private_arming.as_ref() {
-        root_authorities.extend(arming.positive_selectors.iter().cloned());
-    }
-    root_authorities.sort();
-    anyhow::ensure!(
-        root_authorities.windows(2).all(|pair| pair[0] != pair[1]),
-        "target-local Exact root authority set contains a duplicate selector"
-    );
     document["rootAuthorityCeiling"] = serde_json::json!({
         "kind": "bounded",
         "authorities": root_authorities.clone(),
@@ -1016,14 +1237,14 @@ fn build_exact_embedder_artifacts_with_gpu(
         (cache_root.as_path(), &cache_object),
     ])?)?;
     document["exactEmbedder"] = serde_json::to_value(&binding)?;
-    if let Some(gpu_binding) = gpu_binding.as_ref() {
-        document["exactGpuProvider"] = serde_json::to_value(gpu_binding)?;
+    if let Some((capsule, _, _)) = runtime_extension.as_ref() {
+        document["runtimeExtensions"] = serde_json::to_value(capsule)?;
+    } else if let Some(document) = document.as_object_mut() {
+        document.remove("runtimeExtensions");
     }
-    phase.mark("builder_snapshot_fields");
 
     let policy_bytes = capsec_semantics::canonical::to_jcs_bytes(&policy)?;
     let graph_bytes = capsec_semantics::canonical::to_jcs_bytes(&document["packageGraph"])?;
-    phase.mark("builder_canonical_bytes");
     let policy_artifact = materialize_protected_artifact(
         "armed-policy",
         &policy_bytes,
@@ -1048,15 +1269,16 @@ fn build_exact_embedder_artifacts_with_gpu(
         operation_manifest_bytes,
         &binding.operation_manifest_digest,
     )?;
-    let gpu_profile_artifact = match (gpu_binding.as_ref(), webgpu_profile_bytes) {
-        (Some(gpu_binding), Some(profile_bytes)) => Some(materialize_protected_artifact(
-            "exact-webgpu-profile",
-            profile_bytes,
-            &gpu_binding.profile_digest,
-        )?),
-        (None, None) => None,
-        _ => unreachable!("GPU artifact inputs were checked as a pair"),
-    };
+    let runtime_extension_capsule_artifact =
+        if let Some((capsule, _, canonical_bytes)) = runtime_extension.as_ref() {
+            Some(materialize_protected_artifact(
+                "runtime-extension-authority-capsule",
+                canonical_bytes,
+                &capsule.authority_capsule_digest,
+            )?)
+        } else {
+            None
+        };
     phase.mark("builder_materialize");
     let mut protected_objects = vec![
         serde_json::json!({"role": "armed-policy", "object": policy_artifact.object, "deniedActions": ["fs:write"]}),
@@ -1065,16 +1287,15 @@ fn build_exact_embedder_artifacts_with_gpu(
         serde_json::json!({"role": "registry", "object": registry_artifact.object, "deniedActions": ["fs:write"]}),
         serde_json::json!({"role": "exact-operation-manifest", "object": manifest_artifact.object, "deniedActions": ["fs:write"]}),
     ];
-    if let Some(profile_artifact) = gpu_profile_artifact.as_ref() {
+    if let Some(capsule_artifact) = runtime_extension_capsule_artifact.as_ref() {
         protected_objects.push(serde_json::json!({
-            "role": "exact-webgpu-profile",
-            "object": profile_artifact.object,
+            "role": "runtime-extension-authority-capsule",
+            "object": capsule_artifact.object,
             "deniedActions": ["fs:write"],
         }));
     }
     document["protectedObjects"] = serde_json::Value::Array(protected_objects);
     let armed_digest = freshen_document(&mut document, fresh_production_nonce()?)?;
-    phase.mark("builder_freshen");
 
     let mut expected = ExpectedArmingIdentity {
         profile: crate::capsec_registry_generated::CAPSEC_PROFILE.into(),
@@ -1123,28 +1344,32 @@ fn build_exact_embedder_artifacts_with_gpu(
             },
         ],
         embedded_protected_artifacts: Vec::new(),
+        runtime_extension_authority_digest: runtime_extension
+            .as_ref()
+            .map(|(capsule, _, _)| capsule.authority_capsule_digest.clone()),
+        runtime_extension_mapped_executable: runtime_extension
+            .as_ref()
+            .map(|(_, observed, _)| observed.clone()),
     };
-    if let Some(profile_artifact) = gpu_profile_artifact {
+    if let Some(capsule_artifact) = runtime_extension_capsule_artifact {
         expected
             .protected_artifacts
             .push(ExpectedProtectedArtifact {
-                role: ProtectedArtifactRole::ExactWebgpuProfile,
-                host_path: profile_artifact.host_path,
-                object: profile_artifact.object,
-                content_digest: profile_artifact.content_digest,
+                role: ProtectedArtifactRole::RuntimeExtensionAuthorityCapsule,
+                host_path: capsule_artifact.host_path,
+                object: capsule_artifact.object,
+                // Protected file digests are raw SHA-256. The capsule's
+                // domain-separated authority digest is authenticated
+                // independently above.
+                content_digest: capsule_artifact.content_digest,
             });
     }
     let snapshot_bytes = serde_json::to_vec(&document)?;
-    phase.mark("builder_expected_identity");
     let snapshot = ArmedSnapshot::load(&snapshot_bytes, &expected)
         .map_err(|error| anyhow::anyhow!("built Exact snapshot authentication refused: {error}"))?;
-    phase.mark("builder_snapshot_load");
     super::validate_loaded_engine_identity(&snapshot)?;
-    phase.mark("builder_engine_revalidate");
     super::validate_snapshot_protected_artifacts(&snapshot)?;
-    phase.mark("builder_artifact_revalidate");
     super::validate_snapshot_root_bindings(&snapshot)?;
-    phase.mark("builder_root_revalidate");
 
     Ok(PreparedEmbedderArtifacts {
         artifact_schema: "ibex/armed-embedder-artifacts/1",
@@ -1289,122 +1514,6 @@ mod tests {
             super::super::object_identity_for_host_path(&path).unwrap(),
             content_digest(bytes),
         )
-    }
-
-    fn precomputed_registry_cache_path(
-        cache_root: &std::path::Path,
-        digest: &Digest,
-    ) -> std::path::PathBuf {
-        let directory = cache_root.join("capsec-artifacts");
-        std::fs::create_dir_all(&directory).unwrap();
-        directory.join(format!(
-            "{}.registry.json",
-            digest.as_str().trim_start_matches("sha256-")
-        ))
-    }
-
-    fn freeze_test_artifact(path: &std::path::Path) {
-        let mut permissions = std::fs::metadata(path).unwrap().permissions();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            permissions.set_mode(0o400);
-        }
-        #[cfg(not(unix))]
-        permissions.set_readonly(true);
-        std::fs::set_permissions(path, permissions).unwrap();
-    }
-
-    #[test]
-    fn precomputed_registry_constants_are_self_consistent() {
-        let expected_len = CAPSEC_REGISTRY_RECORD_CONTENT_LEN
-            .trim()
-            .parse::<usize>()
-            .unwrap();
-        assert_eq!(CAPSEC_REGISTRY_RECORD_JCS.len(), expected_len);
-        assert_eq!(
-            content_digest(CAPSEC_REGISTRY_RECORD_JCS).as_str(),
-            CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST.trim()
-        );
-        let record: serde_json::Value = serde_json::from_slice(CAPSEC_REGISTRY_RECORD_JCS).unwrap();
-        let (_, checked_registry_digest) = checked_identity_digests().unwrap();
-        assert_eq!(
-            record["registryDigest"].as_str(),
-            Some(checked_registry_digest.as_str())
-        );
-    }
-
-    #[test]
-    fn precomputed_registry_cache_hit_reauthenticates_immutable_bytes() {
-        let temp = tempfile::tempdir().unwrap();
-        let (_, registry_digest) = checked_identity_digests().unwrap();
-        let content_digest = Digest::new(CAPSEC_REGISTRY_RECORD_CONTENT_DIGEST.trim()).unwrap();
-        let path = precomputed_registry_cache_path(temp.path(), &registry_digest);
-        std::fs::write(&path, CAPSEC_REGISTRY_RECORD_JCS).unwrap();
-        freeze_test_artifact(&path);
-
-        let pinned = pin_precomputed_registry_artifact(temp.path(), &registry_digest)
-            .unwrap()
-            .expect("valid immutable registry cache hit");
-        let canonical_path = std::fs::canonicalize(&path).unwrap();
-        assert_eq!(pinned.host_path, absolute_host_path(&canonical_path));
-        assert_eq!(
-            pinned.object,
-            super::super::object_identity_for_host_path(&canonical_path).unwrap()
-        );
-        assert_eq!(pinned.content_digest, content_digest);
-    }
-
-    #[test]
-    fn precomputed_registry_cache_rejects_mutable_or_mismatched_files() {
-        let (_, registry_digest) = checked_identity_digests().unwrap();
-
-        let mutable = tempfile::tempdir().unwrap();
-        let mutable_path = precomputed_registry_cache_path(mutable.path(), &registry_digest);
-        std::fs::write(&mutable_path, CAPSEC_REGISTRY_RECORD_JCS).unwrap();
-        assert!(
-            pin_precomputed_registry_artifact(mutable.path(), &registry_digest)
-                .unwrap()
-                .is_none()
-        );
-
-        let mismatched = tempfile::tempdir().unwrap();
-        let mismatched_path = precomputed_registry_cache_path(mismatched.path(), &registry_digest);
-        let file = std::fs::File::create(&mismatched_path).unwrap();
-        file.set_len(
-            CAPSEC_REGISTRY_RECORD_CONTENT_LEN
-                .trim()
-                .parse::<u64>()
-                .unwrap(),
-        )
-        .unwrap();
-        drop(file);
-        freeze_test_artifact(&mismatched_path);
-        assert!(
-            pin_precomputed_registry_artifact(mismatched.path(), &registry_digest)
-                .unwrap()
-                .is_none()
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn precomputed_registry_cache_rejects_symlinks() {
-        use std::os::unix::fs::symlink;
-
-        let temp = tempfile::tempdir().unwrap();
-        let (_, registry_digest) = checked_identity_digests().unwrap();
-        let path = precomputed_registry_cache_path(temp.path(), &registry_digest);
-        let target = temp.path().join("registry-target");
-        std::fs::write(&target, CAPSEC_REGISTRY_RECORD_JCS).unwrap();
-        freeze_test_artifact(&target);
-        symlink(&target, &path).unwrap();
-
-        assert!(
-            pin_precomputed_registry_artifact(temp.path(), &registry_digest)
-                .unwrap()
-                .is_none()
-        );
     }
 
     fn real_embedder_fixture() -> RealEmbedderFixture {
@@ -1560,6 +1669,8 @@ mod tests {
                 },
             ],
             embedded_protected_artifacts: Vec::new(),
+            runtime_extension_authority_digest: None,
+            runtime_extension_mapped_executable: None,
         };
 
         RealEmbedderFixture {
@@ -1606,26 +1717,6 @@ mod tests {
           }
         }"#
         .to_vec()
-    }
-
-    fn exact_webgpu_profile() -> Vec<u8> {
-        br#"{"schema":"exact/webgpu-profile/1","profileId":"bone-tide-v1","operations":[1,2]}"#
-            .to_vec()
-    }
-
-    fn exact_gpu_provider_binding(profile: &[u8]) -> Vec<u8> {
-        serde_json::to_vec(&serde_json::json!({
-            "schema": "exact/webgpu-provider/1",
-            "abiVersion": 0x0001_0000_u32,
-            "profileId": "bone-tide-v1",
-            "profileDigest": content_digest(profile),
-            "webgpuCVocabularyDigest": content_digest(b"webgpu-c-vocabulary"),
-            "operationSetDigest": content_digest(b"operation-set"),
-            "semanticProgramDigest": content_digest(b"semantic-program"),
-            "operationIds": [1, 2],
-            "topology": "isolated-per-logical-v1",
-        }))
-        .unwrap()
     }
 
     fn prepare_exact_through_abi(fixture: &RealEmbedderFixture) -> serde_json::Value {
@@ -1684,33 +1775,6 @@ mod tests {
                 dev_root.len(),
                 manifest.as_ptr(),
                 manifest.len(),
-            )
-        };
-        assert!(!output.is_null());
-        let bytes = unsafe { std::ffi::CStr::from_ptr(output) }
-            .to_bytes()
-            .to_vec();
-        crate::host::abi::ex_host_free_string(output);
-        serde_json::from_slice(&bytes).unwrap()
-    }
-
-    fn build_exact_gpu_through_abi(project_root: &std::path::Path) -> serde_json::Value {
-        let root = project_root.to_str().unwrap().as_bytes();
-        let manifest = exact_manifest();
-        let profile = exact_webgpu_profile();
-        let binding = exact_gpu_provider_binding(&profile);
-        let output = unsafe {
-            crate::host::abi::ex_host_build_exact_gpu_armed_embedder_artifacts(
-                root.as_ptr(),
-                root.len(),
-                std::ptr::null(),
-                0,
-                manifest.as_ptr(),
-                manifest.len(),
-                binding.as_ptr(),
-                binding.len(),
-                profile.as_ptr(),
-                profile.len(),
             )
         };
         assert!(!output.is_null());
@@ -1795,6 +1859,8 @@ mod tests {
                 .unwrap(),
             protected_artifacts: Vec::new(),
             embedded_protected_artifacts: Vec::new(),
+            runtime_extension_authority_digest: None,
+            runtime_extension_mapped_executable: None,
         }
     }
 
@@ -1893,6 +1959,56 @@ mod tests {
     }
 
     #[test]
+    fn target_local_exact_builder_refuses_typed_package_bearing_production_policy() {
+        let policy_bytes = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/examples/canonical-policy.canonical.json"
+        ));
+        let (vocab_digest, registry_digest) = checked_identity_digests().unwrap();
+        let expected_policy_identity = capsec_semantics::policy::ExpectedPolicyIdentity {
+            profile: crate::capsec_registry_generated::CAPSEC_PROFILE.into(),
+            semantic_core: crate::capsec_registry_generated::CAPSEC_SEMANTIC_CORE.into(),
+            vocab_digest,
+            registry_digest,
+        };
+        let policy_profile =
+            capsec_semantics::registry::ValidatedProfile::from_json_with_runtime_extensions(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/capsec/registry/capability-definitions.json"
+                )),
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/capsec/registry/policy-rules.json"
+                )),
+                false,
+            )
+            .unwrap();
+        let package_policy = capsec_semantics::policy::CanonicalPolicy::load(
+            policy_bytes,
+            &expected_policy_identity,
+            &policy_profile.definitions,
+        )
+        .expect("package-bearing fixture must be a typed production policy");
+        assert_eq!(package_policy.purpose, "production");
+        assert_eq!(package_policy.mode, "enforce");
+        assert!(
+            !package_policy.principals.is_empty()
+                && package_policy
+                    .principals
+                    .iter()
+                    .all(|row| row.principal.is_package()),
+            "fixture must carry authenticated package principals"
+        );
+
+        let error = admit_exact_production_policy(package_policy).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "target-local Exact builder refuses package-bearing production policies; only the canonical empty package policy is accepted"
+        );
+    }
+
+    #[test]
     fn target_local_exact_builder_authenticates_a_complete_pair() {
         let project = tempfile::tempdir().unwrap();
         let envelope = build_exact_through_abi(project.path());
@@ -1919,6 +2035,16 @@ mod tests {
             artifacts["snapshot"]["exactEmbedder"]["endowments"]["agentIsolate"],
             serde_json::json!([2200, 2201, 2202, 2203])
         );
+        let mut expected_root_builtins = crate::module_loader::RUNTIME_GATED_NODE_BUILTINS
+            .iter()
+            .map(|name| format!("node:{name}"))
+            .collect::<Vec<_>>();
+        expected_root_builtins.sort();
+        assert_eq!(
+            artifacts["snapshot"]["principals"][0]["imports"]["builtins"],
+            serde_json::to_value(expected_root_builtins).unwrap(),
+            "a no-extension build must retain the exact canonical builtin set"
+        );
         let expected: ExpectedArmingIdentity =
             serde_json::from_value(artifacts["expectedIdentity"].clone()).unwrap();
         ArmedSnapshot::load(
@@ -1926,6 +2052,378 @@ mod tests {
             &expected,
         )
         .unwrap();
+    }
+
+    #[test]
+    fn target_local_runtime_extension_builder_authenticates_capsule_and_mapped_executable() {
+        let project = tempfile::tempdir().unwrap();
+        let capsule = crate::host::tests::runtime_extension_test_capsule();
+        let capsule_bytes =
+            capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(&capsule).unwrap())
+                .unwrap();
+        let observed_bytes = capsec_semantics::canonical::to_jcs_bytes(
+            &serde_json::to_value(&capsule.mapped_executable).unwrap(),
+        )
+        .unwrap();
+        let artifacts = build_exact_runtime_extension_embedder_artifacts(
+            project.path(),
+            None,
+            &exact_manifest(),
+            &capsule_bytes,
+            &observed_bytes,
+        )
+        .unwrap();
+
+        assert_eq!(
+            artifacts.snapshot["runtimeExtensions"]["authorityCapsuleDigest"],
+            serde_json::to_value(&capsule.authority_capsule_digest).unwrap()
+        );
+        assert_eq!(
+            artifacts
+                .expected_identity
+                .runtime_extension_authority_digest,
+            Some(capsule.authority_capsule_digest.clone())
+        );
+        assert_eq!(
+            artifacts
+                .expected_identity
+                .runtime_extension_mapped_executable,
+            Some(capsule.mapped_executable.clone())
+        );
+        let root_builtins = artifacts.snapshot["principals"][0]["imports"]["builtins"]
+            .as_array()
+            .unwrap();
+        assert_eq!(
+            root_builtins
+                .iter()
+                .filter(|specifier| *specifier == "@ibex/conformance")
+                .count(),
+            1,
+            "the authenticated selected extension module must be exact-allowlisted"
+        );
+        assert!(
+            root_builtins
+                .windows(2)
+                .all(|pair| { pair[0].as_str().unwrap() < pair[1].as_str().unwrap() }),
+            "the selected root builtin allowlist must be sorted and unique"
+        );
+        let protected = artifacts
+            .expected_identity
+            .protected_artifacts
+            .iter()
+            .find(|artifact| {
+                artifact.role == ProtectedArtifactRole::RuntimeExtensionAuthorityCapsule
+            })
+            .unwrap();
+        assert_eq!(protected.content_digest, content_digest(&capsule_bytes));
+        assert_ne!(
+            protected.content_digest,
+            capsule.authority_capsule_digest,
+            "raw protected-file SHA-256 and domain-separated semantic authority digest are distinct layers"
+        );
+
+        let snapshot = ArmedSnapshot::load(
+            &serde_json::to_vec(&artifacts.snapshot).unwrap(),
+            &artifacts.expected_identity,
+        )
+        .unwrap();
+        let expected_extension_authorities = capsule
+            .descriptors
+            .iter()
+            .flat_map(|descriptor| {
+                descriptor
+                    .authority_fragment
+                    .operations
+                    .iter()
+                    .map(move |operation| AuthoritySelector {
+                        action: ActionId::new("runtime-extension:invoke").unwrap(),
+                        resource: SelectorResource::RuntimeExtension {
+                            extension_id: descriptor.id.clone(),
+                            authority_class: operation.authority_class.clone(),
+                        },
+                    })
+            })
+            .collect::<BTreeSet<_>>();
+        let root_floor = serde_json::from_value::<Vec<AuthoritySelector>>(
+            artifacts.snapshot["principals"][0]["floor"].clone(),
+        )
+        .unwrap()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+        let root_ceiling = serde_json::from_value::<Vec<AuthoritySelector>>(
+            artifacts.snapshot["rootAuthorityCeiling"]["authorities"].clone(),
+        )
+        .unwrap()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+        assert_eq!(
+            root_floor, expected_extension_authorities,
+            "the owning root floor must contain every capsule-authenticated extension/authority-class selector exactly once"
+        );
+        assert_eq!(
+            root_ceiling, expected_extension_authorities,
+            "the immutable root ceiling must match the capsule-derived floor"
+        );
+        super::super::validate_snapshot_protected_artifacts(&snapshot).unwrap();
+        let host = unsafe {
+            super::super::Host::new_armed_for_test(
+                super::super::HostConfig::default(),
+                std::sync::Arc::new(snapshot),
+            )
+        }
+        .unwrap();
+        assert!(
+            host.check_import("0", "@ibex/conformance"),
+            "the production Host must classify and allow the selected extension module exactly"
+        );
+        assert!(
+            !host.check_import("0", "@ibex/unselected"),
+            "an unselected extension-like spelling must remain outside the builtin allowlist"
+        );
+        let root = host.typed_principal_for_module("0").unwrap();
+        for descriptor in &capsule.descriptors {
+            for operation in &descriptor.authority_fragment.operations {
+                let stage = serde_json::to_value(operation.stage).unwrap();
+                let stage = stage.as_str().unwrap();
+                let resource_kinds = operation
+                    .resource_kinds
+                    .iter()
+                    .map(capsec_semantics::model::NonEmptyString::as_str)
+                    .collect::<Vec<_>>();
+                host.authorize_runtime_extension_operation(
+                    1,
+                    1,
+                    descriptor.id.as_str(),
+                    operation.operation_id.as_str(),
+                    operation.authority_class.as_str(),
+                    operation.semantics.as_str(),
+                    stage,
+                    operation.atomicity_group.as_str(),
+                    &resource_kinds,
+                    r#"{"fixture":"production-builder"}"#,
+                    root.clone(),
+                    vec![root.clone()],
+                    vec![],
+                )
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "production-builder selector did not authorize {}:{}: {error}",
+                        descriptor.id.as_str(),
+                        operation.operation_id.as_str()
+                    )
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn target_local_runtime_extension_builder_refuses_core_builtin_collision() {
+        let project = tempfile::tempdir().unwrap();
+        let mut capsule = crate::host::tests::runtime_extension_test_capsule();
+        capsule.descriptors[0].modules[0].specifier =
+            capsec_semantics::model::NonEmptyString::new("node:fs").unwrap();
+        capsule.extension_set_digest = capsule.compute_extension_set_digest().unwrap();
+        capsule.declared_executable_selection_identity = capsule
+            .compute_declared_executable_selection_identity()
+            .unwrap();
+        capsule.executable_selection_identity =
+            capsule.compute_executable_selection_identity().unwrap();
+        capsule.authority_capsule_digest = capsule.compute_authority_capsule_digest().unwrap();
+        capsule.validate().unwrap();
+        let capsule_bytes =
+            capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(&capsule).unwrap())
+                .unwrap();
+        let observed_bytes = capsec_semantics::canonical::to_jcs_bytes(
+            &serde_json::to_value(&capsule.mapped_executable).unwrap(),
+        )
+        .unwrap();
+        let error = build_exact_runtime_extension_embedder_artifacts(
+            project.path(),
+            None,
+            &exact_manifest(),
+            &capsule_bytes,
+            &observed_bytes,
+        )
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("collides with an Ibex core builtin"),
+            "{error:#}"
+        );
+    }
+
+    #[test]
+    fn target_local_runtime_extension_builder_refuses_launcher_identity_laundering() {
+        let project = tempfile::tempdir().unwrap();
+        let capsule = crate::host::tests::runtime_extension_test_capsule();
+        let capsule_bytes =
+            serde_json::to_vec(&capsule).expect("serialize runtime-extension capsule");
+        let mut observed = capsule.mapped_executable.clone();
+        observed.anchors[0].image_offset = capsec_semantics::model::SafeUint::new(4097).unwrap();
+        let error = build_exact_runtime_extension_embedder_artifacts(
+            project.path(),
+            None,
+            &exact_manifest(),
+            &capsule_bytes,
+            &serde_json::to_vec(&observed).unwrap(),
+        )
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("launcher observation"),
+            "{error:#}"
+        );
+    }
+
+    #[test]
+    fn finalizes_template_from_the_actual_current_executable_and_refuses_drift() {
+        use capsec_semantics::runtime_extensions::{
+            RuntimeExtensionAuthorityTemplate, RUNTIME_EXTENSION_AUTHORITY_TEMPLATE_SCHEMA,
+        };
+
+        let capsule = crate::host::tests::runtime_extension_test_capsule();
+        let template = RuntimeExtensionAuthorityTemplate {
+            schema: RUNTIME_EXTENSION_AUTHORITY_TEMPLATE_SCHEMA.into(),
+            target: capsule.target,
+            profile: capsule.profile,
+            sdk_version: capsule.sdk_version,
+            runtime_features: capsule.runtime_features.clone(),
+            extension_set_digest: capsule.extension_set_digest.clone(),
+            declared_executable_selection_identity: capsule
+                .declared_executable_selection_identity
+                .clone(),
+            descriptors: capsule.descriptors.clone(),
+            linked_artifacts: capsule.linked_artifacts.clone(),
+        };
+        let template_bytes =
+            capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(template).unwrap())
+                .unwrap();
+        let executable = std::fs::canonicalize(std::env::current_exe().unwrap()).unwrap();
+        let executable_size = executable.metadata().unwrap().len();
+        let executable_object =
+            super::super::object_identity_for_open_file(&std::fs::File::open(&executable).unwrap())
+                .unwrap();
+        let observation = serde_json::json!({
+            "schema": RUNTIME_EXTENSION_LOADED_IMAGE_OBSERVATION_SCHEMA,
+            "path": executable,
+            "fileSize": executable_size,
+            "executableObject": executable_object,
+            "anchors": capsule.mapped_executable.anchors
+        });
+        let finalized = finalize_runtime_extension_authority(
+            &template_bytes,
+            &serde_json::to_vec(&observation).unwrap(),
+        )
+        .unwrap();
+        let finalized_capsule =
+            RuntimeExtensionAuthorityCapsule::parse_json(&finalized.authority_capsule_bytes)
+                .unwrap();
+        assert_eq!(
+            finalized_capsule.authority_capsule_digest.as_str(),
+            finalized.authority_capsule_digest
+        );
+        assert_eq!(
+            finalized_capsule.executable_selection_identity.as_str(),
+            finalized.executable_selection_identity
+        );
+        assert_eq!(
+            finalized_capsule.mapped_executable.range.length.get(),
+            executable_size
+        );
+        assert_eq!(
+            finalized_capsule.mapped_executable.anchors,
+            capsule.mapped_executable.anchors
+        );
+
+        let mut stale = observation.clone();
+        stale["fileSize"] = serde_json::json!(executable_size - 1);
+        assert!(finalize_runtime_extension_authority(
+            &template_bytes,
+            &serde_json::to_vec(&stale).unwrap(),
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("changed after launcher observation"));
+
+        let mut replaced = observation;
+        replaced["executableObject"]["file"] = serde_json::json!("ino:0");
+        assert!(finalize_runtime_extension_authority(
+            &template_bytes,
+            &serde_json::to_vec(&replaced).unwrap(),
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("object changed after launcher observation"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn finalization_never_reopens_a_replaced_observation_path() {
+        use capsec_semantics::runtime_extensions::{
+            RuntimeExtensionAuthorityTemplate, RuntimeExtensionMappedExecutableIdentity,
+            RUNTIME_EXTENSION_AUTHORITY_TEMPLATE_SCHEMA,
+        };
+        use sha2::{Digest as _, Sha256};
+
+        let capsule = crate::host::tests::runtime_extension_test_capsule();
+        let template = RuntimeExtensionAuthorityTemplate {
+            schema: RUNTIME_EXTENSION_AUTHORITY_TEMPLATE_SCHEMA.into(),
+            target: capsule.target,
+            profile: capsule.profile,
+            sdk_version: capsule.sdk_version,
+            runtime_features: capsule.runtime_features.clone(),
+            extension_set_digest: capsule.extension_set_digest.clone(),
+            declared_executable_selection_identity: capsule
+                .declared_executable_selection_identity
+                .clone(),
+            descriptors: capsule.descriptors.clone(),
+            linked_artifacts: capsule.linked_artifacts.clone(),
+        };
+        let template_bytes =
+            capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(template).unwrap())
+                .unwrap();
+
+        let directory = tempfile::tempdir().unwrap();
+        let observed_path = directory.path().join("observed-executable");
+        let mapped_path = directory.path().join("mapped-executable");
+        let original_bytes = std::fs::read(std::env::current_exe().unwrap()).unwrap();
+        std::fs::write(&observed_path, &original_bytes).unwrap();
+        let pinned = std::fs::File::open(&observed_path).unwrap();
+        let metadata = pinned.metadata().unwrap();
+        let executable_object = super::super::object_identity_for_open_file(&pinned).unwrap();
+        let observation = serde_json::json!({
+            "schema": RUNTIME_EXTENSION_LOADED_IMAGE_OBSERVATION_SCHEMA,
+            "path": observed_path,
+            "fileSize": metadata.len(),
+            "executableObject": executable_object,
+            "anchors": capsule.mapped_executable.anchors
+        });
+
+        std::fs::rename(&observed_path, &mapped_path).unwrap();
+        std::fs::write(&observed_path, b"replacement executable object").unwrap();
+        let replacement = super::super::object_identity_for_open_file(
+            &std::fs::File::open(&observed_path).unwrap(),
+        )
+        .unwrap();
+        assert_ne!(replacement, executable_object);
+
+        let finalized = finalize_runtime_extension_authority_with_pinned_image(
+            &template_bytes,
+            &serde_json::to_vec(&observation).unwrap(),
+            pinned,
+        )
+        .unwrap();
+        let mapped: RuntimeExtensionMappedExecutableIdentity =
+            serde_json::from_slice(&finalized.mapped_executable_bytes).unwrap();
+        assert_eq!(mapped.executable_object, executable_object);
+        assert_eq!(
+            mapped.content_digest.as_str(),
+            format!(
+                "sha256-{}",
+                base64::engine::general_purpose::URL_SAFE_NO_PAD
+                    .encode(Sha256::digest(&original_bytes))
+            )
+        );
     }
 
     #[test]
@@ -1990,96 +2488,6 @@ mod tests {
             crate::host::abi::validate_dev_served_project_root_pairing(&unpaired)
                 .unwrap_err()
                 .contains("requires an explicit dev project root binding")
-        );
-    }
-
-    #[test]
-    fn target_local_exact_gpu_builder_protects_the_bound_profile() {
-        let project = tempfile::tempdir().unwrap();
-        let envelope = build_exact_gpu_through_abi(project.path());
-        assert_eq!(envelope["ok"], true, "{envelope}");
-        let artifacts = &envelope["artifacts"];
-        assert_eq!(
-            artifacts["expectedIdentity"]["protectedArtifacts"]
-                .as_array()
-                .unwrap()
-                .len(),
-            6
-        );
-        assert_eq!(
-            artifacts["snapshot"]["exactGpuProvider"]["topology"],
-            "isolated-per-logical-v1"
-        );
-        assert_eq!(
-            artifacts["snapshot"]["exactGpuProvider"]["profileDigest"],
-            serde_json::to_value(content_digest(&exact_webgpu_profile())).unwrap()
-        );
-        assert_eq!(
-            artifacts["snapshot"]["principals"][0]["floor"],
-            serde_json::json!([]),
-            "the canonical GPU builder must not opt into private WebGPU selectors"
-        );
-        assert!(artifacts["snapshot"]["protectedObjects"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|row| row["role"] == "exact-webgpu-profile"));
-        assert!(artifacts["expectedIdentity"]["protectedArtifacts"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|row| row["role"] == "exact-webgpu-profile"));
-        let expected: ExpectedArmingIdentity =
-            serde_json::from_value(artifacts["expectedIdentity"].clone()).unwrap();
-        let snapshot = ArmedSnapshot::load(
-            &serde_json::to_vec(&artifacts["snapshot"]).unwrap(),
-            &expected,
-        )
-        .unwrap();
-        assert_eq!(
-            snapshot
-                .exact_gpu_provider_binding()
-                .unwrap()
-                .unwrap()
-                .profile_id,
-            "bone-tide-v1"
-        );
-    }
-
-    #[test]
-    fn target_local_exact_gpu_builder_refuses_profile_digest_mismatch() {
-        let project = tempfile::tempdir().unwrap();
-        let mut nonce = [0_u8; 16];
-        getrandom::getrandom(&mut nonce).unwrap();
-        let profile = format!(
-            "{{\"schema\":\"exact/webgpu-profile/1\",\"nonce\":\"{}\"}}",
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(nonce)
-        )
-        .into_bytes();
-        let binding = exact_gpu_provider_binding(&profile);
-        let profile_digest = content_digest(&profile);
-        let profile_artifact = crate::runtime_cache_dir()
-            .unwrap()
-            .join("capsec-artifacts")
-            .join(format!(
-                "{}.exact-webgpu-profile.json",
-                profile_digest.as_str().trim_start_matches("sha256-")
-            ));
-        assert!(!profile_artifact.exists());
-        let error = build_exact_gpu_embedder_artifacts(
-            project.path(),
-            None,
-            &exact_manifest(),
-            &binding,
-            b"different profile bytes",
-        )
-        .unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("profile bytes do not match the provider profile digest"));
-        assert!(
-            !profile_artifact.exists(),
-            "a refused profile must not be published into the artifact cache"
         );
     }
 
