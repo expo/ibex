@@ -2818,6 +2818,7 @@ function completeStartupEnvironmentCatalog(scenario = "allow") {
     moduleSpecifier: "node:http",
     preloadModuleSpecifiers: ["node:events", "node:stream", "node:util"],
     observedEnvironmentNames: ["NODE_DEBUG"],
+    observedEnvironmentAccesses: ["NODE_DEBUG"],
     principalMode: scenario === "deny" ? "package-denied" : "root-authorized",
     auxiliaryDecisionEdgeId: "edge.callback-terminal",
   };
@@ -2861,6 +2862,7 @@ function completeStartupEnvironmentCatalog(scenario = "allow") {
         moduleSpecifier: "node:http",
         preloadModuleSpecifiers: ["node:events", "node:stream", "node:util"],
         observedEnvironmentNames: ["NODE_DEBUG"],
+        observedEnvironmentAccesses: ["NODE_DEBUG"],
         environment: { name: "NODE_DEBUG", presence: "absent" },
         principalMode: sourceDescriptor.principalMode,
       },
@@ -2891,6 +2893,10 @@ function completePairedStartupEnvironmentCatalog(scenario = "allow") {
     "EXACT_PIPELINE_DEBUG",
     "EXACT_PIPELINE_STATE_DEBUG",
   ];
+  const observedEnvironmentAccesses = [
+    "EXACT_PIPELINE_DEBUG",
+    "EXACT_PIPELINE_STATE_DEBUG",
+  ];
   const preloadModuleSpecifiers = [
     "node:events",
     "node:string_decoder",
@@ -2914,6 +2920,7 @@ function completePairedStartupEnvironmentCatalog(scenario = "allow") {
     moduleSpecifier: "node:stream",
     preloadModuleSpecifiers,
     observedEnvironmentNames,
+    observedEnvironmentAccesses,
   });
   sourceDescriptor.selectedBranch.when = [
     {
@@ -2927,6 +2934,7 @@ function completePairedStartupEnvironmentCatalog(scenario = "allow") {
     moduleSpecifier: "node:stream",
     preloadModuleSpecifiers,
     observedEnvironmentNames,
+    observedEnvironmentAccesses,
     environment: { name: environmentName, presence: "absent" },
   });
   const denial = scenario === "deny";
@@ -2935,13 +2943,13 @@ function completePairedStartupEnvironmentCatalog(scenario = "allow") {
   const reasons = denial
     ? ["principal-denial"]
     : ["static-floor", "static-floor"];
-  invocation.expectedTypedStages = observedEnvironmentNames.flatMap(
+  invocation.expectedTypedStages = observedEnvironmentAccesses.flatMap(
     () => stages,
   );
-  invocation.expectedTypedOutcomes = observedEnvironmentNames.flatMap(
+  invocation.expectedTypedOutcomes = observedEnvironmentAccesses.flatMap(
     () => outcomes,
   );
-  invocation.expectedTypedReasons = observedEnvironmentNames.flatMap(
+  invocation.expectedTypedReasons = observedEnvironmentAccesses.flatMap(
     () => reasons,
   );
   invocation.expectedTypedDecisionCount =
@@ -2988,7 +2996,7 @@ function startupEnvironmentRuntimeObservation(recipe) {
               kind: "environment-name",
               target: "principal-overlay",
               name:
-                invocation.expectedResourceNames[
+                invocation.operation.observedEnvironmentAccesses[
                   Math.floor(index / decisionsPerResource)
                 ],
             },
@@ -3034,6 +3042,8 @@ function startupEnvironmentRuntimeObservation(recipe) {
         environmentName: invocation.operation.environment.name,
         observedEnvironmentNames:
           invocation.operation.observedEnvironmentNames,
+        observedEnvironmentAccesses:
+          invocation.operation.observedEnvironmentAccesses,
         environmentPresence: "absent",
         principalMode: invocation.operation.principalMode,
         engineExecuted: true,

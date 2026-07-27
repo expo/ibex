@@ -42,6 +42,7 @@ const STARTUP_ENVIRONMENT_SOURCES = new Map([
       moduleSpecifier: "node:http",
       preloadModuleSpecifiers: ["node:events", "node:stream", "node:util"],
       observedEnvironmentNames: ["NODE_DEBUG"],
+      observedEnvironmentAccesses: ["NODE_DEBUG"],
       selectedBranchId: "absent",
       supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
     }),
@@ -56,6 +57,7 @@ const STARTUP_ENVIRONMENT_SOURCES = new Map([
       moduleSpecifier: "node:events",
       preloadModuleSpecifiers: [],
       observedEnvironmentNames: ["EXACT_DEBUG_EMIT_LISTENER"],
+      observedEnvironmentAccesses: ["EXACT_DEBUG_EMIT_LISTENER"],
       selectedBranchId: "absent",
       supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
     }),
@@ -70,6 +72,7 @@ const STARTUP_ENVIRONMENT_SOURCES = new Map([
       moduleSpecifier: null,
       preloadModuleSpecifiers: [],
       observedEnvironmentNames: ["TZ"],
+      observedEnvironmentAccesses: ["TZ"],
       selectedBranchId: "absent",
       supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
     }),
@@ -88,6 +91,10 @@ const STARTUP_ENVIRONMENT_SOURCES = new Map([
         "node:util",
       ],
       observedEnvironmentNames: [
+        "EXACT_PIPELINE_DEBUG",
+        "EXACT_PIPELINE_STATE_DEBUG",
+      ],
+      observedEnvironmentAccesses: [
         "EXACT_PIPELINE_DEBUG",
         "EXACT_PIPELINE_STATE_DEBUG",
       ],
@@ -112,6 +119,10 @@ const STARTUP_ENVIRONMENT_SOURCES = new Map([
         "EXACT_PIPELINE_DEBUG",
         "EXACT_PIPELINE_STATE_DEBUG",
       ],
+      observedEnvironmentAccesses: [
+        "EXACT_PIPELINE_DEBUG",
+        "EXACT_PIPELINE_STATE_DEBUG",
+      ],
       selectedBranchId: "absent",
       supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
     }),
@@ -125,6 +136,7 @@ const STARTUP_ENVIRONMENT_SOURCES = new Map([
       moduleSpecifier: "node:tty",
       preloadModuleSpecifiers: ["node:tty"],
       observedEnvironmentNames: ["COLUMNS", "LINES"],
+      observedEnvironmentAccesses: ["COLUMNS", "LINES"],
       selectedBranchId: "absent",
       supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
     }),
@@ -138,6 +150,57 @@ const STARTUP_ENVIRONMENT_SOURCES = new Map([
       moduleSpecifier: "node:tty",
       preloadModuleSpecifiers: ["node:tty"],
       observedEnvironmentNames: ["COLUMNS", "LINES"],
+      observedEnvironmentAccesses: ["COLUMNS", "LINES"],
+      selectedBranchId: "absent",
+      supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
+    }),
+  ],
+  [
+    "startup:env:FORCE_COLOR",
+    Object.freeze({
+      environmentName: "FORCE_COLOR",
+      sourceRef: "src/builtins/tty.js#process.env:FORCE_COLOR:read",
+      mechanism: "tty-color-depth",
+      moduleSpecifier: "node:tty",
+      preloadModuleSpecifiers: ["node:tty"],
+      observedEnvironmentNames: [
+        "COLORTERM",
+        "FORCE_COLOR",
+        "NO_COLOR",
+        "TERM",
+      ],
+      observedEnvironmentAccesses: [
+        "NO_COLOR",
+        "FORCE_COLOR",
+        "COLORTERM",
+        "COLORTERM",
+        "TERM",
+      ],
+      selectedBranchId: "absent",
+      supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
+    }),
+  ],
+  [
+    "startup:env:COLORTERM",
+    Object.freeze({
+      environmentName: "COLORTERM",
+      sourceRef: "src/builtins/tty.js#process.env:COLORTERM:read",
+      mechanism: "tty-color-depth",
+      moduleSpecifier: "node:tty",
+      preloadModuleSpecifiers: ["node:tty"],
+      observedEnvironmentNames: [
+        "COLORTERM",
+        "FORCE_COLOR",
+        "NO_COLOR",
+        "TERM",
+      ],
+      observedEnvironmentAccesses: [
+        "NO_COLOR",
+        "FORCE_COLOR",
+        "COLORTERM",
+        "COLORTERM",
+        "TERM",
+      ],
       selectedBranchId: "absent",
       supportedScenarios: STARTUP_ENVIRONMENT_SCENARIOS,
     }),
@@ -214,6 +277,9 @@ export function authoredStartupEnvironmentProbe({
   const observedEnvironmentNames = [...template.observedEnvironmentNames].sort(
     compareText,
   );
+  const observedEnvironmentAccesses = clone(
+    template.observedEnvironmentAccesses,
+  );
   const expectedStagesPerResource = publicDenial
     ? ["requested"]
     : ["requested", "commit"];
@@ -237,6 +303,7 @@ export function authoredStartupEnvironmentProbe({
     moduleSpecifier: template.moduleSpecifier,
     preloadModuleSpecifiers: clone(template.preloadModuleSpecifiers),
     observedEnvironmentNames,
+    observedEnvironmentAccesses,
     principalMode,
     auxiliaryDecisionEdgeId: auxiliaryEdge.id,
   };
@@ -257,6 +324,7 @@ export function authoredStartupEnvironmentProbe({
         moduleSpecifier: template.moduleSpecifier,
         preloadModuleSpecifiers: clone(template.preloadModuleSpecifiers),
         observedEnvironmentNames,
+        observedEnvironmentAccesses,
         environment: {
           name: template.environmentName,
           presence: "absent",
@@ -270,14 +338,14 @@ export function authoredStartupEnvironmentProbe({
       // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
       expectedResult: "return",
       expectedTypedDecisionCount:
-        observedEnvironmentNames.length * expectedStagesPerResource.length,
-      expectedTypedStages: observedEnvironmentNames.flatMap(
+        observedEnvironmentAccesses.length * expectedStagesPerResource.length,
+      expectedTypedStages: observedEnvironmentAccesses.flatMap(
         () => expectedStagesPerResource,
       ),
-      expectedTypedOutcomes: observedEnvironmentNames.flatMap(
+      expectedTypedOutcomes: observedEnvironmentAccesses.flatMap(
         () => expectedOutcomesPerResource,
       ),
-      expectedTypedReasons: observedEnvironmentNames.flatMap(
+      expectedTypedReasons: observedEnvironmentAccesses.flatMap(
         () => expectedReasonsPerResource,
       ),
       allowedCoverageEdgeIds: [auxiliaryEdge.id],

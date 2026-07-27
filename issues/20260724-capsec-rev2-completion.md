@@ -2768,6 +2768,50 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-26 — bound the repeated TTY-color environment sequence
+
+- Promoted the absent branches for `startup:env:FORCE_COLOR` and
+  `startup:env:COLORTERM` through the public `node:tty`
+  `WriteStream.prototype.getColorDepth` route. Its safe absent path performs
+  five reads in exact source order: `NO_COLOR`, `FORCE_COLOR`, `COLORTERM`,
+  `COLORTERM`, and `TERM`. The evidence schema now binds both the canonical
+  four-name resource set and this ordered access sequence, including the
+  repeated lookup.
+- All **12/12** exact `tty.js` carrier rows for `FORCE_COLOR` and `COLORTERM`
+  now have loaded-engine evidence. The companion `NO_COLOR` and `TERM` reads
+  are recorded but not promoted: their selected inventory terminals include
+  different source carriers. The present branches also remain residual because
+  they add `stdio:write`.
+- Apple catalog digest
+  `sha256-knmVvX2l4_ZJnn8pRQuGsngY0_d0v9SO4lekwf2eyKM` reports 23,846 required /
+  **3,462 fully executable** / 3,136 internally verified / 17,248 unresolved.
+  The physical M5 MacBook Air batch passes **66/66**, with up to ten typed
+  decisions per color recipe and engine digest
+  `sha256-XkI3ntNk3zPGfwUpBuS-SUSsB3m6iDlfRxQAJhNouf0`. The evidence-file
+  SHA-256 is
+  `c14f24ce27f53f6823167709140256ed80516652d1a5b6af2193a61d676970ca`;
+  independent validation produced execution digest
+  `sha256-7L7kmVBlcjHqDnoljuFxvVYDWy3jBoJ155s2nph6-Mw`.
+- Windows catalog digest
+  `sha256-B8BxoYbsc_7dWnQkUeHJX57OacyoGuYLBfsIKLxBjOU` reports 23,505 required /
+  **3,102 fully executable** / 3,122 internally verified / 17,281 unresolved.
+  The physical NucBox strict stale-vendored batch passes **66/66** against
+  engine digest
+  `sha256-xqWHmqF0mGjVqhS8bUI7Av9fiP84rE8Zj23kOq9JJw8`. Its evidence-file
+  SHA-256 is
+  `d93c58ddb273c0106d31b6f78c38edd6111c94a39a088b266d76d9c023619081`,
+  and independent validation produced execution digest
+  `sha256-Xx62D56Clpb1f7ZN1ZUj4gkIhC0Zz9BKc1veUuhuhso`.
+- The focused recipe/evidence suite passes 146 tests with 115,459 assertions.
+  Hard part: a unique resource set cannot prove a source that reads the same
+  resource twice. The verifier now separately binds the canonical authority
+  set and the ordered access sequence, then maps every requested/commit or
+  denied decision to the corresponding access. Removing, reordering, or
+  relabeling the second `COLORTERM` read invalidates the artifact.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

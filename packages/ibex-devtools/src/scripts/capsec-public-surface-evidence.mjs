@@ -366,6 +366,7 @@ const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
       moduleSpecifier: "node:http",
       preloadModuleSpecifiers: ["node:events", "node:stream", "node:util"],
       observedEnvironmentNames: ["NODE_DEBUG"],
+      observedEnvironmentAccesses: ["NODE_DEBUG"],
     },
   ],
   [
@@ -380,6 +381,7 @@ const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
       moduleSpecifier: "node:events",
       preloadModuleSpecifiers: [],
       observedEnvironmentNames: ["EXACT_DEBUG_EMIT_LISTENER"],
+      observedEnvironmentAccesses: ["EXACT_DEBUG_EMIT_LISTENER"],
     },
   ],
   [
@@ -397,6 +399,7 @@ const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
       moduleSpecifier: null,
       preloadModuleSpecifiers: [],
       observedEnvironmentNames: ["TZ"],
+      observedEnvironmentAccesses: ["TZ"],
     },
   ],
   [
@@ -415,6 +418,10 @@ const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
         "node:util",
       ],
       observedEnvironmentNames: [
+        "EXACT_PIPELINE_DEBUG",
+        "EXACT_PIPELINE_STATE_DEBUG",
+      ],
+      observedEnvironmentAccesses: [
         "EXACT_PIPELINE_DEBUG",
         "EXACT_PIPELINE_STATE_DEBUG",
       ],
@@ -439,6 +446,10 @@ const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
         "EXACT_PIPELINE_DEBUG",
         "EXACT_PIPELINE_STATE_DEBUG",
       ],
+      observedEnvironmentAccesses: [
+        "EXACT_PIPELINE_DEBUG",
+        "EXACT_PIPELINE_STATE_DEBUG",
+      ],
     },
   ],
   [
@@ -450,6 +461,7 @@ const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
       moduleSpecifier: "node:tty",
       preloadModuleSpecifiers: ["node:tty"],
       observedEnvironmentNames: ["COLUMNS", "LINES"],
+      observedEnvironmentAccesses: ["COLUMNS", "LINES"],
     },
   ],
   [
@@ -461,6 +473,59 @@ const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
       moduleSpecifier: "node:tty",
       preloadModuleSpecifiers: ["node:tty"],
       observedEnvironmentNames: ["COLUMNS", "LINES"],
+      observedEnvironmentAccesses: ["COLUMNS", "LINES"],
+    },
+  ],
+  [
+    "FORCE_COLOR",
+    {
+      sourceRef: "src/builtins/tty.js#process.env:FORCE_COLOR:read",
+      liveSourceRefs: [
+        "src/builtins/tty.js#process.env:FORCE_COLOR:read",
+        "src/engine/bootstrap/stream-enhance.js#process.env:FORCE_COLOR:read",
+      ],
+      mechanism: "tty-color-depth",
+      moduleSpecifier: "node:tty",
+      preloadModuleSpecifiers: ["node:tty"],
+      observedEnvironmentNames: [
+        "COLORTERM",
+        "FORCE_COLOR",
+        "NO_COLOR",
+        "TERM",
+      ],
+      observedEnvironmentAccesses: [
+        "NO_COLOR",
+        "FORCE_COLOR",
+        "COLORTERM",
+        "COLORTERM",
+        "TERM",
+      ],
+    },
+  ],
+  [
+    "COLORTERM",
+    {
+      sourceRef: "src/builtins/tty.js#process.env:COLORTERM:read",
+      liveSourceRefs: [
+        "src/builtins/tty.js#process.env:COLORTERM:read",
+        "src/engine/bootstrap/stream-enhance.js#process.env:COLORTERM:read",
+      ],
+      mechanism: "tty-color-depth",
+      moduleSpecifier: "node:tty",
+      preloadModuleSpecifiers: ["node:tty"],
+      observedEnvironmentNames: [
+        "COLORTERM",
+        "FORCE_COLOR",
+        "NO_COLOR",
+        "TERM",
+      ],
+      observedEnvironmentAccesses: [
+        "NO_COLOR",
+        "FORCE_COLOR",
+        "COLORTERM",
+        "COLORTERM",
+        "TERM",
+      ],
     },
   ],
 ]);
@@ -1510,6 +1575,7 @@ export function validateStartupEnvironmentRecipeDescriptor(recipe) {
       "moduleSpecifier",
       "preloadModuleSpecifiers",
       "observedEnvironmentNames",
+      "observedEnvironmentAccesses",
       "principalMode",
       "auxiliaryDecisionEdgeId",
     ],
@@ -1522,6 +1588,7 @@ export function validateStartupEnvironmentRecipeDescriptor(recipe) {
       "moduleSpecifier",
       "preloadModuleSpecifiers",
       "observedEnvironmentNames",
+      "observedEnvironmentAccesses",
       "environment",
       "principalMode",
     ],
@@ -1574,6 +1641,10 @@ export function validateStartupEnvironmentRecipeDescriptor(recipe) {
       canonicalJson(sourceExpectation?.observedEnvironmentNames) ||
     canonicalJson(operation.observedEnvironmentNames) !==
       canonicalJson(sourceExpectation?.observedEnvironmentNames) ||
+    canonicalJson(descriptor.observedEnvironmentAccesses) !==
+      canonicalJson(sourceExpectation?.observedEnvironmentAccesses) ||
+    canonicalJson(operation.observedEnvironmentAccesses) !==
+      canonicalJson(sourceExpectation?.observedEnvironmentAccesses) ||
     canonicalJson(authored.expectedResourceNames) !==
       canonicalJson(sourceExpectation?.observedEnvironmentNames) ||
     !sourceExpectation?.observedEnvironmentNames.includes(environmentName) ||
@@ -3285,7 +3356,15 @@ function validateRuntimeInvocation(observation, recipe) {
       authored.expectedResourceNames.length === 0 ||
       !authored.expectedResourceNames.includes(
         authored.operation.environment.name,
-      ))
+      ) ||
+      !Array.isArray(authored.operation.observedEnvironmentAccesses) ||
+      authored.operation.observedEnvironmentAccesses.length === 0 ||
+      authored.operation.observedEnvironmentAccesses.some(
+        (name) => !authored.expectedResourceNames.includes(name),
+      ) ||
+      authored.expectedTypedDecisionCount !==
+        authored.operation.observedEnvironmentAccesses.length *
+          (authored.operation.principalMode === "package-denied" ? 1 : 2))
   ) {
     throw new Error(
       `${recipe.fixtureId}: malformed startup environment resource binding`,
@@ -3771,6 +3850,7 @@ function validateRuntimeInvocation(observation, recipe) {
           "moduleSpecifier",
           "environmentName",
           "observedEnvironmentNames",
+          "observedEnvironmentAccesses",
           "environmentPresence",
           "principalMode",
           "engineExecuted",
@@ -3791,6 +3871,8 @@ function validateRuntimeInvocation(observation, recipe) {
         invocation.result.environmentName !== operation.environment.name ||
         canonicalJson(invocation.result.observedEnvironmentNames) !==
           canonicalJson(operation.observedEnvironmentNames) ||
+        canonicalJson(invocation.result.observedEnvironmentAccesses) !==
+          canonicalJson(operation.observedEnvironmentAccesses) ||
         invocation.result.environmentPresence !== "absent" ||
         invocation.result.principalMode !== operation.principalMode ||
         invocation.result.engineExecuted !== true ||
@@ -5012,7 +5094,7 @@ export function validatePublicFixtureRuntimeObservation(
       const packageMode = authored.operation.principalMode === "package-denied";
       const decisionsPerResource = packageMode ? 1 : 2;
       const environmentName =
-        authored.expectedResourceNames[
+        authored.operation.observedEnvironmentAccesses[
           Math.floor(decisionIndex / decisionsPerResource)
         ];
       const expectedActor = packageMode

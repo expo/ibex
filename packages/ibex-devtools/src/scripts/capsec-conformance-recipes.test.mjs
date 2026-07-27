@@ -353,12 +353,12 @@ describe("exact-target CapSec executable recipes", () => {
     // decision-free call/construct/get route through the loaded engine. The
     // principal environment Proxy adds the complete exact read/write scenario
     // matrix through its captured native bridges.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_450);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_462);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_260);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_248);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -468,9 +468,9 @@ describe("exact-target CapSec executable recipes", () => {
     // the same floor that the scenario denies. Typed synchronous TCP connect
     // adds its five staged public scenarios, and its exact typed setup promotes
     // the three ownership-only lifecycle consumers.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_090);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_102);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_293);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_281);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -3687,7 +3687,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-startup-environment-invocation/1",
     );
-    expect(authored).toHaveLength(42);
+    expect(authored).toHaveLength(54);
     expect(
       authored.map((recipe) => [recipe.terminalObservedKey, recipe.scenario]),
     ).toEqual([
@@ -3721,12 +3721,24 @@ describe("exact-target CapSec executable recipes", () => {
       ["startup:env:EXACT_PIPELINE_DEBUG", "malformed"],
       ["startup:env:EXACT_PIPELINE_DEBUG", "missing-attribution"],
       ["startup:env:EXACT_PIPELINE_DEBUG", "wrong-principal"],
+      ["startup:env:COLORTERM", "allow"],
+      ["startup:env:COLORTERM", "branch-selection"],
+      ["startup:env:COLORTERM", "deny"],
+      ["startup:env:COLORTERM", "malformed"],
+      ["startup:env:COLORTERM", "missing-attribution"],
+      ["startup:env:COLORTERM", "wrong-principal"],
       ["startup:env:COLUMNS", "allow"],
       ["startup:env:COLUMNS", "branch-selection"],
       ["startup:env:COLUMNS", "deny"],
       ["startup:env:COLUMNS", "malformed"],
       ["startup:env:COLUMNS", "missing-attribution"],
       ["startup:env:COLUMNS", "wrong-principal"],
+      ["startup:env:FORCE_COLOR", "allow"],
+      ["startup:env:FORCE_COLOR", "branch-selection"],
+      ["startup:env:FORCE_COLOR", "deny"],
+      ["startup:env:FORCE_COLOR", "malformed"],
+      ["startup:env:FORCE_COLOR", "missing-attribution"],
+      ["startup:env:FORCE_COLOR", "wrong-principal"],
       ["startup:env:LINES", "allow"],
       ["startup:env:LINES", "branch-selection"],
       ["startup:env:LINES", "deny"],
@@ -3744,6 +3756,7 @@ describe("exact-target CapSec executable recipes", () => {
           moduleSpecifier: null,
           preloads: [],
           observedEnvironmentNames: ["TZ"],
+          observedEnvironmentAccesses: ["TZ"],
         },
       ],
       [
@@ -3755,6 +3768,7 @@ describe("exact-target CapSec executable recipes", () => {
           moduleSpecifier: "node:events",
           preloads: [],
           observedEnvironmentNames: ["EXACT_DEBUG_EMIT_LISTENER"],
+          observedEnvironmentAccesses: ["EXACT_DEBUG_EMIT_LISTENER"],
         },
       ],
       [
@@ -3765,6 +3779,7 @@ describe("exact-target CapSec executable recipes", () => {
           moduleSpecifier: "node:http",
           preloads: ["node:events", "node:stream", "node:util"],
           observedEnvironmentNames: ["NODE_DEBUG"],
+          observedEnvironmentAccesses: ["NODE_DEBUG"],
         },
       ],
       [
@@ -3776,6 +3791,10 @@ describe("exact-target CapSec executable recipes", () => {
           moduleSpecifier: "node:stream",
           preloads: ["node:events", "node:string_decoder", "node:util"],
           observedEnvironmentNames: [
+            "EXACT_PIPELINE_DEBUG",
+            "EXACT_PIPELINE_STATE_DEBUG",
+          ],
+          observedEnvironmentAccesses: [
             "EXACT_PIPELINE_DEBUG",
             "EXACT_PIPELINE_STATE_DEBUG",
           ],
@@ -3793,6 +3812,10 @@ describe("exact-target CapSec executable recipes", () => {
             "EXACT_PIPELINE_DEBUG",
             "EXACT_PIPELINE_STATE_DEBUG",
           ],
+          observedEnvironmentAccesses: [
+            "EXACT_PIPELINE_DEBUG",
+            "EXACT_PIPELINE_STATE_DEBUG",
+          ],
         },
       ],
       [
@@ -3803,6 +3826,7 @@ describe("exact-target CapSec executable recipes", () => {
           moduleSpecifier: "node:tty",
           preloads: ["node:tty"],
           observedEnvironmentNames: ["COLUMNS", "LINES"],
+          observedEnvironmentAccesses: ["COLUMNS", "LINES"],
         },
       ],
       [
@@ -3813,6 +3837,51 @@ describe("exact-target CapSec executable recipes", () => {
           moduleSpecifier: "node:tty",
           preloads: ["node:tty"],
           observedEnvironmentNames: ["COLUMNS", "LINES"],
+          observedEnvironmentAccesses: ["COLUMNS", "LINES"],
+        },
+      ],
+      [
+        "COLORTERM",
+        {
+          sourceRef: "src/builtins/tty.js#process.env:COLORTERM:read",
+          mechanism: "tty-color-depth",
+          moduleSpecifier: "node:tty",
+          preloads: ["node:tty"],
+          observedEnvironmentNames: [
+            "COLORTERM",
+            "FORCE_COLOR",
+            "NO_COLOR",
+            "TERM",
+          ],
+          observedEnvironmentAccesses: [
+            "NO_COLOR",
+            "FORCE_COLOR",
+            "COLORTERM",
+            "COLORTERM",
+            "TERM",
+          ],
+        },
+      ],
+      [
+        "FORCE_COLOR",
+        {
+          sourceRef: "src/builtins/tty.js#process.env:FORCE_COLOR:read",
+          mechanism: "tty-color-depth",
+          moduleSpecifier: "node:tty",
+          preloads: ["node:tty"],
+          observedEnvironmentNames: [
+            "COLORTERM",
+            "FORCE_COLOR",
+            "NO_COLOR",
+            "TERM",
+          ],
+          observedEnvironmentAccesses: [
+            "NO_COLOR",
+            "FORCE_COLOR",
+            "COLORTERM",
+            "COLORTERM",
+            "TERM",
+          ],
         },
       ],
     ]);
@@ -3841,6 +3910,8 @@ describe("exact-target CapSec executable recipes", () => {
           moduleSpecifier: expected.moduleSpecifier,
           preloadModuleSpecifiers: expected.preloads,
           observedEnvironmentNames: expected.observedEnvironmentNames,
+          observedEnvironmentAccesses:
+            expected.observedEnvironmentAccesses,
           environment: { name, presence: "absent" },
         },
       });
@@ -3862,17 +3933,17 @@ describe("exact-target CapSec executable recipes", () => {
         ? ["principal-denial"]
         : ["static-floor", "static-floor"];
       expect(invocation.expectedTypedStages).toEqual(
-        expected.observedEnvironmentNames.flatMap(
+        expected.observedEnvironmentAccesses.flatMap(
           () => expectedStagesPerResource,
         ),
       );
       expect(invocation.expectedTypedOutcomes).toEqual(
-        expected.observedEnvironmentNames.flatMap(
+        expected.observedEnvironmentAccesses.flatMap(
           () => expectedOutcomesPerResource,
         ),
       );
       expect(invocation.expectedTypedReasons).toEqual(
-        expected.observedEnvironmentNames.flatMap(
+        expected.observedEnvironmentAccesses.flatMap(
           () => expectedReasonsPerResource,
         ),
       );
@@ -3881,7 +3952,7 @@ describe("exact-target CapSec executable recipes", () => {
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.status === "unresolved",
       ),
-    ).toHaveLength(628);
+    ).toHaveLength(616);
     for (const environmentName of expectedSources.keys()) {
       const residual = startupEnvironmentRecipes.filter(
         (recipe) =>

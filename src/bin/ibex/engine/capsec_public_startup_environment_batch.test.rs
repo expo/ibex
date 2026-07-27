@@ -129,6 +129,7 @@ struct StartupEnvironmentOperation {
     module_specifier: Option<String>,
     preload_module_specifiers: Vec<String>,
     observed_environment_names: Vec<String>,
+    observed_environment_accesses: Vec<String>,
     environment: StartupEnvironment,
     principal_mode: String,
 }
@@ -169,9 +170,10 @@ struct ExpectedSource {
     module_specifier: Option<&'static str>,
     preload_module_specifiers: &'static [&'static str],
     observed_environment_names: &'static [&'static str],
+    observed_environment_accesses: &'static [&'static str],
 }
 
-const EXPECTED_SOURCES: [ExpectedSource; 7] = [
+const EXPECTED_SOURCES: [ExpectedSource; 9] = [
     ExpectedSource {
         environment_name: "NODE_DEBUG",
         source_ref: "src/builtins/http.js#process.env:NODE_DEBUG:read",
@@ -179,6 +181,7 @@ const EXPECTED_SOURCES: [ExpectedSource; 7] = [
         module_specifier: Some("node:http"),
         preload_module_specifiers: &["node:events", "node:stream", "node:util"],
         observed_environment_names: &["NODE_DEBUG"],
+        observed_environment_accesses: &["NODE_DEBUG"],
     },
     ExpectedSource {
         environment_name: "EXACT_DEBUG_EMIT_LISTENER",
@@ -187,6 +190,7 @@ const EXPECTED_SOURCES: [ExpectedSource; 7] = [
         module_specifier: Some("node:events"),
         preload_module_specifiers: &[],
         observed_environment_names: &["EXACT_DEBUG_EMIT_LISTENER"],
+        observed_environment_accesses: &["EXACT_DEBUG_EMIT_LISTENER"],
     },
     ExpectedSource {
         environment_name: "TZ",
@@ -195,6 +199,7 @@ const EXPECTED_SOURCES: [ExpectedSource; 7] = [
         module_specifier: None,
         preload_module_specifiers: &[],
         observed_environment_names: &["TZ"],
+        observed_environment_accesses: &["TZ"],
     },
     ExpectedSource {
         environment_name: "EXACT_PIPELINE_DEBUG",
@@ -203,6 +208,10 @@ const EXPECTED_SOURCES: [ExpectedSource; 7] = [
         module_specifier: Some("node:stream"),
         preload_module_specifiers: &["node:events", "node:string_decoder", "node:util"],
         observed_environment_names: &["EXACT_PIPELINE_DEBUG", "EXACT_PIPELINE_STATE_DEBUG"],
+        observed_environment_accesses: &[
+            "EXACT_PIPELINE_DEBUG",
+            "EXACT_PIPELINE_STATE_DEBUG",
+        ],
     },
     ExpectedSource {
         environment_name: "EXACT_PIPELINE_STATE_DEBUG",
@@ -211,6 +220,10 @@ const EXPECTED_SOURCES: [ExpectedSource; 7] = [
         module_specifier: Some("node:stream"),
         preload_module_specifiers: &["node:events", "node:string_decoder", "node:util"],
         observed_environment_names: &["EXACT_PIPELINE_DEBUG", "EXACT_PIPELINE_STATE_DEBUG"],
+        observed_environment_accesses: &[
+            "EXACT_PIPELINE_DEBUG",
+            "EXACT_PIPELINE_STATE_DEBUG",
+        ],
     },
     ExpectedSource {
         environment_name: "COLUMNS",
@@ -219,6 +232,7 @@ const EXPECTED_SOURCES: [ExpectedSource; 7] = [
         module_specifier: Some("node:tty"),
         preload_module_specifiers: &["node:tty"],
         observed_environment_names: &["COLUMNS", "LINES"],
+        observed_environment_accesses: &["COLUMNS", "LINES"],
     },
     ExpectedSource {
         environment_name: "LINES",
@@ -227,6 +241,37 @@ const EXPECTED_SOURCES: [ExpectedSource; 7] = [
         module_specifier: Some("node:tty"),
         preload_module_specifiers: &["node:tty"],
         observed_environment_names: &["COLUMNS", "LINES"],
+        observed_environment_accesses: &["COLUMNS", "LINES"],
+    },
+    ExpectedSource {
+        environment_name: "FORCE_COLOR",
+        source_ref: "src/builtins/tty.js#process.env:FORCE_COLOR:read",
+        mechanism: "tty-color-depth",
+        module_specifier: Some("node:tty"),
+        preload_module_specifiers: &["node:tty"],
+        observed_environment_names: &["COLORTERM", "FORCE_COLOR", "NO_COLOR", "TERM"],
+        observed_environment_accesses: &[
+            "NO_COLOR",
+            "FORCE_COLOR",
+            "COLORTERM",
+            "COLORTERM",
+            "TERM",
+        ],
+    },
+    ExpectedSource {
+        environment_name: "COLORTERM",
+        source_ref: "src/builtins/tty.js#process.env:COLORTERM:read",
+        mechanism: "tty-color-depth",
+        module_specifier: Some("node:tty"),
+        preload_module_specifiers: &["node:tty"],
+        observed_environment_names: &["COLORTERM", "FORCE_COLOR", "NO_COLOR", "TERM"],
+        observed_environment_accesses: &[
+            "NO_COLOR",
+            "FORCE_COLOR",
+            "COLORTERM",
+            "COLORTERM",
+            "TERM",
+        ],
     },
 ];
 
@@ -402,6 +447,16 @@ fn prepare_package_fixture(operation: &StartupEnvironmentOperation) -> PackageFi
                     .expect("tty environment probe requires a module"),
             )
             .expect("serialize tty environment probe module")
+        ),
+        "tty-color-depth" => format!(
+            "module.exports = function() {{ var WriteStream = require({}).WriteStream; return WriteStream.prototype.getColorDepth.call({{}}, undefined) === 1; }};\n",
+            serde_json::to_string(
+                operation
+                    .module_specifier
+                    .as_deref()
+                    .expect("tty color environment probe requires a module"),
+            )
+            .expect("serialize tty color environment probe module")
         ),
         other => panic!("unsupported package startup environment mechanism {other}"),
     };
@@ -713,8 +768,21 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         expected.observed_environment_names
     );
     assert_eq!(
+        invocation
+            .operation
+            .observed_environment_accesses
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        expected.observed_environment_accesses
+    );
+    assert_eq!(
         descriptor["observedEnvironmentNames"],
         serde_json::json!(expected.observed_environment_names)
+    );
+    assert_eq!(
+        descriptor["observedEnvironmentAccesses"],
+        serde_json::json!(expected.observed_environment_accesses)
     );
     assert_eq!(
         invocation.operation.environment,
@@ -735,6 +803,15 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
             .map(String::as_str)
             .collect::<Vec<_>>(),
         expected.observed_environment_names
+    );
+    assert_eq!(
+        invocation.expected_typed_decision_count,
+        expected.observed_environment_accesses.len()
+            * if invocation.operation.principal_mode == "package-denied" {
+                1
+            } else {
+                2
+            }
     );
     assert_eq!(
         invocation.expected_typed_decision_count,
@@ -990,7 +1067,8 @@ fn validate_typed_decisions(
         2
     };
     let expected_decision_resource_names = invocation
-        .expected_resource_names
+        .operation
+        .observed_environment_accesses
         .iter()
         .flat_map(|name| std::iter::repeat(name.as_str()).take(decisions_per_resource))
         .collect::<Vec<_>>();
@@ -1123,6 +1201,17 @@ async fn invoke_source(
             )
             .unwrap()
         ),
+        "tty-color-depth" => format!(
+            "(function() {{ var WriteStream = require({}).WriteStream; return WriteStream.prototype.getColorDepth.call({{}}, undefined) === 1; }})()",
+            serde_json::to_string(
+                invocation
+                    .operation
+                    .module_specifier
+                    .as_deref()
+                    .expect("tty color environment source requires a module"),
+            )
+            .unwrap()
+        ),
         other => panic!("unsupported root startup environment mechanism {other}"),
     };
     let expression = if package.is_some() {
@@ -1238,6 +1327,7 @@ async fn execute_recipe(recipe: &Recipe, engine_binary_digest: &str) -> serde_js
         "moduleSpecifier": invocation.operation.module_specifier,
         "environmentName": invocation.operation.environment.name,
         "observedEnvironmentNames": invocation.operation.observed_environment_names,
+        "observedEnvironmentAccesses": invocation.operation.observed_environment_accesses,
         "environmentPresence": invocation.operation.environment.presence,
         "principalMode": invocation.operation.principal_mode,
         "engineExecuted": true,
@@ -1525,8 +1615,8 @@ async fn capsec_public_startup_environment_batch() {
         .collect::<Vec<_>>();
     assert_eq!(
         recipes.len(),
-        42,
-        "expected the complete matrix for seven startup environment absent slices"
+        54,
+        "expected the complete matrix for nine startup environment absent slices"
     );
     assert_eq!(
         principal_environment_recipes.len(),
@@ -1570,10 +1660,12 @@ async fn capsec_public_startup_environment_batch() {
             .map(|recipe| recipe.terminal_observed_key.as_str())
             .collect::<BTreeSet<_>>(),
         BTreeSet::from([
+            "startup:env:COLORTERM",
             "startup:env:COLUMNS",
             "startup:env:EXACT_DEBUG_EMIT_LISTENER",
             "startup:env:EXACT_PIPELINE_DEBUG",
             "startup:env:EXACT_PIPELINE_STATE_DEBUG",
+            "startup:env:FORCE_COLOR",
             "startup:env:LINES",
             "startup:env:NODE_DEBUG",
             "startup:env:TZ",
