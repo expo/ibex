@@ -34,6 +34,11 @@ if (-not $Ref) {
   $Ref = $reviewedSourceCommit
 }
 
+function ConvertTo-LowerHex {
+  param([byte[]]$Bytes)
+  return ([System.BitConverter]::ToString($Bytes)).Replace("-", "").ToLowerInvariant()
+}
+
 function Get-PatchStackDigestHex {
   $lines = @()
   $patches = Get-ChildItem -LiteralPath (Join-Path $repoRoot "patches\hermes") -Filter "*.patch" |
@@ -50,7 +55,7 @@ function Get-PatchStackDigestHex {
   finally {
     $sha.Dispose()
   }
-  return [Convert]::ToHexString($digest).ToLowerInvariant()
+  return ConvertTo-LowerHex $digest
 }
 
 function Get-FileSuffixDigestHex {
@@ -86,7 +91,7 @@ function Get-FileSuffixDigestHex {
   finally {
     $sha.Dispose()
   }
-  return [Convert]::ToHexString($digest).ToLowerInvariant()
+  return ConvertTo-LowerHex $digest
 }
 
 function Find-OneFile {
