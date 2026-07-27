@@ -2122,6 +2122,189 @@ function validateRuntimeInvocation(observation, recipe) {
   ) {
     validateEffectBuiltinModuleImportInvocation(invocation, authored, recipe);
   } else if (
+    invocation?.invocationSchema ===
+    "ibex/capsec-builtin-noncap-captured-invocation/1"
+  ) {
+    const captured = authored.capturedOutputInvocation;
+    const descriptor = authored.sourceDescriptor;
+    const route = captured?.route;
+    exactKeys(
+      authored,
+      [
+        "invocationSchema",
+        "kind",
+        "moduleSpecifier",
+        "exportName",
+        "sourceDescriptor",
+        "sourceDescriptorDigest",
+        "arguments",
+        "setup",
+        "completion",
+        "capturedOutputInvocation",
+        "requiredAuthority",
+        "expectedResult",
+        "expectedTypedDecisionCount",
+        "expectedTypedStages",
+        "allowedCoverageEdgeIds",
+        "expectedActionIds",
+      ],
+      `${recipe.fixtureId}: authored captured non-capability builtin invocation`,
+    );
+    exactKeys(
+      invocation,
+      [...commonKeys, "moduleSpecifier", "exportName", "completion"],
+      `${recipe.fixtureId}: captured non-capability builtin runtime invocation`,
+    );
+    exactKeys(
+      captured,
+      [
+        "invocationSchema",
+        "kind",
+        "coverageEdgeId",
+        "coverageClassification",
+        "surfaceObservedKey",
+        "moduleSpecifier",
+        "sourceDescriptor",
+        "sourceDescriptorDigest",
+        "route",
+        "completion",
+      ],
+      `${recipe.fixtureId}: captured output invocation`,
+    );
+    exactKeys(
+      descriptor,
+      [
+        "kind",
+        "sourceKey",
+        "exportName",
+        "exportIdioms",
+        "moduleSpecifiers",
+        "sourceRef",
+        "valueShape",
+        "importReachability",
+        "access",
+        ...(Object.hasOwn(descriptor ?? {}, "platformAvailability")
+          ? ["platformAvailability"]
+          : []),
+      ],
+      `${recipe.fixtureId}: captured builtin source descriptor`,
+    );
+    exactKeys(
+      descriptor.access,
+      ["kind", "path"],
+      `${recipe.fixtureId}: captured builtin source access`,
+    );
+    exactKeys(
+      route,
+      [
+        "operation",
+        ...(Object.hasOwn(route ?? {}, "receiver") ? ["receiver"] : []),
+        "arguments",
+        "cleanup",
+        ...(Object.hasOwn(route ?? {}, "awaitResult") ? ["awaitResult"] : []),
+        ...(Object.hasOwn(route ?? {}, "inheritedTemplateId")
+          ? ["inheritedTemplateId"]
+          : []),
+        ...(Object.hasOwn(route ?? {}, "dependencyModuleSpecifiers")
+          ? ["dependencyModuleSpecifiers"]
+          : []),
+        "outcomeCapture",
+      ],
+      `${recipe.fixtureId}: captured builtin source route`,
+    );
+    exactKeys(
+      authored.setup,
+      ["kind"],
+      `${recipe.fixtureId}: captured builtin setup`,
+    );
+    exactKeys(
+      authored.completion,
+      ["kind", "timeoutMilliseconds"],
+      `${recipe.fixtureId}: authored captured builtin completion`,
+    );
+    exactKeys(
+      invocation.completion,
+      ["kind", "status", "timeoutMilliseconds"],
+      `${recipe.fixtureId}: captured builtin runtime completion`,
+    );
+    const routeMatchesValueShape =
+      (route.operation === "call" &&
+        new Set(["callable", "unknown"]).has(descriptor.valueShape)) ||
+      (route.operation === "construct" &&
+        new Set(["callable", "data", "unknown"]).has(
+          descriptor.valueShape,
+        )) ||
+      (route.operation === "get" &&
+        new Set(["accessor", "unknown"]).has(descriptor.valueShape));
+    if (
+      recipe.classification !== "non-capability" ||
+      recipe.scenario !== "non-capability" ||
+      recipe.actionIds.length !== 0 ||
+      recipe.edgeIds.length !== 1 ||
+      authored.kind !== "builtin-noncap-captured-call" ||
+      authored.moduleSpecifier !== captured.moduleSpecifier ||
+      authored.exportName !== descriptor.exportName ||
+      authored.sourceDescriptorDigest !== taggedDigest(descriptor) ||
+      captured.invocationSchema !==
+        "ibex/capsec-builtin-noncap-closed-output-invocation/1" ||
+      captured.kind !== "builtin-noncap-closed-output" ||
+      captured.coverageClassification !== "non-capability" ||
+      captured.coverageEdgeId !== recipe.edgeIds[0] ||
+      captured.surfaceObservedKey !==
+        recipe.publicSurfaceProbe.surfaceObservedKey ||
+      captured.sourceDescriptorDigest !== authored.sourceDescriptorDigest ||
+      canonicalJson(captured.sourceDescriptor) !==
+        canonicalJson(descriptor) ||
+      descriptor.kind !== "builtin-export" ||
+      descriptor.importReachability !== "public" ||
+      !routeMatchesValueShape ||
+      !Array.isArray(descriptor.exportIdioms) ||
+      descriptor.exportIdioms.length === 0 ||
+      !Array.isArray(descriptor.moduleSpecifiers) ||
+      !descriptor.moduleSpecifiers.includes(authored.moduleSpecifier) ||
+      typeof descriptor.sourceRef !== "string" ||
+      descriptor.sourceRef.length === 0 ||
+      !Array.isArray(descriptor.access?.path) ||
+      (descriptor.access.kind !== "module-value" &&
+        descriptor.access.path.length === 0) ||
+      !new Set([
+        "export-property",
+        "prototype-property",
+        "inherited-prototype-property",
+        "module-value",
+      ]).has(descriptor.access.kind) ||
+      !new Set(["call", "construct", "get"]).has(route.operation) ||
+      !Array.isArray(route.arguments) ||
+      !route.cleanup ||
+      typeof route.cleanup.kind !== "string" ||
+      route.cleanup.kind.length === 0 ||
+      route.outcomeCapture !== "public-builtin-family" ||
+      Object.hasOwn(route, "authority") ||
+      canonicalJson(authored.arguments) !== canonicalJson([]) ||
+      authored.setup.kind !== "captured-output-route" ||
+      canonicalJson(authored.requiredAuthority) !== canonicalJson([]) ||
+      authored.expectedResult !== "captured-source-return" ||
+      authored.expectedTypedDecisionCount !== 0 ||
+      canonicalJson(authored.expectedTypedStages) !== canonicalJson([]) ||
+      canonicalJson(authored.allowedCoverageEdgeIds) !== canonicalJson([]) ||
+      canonicalJson(authored.expectedActionIds) !== canonicalJson([]) ||
+      authored.completion.kind !== "event-loop-quiescence" ||
+      authored.completion.timeoutMilliseconds !== 1_000 ||
+      canonicalJson(captured.completion) !==
+        canonicalJson(authored.completion) ||
+      invocation.kind !== authored.kind ||
+      invocation.moduleSpecifier !== authored.moduleSpecifier ||
+      invocation.exportName !== authored.exportName ||
+      invocation.completion.kind !== authored.completion.kind ||
+      invocation.completion.timeoutMilliseconds !==
+        authored.completion.timeoutMilliseconds ||
+      invocation.completion.status !== "quiescent"
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: captured non-capability builtin invocation descriptor drift`,
+      );
+    }
+  } else if (
     BUILTIN_RUNTIME_INVOCATION_SCHEMAS.has(invocation?.invocationSchema)
   ) {
     const requiresCompletion = recipe.classification === "non-capability";
@@ -3427,7 +3610,68 @@ function validateRuntimeInvocation(observation, recipe) {
       `${recipe.fixtureId}: malformed builtin descriptor cleanup expectation`,
     );
   }
-  if (authored.expectedResult === "source-completion") {
+  if (authored.expectedResult === "captured-source-return") {
+    exactKeys(
+      invocation.result,
+      [
+        "kind",
+        "sourceOperationAttempted",
+        "descriptorProof",
+        "cleanupPerformed",
+        "rawOutput",
+        "engineExecuted",
+        "projectCodeExecuted",
+      ],
+      `${recipe.fixtureId}: captured builtin source return`,
+    );
+    exactKeys(
+      invocation.result.descriptorProof,
+      ["accessKind", "descriptorKind"],
+      `${recipe.fixtureId}: captured builtin descriptor proof`,
+    );
+    exactKeys(
+      invocation.result.rawOutput,
+      ["kind", "rawValueShape", "value", "errorCode"],
+      `${recipe.fixtureId}: captured builtin raw return`,
+    );
+    const descriptor = authored.sourceDescriptor;
+    if (
+      authored.invocationSchema !==
+        "ibex/capsec-builtin-noncap-captured-invocation/1" ||
+      authored.kind !== "builtin-noncap-captured-call" ||
+      invocation.result.kind !== "captured-source-return" ||
+      invocation.result.sourceOperationAttempted !== true ||
+      invocation.result.cleanupPerformed !== true ||
+      invocation.result.engineExecuted !== true ||
+      invocation.result.projectCodeExecuted !== true ||
+      invocation.result.rawOutput.kind !== "return" ||
+      !new Set([
+        "array",
+        "bigint",
+        "boolean",
+        "function",
+        "null",
+        "number",
+        "object",
+        "string",
+        "undefined",
+      ]).has(
+        invocation.result.rawOutput.rawValueShape,
+      ) ||
+      invocation.result.rawOutput.errorCode !== null ||
+      invocation.result.descriptorProof.accessKind !==
+        descriptor.access.kind ||
+      !new Set(["data", "accessor", "module-value"]).has(
+        invocation.result.descriptorProof.descriptorKind,
+      ) ||
+      (descriptor.access.kind === "module-value" &&
+        invocation.result.descriptorProof.descriptorKind !== "module-value")
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: loaded engine did not prove the captured builtin source return`,
+      );
+    }
+  } else if (authored.expectedResult === "source-completion") {
     exactKeys(
       invocation.result,
       [
@@ -4527,6 +4771,9 @@ export function validatePublicFixtureRuntimeObservation(
   const nonCapabilityBuiltinModuleImport =
     authored.invocationSchema ===
     "ibex/capsec-builtin-module-import-no-effect-invocation/1";
+  const capturedNonCapabilityBuiltin =
+    authored.invocationSchema ===
+    "ibex/capsec-builtin-noncap-captured-invocation/1";
   // The aggregate independently repeats the producer's narrow D2 allowance:
   // only these reviewed open-then-act exports may observe fs:list in addition
   // to their declared semantic operation.
@@ -4916,6 +5163,29 @@ export function validatePublicFixtureRuntimeObservation(
     ) {
       throw new Error(
         `${recipe.fixtureId}: non-capability builtin module import is not coverage-bound`,
+      );
+    }
+  }
+  if (capturedNonCapabilityBuiltin) {
+    const carrierEdge = coverage?.edges?.find(
+      (edge) => edge.id === authored.capturedOutputInvocation?.coverageEdgeId,
+    );
+    if (
+      carrierEdge?.classification !== "non-capability" ||
+      carrierEdge?.surface?.kind !== "builtin" ||
+      `builtin:${carrierEdge?.surface?.name}` !==
+        recipe.terminalObservedKey ||
+      (carrierEdge.effects?.length ?? 0) !== 0 ||
+      carrierEdge.id !== recipe.edgeIds?.[0] ||
+      authored.capturedOutputInvocation.surfaceObservedKey !==
+        recipe.terminalObservedKey ||
+      authored.sourceDescriptor.sourceKey !==
+        recipe.terminalObservedKey.split(":")[2] ||
+      authored.sourceDescriptor.exportName !==
+        recipe.terminalObservedKey.split(":").slice(3).join(":")
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: captured non-capability builtin is not coverage-bound`,
       );
     }
   }

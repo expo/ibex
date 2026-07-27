@@ -349,16 +349,18 @@ describe("exact-target CapSec executable recipes", () => {
     // contribute four retained-descriptor scenarios apiece. Descriptor denial
     // remains residual because the harness cannot prepare its source descriptor
     // under a denied matching floor.
-    // Six hundred source-bound callable globals now execute their exact
-    // decision-free call/construct/get route through the loaded engine. The
-    // principal environment Proxy adds the complete exact read/write scenario
-    // matrix through its captured native bridges.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_462);
+    // Fifty-four output-authored builtin routes now execute their exact inner
+    // source operation as decision-free evidence. Physical Apple execution
+    // also retired stale crypto and zlib recipes that crashed or deliberately
+    // threw instead of returning; residual accounting must reflect both.
+    // The principal environment Proxy adds the complete exact read/write
+    // scenario matrix through its captured native bridges.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_415);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_248);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_295);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -467,10 +469,12 @@ describe("exact-target CapSec executable recipes", () => {
     // descriptor denial remains residual because its prerequisite handle needs
     // the same floor that the scenario denies. Typed synchronous TCP connect
     // adds its five staged public scenarios, and its exact typed setup promotes
-    // the three ownership-only lifecycle consumers.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_102);
+    // the three ownership-only lifecycle consumers. The same 54 captured
+    // output routes execute here; target-local physical evidence also retires
+    // the unsafe or deliberately throwing crypto/zlib claims.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_074);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_281);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_309);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -486,7 +490,7 @@ describe("exact-target CapSec executable recipes", () => {
       windowsCryptoRecipes.filter(
         (recipe) => recipe.status === "fully-executable",
       ),
-    ).toHaveLength(95);
+    ).toHaveLength(86);
     const unavailableWindowsNativeRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5119,7 +5123,7 @@ describe("exact-target CapSec executable recipes", () => {
         ),
       ),
     ).toEqual({
-      exact_crypto: 97,
+      exact_crypto: 85,
       node_fs: 10,
       node_module: 3,
       node_net: 22,
@@ -5158,6 +5162,108 @@ describe("exact-target CapSec executable recipes", () => {
           "builtin:export:node_assert:fail",
       ),
     ).toBe(false);
+  });
+
+  test("reuses only the exact physically bounded builtin output routes", () => {
+    const captured = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
+        "ibex/capsec-builtin-noncap-captured-invocation/1",
+    );
+    const windowsCaptured = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
+        "ibex/capsec-builtin-noncap-captured-invocation/1",
+    );
+    expect(captured).toHaveLength(54);
+    expect(windowsCaptured.map((recipe) => recipe.fixtureId)).toEqual(
+      captured.map((recipe) => recipe.fixtureId),
+    );
+    expect(
+      new Set(
+        captured.map(
+          (recipe) =>
+            recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey,
+        ),
+      ),
+    ).toEqual(
+      new Set([
+        "exact_process",
+        "node_buffer",
+        "node_console",
+        "node_events",
+        "node_perf_hooks",
+        "node_string_decoder",
+        "node_timers",
+        "node_timers_promises",
+        "node_url",
+        "node_util",
+      ]),
+    );
+    expect(
+      Object.fromEntries(
+        ["call", "construct", "get"].map((operation) => [
+          operation,
+          captured.filter(
+            (recipe) =>
+              recipe.publicSurfaceProbe.invocation.capturedOutputInvocation
+                .route.operation === operation,
+          ).length,
+        ]),
+      ),
+    ).toEqual({ call: 38, construct: 9, get: 7 });
+    for (const recipe of captured) {
+      const probe = recipe.publicSurfaceProbe;
+      const invocation = probe.invocation;
+      const capturedOutput = invocation.capturedOutputInvocation;
+      expect(recipe).toMatchObject({
+        classification: "non-capability",
+        scenario: "non-capability",
+        actionIds: [],
+        status: "fully-executable",
+        residualReasons: [],
+      });
+      expect(recipe.edgeIds).toHaveLength(1);
+      expect(probe.surfaceObservedKey).toBe(
+        capturedOutput.surfaceObservedKey,
+      );
+      expect(capturedOutput).toMatchObject({
+        invocationSchema:
+          "ibex/capsec-builtin-noncap-closed-output-invocation/1",
+        coverageEdgeId: recipe.edgeIds[0],
+        coverageClassification: "non-capability",
+        moduleSpecifier: invocation.moduleSpecifier,
+        sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+        completion: invocation.completion,
+      });
+      expect(capturedOutput.sourceDescriptor).toEqual(
+        invocation.sourceDescriptor,
+      );
+      expect(
+        new Set(["call", "construct", "get"]).has(
+          capturedOutput.route.operation,
+        ),
+      ).toBe(true);
+      expect(capturedOutput.route.outcomeCapture).toBe(
+        "public-builtin-family",
+      );
+      expect(capturedOutput.route.cleanup.kind.length).toBeGreaterThan(0);
+      expect(invocation).toMatchObject({
+        kind: "builtin-noncap-captured-call",
+        arguments: [],
+        setup: { kind: "captured-output-route" },
+        completion: {
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        },
+        requiredAuthority: [],
+        expectedResult: "captured-source-return",
+        expectedTypedDecisionCount: 0,
+        expectedTypedStages: [],
+        allowedCoverageEdgeIds: [],
+        expectedActionIds: [],
+      });
+    }
   });
 
   test("binds reviewed CLI controls and every spelling to production closure", () => {

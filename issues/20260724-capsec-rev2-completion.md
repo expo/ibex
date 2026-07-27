@@ -2812,6 +2812,70 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-26 — executed bounded builtin output routes and retired crash claims
+
+- Reused the independently authored output-shape operations for a deliberately
+  narrow set of non-capability builtin exports. Each conformance receipt binds
+  the exact source descriptor and inner call/construct/get route, then requires
+  one normal source return, route-owned cleanup, one-second event-loop
+  quiescence, and zero legacy or typed CapSec decisions. The conformance author
+  never reads or trusts the reviewed output disposition.
+- Physical execution admits exactly **54** new routes across ten source
+  families: `exact_process`, `node_buffer`, `node_console`, `node_events`,
+  `node_perf_hooks`, `node_string_decoder`, `node_timers`,
+  `node_timers_promises`, `node_url`, and `node_util`. The split is 38 calls,
+  9 constructions, and 7 property gets. The independent aggregate revalidates
+  the source/coverage join, descriptor access, concrete runtime value shape,
+  cleanup, quiescence, and zero-decision result rather than accepting the
+  runner's normalized label.
+- The first broad physical run exposed an important pre-existing honesty bug:
+  several ordinary builtin recipes had been generated but never survived the
+  bound static-Hermes process. Crypto key/prime generation, synchronous KDFs,
+  `Hmac.digest`, and the random family terminated the process. Zlib one-shots
+  and native-processing stream methods also terminated it. Illegal
+  `perf_hooks` constructors threw, and `node:v8` serialize/deserialize returned
+  `ERR_METHOD_NOT_IMPLEMENTED`. Those rows are now residual. The executable
+  count therefore decreases despite adding 54 real receipts: this checkpoint
+  removes claims that static argument authoring could not substantiate.
+- Apple catalog digest
+  `sha256-zw0z_3pbjsuwzxFjhx-rrxNhnUaa1KYB2-5-b5YkUx8` reports 23,846 required /
+  **3,415 fully executable** / 3,136 internally verified / 17,295 unresolved.
+  The M5 MacBook Air static-Hermes batch passes **1,135/1,135**: 34 isolated
+  module imports, 1,047 established export routes, and all 54 captured routes.
+  It binds engine digest
+  `sha256-GY41wqT-o2FQKLtIAN_Jvaepc4b0fhdgo4wRqbzVwtc`; the evidence-file
+  SHA-256 is
+  `28f93a6a0cc2543b01b6e8a407d052d31841a05cbc67c724ad760a1ea4a34f16`,
+  and independent validation produced execution digest
+  `sha256-Er20K0TmndcXTv_eoWlrH9s0l8epjeehv4NaQsDKdXs`.
+- Windows catalog digest
+  `sha256-q1CMvM3BqyZT0mElimLGvbDSRFMi6GZuwythDEXw2aE` reports 23,505 required /
+  **3,074 fully executable** / 3,122 internally verified / 17,309 unresolved.
+  The physical NucBox strict stale-vendored batch passes **1,099/1,099**: 34
+  isolated imports, 1,011 established exports, and all 54 captured routes. It
+  binds engine digest
+  `sha256-xqWHmqF0mGjVqhS8bUI7Av9fiP84rE8Zj23kOq9JJw8`; the evidence-file
+  SHA-256 is
+  `9904de6ff3ade87292eb0cb6312a1d65abcb8198024ec79e58e1780f342c2a83`,
+  and independent validation produced execution digest
+  `sha256-gOk8IiqExqC9ztojIMtMo1oXer6uHgvmqJTIhzFakM8`.
+- The focused recipe/template/evidence suite passes **152/152** tests with
+  124,399 assertions. Generated drift validates 7,657 coverage edges and
+  15,314 target cells; Rust formatting, diff hygiene, and all local LLP
+  references pass.
+- Hard part: an output recipe is an operation author, not execution evidence.
+  Opening hundreds of statically plausible routes immediately produced a
+  process crash; even the narrower run reached stale recipes in the older
+  standard phase before it reached the new captured phase. Progress required
+  isolating each terminating public route, residualizing the complete unsafe
+  family where lifecycle behavior was shared, and rerunning the entire family
+  on both physical targets. A crash, deliberate throw, or unimplemented method
+  is never converted into normal-return evidence.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open: both exact catalogs still have large honest residual sets, and both
+  advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

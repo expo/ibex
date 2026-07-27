@@ -7,6 +7,8 @@ use std::io::Write as _;
 
 const EVENT_LOOP_COMPLETION_KIND: &str = "event-loop-quiescence";
 const EVENT_LOOP_COMPLETION_TIMEOUT_MS: u64 = 1_000;
+const CAPTURED_INVOCATION_SCHEMA: &str =
+    "ibex/capsec-builtin-noncap-captured-invocation/1";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,6 +72,8 @@ struct BuiltinInvocation {
     setup: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     body_entry_proof: Option<BodyEntryProof>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    captured_output_invocation: Option<serde_json::Value>,
     completion: CompletionExpectation,
     required_authority: Vec<serde_json::Value>,
     expected_result: String,
@@ -792,8 +796,10 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
     let is_module_import = invocation.invocation_schema
         == "ibex/capsec-builtin-module-import-no-effect-invocation/1"
         && invocation.kind == "builtin-module-import";
+    let is_captured = invocation.invocation_schema == CAPTURED_INVOCATION_SCHEMA
+        && invocation.kind == "builtin-noncap-captured-call";
     assert!(
-        is_read || is_call || is_module_import,
+        is_read || is_call || is_module_import || is_captured,
         "unsupported non-capability builtin probe"
     );
     assert_eq!(invocation.expected_typed_decision_count, 0);
@@ -807,6 +813,67 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         EVENT_LOOP_COMPLETION_TIMEOUT_MS
     );
 
+    if is_captured {
+        let captured = invocation
+            .captured_output_invocation
+            .as_ref()
+            .expect("captured builtin probe has no output invocation");
+        let descriptor = &invocation.source_descriptor;
+        assert_eq!(
+            captured["invocationSchema"],
+            "ibex/capsec-builtin-noncap-closed-output-invocation/1"
+        );
+        assert_eq!(captured["kind"], "builtin-noncap-closed-output");
+        assert_eq!(captured["coverageClassification"], "non-capability");
+        assert_eq!(captured["coverageEdgeId"], recipe.edge_ids[0]);
+        assert_eq!(captured["surfaceObservedKey"], probe.surface_observed_key);
+        assert_eq!(captured["moduleSpecifier"], invocation.module_specifier);
+        assert_eq!(captured["sourceDescriptor"], *descriptor);
+        assert_eq!(
+            captured["sourceDescriptorDigest"],
+            invocation.source_descriptor_digest
+        );
+        assert_eq!(
+            tagged_jcs_digest(descriptor),
+            invocation.source_descriptor_digest
+        );
+        assert_eq!(descriptor["kind"], "builtin-export");
+        assert_eq!(descriptor["importReachability"], "public");
+        assert_eq!(
+            descriptor["exportName"].as_str(),
+            invocation.export_name.as_deref()
+        );
+        assert!(descriptor["moduleSpecifiers"]
+            .as_array()
+            .is_some_and(|specifiers| specifiers
+                .iter()
+                .any(|specifier| specifier == &invocation.module_specifier)));
+        assert!(matches!(
+            captured["route"]["operation"].as_str(),
+            Some("call" | "construct" | "get")
+        ));
+        assert_eq!(
+            captured["route"]["outcomeCapture"],
+            "public-builtin-family"
+        );
+        assert_eq!(
+            captured["completion"],
+            serde_json::to_value(&invocation.completion)
+                .expect("serialize captured builtin completion")
+        );
+        assert!(invocation.template_id.is_none());
+        assert!(invocation.body_entry_proof.is_none());
+        assert!(invocation.arguments.is_empty());
+        assert_eq!(
+            invocation.setup,
+            serde_json::json!({"kind": "captured-output-route"})
+        );
+        assert_eq!(invocation.expected_result, "captured-source-return");
+        validate_probe_binding(recipe, probe, invocation);
+        return;
+    }
+
+    assert!(invocation.captured_output_invocation.is_none());
     if is_module_import {
         let descriptor: BuiltinModuleAliasSourceDescriptor =
             serde_json::from_value(invocation.source_descriptor.clone())
@@ -972,6 +1039,9 @@ fn public_probe(recipe: &Recipe) -> Option<PublicSurfaceProbe> {
         ) | (
             "ibex/capsec-builtin-module-import-no-effect-invocation/1",
             "builtin-module-import"
+        ) | (
+            CAPTURED_INVOCATION_SCHEMA,
+            "builtin-noncap-captured-call"
         )
     ) {
         return None;
@@ -993,10 +1063,33 @@ fn noncap_builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
 
 fn invocation_script(invocation: &BuiltinInvocation) -> String {
     const HARNESS: &str = include_str!("capsec_public_noncap_builtin_invocation.js");
+    const CAPTURED_HARNESS: &str =
+        include_str!("capsec_builtin_noncap_closed_output_invocation.js");
+    if invocation.invocation_schema == CAPTURED_INVOCATION_SCHEMA {
+        return format!(
+            "JSON.stringify(({})({},{}))",
+            CAPTURED_HARNESS.trim(),
+            serde_json::to_string(
+                invocation
+                    .captured_output_invocation
+                    .as_ref()
+                    .expect("captured builtin invocation has no route"),
+            )
+            .expect("serialize captured builtin output invocation"),
+            HARNESS.trim(),
+        );
+    }
     format!(
         "JSON.stringify(({})({}))",
         HARNESS.trim(),
         serde_json::to_string(invocation).expect("serialize authored builtin invocation")
+    )
+}
+
+fn captured_completion_verification_script(token: &str) -> String {
+    format!(
+        "JSON.stringify((function(){{var token={};var store=globalThis.__ibexBuiltinOutputAsyncCompletions;var record=store&&store[token];if(store)delete store[token];return{{calls:record&&record.calls,error:record&&record.error,cleanupPerformed:record&&record.cleanupPerformed}};}})())",
+        serde_json::to_string(token).expect("serialize captured builtin completion token")
     )
 }
 
@@ -1106,6 +1199,7 @@ async fn execute_recipe(
     let probe = public_probe(recipe).expect("builtin recipe has no public probe");
     let is_module_import = probe.invocation.invocation_schema
         == "ibex/capsec-builtin-module-import-no-effect-invocation/1";
+    let is_captured = probe.invocation.invocation_schema == CAPTURED_INVOCATION_SCHEMA;
     if is_module_import {
         engine
             .arm_builtin_source_observation(
@@ -1214,12 +1308,104 @@ async fn execute_recipe(
     } else {
         None
     };
-    let invocation_result: serde_json::Value =
+    let mut invocation_result: serde_json::Value =
         serde_json::from_str(&encoded).expect("public builtin returned invalid JSON");
-    let expected_kind = if probe.invocation.expected_result == "absent" {
-        "missing"
-    } else {
-        "return"
+    if is_captured {
+        let captured = probe
+            .invocation
+            .captured_output_invocation
+            .as_ref()
+            .expect("validated captured builtin route disappeared");
+        if let Some(completion_token) = invocation_result["completionToken"].as_str() {
+            let completion = engine
+                .eval_immediate(&captured_completion_verification_script(completion_token))
+                .await
+                .map_err(|error| {
+                    format!(
+                        "{}: captured builtin completion proof failed: {error:#}",
+                        recipe.fixture_id
+                    )
+                })?
+                .ok_or_else(|| {
+                    format!(
+                        "{}: captured builtin completion proof returned no result",
+                        recipe.fixture_id
+                    )
+                })?;
+            let completion: serde_json::Value =
+                serde_json::from_str(&completion).map_err(|error| {
+                    format!(
+                        "{}: captured builtin completion proof returned invalid JSON: {error}",
+                        recipe.fixture_id
+                    )
+                })?;
+            if completion["calls"].as_u64() != Some(1)
+                || completion["cleanupPerformed"] != true
+                || completion["error"] != false
+            {
+                return Err(format!(
+                    "{}: captured builtin async completion was not successful: {completion}",
+                    recipe.fixture_id
+                ));
+            }
+        }
+        let raw = &invocation_result["rawOutput"];
+        let descriptor_proof = &invocation_result["descriptorProof"];
+        if invocation_result["kind"] != "return"
+            || invocation_result["sourceOperationAttempted"] != true
+            || invocation_result["cleanupPerformed"] != true
+            || raw["kind"] != "return"
+            || !raw["rawValueShape"]
+                .as_str()
+                .is_some_and(|shape| {
+                    matches!(
+                        shape,
+                        "array"
+                            | "bigint"
+                            | "boolean"
+                            | "function"
+                            | "null"
+                            | "number"
+                            | "object"
+                            | "string"
+                            | "undefined"
+                    )
+                })
+            || !raw["errorCode"].is_null()
+            || !matches!(
+                descriptor_proof["descriptorKind"].as_str(),
+                Some("data" | "accessor" | "module-value")
+            )
+            || !matches!(
+                descriptor_proof["accessKind"].as_str(),
+                Some(
+                    "export-property"
+                        | "prototype-property"
+                        | "inherited-prototype-property"
+                        | "module-value"
+                )
+            )
+            || captured["route"]["outcomeCapture"] != "public-builtin-family"
+        {
+            return Err(format!(
+                "{}: captured public builtin did not prove one normal source return and cleanup: {invocation_result}",
+                recipe.fixture_id
+            ));
+        }
+        invocation_result = serde_json::json!({
+            "kind": "captured-source-return",
+            "sourceOperationAttempted": true,
+            "descriptorProof": descriptor_proof,
+            "cleanupPerformed": true,
+            "rawOutput": raw,
+            "engineExecuted": true,
+            "projectCodeExecuted": true,
+        });
+    }
+    let expected_kind = match probe.invocation.expected_result.as_str() {
+        "absent" => "missing",
+        "captured-source-return" => "captured-source-return",
+        _ => "return",
     };
     if invocation_result["kind"] != expected_kind {
         return Err(format!(
@@ -1344,6 +1530,12 @@ fn is_no_effect_module_import_recipe(recipe: &Recipe) -> bool {
     })
 }
 
+fn is_captured_builtin_recipe(recipe: &Recipe) -> bool {
+    public_probe(recipe).is_some_and(|probe| {
+        probe.invocation.invocation_schema == CAPTURED_INVOCATION_SCHEMA
+    })
+}
+
 async fn execute_isolated_module_import_recipe(
     recipe: &Recipe,
     engine_binary_digest: &str,
@@ -1408,7 +1600,17 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
         .copied()
         .filter(|recipe| !is_no_effect_module_import_recipe(recipe))
         .collect::<Vec<_>>();
-    let builtin_imports = export_recipes
+    let captured_recipes = export_recipes
+        .iter()
+        .copied()
+        .filter(|recipe| is_captured_builtin_recipe(recipe))
+        .collect::<Vec<_>>();
+    let standard_export_recipes = export_recipes
+        .iter()
+        .copied()
+        .filter(|recipe| !is_captured_builtin_recipe(recipe))
+        .collect::<Vec<_>>();
+    let builtin_imports = standard_export_recipes
         .iter()
         .map(|recipe| public_probe(recipe).unwrap().invocation.module_specifier)
         .collect::<BTreeSet<_>>()
@@ -1453,40 +1655,113 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
             module_import_recipes.len(),
             "fresh-engine reviewed import receipts reused or omitted a runtime nonce"
         );
+        {
+            let (host, digest) = build_armed_test_host_custom(
+                None,
+                false,
+                false,
+                false,
+                Vec::new(),
+                None,
+                |snapshot| {
+                    snapshot["principals"][0]["imports"]["builtins"] =
+                        serde_json::json!(builtin_imports);
+                },
+            );
+            assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+            let _reset = HostResetGuard;
+            let mut engine = authenticated_noncap_engine(&host, &digest).await;
+            for (index, recipe) in standard_export_recipes.iter().enumerate() {
+                match execute_recipe(&mut engine, recipe, &identity_before.binary_digest).await {
+                    Ok(execution) => executions.push(execution),
+                    Err(error) => {
+                        failures.push(error);
+                        break;
+                    }
+                }
+                if index % 256 == 255 {
+                    eprintln!(
+                        "CapSec public non-capability builtin export probes passed: {}/{}",
+                        index + 1,
+                        standard_export_recipes.len()
+                    );
+                }
+            }
+            if let Err(error) = engine.finish() {
+                failures.push(format!(
+                    "finish authenticated public-builtin publication stream: {error:#}"
+                ));
+            }
+        }
+    }
+
+    if failures.is_empty() && !captured_recipes.is_empty() {
+        let captured_imports = captured_recipes
+            .iter()
+            .flat_map(|recipe| {
+                let probe = public_probe(recipe).unwrap();
+                let mut imports = vec![probe.invocation.module_specifier];
+                if let Some(dependencies) = probe
+                    .invocation
+                    .captured_output_invocation
+                    .as_ref()
+                    .and_then(|invocation| invocation["route"]["dependencyModuleSpecifiers"].as_array())
+                {
+                    imports.extend(
+                        dependencies
+                            .iter()
+                            .map(|specifier| {
+                                specifier
+                                    .as_str()
+                                    .expect("captured builtin dependency must be a string")
+                                    .to_owned()
+                            }),
+                    );
+                }
+                imports
+            })
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
         let (host, digest) = build_armed_test_host_custom(
             None,
-            false,
-            false,
-            false,
+            true,
+            true,
+            true,
             Vec::new(),
             None,
             |snapshot| {
+                snapshot["bootstrapCompatibilityModes"] = serde_json::json!(["bun"]);
                 snapshot["principals"][0]["imports"]["builtins"] =
-                    serde_json::json!(builtin_imports);
+                    serde_json::json!(captured_imports);
+                snapshot["entry"] = serde_json::json!({
+                    "kind": "repl",
+                    "identity": "ibex:repl",
+                    "mode": "interactive",
+                });
             },
         );
         assert_ne!(crate::host::abi::install_host(host.clone()), 0);
         let _reset = HostResetGuard;
         let mut engine = authenticated_noncap_engine(&host, &digest).await;
-        for (index, recipe) in export_recipes.iter().enumerate() {
+        for (index, recipe) in captured_recipes.iter().enumerate() {
             match execute_recipe(&mut engine, recipe, &identity_before.binary_digest).await {
                 Ok(execution) => executions.push(execution),
                 Err(error) => {
                     failures.push(error);
-                    break;
                 }
             }
-            if index % 256 == 255 {
+            if index % 128 == 127 {
                 eprintln!(
-                    "CapSec public non-capability builtin export probes passed: {}/{}",
+                    "CapSec captured non-capability builtin probes passed: {}/{}",
                     index + 1,
-                    export_recipes.len()
+                    captured_recipes.len()
                 );
             }
         }
         if let Err(error) = engine.finish() {
             failures.push(format!(
-                "finish authenticated public-builtin publication stream: {error:#}"
+                "finish captured public-builtin publication stream: {error:#}"
             ));
         }
     }
@@ -1548,6 +1823,7 @@ fn path_basename_call_invocation(argument: serde_json::Value) -> BuiltinInvocati
             kind: "normal-return-from-source-call".to_owned(),
             result_type: "string".to_owned(),
         }),
+        captured_output_invocation: None,
         completion: CompletionExpectation {
             kind: EVENT_LOOP_COMPLETION_KIND.to_owned(),
             timeout_milliseconds: EVENT_LOOP_COMPLETION_TIMEOUT_MS,

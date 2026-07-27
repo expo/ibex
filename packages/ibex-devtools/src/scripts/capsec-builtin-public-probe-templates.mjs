@@ -117,10 +117,6 @@ const streamInstanceArgument = (ownerExportName, ended = false) => ({
   ended,
 });
 const abortSignalArgument = () => ({ kind: "abort-signal" });
-const zlibInputArgument = (ownerExportName) => ({
-  kind: "zlib-input",
-  ownerExportName,
-});
 const ownValue = (object, key) =>
   object && Object.prototype.hasOwnProperty.call(object, key)
     ? object[key]
@@ -164,40 +160,6 @@ const ZLIB_OWNER_NAMES = Object.freeze([
   "ZstdDecompress",
 ]);
 const ZLIB_OWNER_SET = new Set(ZLIB_OWNER_NAMES);
-const ZLIB_NATIVE_OWNER_SET = new Set([
-  "Deflate",
-  "DeflateRaw",
-  "Gunzip",
-  "Gzip",
-  "Inflate",
-  "InflateRaw",
-  "Unzip",
-]);
-const ZLIB_ONE_SHOT_EXPORTS = Object.freeze({
-  brotliCompress: "BrotliCompress",
-  brotliCompressSync: "BrotliCompress",
-  brotliDecompress: "BrotliDecompress",
-  brotliDecompressSync: "BrotliDecompress",
-  deflate: "Deflate",
-  deflateRaw: "DeflateRaw",
-  deflateRawSync: "DeflateRaw",
-  deflateSync: "Deflate",
-  gunzip: "Gunzip",
-  gunzipSync: "Gunzip",
-  gzip: "Gzip",
-  gzipSync: "Gzip",
-  inflate: "Inflate",
-  inflateRaw: "InflateRaw",
-  inflateRawSync: "InflateRaw",
-  inflateSync: "Inflate",
-  unzip: "Unzip",
-  unzipSync: "Unzip",
-  // zstd one-shots are intentionally omitted: this runtime registers no native
-  // zstd backend, so zstdCompress*/zstdDecompress* throw at runtime rather than
-  // furnishing a bounded normal return. They stay residual until the native
-  // backend exists on the bound engine.
-});
-
 function zlibRootCallSpecs() {
   const specs = Object.create(null);
   for (const ownerExportName of ZLIB_OWNER_NAMES) {
@@ -205,14 +167,10 @@ function zlibRootCallSpecs() {
     specs[`create${ownerExportName}`] = rootCall([], "object");
   }
   specs.crc32 = rootCall([jsonArgument("ibex")], "number");
-  for (const [exportName, ownerExportName] of Object.entries(
-    ZLIB_ONE_SHOT_EXPORTS,
-  )) {
-    const input = zlibInputArgument(ownerExportName);
-    specs[exportName] = exportName.endsWith("Sync")
-      ? rootCall([input], "object")
-      : rootCall([input, noopArgument()], "undefined");
-  }
+  // One-shot codec functions, synchronous and callback-based alike, enter
+  // native codec work that currently can terminate the bound static-Hermes
+  // process. Keep the whole family residual until each backend has isolated
+  // physical proof; quiescence cannot turn a process crash into a receipt.
   return Object.freeze(specs);
 }
 
@@ -334,14 +292,13 @@ function exactCryptoCallSpecs() {
       ...CRYPTO_DH_GROUP_CONSTRUCTOR_ARGUMENTS,
     ]),
     ECDH: constructTarget([...CRYPTO_ECDH_CONSTRUCTOR_ARGUMENTS]),
-    generateKeySync: rootCall(
-      [jsonArgument("hmac"), jsonArgument({ length: 64 })],
-      "object",
-    ),
-    generatePrimeSync: rootCall(
-      [jsonArgument(16), jsonArgument({ bigint: true })],
-      "bigint",
-    ),
+    // Physical static-Hermes execution currently terminates in generateKeySync
+    // before a result or cleanup receipt can be captured. Keep the source row
+    // residual until the native crash is repaired; a declarative in-memory
+    // argument list is not execution evidence.
+    // generatePrimeSync shares the bound engine's current native
+    // process-terminating defect with generateKeySync. It cannot furnish a
+    // public normal-return receipt on the advertised target.
     getCipherInfo: rootCall([jsonArgument("aes-128-gcm")], "object"),
     getCiphers: rootCall([], "object"),
     getCurves: rootCall([], "object"),
@@ -355,38 +312,13 @@ function exactCryptoCallSpecs() {
       [jsonArgument("sha256"), jsonArgument("ibex"), jsonArgument("hex")],
       "string",
     ),
-    hkdfSync: rootCall(
-      [
-        jsonArgument("sha256"),
-        jsonArgument("ibex-key"),
-        jsonArgument("ibex-salt"),
-        jsonArgument("ibex-info"),
-        jsonArgument(16),
-      ],
-      "object",
-    ),
-    pbkdf2Sync: rootCall(
-      [
-        jsonArgument("ibex-password"),
-        jsonArgument("ibex-salt"),
-        jsonArgument(2),
-        jsonArgument(16),
-        jsonArgument("sha256"),
-      ],
-      "object",
-    ),
-    randomBytes: rootCall([jsonArgument(8)], "object"),
-    randomFillSync: rootCall([uint8ArrayArgument([0, 0, 0, 0])], "object"),
-    randomInt: rootCall([jsonArgument(0), jsonArgument(16)], "number"),
-    scryptSync: rootCall(
-      [
-        jsonArgument("ibex-password"),
-        jsonArgument("ibex-salt"),
-        jsonArgument(16),
-        jsonArgument({ N: 16, r: 1, p: 1, maxmem: 1024 * 1024 }),
-      ],
-      "object",
-    ),
+    // The synchronous KDF entry points currently share a process-terminating
+    // native defect on the bound static-Hermes target. Keep hkdfSync,
+    // pbkdf2Sync, and scryptSync residual until they can return and clean up.
+    // Random generation currently shares the process-terminating native
+    // defect observed through the public crypto globals on static Hermes.
+    // randomBytes, randomFillSync, randomInt, prng, pseudoRandomBytes, and rng
+    // remain residual until physical execution can return.
     timingSafeEqual: rootCall(
       [
         uint8ArrayArgument([0x69, 0x62, 0x65, 0x78]),
@@ -398,9 +330,6 @@ function exactCryptoCallSpecs() {
     Sign: constructTarget([...CRYPTO_SIGN_CONSTRUCTOR_ARGUMENTS]),
     Verify: constructTarget([...CRYPTO_SIGN_CONSTRUCTOR_ARGUMENTS]),
   };
-  for (const alias of ["prng", "pseudoRandomBytes", "rng"]) {
-    specs[alias] = rootCall([jsonArgument(8)], "object");
-  }
   for (const [ownerExportName, constructorArguments] of [
     ["Hash", CRYPTO_HASH_CONSTRUCTOR_ARGUMENTS],
     ["Hmac", CRYPTO_HMAC_CONSTRUCTOR_ARGUMENTS],
@@ -417,12 +346,16 @@ function exactCryptoCallSpecs() {
       "undefined",
       [...constructorArguments],
     );
-    specs[`${ownerExportName}.digest`] = constructedOwner(
-      ownerExportName,
-      [jsonArgument("hex")],
-      "string",
-      [...constructorArguments],
-    );
+    if (ownerExportName === "Hash") {
+      specs["Hash.digest"] = constructedOwner(
+        "Hash",
+        [jsonArgument("hex")],
+        "string",
+        [...constructorArguments],
+      );
+    }
+    // Hmac.digest currently terminates the bound static-Hermes process. Its
+    // source row remains residual until the native digest defect is repaired.
     specs[`${ownerExportName}.update`] = constructedOwner(
       ownerExportName,
       [jsonArgument("ibex")],
@@ -1317,16 +1250,21 @@ function zlibPrototypeSpec(exportName) {
   if (methodName === "_ensureNativeStream") {
     return zlibOwnerCall(ownerExportName, [], "boolean");
   }
-  if (methodName === "_flush") {
-    return zlibOwnerCall(ownerExportName, [noopArgument()], "undefined");
-  }
-  if (methodName === "_processChunk") {
-    if (ownerExportName.startsWith("Zstd")) return null;
-    return zlibOwnerCall(
-      ownerExportName,
-      [zlibInputArgument(ownerExportName), jsonArgument(4)],
-      "object",
-    );
+  if (
+    new Set([
+      "_flush",
+      "_processChunk",
+      "_transform",
+      "_writeNative",
+      "flush",
+      "params",
+      "write",
+    ]).has(methodName)
+  ) {
+    // These methods enter native codec work. At least BrotliCompress._flush
+    // currently terminates the bound static-Hermes process, so this family
+    // stays residual until each native lifecycle has isolated physical proof.
+    return null;
   }
   if (methodName === "_pushNativeOutput") {
     return zlibOwnerCall(
@@ -1335,55 +1273,14 @@ function zlibPrototypeSpec(exportName) {
       "object",
     );
   }
-  if (methodName === "_transform") {
-    return zlibOwnerCall(
-      ownerExportName,
-      [
-        zlibInputArgument(ownerExportName),
-        jsonArgument("utf8"),
-        noopArgument(),
-      ],
-      "undefined",
-    );
-  }
-  if (methodName === "_writeNative") {
-    if (!ZLIB_NATIVE_OWNER_SET.has(ownerExportName)) return null;
-    return zlibOwnerCall(
-      ownerExportName,
-      [
-        zlibInputArgument(ownerExportName),
-        jsonArgument(0),
-        jsonArgument(false),
-      ],
-      "object",
-      true,
-    );
-  }
   if (methodName === "close") {
     return zlibOwnerCall(ownerExportName, [noopArgument()], "object");
-  }
-  if (methodName === "flush") {
-    return zlibOwnerCall(ownerExportName, [noopArgument()], "object");
-  }
-  if (methodName === "params") {
-    return zlibOwnerCall(
-      ownerExportName,
-      [jsonArgument(-1), jsonArgument(0), noopArgument()],
-      "object",
-    );
   }
   if (methodName === "reset") {
     return zlibOwnerCall(ownerExportName, [], "object");
   }
   if (methodName === "setEncoding") {
     return zlibOwnerCall(ownerExportName, [jsonArgument("utf8")], "object");
-  }
-  if (methodName === "write") {
-    return zlibOwnerCall(
-      ownerExportName,
-      [zlibInputArgument(ownerExportName), noopArgument()],
-      "boolean",
-    );
   }
   return null;
 }

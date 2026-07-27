@@ -24,6 +24,7 @@ import {
   authoredNonCapabilityBuiltinProbe,
   nonCapabilityBuiltinProbeResidualReason,
 } from "./capsec-builtin-public-probe-templates.mjs";
+import { authoredNonCapabilityBuiltinCapturedProbe } from "./capsec-builtin-noncap-closed-output-templates.mjs";
 import { authoredBuiltinPublicProbe } from "./capsec-public-probe-templates.mjs";
 import { authoredCallbackInvariantProbe } from "./capsec-callback-invariant-probe-templates.mjs";
 import { authoredClosedPublicProbe } from "./capsec-closed-probe-templates.mjs";
@@ -4662,6 +4663,14 @@ export function buildConformanceRecipeCatalog({
         scenario,
         route,
         liveByObservedKey,
+        target,
+      }) ??
+      authoredNonCapabilityBuiltinCapturedProbe({
+        plan,
+        scenario,
+        route,
+        liveByObservedKey,
+        coverageByEdge,
         target,
       });
     const nativePublicSurface = nativePublicProbeForPlan({

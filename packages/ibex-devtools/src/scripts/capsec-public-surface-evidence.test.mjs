@@ -138,6 +138,12 @@ const coverage = {
       surface: { kind: "builtin", name: "node:util/types" },
       effects: [{ cap: "env:read", stages: ["requested", "commit"] }],
     },
+    {
+      id: "edge.noncap-builtin",
+      classification: "non-capability",
+      surface: { kind: "builtin", name: "export:node_buffer:atob" },
+      effects: [],
+    },
     ...NONCAP_MODULE_IMPORT_TEST_ALIASES.map(({ edgeId, moduleSpecifier }) => ({
       id: edgeId,
       classification: "non-capability",
@@ -1412,6 +1418,117 @@ function noncapBuiltinCallObservation(recipe) {
         valueType: invocation.bodyEntryProof.resultType,
         dispatchKind: "call",
         bodyEntryProof: invocation.bodyEntryProof.kind,
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
+}
+
+function completeCapturedNoncapBuiltinCatalog() {
+  const catalog = completeNoncapBuiltinCallCatalog();
+  const recipe = catalog.recipes[0];
+  const surfaceObservedKey = "builtin:export:node_buffer:atob";
+  const sourceDescriptor = {
+    kind: "builtin-export",
+    sourceKey: "node_buffer",
+    exportName: "atob",
+    exportIdioms: ["object-binding", "object-source"],
+    moduleSpecifiers: ["buffer", "node:buffer"],
+    sourceRef: "src/builtins/buffer.js#exports:atob",
+    valueShape: "unknown",
+    importReachability: "public",
+    access: { kind: "export-property", path: ["atob"] },
+  };
+  const sourceDescriptorDigest = taggedDigest(sourceDescriptor);
+  const completion = {
+    kind: "event-loop-quiescence",
+    timeoutMilliseconds: 1_000,
+  };
+  const capturedOutputInvocation = {
+    invocationSchema:
+      "ibex/capsec-builtin-noncap-closed-output-invocation/1",
+    kind: "builtin-noncap-closed-output",
+    coverageEdgeId: recipe.edgeIds[0],
+    coverageClassification: "non-capability",
+    surfaceObservedKey,
+    moduleSpecifier: "node:buffer",
+    sourceDescriptor,
+    sourceDescriptorDigest,
+    route: {
+      operation: "call",
+      receiver: { kind: "module-value" },
+      arguments: [{ kind: "json", value: "SWJleA==" }],
+      cleanup: { kind: "none" },
+      outcomeCapture: "public-builtin-family",
+    },
+    completion,
+  };
+  recipe.fixtureId = "fixture.noncap-builtin.captured-atob";
+  recipe.terminalObservedKey = surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [surfaceObservedKey];
+  recipe.route.alternatives = [
+    {
+      terminalObservedKey: surfaceObservedKey,
+      proofPaths: [surfaceObservedKey],
+    },
+  ];
+  recipe.publicSurfaceProbe.surfaceObservedKey = surfaceObservedKey;
+  recipe.publicSurfaceProbe.invocation = {
+    invocationSchema:
+      "ibex/capsec-builtin-noncap-captured-invocation/1",
+    kind: "builtin-noncap-captured-call",
+    moduleSpecifier: "node:buffer",
+    exportName: "atob",
+    sourceDescriptor,
+    sourceDescriptorDigest,
+    arguments: [],
+    setup: { kind: "captured-output-route" },
+    completion,
+    capturedOutputInvocation,
+    requiredAuthority: [],
+    expectedResult: "captured-source-return",
+    expectedTypedDecisionCount: 0,
+    expectedTypedStages: [],
+    allowedCoverageEdgeIds: [],
+    expectedActionIds: [],
+  };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function capturedNoncapBuiltinObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      moduleSpecifier: invocation.moduleSpecifier,
+      exportName: invocation.exportName,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      completion: {
+        kind: invocation.completion.kind,
+        timeoutMilliseconds: invocation.completion.timeoutMilliseconds,
+        status: "quiescent",
+      },
+      result: {
+        kind: "captured-source-return",
+        sourceOperationAttempted: true,
+        descriptorProof: {
+          accessKind: invocation.sourceDescriptor.access.kind,
+          descriptorKind: "data",
+        },
+        cleanupPerformed: true,
+        rawOutput: {
+          kind: "return",
+          rawValueShape: "string",
+          value: "Ibex",
+          errorCode: null,
+        },
+        engineExecuted: true,
+        projectCodeExecuted: true,
       },
     },
     legacyObservationCount: 0,
@@ -4455,6 +4572,92 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/unknown or missing fields|module-import invocation descriptor drift/);
+  });
+
+  test("accepts captured builtin output only with source return, cleanup, and zero decisions", () => {
+    const catalog = completeCapturedNoncapBuiltinCatalog();
+    const recipe = catalog.recipes[0];
+    const observed = capturedNoncapBuiltinObservation(recipe);
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const [label, mutate, expected] of [
+      [
+        "descriptor substitution",
+        (value) => {
+          value.invocation.result.descriptorProof.accessKind =
+            "prototype-property";
+        },
+        /did not prove the captured builtin source return/,
+      ],
+      [
+        "cleanup substitution",
+        (value) => {
+          value.invocation.result.cleanupPerformed = false;
+        },
+        /did not prove the captured builtin source return/,
+      ],
+      [
+        "throw substitution",
+        (value) => {
+          value.invocation.result.rawOutput = {
+            kind: "throw",
+            rawValueShape: "throw",
+            value: null,
+            errorCode: "ERR_METHOD_NOT_IMPLEMENTED",
+          };
+        },
+        /did not prove the captured builtin source return/,
+      ],
+      [
+        "caller-selected return shape",
+        (value) => {
+          value.invocation.result.rawOutput.rawValueShape =
+            "caller-asserted";
+        },
+        /did not prove the captured builtin source return/,
+      ],
+      [
+        "legacy decision",
+        (value) => {
+          value.legacyObservationCount = 1;
+        },
+        /malformed runtime public observation/,
+      ],
+      [
+        "typed decision",
+        (value) => {
+          value.typedDecisions = [{}];
+        },
+        /malformed runtime public observation/,
+      ],
+      [
+        "unsettled completion",
+        (value) => {
+          value.invocation.completion.status = "pending";
+        },
+        /descriptor drift/,
+      ],
+    ]) {
+      const tampered = structuredClone(observed);
+      mutate(tampered);
+      expect(
+        () =>
+          buildPublicFixtureEvidence({
+            recipe,
+            engineBinaryDigest: engine.binaryDigest,
+            runtimeObservation: tampered,
+            coverage,
+          }),
+        label,
+      ).toThrow(expected);
+    }
   });
 
   test("accepts source-bound builtin target absence only after a public read", () => {

@@ -20,11 +20,21 @@
 import crypto from "node:crypto";
 import { canonicalJson } from "./capsec-contract.mjs";
 import { authoredNonCapabilityBuiltinOutputInvocation } from "./capsec-builtin-public-probe-templates.mjs";
+import { capsecSecureCargoTestCommand } from "./capsec-secure-test-command.mjs";
 
 export const BUILTIN_NONCAP_CLOSED_OUTPUT_INVOCATION_SCHEMA =
   "ibex/capsec-builtin-noncap-closed-output-invocation/1";
 export const BUILTIN_NONCAP_CLOSED_OUTPUT_SOURCE_DESCRIPTOR_KIND =
   "authored-builtin-noncap-closed-output";
+export const BUILTIN_NONCAP_CAPTURED_INVOCATION_SCHEMA =
+  "ibex/capsec-builtin-noncap-captured-invocation/1";
+
+const BUILTIN_NONCAP_CAPTURED_BATCH_COMMAND = Object.freeze(
+  capsecSecureCargoTestCommand(
+    "capsec_public_noncap_builtin_recipe_batch",
+    true,
+  ),
+);
 
 const COMPLETION = Object.freeze({
   kind: "event-loop-quiescence",
@@ -36,6 +46,18 @@ const PROTOTYPE_IDIOMS = new Set([
 ]);
 const KNOWN_CLASSIFICATIONS = new Set(["non-capability", "closed"]);
 const KNOWN_PLATFORMS = new Set(["android", "darwin", "linux"]);
+const CONFORMANCE_CAPTURED_SOURCE_KEYS = new Set([
+  "exact_process",
+  "node_buffer",
+  "node_console",
+  "node_events",
+  "node_perf_hooks",
+  "node_string_decoder",
+  "node_timers",
+  "node_timers_promises",
+  "node_url",
+  "node_util",
+]);
 const DESCRIPTOR_ROOT_RETURN_ALIASES = new Set([
   "_stream_duplex",
   "_stream_passthrough",
@@ -925,22 +947,11 @@ function performanceRoute(exportName, valueShape) {
       { kind: "performance-observer-disconnect" },
     );
   }
-  if (
-    new Set([
-      "PerformanceEntry",
-      "PerformanceMeasure",
-      "PerformanceMeasure.constructor",
-      "PerformanceResourceTiming",
-      "PerformanceResourceTiming.constructor",
-      "PerformanceResourceTiming.toJSON",
-    ]).has(exportName)
-  ) {
-    return capturePublicBuiltinOutcome(
-      exportName.endsWith(".toJSON")
-        ? receiverCall({ kind: "plain-object" })
-        : construct([]),
-    );
-  }
+  // PerformanceEntry, PerformanceMeasure, and PerformanceResourceTiming are
+  // illegal public constructors in the bound runtime. Their inherited
+  // constructors and ResourceTiming.toJSON likewise cannot furnish a normal
+  // public source return, so they stay residual rather than using a deliberate
+  // throw or an incompatible plain-object receiver as output evidence.
   if (new Set(["createHistogram", "monitorEventLoopDelay"]).has(exportName)) {
     return rootCall([], { kind: "returned-performance-monitor-disable" });
   }
@@ -997,14 +1008,9 @@ function timerRoute(exportName) {
 }
 
 function v8Route(exportName) {
-  if (exportName === "serialize") {
-    return capturePublicBuiltinOutcome(rootCall([json({ fixture: true })]));
-  }
-  if (exportName === "deserialize") {
-    return capturePublicBuiltinOutcome(
-      rootCall([uint8Array([73, 98, 101, 120])]),
-    );
-  }
+  // serialize/deserialize are present on the public surface but the bound
+  // runtime returns ERR_METHOD_NOT_IMPLEMENTED. They cannot provide normal
+  // source-return evidence and remain residual.
   if (
     new Set([
       "getHeapCodeStatistics",
@@ -2200,6 +2206,96 @@ export function authoredBuiltinNoncapClosedOutputInvocation({
     sourceDescriptorDigest: taggedDigest(descriptor),
     route,
     completion: { ...COMPLETION },
+  };
+}
+
+/**
+ * Reuse a bounded public-output operation as zero-decision conformance
+ * evidence only when the exact non-capability recipe selects that same source
+ * edge. The loaded executor still has to prove a normal inner source return,
+ * owned cleanup, quiescence, and zero typed or legacy decisions.
+ */
+export function authoredNonCapabilityBuiltinCapturedProbe({
+  plan,
+  scenario,
+  route,
+  liveByObservedKey,
+  coverageByEdge,
+  target,
+}) {
+  if (
+    plan?.classification !== "non-capability" ||
+    scenario !== "non-capability" ||
+    plan.actionIds?.length !== 0 ||
+    route?.surfaceObservedKeys?.length !== 1 ||
+    route.alternatives?.length !== 1 ||
+    route.ambiguousCallees?.length !== 0 ||
+    plan.edgeIds?.length !== 1
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  if (
+    !surfaceObservedKey.startsWith("builtin:export:") ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey ||
+    !Array.isArray(route.alternatives[0].proofPaths) ||
+    route.alternatives[0].proofPaths.length === 0
+  ) {
+    return null;
+  }
+  const surface = liveByObservedKey.get(surfaceObservedKey);
+  const coverageEdge = coverageByEdge.get(plan.edgeIds[0]);
+  const capturedOutputInvocation =
+    authoredBuiltinNoncapClosedOutputInvocation({
+      catalogKey: {
+        sourceKind: "builtin",
+        surfaceId: plan.edgeIds[0],
+        output: "[[return]]",
+      },
+      coverageEdge,
+      surface,
+      target,
+    });
+  if (
+    capturedOutputInvocation?.coverageClassification !== "non-capability" ||
+    capturedOutputInvocation.coverageEdgeId !== plan.edgeIds[0] ||
+    capturedOutputInvocation.surfaceObservedKey !== surfaceObservedKey ||
+    capturedOutputInvocation.route?.operation === "unexercisable" ||
+    !new Set(["call", "construct", "get"]).has(
+      capturedOutputInvocation.route?.operation,
+    ) ||
+    capturedOutputInvocation.route?.outcomeCapture !==
+      "public-builtin-family"
+  ) {
+    return null;
+  }
+  const descriptor = capturedOutputInvocation.sourceDescriptor;
+  if (!CONFORMANCE_CAPTURED_SOURCE_KEYS.has(descriptor.sourceKey)) {
+    return null;
+  }
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...BUILTIN_NONCAP_CAPTURED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: BUILTIN_NONCAP_CAPTURED_INVOCATION_SCHEMA,
+      kind: "builtin-noncap-captured-call",
+      moduleSpecifier: capturedOutputInvocation.moduleSpecifier,
+      exportName: descriptor.exportName,
+      sourceDescriptor: structuredClone(descriptor),
+      sourceDescriptorDigest:
+        capturedOutputInvocation.sourceDescriptorDigest,
+      arguments: [],
+      setup: { kind: "captured-output-route" },
+      completion: structuredClone(capturedOutputInvocation.completion),
+      capturedOutputInvocation: structuredClone(capturedOutputInvocation),
+      requiredAuthority: [],
+      expectedResult: "captured-source-return",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
   };
 }
 
