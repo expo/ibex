@@ -3030,6 +3030,56 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-26 — executed exact TLS value and context helpers
+
+- Added six captured-output routes by exact `node_tls` export and operation:
+  `checkServerIdentity`, `convertALPNProtocols`, `createSecureContext`,
+  `getCACertificates`, `SecureContext`, and `translatePeerCertificate`.
+  Inputs are bounded hostnames, certificate-shaped data, ALPN values, or an
+  empty context configuration. None of the recipes creates a socket, server,
+  client, handshake, or peer lifecycle.
+- The admission policy names the six export/operation pairs instead of
+  admitting `node_tls` generally. Every connection-owned TLS surface remains
+  residual. The captured set is now **127** routes: 56 calls, 15
+  constructions, and 56 property gets across 15 source families.
+- Apple catalog digest
+  `sha256-jorAAIHinwwVJAzDX1S3HoqPsANH0mnV5-s3_lY0MKk` reports 23,847 required /
+  **3,488 fully executable** / 3,136 internally verified / 17,223 unresolved.
+  The M5 MacBook Air static-Hermes batch passes **1,208/1,208**: 34 isolated
+  module imports, 1,047 established exports, and all 127 captured routes. It
+  binds engine digest
+  `sha256-KxH8T10HAD6aW2BDb-NpVJxOnM5HuDZK-FrBuaDBo0w`; the evidence-file
+  SHA-256 is
+  `59eb641d7625db9aa21a34f5b2abbedbc8e03005afd7cfed1982c31b292d9fc3`,
+  and independent validation produced execution digest
+  `sha256-4nEzRtylnWSCPE6mmh4V_7VXv-_hSJsG2HBl5F1eC5E`.
+- Windows catalog digest
+  `sha256-WOa2OYe3hWmbbXJiVbz_0cWA3C5Ae8K7P7islt4xpc8` reports 23,506 required /
+  **3,147 fully executable** / 3,122 internally verified / 17,237 unresolved.
+  The NucBox strict stale-vendored batch passes **1,172/1,172**: 34 isolated
+  imports, 1,011 established exports, and the same 127 captured routes. It
+  binds engine digest
+  `sha256-xqWHmqF0mGjVqhS8bUI7Av9fiP84rE8Zj23kOq9JJw8`; the evidence-file
+  SHA-256 is
+  `fe3963b3825c2b46c5ed07dbee973051d51edfe72a7c9f4a45bcb3849070ecd8`,
+  and independent validation produced execution digest
+  `sha256-GQECzM81QBK5tHt_JXyDa_gVLnhQWOq-j_YFUAqFEDU`.
+- Both independent aggregates bind source revision
+  `f672d58c4fed34f7e00ebbb668e164158b8894c2` and tree digest
+  `sha256-6NIZWW2LKa4D5pimQWiaVaPxDBa7-kcmeUMp3Gagt8Q`. The focused components
+  pass **152/152** with 125,499 assertions. One combined invocation spent 65.7
+  seconds constructing both target catalogs and exceeded its 60-second setup
+  limit after the other 55 tests passed; the isolated 97-test recipe rerun
+  completed green in 36.3 seconds.
+- Hard part: `node_tls` is mostly an external lifecycle family, so a
+  source-family exception would silently promote clients, servers, sockets,
+  and handshakes. The six value/context helpers are the narrow exception:
+  physical execution on both target engines proved a normal source return,
+  cleanup, quiescence, and zero decisions without using a peer.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

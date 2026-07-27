@@ -349,22 +349,23 @@ describe("exact-target CapSec executable recipes", () => {
     // contribute four retained-descriptor scenarios apiece. Descriptor denial
     // remains residual because the harness cannot prepare its source descriptor
     // under a denied matching floor.
-    // One hundred twenty-one output-authored builtin routes now execute their
+    // One hundred twenty-seven output-authored builtin routes now execute their
     // exact inner source operation as decision-free evidence. This includes 41
     // get-only reads on harness-owned stream instances, nine exact HTTP
-    // helper/constructor routes, and 17 exact in-memory SQLite routes; stream
-    // calls, servers, sockets, connection lifecycles, and unsupported SQLite
-    // deserialization remain residual. Physical Apple execution also retired
-    // stale crypto and zlib recipes that crashed or deliberately threw instead
-    // of returning; residual accounting must reflect both.
+    // helper/constructor routes, 17 exact in-memory SQLite routes, and six
+    // exact TLS value/context helpers; stream calls, servers, sockets,
+    // connection lifecycles, handshakes, and unsupported SQLite deserialization
+    // remain residual. Physical Apple execution also retired stale crypto and
+    // zlib recipes that crashed or deliberately threw instead of returning;
+    // residual accounting must reflect both.
     // The principal environment Proxy adds the complete exact read/write
     // scenario matrix through its captured native bridges.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_482);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_488);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms. Registry-owned branch-predicate validation is not expanded
     // into a fictitious per-public-surface malformed-input scenario.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_136);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_229);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_223);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -473,14 +474,14 @@ describe("exact-target CapSec executable recipes", () => {
     // descriptor denial remains residual because its prerequisite handle needs
     // the same floor that the scenario denies. Typed synchronous TCP connect
     // adds its five staged public scenarios, and its exact typed setup promotes
-    // the three ownership-only lifecycle consumers. The same 121 captured
+    // the three ownership-only lifecycle consumers. The same 127 captured
     // output routes execute here, including the 41 get-only stream reads, nine
-    // exact HTTP helpers/constructors, and 17 exact in-memory SQLite routes;
-    // target-local physical evidence also retires the unsafe or deliberately
-    // throwing crypto/zlib claims.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_141);
+    // exact HTTP helpers/constructors, 17 exact in-memory SQLite routes, and
+    // six exact TLS value/context helpers; target-local physical evidence also
+    // retires the unsafe or deliberately throwing crypto/zlib claims.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_147);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_122);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_243);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_237);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5181,7 +5182,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-builtin-noncap-captured-invocation/1",
     );
-    expect(captured).toHaveLength(121);
+    expect(captured).toHaveLength(127);
     expect(windowsCaptured.map((recipe) => recipe.fixtureId)).toEqual(
       captured.map((recipe) => recipe.fixtureId),
     );
@@ -5206,6 +5207,7 @@ describe("exact-target CapSec executable recipes", () => {
         "node_string_decoder",
         "node_timers",
         "node_timers_promises",
+        "node_tls",
         "node_url",
         "node_util",
       ]),
@@ -5221,7 +5223,7 @@ describe("exact-target CapSec executable recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ call: 51, construct: 14, get: 56 });
+    ).toEqual({ call: 56, construct: 15, get: 56 });
     const streamCaptured = captured.filter(
       (recipe) =>
         recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
@@ -5286,6 +5288,24 @@ describe("exact-target CapSec executable recipes", () => {
       "Statement.native:get",
       "Statement._normalizeParams:call",
       "Statement.toString:call",
+    ]);
+    const tlsCaptured = captured.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+        "node_tls",
+    );
+    expect(
+      tlsCaptured.map(
+        (recipe) =>
+          `${recipe.publicSurfaceProbe.invocation.sourceDescriptor.exportName}:${recipe.publicSurfaceProbe.invocation.capturedOutputInvocation.route.operation}`,
+      ),
+    ).toEqual([
+      "checkServerIdentity:call",
+      "convertALPNProtocols:call",
+      "createSecureContext:call",
+      "getCACertificates:call",
+      "SecureContext:construct",
+      "translatePeerCertificate:call",
     ]);
     for (const recipe of captured) {
       const probe = recipe.publicSurfaceProbe;

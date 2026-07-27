@@ -106,6 +106,17 @@ const CONFORMANCE_CAPTURED_EXACT_EXPORT_OPERATIONS = new Map([
       ["getUnpackedSettings", new Set(["call"])],
     ]),
   ],
+  [
+    "node_tls",
+    new Map([
+      ["checkServerIdentity", new Set(["call"])],
+      ["convertALPNProtocols", new Set(["call"])],
+      ["createSecureContext", new Set(["call"])],
+      ["getCACertificates", new Set(["call"])],
+      ["SecureContext", new Set(["construct"])],
+      ["translatePeerCertificate", new Set(["call"])],
+    ]),
+  ],
 ]);
 
 function isConformanceCapturedOperationAllowed(descriptor, operation) {
