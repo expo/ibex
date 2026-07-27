@@ -62,6 +62,14 @@ const PRIVATE_CONSUMERS = new Map([
   ["__ibexEndowRaw", "compartment-registry-bootstrap"],
   ["__ibexEndowments", "compartment-registry-bootstrap"],
   ["__ibexRefreshCompartmentBaseline", "armed-runtime-finalizer"],
+  // @ref LLP 0040#3-fixed-bootstrap-window — the extension-module registrar
+  // (and its inspectModules companion) is a construction-only loader
+  // capability: native captures both into retained handles inside the fixed
+  // bootstrap window and then deletes the global via Reflect.deleteProperty
+  // before any extension bootstrap byte is evaluated. It is therefore absent
+  // before project evaluation, exactly like the other capture-then-remove
+  // rendezvous above — not an exposed reachable root.
+  ["__ibexRegisterRuntimeExtensionModule", "runtime-extension-loader"],
 ]);
 
 const SEALED_ROOTS = new Set([

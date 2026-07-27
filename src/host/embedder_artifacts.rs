@@ -2215,8 +2215,16 @@ mod tests {
     fn target_local_runtime_extension_builder_refuses_core_builtin_collision() {
         let project = tempfile::tempdir().unwrap();
         let mut capsule = crate::host::tests::runtime_extension_test_capsule();
+        // Use the BARE builtin spelling, not `node:fs`. Runtime-extension
+        // specifiers are bare package-style names by grammar (no scheme
+        // colon), so a `node:`-prefixed specifier is refused by capsule
+        // validation before the builder's collision fence is ever consulted —
+        // which would make this test pass its setup and never reach its
+        // subject. `fs` is both grammatical and a registered builtin, so it
+        // exercises the collision refusal this test is named for. The
+        // scheme-prefixed case is covered separately below.
         capsule.descriptors[0].modules[0].specifier =
-            capsec_semantics::model::NonEmptyString::new("node:fs").unwrap();
+            capsec_semantics::model::NonEmptyString::new("fs").unwrap();
         capsule.extension_set_digest = capsule.compute_extension_set_digest().unwrap();
         capsule.declared_executable_selection_identity = capsule
             .compute_declared_executable_selection_identity()
@@ -2246,6 +2254,36 @@ mod tests {
                 .contains("collides with an Ibex core builtin"),
             "{error:#}"
         );
+    }
+
+    /// The fence that fires *before* the builder's collision check: a
+    /// scheme-prefixed specifier is not canonical runtime-extension grammar,
+    /// so capsule validation refuses `node:fs` outright. Pinning this keeps
+    /// the two fences distinguishable — the collision test above depends on
+    /// its specifier passing grammar.
+    #[test]
+    fn runtime_extension_capsule_refuses_scheme_prefixed_module_specifiers() {
+        for specifier in ["node:fs", "bun:sqlite", "exact:process"] {
+            let mut capsule = crate::host::tests::runtime_extension_test_capsule();
+            capsule.descriptors[0].modules[0].specifier =
+                capsec_semantics::model::NonEmptyString::new(specifier).unwrap();
+            capsule.extension_set_digest = capsule.compute_extension_set_digest().unwrap();
+            capsule.declared_executable_selection_identity = capsule
+                .compute_declared_executable_selection_identity()
+                .unwrap();
+            capsule.executable_selection_identity =
+                capsule.compute_executable_selection_identity().unwrap();
+            capsule.authority_capsule_digest = capsule.compute_authority_capsule_digest().unwrap();
+            let error = capsule
+                .validate()
+                .expect_err("a scheme-prefixed specifier is not canonical grammar");
+            assert!(
+                error
+                    .to_string()
+                    .contains("does not use canonical module-specifier grammar"),
+                "{specifier}: {error:#}"
+            );
+        }
     }
 
     #[test]
