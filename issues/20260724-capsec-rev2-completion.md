@@ -3128,6 +3128,56 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-26 — executed harness-owned filesystem object lifecycles
+
+- Added five exact filesystem lifecycle routes without opening a real path or
+  descriptor: `node_fs` synthetic `Dir.close`/`closeSync`, construction and
+  immediate cleanup of an unstarted `FSWatcher`, and `node_fs_promises`
+  construction/cleanup plus `close` on a null-backed `FileHandle`. Each route
+  binds the inventoried descriptor, proves a normal return and owned cleanup,
+  reaches quiescence, and records zero decisions.
+- The exact policy excludes top-level `close(-1)` and `closeSync(-1)`, whose
+  authored purpose is an invalid-descriptor error. It also excludes
+  `FileHandle.emit` and `FileHandle.on`: the first physical Apple tranche
+  proved that both inventoried members are absent from the loaded public
+  descriptor. The captured set is now **134** routes: 61 calls, 17
+  constructions, and 56 property gets across 18 source families.
+- Apple catalog digest
+  `sha256-Pgm5GFnHN4XkwW0HEppADA3fyEGRmmUKCuPlwhjbwBQ` reports 23,847 required /
+  **3,495 fully executable** / 3,136 internally verified / 17,216 unresolved.
+  The M5 MacBook Air static-Hermes batch passes **1,215/1,215**: 34 isolated
+  module imports, 1,047 established exports, and all 134 captured routes. It
+  binds engine digest
+  `sha256-KxH8T10HAD6aW2BDb-NpVJxOnM5HuDZK-FrBuaDBo0w`; the evidence-file
+  SHA-256 is
+  `a42d98702fe1996923e44a7bbfb7f42b0ce189423ab8592205e93284e75e4569`,
+  and independent validation produced execution digest
+  `sha256-s_f5jZxwiYQUjyJFE_Ab2PwzW9OGFH5IKjzVytY0pb0`.
+- Windows catalog digest
+  `sha256-pZFBFmPVlxnLDiaeyd9exWrZ3PYjy_qm9Vn81Gcfvbs` reports 23,506 required /
+  **3,154 fully executable** / 3,122 internally verified / 17,230 unresolved.
+  The NucBox strict stale-vendored batch passes **1,179/1,179**: 34 isolated
+  imports, 1,011 established exports, and the same 134 captured routes. It
+  binds engine digest
+  `sha256-xqWHmqF0mGjVqhS8bUI7Av9fiP84rE8Zj23kOq9JJw8`; the evidence-file
+  SHA-256 is
+  `e1bff282f852b7786a3d272c5c1d71a9b02ff5ee8fa9461911dea11eba37cee2`,
+  and independent validation produced execution digest
+  `sha256-i9HVRRUeW37SEsIBo3uYRpiCcp8Agjm15qANxk1TT8w`.
+- Both independent aggregates bind source revision
+  `97e1f3aa1a7819f554e844fdc7a1fe7f02f5ff1a` and tree digest
+  `sha256-Twbj7bfACdWZIHDFETy24FShvnLLcFoqDBatKiuZtHg`. The split focused runs
+  pass **152/152** with 125,606 assertions.
+- Hard part: source inventory is an obligation, not a claim that a property
+  exists on every loaded public implementation. The two FileHandle event
+  members looked bounded and source-authored, but the physical descriptor
+  proof returned `absent`; accepting that as a normal call would conflate
+  target absence with execution. They remain residual while the five exact
+  routes with real loaded descriptors are promoted.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

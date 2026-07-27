@@ -73,6 +73,21 @@ const CONFORMANCE_CAPTURED_EXACT_EXPORT_OPERATIONS = new Map([
     ]),
   ],
   [
+    "node_fs",
+    new Map([
+      ["Dir.close", new Set(["call"])],
+      ["Dir.closeSync", new Set(["call"])],
+      ["FSWatcher", new Set(["construct"])],
+    ]),
+  ],
+  [
+    "node_fs_promises",
+    new Map([
+      ["FileHandle", new Set(["construct"])],
+      ["FileHandle.close", new Set(["call"])],
+    ]),
+  ],
+  [
     "exact_sqlite",
     new Map([
       ["Database._checkClosed", new Set(["call"])],
