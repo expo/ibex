@@ -275,10 +275,10 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                          const facebook::jsi::Value* args,
                          size_t count) -> facebook::jsi::Value {
               if (count >= 2 && args[0].isObject() && args[1].isObject()) {
-                auto resolve =
-                    std::make_shared<facebook::jsi::Function>(args[0].asObject(rt).asFunction(rt));
-                auto reject =
-                    std::make_shared<facebook::jsi::Function>(args[1].asObject(rt).asFunction(rt));
+                auto resolve = exactMakeTrackedJsiCallbackOwner(
+                    handle->runtime_thread, args[0].asObject(rt).asFunction(rt));
+                auto reject = exactMakeTrackedJsiCallbackOwner(
+                    handle->runtime_thread, args[1].asObject(rt).asFunction(rt));
 
                 auto deadline = timeoutCopy == 0
                     ? std::chrono::steady_clock::time_point::max()
@@ -375,10 +375,15 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                       // and return a still-pending fetch promise as settled.
                       // @ref LLP 0003#the-event-loop — pending work remains
                       // continuously visible across the native-to-runtime handoff.
+                      // The queued callback must become the SOLE owner of the
+                      // JSI closures: a copy left in these locals can become
+                      // the final owner once the runtime thread drains and
+                      // releases the queued entry first, running the JSI
+                      // destructors on this network thread.
                       pushRuntimeCallback(
                           target,
-                          [resolve,
-                           reject,
+                          [resolve = std::move(resolve),
+                           reject = std::move(reject),
                            statusCopy,
                            statusTextCopy,
                            headersCopy,

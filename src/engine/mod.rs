@@ -1038,6 +1038,28 @@ mod tests {
         ) -> u32;
         #[cfg(feature = "capsec-conformance-observer")]
         fn ex_hermes_current_runtime_nonce() -> u64;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_reset_jsi_owner_release_observer();
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_jsi_owner_final_releases_on_owner_thread() -> u64;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_jsi_owner_final_releases_off_owner_thread() -> u64;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ex_hermes_set_host_call_async(
+            runtime: *mut HermesRuntimeOpaque,
+            callback: extern "C" fn(
+                runtime: *mut HermesRuntimeOpaque,
+                call_id: u64,
+                op: *const c_char,
+                args_json: *const c_char,
+            ),
+        );
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ex_hermes_resolve_host_call(
+            runtime: *mut HermesRuntimeOpaque,
+            call_id: u64,
+            payload: *const c_char,
+        );
         #[cfg(target_os = "windows")]
         fn ex_host_install();
         fn ex_hermes_free_string(value: *mut c_char);
@@ -3989,6 +4011,274 @@ function collect() {
 
         server.join().expect("fetch lifetime server thread");
         std::env::remove_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS");
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    static HOST_CALL_ASYNC_LAST_ID: std::sync::atomic::AtomicU64 =
+        std::sync::atomic::AtomicU64::new(0);
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    extern "C" fn capture_host_call_async_id(
+        _runtime: *mut HermesRuntimeOpaque,
+        call_id: u64,
+        _op: *const c_char,
+        _args_json: *const c_char,
+    ) {
+        HOST_CALL_ASYNC_LAST_ID.store(call_id, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// A fetch completion enqueues its resolve/reject closures from the
+    /// network thread, and the runtime thread may run AND release that queued
+    /// callback before the network worker's frame unwinds. The queued
+    /// callback must therefore be the sole owner: both final releases must
+    /// land on the runtime thread while the producer is still parked in the
+    /// post-enqueue hold. (issues/20260726-native-fetch-jsi-last-owner-race.md)
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[test]
+    fn fetch_completion_releases_jsi_owners_on_runtime_thread_only() {
+        use std::io::{Read as _, Write as _};
+        use std::net::TcpListener;
+
+        let _host_guard = crate::host::abi::host_test_lock();
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind fetch owner server");
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept fetch owner request");
+            let mut request = [0u8; 2048];
+            let _ = stream.read(&mut request);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .expect("write fetch owner response");
+            let _ = stream.flush();
+        });
+
+        let host = crate::host::Host::strict();
+        host.capabilities()
+            .grant("*", "network:fetch:127.0.0.1", None);
+        crate::host::abi::install_host(host);
+        std::env::set_var("IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS", "1500");
+
+        unsafe {
+            ibex_test_reset_jsi_owner_release_observer();
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            let source = format!(
+                "globalThis.__settled = 0; __nativeFetch('http://127.0.0.1:{port}/', {{method:'GET'}}, null).then(function () {{ globalThis.__settled = 1; }}, function () {{ globalThis.__settled = 2; }}); 'queued'"
+            );
+            assert_eq!(eval(runtime, &source).1.as_deref(), Some("queued"));
+
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            loop {
+                ex_hermes_poll(runtime, ex_hermes_now_ms());
+                let (_, settled) = eval(runtime, "String(globalThis.__settled)");
+                match settled.as_deref() {
+                    Some("1") => break,
+                    Some("2") => panic!("native fetch rejected in owner-release test"),
+                    _ => {}
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "fetch completion never settled"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+
+            // The completion ran to the end of the poll drain, so its queued
+            // entry is already released — on the runtime thread — while the
+            // network worker is still parked. A copy-capture regression leaves
+            // the final owners with the parked worker and this reads 0.
+            assert_eq!(ibex_test_jsi_owner_final_releases_on_owner_thread(), 2);
+            assert_eq!(ibex_test_jsi_owner_final_releases_off_owner_thread(), 0);
+
+            // Destroy waits out the parked producer's native pin, proving the
+            // runtime callback finished before the producer returned.
+            let started = std::time::Instant::now();
+            ex_hermes_destroy(runtime);
+            assert!(
+                started.elapsed() >= std::time::Duration::from_millis(100),
+                "destroy returned before the held fetch producer drained"
+            );
+        }
+        // The producer frame unwinds just after releasing its pin; give those
+        // last locals a beat, then require that nothing released off-thread.
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        unsafe {
+            assert_eq!(ibex_test_jsi_owner_final_releases_off_owner_thread(), 0);
+        }
+
+        server.join().expect("fetch owner server thread");
+        std::env::remove_var("IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS");
+    }
+
+    /// Sibling coverage for ex_hermes_resolve_host_call: an any-thread
+    /// host-call completion must also leave the queued callback as the sole
+    /// JSI owner, with both final releases on the runtime thread. Joining the
+    /// resolver thread makes the producer-side check fully deterministic.
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[test]
+    fn host_call_completion_releases_jsi_owners_on_runtime_thread_only() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let host = crate::host::Host::strict();
+        crate::host::abi::install_host(host);
+        std::env::set_var("IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS", "1500");
+
+        unsafe {
+            ibex_test_reset_jsi_owner_release_observer();
+            HOST_CALL_ASYNC_LAST_ID.store(0, std::sync::atomic::Ordering::SeqCst);
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            ex_hermes_set_host_call_async(runtime, capture_host_call_async_id);
+            let (status, value) = eval(
+                runtime,
+                "globalThis.__settled = 0; __hostCallAsync('ping', {}).then(function () { globalThis.__settled = 1; }, function () { globalThis.__settled = 2; }); 'queued'",
+            );
+            assert_eq!((status, value.as_deref()), (0, Some("queued")));
+            let call_id = HOST_CALL_ASYNC_LAST_ID.load(std::sync::atomic::Ordering::SeqCst);
+            assert_ne!(call_id, 0, "__hostCallAsync must register a call id");
+
+            let runtime_addr = runtime as usize;
+            let resolver = std::thread::spawn(move || {
+                let payload = std::ffi::CString::new("+{\"ok\":true}").unwrap();
+                unsafe {
+                    ex_hermes_resolve_host_call(
+                        runtime_addr as *mut HermesRuntimeOpaque,
+                        call_id,
+                        payload.as_ptr(),
+                    );
+                }
+            });
+
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            loop {
+                ex_hermes_poll(runtime, ex_hermes_now_ms());
+                let (_, settled) = eval(runtime, "String(globalThis.__settled)");
+                match settled.as_deref() {
+                    Some("1") => break,
+                    Some("2") => panic!("__hostCallAsync rejected in owner-release test"),
+                    _ => {}
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "host-call completion never settled"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+
+            // The resolver thread is still parked in the post-enqueue hold and
+            // the runtime thread has already released both closures.
+            assert_eq!(ibex_test_jsi_owner_final_releases_on_owner_thread(), 2);
+            assert_eq!(ibex_test_jsi_owner_final_releases_off_owner_thread(), 0);
+
+            // Joining unwinds the producer frame completely; any owner it
+            // still held would now show up as an off-thread final release.
+            resolver.join().expect("host-call resolver thread");
+            assert_eq!(ibex_test_jsi_owner_final_releases_off_owner_thread(), 0);
+            ex_hermes_destroy(runtime);
+        }
+        std::env::remove_var("IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS");
+    }
+
+    /// Stress the real NSURLSession completion path: many concurrent fetch
+    /// completions racing the runtime thread must never finally release a JSI
+    /// owner off the owner thread and must not crash the delegate thread.
+    /// (issues/20260726-native-fetch-jsi-last-owner-race.md)
+    #[cfg(all(target_os = "macos", feature = "capsec-conformance-observer"))]
+    #[test]
+    fn native_fetch_nsurlsession_stress_releases_owners_on_runtime_thread() {
+        use std::io::{Read as _, Write as _};
+        use std::net::TcpListener;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        const TOTAL_FETCHES: usize = 48;
+
+        let _host_guard = crate::host::abi::host_test_lock();
+        std::env::remove_var("IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS");
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind fetch stress server");
+        let port = listener.local_addr().unwrap().port();
+        listener
+            .set_nonblocking(true)
+            .expect("nonblocking fetch stress listener");
+        let stop = Arc::new(AtomicBool::new(false));
+        let accept_stop = stop.clone();
+        let server = std::thread::spawn(move || {
+            let mut handlers = Vec::new();
+            while !accept_stop.load(Ordering::SeqCst) {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        handlers.push(std::thread::spawn(move || {
+                            let _ = stream.set_nonblocking(false);
+                            let mut request = [0u8; 2048];
+                            let _ = stream.read(&mut request);
+                            let _ = stream.write_all(
+                                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+                            );
+                            let _ = stream.flush();
+                        }));
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(2));
+                    }
+                    Err(_) => break,
+                }
+            }
+            for handler in handlers {
+                let _ = handler.join();
+            }
+        });
+
+        let host = crate::host::Host::strict();
+        host.capabilities()
+            .grant("*", "network:fetch:127.0.0.1", None);
+        crate::host::abi::install_host(host);
+
+        unsafe {
+            ibex_test_reset_jsi_owner_release_observer();
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            let total = TOTAL_FETCHES;
+            let source = format!(
+                "globalThis.__done = 0; globalThis.__fail = 0; for (var i = 0; i < {total}; i++) {{ __nativeFetch('http://127.0.0.1:{port}/', {{method:'GET'}}, null).then(function () {{ globalThis.__done++; }}, function () {{ globalThis.__fail++; }}); }} 'stress-queued'"
+            );
+            assert_eq!(eval(runtime, &source).1.as_deref(), Some("stress-queued"));
+
+            let want = TOTAL_FETCHES.to_string();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            loop {
+                ex_hermes_poll(runtime, ex_hermes_now_ms());
+                let (_, settled) =
+                    eval(runtime, "String(globalThis.__done + globalThis.__fail)");
+                if settled.as_deref() == Some(want.as_str()) {
+                    break;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "stress fetches never settled: {settled:?}"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            let (_, failed) = eval(runtime, "String(globalThis.__fail)");
+            assert_eq!(
+                failed.as_deref(),
+                Some("0"),
+                "stress fetches must all resolve"
+            );
+            ex_hermes_destroy(runtime);
+        }
+        // Give the last NSURLSession workers a beat to unwind, then require
+        // every tracked release to have happened on the owner thread.
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        unsafe {
+            assert_eq!(
+                ibex_test_jsi_owner_final_releases_on_owner_thread(),
+                (TOTAL_FETCHES as u64) * 2
+            );
+            assert_eq!(ibex_test_jsi_owner_final_releases_off_owner_thread(), 0);
+        }
+
+        stop.store(true, Ordering::SeqCst);
+        server.join().expect("fetch stress server thread");
     }
 
     #[cfg(all(feature = "host-http-server", feature = "capsec-conformance-observer"))]

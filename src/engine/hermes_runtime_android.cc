@@ -1060,9 +1060,14 @@ extern "C" void android_animation_frame_callback(uint64_t token, int64_t frame_t
     return;
   }
   double frame_time_ms = static_cast<double>(frame_time_nanos) / 1000000.0;
+  // @ref LLP 0003#the-event-loop — `entry` outlives the enqueue on this
+  // Choreographer thread, so a copy here could become the final owner of the
+  // JSI callback and run its destructor off the runtime thread once the queue
+  // drains first; move-capture leaves the queued callback as sole owner.
   pushRuntimeCallback(
       entry.target,
-      [callback = entry.callback, frame_time_ms](facebook::jsi::Runtime& runtime) {
+      [callback = std::move(entry.callback),
+       frame_time_ms](facebook::jsi::Runtime& runtime) {
         callback->call(runtime, facebook::jsi::Value(frame_time_ms));
       });
   exactUnpinRuntimeNativeWorker(entry.target);

@@ -300,6 +300,12 @@ std::unordered_map<uint64_t, uint64_t>
 std::atomic<uint64_t> g_exact_host_completion_targets_consumed{0};
 std::atomic<uint64_t> g_exact_host_completion_callbacks_queued{0};
 std::atomic<uint64_t> g_exact_host_completion_callbacks_delivered{0};
+// Test-only proof of where the final owner of a cross-thread JSI promise
+// callback releases. Populated by exactMakeTrackedJsiCallbackOwner; a nonzero
+// off-owner-thread count means a producer-side copy became the last owner and
+// ran a JSI destructor off the Hermes thread.
+std::atomic<uint64_t> g_trackedJsiOwnerFinalReleasesOnOwnerThread{0};
+std::atomic<uint64_t> g_trackedJsiOwnerFinalReleasesOffOwnerThread{0};
 
 extern "C" void ibex_test_set_armed_startup_failure_stage(const char* stage) {
   g_injected_armed_startup_failure_stage = stage ? stage : "";
@@ -351,6 +357,21 @@ ibex_test_take_destroyed_structured_value_handle_count(
   const uint64_t count = found->second;
   g_destroyed_structured_value_handle_counts.erase(found);
   return count;
+}
+
+extern "C" void ibex_test_reset_jsi_owner_release_observer() {
+  g_trackedJsiOwnerFinalReleasesOnOwnerThread.store(0, std::memory_order_seq_cst);
+  g_trackedJsiOwnerFinalReleasesOffOwnerThread.store(0, std::memory_order_seq_cst);
+}
+
+extern "C" uint64_t ibex_test_jsi_owner_final_releases_on_owner_thread() {
+  return g_trackedJsiOwnerFinalReleasesOnOwnerThread.load(
+      std::memory_order_seq_cst);
+}
+
+extern "C" uint64_t ibex_test_jsi_owner_final_releases_off_owner_thread() {
+  return g_trackedJsiOwnerFinalReleasesOffOwnerThread.load(
+      std::memory_order_seq_cst);
 }
 
 extern "C" void ibex_test_reset_exact_host_completion_observer() {
@@ -3308,6 +3329,9 @@ extern "C" void ex_hermes_notify_callback();
 void pushRuntimeCallback(RuntimeCallbackTarget target,
                          std::function<void(facebook::jsi::Runtime&)> fn,
                          bool* accepted) {
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+    bool foreignProducer = false;
+#endif
     {
         // ENG-22925: pin the runtime generation across validation AND enqueue.
         // ex_hermes_destroy enters Closing under g_runtimeRegistryMutex, so
@@ -3327,6 +3351,9 @@ void pushRuntimeCallback(RuntimeCallbackTarget target,
             return;
         }
         auto* runtime = target.runtime;
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+        foreignProducer = runtime->runtime_thread != std::this_thread::get_id();
+#endif
         std::lock_guard<std::mutex> lock(runtime->callbackMutex);
         runtime->callbackQueue.push_back(
             ExactHermesRuntime::QueuedRuntimeCallback{
@@ -3341,6 +3368,12 @@ void pushRuntimeCallback(RuntimeCallbackTarget target,
     // either mutex inverts that order and deadlocks the two threads (19a3412).
     ex_hermes_notify_callback();
     if (accepted) *accepted = true;
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+    // Regression hook for the off-thread JSI final-owner race: park a foreign
+    // producer here so the runtime thread provably executes and releases the
+    // queued callback before the producer's own frame unwinds.
+    if (foreignProducer) exactTestHoldRuntimeProducerAfterEnqueue();
+#endif
 }
 
 bool pushRuntimeFinalizer(RuntimeCallbackTarget target,
@@ -15018,10 +15051,10 @@ extern "C" void ex_hermes_set_host_call_async(
                 throw facebook::jsi::JSError(
                     rt, "__hostCallAsync: malformed executor invocation");
               }
-              auto resolve = std::make_shared<facebook::jsi::Function>(
-                  args[0].asObject(rt).asFunction(rt));
-              auto reject = std::make_shared<facebook::jsi::Function>(
-                  args[1].asObject(rt).asFunction(rt));
+              auto resolve = exactMakeTrackedJsiCallbackOwner(
+                  runtime->runtime_thread, args[0].asObject(rt).asFunction(rt));
+              auto reject = exactMakeTrackedJsiCallbackOwner(
+                  runtime->runtime_thread, args[1].asObject(rt).asFunction(rt));
 
               auto target = exactRuntimeCallbackTarget(runtime);
               uint64_t callId = registerHostCallTarget(target);
@@ -15079,9 +15112,15 @@ extern "C" void ex_hermes_resolve_host_call(ExactHermesRuntime* runtime,
     return;
   }
   std::string payloadCopy = payload ? payload : "";
+  // @ref LLP 0003#the-event-loop — the queued callback must become the sole
+  // owner of the JSI closures. A copy left in these locals can become the
+  // final owner once the runtime thread drains and releases the queued entry
+  // first, running the JSI destructors on this producer thread (the same
+  // off-thread destruction class as the fetch completion).
   pushRuntimeCallback(
       target,
-      [resolve, reject, payloadCopy](facebook::jsi::Runtime& rt) {
+      [resolve = std::move(resolve), reject = std::move(reject),
+       payloadCopy = std::move(payloadCopy)](facebook::jsi::Runtime& rt) {
         try {
           facebook::jsi::Value value;
           std::string errorMessage;
@@ -15427,10 +15466,10 @@ extern "C" int ex_hermes_set_exact_host_call_async(
                   throw facebook::jsi::JSError(
                       rt, "exact.invokeHostAsync malformed Promise executor");
                 }
-                auto resolve = std::make_shared<facebook::jsi::Function>(
-                    args[0].asObject(rt).asFunction(rt));
-                auto reject = std::make_shared<facebook::jsi::Function>(
-                    args[1].asObject(rt).asFunction(rt));
+                auto resolve = exactMakeTrackedJsiCallbackOwner(
+                    runtime->runtime_thread, args[0].asObject(rt).asFunction(rt));
+                auto reject = exactMakeTrackedJsiCallbackOwner(
+                    runtime->runtime_thread, args[1].asObject(rt).asFunction(rt));
                 {
                   std::lock_guard<std::mutex> lock(
                       runtime->exactHostCallAsyncMutex);
@@ -15535,9 +15574,14 @@ extern "C" void ex_hermes_resolve_exact_host_call(
     payloadCopy.assign(payload, payload + payload_len);
   }
   bool callbackAccepted = false;
+  // @ref LLP 0003#the-event-loop — move-capture so the queued callback is the
+  // sole owner of the JSI closures and this any-thread completion never runs
+  // their destructors after the runtime thread drains the queue first (same
+  // class as fetch and ex_hermes_resolve_host_call).
   pushRuntimeCallback(
       target,
-      [resolve, reject, completionStatus, payloadCopy = std::move(payloadCopy)](
+      [resolve = std::move(resolve), reject = std::move(reject),
+       completionStatus, payloadCopy = std::move(payloadCopy)](
           facebook::jsi::Runtime& rt) mutable {
 #ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
         g_exact_host_completion_callbacks_delivered.fetch_add(

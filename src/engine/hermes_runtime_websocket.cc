@@ -284,7 +284,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
 
               pushRuntimeCallback(
                   target,
-                  [wsObj,
+                  [wsObj = std::move(wsObj),
                    protoCopy,
                    extCopy,
                    principal,
@@ -311,7 +311,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
                 auto textCopy = std::string(reinterpret_cast<const char*>(data), length);
                 pushRuntimeCallback(
                     target,
-                    [wsObj,
+                    [wsObj = std::move(wsObj),
                      textCopy,
                      principal,
                      context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
@@ -323,7 +323,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
                 auto dataCopy = std::make_shared<std::vector<uint8_t>>(data, data + length);
                 pushRuntimeCallback(
                     target,
-                    [wsObj,
+                    [wsObj = std::move(wsObj),
                      dataCopy,
                      principal,
                      context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
@@ -355,7 +355,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
               pushRuntimeCallback(
                   target,
-                  [wsObj,
+                  [wsObj = std::move(wsObj),
                    codeCopy,
                    reasonCopy,
                    cleanCopy,
@@ -397,7 +397,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
               pushRuntimeCallback(
                   target,
-                  [wsObj,
+                  [wsObj = std::move(wsObj),
                    msgCopy,
                    closeAfterError,
                    principal,
@@ -429,7 +429,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
               pushRuntimeCallback(
                   target,
-                  [wsObj,
+                  [wsObj = std::move(wsObj),
                    sentCopy,
                    principal,
                    context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
