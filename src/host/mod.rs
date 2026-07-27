@@ -6958,14 +6958,13 @@ fn validate_snapshot_protected_artifacts(
         // — re-authenticate every byte at each boundary. Apple uses the
         // platform SHA-256 implementation; other targets retain the same Rust
         // digest implementation.
-        let hash = crate::engine::hash_open_file_sha256(&mut file, before.len()).map_err(
-            |error| {
+        let hash =
+            crate::engine::hash_open_file_sha256(&mut file, before.len()).map_err(|error| {
                 capsec_semantics::Error::ArmRefused(format!(
                     "cannot hash protected artifact {}: {error}",
                     path.display()
                 ))
-            },
-        )?;
+            })?;
         let observed = format!("sha256-{}", URL_SAFE_NO_PAD.encode(hash));
         if observed != artifact.content_digest.as_str() {
             return Err(capsec_semantics::Error::ArmRefused(format!(

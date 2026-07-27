@@ -1246,11 +1246,10 @@ fn main() {
     } else {
         None
     };
-    // The LLP 0366/0373 native performance observer is the sole iOS consumer
-    // of package/frame attribution. Ordinary iOS products retain their
-    // existing build surface; the feature-bound Simulator lane must instead
-    // prove that the exact framework Xcode will link carries the reviewed
-    // bridge symbols.
+    // @ref LLP 0039#simulator-only-performance-observer — ordinary products
+    // retain their existing build surface; the explicitly feature-bound
+    // Simulator lane must prove that the exact framework Xcode will link
+    // carries the reviewed bridge symbols.
     let hermes_ios_observer_binary = if capsec_simulator_performance_observer_enabled {
         if target_os != "ios" || !(target_triple.ends_with("-ios-sim") || target_arch == "x86_64") {
             panic!("capsec-simulator-performance-observer requires an iOS Simulator target");

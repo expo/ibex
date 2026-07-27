@@ -14,6 +14,8 @@
 //! The `ibex` binary wraps these in async Rust (via tokio). The iOS app calls the C API
 //! directly from Swift via the bridging header.
 
+// @ref LLP 0039#simulator-only-performance-observer — the measurement carrier
+// is release-only and iOS-Simulator-only; it must not become a product mode.
 #[cfg(all(feature = "capsec-simulator-performance-observer", debug_assertions))]
 compile_error!("capsec-simulator-performance-observer is unavailable in debug builds");
 #[cfg(all(

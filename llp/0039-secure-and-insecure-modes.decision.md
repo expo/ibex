@@ -5,6 +5,8 @@
 **Systems:** Runtime, CapSec, Build, Product
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-24
+**Revised:** 2026-07-27 (document the authenticated, release-only iOS
+Simulator performance observer and its non-product boundary)
 **Related:** LLP 0021 (target advertisement + conformance report); LLP 0036 (advertisement completion); LLP 0038 (unadvertised dev arming, insecure build)
 
 ## Context
@@ -162,6 +164,28 @@ The script skips one test,
 clean main with every security feature inert and is therefore unrelated to this
 guard. It is deliberately *not* `#[cfg]`-gated in the source, so a default
 `cargo test` still reports it rather than losing it behind a feature.
+
+## Simulator-only performance observer
+
+The `capsec-simulator-performance-observer` Cargo feature is a narrow
+measurement carrier for a consumer-owned native performance lane. It is not a
+third product mode and is never a default feature. The crate refuses to compile
+it in debug builds or for anything except an iOS Simulator target.
+
+The carrier preserves ordinary ABI behavior while substituting only the
+ratified report target cells and root-loopback fetch used by the measurement
+fixture. Before either substitution is accepted, the armed runtime authenticates
+the loaded Hermes image and verifies the secure posture. It emits explicit
+markers for authenticated substitution, loopback substitution, posture
+verification, runtime creation, and carrier dispatch so the consumer receipt
+can fail closed if any stage is absent. The observer does not advertise an
+ordinary target complete, weaken the default runtime, or authorize a production
+artifact.
+
+Consumer evidence may use this feature only in an explicitly feature-bound
+Release simulator build governed by that consumer's own ratified observer and
+invalidation amendments. Ordinary iOS products retain the normal build surface,
+and publication pipelines must not enable the feature.
 
 ## Preventing an accidental ship
 

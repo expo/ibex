@@ -1238,7 +1238,12 @@ fn build_authenticated_source_graph_v1_with_host(
                     Err(error) => return Err(error),
                 }
             } else {
-                match host.resolve(&key.specifier, Some(&path), key.resolution_kind, &attributes) {
+                match host.resolve(
+                    &key.specifier,
+                    Some(&path),
+                    key.resolution_kind,
+                    &attributes,
+                ) {
                     Ok(target) => target,
                     // Call-time edges (literal dynamic imports and CommonJS
                     // requires) preserve Node error timing: a target that does

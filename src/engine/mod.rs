@@ -4328,8 +4328,7 @@ function collect() {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
             loop {
                 ex_hermes_poll(runtime, ex_hermes_now_ms());
-                let (_, settled) =
-                    eval(runtime, "String(globalThis.__done + globalThis.__fail)");
+                let (_, settled) = eval(runtime, "String(globalThis.__done + globalThis.__fail)");
                 if settled.as_deref() == Some(want.as_str()) {
                     break;
                 }
