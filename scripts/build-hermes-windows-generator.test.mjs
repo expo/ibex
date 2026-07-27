@@ -69,6 +69,42 @@ ConvertTo-LowerHex $bytes`,
   assert.equal(probe.stdout.trim(), "00010f10abff");
 });
 
+test("writes reviewed JSON as BOM-free UTF-8 with one trailing newline", () => {
+  const source = readFileSync(script, "utf8");
+  assert.doesNotMatch(source, /-Encoding\s+utf8NoBOM\b/iu);
+  const helper = source.match(
+    /^function Write-Utf8NoBomFile \{[\s\S]*?^\}/mu,
+  );
+  assert.ok(helper, `${script} is missing Write-Utf8NoBomFile`);
+
+  const probe = spawnSync(
+    powershellExecutable,
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `${helper[0]}
+$path = [System.IO.Path]::GetTempFileName()
+try {
+  $content = "h" + [char]0x00e9
+  Write-Utf8NoBomFile -Path $path -Content $content
+  [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($path))
+}
+finally {
+  Remove-Item -LiteralPath $path -Force
+}`,
+    ],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
+  assert.equal(probe.status, 0, probe.stderr);
+  const newline = process.platform === "win32" ? "\r\n" : "\n";
+  assert.equal(
+    Buffer.from(probe.stdout.trim(), "base64").toString("hex"),
+    Buffer.from(`h\u00e9${newline}`, "utf8").toString("hex"),
+  );
+});
+
 test("selects the exact CMake generator for each supported hosted MSVC major", () => {
   const vs2022 = selectGenerator("17.9");
   assert.equal(vs2022.status, 0, vs2022.stderr);
