@@ -7509,11 +7509,17 @@ globalThis.__exactModuleResolve = function() {
 };
 globalThis.__exactNativeModuleResolve = globalThis.__exactModuleResolve;
 (0, eval)(loader);
+let lateSpecifier = '';
 globalThis.__exactModuleResolve = function(specifier) {
+  lateSpecifier = specifier;
+  if (specifier !== '/src/entry.js?url') {
+    return JSON.stringify({error:'late resolver lost Vite query: ' + specifier});
+  }
   return JSON.stringify({id:specifier,kind:'cjs',source:'module.exports=42;'});
 };
-if (globalThis.require('entry') !== 42) {
-  throw new Error('diagnostic loader retained the construction-time resolver');
+if (globalThis.require('/src/entry.js?url') !== 42 ||
+    lateSpecifier !== '/src/entry.js?url') {
+  throw new Error('diagnostic loader retained the construction-time resolver or lost the Vite query');
 }
 "#
         .replace("__LOADER_PATH__", &loader_path);

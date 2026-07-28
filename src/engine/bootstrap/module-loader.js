@@ -46,6 +46,8 @@
   // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
   // @ref LLP 0023#6-path-bearing-observables
   // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+  var __initialAmbientModuleResolve =
+    (typeof g.__exactModuleResolve === 'function') ? g.__exactModuleResolve : null;
   var __privModuleResolve =
     (typeof g.__exactNativeModuleResolve === 'function')
       ? g.__exactNativeModuleResolve
@@ -6364,13 +6366,23 @@
           : (useStructuredRootResolver
             ? __privSessionModuleResolve
             : currentDiagnosticModuleResolve());
+        // Exact's late diagnostic resolver is a Vite transport table. Preserve
+        // semantic query keys such as `?url` for that replacement only; native
+        // file resolution and armed identities continue to use the normalized
+        // specifier captured above.
+        var lateDiagnosticResolver =
+          !manifestBuiltinInternal &&
+          !useStructuredRootResolver &&
+          !__armedResolverCapture &&
+          typeof g.__exactModuleResolve === 'function' &&
+          g.__exactModuleResolve !== __initialAmbientModuleResolve;
         if (typeof resolver !== 'function') {
           throw new Error("Module resolver is unavailable");
         }
         const json = manifestBuiltinInternal
           ? resolver(resolvedSpecifier)
           : resolver(
-              resolvedSpecifier,
+              lateDiagnosticResolver ? specifier : resolvedSpecifier,
               authenticatedResolution === null
                 ? (referrer || "")
                 : authenticatedResolution.nativeReferrer,
