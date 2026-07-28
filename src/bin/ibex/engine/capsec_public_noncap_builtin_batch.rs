@@ -518,7 +518,9 @@ fn reviewed_post_initialization_value_spec(
             | "X509Certificate.validFrom"
             | "X509Certificate.validTo",
         ) => Some(("accessor", "string")),
-        ("exact_crypto", "X509Certificate.keyUsage") => Some(("accessor", "object")),
+        ("exact_crypto", "X509Certificate.keyUsage" | "X509Certificate.raw") => {
+            Some(("accessor", "object"))
+        }
         ("exact_crypto", "X509Certificate.publicKey") => Some(("unknown", "undefined")),
         (
             "node_buffer",
@@ -843,6 +845,14 @@ fn expected_access(descriptor: &BuiltinSourceDescriptor) -> Option<BuiltinAccess
         .collect::<Vec<_>>();
     if segments.iter().any(String::is_empty) {
         return None;
+    }
+    if descriptor.source_key == "exact_crypto"
+        && descriptor.export_name == "X509Certificate.raw"
+    {
+        return Some(BuiltinAccess {
+            kind: "constructed-instance-property".to_owned(),
+            path: vec!["raw".to_owned()],
+        });
     }
     // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
     // these inventory prototype rows execute only on fresh owned instances.
@@ -1256,6 +1266,37 @@ fn validate_explicit_diffie_hellman_contract(
         serde_json::Value::Array(invocation.arguments.clone()),
         expected_arguments
     );
+}
+
+fn validate_x509_state_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    if descriptor.source_key != "exact_crypto"
+        || descriptor.export_name != "X509Certificate.toString"
+    {
+        return;
+    }
+    assert_eq!(invocation.template_id.as_deref(), Some("exact-crypto-bounded-v1"));
+    assert_eq!(descriptor.access.kind, "prototype-property");
+    assert_eq!(
+        descriptor.access.path,
+        ["X509Certificate", "prototype", "toString"].map(str::to_owned)
+    );
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, "string");
+    assert_eq!(
+        invocation.setup,
+        serde_json::json!({
+            "kind": "constructed-owner",
+            "ownerExportName": "X509Certificate",
+            "constructorArguments": [
+                {"kind": "json", "value": "ibex-x509-fixture"}
+            ],
+        })
+    );
+    assert!(invocation.arguments.is_empty());
 }
 
 fn validate_base_stream_module_value_contract(
@@ -1783,10 +1824,9 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         assert!(invocation.template_id.is_none());
         assert!(invocation.body_entry_proof.is_none());
         assert!(invocation.arguments.is_empty());
-        let stream_instance_read =
-            descriptor.source_key == "node_stream"
-                && descriptor.access.kind == "constructed-instance-property";
-        if stream_instance_read {
+        let constructed_instance_read =
+            descriptor.access.kind == "constructed-instance-property";
+        if descriptor.source_key == "node_stream" && constructed_instance_read {
             let owner = descriptor
                 .export_name
                 .split_once('.')
@@ -1798,6 +1838,18 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
                     "kind": "stream-owner",
                     "ownerExportName": owner,
                     "endedInput": false,
+                })
+            );
+        } else if descriptor.source_key == "exact_crypto" && constructed_instance_read {
+            assert_eq!(descriptor.export_name, "X509Certificate.raw");
+            assert_eq!(
+                invocation.setup,
+                serde_json::json!({
+                    "kind": "constructed-owner",
+                    "ownerExportName": "X509Certificate",
+                    "constructorArguments": [
+                        {"kind": "json", "value": "ibex-x509-fixture"}
+                    ],
                 })
             );
         } else {
@@ -1894,6 +1946,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
             assert_eq!(proof.result_type, result_type);
         }
         validate_explicit_diffie_hellman_contract(invocation, &descriptor, proof);
+        validate_x509_state_contract(invocation, &descriptor, proof);
         validate_base_stream_module_value_contract(invocation, &descriptor, proof);
         validate_idle_zlib_destroy_contract(invocation, &descriptor, proof);
         validate_idle_http_contract(invocation, &descriptor, proof);

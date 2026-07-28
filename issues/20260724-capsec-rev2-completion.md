@@ -4306,6 +4306,60 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — executed bounded X509 instance state
+
+- Promoted exactly two `exact_crypto` rows on a fresh harness-owned
+  `X509Certificate("ibex-x509-fixture")`: the own `raw` accessor returns its
+  bounded byte object, and `toString()` returns the certificate string.
+  Certificate verification, host/email/IP checks, key export, and other X509
+  operations remain residual.
+- Lockdown exposed a real compatibility defect rather than merely an evidence
+  gap: the inherited primordial `Object.prototype.toString` is non-writable,
+  so ordinary assignment silently failed to install the source-defined X509
+  formatter. `crypto.js` now installs the intended own method with an explicit
+  writable/configurable descriptor while preserving the locked primordial.
+  The recipe author, independent JavaScript evidence validator, Rust catalog
+  validator, and loaded-engine JavaScript harness independently repeat the
+  exact constructor, read/call kind, result type, quiescence, and zero-decision
+  contract.
+- The regenerated Apple catalog digest
+  `sha256-ZwEOWHiFz1tlKrVoiRY8120Hlhaezldp2SuPEjIOY5s` reports 23,584
+  required / **3,697 fully executable** / 3,036 internally verified / 16,851
+  unresolved. The regenerated Windows digest
+  `sha256-yDcfX3aS7pKVtpSyhbJEGFr2oFqaCiW-JDD01ilx1M4` reports 23,243
+  required / **3,354 fully executable** / 3,022 internally verified / 16,867
+  unresolved. The descriptor-only output residual manifest falls from 549 to
+  548 rows.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 49 focused rows plus
+  both X509 rows under catalog digest
+  `sha256-GDtjHSNvvKZcPXwXj6xepERU8EKaJRo1rHSnkptKE-8` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 51
+  fixtures pass. `raw` returns an object, `toString` returns a string, and both
+  reach event-loop quiescence with zero legacy or typed decisions. The raw
+  evidence SHA-256 is
+  `b1dce9d3b0916a378b224e9173e6ac1d365c2fea138621ae3d56c821f3791929`;
+  independent JavaScript validation accepted exactly 51 executions and
+  produced diagnostic execution digest
+  `sha256-cNTTgfQeY4XlO2RC6w-CK3GISBdqBkMRFVqrRmqFGIU`.
+- The Linux replay remains diagnostic rather than Apple promotion evidence.
+  The focused author/catalog/validator/output-accounting suite passes
+  **191/191** tests with 125,315 assertions. The runtime-environment inventory
+  passes all 11 tests and accounts for 169 source-derived rows. The complete
+  generated-drift gate passes after refreshing the vendored source
+  fingerprint, and `ref-check` validates 41 LLP documents and 2,232 references
+  with zero errors (one stable URL remains unchecked).
+- Hard parts: `stream/consumers` offered apparently bounded operations but is
+  classified as bootstrap-internal rather than public reachability, so it was
+  correctly rejected. Both `node:http2` server factories were also rejected
+  because the shipped source explicitly throws unsupported. The first EPYC
+  Cargo attempt selected debugger-enabled linkage against a debugger-disabled
+  Hermes receipt and failed at link; explicitly binding
+  `HERMES_ENABLE_DEBUGGER=false` matched the authenticated receipt and the
+  exact engine batch passed without changing or clearing the remote cache.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

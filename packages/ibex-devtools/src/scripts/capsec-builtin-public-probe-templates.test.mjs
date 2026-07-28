@@ -429,16 +429,6 @@ describe("source-bound builtin public probes", () => {
 
     for (const input of [
       {
-        sourceKey: "exact_crypto",
-        exportName: "X509Certificate.raw",
-        exportIdioms: ["exported-constructor-prototype"],
-        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
-        sourceRefs: [
-          "src/builtins/crypto.js#exports:X509Certificate.raw",
-        ],
-        valueShape: "accessor",
-      },
-      {
         sourceKey: "node_fs",
         exportName: "Dir.path",
         exportIdioms: ["exported-constructor-prototype"],
@@ -449,6 +439,41 @@ describe("source-bound builtin public probes", () => {
     ]) {
       expect(probeFor(input)).toBeNull();
     }
+  });
+
+  test("reads raw bytes only from a fresh owned X509Certificate", () => {
+    const probe = probeFor({
+      sourceKey: "exact_crypto",
+      exportName: "X509Certificate.raw",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+      sourceRefs: [
+        "src/builtins/crypto.js#exports:X509Certificate.raw",
+      ],
+      valueShape: "accessor",
+    });
+    expect(probe).toMatchObject({
+      invocation: {
+        kind: "builtin-export-read",
+        exportName: "X509Certificate.raw",
+        sourceDescriptor: {
+          sourceKey: "exact_crypto",
+          access: {
+            kind: "constructed-instance-property",
+            path: ["raw"],
+          },
+          expectedValueType: "object",
+        },
+        setup: {
+          kind: "constructed-owner",
+          ownerExportName: "X509Certificate",
+          constructorArguments: [
+            { kind: "json", value: "ibex-x509-fixture" },
+          ],
+        },
+        expectedResult: "return",
+      },
+    });
   });
 
   test("reads only reviewed closed booleans on fresh stream instances", () => {
@@ -1327,6 +1352,28 @@ describe("source-bound builtin public probes", () => {
   });
 
   test("authors bounded crypto operations and keeps native crashes residual", () => {
+    expect(
+      probeFor({
+        sourceKey: "exact_crypto",
+        exportName: "X509Certificate.toString",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        templateId: "exact-crypto-bounded-v1",
+        arguments: [],
+        setup: {
+          kind: "constructed-owner",
+          ownerExportName: "X509Certificate",
+          constructorArguments: [
+            { kind: "json", value: "ibex-x509-fixture" },
+          ],
+        },
+        bodyEntryProof: { resultType: "string" },
+      },
+    });
     expect(
       probeFor({
         sourceKey: "exact_crypto",

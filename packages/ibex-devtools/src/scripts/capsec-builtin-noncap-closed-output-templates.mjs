@@ -1160,6 +1160,14 @@ function stringDecoderRoute(exportName) {
 }
 
 function cryptoRoute(exportName, valueShape) {
+  if (
+    new Set([
+      "X509Certificate.raw",
+      "X509Certificate.toString",
+    ]).has(exportName)
+  ) {
+    return null;
+  }
   if (valueShape === "accessor") {
     if (exportName.startsWith("KeyObject.")) return receiverGet(secretKey());
     if (exportName.startsWith("X509Certificate.")) {

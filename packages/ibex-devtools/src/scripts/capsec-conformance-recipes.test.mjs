@@ -71,6 +71,7 @@ const REVIEWED_POST_INITIALIZATION_VALUE_TYPES = new Map([
   ["exact_crypto:X509Certificate.issuer", "string"],
   ["exact_crypto:X509Certificate.issuerCertificate", "undefined"],
   ["exact_crypto:X509Certificate.keyUsage", "object"],
+  ["exact_crypto:X509Certificate.raw", "object"],
   ["exact_crypto:X509Certificate.publicKey", "undefined"],
   ["exact_crypto:X509Certificate.serialNumber", "string"],
   ["exact_crypto:X509Certificate.subject", "string"],
@@ -436,11 +437,11 @@ describe("exact-target CapSec executable recipes", () => {
     // binding, poll timer, or peer route; close drains its terminal event.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_695);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_697);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_853);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_851);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -465,7 +466,7 @@ describe("exact-target CapSec executable recipes", () => {
         `${descriptor?.sourceKey}:${descriptor?.exportName}`,
       );
     });
-    expect(postInitializationValueReads).toHaveLength(76);
+    expect(postInitializationValueReads).toHaveLength(77);
     expect(
       postInitializationValueReads.every((recipe) => {
         const invocation = recipe.publicSurfaceProbe.invocation;
@@ -606,9 +607,9 @@ describe("exact-target CapSec executable recipes", () => {
     // binding, poll timer, or peer route. The restricted no-eval constructor
     // added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_352);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_354);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_869);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_867);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -624,7 +625,7 @@ describe("exact-target CapSec executable recipes", () => {
       windowsCryptoRecipes.filter(
         (recipe) => recipe.status === "fully-executable",
       ),
-    ).toHaveLength(121);
+    ).toHaveLength(123);
     const unavailableWindowsNativeRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -3425,13 +3426,21 @@ describe("exact-target CapSec executable recipes", () => {
               "constructed-instance-property",
             ]).has(descriptor.access.kind));
         const expectedSetup =
-          descriptor.access.kind === "constructed-instance-property"
-            ? {
-                kind: "stream-owner",
-                ownerExportName: descriptor.exportName.split(".")[0],
-                endedInput: false,
-              }
-            : { kind: "none" };
+          descriptor.access.kind !== "constructed-instance-property"
+            ? { kind: "none" }
+            : descriptor.sourceKey === "exact_crypto"
+              ? {
+                  kind: "constructed-owner",
+                  ownerExportName: "X509Certificate",
+                  constructorArguments: [
+                    { kind: "json", value: "ibex-x509-fixture" },
+                  ],
+                }
+              : {
+                  kind: "stream-owner",
+                  ownerExportName: descriptor.exportName.split(".")[0],
+                  endedInput: false,
+                };
         return (
           recipe.status === "fully-executable" &&
           recipe.classification === "non-capability" &&
@@ -5348,7 +5357,7 @@ describe("exact-target CapSec executable recipes", () => {
         ),
       ),
     ).toEqual({
-      exact_crypto: 93,
+      exact_crypto: 94,
       node_fs: 10,
       node_module: 3,
       node_net: 22,

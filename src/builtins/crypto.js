@@ -3792,7 +3792,18 @@ Object.defineProperty(X509Certificate.prototype, 'raw', {
   get: function() { return typeof Buffer !== 'undefined' ? Buffer.from(this._raw) : this._raw; }, enumerable: true
 });
 
-X509Certificate.prototype.toString = function() { return this._pem; };
+var x509CertificateToString = function() { return this._pem; };
+X509Certificate.prototype.toString = x509CertificateToString;
+// Lazy builtin evaluation runs after primordial prototypes are locked down.
+// Define the own override directly so Object.prototype.toString being
+// non-writable cannot make the sloppy assignment above disappear.
+// @ref LLP 0013#mechanism-1-lockdown — locked intrinsics remain shared.
+Object.defineProperty(X509Certificate.prototype, 'toString', {
+  value: x509CertificateToString,
+  writable: true,
+  configurable: true,
+  enumerable: true
+});
 X509Certificate.prototype.toJSON = function() { return this._pem; };
 X509Certificate.prototype.toLegacyObject = function() {
   return this._exactData && this._exactData.legacyObject ? this._exactData.legacyObject : {};

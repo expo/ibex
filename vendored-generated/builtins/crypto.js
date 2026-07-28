@@ -3507,9 +3507,16 @@ Object.defineProperty(X509Certificate.prototype, "raw", {
 	},
 	enumerable: true
 });
-X509Certificate.prototype.toString = function() {
+var x509CertificateToString = function() {
 	return this._pem;
 };
+X509Certificate.prototype.toString = x509CertificateToString;
+Object.defineProperty(X509Certificate.prototype, "toString", {
+	value: x509CertificateToString,
+	writable: true,
+	configurable: true,
+	enumerable: true
+});
 X509Certificate.prototype.toJSON = function() {
 	return this._pem;
 };

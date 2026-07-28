@@ -181,6 +181,9 @@ const REVIEWED_STREAM_INSTANCE_VALUES = [
   ["node_stream", "Transform.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Transform.closed"],
   ["node_stream", "Writable.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Writable.closed"],
 ];
+const REVIEWED_X509_INSTANCE_VALUES = [
+  ["exact_crypto", "X509Certificate.raw", "accessor", "object", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.raw"],
+];
 
 const target = {
   triple: "aarch64-apple-darwin",
@@ -1608,6 +1611,9 @@ function completePostInitializationValueReadCatalog([
   );
   const streamInstance =
     sourceKey === "node_stream" && exportName.endsWith(".closed");
+  const x509RawInstance =
+    sourceKey === "exact_crypto" &&
+    exportName === "X509Certificate.raw";
   const prototypePath =
     sourceKey === "node_stream" && exportName === "default.destroyed"
       ? ["prototype", "destroyed"]
@@ -1620,8 +1626,11 @@ function completePostInitializationValueReadCatalog([
     moduleSpecifiers,
     sourceRef,
     valueShape,
-    access: streamInstance
-      ? { kind: "constructed-instance-property", path: ["closed"] }
+    access: streamInstance || x509RawInstance
+      ? {
+          kind: "constructed-instance-property",
+          path: [streamInstance ? "closed" : "raw"],
+        }
       : prototype || inheritedPrototype
       ? {
           kind: inheritedPrototype
@@ -1658,7 +1667,15 @@ function completePostInitializationValueReadCatalog([
         ownerExportName: segments[0],
         endedInput: false,
       }
-    : { kind: "none" };
+    : x509RawInstance
+      ? {
+          kind: "constructed-owner",
+          ownerExportName: "X509Certificate",
+          constructorArguments: [
+            { kind: "json", value: "ibex-x509-fixture" },
+          ],
+        }
+      : { kind: "none" };
   catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
   return catalog;
 }
@@ -5371,6 +5388,7 @@ describe("CapSec public-surface promotion evidence", () => {
       ...REVIEWED_POST_INITIALIZATION_VALUES,
       ...REVIEWED_PROTOTYPE_VALUES,
       ...REVIEWED_STREAM_INSTANCE_VALUES,
+      ...REVIEWED_X509_INSTANCE_VALUES,
     ]) {
       const catalog = completePostInitializationValueReadCatalog(entry);
       const recipe = catalog.recipes[0];

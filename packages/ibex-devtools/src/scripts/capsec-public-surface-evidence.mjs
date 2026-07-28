@@ -261,6 +261,15 @@ const REVIEWED_STREAM_INSTANCE_VALUE_EXPORTS = new Map(
     ],
   ),
 );
+const REVIEWED_X509_RAW_INSTANCE_VALUE = Object.freeze({
+  sourceKey: "exact_crypto",
+  exportName: "X509Certificate.raw",
+  valueShape: "accessor",
+  expectedValueType: "object",
+  exportIdioms: ["exported-constructor-prototype"],
+  moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+  sourceRef: "src/builtins/crypto.js#exports:X509Certificate.raw",
+});
 const EFFECT_BUILTIN_MODULE_IMPORT_ALIASES = new Map(
   [
     ["node:sys", "node_util", true, true, "env:read"],
@@ -441,6 +450,22 @@ const EXPLICIT_DH_CALL_CONTRACTS = new Map([
       resultType: "undefined",
     },
   ]),
+]);
+const X509_STATE_CALL_CONTRACTS = new Map([
+  [
+    "X509Certificate.toString",
+    {
+      setup: {
+        kind: "constructed-owner",
+        ownerExportName: "X509Certificate",
+        constructorArguments: [
+          { kind: "json", value: "ibex-x509-fixture" },
+        ],
+      },
+      arguments: [],
+      resultType: "string",
+    },
+  ],
 ]);
 const BASE_STREAM_MODULE_VALUE_CALL_CONTRACTS = new Map([
   [
@@ -1152,6 +1177,27 @@ function isReviewedStreamInstanceValueDescriptor(descriptor) {
         },
         expectedValueType: expected.expectedValueType,
       })
+  );
+}
+
+function isReviewedX509RawInstanceValueDescriptor(descriptor) {
+  const expected = REVIEWED_X509_RAW_INSTANCE_VALUE;
+  return (
+    canonicalJson(descriptor) ===
+    canonicalJson({
+      kind: "builtin-export",
+      sourceKey: expected.sourceKey,
+      exportName: expected.exportName,
+      exportIdioms: expected.exportIdioms,
+      moduleSpecifiers: expected.moduleSpecifiers,
+      sourceRef: expected.sourceRef,
+      valueShape: expected.valueShape,
+      access: {
+        kind: "constructed-instance-property",
+        path: ["raw"],
+      },
+      expectedValueType: expected.expectedValueType,
+    })
   );
 }
 
@@ -3184,7 +3230,8 @@ function validateRuntimeInvocation(observation, recipe) {
         !isReviewedDnsPromiseErrorDescriptor(descriptor) &&
         !isReviewedPostInitializationValueDescriptor(descriptor) &&
         !isReviewedPrototypeValueDescriptor(descriptor) &&
-        !isReviewedStreamInstanceValueDescriptor(descriptor)
+        !isReviewedStreamInstanceValueDescriptor(descriptor) &&
+        !isReviewedX509RawInstanceValueDescriptor(descriptor)
       ) {
         throw new Error(
           `${recipe.fixtureId}: builtin read has an unreviewed runtime value-type expectation`,
@@ -4682,6 +4729,32 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: malformed authored explicit DiffieHellman proof`,
       );
     }
+    const x509StateContract =
+      authored.sourceDescriptor.sourceKey === "exact_crypto"
+        ? X509_STATE_CALL_CONTRACTS.get(authored.exportName)
+        : null;
+    if (
+      x509StateContract &&
+      (authored.templateId !== "exact-crypto-bounded-v1" ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !==
+          x509StateContract.resultType ||
+        authored.sourceDescriptor.access.kind !== "prototype-property" ||
+        canonicalJson(authored.sourceDescriptor.access.path) !==
+          canonicalJson([
+            "X509Certificate",
+            "prototype",
+            "toString",
+          ]) ||
+        canonicalJson(authored.setup) !==
+          canonicalJson(x509StateContract.setup) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson(x509StateContract.arguments))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored X509 state proof`,
+      );
+    }
     const baseStreamContract =
       authored.sourceDescriptor.sourceKey === "node_stream"
         ? BASE_STREAM_MODULE_VALUE_CALL_CONTRACTS.get(authored.exportName)
@@ -4964,13 +5037,25 @@ function validateRuntimeInvocation(observation, recipe) {
     if (authored.kind === "builtin-export-read") {
       const streamInstanceRead =
         isReviewedStreamInstanceValueDescriptor(authored.sourceDescriptor);
+      const x509RawInstanceRead =
+        isReviewedX509RawInstanceValueDescriptor(
+          authored.sourceDescriptor,
+        );
       const expectedReadSetup = streamInstanceRead
         ? {
             kind: "stream-owner",
             ownerExportName: authored.exportName.split(".")[0],
             endedInput: false,
           }
-        : { kind: "none" };
+        : x509RawInstanceRead
+          ? {
+              kind: "constructed-owner",
+              ownerExportName: "X509Certificate",
+              constructorArguments: [
+                { kind: "json", value: "ibex-x509-fixture" },
+              ],
+            }
+          : { kind: "none" };
       if (
         canonicalJson(authored.setup) !== canonicalJson(expectedReadSetup)
       ) {

@@ -256,6 +256,78 @@
     );
   }
 
+  // X509Certificate.toString is a narrowly reviewed state projection. Keep
+  // its fresh receiver and own-prototype path exact so another certificate
+  // method cannot borrow this no-decision receipt.
+  function isReviewedX509StateInvocation(invocation) {
+    if (
+      !invocation.sourceDescriptor ||
+      invocation.sourceDescriptor.sourceKey !== "exact_crypto" ||
+      invocation.exportName !== "X509Certificate.toString"
+    ) {
+      return true;
+    }
+    var descriptor = invocation.sourceDescriptor;
+    return (
+      invocation.invocationSchema ===
+        "ibex/capsec-builtin-call-invocation/1" &&
+      invocation.kind === "builtin-export-call" &&
+      invocation.moduleSpecifier === "node:crypto" &&
+      invocation.templateId === "exact-crypto-bounded-v1" &&
+      exactObjectKeys(descriptor, [
+        "access",
+        "exportIdioms",
+        "exportName",
+        "kind",
+        "moduleSpecifiers",
+        "sourceKey",
+        "sourceRef",
+        "valueShape",
+      ]) &&
+      descriptor.kind === "builtin-export" &&
+      descriptor.exportName === "X509Certificate.toString" &&
+      descriptor.valueShape === "callable" &&
+      descriptor.sourceRef ===
+        "src/builtins/crypto.js#exports:X509Certificate.toString" &&
+      sameStringArray(descriptor.exportIdioms, [
+        "exported-constructor-prototype",
+      ]) &&
+      sameStringArray(descriptor.moduleSpecifiers, [
+        "crypto",
+        "exact:crypto",
+        "node:crypto",
+      ]) &&
+      exactObjectKeys(descriptor.access, ["kind", "path"]) &&
+      descriptor.access.kind === "prototype-property" &&
+      sameStringArray(descriptor.access.path, [
+        "X509Certificate",
+        "prototype",
+        "toString",
+      ]) &&
+      exactObjectKeys(invocation.setup, [
+        "constructorArguments",
+        "kind",
+        "ownerExportName",
+      ]) &&
+      invocation.setup.kind === "constructed-owner" &&
+      invocation.setup.ownerExportName === "X509Certificate" &&
+      Array.isArray(invocation.setup.constructorArguments) &&
+      invocation.setup.constructorArguments.length === 1 &&
+      exactObjectKeys(invocation.setup.constructorArguments[0], [
+        "kind",
+        "value",
+      ]) &&
+      invocation.setup.constructorArguments[0].kind === "json" &&
+      invocation.setup.constructorArguments[0].value ===
+        "ibex-x509-fixture" &&
+      Array.isArray(invocation.arguments) &&
+      invocation.arguments.length === 0 &&
+      exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) &&
+      invocation.bodyEntryProof.kind === "normal-return-from-source-call" &&
+      invocation.bodyEntryProof.resultType === "string"
+    );
+  }
+
   // Output-shape capture is deliberately non-coercing. Primitive values are
   // retained exactly; functions, symbols, and undefined use the established
   // null payload; compound values retain their actual shape without invoking
@@ -315,44 +387,87 @@
   function resolveExport(moduleValue, descriptor) {
     var access = descriptor.access;
     // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
-    // stream.closed is installed as an own accessor on a fresh instance.
+    // These exact instance projections require fresh harness-owned receivers;
+    // generic constructed-property reads remain unavailable.
     if (access.kind === "constructed-instance-property") {
-      if (
-        config.kind !== "builtin-export-read" ||
-        access.path.length !== 1 ||
-        access.path[0] !== "closed" ||
-        !config.setup ||
-        config.setup.kind !== "stream-owner" ||
-        config.setup.endedInput !== false
-      ) {
+      if (config.kind !== "builtin-export-read" || access.path.length !== 1) {
         return { error: failure("access-mismatch") };
       }
       var segments = descriptor.exportName.split(".");
-      if (
-        segments.length !== 2 ||
-        segments[0] !== config.setup.ownerExportName ||
-        segments[1] !== access.path[0]
-      ) {
+      if (segments.length !== 2 || segments[1] !== access.path[0]) {
         return { error: failure("access-mismatch") };
       }
-      var stream = createStreamInstance(
-        moduleValue,
-        config.setup.ownerExportName,
-        false,
-      );
-      var streamDescriptor = Object.getOwnPropertyDescriptor(
-        stream,
-        access.path[0],
-      );
-      if (!streamDescriptor || typeof streamDescriptor.get !== "function") {
+      var instance;
+      if (
+        access.path[0] === "closed" &&
+        config.setup &&
+        config.setup.kind === "stream-owner" &&
+        config.setup.endedInput === false &&
+        segments[0] === config.setup.ownerExportName
+      ) {
+        instance = createStreamInstance(
+          moduleValue,
+          config.setup.ownerExportName,
+          false,
+        );
+        var streamDescriptor = Object.getOwnPropertyDescriptor(
+          instance,
+          access.path[0],
+        );
+        if (!streamDescriptor || typeof streamDescriptor.get !== "function") {
+          return {
+            error: failure("shape-mismatch", {
+              expectedShape: "own-accessor",
+            }),
+          };
+        }
+      } else if (
+        descriptor.sourceKey === "exact_crypto" &&
+        descriptor.exportName === "X509Certificate.raw" &&
+        access.path[0] === "raw" &&
+        config.setup &&
+        config.setup.kind === "constructed-owner" &&
+        config.setup.ownerExportName === "X509Certificate" &&
+        exactObjectKeys(config.setup, [
+          "constructorArguments",
+          "kind",
+          "ownerExportName",
+        ]) &&
+        Array.isArray(config.setup.constructorArguments) &&
+        config.setup.constructorArguments.length === 1 &&
+        exactObjectKeys(config.setup.constructorArguments[0], [
+          "kind",
+          "value",
+        ]) &&
+        config.setup.constructorArguments[0].kind === "json" &&
+        config.setup.constructorArguments[0].value === "ibex-x509-fixture"
+      ) {
+        var x509Owner = moduleValue.X509Certificate;
+        if (typeof x509Owner !== "function") {
+          return { error: failure("setup-mismatch") };
+        }
+        instance = Reflect.construct(x509Owner, ["ibex-x509-fixture"]);
+        var x509Descriptor = Object.getOwnPropertyDescriptor(
+          x509Owner.prototype,
+          "raw",
+        );
+        if (!x509Descriptor || typeof x509Descriptor.get !== "function") {
+          return {
+            error: failure("shape-mismatch", {
+              expectedShape: "prototype-accessor",
+            }),
+          };
+        }
+      } else {
+        return { error: failure("access-mismatch") };
+      }
+      if (!instance) {
         return {
-          error: failure("shape-mismatch", {
-            expectedShape: "own-accessor",
-          }),
+          error: failure("setup-mismatch"),
         };
       }
       sourceOperationAttempted = true;
-      return { value: stream[access.path[0]] };
+      return { value: instance[access.path[0]] };
     }
     var value = moduleValue;
     if (access.kind === "module-value") {
@@ -552,7 +667,8 @@
     var cleanupPerformed = false;
     if (
       !isReviewedIdleHttpInvocation(config) ||
-      !isReviewedIdleDgramInvocation(config)
+      !isReviewedIdleDgramInvocation(config) ||
+      !isReviewedX509StateInvocation(config)
     ) {
       return failure("contract-mismatch");
     }

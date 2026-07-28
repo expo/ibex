@@ -118,10 +118,10 @@ const loaded = residualInvocations();
 describe("builtin non-capability/closed output recipes", () => {
   test("accounts for the exact callable/accessor and descriptor residual universe", async () => {
     const rows = await loaded;
-    // Nine fresh HTTP and six fresh UDP construction/lifecycle calls now have
+    // Fresh HTTP/UDP lifecycle calls and X509Certificate.toString now have
     // exact loaded zero-decision recipes instead of descriptor-only residual
     // accounts.
-    expect(rows).toHaveLength(549);
+    expect(rows).toHaveLength(548);
     expect(
       Object.fromEntries(
         ["non-capability", "closed"].map((classification) => [
@@ -131,13 +131,13 @@ describe("builtin non-capability/closed output recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ "non-capability": 329, closed: 220 });
+    ).toEqual({ "non-capability": 328, closed: 220 });
     expect(
       builtinNoncapClosedOutputRouteManifest(rows.map((row) => row.invocation)),
     ).toMatchObject({
-      total: 549,
+      total: 548,
       operations: {
-        call: 250,
+        call: 249,
         construct: 16,
         "import-refusal": 22,
         unexercisable: 261,
@@ -153,7 +153,7 @@ describe("builtin non-capability/closed output recipes", () => {
     // The 24 settled consumers, eight fixed-DH operations, six base Stream
     // lifecycle calls, 11 idle zlib destroys, nine fresh HTTP lifecycle calls,
     // and six fresh UDP socket lifecycle calls now have bounded public probes.
-    // Those 64 rows are no longer descriptor-only residuals; Duplex
+    // Those 65 rows are no longer descriptor-only residuals; Duplex
     // `_undestroy` is one representative inherited descriptor.
     expect(
       rows.some(

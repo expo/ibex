@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-27 (promotes exactly two bounded X509 instance operations: an own `raw` accessor read and `toString()` on a fresh harness-owned `X509Certificate("ibex-x509-fixture")`; the locked primordial `Object.prototype.toString` previously swallowed ordinary prototype assignment, so `crypto.js` now installs the intended own override with an explicit descriptor while preserving lockdown; the author, independent evidence validator, Rust validator, and loaded-engine JavaScript harness separately repeat the exact constructor, access/call, result type, quiescence, and zero-decision contract; Apple accounting is 3,697 fully executable / 3,036 internally verified / 16,851 unresolved and Windows accounting is 3,354 / 3,022 / 16,867)
 **Revised:** 2026-07-27 (promotes exactly six fresh `node:dgram` udp4 construction/lifecycle calls: `Socket`, `Socket.close`, `Socket.constructor`, `Socket.ref`, `Socket.unref`, and `createSocket`; construction creates the principal stamp but no native handle, binding, poll timer, or peer route, while close must drain its terminal event before quiescence; the author, independent evidence validator, Rust validator, and loaded-engine JavaScript harness each repeat the real `src/builtins/dgram.js` descriptor, canonical `node:dgram` invocation, exact udp4 setup, result, and normal-return proof; bind, connect, send, address, membership, and buffer operations remain residual; Apple accounting is 3,695 fully executable / 3,036 internally verified / 16,853 unresolved and Windows accounting is 3,352 / 3,022 / 16,869)
 **Revised:** 2026-07-27 (promotes exactly nine fresh `node:http` construction/lifecycle calls: `Agent.destroy`, `Server`, `Server.close`, `Server.closeAllConnections`, `Server.closeIdleConnections`, `Server.constructor`, `Server.ref`, `Server.unref`, and `createServer`; the author, independent evidence validator, Rust validator, and loaded-engine JavaScript harness each repeat the complete source descriptor, empty arguments, exact fresh receiver setup, result type, and normal-return proof; no receiver has a listener, socket, or native selector, and `Server.close` must drain its terminal event before quiescence; listening, client-request, and transport-retaining routes remain residual; Apple accounting is 3,689 fully executable / 3,036 internally verified / 16,859 unresolved and Windows accounting is 3,346 / 3,022 / 16,875)
 **Revised:** 2026-07-27 (promotes exactly seven inert `closed` boolean reads on fresh harness-owned `default`, `Duplex`, `PassThrough`, `Readable`, `Stream`, `Transform`, and `Writable` instances; the inventory's inherited/prototype rows do not describe a value on those prototypes, so authoring, independent validation, and Rust execution require the separate `constructed-instance-property` access kind, exact owner setup, own getter, boolean result, quiescence, and zero decisions; mutable `readableState` and `writableState` graphs remain residual; Apple accounting is 3,680 fully executable / 3,036 internally verified / 16,868 unresolved and Windows accounting is 3,337 / 3,022 / 16,884)
@@ -2754,6 +2755,22 @@ proof. The closed set does not include bind, connect, disconnect, send, address,
 membership, buffer-size, or socket-option operations; those still require a
 bound handle, peer route, throwing result, or separately owned network
 lifecycle.
+
+X509 instance evidence is limited to two bounded operations on a fresh
+harness-owned `X509Certificate("ibex-x509-fixture")`. The `raw` row requires
+the own constructed-instance accessor and returns only its bounded byte object.
+The `toString` row calls the source-defined certificate formatter and requires
+a string result. Lockdown makes the inherited primordial
+`Object.prototype.toString` non-writable, so ordinary assignment previously
+failed silently instead of installing the intended X509 override. The builtin
+now defines that own method explicitly with the reviewed descriptor, analogous
+to other compatibility methods that must survive primordial locking. The
+recipe author, independent evidence validator, Rust validator, and
+loaded-engine JavaScript harness separately repeat the exact constructor,
+access or call kind, result type, quiescence, and zero-decision contract. This
+receipt does not admit certificate verification, hostname/email/IP checks,
+public-key export, or other X509 operations whose inputs or outputs require a
+separate bounded proof.
 
 Acceptance:
 
