@@ -5,7 +5,7 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-27 (adds the restricted consumer construction path and its one-way post-bootstrap, pre-publication Hermes dynamic-code latch while preserving host-selected `ex_hermes_eval`)
+**Revised:** 2026-07-27 (adds the restricted consumer construction path, its one-way post-bootstrap/pre-publication Hermes dynamic-code latch while preserving host-selected `ex_hermes_eval`, and native asynchronous-failure checkpoints without reviving handler-reachable Promise observers)
 **Revised:** 2026-07-25 (LLP 0040 replaces the retired WebGPU-specific mailbox and activation bundle with the generic runtime-extension registry, fixed install phase, owner executor, completion tokens, and package-owned authenticated bootstrap inputs)
 **Revised:** 2026-07-25 (historical: separated the core bundle from an Ibex-owned WebGPU activation bundle; superseded by LLP 0040)
 **Revised:** 2026-07-19 (makes authenticated V2 capture publish the exact source-derived WebGPU wrapper roots, gates `createImageBitmap` on attached decoded-image authority, and fences all armed user execution on a post-publication descriptor-only root sweep with revocation and terminal rollback on mismatch; no target advertisement or platform-support claim is added)
@@ -37,7 +37,15 @@ named diagnostic constructor is not a project-execution API. Restricted local
 consumers may use `ex_hermes_create_no_eval()`: it follows the unarmed bootstrap
 path, then requires patch 0014's one-way VM latch before registration so host
 evaluation can load the selected application bundle while JavaScript `eval` and
-Function-family compilation remain closed. Armed creation:
+Function-family compilation remain closed. That restricted path also enables
+Hermes's native Promise-rejection checkpoint and the existing
+`ex_hermes_take_async_failure_event` owner-thread queue, independently of
+structured-session work publication. It deliberately leaves the intrinsic
+graph mutable so the embedding host can install its own application policy;
+unlike diagnostic and armed creation, it does not opt into Ibex's structural
+lockdown. The restricted consumer's queue take itself flushes Promise
+checkpoint records after the preceding eval drain and does not advance timers
+or unrelated callbacks. Armed creation:
 
 1. Builds a `hermes::vm::RuntimeConfig` with a microtask queue, `eval`, and
    ES6 block scoping enabled, then

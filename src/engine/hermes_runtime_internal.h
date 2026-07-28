@@ -617,6 +617,11 @@ struct ExactHermesRuntime {
   // Immutable constructor-selected posture. Bootstrap must never consult
   // process-global environment toggles that other threads can observe/race.
   bool armed{false};
+  // The restricted consumer constructor is unarmed but opts into the native
+  // Promise-rejection checkpoint queue so its host can fail an invocation on
+  // detached asynchronous failures without a handler-reachable observer hook.
+  // @ref LLP 0002#the-narrow-consumer-contract-semver-major
+  bool restricted_consumer_async_failures{false};
   // An authenticated Host context has no ambient native-storage fallback.
   // Trusted bootstrap carries this closed policy into the shared runtime
   // before the temporary compatibility carrier is removed. This is also true

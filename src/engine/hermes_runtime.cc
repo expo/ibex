@@ -1427,6 +1427,13 @@ bool structuredWorkPublicationEnabled(const ExactHermesRuntime* runtime) {
   return runtime != nullptr && runtime->structured_session_bound;
 }
 
+bool structuredAsyncFailurePublicationEnabled(
+    const ExactHermesRuntime* runtime) {
+  return runtime != nullptr &&
+      (runtime->structured_session_bound ||
+       runtime->restricted_consumer_async_failures);
+}
+
 void failStructuredWorkPublication(ExactHermesRuntime* runtime) {
   if (runtime == nullptr) return;
   std::lock_guard<std::mutex> lock(runtime->structured_work_event_mutex);
@@ -2095,7 +2102,7 @@ bool publishStructuredAsyncFailure(
     const std::string* capturedStack = nullptr,
     const uint32_t* capturedMetadataFields = nullptr,
     const uint32_t* capturedErrorClass = nullptr) {
-  if (!structuredWorkPublicationEnabled(runtime)) return false;
+  if (!structuredAsyncFailurePublicationEnabled(runtime)) return false;
   if (runtime->runtime_thread != std::this_thread::get_id() ||
       runtime->structured_async_failure_failed) {
     runtime->structured_async_failure_failed = true;
@@ -2247,7 +2254,7 @@ void trackPendingPromiseRejection(
     ExactHermesRuntime* runtime,
     const facebook::jsi::Object& promise,
     const facebook::jsi::Value& reason) {
-  if (!structuredWorkPublicationEnabled(runtime) ||
+  if (!structuredAsyncFailurePublicationEnabled(runtime) ||
       runtime->runtime_thread != std::this_thread::get_id()) {
     return;
   }
@@ -2303,7 +2310,7 @@ void trackPendingPromiseRejection(
 void handlePendingPromiseRejection(
     ExactHermesRuntime* runtime,
     const facebook::jsi::Object& promise) {
-  if (!structuredWorkPublicationEnabled(runtime) ||
+  if (!structuredAsyncFailurePublicationEnabled(runtime) ||
       runtime->runtime_thread != std::this_thread::get_id()) {
     return;
   }
@@ -2331,7 +2338,7 @@ void handlePendingPromiseRejection(
 
 bool hasPendingPromiseRejectionCheckpointWork(
     const ExactHermesRuntime* runtime) {
-  return structuredWorkPublicationEnabled(runtime) &&
+  return structuredAsyncFailurePublicationEnabled(runtime) &&
          (!runtime->structured_pending_promise_rejections.empty() ||
           runtime->structured_pending_promise_rejection_dropped != 0);
 }
@@ -2469,7 +2476,7 @@ bool disposeAsyncCallbackError(ExactHermesRuntime* runtime,
   ScopedNativeWorkUnit workUnit(
       runtime, EX_HERMES_WORK_UNIT_CALLBACK);
   const bool rawCapture =
-      structuredWorkPublicationEnabled(runtime) &&
+      structuredAsyncFailurePublicationEnabled(runtime) &&
       ScopedRawThrowCapture::available();
   std::string safeMessage;
   std::string safeStack;
@@ -2477,7 +2484,7 @@ bool disposeAsyncCallbackError(ExactHermesRuntime* runtime,
   uint32_t safeErrorClass = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
   bool safeMetadataCaptured = false;
 #ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
-  if (structuredWorkPublicationEnabled(runtime)) {
+  if (structuredAsyncFailurePublicationEnabled(runtime)) {
     try {
       bool messageTruncated = false;
       bool stackTruncated = false;
@@ -2513,7 +2520,7 @@ bool disposeAsyncCallbackError(ExactHermesRuntime* runtime,
     workUnit.finish();
     if (runtime->structured_session_terminated) return false;
   }
-  if (structuredWorkPublicationEnabled(runtime)) {
+  if (structuredAsyncFailurePublicationEnabled(runtime)) {
     // The original value remains rooted worker-locally. Queue saturation is
     // reported through an explicit pre-receipt drop marker, so the engine can
     // keep running without deciding session fatality or writing raw stderr.
@@ -2561,7 +2568,8 @@ GuardedMicrotaskDrainResult drainMicrotasksGuarded(
       return GuardedMicrotaskDrainResult::Drained;
     }
     ScopedNativeWorkUnit workUnit(runtime, EX_HERMES_WORK_UNIT_MICROTASK_DRAIN);
-    const bool rawCapture = structuredWorkPublicationEnabled(runtime) &&
+    const bool rawCapture =
+        structuredAsyncFailurePublicationEnabled(runtime) &&
                             ScopedRawThrowCapture::available();
     ScopedRawThrowCapture rawThrowCapture(runtime->runtime.get(), rawCapture);
     ScopedAsyncFailureContext failureContext(
@@ -2617,7 +2625,7 @@ GuardedMicrotaskDrainResult drainMicrotasksGuarded(
       // Non-JS failure: no per-job progress guarantee (unlike the JSError
       // arm, which consumes the throwing job), so never loop — leave any
       // remaining jobs for the next poll.
-      if (structuredWorkPublicationEnabled(runtime)) {
+      if (structuredAsyncFailurePublicationEnabled(runtime)) {
         recordStructuredAsyncFailureDrop(runtime);
         return GuardedMicrotaskDrainResult::Failed;
       }
@@ -3551,7 +3559,7 @@ int drainCallbackQueue(ExactHermesRuntime* runtime) {
         ScopedHermesJobSchedulerPrincipal schedulerPrincipal(
             runtime, entry.failureContext);
         const bool rawCapture =
-            structuredWorkPublicationEnabled(runtime) &&
+            structuredAsyncFailurePublicationEnabled(runtime) &&
             ScopedRawThrowCapture::available();
         ScopedRawThrowCapture rawThrowCapture(
             runtime->runtime.get(), rawCapture);
@@ -3589,7 +3597,7 @@ int drainCallbackQueue(ExactHermesRuntime* runtime) {
                 continue;
             }
             if (runtime->structured_lifecycle_pending) break;
-            if (structuredWorkPublicationEnabled(runtime)) {
+            if (structuredAsyncFailurePublicationEnabled(runtime)) {
                 recordStructuredAsyncFailureDrop(runtime);
                 count++;
                 continue;
@@ -3603,7 +3611,7 @@ int drainCallbackQueue(ExactHermesRuntime* runtime) {
                 continue;
             }
             if (runtime->structured_lifecycle_pending) break;
-            if (structuredWorkPublicationEnabled(runtime)) {
+            if (structuredAsyncFailurePublicationEnabled(runtime)) {
                 recordStructuredAsyncFailureDrop(runtime);
                 count++;
                 continue;
@@ -5899,7 +5907,8 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     throw std::runtime_error(
         "Armed startup requires the capability-mediated shared runtime bundle");
   }
-  if (handle->armed && !configurePromiseRejectionCheckpointTracker(handle)) {
+  if ((handle->armed || handle->restricted_consumer_async_failures) &&
+      !configurePromiseRejectionCheckpointTracker(handle)) {
     throw std::runtime_error(
         "Hermes promise rejection checkpoint tracking is unavailable");
   }
@@ -6812,7 +6821,7 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
             entry.id == 0 ? workUnit.targetId() : entry.id,
             entry.associatedEvaluation));
     const bool rawCapture =
-        structuredWorkPublicationEnabled(runtime) &&
+        structuredAsyncFailurePublicationEnabled(runtime) &&
         ScopedRawThrowCapture::available();
     ScopedRawThrowCapture rawThrowCapture(runtime->runtime.get(), rawCapture);
     try {
@@ -6845,7 +6854,7 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
         continue;
       }
       if (runtime->structured_lifecycle_pending) return;
-      if (structuredWorkPublicationEnabled(runtime)) {
+      if (structuredAsyncFailurePublicationEnabled(runtime)) {
         recordStructuredAsyncFailureDrop(runtime);
         continue;
       }
@@ -9500,13 +9509,18 @@ static ExactHermesRuntime* ex_hermes_create_impl(
   handle->runtime_thread = std::this_thread::get_id();
   handle->host_context_id = host_context_id;
   handle->armed = armed;
+  handle->restricted_consumer_async_failures = disable_dynamic_code;
   handle->authenticated_native_storage_closed =
       armed || authenticate_extension_registry;
   handle->trusted_bootstrap_in_progress = true;
-  // Both production and the explicitly named foreground diagnostic constructor
-  // use structural isolation. Only production seals dynamic self-grant and
-  // consumes authenticated endowments.
-  handle->structural_lockdown = true;
+  // Production and the explicitly named foreground diagnostic constructor use
+  // Ibex structural isolation. The narrow no-eval consumer instead retains
+  // mutable intrinsics so its embedding host can install its own application
+  // policy (for example deterministic Date/Math denial) before evaluating its
+  // selected bundle; Hermes's one-way dynamic-code latch remains the compiler
+  // boundary.
+  // @ref LLP 0002#the-narrow-consumer-contract-semver-major
+  handle->structural_lockdown = !disable_dynamic_code;
   handle->runtime_nonce = exactAllocateRuntimeNonce();
   if (handle->runtime_nonce == 0) {
     ex_host_console_log(1, "Armed startup refused: runtime nonce unavailable");
@@ -13383,6 +13397,16 @@ extern "C" uint32_t ex_hermes_take_async_failure_event(
   ExactRuntimeDriveGuard drive(runtime);
   if (!drive) return EX_HERMES_ASYNC_FAILURE_EVENT_FAILED;
 
+  // The restricted consumer has no structured poll loop. Taking the queue is
+  // therefore its rejection-determination checkpoint: ex_hermes_eval already
+  // drained the current host task's microtasks, and this flush neither advances
+  // timers nor runs unrelated callback queues.
+  // @ref LLP 0002#the-narrow-consumer-contract-semver-major
+  if (runtime->restricted_consumer_async_failures &&
+      hasPendingPromiseRejectionCheckpointWork(runtime)) {
+    flushPendingPromiseRejections(runtime);
+  }
+
   if (runtime->structured_async_failure_failed) {
     return EX_HERMES_ASYNC_FAILURE_EVENT_FAILED;
   }
@@ -16237,7 +16261,7 @@ static int pollTypedAuthorityGenerations(ExactHermesRuntime* runtime) {
   std::optional<ScopedAsyncFailureContext> failureContext;
   std::optional<ScopedRawThrowCapture> rawThrowCapture;
   const bool rawCapture =
-      structuredWorkPublicationEnabled(runtime) &&
+      structuredAsyncFailurePublicationEnabled(runtime) &&
       ScopedRawThrowCapture::available();
   try {
     auto& rt = *runtime->runtime;
@@ -16339,7 +16363,7 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms,
                 workUnit.targetId(),
                 exactCurrentAsyncEvaluationAssociation(runtime)});
         const bool rawCapture =
-            structuredWorkPublicationEnabled(runtime) &&
+            structuredAsyncFailurePublicationEnabled(runtime) &&
             ScopedRawThrowCapture::available();
         ScopedRawThrowCapture rawThrowCapture(
             runtime->runtime.get(), rawCapture);
@@ -16371,7 +16395,7 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms,
             continue;
           }
           if (runtime->structured_lifecycle_pending) break;
-          if (structuredWorkPublicationEnabled(runtime)) {
+          if (structuredAsyncFailurePublicationEnabled(runtime)) {
             recordStructuredAsyncFailureDrop(runtime);
             executed++;
             continue;
@@ -16513,7 +16537,7 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms,
             id,
             it->second.associatedEvaluation));
     const bool rawCapture =
-        structuredWorkPublicationEnabled(runtime) &&
+        structuredAsyncFailurePublicationEnabled(runtime) &&
         ScopedRawThrowCapture::available();
     ScopedRawThrowCapture rawThrowCapture(runtime->runtime.get(), rawCapture);
     try {
@@ -16571,7 +16595,7 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms,
       // timers, while the legacy CLI keeps its fatal -1 contract.
       if (!disposeAsyncCallbackError(runtime, err)) {
         retireTimer();
-        if (!structuredWorkPublicationEnabled(runtime)) {
+        if (!structuredAsyncFailurePublicationEnabled(runtime)) {
           // This return -1 is the legacy one-shot report for this throw;
           // leaving the flag set would report it again on the next poll.
           runtime->fatal_async_error = false;
@@ -16592,7 +16616,7 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms,
       if (runtime->structured_lifecycle_pending) {
         return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
       }
-      if (structuredWorkPublicationEnabled(runtime)) {
+      if (structuredAsyncFailurePublicationEnabled(runtime)) {
         recordStructuredAsyncFailureDrop(runtime);
         executed += 1;
         if (!timerTask.finish()) return -1;

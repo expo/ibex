@@ -896,6 +896,20 @@ mod tests {
         position_count: usize,
     }
 
+    #[repr(C)]
+    struct StructuredAsyncFailureEvent {
+        abi_version: u32,
+        struct_size: u32,
+        kind: u32,
+        principal_status: u32,
+        value: StructuredValueHandle,
+        host_context_id: u64,
+        owning_principal_id: u64,
+        event_id: u64,
+        associated_evaluation: u64,
+        dropped_count: u64,
+    }
+
     const STRUCTURED_VALUE: u32 = 2;
     const STRUCTURED_THROW: u32 = 3;
     const STRUCTURED_ENGINE_FAULT: u32 = 6;
@@ -912,6 +926,9 @@ mod tests {
     const ERROR_CLASS_UNCLASSIFIED: u32 = 0;
     const CAPABILITY_SAFE_THROW: u32 = 1 << 1;
     const CAPABILITY_SOURCE_POSITIONS: u32 = 1 << 2;
+    const ASYNC_FAILURE_ABI_VERSION: u32 = 1;
+    const ASYNC_FAILURE_AVAILABLE: u32 = 1;
+    const ASYNC_FAILURE_EMPTY: u32 = 0;
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     #[repr(C)]
@@ -1110,6 +1127,10 @@ mod tests {
         fn ex_hermes_value_release(
             runtime: *mut HermesRuntimeOpaque,
             handle: StructuredValueHandle,
+        ) -> u32;
+        fn ex_hermes_take_async_failure_event(
+            runtime: *mut HermesRuntimeOpaque,
+            event: *mut StructuredAsyncFailureEvent,
         ) -> u32;
         #[cfg(feature = "capsec-conformance-observer")]
         fn ibex_exact_runtime_c_abi_probe_prepare(out_context: *mut *mut c_void) -> i32;
@@ -2118,6 +2139,71 @@ mod tests {
             );
             assert_eq!(status, 0, "host-selected evaluation failed: {value:?}");
             assert_eq!(value.as_deref(), Some("[]"));
+
+            let (status, value) = eval(
+                runtime,
+                r#"
+                JSON.stringify({
+                  mathFrozen: Object.isFrozen(Math),
+                  randomConfigurable:
+                    Object.getOwnPropertyDescriptor(Math, "random").configurable,
+                  dateFrozen: Object.isFrozen(Date),
+                  dateConfigurable:
+                    Object.getOwnPropertyDescriptor(globalThis, "Date").configurable
+                })
+                "#,
+            );
+            assert_eq!(status, 0, "consumer policy probe failed: {value:?}");
+            assert_eq!(
+                value.as_deref(),
+                Some(
+                    "{\"mathFrozen\":false,\"randomConfigurable\":true,\"dateFrozen\":false,\"dateConfigurable\":true}"
+                )
+            );
+            ex_hermes_destroy(runtime);
+        }
+    }
+
+    /// Restricted consumers receive detached Promise failures through the
+    /// native owner-thread queue, without a handler-reachable observer hook.
+    /// @ref LLP 0002#the-narrow-consumer-contract-semver-major
+    #[test]
+    fn no_eval_consumer_runtime_reports_detached_promise_rejections() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let runtime = ex_hermes_create_no_eval();
+            assert!(!runtime.is_null());
+            let (status, value) =
+                eval(runtime, "Promise.reject('detached'); 'scheduled'");
+            assert_eq!(status, 0, "rejection scheduling failed: {value:?}");
+
+            let mut event = StructuredAsyncFailureEvent {
+                abi_version: ASYNC_FAILURE_ABI_VERSION,
+                struct_size: std::mem::size_of::<StructuredAsyncFailureEvent>() as u32,
+                kind: 0,
+                principal_status: 0,
+                value: StructuredValueHandle {
+                    runtime_nonce: 0,
+                    handle_id: 0,
+                },
+                host_context_id: 0,
+                owning_principal_id: 0,
+                event_id: 0,
+                associated_evaluation: 0,
+                dropped_count: 0,
+            };
+            assert_eq!(
+                ex_hermes_take_async_failure_event(runtime, &mut event),
+                ASYNC_FAILURE_AVAILABLE
+            );
+            assert_ne!(event.value.runtime_nonce, 0);
+            assert_ne!(event.value.handle_id, 0);
+            assert_eq!(ex_hermes_value_release(runtime, event.value), FAULT_NONE);
+            assert_eq!(
+                ex_hermes_take_async_failure_event(runtime, &mut event),
+                ASYNC_FAILURE_EMPTY
+            );
             ex_hermes_destroy(runtime);
         }
     }
