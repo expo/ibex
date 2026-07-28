@@ -758,6 +758,12 @@ const ZLIB_OWNER_NAMES = Object.freeze([
 const ZLIB_OWNER_SET = new Set(ZLIB_OWNER_NAMES);
 function zlibRootCallSpecs() {
   const specs = Object.create(null);
+  const deflateBytes = [120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169];
+  const deflateRawBytes = [203, 76, 74, 173, 0, 0];
+  const gzipBytes = [
+    31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30, 109,
+    106, 4, 0, 0, 0,
+  ];
   for (const ownerExportName of ZLIB_OWNER_NAMES) {
     specs[ownerExportName] = constructTarget([]);
     specs[`create${ownerExportName}`] = rootCall([], "object");
@@ -775,6 +781,13 @@ function zlibRootCallSpecs() {
     [bufferArgument([105, 98, 101, 120])],
     "object",
   );
+  specs.inflateSync = rootCall([bufferArgument(deflateBytes)], "object");
+  specs.inflateRawSync = rootCall(
+    [bufferArgument(deflateRawBytes)],
+    "object",
+  );
+  specs.gunzipSync = rootCall([bufferArgument(gzipBytes)], "object");
+  specs.unzipSync = rootCall([bufferArgument(gzipBytes)], "object");
   // One-shot codec functions, synchronous and callback-based alike, enter
   // native codec work that currently can terminate the bound static-Hermes
   // process. Keep every unaudited member residual until each backend has

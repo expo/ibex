@@ -46,6 +46,22 @@
     return true;
   }
 
+  function sameByteView(value, expected) {
+    if (
+      value === null ||
+      typeof value !== "object" ||
+      !ArrayBuffer.isView(value) ||
+      value.byteLength !== expected.length ||
+      value.length !== expected.length
+    ) {
+      return false;
+    }
+    for (var index = 0; index < value.length; index++) {
+      if (value[index] !== expected[index]) return false;
+    }
+    return true;
+  }
+
   function sameJsonStringArguments(value, expected) {
     if (!Array.isArray(value) || value.length !== expected.length) {
       return false;
@@ -623,6 +639,81 @@
       exactObjectKeys(argument, ["bytes", "kind"]) &&
       argument.kind === "buffer" &&
       sameByteArray(argument.bytes, [105, 98, 101, 120]) &&
+      exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) &&
+      invocation.bodyEntryProof.kind ===
+        "normal-return-from-source-call" &&
+      invocation.bodyEntryProof.resultType === "object"
+    );
+  }
+
+  function zlibSyncDecoderInput(invocation) {
+    if (
+      !invocation ||
+      !invocation.sourceDescriptor ||
+      invocation.sourceDescriptor.sourceKey !== "node_zlib"
+    ) {
+      return null;
+    }
+    switch (invocation.exportName) {
+      case "gunzipSync":
+      case "unzipSync":
+        return [
+          31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30,
+          109, 106, 4, 0, 0, 0,
+        ];
+      case "inflateRawSync":
+        return [203, 76, 74, 173, 0, 0];
+      case "inflateSync":
+        return [120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169];
+      default:
+        return null;
+    }
+  }
+
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // Each isolated decoder receives one exact compressed literal whose only
+  // accepted result is the original four-byte payload.
+  function isReviewedZlibSyncDecoderInvocation(invocation) {
+    var input = zlibSyncDecoderInput(invocation);
+    if (input === null) return true;
+    var descriptor = invocation.sourceDescriptor;
+    var argument = invocation.arguments && invocation.arguments[0];
+    return (
+      invocation.invocationSchema ===
+        "ibex/capsec-builtin-call-invocation/1" &&
+      invocation.kind === "builtin-export-call" &&
+      invocation.moduleSpecifier === "node:zlib" &&
+      invocation.templateId === "node-zlib-bounded-v1" &&
+      exactObjectKeys(descriptor, [
+        "access",
+        "exportIdioms",
+        "exportName",
+        "kind",
+        "moduleSpecifiers",
+        "sourceKey",
+        "sourceRef",
+        "valueShape",
+      ]) &&
+      descriptor.kind === "builtin-export" &&
+      descriptor.exportName === invocation.exportName &&
+      descriptor.valueShape === "callable" &&
+      descriptor.sourceRef ===
+        "src/builtins/zlib.js#exports:" + invocation.exportName &&
+      sameStringArray(descriptor.exportIdioms, [
+        "object-binding",
+        "object-source",
+      ]) &&
+      sameStringArray(descriptor.moduleSpecifiers, ["node:zlib", "zlib"]) &&
+      exactObjectKeys(descriptor.access, ["kind", "path"]) &&
+      descriptor.access.kind === "export-property" &&
+      sameStringArray(descriptor.access.path, [invocation.exportName]) &&
+      exactObjectKeys(invocation.setup, ["kind"]) &&
+      invocation.setup.kind === "root-call" &&
+      Array.isArray(invocation.arguments) &&
+      invocation.arguments.length === 1 &&
+      exactObjectKeys(argument, ["bytes", "kind"]) &&
+      argument.kind === "buffer" &&
+      sameByteArray(argument.bytes, input) &&
       exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) &&
       invocation.bodyEntryProof.kind ===
         "normal-return-from-source-call" &&
@@ -1471,6 +1562,7 @@
     var tlsServerLifecycleVerified = false;
     var tlsServerLifecyclePromise = null;
     var zlibSyncEncoderOutputVerified = false;
+    var zlibSyncDecoderOutputVerified = false;
     var readlineLifecycleState = null;
     if (
       !isReviewedBoundedHttpInvocation(config) ||
@@ -1479,6 +1571,7 @@
       !isReviewedIdleTlsServerInvocation(config) ||
       !isReviewedIdleDgramInvocation(config) ||
       !isReviewedZlibSyncEncoderInvocation(config) ||
+      !isReviewedZlibSyncDecoderInvocation(config) ||
       !isReviewedX509StateInvocation(config) ||
       !isReviewedPureCompatibilityInvocation(config) ||
       !isReviewedReadlineInterfaceLifecycleInvocation(config) ||
@@ -1711,6 +1804,18 @@
           });
         }
       }
+      var zlibSyncDecoderInputBytes = zlibSyncDecoderInput(config);
+      if (zlibSyncDecoderInputBytes !== null) {
+        zlibSyncDecoderOutputVerified = sameByteView(
+          result,
+          [105, 98, 101, 120],
+        );
+        if (!zlibSyncDecoderOutputVerified) {
+          return failure("result-shape-mismatch", {
+            expectedShape: "exact-byte-view",
+          });
+        }
+      }
       if (
         setup.kind === "readline-interface-owner" ||
         setup.kind === "readline-interface-pause-owner"
@@ -1843,6 +1948,10 @@
       if (isZlibSyncEncoderInvocation(config)) {
         success.zlibSyncEncoderOutputVerified =
           zlibSyncEncoderOutputVerified;
+      }
+      if (zlibSyncDecoderInput(config) !== null) {
+        success.zlibSyncDecoderOutputVerified =
+          zlibSyncDecoderOutputVerified;
       }
       if (
         setup.kind === "readline-interface-owner" ||

@@ -4910,6 +4910,52 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — isolate four synchronous zlib decoders
+
+- Promoted exactly `node_zlib.gunzipSync`, `node_zlib.inflateRawSync`,
+  `node_zlib.inflateSync`, and `node_zlib.unzipSync`. Each public root call
+  receives one fixed complete deflate, raw-deflate, or gzip Buffer and is
+  credited only when its returned byte view exactly equals
+  `[105, 98, 101, 120]`.
+- The author, independent JavaScript evidence validator, Rust catalog
+  validator, and final loaded-engine harness separately repeat the exact
+  four-name allowlist, source descriptor, canonical `node:zlib` alias,
+  compressed bytes, root dispatch, object result, and exact decoded-byte
+  proof. Brotli, zstd, callbacks, retained codec objects, and incremental
+  stream methods remain residual.
+- Node 24.13.1 on EPYC and local Node/Bun independently decoded the chosen
+  literals to the same four-byte payload. Each new decoder then passed an
+  isolated 84/84 static-Hermes process before the combined 87/87 batch.
+- The regenerated Apple catalog digest
+  `sha256-tP4exoqvHrq2OJVKkCFMeznT4rAf4UABMajaWWmvUZg` reports 23,584
+  required / **3,729 fully executable** / 3,036 internally verified / 16,819
+  unresolved. The regenerated Windows digest
+  `sha256-binu9Ja4eMXchQfasiMWi-KhmzIBxxoM9NKpbSOxEYM` reports 23,243
+  required / **3,386 fully executable** / 3,022 internally verified / 16,835
+  unresolved. The descriptor-only output manifest falls from 518 to 514 rows.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 83 focused rows
+  plus the four decoders under catalog digest
+  `sha256-uxjcsT8muAOfEYBspgZe-U3oWnsrN3PmIskN1HzOSPw` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 87
+  fixtures pass; every new result reports
+  `zlibSyncDecoderOutputVerified: true`, quiescence, and zero legacy or typed
+  decisions. The raw evidence SHA-256 is
+  `5688945ee05c07c62607049eaf18095fc56286e22ef392baaf255d59f5ef1b06`;
+  independent JavaScript validation accepted all 87 executions and produced
+  diagnostic execution digest
+  `sha256-A5GYsTJp2LYbe3MGUFd7oqg51SweYxqRsPIoHP3XVo0` (artifact SHA-256
+  `1006b19fbc64a873d10e63b1bed1a5f81f2a740d882a68e6abddf3c5a524372a`).
+  The diagnostic source binding is baseline revision
+  `83c652a455269bb151e24f0b7feb6d2174df43d5` / tree digest
+  `sha256-iGdtKfyJO3Cu81fyFI5C8TxC2ie5jQQgtWPKLs_6SRE`.
+- The focused author/catalog/validator/output-accounting suite passes
+  **217/217** tests with 125,153 assertions on EPYC Bun 1.3.14. A final
+  exact-current-file replay also passes the 87/87 physical batch and is
+  byte-identical to the raw receipt above.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

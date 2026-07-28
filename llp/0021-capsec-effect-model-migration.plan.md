@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-28 (promotes exactly four isolated `node:zlib` synchronous decoders: `gunzipSync`, `inflateRawSync`, `inflateSync`, and `unzipSync`; each public root call receives one fixed deflate, raw-deflate, or gzip Buffer and must return the exact decoded bytes `[105, 98, 101, 120]`, with no retained stream and zero decisions; authoring, independent evidence validation, Rust validation, and the loaded-engine harness separately repeat the exact four-name vocabulary, source descriptor, compressed input, dispatch, and decoded-byte proof; Apple accounting is 3,729 fully executable / 3,036 internally verified / 16,819 unresolved and Windows is 3,386 / 3,022 / 16,835; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes exactly three isolated `node:zlib` synchronous encoders: `deflateRawSync`, `deflateSync`, and `gzipSync`; each public root call receives the fixed Buffer bytes `[105, 98, 101, 120]`, returns a nonempty byte view, retains no codec stream, reaches quiescence, and observes zero decisions; authoring, independent evidence validation, Rust validation, and the loaded-engine harness separately repeat the exact three-name vocabulary, source descriptor, input, dispatch, result, and byte-view proof; Apple accounting is 3,725 fully executable / 3,036 internally verified / 16,823 unresolved and Windows is 3,382 / 3,022 / 16,839, while the descriptor residual manifest falls from 521 to 518; decoders, callback codecs, and stream-processing calls remain residual)
 **Revised:** 2026-07-28 (promotes exactly two additional fresh `node:dgram` operations: the owner-checked `Socket._closed` boolean read and `Socket.dropMembership("224.0.0.1")` on an unbound udp4 receiver; construction creates only source-owned state and a principal stamp, `_closed` reads the own non-configurable accessor, and `dropMembership` returns before the native hook because the handle remains `-1`; authoring, independent evidence validation, Rust validation, and the loaded-engine harness separately repeat the exact constructed-instance/call descriptors, udp4 setup, literal group address, result types, quiescence, and zero-decision contract; Apple accounting is 3,722 fully executable / 3,036 internally verified / 16,826 unresolved and Windows is 3,379 / 3,022 / 16,842, while the descriptor residual manifest falls from 522 to 521)
 **Revised:** 2026-07-28 (promotes exactly five terminal calls on fresh `node:net` receivers: `Server.close`, `Socket.close`, `Socket.resetAndDestroy`, `Stream.close`, and `Stream.resetAndDestroy`; the dedicated setup constructs each receiver without a transport, attaches one harness close observer before dispatch, and requires exact close delivery plus terminal in-memory state before completion; authoring, independent evidence validation, Rust validation, and the loaded-engine harness repeat the closed five-name vocabulary, exact source descriptor, owner setup, dispatch, cleanup fields, quiescence, and zero-decision contract; Apple accounting is 3,720 fully executable / 3,036 internally verified / 16,828 unresolved and Windows is 3,377 / 3,022 / 16,844, while the descriptor residual manifest falls from 527 to 522)
@@ -2733,10 +2734,22 @@ return and event-loop quiescence. No incremental codec selector, callback,
 listener, or deferred stream survives the call. The recipe author, independent
 evidence validator, Rust validator, and loaded-engine JavaScript boundary each
 repeat the same three-name allowlist, source descriptor, argument, dispatch,
-result type, and byte-view proof. This receipt does not cover decoders,
-callback codecs, `_processChunk`, `flush`, `params`, `write`, or any other
-stream-processing method: those remain residual until their input, completion,
-output budget, and native lifecycle are independently bounded.
+result type, and byte-view proof. This receipt does not cover callback codecs,
+`_processChunk`, `flush`, `params`, `write`, or any other stream-processing
+method: those remain residual until their input, completion, output budget, and
+native lifecycle are independently bounded.
+
+Four one-shot zlib decoders have their own isolated receipt: `gunzipSync`,
+`inflateRawSync`, `inflateSync`, and `unzipSync`. Their harness-owned inputs are
+fixed complete deflate, raw-deflate, or gzip encodings of `[105, 98, 101, 120]`.
+The loaded engine credits normal return only when the result is a byte view
+whose length and every byte exactly reproduce that payload, then requires
+event-loop quiescence and zero decisions. The recipe author, independent
+evidence validator, Rust validator, and loaded-engine JavaScript boundary each
+repeat the exact four-name allowlist, source descriptor, compressed bytes,
+root-call dispatch, object result, and decoded-byte proof. Brotli, zstd,
+callback codecs, retained codec objects, multi-member variants beyond the
+single fixed gzip member, and every incremental stream method remain residual.
 
 The seven reviewed `node:stream` `closed` projections require a constructed
 receiver even though the source inventory exposes them as inherited or direct

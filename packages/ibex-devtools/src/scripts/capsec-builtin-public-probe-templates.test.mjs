@@ -1071,7 +1071,7 @@ describe("source-bound builtin public probes", () => {
     });
   });
 
-  test("authors bounded zlib setup and isolated sync encoders", () => {
+  test("authors bounded zlib setup and isolated sync codecs", () => {
     expect(
       probeFor({
         sourceKey: "node_zlib",
@@ -1150,8 +1150,42 @@ describe("source-bound builtin public probes", () => {
         },
       });
     }
+    for (const [exportName, bytes] of [
+      [
+        "gunzipSync",
+        [
+          31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30,
+          109, 106, 4, 0, 0, 0,
+        ],
+      ],
+      ["inflateRawSync", [203, 76, 74, 173, 0, 0]],
+      ["inflateSync", [120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169]],
+      [
+        "unzipSync",
+        [
+          31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30,
+          109, 106, 4, 0, 0, 0,
+        ],
+      ],
+    ]) {
+      expect(
+        probeFor({
+          sourceKey: "node_zlib",
+          exportName,
+          exportIdioms: ["object-binding", "object-source"],
+          moduleSpecifiers: ["node:zlib", "zlib"],
+          valueShape: "callable",
+        }),
+      ).toMatchObject({
+        invocation: {
+          arguments: [{ kind: "buffer", bytes }],
+          setup: { kind: "root-call" },
+          bodyEntryProof: { resultType: "object" },
+        },
+      });
+    }
     for (const exportName of [
-      "inflateSync",
+      "gunzip",
       "Gunzip._processChunk",
       "ZstdDecompress._processChunk",
     ]) {
