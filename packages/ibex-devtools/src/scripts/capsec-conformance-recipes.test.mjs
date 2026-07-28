@@ -58,6 +58,24 @@ const REVIEWED_POST_INITIALIZATION_VALUE_TYPES = new Map([
   ["node_os:devNull", "string"],
   ["exact_crypto:subtle", "object"],
   ["exact_crypto:webcrypto", "object"],
+  ["exact_crypto:KeyObject.asymmetricKeyDetails", "undefined"],
+  ["exact_crypto:KeyObject.asymmetricKeyType", "undefined"],
+  ["exact_crypto:KeyObject.symmetricKeySize", "undefined"],
+  ["exact_crypto:KeyObject.type", "undefined"],
+  ["exact_crypto:X509Certificate.fingerprint", "string"],
+  ["exact_crypto:X509Certificate.fingerprint256", "string"],
+  ["exact_crypto:X509Certificate.infoAccess", "undefined"],
+  ["exact_crypto:X509Certificate.issuer", "string"],
+  ["exact_crypto:X509Certificate.issuerCertificate", "undefined"],
+  ["exact_crypto:X509Certificate.keyUsage", "object"],
+  ["exact_crypto:X509Certificate.publicKey", "undefined"],
+  ["exact_crypto:X509Certificate.serialNumber", "string"],
+  ["exact_crypto:X509Certificate.subject", "string"],
+  ["exact_crypto:X509Certificate.subjectAltName", "undefined"],
+  ["exact_crypto:X509Certificate.validFrom", "string"],
+  ["exact_crypto:X509Certificate.validTo", "string"],
+  ["node_buffer:Buffer.__isExactBuffer", "boolean"],
+  ["node_buffer:SlowBuffer.__isExactBuffer", "boolean"],
   ["node_console:default", "object"],
   ["node_events:captureRejectionSymbol", "symbol"],
   ["node_events:errorMonitor", "symbol"],
@@ -66,9 +84,21 @@ const REVIEWED_POST_INITIALIZATION_VALUE_TYPES = new Map([
   ["node_http2:sensitiveHeaders", "symbol"],
   ["node_module:builtinModules", "object"],
   ["node_perf_hooks:performance", "object"],
+  ["node_stream:default.destroyed", "boolean"],
+  ["node_stream:Duplex.destroyed", "boolean"],
+  ["node_stream:PassThrough.destroyed", "boolean"],
+  ["node_stream:Readable.destroyed", "boolean"],
+  ["node_stream:Stream.destroyed", "boolean"],
+  ["node_stream:Transform.destroyed", "boolean"],
+  ["node_stream:Writable.__exactWritableProtoPatched", "boolean"],
+  ["node_stream:Writable.destroyed", "boolean"],
   ["node_timers_promises:scheduler", "object"],
   ["path_posix_alias:default", "object"],
   ["path_win32_alias:default", "object"],
+  ["ws:WebSocket.CLOSED", "number"],
+  ["ws:WebSocket.CLOSING", "number"],
+  ["ws:WebSocket.CONNECTING", "number"],
+  ["ws:WebSocket.OPEN", "number"],
 ]);
 
 describe("exact-target CapSec executable recipes", () => {
@@ -372,14 +402,15 @@ describe("exact-target CapSec executable recipes", () => {
     // The merged catalog retains every source-bound Apple probe while removing
     // the superseded WebGPU-specific Ibex surface under LLP 0040. The 24 exact
     // dns/promises error-code reads additionally prove their runtime strings,
-    // and 28 exact values remain separate from their modules' initialization.
+    // and 58 exact values remain separate from their modules' initialization
+    // or are read through a reviewed inert prototype path.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_583);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_613);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_965);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_935);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -404,7 +435,7 @@ describe("exact-target CapSec executable recipes", () => {
         `${descriptor?.sourceKey}:${descriptor?.exportName}`,
       );
     });
-    expect(postInitializationValueReads).toHaveLength(28);
+    expect(postInitializationValueReads).toHaveLength(58);
     expect(
       postInitializationValueReads.every((recipe) => {
         const invocation = recipe.publicSurfaceProbe.invocation;
@@ -533,12 +564,13 @@ describe("exact-target CapSec executable recipes", () => {
     // exact assert promise validators, and five harness-owned filesystem
     // object lifecycle routes; target-local physical evidence also retires
     // absent RSA aliases and the unsafe or deliberately throwing crypto/zlib
-    // claims. Thirteen exact post-initialization object/symbol reads execute
-    // on both targets. The restricted no-eval constructor added on main
+    // claims. The 13 exact post-initialization object/symbol reads and 30
+    // reviewed prototype values execute on both targets. The restricted
+    // no-eval constructor added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_242);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_272);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_979);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_949);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -554,7 +586,7 @@ describe("exact-target CapSec executable recipes", () => {
       windowsCryptoRecipes.filter(
         (recipe) => recipe.status === "fully-executable",
       ),
-    ).toHaveLength(97);
+    ).toHaveLength(113);
     const unavailableWindowsNativeRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -3339,11 +3371,20 @@ describe("exact-target CapSec executable recipes", () => {
           descriptor.sourceKey === "node_dns_promises" &&
           descriptor.valueShape === "unknown" &&
           descriptor.expectedValueType === "string";
-        const reviewedPostInitializationValue =
+        const reviewedRuntimeTypedValue =
           REVIEWED_POST_INITIALIZATION_VALUE_TYPES.get(
             `${descriptor.sourceKey}:${descriptor.exportName}`,
           ) === descriptor.expectedValueType &&
-          new Set(["data", "unknown"]).has(descriptor.valueShape);
+          new Set(["accessor", "data", "unknown"]).has(descriptor.valueShape);
+        const readAccessIsExact =
+          new Set(["export-property", "module-value"]).has(
+            descriptor.access.kind,
+          ) ||
+          (reviewedRuntimeTypedValue &&
+            new Set([
+              "prototype-property",
+              "inherited-prototype-property",
+            ]).has(descriptor.access.kind));
         return (
           recipe.status === "fully-executable" &&
           recipe.classification === "non-capability" &&
@@ -3356,10 +3397,8 @@ describe("exact-target CapSec executable recipes", () => {
             .timeoutMilliseconds === 1_000 &&
           (new Set(["accessor", "data"]).has(descriptor.valueShape) ||
             reviewedRuntimeString ||
-            reviewedPostInitializationValue) &&
-          new Set(["export-property", "module-value"]).has(
-            descriptor.access.kind,
-          ) &&
+            reviewedRuntimeTypedValue) &&
+          readAccessIsExact &&
           recipe.route.alternatives.length === 1 &&
           recipe.route.alternatives[0].terminalObservedKey ===
             recipe.publicSurfaceProbe.surfaceObservedKey
@@ -3367,12 +3406,12 @@ describe("exact-target CapSec executable recipes", () => {
       }),
     ).toBe(true);
     expect(
-      publicReads.some((recipe) =>
+      publicReads.filter((recipe) =>
         recipe.publicSurfaceProbe.invocation.sourceDescriptor.access.kind.includes(
           "prototype",
         ),
       ),
-    ).toBe(false);
+    ).toHaveLength(30);
     expect(
       publicReads.some((recipe) =>
         recipe.publicSurfaceProbe.surfaceObservedKey.includes(

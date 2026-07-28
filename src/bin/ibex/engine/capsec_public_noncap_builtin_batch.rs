@@ -497,6 +497,50 @@ fn reviewed_post_initialization_value_spec(
         ("node_os", "EOL" | "devNull") => Some(("data", "string")),
         ("node_os", "constants") => Some(("data", "object")),
         ("exact_crypto", "subtle" | "webcrypto") => Some(("unknown", "object")),
+        (
+            "exact_crypto",
+            "KeyObject.asymmetricKeyDetails"
+            | "KeyObject.asymmetricKeyType"
+            | "KeyObject.symmetricKeySize"
+            | "KeyObject.type"
+            | "X509Certificate.infoAccess"
+            | "X509Certificate.issuerCertificate"
+            | "X509Certificate.subjectAltName",
+        ) => Some(("accessor", "undefined")),
+        (
+            "exact_crypto",
+            "X509Certificate.fingerprint"
+            | "X509Certificate.fingerprint256"
+            | "X509Certificate.issuer"
+            | "X509Certificate.serialNumber"
+            | "X509Certificate.subject"
+            | "X509Certificate.validFrom"
+            | "X509Certificate.validTo",
+        ) => Some(("accessor", "string")),
+        ("exact_crypto", "X509Certificate.keyUsage") => Some(("accessor", "object")),
+        ("exact_crypto", "X509Certificate.publicKey") => Some(("unknown", "undefined")),
+        (
+            "node_buffer",
+            "Buffer.__isExactBuffer" | "SlowBuffer.__isExactBuffer",
+        ) => Some(("data", "boolean")),
+        (
+            "node_stream",
+            "default.destroyed"
+            | "Duplex.destroyed"
+            | "PassThrough.destroyed"
+            | "Readable.destroyed"
+            | "Stream.destroyed"
+            | "Transform.destroyed"
+            | "Writable.__exactWritableProtoPatched"
+            | "Writable.destroyed",
+        ) => Some(("data", "boolean")),
+        (
+            "ws",
+            "WebSocket.CLOSED"
+            | "WebSocket.CLOSING"
+            | "WebSocket.CONNECTING"
+            | "WebSocket.OPEN",
+        ) => Some(("data", "number")),
         ("node_console", "default") => Some(("unknown", "object")),
         ("node_events", "captureRejectionSymbol" | "errorMonitor") => {
             Some(("unknown", "symbol"))
@@ -564,11 +608,56 @@ fn is_reviewed_post_initialization_value_descriptor(
                     )
         }
         "exact_crypto" => {
-            descriptor.export_idioms == ["object-binding", "object-source"]
+            descriptor.export_idioms
+                == if matches!(descriptor.export_name.as_str(), "subtle" | "webcrypto") {
+                    vec!["object-binding".to_owned(), "object-source".to_owned()]
+                } else {
+                    vec!["exported-constructor-prototype".to_owned()]
+                }
                 && descriptor.module_specifiers == ["crypto", "exact:crypto", "node:crypto"]
                 && descriptor.source_ref
                     == format!(
                         "src/builtins/crypto.js#exports:{}",
+                        descriptor.export_name
+                    )
+        }
+        "node_buffer" => {
+            descriptor.export_idioms == ["exported-constructor-prototype"]
+                && descriptor.module_specifiers == ["buffer", "node:buffer"]
+                && descriptor.source_ref
+                    == format!(
+                        "src/builtins/buffer.js#exports:{}",
+                        descriptor.export_name
+                    )
+        }
+        "node_stream" => {
+            let inherited = matches!(
+                descriptor.export_name.as_str(),
+                "Duplex.destroyed"
+                    | "PassThrough.destroyed"
+                    | "Readable.destroyed"
+                    | "Transform.destroyed"
+                    | "Writable.destroyed"
+            );
+            descriptor.export_idioms
+                == [if inherited {
+                    "exported-constructor-inherited-prototype"
+                } else {
+                    "exported-constructor-prototype"
+                }]
+                && descriptor.module_specifiers == ["node:stream", "stream"]
+                && descriptor.source_ref
+                    == format!(
+                        "src/builtins/stream.js#exports:{}",
+                        descriptor.export_name
+                    )
+        }
+        "ws" => {
+            descriptor.export_idioms == ["exported-constructor-prototype"]
+                && descriptor.module_specifiers == ["ws"]
+                && descriptor.source_ref
+                    == format!(
+                        "src/builtins/ws.js#exports:{}",
                         descriptor.export_name
                     )
         }
@@ -1239,12 +1328,22 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
                 || (matches!(descriptor.value_shape.as_str(), "accessor" | "data")
                     && descriptor.expected_value_type.is_none())
         );
-        assert!(matches!(
-            descriptor.access.kind.as_str(),
-            "export-property" | "module-value"
-        ));
-        if descriptor.value_shape == "accessor" {
-            assert_eq!(descriptor.access.kind, "export-property");
+        if reviewed_runtime_typed_read {
+            assert!(matches!(
+                descriptor.access.kind.as_str(),
+                "export-property"
+                    | "module-value"
+                    | "prototype-property"
+                    | "inherited-prototype-property"
+            ));
+        } else {
+            assert!(matches!(
+                descriptor.access.kind.as_str(),
+                "export-property" | "module-value"
+            ));
+            if descriptor.value_shape == "accessor" {
+                assert_eq!(descriptor.access.kind, "export-property");
+            }
         }
     } else {
         assert_eq!(invocation.expected_result, "normal-return");

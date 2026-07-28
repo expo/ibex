@@ -462,6 +462,68 @@ const REVIEWED_POST_INITIALIZATION_VALUE_EXPORTS = new Map(
   ),
 );
 
+// These exact prototype properties are safe to read on the exported
+// prototype itself. Accessor rows below have source bodies that return only
+// inert defaults when `this` is the prototype; `X509Certificate.raw`, the
+// filesystem accessors, and instance-state projections are deliberately
+// absent because they throw or require a constructed resource.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+const REVIEWED_PROTOTYPE_VALUE_EXPORTS = new Map(
+  [
+    ["exact_crypto", "KeyObject.asymmetricKeyDetails", "accessor", "undefined", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:KeyObject.asymmetricKeyDetails"],
+    ["exact_crypto", "KeyObject.asymmetricKeyType", "accessor", "undefined", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:KeyObject.asymmetricKeyType"],
+    ["exact_crypto", "KeyObject.symmetricKeySize", "accessor", "undefined", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:KeyObject.symmetricKeySize"],
+    ["exact_crypto", "KeyObject.type", "accessor", "undefined", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:KeyObject.type"],
+    ["exact_crypto", "X509Certificate.fingerprint", "accessor", "string", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.fingerprint"],
+    ["exact_crypto", "X509Certificate.fingerprint256", "accessor", "string", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.fingerprint256"],
+    ["exact_crypto", "X509Certificate.infoAccess", "accessor", "undefined", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.infoAccess"],
+    ["exact_crypto", "X509Certificate.issuer", "accessor", "string", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.issuer"],
+    ["exact_crypto", "X509Certificate.issuerCertificate", "accessor", "undefined", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.issuerCertificate"],
+    ["exact_crypto", "X509Certificate.keyUsage", "accessor", "object", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.keyUsage"],
+    ["exact_crypto", "X509Certificate.publicKey", "unknown", "undefined", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.publicKey"],
+    ["exact_crypto", "X509Certificate.serialNumber", "accessor", "string", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.serialNumber"],
+    ["exact_crypto", "X509Certificate.subject", "accessor", "string", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.subject"],
+    ["exact_crypto", "X509Certificate.subjectAltName", "accessor", "undefined", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.subjectAltName"],
+    ["exact_crypto", "X509Certificate.validFrom", "accessor", "string", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.validFrom"],
+    ["exact_crypto", "X509Certificate.validTo", "accessor", "string", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.validTo"],
+    ["node_buffer", "Buffer.__isExactBuffer", "data", "boolean", ["exported-constructor-prototype"], ["buffer", "node:buffer"], "src/builtins/buffer.js#exports:Buffer.__isExactBuffer"],
+    ["node_buffer", "SlowBuffer.__isExactBuffer", "data", "boolean", ["exported-constructor-prototype"], ["buffer", "node:buffer"], "src/builtins/buffer.js#exports:SlowBuffer.__isExactBuffer"],
+    ["node_stream", "default.destroyed", "data", "boolean", ["exported-constructor-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:default.destroyed"],
+    ["node_stream", "Duplex.destroyed", "data", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Duplex.destroyed"],
+    ["node_stream", "PassThrough.destroyed", "data", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:PassThrough.destroyed"],
+    ["node_stream", "Readable.destroyed", "data", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Readable.destroyed"],
+    ["node_stream", "Stream.destroyed", "data", "boolean", ["exported-constructor-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Stream.destroyed"],
+    ["node_stream", "Transform.destroyed", "data", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Transform.destroyed"],
+    ["node_stream", "Writable.__exactWritableProtoPatched", "data", "boolean", ["exported-constructor-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Writable.__exactWritableProtoPatched"],
+    ["node_stream", "Writable.destroyed", "data", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Writable.destroyed"],
+    ["ws", "WebSocket.CLOSED", "data", "number", ["exported-constructor-prototype"], ["ws"], "src/builtins/ws.js#exports:WebSocket.CLOSED"],
+    ["ws", "WebSocket.CLOSING", "data", "number", ["exported-constructor-prototype"], ["ws"], "src/builtins/ws.js#exports:WebSocket.CLOSING"],
+    ["ws", "WebSocket.CONNECTING", "data", "number", ["exported-constructor-prototype"], ["ws"], "src/builtins/ws.js#exports:WebSocket.CONNECTING"],
+    ["ws", "WebSocket.OPEN", "data", "number", ["exported-constructor-prototype"], ["ws"], "src/builtins/ws.js#exports:WebSocket.OPEN"],
+  ].map(
+    ([
+      sourceKey,
+      exportName,
+      valueShape,
+      expectedValueType,
+      exportIdioms,
+      moduleSpecifiers,
+      sourceRef,
+    ]) => [
+      `${sourceKey}:${exportName}`,
+      {
+        sourceKey,
+        exportName,
+        valueShape,
+        expectedValueType,
+        exportIdioms,
+        moduleSpecifiers,
+        sourceRef,
+      },
+    ],
+  ),
+);
+
 const jsonArgument = (value) => ({ kind: "json", value });
 const noopArgument = () => ({ kind: "noop-function" });
 const throwingArgument = () => ({
@@ -2099,12 +2161,17 @@ function sourceDescriptor(
   return descriptor;
 }
 
-function reviewedPostInitializationValueSourceDescriptor(surface, target) {
+function reviewedRuntimeTypedValueSourceDescriptor(
+  surface,
+  target,
+  reviewedExports,
+  allowedValueShapes,
+) {
   const metadata = surface?.metadata;
   const expected =
     typeof metadata?.sourceKey === "string" &&
     typeof metadata?.exportName === "string"
-      ? REVIEWED_POST_INITIALIZATION_VALUE_EXPORTS.get(
+      ? reviewedExports.get(
           `${metadata.sourceKey}:${metadata.exportName}`,
         )
       : null;
@@ -2112,7 +2179,7 @@ function reviewedPostInitializationValueSourceDescriptor(surface, target) {
   const descriptor = sourceDescriptor(
     surface,
     target,
-    new Set(["data", "unknown"]),
+    allowedValueShapes,
     { allowReviewedPostInitializationValue: true },
   );
   const expectedDescriptor = {
@@ -2135,6 +2202,30 @@ function reviewedPostInitializationValueSourceDescriptor(surface, target) {
     ...descriptor,
     expectedValueType: expected.expectedValueType,
   };
+}
+
+function reviewedPostInitializationValueSourceDescriptor(surface, target) {
+  return reviewedRuntimeTypedValueSourceDescriptor(
+    surface,
+    target,
+    REVIEWED_POST_INITIALIZATION_VALUE_EXPORTS,
+    new Set(["data", "unknown"]),
+  );
+}
+
+function reviewedPrototypeValueSourceDescriptor(surface, target) {
+  const descriptor = reviewedRuntimeTypedValueSourceDescriptor(
+    surface,
+    target,
+    REVIEWED_PROTOTYPE_VALUE_EXPORTS,
+    new Set(["accessor", "data", "unknown"]),
+  );
+  return descriptor &&
+    new Set(["prototype-property", "inherited-prototype-property"]).has(
+      descriptor.access.kind,
+    )
+    ? descriptor
+    : null;
 }
 
 function reviewedDnsPromiseErrorCodeSourceDescriptor(surface, target) {
@@ -2206,19 +2297,23 @@ function authoredNonCapabilityBuiltinInvocationDefinition({
     Array.isArray(availability) &&
     targetPlatform !== null &&
     !availability.includes(targetPlatform);
+  const reviewedPrototypeDescriptor =
+    reviewedPrototypeValueSourceDescriptor(surface, target);
   const readDescriptor =
     reviewedPostInitializationValueSourceDescriptor(surface, target) ??
+    reviewedPrototypeDescriptor ??
     reviewedDnsPromiseErrorCodeSourceDescriptor(surface, target) ??
     sourceDescriptor(surface, target, new Set(["accessor", "data"]), {
       allowTargetAbsence: allowTargetAbsence && targetAbsent,
     });
   const readEligible =
     readDescriptor &&
-    new Set(["export-property", "module-value"]).has(
-      readDescriptor.access.kind,
-    ) &&
-    (readDescriptor.valueShape !== "accessor" ||
-      readDescriptor.access.kind === "export-property");
+    (readDescriptor === reviewedPrototypeDescriptor ||
+      (new Set(["export-property", "module-value"]).has(
+        readDescriptor.access.kind,
+      ) &&
+        (readDescriptor.valueShape !== "accessor" ||
+          readDescriptor.access.kind === "export-property")));
   const callDescriptor = readEligible
     ? null
     : sourceDescriptor(surface, target, new Set(["callable"]));

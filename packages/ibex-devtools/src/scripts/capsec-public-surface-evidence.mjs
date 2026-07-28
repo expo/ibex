@@ -163,6 +163,61 @@ const REVIEWED_POST_INITIALIZATION_VALUE_EXPORTS = new Map(
     ],
   ),
 );
+const REVIEWED_PROTOTYPE_VALUE_EXPORTS = new Map(
+  [
+    ["exact_crypto", "KeyObject.asymmetricKeyDetails", "accessor", "undefined", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:KeyObject.asymmetricKeyDetails"],
+    ["exact_crypto", "KeyObject.asymmetricKeyType", "accessor", "undefined", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:KeyObject.asymmetricKeyType"],
+    ["exact_crypto", "KeyObject.symmetricKeySize", "accessor", "undefined", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:KeyObject.symmetricKeySize"],
+    ["exact_crypto", "KeyObject.type", "accessor", "undefined", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:KeyObject.type"],
+    ["exact_crypto", "X509Certificate.fingerprint", "accessor", "string", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.fingerprint"],
+    ["exact_crypto", "X509Certificate.fingerprint256", "accessor", "string", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.fingerprint256"],
+    ["exact_crypto", "X509Certificate.infoAccess", "accessor", "undefined", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.infoAccess"],
+    ["exact_crypto", "X509Certificate.issuer", "accessor", "string", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.issuer"],
+    ["exact_crypto", "X509Certificate.issuerCertificate", "accessor", "undefined", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.issuerCertificate"],
+    ["exact_crypto", "X509Certificate.keyUsage", "accessor", "object", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.keyUsage"],
+    ["exact_crypto", "X509Certificate.publicKey", "unknown", "undefined", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.publicKey"],
+    ["exact_crypto", "X509Certificate.serialNumber", "accessor", "string", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.serialNumber"],
+    ["exact_crypto", "X509Certificate.subject", "accessor", "string", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.subject"],
+    ["exact_crypto", "X509Certificate.subjectAltName", "accessor", "undefined", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.subjectAltName"],
+    ["exact_crypto", "X509Certificate.validFrom", "accessor", "string", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.validFrom"],
+    ["exact_crypto", "X509Certificate.validTo", "accessor", "string", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.validTo"],
+    ["node_buffer", "Buffer.__isExactBuffer", "data", "boolean", ["exported-constructor-prototype"], ["buffer", "node:buffer"], "src/builtins/buffer.js#exports:Buffer.__isExactBuffer"],
+    ["node_buffer", "SlowBuffer.__isExactBuffer", "data", "boolean", ["exported-constructor-prototype"], ["buffer", "node:buffer"], "src/builtins/buffer.js#exports:SlowBuffer.__isExactBuffer"],
+    ["node_stream", "default.destroyed", "data", "boolean", ["exported-constructor-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:default.destroyed"],
+    ["node_stream", "Duplex.destroyed", "data", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Duplex.destroyed"],
+    ["node_stream", "PassThrough.destroyed", "data", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:PassThrough.destroyed"],
+    ["node_stream", "Readable.destroyed", "data", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Readable.destroyed"],
+    ["node_stream", "Stream.destroyed", "data", "boolean", ["exported-constructor-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Stream.destroyed"],
+    ["node_stream", "Transform.destroyed", "data", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Transform.destroyed"],
+    ["node_stream", "Writable.__exactWritableProtoPatched", "data", "boolean", ["exported-constructor-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Writable.__exactWritableProtoPatched"],
+    ["node_stream", "Writable.destroyed", "data", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Writable.destroyed"],
+    ["ws", "WebSocket.CLOSED", "data", "number", ["exported-constructor-prototype"], ["ws"], "src/builtins/ws.js#exports:WebSocket.CLOSED"],
+    ["ws", "WebSocket.CLOSING", "data", "number", ["exported-constructor-prototype"], ["ws"], "src/builtins/ws.js#exports:WebSocket.CLOSING"],
+    ["ws", "WebSocket.CONNECTING", "data", "number", ["exported-constructor-prototype"], ["ws"], "src/builtins/ws.js#exports:WebSocket.CONNECTING"],
+    ["ws", "WebSocket.OPEN", "data", "number", ["exported-constructor-prototype"], ["ws"], "src/builtins/ws.js#exports:WebSocket.OPEN"],
+  ].map(
+    ([
+      sourceKey,
+      exportName,
+      valueShape,
+      expectedValueType,
+      exportIdioms,
+      moduleSpecifiers,
+      sourceRef,
+    ]) => [
+      `${sourceKey}:${exportName}`,
+      {
+        sourceKey,
+        exportName,
+        valueShape,
+        expectedValueType,
+        exportIdioms,
+        moduleSpecifiers,
+        sourceRef,
+      },
+    ],
+  ),
+);
 const EFFECT_BUILTIN_MODULE_IMPORT_ALIASES = new Map(
   [
     ["node:sys", "node_util", true, true, "env:read"],
@@ -733,6 +788,37 @@ function isReviewedPostInitializationValueDescriptor(descriptor) {
                 kind: "export-property",
                 path: [expected.exportName],
               },
+        expectedValueType: expected.expectedValueType,
+      })
+  );
+}
+
+function isReviewedPrototypeValueDescriptor(descriptor) {
+  const expected = REVIEWED_PROTOTYPE_VALUE_EXPORTS.get(
+    `${descriptor?.sourceKey}:${descriptor?.exportName}`,
+  );
+  if (expected === undefined) return false;
+  const segments = expected.exportName.split(".");
+  const inherited = expected.exportIdioms.includes(
+    "exported-constructor-inherited-prototype",
+  );
+  return (
+    segments.length >= 2 &&
+    canonicalJson(descriptor) ===
+      canonicalJson({
+        kind: "builtin-export",
+        sourceKey: expected.sourceKey,
+        exportName: expected.exportName,
+        exportIdioms: expected.exportIdioms,
+        moduleSpecifiers: expected.moduleSpecifiers,
+        sourceRef: expected.sourceRef,
+        valueShape: expected.valueShape,
+        access: {
+          kind: inherited
+            ? "inherited-prototype-property"
+            : "prototype-property",
+          path: [segments[0], "prototype", ...segments.slice(1)],
+        },
         expectedValueType: expected.expectedValueType,
       })
   );
@@ -2765,7 +2851,8 @@ function validateRuntimeInvocation(observation, recipe) {
         (Object.hasOwn(descriptor, "expectedValueType") ||
           descriptor.valueShape === "unknown") &&
         !isReviewedDnsPromiseErrorDescriptor(descriptor) &&
-        !isReviewedPostInitializationValueDescriptor(descriptor)
+        !isReviewedPostInitializationValueDescriptor(descriptor) &&
+        !isReviewedPrototypeValueDescriptor(descriptor)
       ) {
         throw new Error(
           `${recipe.fixtureId}: builtin read has an unreviewed runtime value-type expectation`,
