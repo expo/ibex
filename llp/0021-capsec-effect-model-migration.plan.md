@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-28 (promotes exactly three fresh `node:https` server constructors: `Server`, `Server.constructor`, and `createServer`; each source call layers one private-state HTTP wrapper over one idle TLS server without binding a transport or creating an HTTP selector, while the inner TLS server still mints one runtime/principal owner token; the dedicated loaded-engine setup closes the outer server, awaits outer close delivery and delayed inner token retirement, and requires a later outer `address()` call to reach the guarded inner server and fail with `ERR_TLS_SERVER_CLOSED`; authoring, independent evidence validation, Rust validation, and physical Hermes execution repeat the exact `node:https` descriptor, `member-assignment` provenance, dispatch, cleanup, and quiescence contract; Apple accounting is 3,715 fully executable / 3,036 internally verified / 16,833 unresolved and Windows is 3,372 / 3,022 / 16,849, while the descriptor residual manifest falls from 530 to 527)
 **Revised:** 2026-07-28 (promotes exactly three fresh `node:tls` server constructors: `Server`, `Server.constructor`, and `createServer`; each source call creates no transport or native listener but does mint one private runtime/principal owner token and install the two registry lifecycle listeners, so the dedicated loaded-engine setup attaches one harness close observer, invokes exact `close`, awaits the internal close hook and delayed retirement timer, and requires a subsequent guarded lifecycle call to fail with `ERR_TLS_SERVER_CLOSED`; authoring, independent evidence validation, Rust validation, and physical Hermes execution repeat the exact descriptor/dispatch/cleanup contract; Apple accounting is 3,712 fully executable / 3,036 internally verified / 16,836 unresolved and Windows is 3,369 / 3,022 / 16,852, while the descriptor residual manifest falls from 533 to 530)
 **Revised:** 2026-07-28 (promotes exactly the `node:tls` `SecureContext.context` read on a fresh harness-owned `SecureContext`: source construction installs one own enumerable, non-writable, non-configurable, frozen opaque object without allocating a TLS engine or consulting native trust state; the author, independent evidence validator, Rust validator, and loaded-engine harness repeat the exact constructed-instance descriptor, empty constructor, object result, quiescence, and zero-decision contract; Apple accounting is 3,709 fully executable / 3,036 internally verified / 16,839 unresolved and Windows is 3,366 / 3,022 / 16,855)
 **Revised:** 2026-07-28 (promotes exactly five transport-free `node:tls` socket calls: `TLSSocket`, `TLSSocket.close`, `TLSSocket.destroy`, `TLSSocket.ref`, and `TLSSocket.unref`; the harness constructs every receiver without an underlying transport, so no native TLS owner token, engine, selector, listener, or timer exists before the selected call, while close/destroy must drain their terminal timer before quiescence; the author, independent evidence validator, Rust validator, and loaded-engine harness repeat the exact closed vocabulary and zero-decision contract; Apple accounting is 3,708 fully executable / 3,036 internally verified / 16,840 unresolved and Windows is 3,365 / 3,022 / 16,856)
@@ -2808,6 +2809,23 @@ arguments, object source result, cleanup fields, quiescence, and zero-decision
 contract. This receipt does not admit `listen`, accepted connections,
 handshakes, credentials, ticket keys, or any other transport-bearing server
 operation.
+
+Fresh HTTPS Server construction uses the same retirement mechanism but retains
+its distinct source contract. `Server`, `Server.constructor`, and
+`createServer` construct an HTTP wrapper with one private principal stamp and
+no HTTP native selector, then install one fresh idle TLS server as its net
+server. Neither layer binds a transport; the inner TLS layer owns the single
+retirable token. The loaded harness closes the outer HTTP wrapper, observes its
+close event only after the inner TLS close event propagates, waits one later
+timer turn, and calls the outer `address()`. That call delegates to the guarded
+inner server and must fail with `ERR_TLS_SERVER_CLOSED`, proving its token was
+released and private TLS state scrubbed before the fixture completed. The
+recipe author, independent evidence validator, Rust validator, and loaded
+engine separately repeat the exact `node:https` module identity,
+`member-assignment` export provenance, empty construction arguments, dispatch,
+cleanup fields, quiescence, and zero-decision contract. This does not admit
+`listen`, requests, accepted connections, handshakes, credentials, agents, or
+client transports.
 
 Fresh UDP lifecycle evidence is similarly limited to `Socket`,
 `Socket.constructor`, `createSocket`, `Socket.close`, `Socket.ref`, and

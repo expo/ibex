@@ -743,24 +743,49 @@ const IDLE_TLS_SOCKET_CALL_CONTRACTS = new Map([
 // does mint one private TLS owner token and install registry listeners. The
 // loaded harness must close the result, observe its close event, and prove the
 // delayed retirement made the guarded server terminal.
-const IDLE_TLS_SERVER_CALL_CONTRACTS = new Map([
-  ...["Server", "Server.constructor"].map((exportName) => [
-    exportName,
-    {
-      setup: { kind: "tls-server-construct-target" },
-      arguments: [],
-      resultType: "object",
-    },
-  ]),
+const IDLE_TLS_SERVER_CALL_CONTRACTS = new Map(
   [
-    "createServer",
-    {
-      setup: { kind: "tls-server-root-call" },
-      arguments: [],
-      resultType: "object",
-    },
-  ],
-]);
+    [
+      "node_tls",
+      "node-tls-pure-v1",
+      "node:tls",
+      ["node:tls", "tls"],
+      "tls.js",
+    ],
+    [
+      "node_https",
+      "node-https-idle-v1",
+      "node:https",
+      ["https", "node:https"],
+      "https.js",
+    ],
+  ].flatMap(
+    ([
+      sourceKey,
+      templateId,
+      moduleSpecifier,
+      moduleSpecifiers,
+      sourceFile,
+    ]) =>
+      ["Server", "Server.constructor", "createServer"].map((exportName) => [
+        `${sourceKey}:${exportName}`,
+        {
+          setup: {
+            kind:
+              exportName === "createServer"
+                ? "tls-server-root-call"
+                : "tls-server-construct-target",
+          },
+          arguments: [],
+          resultType: "object",
+          templateId,
+          moduleSpecifier,
+          moduleSpecifiers,
+          sourceRef: `src/builtins/${sourceFile}#exports:${exportName}`,
+        },
+      ]),
+  ),
+);
 // A fresh udp4 wrapper owns only an authenticated principal stamp. The
 // constructor does not allocate a native handle; ref/unref see no poll timer,
 // and close only schedules the terminal close event required by quiescence.
@@ -5126,10 +5151,9 @@ function validateRuntimeInvocation(observation, recipe) {
       authored.sourceDescriptor.sourceKey === "node_tls"
         ? IDLE_TLS_SOCKET_CALL_CONTRACTS.get(authored.exportName)
         : null;
-    const idleTlsServerContract =
-      authored.sourceDescriptor.sourceKey === "node_tls"
-        ? IDLE_TLS_SERVER_CALL_CONTRACTS.get(authored.exportName)
-        : null;
+    const idleTlsServerContract = IDLE_TLS_SERVER_CALL_CONTRACTS.get(
+      `${authored.sourceDescriptor.sourceKey}:${authored.exportName}`,
+    );
     const idleTlsSocketPrototype =
       idleTlsSocketContract && authored.exportName.includes(".");
     const expectedIdleTlsSocketDescriptor = idleTlsSocketContract
@@ -5182,15 +5206,17 @@ function validateRuntimeInvocation(observation, recipe) {
     const expectedIdleTlsServerDescriptor = idleTlsServerContract
       ? {
           kind: "builtin-export",
-          sourceKey: "node_tls",
+          sourceKey: authored.sourceDescriptor.sourceKey,
           exportName: authored.exportName,
           exportIdioms: [
             idleTlsServerPrototype
               ? "exported-constructor-prototype"
-              : "module-exports-object",
+              : authored.sourceDescriptor.sourceKey === "node_https"
+                ? "member-assignment"
+                : "module-exports-object",
           ],
-          moduleSpecifiers: ["node:tls", "tls"],
-          sourceRef: `src/builtins/tls.js#exports:${authored.exportName}`,
+          moduleSpecifiers: idleTlsServerContract.moduleSpecifiers,
+          sourceRef: idleTlsServerContract.sourceRef,
           valueShape: "callable",
           access: idleTlsServerPrototype
             ? {
@@ -5205,7 +5231,8 @@ function validateRuntimeInvocation(observation, recipe) {
       : null;
     if (
       idleTlsServerContract &&
-      (authored.templateId !== "node-tls-pure-v1" ||
+      (authored.moduleSpecifier !== idleTlsServerContract.moduleSpecifier ||
+        authored.templateId !== idleTlsServerContract.templateId ||
         authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
         authored.bodyEntryProof.resultType !==
           idleTlsServerContract.resultType ||
@@ -5227,6 +5254,12 @@ function validateRuntimeInvocation(observation, recipe) {
       !idleTlsServerContract
     ) {
       throw new Error(`${recipe.fixtureId}: unreviewed authored TLS proof`);
+    }
+    if (
+      authored.sourceDescriptor.sourceKey === "node_https" &&
+      !idleTlsServerContract
+    ) {
+      throw new Error(`${recipe.fixtureId}: unreviewed authored HTTPS proof`);
     }
     const idleDgramContract =
       authored.sourceDescriptor.sourceKey === "node_dgram"

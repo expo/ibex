@@ -1222,6 +1222,17 @@ const NODE_HTTP_CALL_SPECS = Object.freeze({
   ),
 });
 
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — An
+// idle HTTPS Server layers one fresh HTTP wrapper over one fresh TLS Server.
+// Neither layer binds a transport; the TLS layer still owns one private token.
+// Reuse the dedicated TLS-server retirement setup so close must drain the
+// outer HTTP close event and prove the inner TLS token is terminal.
+const NODE_HTTPS_CALL_SPECS = Object.freeze({
+  Server: tlsServerConstructTarget(),
+  "Server.constructor": tlsServerConstructTarget(),
+  createServer: tlsServerRootCall(),
+});
+
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — A
 // fresh UDP Socket owns a principal stamp but no native handle, binding, poll
 // timer, or peer route. These exact construction and idle lifecycle calls use
@@ -1339,6 +1350,7 @@ const ROOT_CALL_SPECS = Object.freeze({
   }),
   node_fs: NODE_FS_CALL_SPECS,
   node_http: NODE_HTTP_CALL_SPECS,
+  node_https: NODE_HTTPS_CALL_SPECS,
   node_stream_web: Object.freeze({
     isReadableStream: rootCall([jsonArgument({})], "boolean"),
     isWritableStream: rootCall([jsonArgument({})], "boolean"),
@@ -2215,6 +2227,7 @@ const CALL_TEMPLATE_IDS = Object.freeze({
   node_dgram: "node-dgram-idle-v1",
   node_http: "node-http-idle-v1",
   node_http2: "node-http2-pure-v1",
+  node_https: "node-https-idle-v1",
   node_events: "node-events-bounded-v1",
   node_fs: "node-fs-pure-v1",
   node_module: "node-module-pure-v1",

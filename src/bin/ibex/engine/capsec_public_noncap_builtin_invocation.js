@@ -288,23 +288,30 @@
         "ibex/capsec-builtin-call-invocation/1" ||
       invocation.kind !== "builtin-export-call" ||
       !invocation.sourceDescriptor ||
-      invocation.sourceDescriptor.sourceKey !== "node_tls" ||
-      (invocation.exportName !== "Server" &&
-        invocation.exportName !== "Server.constructor" &&
-        invocation.exportName !== "createServer")
+      (invocation.sourceDescriptor.sourceKey !== "node_tls" &&
+        invocation.sourceDescriptor.sourceKey !== "node_https")
     ) {
       return true;
     }
     var descriptor = invocation.sourceDescriptor;
     var exportName = invocation.exportName;
+    if (
+      exportName !== "Server" &&
+      exportName !== "Server.constructor" &&
+      exportName !== "createServer"
+    ) {
+      return descriptor.sourceKey === "node_tls";
+    }
+    var https = descriptor.sourceKey === "node_https";
     var prototype = exportName === "Server.constructor";
     var expectedSetupKind =
       exportName === "createServer"
         ? "tls-server-root-call"
         : "tls-server-construct-target";
     if (
-      invocation.moduleSpecifier !== "node:tls" ||
-      invocation.templateId !== "node-tls-pure-v1" ||
+      invocation.moduleSpecifier !== (https ? "node:https" : "node:tls") ||
+      invocation.templateId !==
+        (https ? "node-https-idle-v1" : "node-tls-pure-v1") ||
       descriptor.exportName !== exportName ||
       !exactObjectKeys(descriptor, [
         "access",
@@ -319,13 +326,19 @@
       descriptor.kind !== "builtin-export" ||
       descriptor.valueShape !== "callable" ||
       descriptor.sourceRef !==
-        "src/builtins/tls.js#exports:" + exportName ||
+        "src/builtins/" + (https ? "https.js" : "tls.js") +
+          "#exports:" + exportName ||
       !sameStringArray(descriptor.exportIdioms, [
         prototype
           ? "exported-constructor-prototype"
-          : "module-exports-object",
+          : https
+            ? "member-assignment"
+            : "module-exports-object",
       ]) ||
-      !sameStringArray(descriptor.moduleSpecifiers, ["node:tls", "tls"]) ||
+      !sameStringArray(
+        descriptor.moduleSpecifiers,
+        https ? ["https", "node:https"] : ["node:tls", "tls"],
+      ) ||
       !exactObjectKeys(descriptor.access, ["kind", "path"]) ||
       descriptor.access.kind !==
         (prototype ? "prototype-property" : "export-property") ||

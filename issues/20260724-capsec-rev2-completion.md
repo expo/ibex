@@ -4704,6 +4704,60 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — retire the inner TLS owner through fresh HTTPS servers
+
+- Promoted exactly `node_https.Server`, `node_https.Server.constructor`, and
+  `node_https.createServer`. Each source call creates a private-state HTTP
+  wrapper with one principal stamp and no HTTP native selector, then places one
+  idle TLS server beneath it. No listener, connection, accept loop, request, or
+  handshake exists, while the inner TLS server still owns one retirable token.
+- The dedicated setup closes the outer HTTP server, observes outer close after
+  the inner close event propagates, waits through the later token-retirement
+  turn, and invokes outer `address()`. That delegated guarded call must fail
+  with exact `ERR_TLS_SERVER_CLOSED`, proving the inner token release completed
+  and private TLS state was scrubbed. Client, listen, credential, ticket-key,
+  request, and accepted-connection routes remain residual.
+- The recipe author, independent JavaScript evidence validator, Rust catalog
+  validator, and loaded-engine JavaScript harness separately repeat the exact
+  three-name vocabulary, `node:https` module identity, `member-assignment`
+  export provenance, source descriptor, empty arguments, call/construct
+  dispatch, object result, cleanup fields, quiescence, and zero-decision
+  contract. Negative evidence tests reject substituting the TLS template or
+  source file, another HTTPS export, or an incomplete cleanup receipt.
+- The regenerated Apple catalog digest
+  `sha256-oGA8x28HC0N5zTRGyo4GDjioCxFcWNdN03xR8LAS2dY` reports 23,584
+  required / **3,715 fully executable** / 3,036 internally verified / 16,833
+  unresolved. The regenerated Windows digest
+  `sha256-Qv7vzWCdynjFD4B1jJ_qeAH9TrgyyDx_Uqcl8DHnKUU` reports 23,243
+  required / **3,372 fully executable** / 3,022 internally verified / 16,849
+  unresolved. The descriptor-only output manifest falls from 530 to 527 rows.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 70 focused rows plus
+  the three HTTPS constructors under catalog digest
+  `sha256-6u6rGUctB2NMjsxS87u336bBS3LAwk7Pq3BLIErVl-I` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 73
+  fixtures pass. Every HTTPS result reports `cleanupPerformed: true`,
+  `tlsServerLifecycleVerified: true`, one normal source return, quiescence, and
+  zero legacy or typed decisions. The raw evidence SHA-256 is
+  `dcd76a7cca960f57bf75b1829f3cf92ae651b1096de46d12c2f2b7b0acb4c2fd`;
+  independent JavaScript validation accepted all 73 executions and produced
+  diagnostic execution digest
+  `sha256-c4cZMcNqgxjjZGTbTyl2Kej03RRToow0Sluwr0JkIcE` (artifact SHA-256
+  `49a9e3658e4b16e729311aabb5273413463e525ef01fb77b748427cdc2c9ad7c`).
+  The diagnostic source binding is baseline revision
+  `9b0f957d0bf4817f06b21e5c7358ccfb2cccd46a` / tree digest
+  `sha256-Ko3hm0FyzN1mZOxlQ_pjaWbbuaIoN_ml_iNw3ZCcbPE`.
+- The physical run caught and closed two independent-validator gaps before
+  passing: Rust lacked the `node_https` template allowlist, and the HTTPS root
+  exports use `member-assignment` provenance rather than TLS's
+  `module-exports-object`. The corrected contracts reject either substitution.
+- The focused author/catalog/validator/output-accounting suite passes
+  **201/201** tests with 125,171 assertions on EPYC Bun 1.3.14; the physical
+  Rust exact-Hermes batch passes 73/73. The Linux replay remains diagnostic
+  rather than Apple promotion evidence.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

@@ -443,15 +443,18 @@ describe("exact-target CapSec executable recipes", () => {
     // Five transport-free TLSSocket construction/lifecycle calls own no native
     // token, engine, selector, listener, or preexisting timer; close/destroy
     // drain their terminal timer before quiescence.
+    // Three fresh TLS and three fresh HTTPS server constructors bind no
+    // transport; each server receipt drains close and proves the private TLS
+    // owner token reached its terminal state.
     // Six fresh udp4 Socket construction/lifecycle calls own no native handle,
     // binding, poll timer, or peer route; close drains its terminal event.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_712);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_715);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_836);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_833);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -620,13 +623,16 @@ describe("exact-target CapSec executable recipes", () => {
     // Five transport-free TLSSocket construction/lifecycle calls own no native
     // token, engine, selector, listener, or preexisting timer; close/destroy
     // drain their terminal timer before quiescence.
+    // Three fresh TLS and three fresh HTTPS server constructors bind no
+    // transport; each server receipt drains close and proves the private TLS
+    // owner token reached its terminal state.
     // Six fresh udp4 Socket construction/lifecycle calls own no native handle,
     // binding, poll timer, or peer route. The restricted no-eval constructor
     // added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_369);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_372);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_852);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_849);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5350,6 +5356,7 @@ describe("exact-target CapSec executable recipes", () => {
         "node_fs",
         "node_http",
         "node_http2",
+        "node_https",
         "node_module",
         "node_net",
         "node_perf_hooks",
@@ -5373,6 +5380,7 @@ describe("exact-target CapSec executable recipes", () => {
           "exact_crypto",
           "node_fs",
           "node_http",
+          "node_https",
           "node_module",
           "node_net",
           "node_readline",
@@ -5393,6 +5401,7 @@ describe("exact-target CapSec executable recipes", () => {
       exact_crypto: 97,
       node_fs: 10,
       node_http: 13,
+      node_https: 3,
       node_module: 3,
       node_net: 22,
       node_readline: 3,
@@ -5655,6 +5664,26 @@ describe("exact-target CapSec executable recipes", () => {
         (recipe) =>
           recipe.publicSurfaceProbe.invocation.templateId ===
             "node-tls-pure-v1" &&
+          new Set([
+            "tls-server-construct-target",
+            "tls-server-root-call",
+          ]).has(recipe.publicSurfaceProbe.invocation.setup.kind),
+      ),
+    ).toBe(true);
+    const idleHttpsServerCalls = publicCalls.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+          "node_https" &&
+        new Set(["Server", "Server.constructor", "createServer"]).has(
+          recipe.publicSurfaceProbe.invocation.exportName,
+        ),
+    );
+    expect(idleHttpsServerCalls).toHaveLength(3);
+    expect(
+      idleHttpsServerCalls.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.templateId ===
+            "node-https-idle-v1" &&
           new Set([
             "tls-server-construct-target",
             "tls-server-root-call",

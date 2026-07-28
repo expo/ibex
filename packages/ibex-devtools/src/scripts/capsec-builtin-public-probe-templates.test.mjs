@@ -1899,6 +1899,37 @@ describe("source-bound builtin public probes", () => {
     }
   });
 
+  test("authors HTTPS Server construction only with exact TLS retirement cleanup", () => {
+    for (const [exportName, setup] of [
+      ["Server", { kind: "tls-server-construct-target" }],
+      ["Server.constructor", { kind: "tls-server-construct-target" }],
+      ["createServer", { kind: "tls-server-root-call" }],
+    ]) {
+      const prototype = exportName.includes(".");
+      expect(
+        probeFor({
+          sourceKey: "node_https",
+          exportName,
+          exportIdioms: prototype
+            ? ["exported-constructor-prototype"]
+            : ["member-assignment"],
+          moduleSpecifiers: ["https", "node:https"],
+          valueShape: "callable",
+        }),
+      ).toMatchObject({
+        invocation: {
+          templateId: "node-https-idle-v1",
+          arguments: [],
+          setup,
+          bodyEntryProof: {
+            kind: "normal-return-from-source-call",
+            resultType: "object",
+          },
+        },
+      });
+    }
+  });
+
   test("authors only the exact fresh UDP socket lifecycle family", () => {
     const udp4 = [{ kind: "json", value: "udp4" }];
     const contracts = [

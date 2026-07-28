@@ -1132,7 +1132,10 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
                 &["kind"],
                 "TLS Server constructor setup",
             );
-            assert_eq!(descriptor.source_key, "node_tls");
+            assert!(matches!(
+                descriptor.source_key.as_str(),
+                "node_tls" | "node_https"
+            ));
             assert!(matches!(
                 descriptor.export_name.as_str(),
                 "Server" | "Server.constructor"
@@ -1149,7 +1152,10 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
                 "TLS Server root-call setup",
             );
             assert!(!prototype);
-            assert_eq!(descriptor.source_key, "node_tls");
+            assert!(matches!(
+                descriptor.source_key.as_str(),
+                "node_tls" | "node_https"
+            ));
             assert_eq!(descriptor.export_name, "createServer");
         }
         "constructed-owner" => {
@@ -1925,7 +1931,7 @@ fn validate_idle_tls_server_contract(
     descriptor: &BuiltinSourceDescriptor,
     proof: &BodyEntryProof,
 ) {
-    if descriptor.source_key != "node_tls"
+    if !matches!(descriptor.source_key.as_str(), "node_tls" | "node_https")
         || !matches!(
             descriptor.export_name.as_str(),
             "Server" | "Server.constructor" | "createServer"
@@ -1933,33 +1939,48 @@ fn validate_idle_tls_server_contract(
     {
         return;
     }
+    let https = descriptor.source_key == "node_https";
     let prototype = descriptor.export_name == "Server.constructor";
     let expected_setup = if descriptor.export_name == "createServer" {
         serde_json::json!({"kind": "tls-server-root-call"})
     } else {
         serde_json::json!({"kind": "tls-server-construct-target"})
     };
-    assert_eq!(invocation.module_specifier, "node:tls");
+    assert_eq!(
+        invocation.module_specifier,
+        if https { "node:https" } else { "node:tls" }
+    );
     assert_eq!(
         invocation.template_id.as_deref(),
-        Some("node-tls-pure-v1")
+        Some(if https {
+            "node-https-idle-v1"
+        } else {
+            "node-tls-pure-v1"
+        })
     );
     assert_eq!(
         descriptor.export_idioms,
         vec![if prototype {
             "exported-constructor-prototype".to_owned()
+        } else if https {
+            "member-assignment".to_owned()
         } else {
             "module-exports-object".to_owned()
         }]
     );
     assert_eq!(
         descriptor.module_specifiers,
-        ["node:tls", "tls"].map(str::to_owned)
+        if https {
+            ["https", "node:https"].map(str::to_owned)
+        } else {
+            ["node:tls", "tls"].map(str::to_owned)
+        }
     );
     assert_eq!(
         descriptor.source_ref,
         format!(
-            "src/builtins/tls.js#exports:{}",
+            "src/builtins/{}#exports:{}",
+            if https { "https.js" } else { "tls.js" },
             descriptor.export_name
         )
     );
@@ -2075,6 +2096,7 @@ fn expected_template_id(source_key: &str) -> Option<&'static str> {
         "node_fs" => Some("node-fs-pure-v1"),
         "node_http" => Some("node-http-idle-v1"),
         "node_http2" => Some("node-http2-pure-v1"),
+        "node_https" => Some("node-https-idle-v1"),
         "node_events" => Some("node-events-bounded-v1"),
         "node_module" => Some("node-module-pure-v1"),
         "node_net" => Some("node-net-bounded-v1"),
