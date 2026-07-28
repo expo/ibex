@@ -496,6 +496,7 @@ fn reviewed_post_initialization_value_spec(
         ("node_http", "maxHeaderSize") => Some(("unknown", "number")),
         ("node_os", "EOL" | "devNull") => Some(("data", "string")),
         ("node_os", "constants") => Some(("data", "object")),
+        ("node_dns" | "node_dns_promises", "default") => Some(("unknown", "object")),
         ("exact_crypto", "subtle" | "webcrypto") => Some(("unknown", "object")),
         (
             "exact_crypto",
@@ -523,6 +524,18 @@ fn reviewed_post_initialization_value_spec(
             "node_buffer",
             "Buffer.__isExactBuffer" | "SlowBuffer.__isExactBuffer",
         ) => Some(("data", "boolean")),
+        ("node_perf_hooks", "Performance.timeOrigin") => Some(("unknown", "number")),
+        (
+            "node_stream_web",
+            "ByteLengthQueuingStrategy"
+            | "CountQueuingStrategy"
+            | "ReadableStream"
+            | "ReadableStreamBYOBReader"
+            | "ReadableStreamDefaultReader"
+            | "TransformStream"
+            | "WritableStream"
+            | "WritableStreamDefaultWriter",
+        ) => Some(("unknown", "function")),
         (
             "node_stream",
             "default.destroyed"
@@ -705,11 +718,40 @@ fn is_reviewed_post_initialization_value_descriptor(
                 && descriptor.source_ref
                     == "src/builtins/module.js#exports:builtinModules"
         }
+        "node_dns" => {
+            descriptor.export_idioms
+                == ["member-assignment", "module-exports-assignment"]
+                && descriptor.module_specifiers == ["dns", "node:dns"]
+                && descriptor.source_ref == "src/builtins/dns.js#exports:default"
+        }
+        "node_dns_promises" => {
+            descriptor.export_idioms == ["module-exports-assignment"]
+                && descriptor.module_specifiers == ["dns/promises", "node:dns/promises"]
+                && descriptor.source_ref
+                    == "src/builtins/dns-promises.js#exports:default"
+        }
         "node_perf_hooks" => {
-            descriptor.export_idioms == ["module-exports-object"]
+            descriptor.export_idioms
+                == if descriptor.export_name == "performance" {
+                    ["module-exports-object"]
+                } else {
+                    ["exported-constructor-prototype"]
+                }
                 && descriptor.module_specifiers == ["node:perf_hooks", "perf_hooks"]
                 && descriptor.source_ref
-                    == "src/builtins/perf-hooks.js#exports:performance"
+                    == format!(
+                        "src/builtins/perf-hooks.js#exports:{}",
+                        descriptor.export_name
+                    )
+        }
+        "node_stream_web" => {
+            descriptor.export_idioms == ["object-assignment", "object-source"]
+                && descriptor.module_specifiers == ["node:stream/web", "stream/web"]
+                && descriptor.source_ref
+                    == format!(
+                        "src/builtins/stream-web.js#exports:{}",
+                        descriptor.export_name
+                    )
         }
         "node_timers_promises" => {
             descriptor.export_idioms == ["module-exports-object"]

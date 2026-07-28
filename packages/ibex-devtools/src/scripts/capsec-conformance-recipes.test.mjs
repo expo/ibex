@@ -77,12 +77,15 @@ const REVIEWED_POST_INITIALIZATION_VALUE_TYPES = new Map([
   ["node_buffer:Buffer.__isExactBuffer", "boolean"],
   ["node_buffer:SlowBuffer.__isExactBuffer", "boolean"],
   ["node_console:default", "object"],
+  ["node_dns:default", "object"],
+  ["node_dns_promises:default", "object"],
   ["node_events:captureRejectionSymbol", "symbol"],
   ["node_events:errorMonitor", "symbol"],
   ["node_fs:constants", "object"],
   ["node_fs_promises:constants", "object"],
   ["node_http2:sensitiveHeaders", "symbol"],
   ["node_module:builtinModules", "object"],
+  ["node_perf_hooks:Performance.timeOrigin", "number"],
   ["node_perf_hooks:performance", "object"],
   ["node_stream:default.destroyed", "boolean"],
   ["node_stream:Duplex.destroyed", "boolean"],
@@ -92,6 +95,14 @@ const REVIEWED_POST_INITIALIZATION_VALUE_TYPES = new Map([
   ["node_stream:Transform.destroyed", "boolean"],
   ["node_stream:Writable.__exactWritableProtoPatched", "boolean"],
   ["node_stream:Writable.destroyed", "boolean"],
+  ["node_stream_web:ByteLengthQueuingStrategy", "function"],
+  ["node_stream_web:CountQueuingStrategy", "function"],
+  ["node_stream_web:ReadableStream", "function"],
+  ["node_stream_web:ReadableStreamBYOBReader", "function"],
+  ["node_stream_web:ReadableStreamDefaultReader", "function"],
+  ["node_stream_web:TransformStream", "function"],
+  ["node_stream_web:WritableStream", "function"],
+  ["node_stream_web:WritableStreamDefaultWriter", "function"],
   ["node_timers_promises:scheduler", "object"],
   ["path_posix_alias:default", "object"],
   ["path_win32_alias:default", "object"],
@@ -406,11 +417,11 @@ describe("exact-target CapSec executable recipes", () => {
     // or are read through a reviewed inert prototype path.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_613);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_624);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_935);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_924);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -435,7 +446,7 @@ describe("exact-target CapSec executable recipes", () => {
         `${descriptor?.sourceKey}:${descriptor?.exportName}`,
       );
     });
-    expect(postInitializationValueReads).toHaveLength(58);
+    expect(postInitializationValueReads).toHaveLength(69);
     expect(
       postInitializationValueReads.every((recipe) => {
         const invocation = recipe.publicSurfaceProbe.invocation;
@@ -564,13 +575,13 @@ describe("exact-target CapSec executable recipes", () => {
     // exact assert promise validators, and five harness-owned filesystem
     // object lifecycle routes; target-local physical evidence also retires
     // absent RSA aliases and the unsafe or deliberately throwing crypto/zlib
-    // claims. The 13 exact post-initialization object/symbol reads and 30
-    // reviewed prototype values execute on both targets. The restricted
+    // claims. The 23 exact post-initialization value reads and 31 reviewed
+    // prototype values execute on both targets. The restricted
     // no-eval constructor added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_272);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_283);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_949);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_938);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -3411,7 +3422,7 @@ describe("exact-target CapSec executable recipes", () => {
           "prototype",
         ),
       ),
-    ).toHaveLength(30);
+    ).toHaveLength(31);
     expect(
       publicReads.some((recipe) =>
         recipe.publicSurfaceProbe.surfaceObservedKey.includes(
@@ -5232,11 +5243,14 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.classification === "non-capability" &&
           recipe.scenario === "non-capability" &&
           recipe.actionIds.length === 0 &&
-          recipe.status === "unresolved" &&
-          recipe.publicSurfaceProbe === null &&
-          recipe.residualReasons.includes(
-            "public-surface-invocation-not-authored",
-          ),
+          recipe.status === "fully-executable" &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe?.invocation?.kind ===
+            "builtin-export-read" &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.access.kind ===
+            "module-value" &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor
+            .expectedValueType === "object",
       ),
     ).toBe(true);
   });
