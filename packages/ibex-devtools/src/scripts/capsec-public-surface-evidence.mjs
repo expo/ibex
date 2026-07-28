@@ -887,6 +887,7 @@ const ZLIB_IDLE_DESTROY_OWNERS = new Set([
   "ZstdDecompress",
 ]);
 const ZLIB_SYNC_ENCODERS = new Set([
+  "brotliCompressSync",
   "deflateRawSync",
   "deflateSync",
   "gzipSync",
@@ -896,6 +897,7 @@ const ZLIB_SYNC_ENCODER_ARGUMENTS = Object.freeze([
 ]);
 const ZLIB_SYNC_DECODER_ARGUMENTS = new Map(
   [
+    ["brotliDecompressSync", [139, 1, 128, 105, 98, 101, 120, 3]],
     [
       "gunzipSync",
       [
@@ -921,6 +923,12 @@ const ZLIB_SYNC_DECODER_ARGUMENTS = new Map(
 );
 const ZLIB_CALLBACK_ARGUMENTS = new Map(
   [
+    ["brotliCompress", [105, 98, 101, 120], "nonempty-byte-view"],
+    [
+      "brotliDecompress",
+      [139, 1, 128, 105, 98, 101, 120, 3],
+      "exact-ibex-byte-view",
+    ],
     ["deflate", [105, 98, 101, 120], "nonempty-byte-view"],
     ["deflateRaw", [105, 98, 101, 120], "nonempty-byte-view"],
     ["gzip", [105, 98, 101, 120], "nonempty-byte-view"],

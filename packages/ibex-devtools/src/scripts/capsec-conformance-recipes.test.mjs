@@ -442,6 +442,8 @@ describe("exact-target CapSec executable recipes", () => {
     // reproduce that exact four-byte payload.
     // Seven callback wrappers additionally prove their single deferred
     // delivery and its exact encoder/decoder byte-view contract.
+    // Four Apple-only Brotli one-shot routes reuse the same sync and deferred
+    // contracts; Windows keeps their missing native prerequisite explicit.
     // Seven inert stream.closed reads use fresh harness-owned instances.
     // Nine fresh HTTP construction/lifecycle calls own no listener, socket, or
     // native selector; Server.close's terminal event timer drains before the
@@ -461,11 +463,11 @@ describe("exact-target CapSec executable recipes", () => {
     // residual until it has loaded-engine evidence.
     // Five fresh net terminal calls observe close delivery after proving that
     // their harness-owned receiver never acquired a transport.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_736);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_740);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_812);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_808);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -5646,11 +5648,16 @@ describe("exact-target CapSec executable recipes", () => {
       (recipe) =>
         recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
           "node_zlib" &&
-        new Set(["deflateRawSync", "deflateSync", "gzipSync"]).has(
+        new Set([
+          "brotliCompressSync",
+          "deflateRawSync",
+          "deflateSync",
+          "gzipSync",
+        ]).has(
           recipe.publicSurfaceProbe.invocation.exportName,
         ),
     );
-    expect(syncZlibEncoderCalls).toHaveLength(3);
+    expect(syncZlibEncoderCalls).toHaveLength(4);
     expect(
       syncZlibEncoderCalls.every(
         (recipe) =>
@@ -5668,13 +5675,14 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
           "node_zlib" &&
         new Set([
+          "brotliDecompressSync",
           "gunzipSync",
           "inflateRawSync",
           "inflateSync",
           "unzipSync",
         ]).has(recipe.publicSurfaceProbe.invocation.exportName),
     );
-    expect(syncZlibDecoderCalls).toHaveLength(4);
+    expect(syncZlibDecoderCalls).toHaveLength(5);
     expect(
       syncZlibDecoderCalls.every(
         (recipe) =>
@@ -5693,6 +5701,8 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
           "node_zlib" &&
         new Set([
+          "brotliCompress",
+          "brotliDecompress",
           "deflate",
           "deflateRaw",
           "gunzip",
@@ -5702,7 +5712,7 @@ describe("exact-target CapSec executable recipes", () => {
           "unzip",
         ]).has(recipe.publicSurfaceProbe.invocation.exportName),
     );
-    expect(callbackZlibCalls).toHaveLength(7);
+    expect(callbackZlibCalls).toHaveLength(9);
     expect(
       callbackZlibCalls.every(
         (recipe) =>

@@ -589,7 +589,8 @@
       invocation &&
       invocation.sourceDescriptor &&
       invocation.sourceDescriptor.sourceKey === "node_zlib" &&
-      (invocation.exportName === "deflateSync" ||
+      (invocation.exportName === "brotliCompressSync" ||
+        invocation.exportName === "deflateSync" ||
         invocation.exportName === "deflateRawSync" ||
         invocation.exportName === "gzipSync")
     );
@@ -655,6 +656,8 @@
       return null;
     }
     switch (invocation.exportName) {
+      case "brotliDecompressSync":
+        return [139, 1, 128, 105, 98, 101, 120, 3];
       case "gunzipSync":
       case "unzipSync":
         return [
@@ -730,6 +733,16 @@
       return null;
     }
     switch (invocation.exportName) {
+      case "brotliCompress":
+        return {
+          input: [105, 98, 101, 120],
+          resultContract: "nonempty-byte-view",
+        };
+      case "brotliDecompress":
+        return {
+          input: [139, 1, 128, 105, 98, 101, 120, 3],
+          resultContract: "exact-ibex-byte-view",
+        };
       case "deflate":
       case "deflateRaw":
       case "gzip":

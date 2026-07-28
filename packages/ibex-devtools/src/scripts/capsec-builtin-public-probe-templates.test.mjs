@@ -1128,6 +1128,7 @@ describe("source-bound builtin public probes", () => {
       },
     });
     for (const exportName of [
+      "brotliCompressSync",
       "deflateRawSync",
       "deflateSync",
       "gzipSync",
@@ -1151,6 +1152,10 @@ describe("source-bound builtin public probes", () => {
       });
     }
     for (const [exportName, bytes] of [
+      [
+        "brotliDecompressSync",
+        [139, 1, 128, 105, 98, 101, 120, 3],
+      ],
       [
         "gunzipSync",
         [
@@ -1185,6 +1190,12 @@ describe("source-bound builtin public probes", () => {
       });
     }
     for (const [exportName, bytes, resultContract] of [
+      ["brotliCompress", [105, 98, 101, 120], "nonempty-byte-view"],
+      [
+        "brotliDecompress",
+        [139, 1, 128, 105, 98, 101, 120, 3],
+        "exact-ibex-byte-view",
+      ],
       ["deflate", [105, 98, 101, 120], "nonempty-byte-view"],
       ["deflateRaw", [105, 98, 101, 120], "nonempty-byte-view"],
       ["gzip", [105, 98, 101, 120], "nonempty-byte-view"],
@@ -1231,7 +1242,7 @@ describe("source-bound builtin public probes", () => {
       });
     }
     for (const exportName of [
-      "brotliDecompress",
+      "zstdDecompress",
       "Gunzip._processChunk",
       "ZstdDecompress._processChunk",
     ]) {

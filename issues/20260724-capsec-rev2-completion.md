@@ -5005,6 +5005,63 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — prove four Apple-only one-shot Brotli routes
+
+- Promoted exactly `node_zlib.brotliCompressSync`,
+  `node_zlib.brotliDecompressSync`, `node_zlib.brotliCompress`, and
+  `node_zlib.brotliDecompress` on Apple. Compression receives the fixed Buffer
+  bytes `[105, 98, 101, 120]` and must return or deliver a nonempty byte view.
+  Decompression receives the fixed complete Brotli member
+  `[139, 1, 128, 105, 98, 101, 120, 3]` and must return or deliver exactly
+  `[105, 98, 101, 120]`. Callback source calls return `undefined`, deliver
+  exactly once without error, and then reach quiescence.
+- The author, independent JavaScript evidence validator, Rust catalog
+  validator, and final loaded-engine harness separately repeat the exact
+  four-name allowlist, source descriptor, fixed input/compressed bytes,
+  synchronous or callback dispatch, return contract, and output proof. Windows
+  keeps all four rows residual because its zlib bridge does not install the
+  native Brotli codec globals. Zstd wrappers, `info` engines, arbitrary
+  callbacks, retained codec objects, and incremental stream methods remain
+  residual.
+- The initial Cargo command used a non-matching test filter and executed zero
+  tests, so it was not credited. The corrected exact-bin command then passed
+  one 95/95 static-Hermes process per route under isolated catalog digests
+  `sha256-gopDAS4oeZ23w3LoabpdoLiSaMv4tJYt8mUAQr6LdOU`,
+  `sha256-eIqEQbp_WQcEsD4q5cN_a1zG4xRm7m9mnvDnUY6D2kA`,
+  `sha256-FXvU_jIjKipzgjKZEjZ-BykklwN14-vgzAQteegra7U`, and
+  `sha256-qXra-SUpXtHczXNz7lBLXnM90HNCaUgfIt-405s9nwY` before the combined
+  98/98 batch.
+- The regenerated Apple catalog digest
+  `sha256-yVJvvg_SQzbpAkM-xxVY7y3JPvnj720SalzzesLZ1Xw` reports 23,584
+  required / **3,740 fully executable** / 3,036 internally verified / 16,808
+  unresolved. The regenerated Windows digest remains
+  `sha256-4Md5AQ6Dmsg2QTGwYZwjK5Zv_2LoD-neUYnrq4LbOsM` at 23,243 required /
+  **3,393 fully executable** / 3,022 internally verified / 16,828 unresolved.
+  The descriptor-only output manifest falls from 507 to 503 rows.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 94 focused rows
+  plus the four Apple Brotli routes under catalog digest
+  `sha256-YWSTl72vuiPHCEJ55BiykEd5pevBJ4gGUIjzux9xDco` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 98
+  fixtures pass; the new results report the matching
+  `zlibSyncEncoderOutputVerified`, `zlibSyncDecoderOutputVerified`, or
+  `zlibCallbackOutputVerified` proof, quiescence, and zero legacy or typed
+  decisions. The raw evidence SHA-256 is
+  `f9a173d3a4da9751ac0445c2e0cd1495e16a25bcfd6358fccf011e8e6964b94d`;
+  independent JavaScript validation accepted all 98 executions and produced
+  diagnostic execution digest
+  `sha256-BNhqGedeaDyk34PSwfWHSW81SNLpqQzjpssH6ctAAyM` (artifact SHA-256
+  `98c407ee7c3ba566421516631c875a5a99f421021ec32483d32b252802b67098`).
+  The diagnostic source binding is baseline revision
+  `dabebaced81851a20bc5cacb78efbb06d9472b0c` / tree digest
+  `sha256-oRzquPy2Cs9a9jBqxlP8JqTSP27MixvvlrQLwxXQu9o`.
+- The focused author/catalog/validator/output-accounting suite plus inventory
+  regression passes **218/218** tests with 125,071 assertions. A final
+  exact-current-file replay also passes the 98/98 physical batch and is
+  byte-identical to the raw receipt above.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

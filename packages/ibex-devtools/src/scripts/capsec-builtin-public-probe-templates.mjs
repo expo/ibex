@@ -768,6 +768,7 @@ function zlibRootCallSpecs() {
     31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30, 109,
     106, 4, 0, 0, 0,
   ];
+  const brotliBytes = [139, 1, 128, 105, 98, 101, 120, 3];
   for (const ownerExportName of ZLIB_OWNER_NAMES) {
     specs[ownerExportName] = constructTarget([]);
     specs[`create${ownerExportName}`] = rootCall([], "object");
@@ -783,6 +784,14 @@ function zlibRootCallSpecs() {
   );
   specs.gzipSync = rootCall(
     [bufferArgument([105, 98, 101, 120])],
+    "object",
+  );
+  specs.brotliCompressSync = rootCall(
+    [bufferArgument([105, 98, 101, 120])],
+    "object",
+  );
+  specs.brotliDecompressSync = rootCall(
+    [bufferArgument(brotliBytes)],
     "object",
   );
   specs.inflateSync = rootCall([bufferArgument(deflateBytes)], "object");
@@ -802,6 +811,7 @@ function zlibRootCallSpecs() {
     );
   }
   for (const [exportName, bytes] of [
+    ["brotliDecompress", brotliBytes],
     ["gunzip", gzipBytes],
     ["inflate", deflateBytes],
     ["inflateRaw", deflateRawBytes],
@@ -812,6 +822,13 @@ function zlibRootCallSpecs() {
       "undefined",
     );
   }
+  specs.brotliCompress = rootCall(
+    [
+      bufferArgument([105, 98, 101, 120]),
+      zlibCallbackArgument("nonempty-byte-view"),
+    ],
+    "undefined",
+  );
   // One-shot codec functions, synchronous and callback-based alike, enter
   // native codec work that currently can terminate the bound static-Hermes
   // process. Keep every unaudited member residual until each backend has

@@ -1017,11 +1017,15 @@ fn is_zlib_owner(value: &str) -> bool {
 }
 
 fn is_zlib_sync_encoder(value: &str) -> bool {
-    matches!(value, "deflateRawSync" | "deflateSync" | "gzipSync")
+    matches!(
+        value,
+        "brotliCompressSync" | "deflateRawSync" | "deflateSync" | "gzipSync"
+    )
 }
 
 fn zlib_sync_decoder_input(value: &str) -> Option<&'static [u8]> {
     match value {
+        "brotliDecompressSync" => Some(&[139, 1, 128, 105, 98, 101, 120, 3]),
         "gunzipSync" | "unzipSync" => Some(&[
             31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30, 109, 106, 4, 0,
             0, 0,
@@ -1034,6 +1038,11 @@ fn zlib_sync_decoder_input(value: &str) -> Option<&'static [u8]> {
 
 fn zlib_callback_contract(value: &str) -> Option<(&'static [u8], &'static str)> {
     match value {
+        "brotliCompress" => Some((&[105, 98, 101, 120], "nonempty-byte-view")),
+        "brotliDecompress" => Some((
+            &[139, 1, 128, 105, 98, 101, 120, 3],
+            "exact-ibex-byte-view",
+        )),
         "deflate" | "deflateRaw" | "gzip" => {
             Some((&[105, 98, 101, 120], "nonempty-byte-view"))
         }
