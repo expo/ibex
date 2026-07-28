@@ -1,6 +1,6 @@
 # Upstream the snapback compat ABI to main (LLP 0041 remediation steps 1–2)
 
-**Status:** In Progress (audit complete; ENG-24340 time limits upstreamed 2026-07-27; ex_hermes_create_no_eval remains)
+**Status:** In Progress (Ibex ABI implementation and Apple/Linux verification complete 2026-07-27; landing and snapback pin advance remain)
 **Severity:** P2
 **Systems:** Engine, Build, CapSec
 **Author:** Claude (Fable 5), directed by Charlie Cheever
@@ -97,6 +97,28 @@ repinned, registry → ingress inventory → contract → policies → compiled
 profile → vendored regenerated, `check:drift` green, and the seven moved
 count pins in `capsec-surface-inventory.test.mjs` updated (host-ABI 349).
 
-**Remaining:** `ex_hermes_create_no_eval` — the expensive half. Engine work is
-modest but the compat Hermes patch 0010 must be renumbered past main's stack
-and the framework rebuilt per platform with new artifact-cache receipts.
+## Progress — 2026-07-27: restricted consumer constructor implemented
+
+The remaining `ex_hermes_create_no_eval` ABI is now implemented on current main:
+
+- carried Hermes patch 0014 adds the one-way VM latch and gates the cached
+  `Function("return this")` fast path; the isolated patch verifier records final
+  tree `651f0631d9cbeadd3d2d1809f272e87f1a7f4bb8`;
+- build configuration requires both the latch declaration and the export on the
+  exact linked artifact, otherwise construction returns NULL;
+- the unarmed restricted constructor finishes trusted bootstrap and extension
+  activation, applies the latch before registration, and keeps host-selected
+  `ex_hermes_eval` available;
+- the regression corpus covers direct/indirect eval, Function variants,
+  constructor walks, Reflect aliases, and async/generator constructors;
+- LLP 0002/0003/0013 and the full CapSec registry → contract → policy →
+  vendored chain include the reviewed ABI row;
+- Apple and Linux patched Hermes artifacts export both the existing package
+  attribution bridge and the new latch. The focused adversarial constructor
+  test passes on macOS and on Linux (the release/no-debugger Linux artifact was
+  tested with the matching `HERMES_ENABLE_DEBUGGER=0` Cargo profile).
+
+**Remaining:** land this Ibex commit on main, then advance snapback to that
+main pin and replace its
+off-thread time-limit arm with the nonce-authenticated
+`ex_hermes_interrupt_eval(runtime, nonce)` ABI.

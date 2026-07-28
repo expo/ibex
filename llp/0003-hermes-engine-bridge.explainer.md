@@ -5,6 +5,7 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-27 (adds the restricted consumer construction path and its one-way post-bootstrap, pre-publication Hermes dynamic-code latch while preserving host-selected `ex_hermes_eval`)
 **Revised:** 2026-07-25 (LLP 0040 replaces the retired WebGPU-specific mailbox and activation bundle with the generic runtime-extension registry, fixed install phase, owner executor, completion tokens, and package-owned authenticated bootstrap inputs)
 **Revised:** 2026-07-25 (historical: separated the core bundle from an Ibex-owned WebGPU activation bundle; superseded by LLP 0040)
 **Revised:** 2026-07-19 (makes authenticated V2 capture publish the exact source-derived WebGPU wrapper roots, gates `createImageBitmap` on attached decoded-image authority, and fences all armed user execution on a post-publication descriptor-only root sweep with revocation and terminal rollback on mismatch; no target advertisement or platform-support claim is added)
@@ -32,7 +33,11 @@ it does not restate the embedding ABI ([LLP 0002](./0002-host-embedding-abi.spec
 
 Production uses `ex_hermes_create_armed(snapshot_digest)`; the historical
 `ex_hermes_create()` symbol is intentionally non-executable, and the separately
-named diagnostic constructor is not a project-execution API. Armed creation:
+named diagnostic constructor is not a project-execution API. Restricted local
+consumers may use `ex_hermes_create_no_eval()`: it follows the unarmed bootstrap
+path, then requires patch 0014's one-way VM latch before registration so host
+evaluation can load the selected application bundle while JavaScript `eval` and
+Function-family compilation remain closed. Armed creation:
 
 1. Builds a `hermes::vm::RuntimeConfig` with a microtask queue, `eval`, and
    ES6 block scoping enabled, then
@@ -50,6 +55,12 @@ named diagnostic constructor is not a project-execution API. Armed creation:
    bootstrap seals, and frame attribution structurally before registering or
    returning the runtime. Any mismatch destroys the partial runtime and
    refuses construction.
+
+The restricted constructor applies its dynamic-code latch after those trusted
+bootstrap/install stages and runtime-extension activation, but before clearing
+the construction phase or calling `registerRuntime`. A header/artifact mismatch
+or missing VM pointer follows the same partial-runtime cleanup path and returns
+NULL.
 
 `ex_hermes_eval()` evaluates UTF-8 source or Hermes bytecode (`is_bytecode`
 flag) and returns a result string `[observed]`

@@ -1072,6 +1072,7 @@ mod tests {
 
     extern "C" {
         fn ex_hermes_create() -> *mut HermesRuntimeOpaque;
+        fn ex_hermes_create_no_eval() -> *mut HermesRuntimeOpaque;
         fn ex_hermes_create_diagnostic() -> *mut HermesRuntimeOpaque;
         fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
         fn ex_hermes_try_destroy(runtime: *mut HermesRuntimeOpaque, runtime_nonce: u64) -> i32;
@@ -2068,6 +2069,51 @@ mod tests {
             Some(text)
         };
         (status, value)
+    }
+
+    /// The restricted consumer constructor keeps host-selected evaluation
+    /// available while closing every JavaScript-reachable string compiler,
+    /// including Hermes's cached Function("return this") fast path.
+    /// @ref LLP 0013#embedding-dynamic-code-policy-patch-0014
+    #[test]
+    fn no_eval_consumer_runtime_closes_dynamic_code_paths() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let runtime = ex_hermes_create_no_eval();
+            assert!(
+                !runtime.is_null(),
+                "the linked Hermes artifact must carry the dynamic-code latch"
+            );
+
+            let (status, value) = eval(
+                runtime,
+                r#"
+                (function () {
+                  var probes = [
+                    function () { return eval('1'); },
+                    function () { return (0, eval)('1'); },
+                    function () { return Function('return 1'); },
+                    function () { return Function('return this'); },
+                    function () { return Function('  return this;  '); },
+                    function () { return ({}).constructor.constructor('return this'); },
+                    function () { return Reflect.apply(Function, undefined, ['return this']); },
+                    function () { return Reflect.construct(Function, ['return this']); },
+                    function () { return (async function () {}).constructor('return 1'); },
+                    function () { return (function* () {}).constructor('return 1'); }
+                  ];
+                  var survivors = [];
+                  for (var i = 0; i < probes.length; i++) {
+                    try { probes[i](); survivors.push(i); } catch (_) {}
+                  }
+                  return JSON.stringify(survivors);
+                })()
+                "#,
+            );
+            assert_eq!(status, 0, "host-selected evaluation failed: {value:?}");
+            assert_eq!(value.as_deref(), Some("[]"));
+            ex_hermes_destroy(runtime);
+        }
     }
 
     /// Return the exact JavaScript source installed by the production

@@ -3020,7 +3020,7 @@ const REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES = Object.freeze([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.b20457102f7afdd20b0b7b2b9fa38400dff17ee6319c463e4b7566f41558375c";
+  "hermes-evaluators.4cd7a087e451be175c287351f2fe27e285fea046913adc21b3041455fb89c7a7";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
@@ -5223,6 +5223,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_create",
     "ex_hermes_create_armed",
     "ex_hermes_create_diagnostic",
+    "ex_hermes_create_no_eval",
     "ex_hermes_current_principal_id",
     "ex_hermes_current_runtime_nonce",
     "ex_hermes_debugger_enable",
@@ -13190,11 +13191,16 @@ function androidHostAbiClassification(name) {
 
 function abiEscapeClassification(name) {
   const abiName = name.toLowerCase();
-  if (abiName === "ex_hermes_create_diagnostic") {
+  if (
+    abiName === "ex_hermes_create_diagnostic" ||
+    abiName === "ex_hermes_create_no_eval"
+  ) {
     return closedSpec(
       "vm:evaluate",
       "WP7",
-      "The explicitly diagnostic unarmed runtime constructor is outside every production profile.",
+      abiName === "ex_hermes_create_no_eval"
+        ? "The restricted unarmed consumer constructor closes JavaScript dynamic compilation but remains outside every Ibex production profile."
+        : "The explicitly diagnostic unarmed runtime constructor is outside every production profile.",
     );
   }
   if (/^ex_hermes_debugger_/u.test(abiName)) {

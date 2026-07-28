@@ -169,6 +169,18 @@ ExactHermesRuntime* ex_hermes_create(void);
 /// diagnostic audit. Never use this for project execution.
 ExactHermesRuntime* ex_hermes_create_diagnostic(void);
 
+/// Create an explicitly unarmed embedding runtime whose trusted native
+/// bootstrap completes before JavaScript eval and Function-family string
+/// compilation are irreversibly disabled. Host-selected evaluation through
+/// ex_hermes_eval remains available so an embedder can run its selected
+/// application bundle. Returns NULL unless the exact linked Hermes artifact
+/// provides Ibex's one-way dynamic-code latch.
+///
+/// This constructor is for restricted local consumers, not authenticated Ibex
+/// project execution; production Ibex callers use ex_hermes_create_armed.
+/// @ref LLP 0002#the-narrow-consumer-contract-semver-major
+ExactHermesRuntime* ex_hermes_create_no_eval(void);
+
 /// Create a runtime only when the installed host carries this exact immutable
 /// armed-snapshot identity. Returns NULL on absence or mismatch.
 ExactHermesRuntime* ex_hermes_create_armed(const char* armed_snapshot_digest);

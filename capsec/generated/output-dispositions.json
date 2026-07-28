@@ -1,7 +1,7 @@
 {
   "outputDispositionDatasetSchema": "ibex/capsec-output-dispositions/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-4ZHxs7x5qrn-g184uGRtXN3SsZT2tNwb0YERJCxac00",
+  "catalogKeyDigest": "sha256-WkmfR1LBIGm36oP_pJN32KnRWLjGvrz7fDczaOf6Dn8",
   "evidence": {
     "status": "unpromotable",
     "reason": "The output corpus remains unpromotable: thirteen native surface accounts lack output contracts (one module marker, one prepared-startup carrier, and eleven conformance-only runtime-extension fixture globals or operations); three inherited-intrinsic alias surface accounts lack exact native reachability contracts; and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes these account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
@@ -51348,6 +51348,23 @@
         "surfaceId": "surface.host.abi.ex.hermes.create.diagnostic.1t314ff",
         "output": "[[return]]",
         "alias": "ex_hermes_create_diagnostic",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.create.no.eval.1dqgdqq",
+        "output": "[[return]]",
+        "alias": "ex_hermes_create_no_eval",
         "mode": "all",
         "sourceKind": "host-abi",
         "returnVariant": "default",
@@ -110794,12 +110811,12 @@
     }
   ],
   "counts": {
-    "catalogRows": 6516,
-    "dispositionRows": 6516,
+    "catalogRows": 6517,
+    "dispositionRows": 6517,
     "byDisposition": {
       "absent": 152,
       "closed": 28,
-      "non-path": 6188,
+      "non-path": 6189,
       "private-native-path": 5,
       "refused": 12,
       "reserved-constant": 1,
