@@ -2117,7 +2117,17 @@ describe("source-bound builtin public probes", () => {
         moduleSpecifiers: ["net", "node:net"],
         valueShape: "callable",
       }),
-    ).toBeNull();
+    ).toMatchObject({
+      invocation: {
+        templateId: "node-net-bounded-v1",
+        arguments: [],
+        setup: {
+          kind: "net-terminal-owner",
+          ownerExportName: "Server",
+        },
+        bodyEntryProof: { resultType: "object" },
+      },
+    });
     for (const [sourceKey, exportName, moduleSpecifiers, templateId] of [
       ["node_module", "isBuiltin", ["module", "node:module"], "node-module-pure-v1"],
       ["node_url", "canParse", ["node:url", "url"], "node-url-pure-v1"],
@@ -2131,6 +2141,42 @@ describe("source-bound builtin public probes", () => {
           valueShape: "callable",
         })?.invocation.templateId,
       ).toBe(templateId);
+    }
+  });
+
+  test("authors only exact fresh net terminal lifecycles", () => {
+    for (const [ownerExportName, methodName] of [
+      ["Server", "close"],
+      ["Socket", "close"],
+      ["Socket", "resetAndDestroy"],
+      ["Stream", "close"],
+      ["Stream", "resetAndDestroy"],
+    ]) {
+      expect(
+        probeFor({
+          sourceKey: "node_net",
+          exportName: `${ownerExportName}.${methodName}`,
+          exportIdioms: ["exported-constructor-prototype"],
+          moduleSpecifiers: ["net", "node:net"],
+          sourceRefs: [
+            `src/builtins/net.js#exports:${ownerExportName}.${methodName}`,
+          ],
+          valueShape: "callable",
+        }),
+      ).toMatchObject({
+        invocation: {
+          templateId: "node-net-bounded-v1",
+          arguments: [],
+          setup: {
+            kind: "net-terminal-owner",
+            ownerExportName,
+          },
+          bodyEntryProof: {
+            kind: "normal-return-from-source-call",
+            resultType: "object",
+          },
+        },
+      });
     }
   });
 

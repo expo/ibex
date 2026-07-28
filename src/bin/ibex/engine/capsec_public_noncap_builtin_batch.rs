@@ -1180,6 +1180,31 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
                 validate_authored_argument(argument, false);
             }
         }
+        "net-terminal-owner" => {
+            assert_object_keys(
+                &invocation.setup,
+                &["kind", "ownerExportName"],
+                "net terminal owner setup",
+            );
+            assert!(prototype);
+            assert_eq!(descriptor.source_key, "node_net");
+            let owner = setup["ownerExportName"]
+                .as_str()
+                .expect("net terminal owner name must be text");
+            assert!(matches!(owner, "Server" | "Socket" | "Stream"));
+            assert!(matches!(
+                (owner, descriptor.export_name.as_str()),
+                ("Server", "Server.close")
+                    | ("Socket", "Socket.close")
+                    | ("Socket", "Socket.resetAndDestroy")
+                    | ("Stream", "Stream.close")
+                    | ("Stream", "Stream.resetAndDestroy")
+            ));
+            assert_eq!(
+                descriptor.access.path.first().map(String::as_str),
+                Some(owner)
+            );
+        }
         "key-object-pair-owner" => {
             assert_object_keys(
                 &invocation.setup,
@@ -1710,6 +1735,69 @@ fn validate_idle_zlib_destroy_contract(
             "kind": "zlib-owner",
             "ownerExportName": owner,
             "ensureNativeStream": false
+        })
+    );
+    assert!(invocation.arguments.is_empty());
+}
+
+fn validate_idle_net_terminal_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    if descriptor.source_key != "node_net"
+        || !matches!(
+            descriptor.export_name.as_str(),
+            "Server.close"
+                | "Socket.close"
+                | "Socket.resetAndDestroy"
+                | "Stream.close"
+                | "Stream.resetAndDestroy"
+        )
+    {
+        return;
+    }
+    let (owner, method) = descriptor
+        .export_name
+        .split_once('.')
+        .expect("net terminal export has owner and method");
+    assert!(matches!(owner, "Server" | "Socket" | "Stream"));
+    assert!(
+        method == "close"
+            || (matches!(owner, "Socket" | "Stream")
+                && method == "resetAndDestroy")
+    );
+    assert_eq!(invocation.module_specifier, "node:net");
+    assert_eq!(
+        invocation.template_id.as_deref(),
+        Some("node-net-bounded-v1")
+    );
+    assert_eq!(
+        descriptor.export_idioms,
+        vec!["exported-constructor-prototype".to_owned()]
+    );
+    assert_eq!(
+        descriptor.module_specifiers,
+        ["net", "node:net"].map(str::to_owned)
+    );
+    assert_eq!(
+        descriptor.source_ref,
+        format!("src/builtins/net.js#exports:{}", descriptor.export_name)
+    );
+    assert_eq!(descriptor.value_shape, "callable");
+    assert_eq!(descriptor.access.kind, "prototype-property");
+    assert_eq!(
+        descriptor.access.path,
+        [owner, "prototype", method].map(str::to_owned)
+    );
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, "object");
+    assert_eq!(
+        invocation.setup,
+        serde_json::json!({
+            "kind": "net-terminal-owner",
+            "ownerExportName": owner
         })
     );
     assert!(invocation.arguments.is_empty());
@@ -2474,6 +2562,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         );
         validate_base_stream_module_value_contract(invocation, &descriptor, proof);
         validate_idle_zlib_destroy_contract(invocation, &descriptor, proof);
+        validate_idle_net_terminal_contract(invocation, &descriptor, proof);
         validate_bounded_http_contract(invocation, &descriptor, proof);
         validate_idle_tls_socket_contract(invocation, &descriptor, proof);
         validate_idle_tls_server_contract(invocation, &descriptor, proof);

@@ -4758,6 +4758,55 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — prove terminal cleanup on fresh net receivers
+
+- Promoted exactly `node_net.Server.close`, `node_net.Socket.close`,
+  `node_net.Socket.resetAndDestroy`, `node_net.Stream.close`, and
+  `node_net.Stream.resetAndDestroy`. Each dedicated setup constructs a fresh
+  receiver with empty arguments and no listener, native handle, accept/poll
+  timer, pending connect, write queue, Unix path, or peer route.
+- The loaded harness attaches one close observer before dispatch and completes
+  only after one close event. It then requires a server to be non-listening
+  with a null handle, or a socket/legacy Stream to be destroyed and closed with
+  a null handle. Live-listener, connect, accepted-socket, write, live-reset,
+  and peer routes remain residual.
+- The recipe author, independent JavaScript evidence validator, Rust catalog
+  validator, and loaded-engine JavaScript harness separately repeat the exact
+  five-name vocabulary, `node:net` identity, source descriptor, prototype
+  access, owner setup, empty arguments, prototype-call dispatch, object
+  result, cleanup fields, quiescence, and zero-decision contract. Negative
+  tests reject a substituted owner, template, method path, or incomplete
+  lifecycle receipt.
+- The regenerated Apple catalog digest
+  `sha256-DAQj1CeLq1TYVZE6WLy8zhIwOefzRdr0oeqMK4v2foY` reports 23,584
+  required / **3,720 fully executable** / 3,036 internally verified / 16,828
+  unresolved. The regenerated Windows digest
+  `sha256-84kYJjtfVNJHPZnE-N23mpTMWOYq981JTz0jzmYmUOg` reports 23,243
+  required / **3,377 fully executable** / 3,022 internally verified / 16,844
+  unresolved. The descriptor-only output manifest falls from 527 to 522 rows.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 73 focused rows plus
+  these five terminal calls under catalog digest
+  `sha256-IhiXa4eehOq80LauJ3j-E8qXa2Nghla4A9FmGVNxdiE` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 78
+  fixtures pass. Every new result reports `cleanupPerformed: true`,
+  `netLifecycleVerified: true`, one normal source return, quiescence, and zero
+  legacy or typed decisions. The raw evidence SHA-256 is
+  `3233342f7ef70431dd6666e17592f70e446b0327b7bfd5b97532f433d08b8530`;
+  independent JavaScript validation accepted all 78 executions and produced
+  diagnostic execution digest
+  `sha256-AqrSq0es4eHLGkB4nR-9LscuOlvzn3u97pvb-3eU27c` (artifact SHA-256
+  `b4fdf002dfdd9ecb558a2a13a8f6984965f2aeaba98aef33c808f25146270fcb`).
+  The diagnostic source binding is baseline revision
+  `d31291d617c305ba2b9511fc3cbe47371d570188` / tree digest
+  `sha256-M7YfuyQHriWfg8oIpxBrMElTKUlZw6Nf8OSnixeJtmk`.
+- The focused author/catalog/validator/output-accounting suite passes
+  **203/203** tests with 125,143 assertions on EPYC Bun 1.3.14; the physical
+  Rust exact-Hermes batch passes 78/78. The Linux replay remains diagnostic
+  rather than Apple promotion evidence.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

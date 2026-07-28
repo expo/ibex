@@ -363,6 +363,7 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["tls-server-construct-target", "construct"],
   ["constructed-owner", "prototype-call"],
   ["key-object-pair-owner", "prototype-call"],
+  ["net-terminal-owner", "prototype-call"],
   ["readline-interface-owner", "prototype-call"],
   ["readline-interface-pause-owner", "prototype-call"],
   ["buffer-owner", "prototype-call"],
@@ -632,6 +633,36 @@ const BASE_STREAM_MODULE_VALUE_CALL_CONTRACTS = new Map([
       resultType: "object",
     },
   ]),
+]);
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — A
+// fresh net Server, Socket, or legacy Stream owns no listener or transport.
+// These exact terminal calls must still deliver one close event and prove the
+// receiver reached its final in-memory state before the fixture completes.
+const IDLE_NET_TERMINAL_CALL_CONTRACTS = new Map([
+  [
+    "Server.close",
+    {
+      setup: {
+        kind: "net-terminal-owner",
+        ownerExportName: "Server",
+      },
+      arguments: [],
+      resultType: "object",
+    },
+  ],
+  ...["Socket", "Stream"].flatMap((ownerExportName) =>
+    ["close", "resetAndDestroy"].map((methodName) => [
+      `${ownerExportName}.${methodName}`,
+      {
+        setup: {
+          kind: "net-terminal-owner",
+          ownerExportName,
+        },
+        arguments: [],
+        resultType: "object",
+      },
+    ]),
+  ),
 ]);
 // Independently restate the only HTTP calls whose fresh receivers own no
 // socket, listener, timer, or native selector, or whose root validators inspect
@@ -5096,6 +5127,58 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: malformed authored base Stream module-value proof`,
       );
     }
+    const idleNetTerminalContract =
+      authored.sourceDescriptor.sourceKey === "node_net"
+        ? IDLE_NET_TERMINAL_CALL_CONTRACTS.get(authored.exportName)
+        : null;
+    const idleNetOwner = idleNetTerminalContract
+      ? authored.exportName.split(".")[0]
+      : null;
+    const expectedIdleNetTerminalDescriptor = idleNetTerminalContract
+      ? {
+          kind: "builtin-export",
+          sourceKey: "node_net",
+          exportName: authored.exportName,
+          exportIdioms: ["exported-constructor-prototype"],
+          moduleSpecifiers: ["net", "node:net"],
+          sourceRef: `src/builtins/net.js#exports:${authored.exportName}`,
+          valueShape: "callable",
+          access: {
+            kind: "prototype-property",
+            path: [
+              idleNetOwner,
+              "prototype",
+              authored.exportName.split(".")[1],
+            ],
+          },
+        }
+      : null;
+    if (
+      idleNetTerminalContract &&
+      (authored.moduleSpecifier !== "node:net" ||
+        authored.templateId !== "node-net-bounded-v1" ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !==
+          idleNetTerminalContract.resultType ||
+        canonicalJson(authored.setup) !==
+          canonicalJson(idleNetTerminalContract.setup) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson(idleNetTerminalContract.arguments) ||
+        canonicalJson(authored.sourceDescriptor) !==
+          canonicalJson(expectedIdleNetTerminalDescriptor))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored idle net terminal proof`,
+      );
+    }
+    if (
+      authored.setup.kind === "net-terminal-owner" &&
+      !idleNetTerminalContract
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: unreviewed authored net terminal proof`,
+      );
+    }
     const boundedHttpContract =
       authored.sourceDescriptor.sourceKey === "node_http"
         ? BOUNDED_HTTP_CALL_CONTRACTS.get(authored.exportName)
@@ -5347,6 +5430,7 @@ function validateRuntimeInvocation(observation, recipe) {
       );
     }
     const cleanupRequired = new Set([
+      "net-terminal-owner",
       "readline-interface-owner",
       "readline-interface-pause-owner",
       "tls-server-construct-target",
@@ -5361,6 +5445,8 @@ function validateRuntimeInvocation(observation, recipe) {
       "tls-server-construct-target",
       "tls-server-root-call",
     ]).has(authored.setup.kind);
+    const netLifecycleRequired =
+      authored.setup.kind === "net-terminal-owner";
     exactKeys(
       invocation.result,
       [
@@ -5375,6 +5461,7 @@ function validateRuntimeInvocation(observation, recipe) {
         ...(tlsServerLifecycleRequired
           ? ["tlsServerLifecycleVerified"]
           : []),
+        ...(netLifecycleRequired ? ["netLifecycleVerified"] : []),
       ],
       `${recipe.fixtureId}: builtin normal-return result`,
     );
@@ -5392,7 +5479,9 @@ function validateRuntimeInvocation(observation, recipe) {
       (readlineLifecycleRequired &&
         invocation.result.inputLifecycleVerified !== true) ||
       (tlsServerLifecycleRequired &&
-        invocation.result.tlsServerLifecycleVerified !== true)
+        invocation.result.tlsServerLifecycleVerified !== true) ||
+      (netLifecycleRequired &&
+        invocation.result.netLifecycleVerified !== true)
     ) {
       throw new Error(
         `${recipe.fixtureId}: builtin call did not prove its exact normal return`,

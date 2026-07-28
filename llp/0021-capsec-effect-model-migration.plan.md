@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-28 (promotes exactly five terminal calls on fresh `node:net` receivers: `Server.close`, `Socket.close`, `Socket.resetAndDestroy`, `Stream.close`, and `Stream.resetAndDestroy`; the dedicated setup constructs each receiver without a transport, attaches one harness close observer before dispatch, and requires exact close delivery plus terminal in-memory state before completion; authoring, independent evidence validation, Rust validation, and the loaded-engine harness repeat the closed five-name vocabulary, exact source descriptor, owner setup, dispatch, cleanup fields, quiescence, and zero-decision contract; Apple accounting is 3,720 fully executable / 3,036 internally verified / 16,828 unresolved and Windows is 3,377 / 3,022 / 16,844, while the descriptor residual manifest falls from 527 to 522)
 **Revised:** 2026-07-28 (promotes exactly three fresh `node:https` server constructors: `Server`, `Server.constructor`, and `createServer`; each source call layers one private-state HTTP wrapper over one idle TLS server without binding a transport or creating an HTTP selector, while the inner TLS server still mints one runtime/principal owner token; the dedicated loaded-engine setup closes the outer server, awaits outer close delivery and delayed inner token retirement, and requires a later outer `address()` call to reach the guarded inner server and fail with `ERR_TLS_SERVER_CLOSED`; authoring, independent evidence validation, Rust validation, and physical Hermes execution repeat the exact `node:https` descriptor, `member-assignment` provenance, dispatch, cleanup, and quiescence contract; Apple accounting is 3,715 fully executable / 3,036 internally verified / 16,833 unresolved and Windows is 3,372 / 3,022 / 16,849, while the descriptor residual manifest falls from 530 to 527)
 **Revised:** 2026-07-28 (promotes exactly three fresh `node:tls` server constructors: `Server`, `Server.constructor`, and `createServer`; each source call creates no transport or native listener but does mint one private runtime/principal owner token and install the two registry lifecycle listeners, so the dedicated loaded-engine setup attaches one harness close observer, invokes exact `close`, awaits the internal close hook and delayed retirement timer, and requires a subsequent guarded lifecycle call to fail with `ERR_TLS_SERVER_CLOSED`; authoring, independent evidence validation, Rust validation, and physical Hermes execution repeat the exact descriptor/dispatch/cleanup contract; Apple accounting is 3,712 fully executable / 3,036 internally verified / 16,836 unresolved and Windows is 3,369 / 3,022 / 16,852, while the descriptor residual manifest falls from 533 to 530)
 **Revised:** 2026-07-28 (promotes exactly the `node:tls` `SecureContext.context` read on a fresh harness-owned `SecureContext`: source construction installs one own enumerable, non-writable, non-configurable, frozen opaque object without allocating a TLS engine or consulting native trust state; the author, independent evidence validator, Rust validator, and loaded-engine harness repeat the exact constructed-instance descriptor, empty constructor, object result, quiescence, and zero-decision contract; Apple accounting is 3,709 fully executable / 3,036 internally verified / 16,839 unresolved and Windows is 3,366 / 3,022 / 16,855)
@@ -2764,6 +2765,23 @@ total; it removes them from the generic captured set and from the
 descriptor-only residual manifest. This closed proof does not admit malformed
 input, thrown validation results, arbitrary header data, or other HTTP
 exports.
+
+Fresh net terminal evidence is limited to five independently repeated
+contracts: `Server.close`, `Socket.close`, `Socket.resetAndDestroy`,
+`Stream.close`, and `Stream.resetAndDestroy`. The dedicated setup constructs
+each receiver with empty arguments and attaches one close observer before
+dispatch. A fresh `Server` owns no listener, native handle, accept timer,
+connection, or Unix path; a fresh `Socket` or legacy `Stream` owns no native
+handle, pending connect, write queue, poll timer, or peer route. The loaded
+harness still requires exactly one close event and verifies the final
+in-memory state: a server is non-listening with a null handle, while sockets
+are destroyed, closed, and have a null handle. The recipe author, independent
+evidence validator, Rust validator, and loaded-engine JavaScript harness
+separately repeat the exact five-name vocabulary, canonical `node:net`
+invocation, source descriptor, owner setup, empty arguments, object result,
+cleanup fields, quiescence, and zero-decision contract. This receipt does not
+admit `listen`, `connect`, accepted sockets, writes, reset of a live transport,
+or any other operation requiring a native handle or peer lifecycle.
 
 Transport-free TLS socket evidence is limited to five independently repeated
 contracts: construction through `TLSSocket`, plus `close`, `destroy`, `ref`,

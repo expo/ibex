@@ -186,6 +186,83 @@
   }
 
   // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // Keep the exact fresh net terminal vocabulary closed at the loaded-engine
+  // boundary. Each receiver has no native handle, but its close event and
+  // final state must be observed before the fixture may return.
+  function isReviewedIdleNetTerminalInvocation(invocation) {
+    var usesNetTerminalSetup =
+      invocation &&
+      invocation.setup &&
+      invocation.setup.kind === "net-terminal-owner";
+    if (
+      invocation.invocationSchema !==
+        "ibex/capsec-builtin-call-invocation/1" ||
+      invocation.kind !== "builtin-export-call" ||
+      !invocation.sourceDescriptor ||
+      invocation.sourceDescriptor.sourceKey !== "node_net"
+    ) {
+      return !usesNetTerminalSetup;
+    }
+    var exportName = invocation.exportName;
+    var ownerExportName = null;
+    if (exportName === "Server.close") {
+      ownerExportName = "Server";
+    } else if (
+      exportName === "Socket.close" ||
+      exportName === "Socket.resetAndDestroy"
+    ) {
+      ownerExportName = "Socket";
+    } else if (
+      exportName === "Stream.close" ||
+      exportName === "Stream.resetAndDestroy"
+    ) {
+      ownerExportName = "Stream";
+    } else {
+      return !usesNetTerminalSetup;
+    }
+    var descriptor = invocation.sourceDescriptor;
+    var methodName = exportName.split(".")[1];
+    return (
+      invocation.moduleSpecifier === "node:net" &&
+      invocation.templateId === "node-net-bounded-v1" &&
+      descriptor.exportName === exportName &&
+      exactObjectKeys(descriptor, [
+        "access",
+        "exportIdioms",
+        "exportName",
+        "kind",
+        "moduleSpecifiers",
+        "sourceKey",
+        "sourceRef",
+        "valueShape",
+      ]) &&
+      descriptor.kind === "builtin-export" &&
+      descriptor.valueShape === "callable" &&
+      descriptor.sourceRef ===
+        "src/builtins/net.js#exports:" + exportName &&
+      sameStringArray(descriptor.exportIdioms, [
+        "exported-constructor-prototype",
+      ]) &&
+      sameStringArray(descriptor.moduleSpecifiers, ["net", "node:net"]) &&
+      exactObjectKeys(descriptor.access, ["kind", "path"]) &&
+      descriptor.access.kind === "prototype-property" &&
+      sameStringArray(descriptor.access.path, [
+        ownerExportName,
+        "prototype",
+        methodName,
+      ]) &&
+      exactObjectKeys(invocation.setup, ["kind", "ownerExportName"]) &&
+      invocation.setup.kind === "net-terminal-owner" &&
+      invocation.setup.ownerExportName === ownerExportName &&
+      Array.isArray(invocation.arguments) &&
+      invocation.arguments.length === 0 &&
+      exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) &&
+      invocation.bodyEntryProof.kind === "normal-return-from-source-call" &&
+      invocation.bodyEntryProof.resultType === "object"
+    );
+  }
+
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
   // A TLSSocket created without a transport has no native owner token, TLS
   // engine, selector, listener, or pending timer. Keep this exact lifecycle
   // vocabulary separate from transport-binding TLS operations.
@@ -1260,11 +1337,14 @@
   try {
     var cleanupPerformed = false;
     var inputLifecycleVerified = false;
+    var netLifecycleVerified = false;
+    var netLifecyclePromise = null;
     var tlsServerLifecycleVerified = false;
     var tlsServerLifecyclePromise = null;
     var readlineLifecycleState = null;
     if (
       !isReviewedBoundedHttpInvocation(config) ||
+      !isReviewedIdleNetTerminalInvocation(config) ||
       !isReviewedIdleTlsSocketInvocation(config) ||
       !isReviewedIdleTlsServerInvocation(config) ||
       !isReviewedIdleDgramInvocation(config) ||
@@ -1336,6 +1416,46 @@
         owner,
         materializeList(setup.constructorArguments, moduleValue, bindings),
       );
+      dispatchKind = "prototype-call";
+    } else if (setup.kind === "net-terminal-owner") {
+      var netOwner = moduleValue[setup.ownerExportName];
+      if (typeof netOwner !== "function") {
+        return failure("setup-mismatch", {
+          setupKind: setup.kind,
+          ownerExportName: setup.ownerExportName,
+        });
+      }
+      receiver = Reflect.construct(netOwner, []);
+      if (
+        !receiver ||
+        typeof receiver.on !== "function" ||
+        typeof receiver.removeListener !== "function"
+      ) {
+        return failure("setup-mismatch", {
+          setupKind: setup.kind,
+          ownerExportName: setup.ownerExportName,
+        });
+      }
+      netLifecyclePromise = new Promise(function (resolve) {
+        var closeEvents = 0;
+        function onClose() {
+          closeEvents++;
+          if (closeEvents !== 1) return;
+          setTimeout(function () {
+            receiver.removeListener("close", onClose);
+            var terminalState =
+              setup.ownerExportName === "Server"
+                ? receiver.listening === false && receiver._handle === null
+                : receiver.destroyed === true &&
+                  receiver._handle === null &&
+                  receiver.readyState === "closed";
+            netLifecycleVerified = closeEvents === 1 && terminalState;
+            cleanupPerformed = netLifecycleVerified;
+            resolve(netLifecycleVerified);
+          }, 0);
+        }
+        receiver.on("close", onClose);
+      });
       dispatchKind = "prototype-call";
     } else if (setup.kind === "key-object-pair-owner") {
       var keyObjectOwner = moduleValue[setup.ownerExportName];
@@ -1546,6 +1666,10 @@
           capturedSuccess.inputLifecycleVerified =
             inputLifecycleVerified;
         }
+        if (setup.kind === "net-terminal-owner") {
+          capturedSuccess.cleanupPerformed = cleanupPerformed;
+          capturedSuccess.netLifecycleVerified = netLifecycleVerified;
+        }
         if (
           setup.kind === "tls-server-construct-target" ||
           setup.kind === "tls-server-root-call"
@@ -1579,6 +1703,10 @@
         success.cleanupPerformed = cleanupPerformed;
         success.inputLifecycleVerified = inputLifecycleVerified;
       }
+      if (setup.kind === "net-terminal-owner") {
+        success.cleanupPerformed = cleanupPerformed;
+        success.netLifecycleVerified = netLifecycleVerified;
+      }
       if (
         setup.kind === "tls-server-construct-target" ||
         setup.kind === "tls-server-root-call"
@@ -1588,6 +1716,18 @@
           tlsServerLifecycleVerified;
       }
       return failure("return", success);
+    }
+
+    if (netLifecyclePromise) {
+      return netLifecyclePromise.then(function (verified) {
+        if (!verified) {
+          return failure("cleanup-mismatch", {
+            setupKind: setup.kind,
+            ownerExportName: setup.ownerExportName,
+          });
+        }
+        return finishResult(result);
+      });
     }
 
     if (tlsServerLifecyclePromise) {

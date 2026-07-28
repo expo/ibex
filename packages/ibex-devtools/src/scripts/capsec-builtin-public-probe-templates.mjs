@@ -711,6 +711,15 @@ const tlsServerConstructTarget = () =>
   callSpec({ kind: "tls-server-construct-target" }, [], "object");
 const tlsServerRootCall = () =>
   callSpec({ kind: "tls-server-root-call" }, [], "object");
+const netTerminalOwner = (ownerExportName) =>
+  callSpec(
+    {
+      kind: "net-terminal-owner",
+      ownerExportName,
+    },
+    [],
+    "object",
+  );
 
 const ZLIB_OWNER_NAMES = Object.freeze([
   "BrotliCompress",
@@ -1146,6 +1155,10 @@ function exactCryptoCallSpecs() {
 
 const EXACT_CRYPTO_CALL_SPECS = exactCryptoCallSpecs();
 
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — A
+// fresh net Server, Socket, or legacy Stream has no native transport. Terminal
+// calls use a dedicated owner setup so close delivery and final in-memory
+// state are part of the receipt instead of being inferred from quiescence.
 const NODE_NET_CALL_SPECS = Object.freeze({
   BlockList: constructTarget([]),
   "BlockList.addAddress": constructedOwner(
@@ -1173,16 +1186,23 @@ const NODE_NET_CALL_SPECS = Object.freeze({
     "boolean",
   ),
   Server: constructTarget([]),
+  "Server.close": netTerminalOwner("Server"),
   "Server.ref": constructedOwner("Server", [], "object"),
   "Server.unref": constructedOwner("Server", [], "object"),
   // A freshly constructed Socket owns no native handle: destroy(), ref(),
-  // and unref() only update in-memory lifecycle state and return the
-  // receiver. net.Stream is the exact source's legacy alias for Socket.
+  // close(), resetAndDestroy(), ref(), and unref() only update in-memory
+  // lifecycle state and return the receiver. The terminal calls use a
+  // dedicated setup that observes their close event and final state.
+  // net.Stream is the exact source's legacy alias for Socket.
+  "Socket.close": netTerminalOwner("Socket"),
   "Socket.destroy": constructedOwner("Socket", [], "object"),
   "Socket.ref": constructedOwner("Socket", [], "object"),
+  "Socket.resetAndDestroy": netTerminalOwner("Socket"),
   "Socket.unref": constructedOwner("Socket", [], "object"),
+  "Stream.close": netTerminalOwner("Stream"),
   "Stream.destroy": constructedOwner("Stream", [], "object"),
   "Stream.ref": constructedOwner("Stream", [], "object"),
+  "Stream.resetAndDestroy": netTerminalOwner("Stream"),
   "Stream.unref": constructedOwner("Stream", [], "object"),
   SocketAddress: constructTarget([
     jsonArgument({ address: "127.0.0.1", family: "ipv4", port: 0 }),
@@ -2282,6 +2302,7 @@ function callTemplateFor(descriptor) {
         "construct-target",
         "constructed-owner",
         "key-object-pair-owner",
+        "net-terminal-owner",
         "readline-interface-owner",
         "readline-interface-pause-owner",
         "tls-server-construct-target",

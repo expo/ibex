@@ -450,11 +450,13 @@ describe("exact-target CapSec executable recipes", () => {
     // binding, poll timer, or peer route; close drains its terminal event.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_715);
+    // Five fresh net terminal calls observe close delivery after proving that
+    // their harness-owned receiver never acquired a transport.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_720);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_833);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_828);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -630,9 +632,11 @@ describe("exact-target CapSec executable recipes", () => {
     // binding, poll timer, or peer route. The restricted no-eval constructor
     // added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_372);
+    // Five fresh net terminal calls observe close delivery after proving that
+    // their harness-owned receiver never acquired a transport.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_377);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_849);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_844);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5403,7 +5407,7 @@ describe("exact-target CapSec executable recipes", () => {
       node_http: 13,
       node_https: 3,
       node_module: 3,
-      node_net: 22,
+      node_net: 27,
       node_readline: 3,
       node_tls: 9,
       node_v8: 1,
@@ -5688,6 +5692,28 @@ describe("exact-target CapSec executable recipes", () => {
             "tls-server-construct-target",
             "tls-server-root-call",
           ]).has(recipe.publicSurfaceProbe.invocation.setup.kind),
+      ),
+    ).toBe(true);
+    const idleNetTerminalCalls = publicCalls.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+          "node_net" &&
+        new Set([
+          "Server.close",
+          "Socket.close",
+          "Socket.resetAndDestroy",
+          "Stream.close",
+          "Stream.resetAndDestroy",
+        ]).has(recipe.publicSurfaceProbe.invocation.exportName),
+    );
+    expect(idleNetTerminalCalls).toHaveLength(5);
+    expect(
+      idleNetTerminalCalls.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.templateId ===
+            "node-net-bounded-v1" &&
+          recipe.publicSurfaceProbe.invocation.setup.kind ===
+            "net-terminal-owner",
       ),
     ).toBe(true);
     const idleDgramCalls = publicCalls.filter(

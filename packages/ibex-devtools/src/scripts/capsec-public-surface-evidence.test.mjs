@@ -5658,6 +5658,97 @@ describe("CapSec public-surface promotion evidence", () => {
     }
   });
 
+  test("accepts fresh net terminal calls only after close delivery", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:net";
+    invocation.exportName = "Socket.resetAndDestroy";
+    invocation.templateId = "node-net-bounded-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_net",
+      exportName: "Socket.resetAndDestroy",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: ["net", "node:net"],
+      sourceRef: "src/builtins/net.js#exports:Socket.resetAndDestroy",
+      valueShape: "callable",
+      access: {
+        kind: "prototype-property",
+        path: ["Socket", "prototype", "resetAndDestroy"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.setup = {
+      kind: "net-terminal-owner",
+      ownerExportName: "Socket",
+    };
+    invocation.arguments = [];
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "object",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.moduleSpecifier = "node:net";
+    observed.invocation.result.moduleSpecifier = "node:net";
+    observed.invocation.result.exportName = "Socket.resetAndDestroy";
+    observed.invocation.result.dispatchKind = "prototype-call";
+    observed.invocation.result.cleanupPerformed = true;
+    observed.invocation.result.netLifecycleVerified = true;
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.ownerExportName = "Server";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.templateId =
+          "node-http-idle-v1";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.sourceDescriptor.access.path = [
+          "Socket",
+          "prototype",
+          "destroy",
+        ];
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored idle net terminal proof|not source-descriptor bound|descriptor drift/,
+      );
+    }
+
+    const incompleteObservation = structuredClone(observed);
+    incompleteObservation.invocation.result.netLifecycleVerified = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: incompleteObservation,
+        coverage,
+      }),
+    ).toThrow(/did not prove its exact normal return/);
+  });
+
   test("accepts only transport-free TLS socket lifecycle calls", () => {
     const catalog = completeNoncapBuiltinCallCatalog();
     const recipe = catalog.recipes[0];
