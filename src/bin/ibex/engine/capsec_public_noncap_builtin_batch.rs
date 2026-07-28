@@ -785,8 +785,15 @@ fn expected_access(descriptor: &BuiltinSourceDescriptor) -> Option<BuiltinAccess
         if prototype_idioms.len() != descriptor.export_idioms.len() || segments.len() < 2 {
             return None;
         }
-        let mut path = vec![segments[0].clone(), "prototype".to_owned()];
-        path.extend_from_slice(&segments[1..]);
+        let path = if descriptor.source_key == "node_stream"
+            && descriptor.export_name == "default.destroyed"
+        {
+            vec!["prototype".to_owned(), "destroyed".to_owned()]
+        } else {
+            let mut path = vec![segments[0].clone(), "prototype".to_owned()];
+            path.extend_from_slice(&segments[1..]);
+            path
+        };
         return Some(BuiltinAccess {
             kind: if prototype_idioms[0].as_str() == "exported-constructor-inherited-prototype" {
                 "inherited-prototype-property".to_owned()

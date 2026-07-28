@@ -802,6 +802,11 @@ function isReviewedPrototypeValueDescriptor(descriptor) {
   const inherited = expected.exportIdioms.includes(
     "exported-constructor-inherited-prototype",
   );
+  const accessPath =
+    expected.sourceKey === "node_stream" &&
+    expected.exportName === "default.destroyed"
+      ? ["prototype", "destroyed"]
+      : [segments[0], "prototype", ...segments.slice(1)];
   return (
     segments.length >= 2 &&
     canonicalJson(descriptor) ===
@@ -817,7 +822,7 @@ function isReviewedPrototypeValueDescriptor(descriptor) {
           kind: inherited
             ? "inherited-prototype-property"
             : "prototype-property",
-          path: [segments[0], "prototype", ...segments.slice(1)],
+          path: accessPath,
         },
         expectedValueType: expected.expectedValueType,
       })

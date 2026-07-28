@@ -5233,7 +5233,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_public_loader_recipe_batch",
-          "sourceOffset": 98946,
+          "sourceOffset": 99196,
           "sourcePath": "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT:read",
           "stage": "armed-bootstrap-host-read"
@@ -5248,7 +5248,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_public_noncap_builtin_recipe_batch",
-          "sourceOffset": 83262,
+          "sourceOffset": 83512,
           "sourcePath": "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT:read",
           "stage": "armed-bootstrap-host-read"
@@ -5336,7 +5336,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_public_loader_recipe_batch",
-          "sourceOffset": 98762,
+          "sourceOffset": 99012,
           "sourcePath": "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
           "stage": "armed-bootstrap-host-read"
@@ -5351,7 +5351,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capsec_public_noncap_builtin_recipe_batch",
-          "sourceOffset": 83070,
+          "sourceOffset": 83320,
           "sourcePath": "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs",
           "sourceRef": "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
           "stage": "armed-bootstrap-host-read"

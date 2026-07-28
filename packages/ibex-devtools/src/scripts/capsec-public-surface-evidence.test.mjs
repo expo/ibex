@@ -1586,6 +1586,10 @@ function completePostInitializationValueReadCatalog([
   const inheritedPrototype = exportIdioms.includes(
     "exported-constructor-inherited-prototype",
   );
+  const prototypePath =
+    sourceKey === "node_stream" && exportName === "default.destroyed"
+      ? ["prototype", "destroyed"]
+      : [segments[0], "prototype", ...segments.slice(1)];
   const sourceDescriptor = {
     kind: "builtin-export",
     sourceKey,
@@ -1599,7 +1603,7 @@ function completePostInitializationValueReadCatalog([
           kind: inheritedPrototype
             ? "inherited-prototype-property"
             : "prototype-property",
-          path: [segments[0], "prototype", ...segments.slice(1)],
+          path: prototypePath,
         }
       : exportName === "default"
         ? { kind: "module-value", path: [] }

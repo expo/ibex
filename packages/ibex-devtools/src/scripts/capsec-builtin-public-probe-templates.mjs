@@ -2088,6 +2088,20 @@ function exportAccess(exportName, exportIdioms) {
   return { kind: "export-property", path: segments };
 }
 
+function reviewedRuntimeTypedValueAccess(expected) {
+  // node:stream publishes its default Stream constructor as the module value,
+  // not as a nested `default` property. Keep this correction scoped to the
+  // exact reviewed row rather than teaching generic prototype authoring to
+  // guess at module-export aliasing.
+  if (
+    expected.sourceKey === "node_stream" &&
+    expected.exportName === "default.destroyed"
+  ) {
+    return { kind: "prototype-property", path: ["prototype", "destroyed"] };
+  }
+  return exportAccess(expected.exportName, expected.exportIdioms);
+}
+
 function sourceDescriptor(
   surface,
   target,
@@ -2182,6 +2196,9 @@ function reviewedRuntimeTypedValueSourceDescriptor(
     allowedValueShapes,
     { allowReviewedPostInitializationValue: true },
   );
+  const access = reviewedRuntimeTypedValueAccess(expected);
+  const reviewedDescriptor =
+    descriptor && access ? { ...descriptor, access } : null;
   const expectedDescriptor = {
     kind: "builtin-export",
     sourceKey: expected.sourceKey,
@@ -2190,16 +2207,16 @@ function reviewedRuntimeTypedValueSourceDescriptor(
     moduleSpecifiers: expected.moduleSpecifiers,
     sourceRef: expected.sourceRef,
     valueShape: expected.valueShape,
-    access: exportAccess(expected.exportName, expected.exportIdioms),
+    access,
   };
   if (
-    !descriptor ||
-    canonicalJson(descriptor) !== canonicalJson(expectedDescriptor)
+    !reviewedDescriptor ||
+    canonicalJson(reviewedDescriptor) !== canonicalJson(expectedDescriptor)
   ) {
     return null;
   }
   return {
-    ...descriptor,
+    ...reviewedDescriptor,
     expectedValueType: expected.expectedValueType,
   };
 }

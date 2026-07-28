@@ -370,6 +370,10 @@ describe("source-bound builtin public probes", () => {
       const inherited = exportIdioms.includes(
         "exported-constructor-inherited-prototype",
       );
+      const expectedPath =
+        sourceKey === "node_stream" && exportName === "default.destroyed"
+          ? ["prototype", "destroyed"]
+          : [segments[0], "prototype", ...segments.slice(1)];
       expect(
         probeFor({
           sourceKey,
@@ -394,7 +398,7 @@ describe("source-bound builtin public probes", () => {
               kind: inherited
                 ? "inherited-prototype-property"
                 : "prototype-property",
-              path: [segments[0], "prototype", ...segments.slice(1)],
+              path: expectedPath,
             },
             expectedValueType,
           },
