@@ -5254,6 +5254,62 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — prove direct zlib write lifecycles
+
+- Promoted the direct `write` method for nine Apple zlib owners and the seven
+  Windows owners that exist there: `BrotliCompress`, `BrotliDecompress`,
+  `Deflate`, `DeflateRaw`, `Gunzip`, `Gzip`, `Inflate`, `InflateRaw`, and
+  `Unzip`. Zstd stays residual. The author, JavaScript evidence validator, Rust
+  catalog validator, and loaded-engine harness independently repeat the closed
+  owner vocabulary, exact input bytes, callback contract, boolean return,
+  output contract, terminal cleanup, and quiescence requirements.
+- Each invocation proves exactly one successful direct-write callback, then
+  calls an empty `end()` outside the observed write to finalize buffered codec
+  state. It waits for one `finish`, verifies the exact encoded or decoded
+  output, destroys the stream, and requires `_flushed`, `writableEnded`,
+  `destroyed`, a null native handle, quiescence, and zero decisions. This
+  terminal step is essential for Brotli: the first physical probe correctly
+  exposed that Brotli retains incremental bytes until finalization, so the
+  contract was corrected instead of weakening the output assertion.
+- The descriptor residual manifest falls from 466 to 457 rows. The regenerated
+  registry contains 7,523 coverage edges, 7,824 enforcement branches, 15,046
+  target cells, and 13,378 observed source references. Integration with the
+  newly merged diagnostic-loader resolver replacement classifies
+  `currentDiagnosticModuleResolve` and
+  `currentDiagnosticModuleResolveMeta` as exact non-capability
+  authority-control-plane surfaces; source-acquisition effects remain
+  separately classified and the armed resolver remains construction-private.
+- The final Apple catalog digest
+  `sha256-aUchvIzt1YsGGb-SUIOXVEGJ8qy5N2Npn-fyOjaJWAI` reports 23,590
+  required / **3,767 fully executable** / 3,040 internally verified / 16,783
+  unresolved. The final Windows digest
+  `sha256-vfXAoekZwGtH-YVABqz6TGwjOaOkueAAdAHQ4eO7-KU` reports 23,249
+  required / **3,414 fully executable** / 3,026 internally verified / 16,809
+  unresolved. Relative to the merged loader baseline, direct writes add nine
+  Apple and seven Windows executable obligations and remove the same number
+  from each unresolved set.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 135 focused rows
+  plus the nine direct writes under catalog digest
+  `sha256-zrARoY0vpX-gljodb_Zz6iyK0cwZfR8CWD44GJXk3iw` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 144
+  fixtures pass; all nine write results report
+  `zlibWriteLifecycleVerified: true`, every completion is quiescent, and no
+  legacy or typed decisions appear. Two final-registry replays are
+  byte-identical. The raw evidence SHA-256 is
+  `96371792c83b19df62d64501cf3270dfe012b27c4a36d07442f03caedc1bab6b`;
+  independent JavaScript reconstruction accepted all 144 executions and
+  reproduced diagnostic execution digest
+  `sha256-cW0Mv8GRs-t4650XrcZDh9GnN2hyNU4YT_MPdlZMCss` (artifact SHA-256
+  `8d99abe9522635d67e7ad08ff538f54e80c323842bb5ab2625b352cd15325185`).
+  The diagnostic source binding is baseline revision
+  `03417691125c936e794a15b6e91972125acd2948` / tree digest
+  `sha256-L9Yb_8zB8OCQOp-1RxfJk0CajnbDLCe95bzp_oHAQcQ`.
+- The final nine-file author/evidence/catalog/output/registry/inventory suite
+  passes **508/508** tests with 201,862 assertions on the EPYC host.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

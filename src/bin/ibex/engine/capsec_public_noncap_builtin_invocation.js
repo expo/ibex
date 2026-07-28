@@ -1076,6 +1076,95 @@
     );
   }
 
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // Incremental write evidence owns the callback and receiver, verifies the
+  // exact bounded output after a harness-owned terminal end, destroys the
+  // stream, and only then permits event-loop quiescence to complete the
+  // fixture.
+  function isReviewedZlibWriteInvocation(invocation) {
+    if (
+      !invocation ||
+      !invocation.sourceDescriptor ||
+      invocation.sourceDescriptor.sourceKey !== "node_zlib"
+    ) {
+      return !(
+        invocation &&
+        invocation.setup &&
+        invocation.setup.kind === "zlib-write-owner"
+      );
+    }
+    if (
+      typeof invocation.exportName !== "string" ||
+      !invocation.exportName.endsWith(".write")
+    ) {
+      return !(
+        invocation &&
+        invocation.setup &&
+        invocation.setup.kind === "zlib-write-owner"
+      );
+    }
+    var contract = zlibEndContract(invocation);
+    if (contract === null) return false;
+    var owner = invocation.exportName.split(".")[0];
+    var descriptor = invocation.sourceDescriptor;
+    var input = invocation.arguments && invocation.arguments[0];
+    var callback = invocation.arguments && invocation.arguments[1];
+    return (
+      invocation.invocationSchema ===
+        "ibex/capsec-builtin-call-invocation/1" &&
+      invocation.kind === "builtin-export-call" &&
+      invocation.moduleSpecifier === "node:zlib" &&
+      invocation.templateId === "node-zlib-bounded-v1" &&
+      exactObjectKeys(descriptor, [
+        "access",
+        "exportIdioms",
+        "exportName",
+        "kind",
+        "moduleSpecifiers",
+        "sourceKey",
+        "sourceRef",
+        "valueShape",
+      ]) &&
+      descriptor.kind === "builtin-export" &&
+      descriptor.exportName === invocation.exportName &&
+      descriptor.valueShape === "callable" &&
+      descriptor.sourceRef ===
+        "src/builtins/zlib.js#exports:" + invocation.exportName &&
+      sameStringArray(descriptor.exportIdioms, [
+        "exported-constructor-inherited-prototype",
+      ]) &&
+      sameStringArray(descriptor.moduleSpecifiers, ["node:zlib", "zlib"]) &&
+      exactObjectKeys(descriptor.access, ["kind", "path"]) &&
+      descriptor.access.kind === "inherited-prototype-property" &&
+      sameStringArray(descriptor.access.path, [
+        owner,
+        "prototype",
+        "write",
+      ]) &&
+      exactObjectKeys(invocation.setup, [
+        "kind",
+        "outputContract",
+        "ownerExportName",
+        "terminalMethod",
+      ]) &&
+      invocation.setup.kind === "zlib-write-owner" &&
+      invocation.setup.ownerExportName === owner &&
+      invocation.setup.outputContract === contract.outputContract &&
+      invocation.setup.terminalMethod === "end" &&
+      Array.isArray(invocation.arguments) &&
+      invocation.arguments.length === 2 &&
+      exactObjectKeys(input, ["bytes", "kind"]) &&
+      input.kind === "buffer" &&
+      sameByteArray(input.bytes, contract.input) &&
+      exactObjectKeys(callback, ["kind"]) &&
+      callback.kind === "zlib-write-callback" &&
+      exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) &&
+      invocation.bodyEntryProof.kind ===
+        "normal-return-from-source-call" &&
+      invocation.bodyEntryProof.resultType === "boolean"
+    );
+  }
+
   function timerInvocationContract(exportName) {
     var rootContracts = {
       active: ["timer-legacy-root", "active", "record", "undefined"],
@@ -2057,6 +2146,16 @@
         bindings.timerLifecycleState.callbackCalls++;
       };
     }
+    if (argument.kind === "zlib-write-callback") {
+      if (!bindings.zlibWriteLifecycleState) {
+        throw new TypeError("missing authored zlib write lifecycle state");
+      }
+      return function (error) {
+        bindings.zlibWriteLifecycleState.callbackCalls++;
+        bindings.zlibWriteLifecycleState.callbackError = error || null;
+        bindings.zlibWriteLifecycleState.finish();
+      };
+    }
     if (argument.kind === "throwing-function") {
       return function () {
         throw new Error(argument.errorMessage);
@@ -2180,6 +2279,8 @@
     var zlibEndLifecycleVerified = false;
     var zlibEndLifecyclePromise = null;
     var zlibProcessChunkOutputVerified = false;
+    var zlibWriteLifecycleVerified = false;
+    var zlibWriteLifecyclePromise = null;
     var timerLifecycleState = null;
     var timerLifecycleVerified = false;
     var readlineLifecycleState = null;
@@ -2194,6 +2295,7 @@
       !isReviewedZlibCallbackInvocation(config) ||
       !isReviewedZlibEndInvocation(config) ||
       !isReviewedZlibProcessChunkInvocation(config) ||
+      !isReviewedZlibWriteInvocation(config) ||
       !isReviewedTimerInvocation(config) ||
       !isReviewedX509StateInvocation(config) ||
       !isReviewedPureCompatibilityInvocation(config) ||
@@ -2581,6 +2683,143 @@
         });
       }
       dispatchKind = "prototype-call";
+    } else if (setup.kind === "zlib-write-owner") {
+      var zlibWriteOwner = moduleValue[setup.ownerExportName];
+      if (typeof zlibWriteOwner !== "function") {
+        return failure("setup-mismatch", {
+          setupKind: setup.kind,
+          ownerExportName: setup.ownerExportName,
+        });
+      }
+      receiver = Reflect.construct(zlibWriteOwner, []);
+      if (
+        !receiver ||
+        typeof receiver.on !== "function" ||
+        typeof receiver.removeListener !== "function" ||
+        typeof receiver.end !== "function" ||
+        typeof receiver.destroy !== "function" ||
+        typeof receiver._closeNativeStream !== "function"
+      ) {
+        return failure("setup-mismatch", {
+          setupKind: setup.kind,
+          ownerExportName: setup.ownerExportName,
+        });
+      }
+      var zlibWriteLifecycleState = {
+        callbackCalls: 0,
+        callbackError: null,
+        streamError: null,
+        outputChunks: [],
+        finishScheduled: false,
+        finishEvents: 0,
+        retireScheduled: false,
+        finish: null,
+      };
+      bindings.zlibWriteLifecycleState = zlibWriteLifecycleState;
+      zlibWriteLifecyclePromise = new Promise(function (resolve) {
+        function onData(chunk) {
+          if (!chunk || !ArrayBuffer.isView(chunk)) {
+            zlibWriteLifecycleState.streamError = new TypeError(
+              "zlib write emitted a non-byte chunk",
+            );
+            return;
+          }
+          zlibWriteLifecycleState.outputChunks.push(
+            new Uint8Array(
+              chunk.buffer,
+              chunk.byteOffset,
+              chunk.byteLength,
+            ),
+          );
+        }
+        function onError(error) {
+          zlibWriteLifecycleState.streamError =
+            error || new Error("zlib write emitted an unknown error");
+          retire();
+        }
+        function onFinish() {
+          zlibWriteLifecycleState.finishEvents++;
+          retire();
+        }
+        function retire() {
+          if (zlibWriteLifecycleState.retireScheduled) return;
+          zlibWriteLifecycleState.retireScheduled = true;
+          receiver.destroy(null, function (destroyError) {
+            setTimeout(function () {
+              receiver.removeListener("data", onData);
+              receiver.removeListener("error", onError);
+              receiver.removeListener("finish", onFinish);
+              var totalLength = 0;
+              for (
+                var index = 0;
+                index < zlibWriteLifecycleState.outputChunks.length;
+                index++
+              ) {
+                totalLength +=
+                  zlibWriteLifecycleState.outputChunks[index].byteLength;
+              }
+              var output = new Uint8Array(totalLength);
+              var offset = 0;
+              for (
+                var chunkIndex = 0;
+                chunkIndex < zlibWriteLifecycleState.outputChunks.length;
+                chunkIndex++
+              ) {
+                output.set(
+                  zlibWriteLifecycleState.outputChunks[chunkIndex],
+                  offset,
+                );
+                offset +=
+                  zlibWriteLifecycleState.outputChunks[chunkIndex].byteLength;
+              }
+              cleanupPerformed =
+                !destroyError &&
+                receiver.destroyed === true &&
+                receiver._handle === null;
+              var outputVerified =
+                setup.outputContract === "nonempty-byte-view"
+                  ? output.byteLength > 0
+                  : sameByteView(output, [105, 98, 101, 120]);
+              zlibWriteLifecycleState.outputLength = output.byteLength;
+              zlibWriteLifecycleState.outputVerified = outputVerified;
+              zlibWriteLifecycleState.receiverDestroyed =
+                receiver.destroyed === true;
+              zlibWriteLifecycleState.nativeHandleClosed =
+                receiver._handle === null;
+              zlibWriteLifecycleState.streamFlushed =
+                receiver._flushed === true;
+              zlibWriteLifecycleState.writableEnded =
+                receiver.writableEnded === true;
+              zlibWriteLifecycleVerified =
+                zlibWriteLifecycleState.callbackCalls === 1 &&
+                zlibWriteLifecycleState.callbackError === null &&
+                zlibWriteLifecycleState.streamError === null &&
+                zlibWriteLifecycleState.finishEvents === 1 &&
+                zlibWriteLifecycleState.streamFlushed &&
+                zlibWriteLifecycleState.writableEnded &&
+                outputVerified &&
+                cleanupPerformed;
+              resolve(zlibWriteLifecycleVerified);
+            }, 0);
+          });
+        }
+        zlibWriteLifecycleState.finish = function () {
+          if (zlibWriteLifecycleState.finishScheduled) return;
+          zlibWriteLifecycleState.finishScheduled = true;
+          setTimeout(function () {
+            try {
+              receiver.end();
+            } catch (error) {
+              zlibWriteLifecycleState.streamError = error;
+              retire();
+            }
+          }, 0);
+        };
+        receiver.on("data", onData);
+        receiver.on("error", onError);
+        receiver.on("finish", onFinish);
+      });
+      dispatchKind = "prototype-call";
     } else if (setup.kind === "stream-owner") {
       receiver = createStreamInstance(
         moduleValue,
@@ -2873,6 +3112,11 @@
         if (setup.kind === "zlib-owner") {
           capturedSuccess.cleanupPerformed = cleanupPerformed;
         }
+        if (setup.kind === "zlib-write-owner") {
+          capturedSuccess.cleanupPerformed = cleanupPerformed;
+          capturedSuccess.zlibWriteLifecycleVerified =
+            zlibWriteLifecycleVerified;
+        }
         if (
           setup.kind === "readline-interface-owner" ||
           setup.kind === "readline-interface-pause-owner"
@@ -2929,6 +3173,11 @@
         success.cleanupPerformed = cleanupPerformed;
         success.zlibProcessChunkOutputVerified =
           zlibProcessChunkOutputVerified;
+      }
+      if (setup.kind === "zlib-write-owner") {
+        success.cleanupPerformed = cleanupPerformed;
+        success.zlibWriteLifecycleVerified =
+          zlibWriteLifecycleVerified;
       }
       if (isZlibSyncEncoderInvocation(config)) {
         success.zlibSyncEncoderOutputVerified =
@@ -3020,6 +3269,35 @@
       });
     }
 
+    if (zlibWriteLifecyclePromise) {
+      return zlibWriteLifecyclePromise.then(function (verified) {
+        if (!verified) {
+          return failure("cleanup-mismatch", {
+            setupKind: setup.kind,
+            ownerExportName: setup.ownerExportName,
+            callbackCalls: zlibWriteLifecycleState.callbackCalls,
+            callbackError:
+              zlibWriteLifecycleState.callbackError === null
+                ? null
+                : String(zlibWriteLifecycleState.callbackError),
+            streamError:
+              zlibWriteLifecycleState.streamError === null
+                ? null
+                : String(zlibWriteLifecycleState.streamError),
+            outputLength: zlibWriteLifecycleState.outputLength,
+            outputVerified: zlibWriteLifecycleState.outputVerified,
+            finishEvents: zlibWriteLifecycleState.finishEvents,
+            streamFlushed: zlibWriteLifecycleState.streamFlushed,
+            writableEnded: zlibWriteLifecycleState.writableEnded,
+            cleanupPerformed: cleanupPerformed,
+            receiverDestroyed: zlibWriteLifecycleState.receiverDestroyed,
+            nativeHandleClosed: zlibWriteLifecycleState.nativeHandleClosed,
+          });
+        }
+        return finishResult(result);
+      });
+    }
+
     if (
       config.bodyEntryProof &&
       config.bodyEntryProof.kind === "settled-return-from-source-call"
@@ -3036,6 +3314,21 @@
     }
     return finishResult(result);
   } catch (error) {
+    if (
+      setup &&
+      setup.kind === "zlib-write-owner" &&
+      receiver
+    ) {
+      try {
+        if (typeof receiver._closeNativeStream === "function") {
+          receiver._closeNativeStream();
+        }
+        if (typeof receiver.destroy === "function") receiver.destroy();
+        cleanupPerformed = receiver.destroyed === true;
+      } catch (_zlibWriteCleanupError) {
+        cleanupPerformed = false;
+      }
+    }
     if (config.captureRawOutput === true && sourceOperationAttempted) {
       var capturedThrow = {
         sourceOperationAttempted: true,

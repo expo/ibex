@@ -2858,6 +2858,24 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     }
   });
 
+  test("classifies late diagnostic resolver selection as an exact control plane", () => {
+    for (const name of [
+      "function:javascript:currentDiagnosticModuleResolve",
+      "function:javascript:currentDiagnosticModuleResolveMeta",
+    ]) {
+      expect(reviewedLoaderNames()).toContain(name);
+      const classified = classifyObservedSurface(
+        surface("loader", name),
+        context,
+      );
+      expect(classified.edge).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "authority-control-plane",
+      });
+      expect(classified.specification.implementationOwner).toBe("WP3");
+    }
+  });
+
   test("classifies the source-bound current-principal environment Proxy as exact read/write effects", () => {
     const observed = principalEnvironmentOverlayGlobal();
     expect(reviewedGlobalApiNames()).toContain(observed.name);

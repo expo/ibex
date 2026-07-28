@@ -385,6 +385,7 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["zlib-end-owner", "prototype-call"],
   ["zlib-owner", "prototype-call"],
   ["zlib-process-chunk-owner", "prototype-call"],
+  ["zlib-write-owner", "prototype-call"],
 ]);
 const SETTLED_STREAM_CONSUMER_CONTRACTS = new Map([
   [
@@ -942,6 +943,18 @@ const ZLIB_PROCESS_CHUNK_CONTRACTS = new Map(
       arguments: Object.freeze([
         contract.arguments[0],
         Object.freeze({ kind: "json", value: 4 }),
+      ]),
+      outputContract: contract.outputContract,
+    }),
+  ]),
+);
+const ZLIB_WRITE_CONTRACTS = new Map(
+  [...ZLIB_END_CONTRACTS].map(([owner, contract]) => [
+    owner,
+    Object.freeze({
+      arguments: Object.freeze([
+        contract.arguments[0],
+        Object.freeze({ kind: "zlib-write-callback" }),
       ]),
       outputContract: contract.outputContract,
     }),
@@ -5800,6 +5813,12 @@ function validateRuntimeInvocation(observation, recipe) {
       zlibMethod === "_processChunk"
         ? ZLIB_PROCESS_CHUNK_CONTRACTS.get(zlibOwner)
         : null;
+    const zlibWriteContract =
+      authored.sourceDescriptor.sourceKey === "node_zlib" &&
+      zlibExtra.length === 0 &&
+      zlibMethod === "write"
+        ? ZLIB_WRITE_CONTRACTS.get(zlibOwner)
+        : null;
     const timerRootContract =
       authored.sourceDescriptor.sourceKey === "node_timers"
         ? TIMER_ROOT_CONTRACTS.get(authored.exportName)
@@ -5899,6 +5918,38 @@ function validateRuntimeInvocation(observation, recipe) {
       );
     }
     if (
+      zlibWriteContract &&
+      (authored.moduleSpecifier !== "node:zlib" ||
+        authored.templateId !== "node-zlib-bounded-v1" ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !== "boolean" ||
+        authored.sourceDescriptor.kind !== "builtin-export" ||
+        authored.sourceDescriptor.valueShape !== "callable" ||
+        authored.sourceDescriptor.sourceRef !==
+          `src/builtins/zlib.js#exports:${authored.exportName}` ||
+        canonicalJson(authored.sourceDescriptor.exportIdioms) !==
+          canonicalJson(["exported-constructor-inherited-prototype"]) ||
+        canonicalJson(authored.sourceDescriptor.moduleSpecifiers) !==
+          canonicalJson(["node:zlib", "zlib"]) ||
+        authored.sourceDescriptor.access.kind !==
+          "inherited-prototype-property" ||
+        canonicalJson(authored.sourceDescriptor.access.path) !==
+          canonicalJson([zlibOwner, "prototype", "write"]) ||
+        canonicalJson(authored.setup) !==
+          canonicalJson({
+            kind: "zlib-write-owner",
+            ownerExportName: zlibOwner,
+            outputContract: zlibWriteContract.outputContract,
+            terminalMethod: "end",
+          }) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson(zlibWriteContract.arguments))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored zlib write lifecycle proof`,
+      );
+    }
+    if (
       timerSetup &&
       (!timerContract ||
         authored.moduleSpecifier !== "node:timers" ||
@@ -5953,6 +6004,7 @@ function validateRuntimeInvocation(observation, recipe) {
       "zlib-end-owner",
       "zlib-owner",
       "zlib-process-chunk-owner",
+      "zlib-write-owner",
     ]).has(authored.setup.kind);
     const readlineLifecycleRequired = new Set([
       "readline-interface-owner",
@@ -5968,6 +6020,8 @@ function validateRuntimeInvocation(observation, recipe) {
       authored.setup.kind === "zlib-end-owner";
     const zlibProcessChunkRequired =
       authored.setup.kind === "zlib-process-chunk-owner";
+    const zlibWriteLifecycleRequired =
+      authored.setup.kind === "zlib-write-owner";
     const timerLifecycleRequired = timerSetup;
     exactKeys(
       invocation.result,
@@ -5989,6 +6043,9 @@ function validateRuntimeInvocation(observation, recipe) {
           : []),
         ...(zlibProcessChunkRequired
           ? ["zlibProcessChunkOutputVerified"]
+          : []),
+        ...(zlibWriteLifecycleRequired
+          ? ["zlibWriteLifecycleVerified"]
           : []),
         ...(timerLifecycleRequired ? ["timerLifecycleVerified"] : []),
         ...(zlibSyncEncoder ? ["zlibSyncEncoderOutputVerified"] : []),
@@ -6024,6 +6081,8 @@ function validateRuntimeInvocation(observation, recipe) {
         invocation.result.zlibEndLifecycleVerified !== true) ||
       (zlibProcessChunkRequired &&
         invocation.result.zlibProcessChunkOutputVerified !== true) ||
+      (zlibWriteLifecycleRequired &&
+        invocation.result.zlibWriteLifecycleVerified !== true) ||
       (timerLifecycleRequired &&
         invocation.result.timerLifecycleVerified !== true) ||
       (netLifecycleRequired &&

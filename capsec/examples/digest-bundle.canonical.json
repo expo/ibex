@@ -160382,6 +160382,26 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.loader.function.javascript.currentdiagnosticmoduleresolve.12v49cz",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "function:javascript:currentDiagnosticModuleResolve"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.loader.function.javascript.currentdiagnosticmoduleresolvemeta.0gas3oe",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "function:javascript:currentDiagnosticModuleResolveMeta"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.loader.function.javascript.devservedimportgatespecifier.0ekc8hh",
             "classification": "non-capability",
             "surface": {

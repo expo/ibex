@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-28 (promotes direct incremental `write(Buffer, callback)` on exactly nine Apple zlib owners and seven Windows owners: every selected call must return a boolean, invoke its dedicated callback exactly once without error, retain the fixed input until a separate harness-owned empty terminal `end`, emit a nonempty encoded byte view or exact decoded bytes `[105, 98, 101, 120]`, emit exactly one `finish`, reach flushed and ended writable state, destroy the receiver, close the native handle, quiesce, and observe zero decisions; this terminal-write contract accommodates the Apple Brotli wrappers, which buffer writes until finalization, without conflating the selected `write` return/callback with the auxiliary `end`; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact owner/input/callback/terminal/output/cleanup contract; the merged diagnostic loader's two late-resolver selector functions are also classified as exact WP3 control-plane surfaces, adding six fixture obligations (four internally verified, two unresolved) without executable credit; final Apple accounting is 23,590 required / 3,767 fully executable / 3,040 internally verified / 16,783 unresolved and Windows is 23,249 / 3,414 / 3,026 / 16,809; both zstd owners remain residual and advertisements remain empty)
 **Revised:** 2026-07-28 (strengthens 19 already executable `node:timers` calls from generic captured-output receipts to direct, source-bound lifecycle contracts: `active`, `clearInterval`, `clearTimeout`, `enroll`, `Immediate.close`, `Immediate.hasRef`, `Immediate.ref`, `Immediate.unref`, `setImmediate`, `setInterval`, `setTimeout`, `Timeout.close`, `Timeout.hasRef`, `Timeout.ref`, `Timeout.refresh`, `Timeout._scheduleNative`, `Timeout.unref`, `unenroll`, and `_unrefActive`; each contract fixes the exact root or inherited-prototype descriptor, owned setup, arguments, result, inert callback behavior, complete cancellation/cleanup, quiescence, and zero decisions, with a fixed 60-second delay ensuring cancellation rather than timer delivery; `clearImmediate` remains on its existing closed/generic route and the two constructors remain generic captured-output rows; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact contract; the generic captured-output set falls from 141 to 122 and the descriptor residual manifest from 485 to 466, while Apple accounting remains 3,758 fully executable / 3,036 internally verified / 16,790 unresolved and Windows remains 3,407 / 3,022 / 16,814; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes direct synchronous `_processChunk(Buffer, Z_FINISH)` on exactly nine Apple zlib owners and seven Windows owners: every call must return a nonempty encoded byte view or exact decoded bytes `[105, 98, 101, 120]`, close the constructor-created idle native selector, quiesce, and observe zero decisions; Apple additionally covers `BrotliCompress` and `BrotliDecompress`, while Windows leaves them target-unavailable and both targets leave zstd residual because no native zstd bridge exists; the receipt is explicitly one-shot and does not cover incremental write, transform, parameter, flush, or finalization state; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact owner/input/flush-flag/output/cleanup contract; Apple accounting is 3,758 fully executable / 3,036 internally verified / 16,790 unresolved and Windows is 3,407 / 3,022 / 16,814; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes terminal `end(Buffer)` on exactly nine Apple zlib owners and seven Windows owners: every call must return the receiver, deliver a nonempty encoded byte view or exact decoded bytes `[105, 98, 101, 120]`, emit exactly one `finish`, reach terminal writable state, leave no native codec ownership live, quiesce, and observe zero decisions; Apple additionally covers `BrotliCompress` and `BrotliDecompress`, while Windows leaves them target-unavailable and both targets leave zstd residual because no native zstd bridge exists; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact owner/input/output/lifecycle contract; Apple accounting is 3,749 fully executable / 3,036 internally verified / 16,799 unresolved and Windows is 3,400 / 3,022 / 16,821; advertisements remain empty)
@@ -2741,8 +2742,8 @@ evidence validator, Rust validator, and loaded-engine JavaScript boundary each
 repeat the same three-name allowlist, source descriptor, argument, dispatch,
 result type, and byte-view proof. This receipt does not cover callback codecs,
 `_processChunk`, `flush`, `params`, `write`, or any other stream-processing
-method: those remain residual until their input, completion, output budget, and
-native lifecycle are independently bounded.
+method; direct `write` and `_processChunk` use the separately bounded receipts
+below rather than borrowing this synchronous one-shot proof.
 
 Four one-shot zlib decoders have their own isolated receipt: `gunzipSync`,
 `inflateRawSync`, `inflateSync`, and `unzipSync`. Their harness-owned inputs are
@@ -2803,9 +2804,30 @@ validator, and loaded-engine JavaScript boundary separately repeat the exact
 owner set, inherited prototype descriptor, input, output contract, dispatch,
 finish, cleanup, and quiescence proof. `ZstdCompress.end` and
 `ZstdDecompress.end` remain residual because the runtime deliberately exposes
-no native zstd bridge. Other writes, parameter changes, flushes, transforms,
-and synchronous `_processChunk` calls remain residual pending separately
-bounded input, output, callback, and native-lifecycle evidence.
+no native zstd bridge. Parameter changes, flushes, transforms, and direct
+writes or synchronous `_processChunk` calls are not credited by this receipt;
+the latter two have separate contracts below.
+
+Direct incremental zlib `write(Buffer, callback)` has a terminal-write receipt
+for the same nine Apple owners and seven non-Brotli Windows owners as
+`end(Buffer)`. Compression receives `[105, 98, 101, 120]`; each decoder
+receives its fixed complete Brotli, deflate, raw-deflate, or gzip member. The
+selected source call must return a boolean and invoke the dedicated callback
+exactly once without error. Only after that callback does the harness supply a
+separate empty `end()` to release retained input, wait for exactly one
+`finish`, and require a nonempty encoded byte view or exact decoded bytes
+`[105, 98, 101, 120]`. It then destroys the receiver and proves flushed and
+ended writable state, `destroyed === true`, a null native handle, event-loop
+quiescence, and zero decisions. The separate terminal step is required for the
+Apple Brotli wrappers because their stream fallback buffers incremental writes
+until finalization; it does not turn `end`'s return into evidence for the
+selected `write` return or callback. The author, independent evidence
+validator, Rust validator, and loaded-engine JavaScript boundary each repeat
+the exact owner, inherited-prototype descriptor, fixed input, dedicated
+callback, terminal method, output, and cleanup contract. Both zstd owners
+remain residual because the runtime deliberately exposes no native zstd
+bridge, and `_writeNative`, `_transform`, `_flush`, `flush`, and `params`
+remain outside this receipt.
 
 Direct synchronous zlib `_processChunk(Buffer, Z_FINISH)` has a distinct
 one-shot receipt for the same nine Apple owners and seven non-Brotli Windows
@@ -2819,8 +2841,9 @@ must close it in every return or throw path before quiescence. The author,
 independent evidence validator, Rust validator, and loaded-engine JavaScript
 boundary separately repeat the exact owner set, inherited prototype
 descriptor, input, numeric flag, result contract, cleanup, and zero-decision
-proof. This receipt does not credit `_writeNative`, `_transform`, `write`,
-`flush`, `_flush`, `_final`, or `params`, and it leaves both zstd owners
+proof. This receipt does not credit `_writeNative`, `_transform`, `flush`,
+`_flush`, `_final`, or `params`; `write` uses the distinct terminal-write
+receipt above. It leaves both zstd owners
 residual because their one-shot function deliberately reports `ENOSYS`.
 
 The seven reviewed `node:stream` `closed` projections require a constructed

@@ -140343,6 +140343,72 @@
       ]
     },
     {
+      "edgeId": "surface.loader.function.javascript.currentdiagnosticmoduleresolve.12v49cz",
+      "observedKey": "loader:function:javascript:currentDiagnosticModuleResolve",
+      "branchId": "surface.loader.function.javascript.currentdiagnosticmoduleresolve.12v49cz.main",
+      "enforcementBranchId": "surface.loader.function.javascript.currentdiagnosticmoduleresolve.12v49cz.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:javascript:currentDiagnosticModuleResolve"
+        ],
+        "proofSourceRefs": [
+          "src/engine/bootstrap/module-loader.js#currentDiagnosticModuleResolve"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#currentDiagnosticModuleResolve"
+        ],
+        "terminalObservedKey": "loader:function:javascript:currentDiagnosticModuleResolve"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#currentDiagnosticModuleResolve"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.loader.function.javascript.currentdiagnosticmoduleresolve.12v49cz.main.cannot-widen-authority",
+        "surface.loader.function.javascript.currentdiagnosticmoduleresolve.12v49cz.main.non-capability",
+        "surface.loader.function.javascript.currentdiagnosticmoduleresolve.12v49cz.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.currentdiagnosticmoduleresolvemeta.0gas3oe",
+      "observedKey": "loader:function:javascript:currentDiagnosticModuleResolveMeta",
+      "branchId": "surface.loader.function.javascript.currentdiagnosticmoduleresolvemeta.0gas3oe.main",
+      "enforcementBranchId": "surface.loader.function.javascript.currentdiagnosticmoduleresolvemeta.0gas3oe.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:javascript:currentDiagnosticModuleResolveMeta"
+        ],
+        "proofSourceRefs": [
+          "src/engine/bootstrap/module-loader.js#currentDiagnosticModuleResolveMeta"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#currentDiagnosticModuleResolveMeta"
+        ],
+        "terminalObservedKey": "loader:function:javascript:currentDiagnosticModuleResolveMeta"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#currentDiagnosticModuleResolveMeta"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.loader.function.javascript.currentdiagnosticmoduleresolvemeta.0gas3oe.main.cannot-widen-authority",
+        "surface.loader.function.javascript.currentdiagnosticmoduleresolvemeta.0gas3oe.main.non-capability",
+        "surface.loader.function.javascript.currentdiagnosticmoduleresolvemeta.0gas3oe.main.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.loader.function.javascript.devservedimportgatespecifier.0ekc8hh",
       "observedKey": "loader:function:javascript:devServedImportGateSpecifier",
       "branchId": "surface.loader.function.javascript.devservedimportgatespecifier.0ekc8hh.main",
@@ -282057,7 +282123,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-mRvzWg91BvYgzuiOzJXZKOXRnqSXniHK0UFigkwW3QQ"
+      "rawContentDigest": "sha256-XqRiORpLRzgWlzdPCIn5rlDOae81k_39QZeufmbhrWM"
     },
     {
       "kind": "output-disposition-dataset",
@@ -282072,44 +282138,44 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-HM1TWw9KwlzJNzxI0x8HMSGq0oed794zUSUBAM6SkcE"
+      "rawContentDigest": "sha256-HZjeoWtw76G_7J09jg8IfaaTKhkwGeKnQg7kl2vZO8U"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-Vy2-TdKipQGVa-WAbyNe_zXHQ2BPlcO7PkUBbKTL2sY"
+      "rawContentDigest": "sha256-OK3dslAs7rBmA8nRjzOQZT77uEbo92h7t4EQu5-N8jc"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-mDinpMsA2imD3pyHS7U0Ql_zjhFABoUx9bhNh8hN8nw"
+      "rawContentDigest": "sha256-7TGYPMAf0B7MHFhzMCRxOZ8Mj_ARaebgf8-eEZB_It0"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-7edKdfMb6i_kEcBhqdYVbMD6_Os8iURb1Codfe8lRrE"
+      "rawContentDigest": "sha256-kVQd5XjJlsYHdH72lk8GQ0EypfpXjt12fe8m8Yo3fkY"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-WyIXU6bsWs_C3B2Gjz3kk5G51YoKcm4Py75pEkMOYMI"
+      "rawContentDigest": "sha256-MXQzBaF3ltZe1Dsztg6gFvpdf8Hn7o74Ws9Sptuyn_E"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-5yEvK4qqJi_EC0o9GNCs3F2-gNEDQRFxh27DbpTD390"
+      "rawContentDigest": "sha256-NutB8bz1xDot8rs99gGZcXgViVqV0oteNJ1J0i-Opms"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-vPBMff7S9k5pq8PHmX9HM7Lo188Ml_1p86ZEJiF0-7A"
+      "rawContentDigest": "sha256-yjA44crX6A-CRXgn8pMLRadJgVbVj2O7dBPuKwvZfS4"
     }
   ],
   "counts": {
-    "observedReferences": 13376,
-    "logicalSurfaces": 7521,
-    "enforcementBranches": 7822,
-    "coverageEdges": 7521,
-    "targetCells": 15042
+    "observedReferences": 13378,
+    "logicalSurfaces": 7523,
+    "enforcementBranches": 7824,
+    "coverageEdges": 7523,
+    "targetCells": 15046
   }
 }

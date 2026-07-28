@@ -5793,6 +5793,101 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/did not prove its exact normal return/);
   });
 
+  test("accepts zlib write only after exact callback, output, and cleanup", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:zlib";
+    invocation.exportName = "Inflate.write";
+    invocation.templateId = "node-zlib-bounded-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_zlib",
+      exportName: "Inflate.write",
+      exportIdioms: ["exported-constructor-inherited-prototype"],
+      moduleSpecifiers: ["node:zlib", "zlib"],
+      sourceRef: "src/builtins/zlib.js#exports:Inflate.write",
+      valueShape: "callable",
+      access: {
+        kind: "inherited-prototype-property",
+        path: ["Inflate", "prototype", "write"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.setup = {
+      kind: "zlib-write-owner",
+      ownerExportName: "Inflate",
+      outputContract: "exact-ibex-byte-view",
+      terminalMethod: "end",
+    };
+    invocation.arguments = [
+      {
+        kind: "buffer",
+        bytes: [120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169],
+      },
+      { kind: "zlib-write-callback" },
+    ];
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "boolean",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.result.dispatchKind = "prototype-call";
+    observed.invocation.result.cleanupPerformed = true;
+    observed.invocation.result.zlibWriteLifecycleVerified = true;
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments[0].bytes[0] = 121;
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments[1].kind =
+          "noop-function";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.terminalMethod = "destroy";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.ownerExportName = "Gunzip";
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored zlib write lifecycle proof|descriptor drift|not source-descriptor bound/,
+      );
+    }
+
+    const missingLifecycleProof = structuredClone(observed);
+    missingLifecycleProof.invocation.result.zlibWriteLifecycleVerified = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: missingLifecycleProof,
+        coverage,
+      }),
+    ).toThrow(/did not prove its exact normal return/);
+  });
+
   test("accepts only reviewed isolated sync zlib encoders", () => {
     const catalog = completeNoncapBuiltinCallCatalog();
     const recipe = catalog.recipes[0];

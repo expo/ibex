@@ -6249,6 +6249,8 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:javascript:compileModuleBody",
     "function:javascript:createEventTargetModule",
     "function:javascript:createOriginalModuleRegistry",
+    "function:javascript:currentDiagnosticModuleResolve",
+    "function:javascript:currentDiagnosticModuleResolveMeta",
     "function:javascript:devServedImportGateSpecifier",
     "function:javascript:generatedSinglePackagePrincipal",
     "function:javascript:getDebugModuleSourceLimit",
@@ -10616,6 +10618,12 @@ function loaderClassification(surface) {
         "function:javascript:capturedevservedmoduletable",
         "function:javascript:checkimportgate",
         "function:javascript:createoriginalmoduleregistry",
+        // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+        // the diagnostic resolver re-read selects a loader control path, while
+        // armed resolution remains construction-private and effect rows stay
+        // independently classified at their actual source acquisition.
+        "function:javascript:currentdiagnosticmoduleresolve",
+        "function:javascript:currentdiagnosticmoduleresolvemeta",
         "function:javascript:devservedlifecycle",
         "function:javascript:generatedsinglepackageprincipal",
         "function:javascript:__exactresolvedpath",

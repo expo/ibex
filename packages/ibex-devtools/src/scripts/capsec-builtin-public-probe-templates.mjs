@@ -640,6 +640,7 @@ const REVIEWED_DGRAM_SOCKET_INSTANCE_VALUE_EXPORTS = new Map([
 const jsonArgument = (value) => ({ kind: "json", value });
 const noopArgument = () => ({ kind: "noop-function" });
 const timerCallbackArgument = () => ({ kind: "timer-callback" });
+const zlibWriteCallbackArgument = () => ({ kind: "zlib-write-callback" });
 const throwingArgument = () => ({
   kind: "throwing-function",
   errorMessage: "ibex-capsec-authored-throw",
@@ -800,6 +801,12 @@ const ZLIB_END_CONTRACTS = new Map([
   ],
 ]);
 const ZLIB_PROCESS_CHUNK_CONTRACTS = new Map(
+  [...ZLIB_END_CONTRACTS].map(([owner, [bytes, outputContract]]) => [
+    owner,
+    [bytes, outputContract],
+  ]),
+);
+const ZLIB_WRITE_CONTRACTS = new Map(
   [...ZLIB_END_CONTRACTS].map(([owner, [bytes, outputContract]]) => [
     owner,
     [bytes, outputContract],
@@ -2244,6 +2251,20 @@ function zlibPrototypeSpec(exportName) {
       "object",
     );
   }
+  if (methodName === "write") {
+    const contract = ZLIB_WRITE_CONTRACTS.get(ownerExportName);
+    if (!contract) return null;
+    return callSpec(
+      {
+        kind: "zlib-write-owner",
+        ownerExportName,
+        outputContract: contract[1],
+        terminalMethod: "end",
+      },
+      [bufferArgument(contract[0]), zlibWriteCallbackArgument()],
+      "boolean",
+    );
+  }
   if (
     new Set([
       "_flush",
@@ -2251,7 +2272,6 @@ function zlibPrototypeSpec(exportName) {
       "_writeNative",
       "flush",
       "params",
-      "write",
     ]).has(methodName)
   ) {
     // These methods enter native codec work. At least BrotliCompress._flush
@@ -2566,6 +2586,7 @@ function callTemplateFor(descriptor) {
         "zlib-end-owner",
         "zlib-owner",
         "zlib-process-chunk-owner",
+        "zlib-write-owner",
         "stream-owner",
       ]).has(setupKind)) ||
     (!prototypeAccess &&

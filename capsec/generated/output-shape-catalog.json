@@ -45122,6 +45122,24 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.loader.function.javascript.currentdiagnosticmoduleresolve.12v49cz",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#currentDiagnosticModuleResolve"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.function.javascript.currentdiagnosticmoduleresolvemeta.0gas3oe",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#currentDiagnosticModuleResolveMeta"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.loader.function.javascript.devservedimportgatespecifier.0ekc8hh",
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
@@ -85603,9 +85621,9 @@
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
   "catalogKeyDigest": "sha256-WkmfR1LBIGm36oP_pJN32KnRWLjGvrz7fDczaOf6Dn8",
   "counts": {
-    "coverageSurfaces": 7521,
+    "coverageSurfaces": 7523,
     "outputBearingSurfaces": 5816,
-    "structuralOnlySurfaces": 1700,
+    "structuralOnlySurfaces": 1702,
     "unresolvedSurfaces": 5,
     "catalogRows": 6517,
     "parameterizedBindings": 1,

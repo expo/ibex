@@ -422,7 +422,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_584);
+    expect(recipes.summary.requiredFixtures).toBe(23_590);
     // The merged catalog retains every source-bound Apple probe while removing
     // the superseded WebGPU-specific Ibex surface under LLP 0040. The 24 exact
     // dns/promises error-code reads additionally prove their runtime strings,
@@ -463,11 +463,11 @@ describe("exact-target CapSec executable recipes", () => {
     // residual until it has loaded-engine evidence.
     // Five fresh net terminal calls observe close delivery after proving that
     // their harness-owned receiver never acquired a transport.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_758);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_767);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
-    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_790);
+    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_040);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_783);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -602,7 +602,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_243);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_249);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch. The
@@ -652,9 +652,9 @@ describe("exact-target CapSec executable recipes", () => {
     // remains one explicit residual until it has loaded-engine evidence.
     // Five fresh net terminal calls observe close delivery after proving that
     // their harness-owned receiver never acquired a transport.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_407);
-    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_814);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_414);
+    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_026);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_809);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -1910,7 +1910,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(3_036);
+    expect(rationaleOnly).toHaveLength(3_040);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -1923,8 +1923,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 511,
       "principal-restore": 511,
       "snapshot-mismatch-deny": 511,
-      "cannot-widen-authority": 496,
-      "post-lockdown-invariant": 496,
+      "cannot-widen-authority": 498,
+      "post-lockdown-invariant": 498,
     });
     // These are internal callback-security invariant scenarios: attested by
     // internal Rust proofs, not public-surface probes, so they carry the
@@ -5773,6 +5773,32 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe.invocation.arguments[1].value === 4 &&
           recipe.publicSurfaceProbe.invocation.bodyEntryProof.resultType ===
             "object",
+      ),
+    ).toBe(true);
+    const zlibWriteCalls = publicCalls.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+          "node_zlib" &&
+        recipe.publicSurfaceProbe.invocation.exportName.endsWith(".write"),
+    );
+    expect(zlibWriteCalls).toHaveLength(9);
+    expect(
+      zlibWriteCalls.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.setup.kind ===
+            "zlib-write-owner" &&
+          new Set(["nonempty-byte-view", "exact-ibex-byte-view"]).has(
+            recipe.publicSurfaceProbe.invocation.setup.outputContract,
+          ) &&
+          recipe.publicSurfaceProbe.invocation.setup.terminalMethod ===
+            "end" &&
+          recipe.publicSurfaceProbe.invocation.arguments.length === 2 &&
+          recipe.publicSurfaceProbe.invocation.arguments[0].kind ===
+            "buffer" &&
+          recipe.publicSurfaceProbe.invocation.arguments[1].kind ===
+            "zlib-write-callback" &&
+          recipe.publicSurfaceProbe.invocation.bodyEntryProof.resultType ===
+            "boolean",
       ),
     ).toBe(true);
     const timerCalls = publicCalls.filter(
