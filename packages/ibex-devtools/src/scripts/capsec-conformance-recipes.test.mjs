@@ -355,17 +355,19 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_583);
+    expect(recipes.summary.requiredFixtures).toBe(23_584);
     // The merged catalog retains every source-bound Apple probe while removing
     // the superseded WebGPU-specific Ibex surface under LLP 0040. The 24 exact
     // dns/promises error-code reads additionally prove their runtime strings,
     // and 15 exact scalar exports remain separate from their modules'
-    // capability-bearing initialization.
+    // capability-bearing initialization. The restricted no-eval constructor
+    // added on main remains one explicit residual until it has loaded-engine
+    // evidence.
     expect(recipes.summary.fullyExecutableFixtures).toBe(3_570);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_977);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_978);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -500,7 +502,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_242);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_243);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch. The
@@ -519,10 +521,11 @@ describe("exact-target CapSec executable recipes", () => {
     // exact assert promise validators, and five harness-owned filesystem
     // object lifecycle routes; target-local physical evidence also retires
     // absent RSA aliases and the unsafe or deliberately throwing crypto/zlib
-    // claims.
+    // claims. The restricted no-eval constructor added on main remains one
+    // explicit residual until it has loaded-engine evidence.
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_229);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_991);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_992);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
