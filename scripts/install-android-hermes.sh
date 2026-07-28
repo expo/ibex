@@ -16,7 +16,7 @@ ANDROID_ARTIFACT_CACHE="${ANDROID_ARTIFACT_CACHE:-$ANDROID_ARTIFACT_DIR/.cache}"
 mkdir -p "$ANDROID_ARTIFACT_CACHE"
 
 if [[ "$HERMES_ANDROID_VERSION" != "$IBEX_HERMES_VERSION" ]]; then
-  echo "Android Hermes Maven artifact remains at $HERMES_ANDROID_VERSION; $IBEX_HERMES_VERSION is not published there yet." >&2
+  echo "Android Hermes remains at reviewed artifact $HERMES_ANDROID_VERSION; published 260318099.0.1 predates the source pin's WeakRef read-barrier fix." >&2
 fi
 
 find_gradle_aar() {

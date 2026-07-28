@@ -58,7 +58,7 @@ is the line between "carrying patches" and "maintaining a divergent engine."
 | 0014 | `0014-honor-disabled-eval-for-return-this.patch` | C | Adds an exported one-way VM latch for `Runtime::enableEval` and gates Hermes's cached `Function("return this")` fast path on that same flag. Ibex applies the latch only after trusted bootstrap and before publishing a restricted consumer runtime, so host-selected evaluation remains available while JavaScript `eval` and Function-family string compilation close irreversibly. |
 
 All fourteen apply clean from pristine (`scripts/apply-hermes-patches.sh`) to
-tree `651f0631d9cbeadd3d2d1809f272e87f1a7f4bb8` and
+tree `36d01d2c726abbc9ddaa32d772946758b82af7b0` and
 compile into a working `hermesvm.framework` exporting the `ex_hermes_vm_*`
 symbols (`current_package_id`, `set_pending_package_id`, `clear_pending_package_id`,
 `set_default_package_id`, `disable_eval`, `collect_package_ids`, `set_job_scheduler_capture`,
@@ -67,7 +67,7 @@ symbols (`current_package_id`, `set_pending_package_id`, `clear_pending_package_
 `set_embedder_job_scheduler_principal`,
 `set_embedder_job_constrained_principals`,
 `has_active_job_constrained_principals`, and `take_failed_job_context`),
-verified against the pinned checkout (`ac8c6e6c80ec…`, HEAD of
+verified against the pinned checkout (`e639a7bad8bf…`, post-260318099.0.1 on
 `origin/260318099.0.0-stable`).
 
 ### Phase 2 integration — DONE (Ibex-side, no Hermes patch)

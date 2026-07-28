@@ -14,7 +14,7 @@
 # preserves Script completion semantics.
 #
 diff --git a/API/hermes/hermes.cpp b/API/hermes/hermes.cpp
-index 460434d10c35790247a10250d46a275623ea2795..96808afcc1940ba8141867447889086563ae22fc 100644
+index d8b99e41b14672a495a22276d7b7420138b29d15..65200e0d963bfeaaa3d59f6d55f7c4fca24415d4 100644
 --- a/API/hermes/hermes.cpp
 +++ b/API/hermes/hermes.cpp
 @@ -1262,6 +1262,7 @@ class HermesRuntimeImpl final : public HermesRuntime,

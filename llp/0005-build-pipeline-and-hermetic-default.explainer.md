@@ -5,6 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-27 (source-built Hermes platforms move to the post-260318099.0.1 stable commit carrying the WeakRef read-barrier fix; Android remains on its older unaffected reviewed AAR until Maven publishes a fixed build)
 **Revised:** 2026-07-26 (Linux source and prebuilt Hermes bundles now publish the matching Hermes VM CLI beside `hermesc`, allowing build.rs to prove the linked runtime's HBC version and precompile the core runtime bundle instead of reparsing its source during every embedded startup)
 **Revised:** 2026-07-25 (the managed source-built Windows `hermesc` compiles the authenticated shared-runtime bundle under the same version and generated-file validation gates as Apple/Linux, while per-file bootstrap HBC remains on the Windows source-header exception)
 **Revised:** 2026-07-25 (the Windows Hermes builder and installer derive identical lowercase SHA-256 identities and write BOM-free provenance JSON under the platform-default Windows PowerShell 5 host instead of requiring .NET Core-only conversion and encoding APIs)
@@ -275,7 +276,10 @@ is a separate concern from the vendored-generated JS snapshot.
 The default Hermes source ref is centralized in `scripts/hermes-version.sh`,
 which pins an exact commit (`IBEX_HERMES_SOURCE_COMMIT`) because the upstream
 `260318099.0.0-stable` branch name moves (ENG-23092), and upstream publishes
-no prebuilt Darwin runtime/CLI tarballs for this release `[observed]`.
+no prebuilt Darwin runtime/CLI tarballs for this release train. The selected
+commit is `e639a7bad8bfca844d982afa54fac786c65a8856`, after the
+`260318099.0.1` tag, and includes upstream's WeakRef read-barrier correction
+`[observed]`.
 `scripts/download-hermes.sh` is the installer entry point; the from-source
 builders are `scripts/build-hermes.sh` (Darwin: host `hermesc`/`hermes`, iOS
 device/simulator frameworks, a macOS `hermesvm.framework`, headers) and
@@ -374,10 +378,13 @@ lock-file unlink races `[observed]` (`scripts/build-hermes-windows.ps1`;
 `scripts/install-windows-hermes.ps1`).
 
 Android remains a separate artifact channel. It consumes Maven/PREFAB artifacts
-through `scripts/install-android-hermes.sh`; Maven Central does not yet publish
-`com.facebook.hermes:hermes-android:260318099.0.0`, so the default Android
-Hermes artifact remains `250829098.0.14` while React Android moves to the
-published `0.86.0` JSI artifact `[observed]`
+through `scripts/install-android-hermes.sh`. Maven Central now publishes
+`com.facebook.hermes:hermes-android:260318099.0.0` and `.0.1`, but `.0.1`
+predates the WeakRef read-barrier fix selected by the source-built profiles.
+The default Android Hermes artifact therefore remains the older, unaffected
+`250829098.0.14` while React Android stays on the reviewed `0.86.0` JSI
+artifact until a fixed Hermes AAR can be reviewed and digest-pinned
+`[observed]`
 (`scripts/hermes-version.sh`; `scripts/install-android-hermes.sh`).
 
 Hermes C++/JSI headers are not identical across the supported SDKs. The macOS

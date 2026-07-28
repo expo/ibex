@@ -16,7 +16,7 @@
 # exits.
 #
 diff --git a/API/hermes/hermes.cpp b/API/hermes/hermes.cpp
-index 270bb4a3b5e1ef761bcf786b147d85dd5704ef3a..460434d10c35790247a10250d46a275623ea2795 100644
+index a25b32b91cb5a343113867bf1dc9e6053028429d..d8b99e41b14672a495a22276d7b7420138b29d15 100644
 --- a/API/hermes/hermes.cpp
 +++ b/API/hermes/hermes.cpp
 @@ -1261,6 +1261,7 @@ class HermesRuntimeImpl final : public HermesRuntime,
