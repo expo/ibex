@@ -8021,6 +8021,26 @@ fs.writeFileSync(__MARKER_PATH__, 'authenticated-cache-route-ok');
     }
 
     #[test]
+    fn dynamic_import_transform_does_not_copy_the_source_suffix_per_character() {
+        let loader_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("src/engine/bootstrap/module-loader.js");
+        let loader = std::fs::read_to_string(loader_path).expect("read module loader");
+        assert!(
+            !loader.contains("var lowered = source.slice(i).match("),
+            "dynamic-import scanning must not materialize the remaining source at every index"
+        );
+        assert!(
+            !loader.contains("var rest = source.slice(i);"),
+            "dynamic-import scanning must not retain the quadratic suffix-copy path"
+        );
+        assert!(
+            loader.contains("indexAfterLoweredDynamicImport")
+                && loader.contains("indexAfterDynamicImport"),
+            "dynamic-import scanning must use the index-based recognizers"
+        );
+    }
+
+    #[test]
     fn dev_served_module_table_is_one_shot_gated_and_falls_back_to_native() {
         let (runner, _) = find_js_runner().expect("JavaScript runner");
         let loader_path =
@@ -8168,11 +8188,17 @@ globalThis.__exactModuleResolve = function() {
 };
 globalThis.__exactNativeModuleResolve = globalThis.__exactModuleResolve;
 (0, eval)(loader);
+let lateSpecifier = '';
 globalThis.__exactModuleResolve = function(specifier) {
+  lateSpecifier = specifier;
+  if (specifier !== '/src/entry.js?url') {
+    return JSON.stringify({error:'late resolver lost Vite query: ' + specifier});
+  }
   return JSON.stringify({id:specifier,kind:'cjs',source:'module.exports=42;'});
 };
-if (globalThis.require('entry') !== 42) {
-  throw new Error('diagnostic loader retained the construction-time resolver');
+if (globalThis.require('/src/entry.js?url') !== 42 ||
+    lateSpecifier !== '/src/entry.js?url') {
+  throw new Error('diagnostic loader retained the construction-time resolver or lost the Vite query');
 }
 "#
         .replace("__LOADER_PATH__", &loader_path);
