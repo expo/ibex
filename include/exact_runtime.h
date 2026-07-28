@@ -175,6 +175,12 @@ ExactHermesRuntime* ex_hermes_create_diagnostic(void);
 /// ex_hermes_eval remains available so an embedder can run its selected
 /// application bundle. Returns NULL unless the exact linked Hermes artifact
 /// provides Ibex's one-way dynamic-code latch.
+/// Detached Promise rejections and other background JavaScript failures are
+/// published through ex_hermes_take_async_failure_event; the consumer must
+/// drain and release those owner-thread value handles before destruction.
+/// Unlike Ibex's diagnostic and armed constructors, this narrow consumer does
+/// not freeze the intrinsic graph: the embedding host remains responsible for
+/// installing and verifying its application-visible global policy.
 ///
 /// This constructor is for restricted local consumers, not authenticated Ibex
 /// project execution; production Ibex callers use ex_hermes_create_armed.
@@ -1423,6 +1429,9 @@ uint32_t ex_hermes_value_release(
 /// handle has already been released by the runtime. Once loss begins, later
 /// failures coalesce into the same window until its marker is taken, so a
 /// newer event cannot overtake an older loss marker.
+/// For ex_hermes_create_no_eval consumers, this call is also the Promise
+/// rejection-determination checkpoint after ex_hermes_eval's microtask drain;
+/// it does not advance timers or unrelated callback queues.
 uint32_t ex_hermes_take_async_failure_event(
     ExactHermesRuntime* runtime,
     ExHermesAsyncFailureEvent* event);

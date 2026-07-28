@@ -20,11 +20,11 @@ Disposition of the six compat commits `accb686f..bfbc6133`
 | `f8d26ce8` | ENG-24383 TLS PEM parsing | SUBSUMED (main uses `rustls-pki-types` and went further) |
 | `f3c3fe73` | ENG-25006 fetch keepalive | SUBSUMED (on main as `a4555941`) |
 | `b129c8e0` | ENG-25006 fetch cleanup | SUBSUMED (on main as `f9ca3fcf`) |
-| `c791baa2` | async continuation auth + `ex_hermes_create_no_eval` | SPLIT: no-eval **NEEDS-UPSTREAM**; continuation-auth core DROPPABLE for the pin advance (see the security-delta ticket) |
+| `c791baa2` | async continuation auth + `ex_hermes_create_no_eval` | SPLIT: no-eval **NEEDS-UPSTREAM**; the handler-reachable observer mechanism is DROPPABLE, but its detached-rejection guarantee needs the native checkpoint equivalent on the restricted constructor |
 | `bfbc6133` | principal sentinels portable | SUBSUMED (identical relocation on main) |
 
-Snapback's actual link dependency (verified in its `src/runtime.rs`) is
-exactly three symbols: `ex_hermes_create_no_eval`,
+Snapback's direct link dependency (verified in its `src/runtime.rs`) was
+initially three symbols: `ex_hermes_create_no_eval`,
 `ex_hermes_watch_time_limit`, `ex_hermes_unwatch_time_limit`. This selects
 **option 2** of snapback's blocker ticket, in its minimal form.
 
@@ -117,6 +117,17 @@ The remaining `ex_hermes_create_no_eval` ABI is now implemented on current main:
   attribution bridge and the new latch. The focused adversarial constructor
   test passes on macOS and on Linux (the release/no-debugger Linux artifact was
   tested with the matching `HERMES_ENABLE_DEBUGGER=0` Cargo profile).
+
+The first clean Snapback integration run then exposed a semantic dependency
+that the symbol audit could not see: the archived constructor also carried a
+handler-reachable Promise observer used by Snapback's detached-rejection
+ledger. Current main deliberately removed that surface in favor of the native
+poll-checkpoint reporter. The restricted constructor now opts into that
+reporter and the existing `ex_hermes_take_async_failure_event` queue without
+enabling structured-session work publication or restoring a mutable JavaScript
+hook. The consumer path also leaves Ibex structural lockdown off, matching its
+narrow no-eval contract so Snapback can install and verify its deterministic
+Date/Math policy before application code.
 
 **Remaining:** land this Ibex commit on main, then advance snapback to that
 main pin and replace its
