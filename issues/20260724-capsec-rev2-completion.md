@@ -3791,6 +3791,59 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — executed initialized constructor and default values
+
+- Promoted exactly 11 source-reviewed values after their modules completed
+  initialization: the eight constructor exports from `node:stream/web`, the
+  `dns` and `dns/promises` default module values, and
+  `Performance.prototype.timeOrigin`. The author, Rust executor, and
+  independent validator each repeat the exact source key, export name, source
+  reference, public aliases, source idioms, access path, and runtime type.
+- Physical execution proves eight functions, two objects, and one number on
+  each target with zero typed decisions. The DNS defaults use the module-value
+  path rather than inventing a nested property; `Performance.timeOrigin` uses
+  the exact exported-constructor prototype path. Generic unknown-shape reads
+  remain excluded.
+- The implementation checkpoint is
+  `e9538d0fa23598dd7de8db7ba0b7bffdfda157a5`, with tree digest
+  `sha256-lv6E4yUoHaXRGqN3t1YyCYlxC1SrV3wVLEJLkRqBljo`. Upstream `main`
+  remained at the already-integrated `e4d96bb0` throughout the replay.
+- Final Apple catalog digest
+  `sha256-VT_Ohq23FZzllncds8DDrLizac2OMj-1xJ2pDdQQQxE` reports 23,584
+  required / **3,624 fully executable** / 3,036 internally verified / 16,924
+  unresolved. The local M5 strict-provenance, stale-vendored batch passes
+  **1,319/1,319**: 1,140 export probes, 145 captured routes, and 34 isolated
+  imports, against engine digest
+  `sha256-PzMZqlPaba3S9taiDvkd7H-DCuBv2MXbYOmLoVbZP3I`. The raw evidence
+  SHA-256 is
+  `151317352c010f7a60cb9c5e65ebbe2f38f5e413cec5aa95dea02d8f692ccc65`;
+  independent validation accepted all 1,319 fixtures and the exact 11-value
+  type set, producing execution digest
+  `sha256-7U8vQADLsEDpel1MZXeeq-yKz5_ZBUnkLdRmQ9XglTU`.
+- Final Windows catalog digest
+  `sha256-6LvvdBkHl2JUQ96ZSUdHd3Y_R4rWIVNvZLbS9wEXliA` reports 23,243
+  required / **3,283 fully executable** / 3,022 internally verified / 16,938
+  unresolved. The NucBox's exact MSVC/reviewed-Hermes batch passes
+  **1,283/1,283**: 1,104 export probes, 145 captured routes, and 34 isolated
+  imports, against engine digest
+  `sha256-4HsCwsHz-UDTGNW8-89DnujWOx9rFegBL0wYbUFHPHE`. The raw evidence
+  SHA-256 is
+  `889d0a3e445a534c67ad4063cb89d03be3e6b528eb9d8e9b7c566be44fdeadc4`;
+  independent validation accepted all 1,283 fixtures and the exact 11-value
+  type set, producing execution digest
+  `sha256-xJCZQ1zTCegTjG0C0-AGZ6CF271-a598vvIsb-IfW4A`.
+- The focused author/catalog/validator suite passes **177/177** tests with
+  117,025 assertions. The secure Cargo profile compiles, all generated-drift
+  gates pass, and `ref-check` validates 41 LLP documents and 2,221 references
+  with zero errors (one stable URL remains unchecked).
+- Native one-shot zlib codecs remain residual. Their reviewed source and the
+  existing authoring contract explicitly record that some bound static-Hermes
+  codec paths can terminate the process; quiescence or a nominal return type
+  is not substituted for isolated backend proof.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
