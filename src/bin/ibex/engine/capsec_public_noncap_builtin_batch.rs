@@ -1660,7 +1660,7 @@ fn validate_idle_zlib_destroy_contract(
     assert!(invocation.arguments.is_empty());
 }
 
-fn validate_idle_http_contract(
+fn validate_bounded_http_contract(
     invocation: &BuiltinInvocation,
     descriptor: &BuiltinSourceDescriptor,
     proof: &BodyEntryProof,
@@ -1669,45 +1669,79 @@ fn validate_idle_http_contract(
     if descriptor.source_key != "node_http" {
         return;
     }
-    let (expected_setup, expected_result_type) = match descriptor.export_name.as_str() {
-        "Agent.destroy" => (
-            serde_json::json!({
-                "kind": "constructed-owner",
-                "ownerExportName": "Agent",
-                "constructorArguments": []
-            }),
-            "undefined",
-        ),
-        "Server" | "Server.constructor" => {
-            (serde_json::json!({"kind": "construct-target"}), "object")
-        }
-        "Server.close" => (
-            serde_json::json!({
-                "kind": "constructed-owner",
-                "ownerExportName": "Server",
-                "constructorArguments": []
-            }),
-            "object",
-        ),
-        "Server.closeAllConnections" | "Server.closeIdleConnections" => (
-            serde_json::json!({
-                "kind": "constructed-owner",
-                "ownerExportName": "Server",
-                "constructorArguments": []
-            }),
-            "undefined",
-        ),
-        "Server.ref" | "Server.unref" => (
-            serde_json::json!({
-                "kind": "constructed-owner",
-                "ownerExportName": "Server",
-                "constructorArguments": []
-            }),
-            "object",
-        ),
-        "createServer" => (serde_json::json!({"kind": "root-call"}), "object"),
-        other => panic!("unsupported idle HTTP call {other}"),
-    };
+    let (expected_setup, expected_arguments, expected_result_type) =
+        match descriptor.export_name.as_str() {
+            "_checkInvalidHeaderChar" => (
+                serde_json::json!({"kind": "root-call"}),
+                vec![serde_json::json!({"kind": "json", "value": "ibex"})],
+                "boolean",
+            ),
+            "_checkIsHttpToken" => (
+                serde_json::json!({"kind": "root-call"}),
+                vec![serde_json::json!({"kind": "json", "value": "x-ibex"})],
+                "boolean",
+            ),
+            "Agent.destroy" => (
+                serde_json::json!({
+                    "kind": "constructed-owner",
+                    "ownerExportName": "Agent",
+                    "constructorArguments": []
+                }),
+                vec![],
+                "undefined",
+            ),
+            "Server" | "Server.constructor" => (
+                serde_json::json!({"kind": "construct-target"}),
+                vec![],
+                "object",
+            ),
+            "Server.close" => (
+                serde_json::json!({
+                    "kind": "constructed-owner",
+                    "ownerExportName": "Server",
+                    "constructorArguments": []
+                }),
+                vec![],
+                "object",
+            ),
+            "Server.closeAllConnections" | "Server.closeIdleConnections" => (
+                serde_json::json!({
+                    "kind": "constructed-owner",
+                    "ownerExportName": "Server",
+                    "constructorArguments": []
+                }),
+                vec![],
+                "undefined",
+            ),
+            "Server.ref" | "Server.unref" => (
+                serde_json::json!({
+                    "kind": "constructed-owner",
+                    "ownerExportName": "Server",
+                    "constructorArguments": []
+                }),
+                vec![],
+                "object",
+            ),
+            "createServer" => (
+                serde_json::json!({"kind": "root-call"}),
+                vec![],
+                "object",
+            ),
+            "validateHeaderName" => (
+                serde_json::json!({"kind": "root-call"}),
+                vec![serde_json::json!({"kind": "json", "value": "x-ibex"})],
+                "undefined",
+            ),
+            "validateHeaderValue" => (
+                serde_json::json!({"kind": "root-call"}),
+                vec![
+                    serde_json::json!({"kind": "json", "value": "x-ibex"}),
+                    serde_json::json!({"kind": "json", "value": "ibex"}),
+                ],
+                "undefined",
+            ),
+            other => panic!("unsupported bounded HTTP call {other}"),
+        };
     let segments = descriptor.export_name.split('.').collect::<Vec<_>>();
     let prototype = segments.len() == 2;
     assert!(matches!(segments.len(), 1 | 2));
@@ -1760,7 +1794,7 @@ fn validate_idle_http_contract(
     assert_eq!(proof.kind, "normal-return-from-source-call");
     assert_eq!(proof.result_type, expected_result_type);
     assert_eq!(invocation.setup, expected_setup);
-    assert!(invocation.arguments.is_empty());
+    assert_eq!(invocation.arguments, expected_arguments);
 }
 
 fn validate_idle_dgram_contract(
@@ -2216,7 +2250,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         );
         validate_base_stream_module_value_contract(invocation, &descriptor, proof);
         validate_idle_zlib_destroy_contract(invocation, &descriptor, proof);
-        validate_idle_http_contract(invocation, &descriptor, proof);
+        validate_bounded_http_contract(invocation, &descriptor, proof);
         validate_idle_dgram_contract(invocation, &descriptor, proof);
         assert!(matches!(
             proof.result_type.as_str(),

@@ -1177,7 +1177,10 @@ const NODE_NET_CALL_SPECS = Object.freeze({
 // empty harness-owned collections, update only in-memory terminal state, or
 // skip native ref/unref because no selector exists. Server.close may schedule
 // its terminal close event, which the required quiescence observation drains.
+// The four root validators inspect only fixed harness-owned header strings.
 const NODE_HTTP_CALL_SPECS = Object.freeze({
+  _checkInvalidHeaderChar: rootCall([jsonArgument("ibex")], "boolean"),
+  _checkIsHttpToken: rootCall([jsonArgument("x-ibex")], "boolean"),
   "Agent.destroy": constructedOwner("Agent", [], "undefined"),
   Server: constructTarget([]),
   "Server.close": constructedOwner("Server", [], "object"),
@@ -1187,6 +1190,11 @@ const NODE_HTTP_CALL_SPECS = Object.freeze({
   "Server.ref": constructedOwner("Server", [], "object"),
   "Server.unref": constructedOwner("Server", [], "object"),
   createServer: rootCall([], "object"),
+  validateHeaderName: rootCall([jsonArgument("x-ibex")], "undefined"),
+  validateHeaderValue: rootCall(
+    [jsonArgument("x-ibex"), jsonArgument("ibex")],
+    "undefined",
+  ),
 });
 
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — A

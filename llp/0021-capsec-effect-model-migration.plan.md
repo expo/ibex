@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-28 (strengthens the four already executable `node:http` header validators from generic captured-output evidence to dedicated `ibex/capsec-builtin-call-invocation/1` contracts: `_checkInvalidHeaderChar("ibex")`, `_checkIsHttpToken("x-ibex")`, `validateHeaderName("x-ibex")`, and `validateHeaderValue("x-ibex", "ibex")`; the author, independent evidence validator, Rust validator, and loaded-engine harness repeat the literal arguments, direct root-call dispatch, result type, quiescence, and zero-decision proof; because all four rows were already executable, Apple accounting remains 3,703 fully executable / 3,036 internally verified / 16,845 unresolved and Windows remains 3,360 / 3,022 / 16,861, while the generic captured-output set falls from 145 to 141 and the descriptor residual manifest from 542 to 538)
 **Revised:** 2026-07-28 (promotes exactly `node_readline.Interface.pause` through a separate harness-owned non-terminal `Interface` lifecycle receipt: the selected call must return the receiver object while leaving it open but paused, preserve the constructor's exact data/error/end/close listener set, record one resume and one pause, and emit no close event; the harness then invokes exact `Interface.close` as auxiliary cleanup and proves all listeners detached, two total pauses, one close event, quiescence, and zero decisions; the three constructor-instance `_on*` closures remain residual; Apple accounting is 3,703 fully executable / 3,036 internally verified / 16,845 unresolved and Windows accounting is 3,360 / 3,022 / 16,861)
 **Revised:** 2026-07-28 (promotes exactly `node_readline.Interface.close` on a fresh harness-owned non-terminal `Interface` whose inert input shim proves the constructor installed the exact data/error/end/close listener set and resumed once, then proves the selected close call detached every listener, paused once, marked the receiver closed, emitted one close event, returned `undefined`, reached quiescence, and emitted zero decisions; `Interface.pause` remains residual because it returns while retaining those constructor listeners; Apple accounting is 3,702 fully executable / 3,036 internally verified / 16,846 unresolved and Windows accounting is 3,359 / 3,022 / 16,862)
 **Revised:** 2026-07-27 (promotes exactly `exact_crypto.KeyObject.equals` for two separately constructed harness-owned secret `KeyObject` instances containing the same fixed four-byte `ibex` value; the author, independent evidence validator, Rust validator, and loaded-engine JavaScript harness repeat a dedicated pair-owner setup, exact prototype descriptor, peer binding, boolean result, quiescence, and zero-decision contract without adding a generic nested-constructor facility; Apple accounting is 3,701 fully executable / 3,036 internally verified / 16,847 unresolved and Windows accounting is 3,358 / 3,022 / 16,863)
@@ -2744,6 +2745,21 @@ observed with zero typed decisions. This exception does not admit arbitrary
 HTTP calls: client-request operations, `Agent.addRequest`, `Server.listen`,
 `Server.getConnections`, and every route requiring or retaining live transport
 state remain residual.
+
+Four source-only HTTP validators use separate exact root-call contracts rather
+than inheriting the generic captured-output route:
+`_checkInvalidHeaderChar("ibex")`, `_checkIsHttpToken("x-ibex")`,
+`validateHeaderName("x-ibex")`, and
+`validateHeaderValue("x-ibex", "ibex")`. The recipe author, independent
+evidence validator, Rust validator, and loaded-engine JavaScript harness each
+repeat the literal arguments, direct call dispatch, boolean or undefined
+result, event-loop quiescence, and zero-decision contract. These four rows were
+already executable through the generic captured-output mechanism, so the
+stronger proof changes neither target's executable total nor its unresolved
+total; it removes them from the generic captured set and from the
+descriptor-only residual manifest. This closed proof does not admit malformed
+input, thrown validation results, arbitrary header data, or other HTTP
+exports.
 
 Fresh UDP lifecycle evidence is similarly limited to `Socket`,
 `Socket.constructor`, `createSocket`, `Socket.close`, `Socket.ref`, and

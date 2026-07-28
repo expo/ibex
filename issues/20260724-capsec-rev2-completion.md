@@ -4535,6 +4535,44 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — bound HTTP header validators to exact calls
+
+- Replaced generic captured-output proof for exactly four already executable
+  `node:http` rows with dedicated direct-call contracts:
+  `_checkInvalidHeaderChar("ibex")`, `_checkIsHttpToken("x-ibex")`,
+  `validateHeaderName("x-ibex")`, and
+  `validateHeaderValue("x-ibex", "ibex")`. The author, independent
+  JavaScript evidence validator, Rust catalog validator, and loaded-engine
+  JavaScript harness separately repeat each literal argument vector, root-call
+  dispatch, boolean or undefined result, quiescence, and zero-decision
+  contract.
+- This is proof hardening, not a coverage increase: all four rows already
+  executed through the generic captured-output mechanism. The Apple catalog
+  digest `sha256-UtbLnqmfQj1-Tp1QixYQULXJOmThVTLekUZfI820Qm4` therefore
+  remains at 23,584 required / **3,703 fully executable** / 3,036 internally
+  verified / 16,845 unresolved. The Windows digest
+  `sha256-yi69spgI0cuM_38DLCF6wcNVwiQPqkKXIQ2b5D8jgAk` remains at 23,243 /
+  **3,360 fully executable** / 3,022 internally verified / 16,861 unresolved.
+  The generic captured set falls from 145 to 141 calls, and the
+  descriptor-only residual manifest falls from 542 to 538 rows.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 57 focused rows plus
+  the four exact validators under catalog digest
+  `sha256-VI1uL97kFWEo6qjce5Dx2ONP2EyxRiWztkx7M6tcPpI` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 61
+  fixtures pass. The raw evidence SHA-256 is
+  `83c816c4e5a5a27e6b65b8fef5bb184f210331ba17db09cc002b677483b5bb82`;
+  independent JavaScript validation accepted all 61 executions and produced
+  diagnostic execution digest
+  `sha256-YHR_u6_rq0S83T6BizivgZldI7ZCABgOE_fQdsQoX_4` (artifact SHA-256
+  `a8d2b18a570f8c8ee3881d7a0108606818a61d30100170393194211cde8d260e`).
+- The focused author/catalog/validator/output-accounting suite passes
+  **194/194** tests with 125,214 assertions locally and on EPYC Bun 1.3.14;
+  the physical Rust exact-Hermes batch passes 61/61. The Linux replay remains
+  diagnostic rather than Apple promotion evidence.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

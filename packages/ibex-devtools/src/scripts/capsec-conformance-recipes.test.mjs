@@ -437,7 +437,8 @@ describe("exact-target CapSec executable recipes", () => {
     // Seven inert stream.closed reads use fresh harness-owned instances.
     // Nine fresh HTTP construction/lifecycle calls own no listener, socket, or
     // native selector; Server.close's terminal event timer drains before the
-    // quiescent observation completes.
+    // quiescent observation completes. Four root validators inspect only fixed
+    // harness-owned header strings.
     // Six fresh udp4 Socket construction/lifecycle calls own no native handle,
     // binding, poll timer, or peer route; close drains its terminal event.
     // The restricted no-eval constructor added on main remains one explicit
@@ -593,9 +594,9 @@ describe("exact-target CapSec executable recipes", () => {
     // descriptor denial remains residual because its prerequisite handle needs
     // the same floor that the scenario denies. Typed synchronous TCP connect
     // adds its five staged public scenarios, and its exact typed setup promotes
-    // the three ownership-only lifecycle consumers. The same 145 captured
+    // the three ownership-only lifecycle consumers. The same 141 captured
     // output routes execute here, including the 41 get-only stream reads, two
-    // exact stream/web conversions, nine exact HTTP helpers/constructors, 17
+    // exact stream/web conversions, five exact HTTP constructors/helpers, 17
     // exact in-memory SQLite routes, six exact TLS value/context helpers, two
     // exact assert promise validators, and five harness-owned filesystem
     // object lifecycle routes; target-local physical evidence also retires
@@ -610,7 +611,8 @@ describe("exact-target CapSec executable recipes", () => {
     // target-local residuals. Seven inert stream.closed reads use fresh
     // harness-owned instances on both targets. Nine fresh HTTP
     // construction/lifecycle calls own no live transport state, and the close
-    // event timer drains before quiescence.
+    // event timer drains before quiescence. Four root validators inspect only
+    // fixed harness-owned header strings.
     // Six fresh udp4 Socket construction/lifecycle calls own no native handle,
     // binding, poll timer, or peer route. The restricted no-eval constructor
     // added on main
@@ -5357,6 +5359,7 @@ describe("exact-target CapSec executable recipes", () => {
         [
           "exact_crypto",
           "node_fs",
+          "node_http",
           "node_module",
           "node_net",
           "node_readline",
@@ -5375,6 +5378,7 @@ describe("exact-target CapSec executable recipes", () => {
     ).toEqual({
       exact_crypto: 97,
       node_fs: 10,
+      node_http: 13,
       node_module: 3,
       node_net: 22,
       node_readline: 3,
@@ -5420,6 +5424,53 @@ describe("exact-target CapSec executable recipes", () => {
         [{ kind: "json", value: ["31m"] }],
         { kind: "root-call" },
         "string",
+      ],
+    ]);
+    const boundedHttpValidators = publicCalls.filter((recipe) =>
+      new Set([
+        "_checkInvalidHeaderChar",
+        "_checkIsHttpToken",
+        "validateHeaderName",
+        "validateHeaderValue",
+      ]).has(recipe.publicSurfaceProbe.invocation.exportName),
+    );
+    expect(
+      boundedHttpValidators.map((recipe) => {
+        const invocation = recipe.publicSurfaceProbe.invocation;
+        return [
+          invocation.exportName,
+          invocation.arguments,
+          invocation.setup,
+          invocation.bodyEntryProof.resultType,
+        ];
+      }),
+    ).toEqual([
+      [
+        "_checkInvalidHeaderChar",
+        [{ kind: "json", value: "ibex" }],
+        { kind: "root-call" },
+        "boolean",
+      ],
+      [
+        "_checkIsHttpToken",
+        [{ kind: "json", value: "x-ibex" }],
+        { kind: "root-call" },
+        "boolean",
+      ],
+      [
+        "validateHeaderName",
+        [{ kind: "json", value: "x-ibex" }],
+        { kind: "root-call" },
+        "undefined",
+      ],
+      [
+        "validateHeaderValue",
+        [
+          { kind: "json", value: "x-ibex" },
+          { kind: "json", value: "ibex" },
+        ],
+        { kind: "root-call" },
+        "undefined",
       ],
     ]);
     const keyObjectEquals = publicCalls.find(
@@ -5539,18 +5590,17 @@ describe("exact-target CapSec executable recipes", () => {
             "object",
       ),
     ).toBe(true);
-    const idleHttpCalls = publicCalls.filter(
+    const boundedHttpCalls = publicCalls.filter(
       (recipe) =>
         recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
         "node_http",
     );
-    expect(idleHttpCalls).toHaveLength(9);
+    expect(boundedHttpCalls).toHaveLength(13);
     expect(
-      idleHttpCalls.every(
+      boundedHttpCalls.every(
         (recipe) =>
           recipe.publicSurfaceProbe.invocation.templateId ===
-            "node-http-idle-v1" &&
-          recipe.publicSurfaceProbe.invocation.arguments.length === 0,
+          "node-http-idle-v1",
       ),
     ).toBe(true);
     const idleDgramCalls = publicCalls.filter(
@@ -5642,7 +5692,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-builtin-noncap-captured-invocation/1",
     );
-    expect(captured).toHaveLength(145);
+    expect(captured).toHaveLength(141);
     expect(windowsCaptured.map((recipe) => recipe.fixtureId)).toEqual(
       captured.map((recipe) => recipe.fixtureId),
     );
@@ -5688,7 +5738,7 @@ describe("exact-target CapSec executable recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ call: 72, construct: 17, get: 56 });
+    ).toEqual({ call: 68, construct: 17, get: 56 });
     const cryptoCaptured = captured.filter(
       (recipe) =>
         recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
@@ -5747,13 +5797,9 @@ describe("exact-target CapSec executable recipes", () => {
           `${recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey}:${recipe.publicSurfaceProbe.invocation.sourceDescriptor.exportName}:${recipe.publicSurfaceProbe.invocation.capturedOutputInvocation.route.operation}`,
       ),
     ).toEqual([
-      "node_http:_checkInvalidHeaderChar:call",
-      "node_http:_checkIsHttpToken:call",
       "node_http:CloseEvent:construct",
       "node_http:HTTPParser:construct",
       "node_http:MessageEvent:construct",
-      "node_http:validateHeaderName:call",
-      "node_http:validateHeaderValue:call",
       "node_http2:getPackedSettings:call",
       "node_http2:getUnpackedSettings:call",
     ]);

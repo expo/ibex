@@ -29,11 +29,28 @@
     return true;
   }
 
+  function sameJsonStringArguments(value, expected) {
+    if (!Array.isArray(value) || value.length !== expected.length) {
+      return false;
+    }
+    for (var index = 0; index < value.length; index++) {
+      var argument = value[index];
+      if (
+        !exactObjectKeys(argument, ["kind", "value"]) ||
+        argument.kind !== "json" ||
+        argument.value !== expected[index]
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
   // Independently close the HTTP recipe family at execution time. Generic
-  // constructed receivers must not turn a newly catalogued HTTP method into
-  // an executable lifecycle claim.
-  function isReviewedIdleHttpInvocation(invocation) {
+  // constructed receivers or root-call arguments must not turn a newly
+  // catalogued HTTP method into an executable claim.
+  function isReviewedBoundedHttpInvocation(invocation) {
     if (
       invocation.invocationSchema !==
         "ibex/capsec-builtin-call-invocation/1" ||
@@ -90,7 +107,6 @@
           : [exportName],
       ) ||
       !Array.isArray(invocation.arguments) ||
-      invocation.arguments.length !== 0 ||
       !exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) ||
       invocation.bodyEntryProof.kind !== "normal-return-from-source-call"
     ) {
@@ -98,20 +114,38 @@
     }
     var setup = invocation.setup;
     var resultType;
+    var rootArguments = null;
+    if (exportName === "_checkInvalidHeaderChar") {
+      rootArguments = ["ibex"];
+      resultType = "boolean";
+    } else if (exportName === "_checkIsHttpToken") {
+      rootArguments = ["x-ibex"];
+      resultType = "boolean";
+    } else if (exportName === "createServer") {
+      rootArguments = [];
+      resultType = "object";
+    } else if (exportName === "validateHeaderName") {
+      rootArguments = ["x-ibex"];
+      resultType = "undefined";
+    } else if (exportName === "validateHeaderValue") {
+      rootArguments = ["x-ibex", "ibex"];
+      resultType = "undefined";
+    }
+    if (rootArguments !== null) {
+      return (
+        invocation.bodyEntryProof.resultType === resultType &&
+        exactObjectKeys(setup, ["kind"]) &&
+        setup.kind === "root-call" &&
+        sameJsonStringArguments(invocation.arguments, rootArguments)
+      );
+    }
     if (exportName === "Server" || exportName === "Server.constructor") {
       resultType = "object";
       return (
         invocation.bodyEntryProof.resultType === resultType &&
         exactObjectKeys(setup, ["kind"]) &&
-        setup.kind === "construct-target"
-      );
-    }
-    if (exportName === "createServer") {
-      resultType = "object";
-      return (
-        invocation.bodyEntryProof.resultType === resultType &&
-        exactObjectKeys(setup, ["kind"]) &&
-        setup.kind === "root-call"
+        setup.kind === "construct-target" &&
+        invocation.arguments.length === 0
       );
     }
     var owner;
@@ -146,7 +180,8 @@
       setup.kind === "constructed-owner" &&
       setup.ownerExportName === owner &&
       Array.isArray(setup.constructorArguments) &&
-      setup.constructorArguments.length === 0
+      setup.constructorArguments.length === 0 &&
+      invocation.arguments.length === 0
     );
   }
 
@@ -1012,7 +1047,7 @@
     var inputLifecycleVerified = false;
     var readlineLifecycleState = null;
     if (
-      !isReviewedIdleHttpInvocation(config) ||
+      !isReviewedBoundedHttpInvocation(config) ||
       !isReviewedIdleDgramInvocation(config) ||
       !isReviewedX509StateInvocation(config) ||
       !isReviewedPureCompatibilityInvocation(config) ||

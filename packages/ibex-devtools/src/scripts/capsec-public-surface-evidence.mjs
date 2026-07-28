@@ -623,8 +623,22 @@ const BASE_STREAM_MODULE_VALUE_CALL_CONTRACTS = new Map([
   ]),
 ]);
 // Independently restate the only HTTP calls whose fresh receivers own no
-// socket, listener, timer, or native selector during the observed operation.
-const IDLE_HTTP_CALL_CONTRACTS = new Map([
+// socket, listener, timer, or native selector, or whose root validators inspect
+// only fixed harness-owned strings during the observed operation.
+const BOUNDED_HTTP_CALL_CONTRACTS = new Map([
+  ...[
+    ["_checkInvalidHeaderChar", ["ibex"], "boolean"],
+    ["_checkIsHttpToken", ["x-ibex"], "boolean"],
+    ["validateHeaderName", ["x-ibex"], "undefined"],
+    ["validateHeaderValue", ["x-ibex", "ibex"], "undefined"],
+  ].map(([exportName, values, resultType]) => [
+    exportName,
+    {
+      setup: { kind: "root-call" },
+      arguments: values.map((value) => ({ kind: "json", value })),
+      resultType,
+    },
+  ]),
   [
     "Agent.destroy",
     {
@@ -680,7 +694,7 @@ const IDLE_HTTP_CALL_CONTRACTS = new Map([
     },
   ],
 ]);
-const IDLE_HTTP_MODULE_SPECIFIERS = [
+const BOUNDED_HTTP_MODULE_SPECIFIERS = [
   "_http_agent",
   "_http_common",
   "_http_incoming",
@@ -4977,26 +4991,26 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: malformed authored base Stream module-value proof`,
       );
     }
-    const idleHttpContract =
+    const boundedHttpContract =
       authored.sourceDescriptor.sourceKey === "node_http"
-        ? IDLE_HTTP_CALL_CONTRACTS.get(authored.exportName)
+        ? BOUNDED_HTTP_CALL_CONTRACTS.get(authored.exportName)
         : null;
-    const idleHttpPrototype =
-      idleHttpContract && authored.exportName.includes(".");
-    const expectedIdleHttpDescriptor = idleHttpContract
+    const boundedHttpPrototype =
+      boundedHttpContract && authored.exportName.includes(".");
+    const expectedBoundedHttpDescriptor = boundedHttpContract
       ? {
           kind: "builtin-export",
           sourceKey: "node_http",
           exportName: authored.exportName,
           exportIdioms: [
-            idleHttpPrototype
+            boundedHttpPrototype
               ? "exported-constructor-prototype"
               : "module-exports-object",
           ],
-          moduleSpecifiers: IDLE_HTTP_MODULE_SPECIFIERS,
+          moduleSpecifiers: BOUNDED_HTTP_MODULE_SPECIFIERS,
           sourceRef: `src/builtins/http.js#exports:${authored.exportName}`,
           valueShape: "callable",
-          access: idleHttpPrototype
+          access: boundedHttpPrototype
             ? {
                 kind: "prototype-property",
                 path: [
@@ -5013,19 +5027,19 @@ function validateRuntimeInvocation(observation, recipe) {
       : null;
     if (
       authored.sourceDescriptor.sourceKey === "node_http" &&
-      (!idleHttpContract ||
+      (!boundedHttpContract ||
         authored.templateId !== "node-http-idle-v1" ||
         authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
-        authored.bodyEntryProof.resultType !== idleHttpContract.resultType ||
+        authored.bodyEntryProof.resultType !== boundedHttpContract.resultType ||
         canonicalJson(authored.setup) !==
-          canonicalJson(idleHttpContract.setup) ||
+          canonicalJson(boundedHttpContract.setup) ||
         canonicalJson(authored.arguments) !==
-          canonicalJson(idleHttpContract.arguments) ||
+          canonicalJson(boundedHttpContract.arguments) ||
         canonicalJson(authored.sourceDescriptor) !==
-          canonicalJson(expectedIdleHttpDescriptor))
+          canonicalJson(expectedBoundedHttpDescriptor))
     ) {
       throw new Error(
-        `${recipe.fixtureId}: malformed authored idle HTTP proof`,
+        `${recipe.fixtureId}: malformed authored bounded HTTP proof`,
       );
     }
     const idleDgramContract =

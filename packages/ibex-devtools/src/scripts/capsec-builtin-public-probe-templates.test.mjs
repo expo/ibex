@@ -1619,8 +1619,20 @@ describe("source-bound builtin public probes", () => {
     ).toBeNull();
   });
 
-  test("authors only the exact fresh HTTP lifecycle family", () => {
+  test("authors only the exact bounded HTTP family", () => {
     const contracts = [
+      [
+        "_checkInvalidHeaderChar",
+        { kind: "root-call" },
+        "boolean",
+        [{ kind: "json", value: "ibex" }],
+      ],
+      [
+        "_checkIsHttpToken",
+        { kind: "root-call" },
+        "boolean",
+        [{ kind: "json", value: "x-ibex" }],
+      ],
       [
         "Agent.destroy",
         {
@@ -1678,8 +1690,23 @@ describe("source-bound builtin public probes", () => {
         "object",
       ],
       ["createServer", { kind: "root-call" }, "object"],
+      [
+        "validateHeaderName",
+        { kind: "root-call" },
+        "undefined",
+        [{ kind: "json", value: "x-ibex" }],
+      ],
+      [
+        "validateHeaderValue",
+        { kind: "root-call" },
+        "undefined",
+        [
+          { kind: "json", value: "x-ibex" },
+          { kind: "json", value: "ibex" },
+        ],
+      ],
     ];
-    for (const [exportName, setup, resultType] of contracts) {
+    for (const [exportName, setup, resultType, argumentsList = []] of contracts) {
       const prototype = exportName.includes(".");
       expect(
         probeFor({
@@ -1702,7 +1729,7 @@ describe("source-bound builtin public probes", () => {
       ).toMatchObject({
         invocation: {
           templateId: "node-http-idle-v1",
-          arguments: [],
+          arguments: argumentsList,
           setup,
           bodyEntryProof: {
             kind: "normal-return-from-source-call",

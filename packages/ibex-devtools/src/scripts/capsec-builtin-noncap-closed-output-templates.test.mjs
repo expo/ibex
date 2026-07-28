@@ -118,12 +118,12 @@ const loaded = residualInvocations();
 describe("builtin non-capability/closed output recipes", () => {
   test("accounts for the exact callable/accessor and descriptor residual universe", async () => {
     const rows = await loaded;
-    // Fresh HTTP/UDP lifecycle calls, X509Certificate.toString, and the three
+    // Bounded HTTP/UDP calls, X509Certificate.toString, and the three
     // source-only compatibility helpers and both reviewed Interface lifecycle
     // calls now have exact
     // loaded zero-decision recipes instead of descriptor-only residual
     // accounts.
-    expect(rows).toHaveLength(542);
+    expect(rows).toHaveLength(538);
     expect(
       Object.fromEntries(
         ["non-capability", "closed"].map((classification) => [
@@ -133,13 +133,13 @@ describe("builtin non-capability/closed output recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ "non-capability": 322, closed: 220 });
+    ).toEqual({ "non-capability": 318, closed: 220 });
     expect(
       builtinNoncapClosedOutputRouteManifest(rows.map((row) => row.invocation)),
     ).toMatchObject({
-      total: 542,
+      total: 538,
       operations: {
-        call: 246,
+        call: 242,
         construct: 16,
         "import-refusal": 22,
         unexercisable: 258,
@@ -153,10 +153,10 @@ describe("builtin non-capability/closed output recipes", () => {
       },
     });
     // The 24 settled consumers, eight fixed-DH operations, six base Stream
-    // lifecycle calls, 11 idle zlib destroys, nine fresh HTTP lifecycle calls,
+    // lifecycle calls, 11 idle zlib destroys, 13 bounded HTTP calls,
     // six fresh UDP socket lifecycle calls, and three source-only
     // compatibility helpers, KeyObject.equals, Interface.close, and
-    // Interface.pause now have bounded public probes. Those 71 rows are
+    // Interface.pause now have bounded public probes. Those 75 rows are
     // no longer descriptor-only residuals; Duplex
     // `_undestroy` is one representative inherited descriptor.
     expect(
@@ -279,19 +279,13 @@ describe("builtin non-capability/closed output recipes", () => {
       "node_fs:WriteStream._emitClose",
       "node_console:Console",
       "exact_sqlite:Database._closed",
+      "node_http:validateHeaderValue",
     ]) {
       expect(byExport.has(independentlyAuthored)).toBe(false);
     }
     expect(byExport.get("node_timers:setTimeout").route).toMatchObject({
       operation: "call",
       cleanup: { kind: "returned-timer-handle" },
-    });
-    expect(byExport.get("node_http:validateHeaderValue").route).toMatchObject({
-      operation: "call",
-      arguments: [
-        { kind: "json", value: "x-ibex-output-shape" },
-        { kind: "json", value: "ibex-output-shape" },
-      ],
     });
     expect(byExport.get("node_http2:getUnpackedSettings").route).toMatchObject({
       operation: "call",

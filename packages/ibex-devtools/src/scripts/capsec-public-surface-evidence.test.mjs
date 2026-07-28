@@ -5493,7 +5493,7 @@ describe("CapSec public-surface promotion evidence", () => {
     }
   });
 
-  test("accepts only reviewed fresh HTTP lifecycle calls", () => {
+  test("accepts only reviewed bounded HTTP calls", () => {
     const catalog = completeNoncapBuiltinCallCatalog();
     const recipe = catalog.recipes[0];
     const invocation = recipe.publicSurfaceProbe.invocation;
@@ -5546,6 +5546,55 @@ describe("CapSec public-surface promotion evidence", () => {
       }),
     ).not.toThrow();
 
+    const validatorRecipe = structuredClone(recipe);
+    const validatorInvocation = validatorRecipe.publicSurfaceProbe.invocation;
+    validatorInvocation.exportName = "validateHeaderValue";
+    validatorInvocation.sourceDescriptor.exportName = "validateHeaderValue";
+    validatorInvocation.sourceDescriptor.exportIdioms = [
+      "module-exports-object",
+    ];
+    validatorInvocation.sourceDescriptor.sourceRef =
+      "src/builtins/http.js#exports:validateHeaderValue";
+    validatorInvocation.sourceDescriptor.access = {
+      kind: "export-property",
+      path: ["validateHeaderValue"],
+    };
+    validatorInvocation.sourceDescriptorDigest = taggedDigest(
+      validatorInvocation.sourceDescriptor,
+    );
+    validatorInvocation.setup = { kind: "root-call" };
+    validatorInvocation.arguments = [
+      { kind: "json", value: "x-ibex" },
+      { kind: "json", value: "ibex" },
+    ];
+    validatorInvocation.bodyEntryProof.resultType = "undefined";
+    const validatorObserved = noncapBuiltinCallObservation(validatorRecipe);
+    validatorObserved.invocation.moduleSpecifier = "node:http";
+    validatorObserved.invocation.result.moduleSpecifier = "node:http";
+    validatorObserved.invocation.result.exportName = "validateHeaderValue";
+    validatorObserved.invocation.result.valueType = "undefined";
+    validatorObserved.invocation.result.dispatchKind = "call";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: validatorRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: validatorObserved,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const tamperedValidatorRecipe = structuredClone(validatorRecipe);
+    tamperedValidatorRecipe.publicSurfaceProbe.invocation.arguments[1].value =
+      "other";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: tamperedValidatorRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: validatorObserved,
+        coverage,
+      }),
+    ).toThrow(/malformed authored bounded HTTP proof/);
+
     for (const mutate of [
       (value) => {
         value.publicSurfaceProbe.invocation.setup.ownerExportName = "Agent";
@@ -5586,7 +5635,7 @@ describe("CapSec public-surface promotion evidence", () => {
           coverage,
         }),
       ).toThrow(
-        /malformed authored idle HTTP proof|wrong value type|not source-descriptor bound/,
+        /malformed authored bounded HTTP proof|wrong value type|not source-descriptor bound/,
       );
     }
   });
