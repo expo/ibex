@@ -4867,6 +4867,84 @@ describe("CapSec public-surface promotion evidence", () => {
     }
   });
 
+  test("accepts only the fixed explicit DiffieHellman call contracts", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "crypto";
+    invocation.exportName = "DiffieHellman.getPrime";
+    invocation.templateId = "exact-crypto-bounded-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "exact_crypto",
+      exportName: "DiffieHellman.getPrime",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+      sourceRef: "src/builtins/crypto.js#exports:DiffieHellman.getPrime",
+      valueShape: "callable",
+      access: {
+        kind: "prototype-property",
+        path: ["DiffieHellman", "prototype", "getPrime"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.setup = {
+      kind: "constructed-owner",
+      ownerExportName: "DiffieHellman",
+      constructorArguments: [
+        { kind: "uint8-array", bytes: [23] },
+        { kind: "json", value: 5 },
+      ],
+    };
+    invocation.arguments = [];
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "object",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.result.dispatchKind = "prototype-call";
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.constructorArguments[0]
+          .bytes = [29];
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments = [
+          { kind: "uint8-array", bytes: [3] },
+        ];
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.bodyEntryProof.resultType =
+          "undefined";
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored explicit DiffieHellman proof|wrong value type/,
+      );
+    }
+  });
+
   test("accepts only reviewed dns/promises error reads that return strings", () => {
     const catalog = completeDnsPromiseErrorReadCatalog();
     const recipe = catalog.recipes[0];

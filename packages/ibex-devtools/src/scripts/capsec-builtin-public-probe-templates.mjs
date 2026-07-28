@@ -711,12 +711,22 @@ const CRYPTO_SIGN_CONSTRUCTOR_ARGUMENTS = Object.freeze([
 const CRYPTO_DH_GROUP_CONSTRUCTOR_ARGUMENTS = Object.freeze([
   jsonArgument("modp14"),
 ]);
+// Supplying the prime keeps construction and the state-only accessors out of
+// prime generation and random-key generation. Twenty-three is a fixed prime;
+// five is a valid generator for the tiny, evidence-only group.
+const CRYPTO_EXPLICIT_DH_CONSTRUCTOR_ARGUMENTS = Object.freeze([
+  uint8ArrayArgument([23]),
+  jsonArgument(5),
+]);
 const CRYPTO_ECDH_CONSTRUCTOR_ARGUMENTS = Object.freeze([
   jsonArgument("prime256v1"),
 ]);
 
 function exactCryptoCallSpecs() {
   const specs = {
+    DiffieHellman: constructTarget([
+      ...CRYPTO_EXPLICIT_DH_CONSTRUCTOR_ARGUMENTS,
+    ]),
     Hash: constructTarget([...CRYPTO_HASH_CONSTRUCTOR_ARGUMENTS]),
     Hmac: constructTarget([...CRYPTO_HMAC_CONSTRUCTOR_ARGUMENTS]),
     KeyObject: constructTarget([
@@ -727,6 +737,10 @@ function exactCryptoCallSpecs() {
     createHmac: rootCall([...CRYPTO_HMAC_CONSTRUCTOR_ARGUMENTS], "object"),
     createDiffieHellmanGroup: rootCall(
       [...CRYPTO_DH_GROUP_CONSTRUCTOR_ARGUMENTS],
+      "object",
+    ),
+    createDiffieHellman: rootCall(
+      [...CRYPTO_EXPLICIT_DH_CONSTRUCTOR_ARGUMENTS],
       "object",
     ),
     createECDH: rootCall([...CRYPTO_ECDH_CONSTRUCTOR_ARGUMENTS], "object"),
@@ -845,6 +859,30 @@ function exactCryptoCallSpecs() {
       [],
       "object",
       [...CRYPTO_DH_GROUP_CONSTRUCTOR_ARGUMENTS],
+    );
+  }
+  // These explicit-parameter DiffieHellman methods only project or replace
+  // in-memory byte arrays. generateKeys() and computeSecret() intentionally
+  // remain residual because they cross into random or modular work.
+  for (const methodName of [
+    "getGenerator",
+    "getPrime",
+    "getPrivateKey",
+    "getPublicKey",
+  ]) {
+    specs[`DiffieHellman.${methodName}`] = constructedOwner(
+      "DiffieHellman",
+      [],
+      "object",
+      [...CRYPTO_EXPLICIT_DH_CONSTRUCTOR_ARGUMENTS],
+    );
+  }
+  for (const methodName of ["setPrivateKey", "setPublicKey"]) {
+    specs[`DiffieHellman.${methodName}`] = constructedOwner(
+      "DiffieHellman",
+      [uint8ArrayArgument([3])],
+      "undefined",
+      [...CRYPTO_EXPLICIT_DH_CONSTRUCTOR_ARGUMENTS],
     );
   }
   for (const methodName of ["getPrivateKey", "getPublicKey"]) {

@@ -359,6 +359,57 @@ const SETTLED_STREAM_CONSUMER_OWNERS = new Set([
   "Readable",
   "Transform",
 ]);
+// Independently restate the bounded explicit-parameter DiffieHellman family.
+// The fixed prime avoids generation; these receipts may only construct,
+// project, or replace inert instance bytes.
+const EXPLICIT_DH_CONSTRUCTOR_ARGUMENTS = [
+  { kind: "uint8-array", bytes: [23] },
+  { kind: "json", value: 5 },
+];
+const EXPLICIT_DH_CALL_CONTRACTS = new Map([
+  [
+    "DiffieHellman",
+    {
+      setup: { kind: "construct-target" },
+      arguments: EXPLICIT_DH_CONSTRUCTOR_ARGUMENTS,
+      resultType: "object",
+    },
+  ],
+  [
+    "createDiffieHellman",
+    {
+      setup: { kind: "root-call" },
+      arguments: EXPLICIT_DH_CONSTRUCTOR_ARGUMENTS,
+      resultType: "object",
+    },
+  ],
+  ...["getGenerator", "getPrime", "getPrivateKey", "getPublicKey"].map(
+    (method) => [
+      `DiffieHellman.${method}`,
+      {
+        setup: {
+          kind: "constructed-owner",
+          ownerExportName: "DiffieHellman",
+          constructorArguments: EXPLICIT_DH_CONSTRUCTOR_ARGUMENTS,
+        },
+        arguments: [],
+        resultType: "object",
+      },
+    ],
+  ),
+  ...["setPrivateKey", "setPublicKey"].map((method) => [
+    `DiffieHellman.${method}`,
+    {
+      setup: {
+        kind: "constructed-owner",
+        ownerExportName: "DiffieHellman",
+        constructorArguments: EXPLICIT_DH_CONSTRUCTOR_ARGUMENTS,
+      },
+      arguments: [{ kind: "uint8-array", bytes: [3] }],
+      resultType: "undefined",
+    },
+  ]),
+]);
 const NATIVE_FILESYSTEM_DENIAL_GLOBALS = new Set([
   "__exactAppendFile",
   "__exactFsOpen",
@@ -4394,6 +4445,24 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: malformed authored settled-return proof`,
+      );
+    }
+    const explicitDhContract =
+      authored.sourceDescriptor.sourceKey === "exact_crypto"
+        ? EXPLICIT_DH_CALL_CONTRACTS.get(authored.exportName)
+        : null;
+    if (
+      explicitDhContract &&
+      (authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !==
+          explicitDhContract.resultType ||
+        canonicalJson(authored.setup) !==
+          canonicalJson(explicitDhContract.setup) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson(explicitDhContract.arguments))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored explicit DiffieHellman proof`,
       );
     }
     if (!NORMAL_RETURN_DISPATCH_KINDS.has(authored.setup.kind)) {

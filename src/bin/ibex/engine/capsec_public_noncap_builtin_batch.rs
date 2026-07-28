@@ -1134,6 +1134,64 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
     }
 }
 
+fn validate_explicit_diffie_hellman_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    if descriptor.source_key != "exact_crypto" {
+        return;
+    }
+    let constructor_arguments = serde_json::json!([
+        {"kind": "uint8-array", "bytes": [23]},
+        {"kind": "json", "value": 5}
+    ]);
+    let (expected_setup, expected_arguments, expected_result_type) =
+        match descriptor.export_name.as_str() {
+            "DiffieHellman" => (
+                serde_json::json!({"kind": "construct-target"}),
+                constructor_arguments.clone(),
+                "object",
+            ),
+            "createDiffieHellman" => (
+                serde_json::json!({"kind": "root-call"}),
+                constructor_arguments.clone(),
+                "object",
+            ),
+            "DiffieHellman.getGenerator"
+            | "DiffieHellman.getPrime"
+            | "DiffieHellman.getPrivateKey"
+            | "DiffieHellman.getPublicKey" => (
+                serde_json::json!({
+                    "kind": "constructed-owner",
+                    "ownerExportName": "DiffieHellman",
+                    "constructorArguments": constructor_arguments
+                }),
+                serde_json::json!([]),
+                "object",
+            ),
+            "DiffieHellman.setPrivateKey" | "DiffieHellman.setPublicKey" => (
+                serde_json::json!({
+                    "kind": "constructed-owner",
+                    "ownerExportName": "DiffieHellman",
+                    "constructorArguments": constructor_arguments
+                }),
+                serde_json::json!([
+                    {"kind": "uint8-array", "bytes": [3]}
+                ]),
+                "undefined",
+            ),
+            _ => return,
+        };
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, expected_result_type);
+    assert_eq!(invocation.setup, expected_setup);
+    assert_eq!(
+        serde_json::Value::Array(invocation.arguments.clone()),
+        expected_arguments
+    );
+}
+
 fn expected_template_id(source_key: &str) -> Option<&'static str> {
     match source_key {
         "exact_crypto" => Some("exact-crypto-bounded-v1"),
@@ -1458,6 +1516,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
             );
             assert_eq!(proof.result_type, result_type);
         }
+        validate_explicit_diffie_hellman_contract(invocation, &descriptor, proof);
         assert!(matches!(
             proof.result_type.as_str(),
             "bigint"

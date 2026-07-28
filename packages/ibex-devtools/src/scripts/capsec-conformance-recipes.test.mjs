@@ -414,14 +414,15 @@ describe("exact-target CapSec executable recipes", () => {
     // the superseded WebGPU-specific Ibex surface under LLP 0040. The 24 exact
     // dns/promises error-code reads additionally prove their runtime strings,
     // and 58 exact values remain separate from their modules' initialization
-    // or are read through a reviewed inert prototype path.
+    // or are read through a reviewed inert prototype path. Eight fixed-prime
+    // DiffieHellman construction and state-only calls add no random work.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_648);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_656);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_900);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_892);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -576,12 +577,13 @@ describe("exact-target CapSec executable recipes", () => {
     // object lifecycle routes; target-local physical evidence also retires
     // absent RSA aliases and the unsafe or deliberately throwing crypto/zlib
     // claims. The 23 exact post-initialization value reads and 31 reviewed
-    // prototype values execute on both targets. The restricted
+    // prototype values execute on both targets. The fixed-prime DiffieHellman
+    // family adds eight bounded state-only calls. The restricted
     // no-eval constructor added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_307);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_315);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_914);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_906);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -597,7 +599,7 @@ describe("exact-target CapSec executable recipes", () => {
       windowsCryptoRecipes.filter(
         (recipe) => recipe.status === "fully-executable",
       ),
-    ).toHaveLength(113);
+    ).toHaveLength(121);
     const unavailableWindowsNativeRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5308,12 +5310,34 @@ describe("exact-target CapSec executable recipes", () => {
         ),
       ),
     ).toEqual({
-      exact_crypto: 85,
+      exact_crypto: 93,
       node_fs: 10,
       node_module: 3,
       node_net: 22,
       node_v8: 1,
     });
+    const explicitDhCalls = publicCalls.filter((recipe) =>
+      new Set([
+        "DiffieHellman",
+        "DiffieHellman.getGenerator",
+        "DiffieHellman.getPrime",
+        "DiffieHellman.getPrivateKey",
+        "DiffieHellman.getPublicKey",
+        "DiffieHellman.setPrivateKey",
+        "DiffieHellman.setPublicKey",
+        "createDiffieHellman",
+      ]).has(recipe.publicSurfaceProbe.invocation.exportName),
+    );
+    expect(explicitDhCalls).toHaveLength(8);
+    expect(
+      explicitDhCalls.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+            "exact_crypto" &&
+          recipe.publicSurfaceProbe.invocation.bodyEntryProof.kind ===
+            "normal-return-from-source-call",
+      ),
+    ).toBe(true);
     expect(
       publicCalls.every(
         (recipe) =>

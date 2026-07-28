@@ -1228,6 +1228,82 @@ describe("source-bound builtin public probes", () => {
         valueShape: "callable",
       })?.invocation.setup.constructorArguments,
     ).toEqual([{ kind: "json", value: "modp14" }]);
+    const explicitDhConstructorArguments = [
+      { kind: "uint8-array", bytes: [23] },
+      { kind: "json", value: 5 },
+    ];
+    expect(
+      probeFor({
+        sourceKey: "exact_crypto",
+        exportName: "DiffieHellman",
+        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+        valueShape: "callable",
+      })?.invocation,
+    ).toMatchObject({
+      arguments: explicitDhConstructorArguments,
+      setup: { kind: "construct-target" },
+      bodyEntryProof: { resultType: "object" },
+    });
+    expect(
+      probeFor({
+        sourceKey: "exact_crypto",
+        exportName: "createDiffieHellman",
+        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+        valueShape: "callable",
+      })?.invocation,
+    ).toMatchObject({
+      arguments: explicitDhConstructorArguments,
+      setup: { kind: "root-call" },
+      bodyEntryProof: { resultType: "object" },
+    });
+    expect(
+      probeFor({
+        sourceKey: "exact_crypto",
+        exportName: "DiffieHellman.getPrime",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+        valueShape: "callable",
+      })?.invocation,
+    ).toMatchObject({
+      arguments: [],
+      setup: {
+        kind: "constructed-owner",
+        ownerExportName: "DiffieHellman",
+        constructorArguments: explicitDhConstructorArguments,
+      },
+      bodyEntryProof: { resultType: "object" },
+    });
+    expect(
+      probeFor({
+        sourceKey: "exact_crypto",
+        exportName: "DiffieHellman.setPrivateKey",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+        valueShape: "callable",
+      })?.invocation,
+    ).toMatchObject({
+      arguments: [{ kind: "uint8-array", bytes: [3] }],
+      setup: {
+        kind: "constructed-owner",
+        ownerExportName: "DiffieHellman",
+        constructorArguments: explicitDhConstructorArguments,
+      },
+      bodyEntryProof: { resultType: "undefined" },
+    });
+    for (const exportName of [
+      "DiffieHellman.computeSecret",
+      "DiffieHellman.generateKeys",
+    ]) {
+      expect(
+        probeFor({
+          sourceKey: "exact_crypto",
+          exportName,
+          exportIdioms: ["exported-constructor-prototype"],
+          moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+          valueShape: "callable",
+        }),
+      ).toBeNull();
+    }
     expect(
       probeFor({
         sourceKey: "exact_crypto",
