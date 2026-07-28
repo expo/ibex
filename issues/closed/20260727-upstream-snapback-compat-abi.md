@@ -1,13 +1,13 @@
 # Upstream the snapback compat ABI to main (LLP 0041 remediation steps 1–2)
 
-**Status:** In Progress (Ibex ABI implementation and Apple/Linux verification complete 2026-07-27; landing and snapback pin advance remain)
+**Status:** Closed
 **Severity:** P2
 **Systems:** Engine, Build, CapSec
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-07-27
 **Related:** LLP 0041 (consuming ibex — remediation steps 1–2); snapback
 `issues/20260727-vendor-ibex-advance-blocked-on-compat-abi.md`;
-[20260727-schedule-time-capture-security-delta](./20260727-schedule-time-capture-security-delta.md)
+[20260727-schedule-time-capture-security-delta](../20260727-schedule-time-capture-security-delta.md)
 
 ## Step-1 audit result (2026-07-27, read-only, verified against origin/main)
 
@@ -129,7 +129,22 @@ hook. The consumer path also leaves Ibex structural lockdown off, matching its
 narrow no-eval contract so Snapback can install and verify its deterministic
 Date/Math policy before application code.
 
-**Remaining:** land this Ibex commit on main, then advance snapback to that
-main pin and replace its
-off-thread time-limit arm with the nonce-authenticated
-`ex_hermes_interrupt_eval(runtime, nonce)` ABI.
+## Resolution — 2026-07-27
+
+The restricted constructor and complete consumer ABI landed on Ibex main in
+`63ad33bcb45d8a08e036108be3394a0302556e37`. Both consumers now pin that
+exact main-lineage commit:
+
+- Snapback main `f08a903b996e737fe8185c3109eaaa337f690bb2`
+- Exact main `0b33b6e1af5426c6b862f8eb504824fcd684c255`
+
+Snapback replaced its off-thread short-deadline arm with the
+nonce-authenticated interrupt ABI and retired its cross-thread warm runtime
+pool in favor of fresh-per-invocation construction; its full workspace suite
+passed. Exact moved to the public `expo/ibex` origin, rebuilt its checked-in
+Apple Hermes artifacts from the matching patch-stack authority, and passed
+the Ibex-specific governance lanes.
+
+The six compat commits have the recorded dispositions in the audit table
+above. LLP 0041 remediation steps 1–5 are complete, so the obsolete compat
+branches and incidental artifact-cache tag may be retired.
