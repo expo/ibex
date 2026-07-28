@@ -91,6 +91,39 @@ const NONCAP_MODULE_ALIAS_SOURCES = new Map(
   ]),
 );
 
+// The dns/promises carrier copies exactly these reviewed provider error codes
+// through a computed loop, so the inventory correctly records their static
+// shape as unknown. Do not widen generic unknown-shape reads: this independent
+// exact-name set authors a read only when the loaded public value proves it is
+// a string.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+const REVIEWED_DNS_PROMISE_ERROR_CODES = new Set([
+  "ADDRGETNETWORKPARAMS",
+  "BADFAMILY",
+  "BADFLAGS",
+  "BADHINTS",
+  "BADNAME",
+  "BADQUERY",
+  "BADRESP",
+  "BADSTR",
+  "CANCELLED",
+  "CONNREFUSED",
+  "DESTRUCTION",
+  "EOF",
+  "FILE",
+  "FORMERR",
+  "LOADIPHLPAPI",
+  "NODATA",
+  "NOMEM",
+  "NONAME",
+  "NOTFOUND",
+  "NOTIMP",
+  "NOTINITIALIZED",
+  "REFUSED",
+  "SERVFAIL",
+  "TIMEOUT",
+]);
+
 const jsonArgument = (value) => ({ kind: "json", value });
 const noopArgument = () => ({ kind: "noop-function" });
 const throwingArgument = () => ({
@@ -1724,6 +1757,32 @@ function sourceDescriptor(
   return descriptor;
 }
 
+function reviewedDnsPromiseErrorCodeSourceDescriptor(surface, target) {
+  const descriptor = sourceDescriptor(surface, target, new Set(["unknown"]));
+  if (
+    !descriptor ||
+    descriptor.sourceKey !== "node_dns_promises" ||
+    !REVIEWED_DNS_PROMISE_ERROR_CODES.has(descriptor.exportName) ||
+    canonicalJson(descriptor.exportIdioms) !==
+      canonicalJson(["member-assignment"]) ||
+    canonicalJson(descriptor.moduleSpecifiers) !==
+      canonicalJson(["dns/promises", "node:dns/promises"]) ||
+    descriptor.sourceRef !==
+      `src/builtins/dns-promises.js#exports:${descriptor.exportName}` ||
+    descriptor.valueShape !== "unknown" ||
+    descriptor.access.kind !== "export-property" ||
+    canonicalJson(descriptor.access.path) !==
+      canonicalJson([descriptor.exportName]) ||
+    descriptor.platformAvailability !== undefined
+  ) {
+    return null;
+  }
+  return {
+    ...descriptor,
+    expectedValueType: "string",
+  };
+}
+
 function reviewedModuleAliasSourceDescriptor(surface, moduleSpecifier) {
   const expected = NONCAP_MODULE_ALIAS_SOURCES.get(moduleSpecifier);
   const metadata = surface?.metadata;
@@ -1767,12 +1826,11 @@ function authoredNonCapabilityBuiltinInvocationDefinition({
     Array.isArray(availability) &&
     targetPlatform !== null &&
     !availability.includes(targetPlatform);
-  const readDescriptor = sourceDescriptor(
-    surface,
-    target,
-    new Set(["accessor", "data"]),
-    { allowTargetAbsence: allowTargetAbsence && targetAbsent },
-  );
+  const readDescriptor =
+    reviewedDnsPromiseErrorCodeSourceDescriptor(surface, target) ??
+    sourceDescriptor(surface, target, new Set(["accessor", "data"]), {
+      allowTargetAbsence: allowTargetAbsence && targetAbsent,
+    });
   const readEligible =
     readDescriptor &&
     new Set(["export-property", "module-value"]).has(

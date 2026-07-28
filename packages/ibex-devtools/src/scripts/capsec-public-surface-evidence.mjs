@@ -84,6 +84,32 @@ const BUILTIN_RUNTIME_INVOCATION_SCHEMAS = new Set([
   "ibex/capsec-builtin-export-invocation/1",
   "ibex/capsec-builtin-call-invocation/1",
 ]);
+const REVIEWED_DNS_PROMISE_ERROR_CODES = new Set([
+  "ADDRGETNETWORKPARAMS",
+  "BADFAMILY",
+  "BADFLAGS",
+  "BADHINTS",
+  "BADNAME",
+  "BADQUERY",
+  "BADRESP",
+  "BADSTR",
+  "CANCELLED",
+  "CONNREFUSED",
+  "DESTRUCTION",
+  "EOF",
+  "FILE",
+  "FORMERR",
+  "LOADIPHLPAPI",
+  "NODATA",
+  "NOMEM",
+  "NONAME",
+  "NOTFOUND",
+  "NOTIMP",
+  "NOTINITIALIZED",
+  "REFUSED",
+  "SERVFAIL",
+  "TIMEOUT",
+]);
 const EFFECT_BUILTIN_MODULE_IMPORT_ALIASES = new Map(
   [
     ["node:sys", "node_util", true, true, "env:read"],
@@ -610,6 +636,25 @@ function exactKeys(value, keys, label) {
   if (!hasExactKeys(value, keys)) {
     throw new Error(`${label} has unknown or missing fields`);
   }
+}
+
+function isReviewedDnsPromiseErrorDescriptor(descriptor) {
+  const exportName = descriptor?.exportName;
+  return (
+    REVIEWED_DNS_PROMISE_ERROR_CODES.has(exportName) &&
+    canonicalJson(descriptor) ===
+      canonicalJson({
+        kind: "builtin-export",
+        sourceKey: "node_dns_promises",
+        exportName,
+        exportIdioms: ["member-assignment"],
+        moduleSpecifiers: ["dns/promises", "node:dns/promises"],
+        sourceRef: `src/builtins/dns-promises.js#exports:${exportName}`,
+        valueShape: "unknown",
+        access: { kind: "export-property", path: [exportName] },
+        expectedValueType: "string",
+      })
+  );
 }
 
 function effectBuiltinModuleImportAuthority(actionId) {
@@ -2613,6 +2658,38 @@ function validateRuntimeInvocation(observation, recipe) {
       invocation.invocationSchema === "ibex/capsec-builtin-call-invocation/1"
         ? "builtin-export-call"
         : null;
+    if (authored.kind === "builtin-export-read") {
+      const descriptor = authored.sourceDescriptor;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "sourceKey",
+          "exportName",
+          "exportIdioms",
+          "moduleSpecifiers",
+          "sourceRef",
+          "valueShape",
+          "access",
+          ...(Object.hasOwn(descriptor ?? {}, "expectedValueType")
+            ? ["expectedValueType"]
+            : []),
+          ...(Object.hasOwn(descriptor ?? {}, "platformAvailability")
+            ? ["platformAvailability"]
+            : []),
+        ],
+        `${recipe.fixtureId}: builtin read source descriptor`,
+      );
+      if (
+        (Object.hasOwn(descriptor, "expectedValueType") ||
+          descriptor.valueShape === "unknown") &&
+        !isReviewedDnsPromiseErrorDescriptor(descriptor)
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: builtin read has an unreviewed runtime value-type expectation`,
+        );
+      }
+    }
     if (
       (expectedKind
         ? invocation.kind !== expectedKind
@@ -4195,7 +4272,10 @@ function validateRuntimeInvocation(observation, recipe) {
       if (
         invocation.result.moduleSpecifier !== authored.moduleSpecifier ||
         invocation.result.exportName !== authored.exportName ||
-        typeof invocation.result.valueType !== "string"
+        typeof invocation.result.valueType !== "string" ||
+        (authored.sourceDescriptor.expectedValueType !== undefined &&
+          invocation.result.valueType !==
+            authored.sourceDescriptor.expectedValueType)
       ) {
         throw new Error(
           `${recipe.fixtureId}: builtin read returned the wrong export`,

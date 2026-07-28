@@ -340,12 +340,30 @@ describe("exact-target CapSec executable recipes", () => {
     );
     expect(recipes.summary.requiredFixtures).toBe(23_583);
     // The merged catalog retains every source-bound Apple probe while removing
-    // the superseded WebGPU-specific Ibex surface under LLP 0040.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_531);
+    // the superseded WebGPU-specific Ibex surface under LLP 0040. The 24 exact
+    // dns/promises error-code reads additionally prove their runtime strings.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_555);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_016);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_992);
+    const dnsPromiseErrorReads = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
+          "node_dns_promises" &&
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor
+          .expectedValueType === "string",
+    );
+    expect(dnsPromiseErrorReads).toHaveLength(24);
+    expect(
+      dnsPromiseErrorReads.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.kind ===
+            "builtin-export-read" &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.valueShape ===
+            "unknown",
+      ),
+    ).toBeTrue();
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -462,9 +480,9 @@ describe("exact-target CapSec executable recipes", () => {
     // object lifecycle routes; target-local physical evidence also retires
     // absent RSA aliases and the unsafe or deliberately throwing crypto/zlib
     // claims.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_190);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_214);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_030);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_006);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -3258,8 +3276,14 @@ describe("exact-target CapSec executable recipes", () => {
     );
     expect(publicReads.length).toBeGreaterThan(300);
     expect(
-      publicReads.every(
-        (recipe) =>
+      publicReads.every((recipe) => {
+        const descriptor =
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor;
+        const reviewedRuntimeString =
+          descriptor.sourceKey === "node_dns_promises" &&
+          descriptor.valueShape === "unknown" &&
+          descriptor.expectedValueType === "string";
+        return (
           recipe.status === "fully-executable" &&
           recipe.classification === "non-capability" &&
           recipe.scenario === "non-capability" &&
@@ -3269,16 +3293,16 @@ describe("exact-target CapSec executable recipes", () => {
             "event-loop-quiescence" &&
           recipe.publicSurfaceProbe.invocation.completion
             .timeoutMilliseconds === 1_000 &&
-          new Set(["accessor", "data"]).has(
-            recipe.publicSurfaceProbe.invocation.sourceDescriptor.valueShape,
-          ) &&
+          (new Set(["accessor", "data"]).has(descriptor.valueShape) ||
+            reviewedRuntimeString) &&
           new Set(["export-property", "module-value"]).has(
-            recipe.publicSurfaceProbe.invocation.sourceDescriptor.access.kind,
+            descriptor.access.kind,
           ) &&
           recipe.route.alternatives.length === 1 &&
           recipe.route.alternatives[0].terminalObservedKey ===
-            recipe.publicSurfaceProbe.surfaceObservedKey,
-      ),
+            recipe.publicSurfaceProbe.surfaceObservedKey
+        );
+      }),
     ).toBe(true);
     expect(
       publicReads.some((recipe) =>

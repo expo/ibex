@@ -1426,6 +1426,85 @@ function noncapBuiltinCallObservation(recipe) {
   };
 }
 
+function completeDnsPromiseErrorReadCatalog() {
+  const catalog = completeNoncapBuiltinCallCatalog();
+  const recipe = catalog.recipes[0];
+  const exportName = "NODATA";
+  const surfaceObservedKey =
+    `builtin:export:node_dns_promises:${exportName}`;
+  const sourceDescriptor = {
+    kind: "builtin-export",
+    sourceKey: "node_dns_promises",
+    exportName,
+    exportIdioms: ["member-assignment"],
+    moduleSpecifiers: ["dns/promises", "node:dns/promises"],
+    sourceRef: `src/builtins/dns-promises.js#exports:${exportName}`,
+    valueShape: "unknown",
+    access: { kind: "export-property", path: [exportName] },
+    expectedValueType: "string",
+  };
+  recipe.fixtureId = "fixture.noncap-builtin.dns-promises-nodata";
+  recipe.terminalObservedKey = surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [surfaceObservedKey];
+  recipe.route.alternatives = [
+    {
+      terminalObservedKey: surfaceObservedKey,
+      proofPaths: [surfaceObservedKey],
+    },
+  ];
+  recipe.publicSurfaceProbe.surfaceObservedKey = surfaceObservedKey;
+  recipe.publicSurfaceProbe.invocation = {
+    invocationSchema: "ibex/capsec-builtin-export-invocation/1",
+    kind: "builtin-export-read",
+    moduleSpecifier: "node:dns/promises",
+    exportName,
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    arguments: [],
+    setup: { kind: "none" },
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+    requiredAuthority: [],
+    expectedResult: "return",
+    expectedTypedDecisionCount: 0,
+    expectedTypedStages: [],
+    allowedCoverageEdgeIds: [],
+    expectedActionIds: [],
+  };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function dnsPromiseErrorReadObservation(recipe, valueType = "string") {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      moduleSpecifier: invocation.moduleSpecifier,
+      exportName: invocation.exportName,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      completion: {
+        kind: invocation.completion.kind,
+        timeoutMilliseconds: invocation.completion.timeoutMilliseconds,
+        status: "quiescent",
+      },
+      result: {
+        kind: "return",
+        moduleSpecifier: invocation.moduleSpecifier,
+        exportName: invocation.exportName,
+        valueType,
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
+}
+
 function completeCapturedNoncapBuiltinCatalog() {
   const catalog = completeNoncapBuiltinCallCatalog();
   const recipe = catalog.recipes[0];
@@ -4573,6 +4652,56 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/unknown or missing fields|module-import invocation descriptor drift/);
+  });
+
+  test("accepts only reviewed dns/promises error reads that return strings", () => {
+    const catalog = completeDnsPromiseErrorReadCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: dnsPromiseErrorReadObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: dnsPromiseErrorReadObservation(recipe, "object"),
+        coverage,
+      }),
+    ).toThrow(/wrong export/);
+
+    for (const mutate of [
+      (descriptor) => {
+        descriptor.expectedValueType = "number";
+      },
+      (descriptor) => {
+        delete descriptor.expectedValueType;
+      },
+      (descriptor) => {
+        descriptor.sourceRef =
+          "src/builtins/dns.js#exports:NODATA";
+      },
+    ]) {
+      const unreviewed = structuredClone(recipe);
+      mutate(unreviewed.publicSurfaceProbe.invocation.sourceDescriptor);
+      unreviewed.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+        taggedDigest(
+          unreviewed.publicSurfaceProbe.invocation.sourceDescriptor,
+        );
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: unreviewed,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: dnsPromiseErrorReadObservation(unreviewed),
+          coverage,
+        }),
+      ).toThrow(/unreviewed runtime value-type expectation/);
+    }
   });
 
   test("accepts captured builtin output only with source return, cleanup, and zero decisions", () => {

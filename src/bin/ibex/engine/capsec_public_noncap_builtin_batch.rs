@@ -109,6 +109,8 @@ struct BuiltinSourceDescriptor {
     module_specifiers: Vec<String>,
     source_ref: String,
     value_shape: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    expected_value_type: Option<String>,
     #[serde(default)]
     platform_availability: Option<Vec<String>>,
     access: BuiltinAccess,
@@ -429,6 +431,53 @@ fn load_catalog(path: &std::path::Path) -> RecipeCatalog {
 
 fn is_sorted_set(values: &[String]) -> bool {
     values.windows(2).all(|pair| pair[0] < pair[1])
+}
+
+fn is_reviewed_dns_promise_error_code(value: &str) -> bool {
+    matches!(
+        value,
+        "ADDRGETNETWORKPARAMS"
+            | "BADFAMILY"
+            | "BADFLAGS"
+            | "BADHINTS"
+            | "BADNAME"
+            | "BADQUERY"
+            | "BADRESP"
+            | "BADSTR"
+            | "CANCELLED"
+            | "CONNREFUSED"
+            | "DESTRUCTION"
+            | "EOF"
+            | "FILE"
+            | "FORMERR"
+            | "LOADIPHLPAPI"
+            | "NODATA"
+            | "NOMEM"
+            | "NONAME"
+            | "NOTFOUND"
+            | "NOTIMP"
+            | "NOTINITIALIZED"
+            | "REFUSED"
+            | "SERVFAIL"
+            | "TIMEOUT"
+    )
+}
+
+fn is_reviewed_dns_promise_error_descriptor(descriptor: &BuiltinSourceDescriptor) -> bool {
+    descriptor.source_key == "node_dns_promises"
+        && is_reviewed_dns_promise_error_code(&descriptor.export_name)
+        && descriptor.export_idioms == ["member-assignment"]
+        && descriptor.module_specifiers == ["dns/promises", "node:dns/promises"]
+        && descriptor.source_ref
+            == format!(
+                "src/builtins/dns-promises.js#exports:{}",
+                descriptor.export_name
+            )
+        && descriptor.value_shape == "unknown"
+        && descriptor.expected_value_type.as_deref() == Some("string")
+        && descriptor.platform_availability.is_none()
+        && descriptor.access.kind == "export-property"
+        && descriptor.access.path == [descriptor.export_name.clone()]
 }
 
 fn module_specifier_rank(value: &str) -> u8 {
@@ -1010,10 +1059,13 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         assert!(invocation.body_entry_proof.is_none());
         assert!(invocation.arguments.is_empty());
         assert_eq!(invocation.setup, serde_json::json!({"kind": "none"}));
-        assert!(matches!(
-            descriptor.value_shape.as_str(),
-            "accessor" | "data"
-        ));
+        let reviewed_dns_promise_error =
+            is_reviewed_dns_promise_error_descriptor(&descriptor);
+        assert!(
+            reviewed_dns_promise_error
+                || (matches!(descriptor.value_shape.as_str(), "accessor" | "data")
+                    && descriptor.expected_value_type.is_none())
+        );
         assert!(matches!(
             descriptor.access.kind.as_str(),
             "export-property" | "module-value"
@@ -1024,6 +1076,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
     } else {
         assert_eq!(invocation.expected_result, "normal-return");
         assert_eq!(descriptor.value_shape, "callable");
+        assert!(descriptor.expected_value_type.is_none());
         assert!(matches!(
             descriptor.access.kind.as_str(),
             "export-property"
@@ -1657,6 +1710,19 @@ async fn execute_recipe(
                 "{}: reviewed module import returned the wrong root without selecting an export: {invocation_result}",
                 recipe.fixture_id
             ));
+        }
+    }
+    if probe.invocation.kind == "builtin-export-read" {
+        let descriptor: BuiltinSourceDescriptor =
+            serde_json::from_value(probe.invocation.source_descriptor.clone())
+                .expect("validated builtin export descriptor must remain exact");
+        if let Some(expected_value_type) = descriptor.expected_value_type.as_deref() {
+            if invocation_result["valueType"] != expected_value_type {
+                return Err(format!(
+                    "{}: reviewed builtin read returned the wrong value type: {invocation_result}",
+                    recipe.fixture_id
+                ));
+            }
         }
     }
     if probe.invocation.kind == "builtin-export-call" {

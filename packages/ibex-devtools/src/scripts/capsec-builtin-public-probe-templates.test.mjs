@@ -13,6 +13,32 @@ const plan = {
   classification: "non-capability",
   actionIds: [],
 };
+const REVIEWED_DNS_PROMISE_ERROR_CODES = [
+  "ADDRGETNETWORKPARAMS",
+  "BADFAMILY",
+  "BADFLAGS",
+  "BADHINTS",
+  "BADNAME",
+  "BADQUERY",
+  "BADRESP",
+  "BADSTR",
+  "CANCELLED",
+  "CONNREFUSED",
+  "DESTRUCTION",
+  "EOF",
+  "FILE",
+  "FORMERR",
+  "LOADIPHLPAPI",
+  "NODATA",
+  "NOMEM",
+  "NONAME",
+  "NOTFOUND",
+  "NOTIMP",
+  "NOTINITIALIZED",
+  "REFUSED",
+  "SERVFAIL",
+  "TIMEOUT",
+];
 const REVIEWED_MODULE_IMPORTS = [
   ["buffer", "node_buffer", true, "object"],
   ["bun:sqlite", "exact_sqlite", false, "function"],
@@ -70,6 +96,7 @@ function probeFor({
   importReachability = "public",
   moduleSpecifiers = ["constants", "node:constants"],
   publicModuleSpecifiers = moduleSpecifiers,
+  sourceRefs = [`src/builtins/${sourceKey}.js#exports:${exportName}`],
   platformAvailability,
   target = "aarch64-apple-darwin",
   valueShape = "data",
@@ -91,7 +118,7 @@ function probeFor({
         observedKey,
         {
           observedKey,
-          sourceRefs: [`src/builtins/${sourceKey}.js#exports:${exportName}`],
+          sourceRefs,
           metadata: {
             sourceKey,
             ...(crossSourceExportProjection === undefined
@@ -133,6 +160,72 @@ describe("source-bound builtin public probes", () => {
           kind: "immutable-commonjs-member-object",
           providerSourceKey: "node_dns",
         },
+      }),
+    ).toBeNull();
+  });
+
+  test("reads only the exact reviewed dns/promises error-code strings", () => {
+    for (const exportName of REVIEWED_DNS_PROMISE_ERROR_CODES) {
+      const probe = probeFor({
+        sourceKey: "node_dns_promises",
+        exportName,
+        exportIdioms: ["member-assignment"],
+        moduleSpecifiers: ["dns/promises", "node:dns/promises"],
+        sourceRefs: [
+          `src/builtins/dns-promises.js#exports:${exportName}`,
+        ],
+        valueShape: "unknown",
+      });
+      expect(probe).toMatchObject({
+        kind: "public-surface-invocation",
+        surfaceObservedKey: `builtin:export:node_dns_promises:${exportName}`,
+        invocation: {
+          invocationSchema: "ibex/capsec-builtin-export-invocation/1",
+          kind: "builtin-export-read",
+          moduleSpecifier: "node:dns/promises",
+          exportName,
+          sourceDescriptor: {
+            kind: "builtin-export",
+            sourceKey: "node_dns_promises",
+            exportName,
+            exportIdioms: ["member-assignment"],
+            moduleSpecifiers: ["dns/promises", "node:dns/promises"],
+            sourceRef: `src/builtins/dns-promises.js#exports:${exportName}`,
+            valueShape: "unknown",
+            access: { kind: "export-property", path: [exportName] },
+            expectedValueType: "string",
+          },
+          arguments: [],
+          setup: { kind: "none" },
+          expectedResult: "return",
+        },
+      });
+    }
+
+    const nearMiss = {
+      sourceKey: "node_dns_promises",
+      exportName: "getDefaultResultOrder",
+      exportIdioms: ["member-assignment"],
+      moduleSpecifiers: ["dns/promises", "node:dns/promises"],
+      sourceRefs: [
+        "src/builtins/dns-promises.js#exports:getDefaultResultOrder",
+      ],
+      valueShape: "unknown",
+    };
+    expect(probeFor(nearMiss)).toBeNull();
+    expect(
+      probeFor({
+        ...nearMiss,
+        exportName: "NODATA",
+        sourceRefs: ["src/builtins/dns-promises.js#exports:NODATA"],
+        valueShape: "callable",
+      }),
+    ).toBeNull();
+    expect(
+      probeFor({
+        ...nearMiss,
+        exportName: "NODATA",
+        sourceRefs: ["src/builtins/dns.js#exports:NODATA"],
       }),
     ).toBeNull();
   });
