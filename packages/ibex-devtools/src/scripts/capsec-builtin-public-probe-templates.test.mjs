@@ -1832,6 +1832,50 @@ describe("source-bound builtin public probes", () => {
     });
     expect(
       probeFor({
+        sourceKey: "node_readline",
+        exportName: "Interface.close",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: [
+          "node:readline",
+          "node:readline/promises",
+          "readline",
+          "readline/promises",
+        ],
+        sourceRefs: ["src/builtins/readline.js#exports:Interface.close"],
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        templateId: "node-readline-pure-v1",
+        arguments: [],
+        setup: {
+          kind: "readline-interface-owner",
+          ownerExportName: "Interface",
+          terminal: false,
+        },
+        bodyEntryProof: {
+          kind: "normal-return-from-source-call",
+          resultType: "undefined",
+        },
+      },
+    });
+    expect(
+      probeFor({
+        sourceKey: "node_readline",
+        exportName: "Interface.pause",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: [
+          "node:readline",
+          "node:readline/promises",
+          "readline",
+          "readline/promises",
+        ],
+        sourceRefs: ["src/builtins/readline.js#exports:Interface.pause"],
+        valueShape: "callable",
+      }),
+    ).toBeNull();
+    expect(
+      probeFor({
         sourceKey: "node_net",
         exportName: "BlockList.addRange",
         exportIdioms: ["exported-constructor-prototype"],

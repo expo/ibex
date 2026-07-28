@@ -428,7 +428,9 @@ describe("exact-target CapSec executable recipes", () => {
     // or are read through a reviewed inert prototype path. Eight fixed-prime
     // DiffieHellman construction and state-only calls add no random work.
     // Three exact source-only compatibility helpers retain only harness-owned
-    // values and perform no native key-store or terminal work. Eleven idle
+    // values and perform no native key-store or terminal work. A separately
+    // bounded readline Interface.close call proves exact listener teardown on
+    // an inert harness-owned input shim. Eleven idle
     // zlib destroy calls authenticate and close their
     // constructor-owned native selectors without processing codec input.
     // Seven inert stream.closed reads use fresh harness-owned instances.
@@ -439,11 +441,11 @@ describe("exact-target CapSec executable recipes", () => {
     // binding, poll timer, or peer route; close drains its terminal event.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_701);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_702);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_847);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_846);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -601,6 +603,7 @@ describe("exact-target CapSec executable recipes", () => {
     // prototype values execute on both targets. The fixed-prime DiffieHellman
     // family adds eight bounded state-only calls. Three exact source-only
     // compatibility helpers retain only harness-owned values on both targets.
+    // The dedicated Interface.close proof tears down an inert input shim.
     // This target proves nine idle zlib destroy calls; its two unavailable
     // Zstd constructors remain
     // target-local residuals. Seven inert stream.closed reads use fresh
@@ -611,9 +614,9 @@ describe("exact-target CapSec executable recipes", () => {
     // binding, poll timer, or peer route. The restricted no-eval constructor
     // added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_358);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_359);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_863);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_862);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5373,7 +5376,7 @@ describe("exact-target CapSec executable recipes", () => {
       node_fs: 10,
       node_module: 3,
       node_net: 22,
-      node_readline: 1,
+      node_readline: 2,
       node_v8: 1,
     });
     const pureCompatibilityCalls = publicCalls.filter((recipe) =>
@@ -5436,6 +5439,25 @@ describe("exact-target CapSec executable recipes", () => {
       bodyEntryProof: {
         kind: "normal-return-from-source-call",
         resultType: "boolean",
+      },
+    });
+    const readlineInterfaceClose = publicCalls.find(
+      (recipe) =>
+        recipe.terminalObservedKey ===
+        "builtin:export:node_readline:Interface.close",
+    );
+    expect(readlineInterfaceClose?.publicSurfaceProbe.invocation).toMatchObject({
+      moduleSpecifier: "node:readline",
+      templateId: "node-readline-pure-v1",
+      arguments: [],
+      setup: {
+        kind: "readline-interface-owner",
+        ownerExportName: "Interface",
+        terminal: false,
+      },
+      bodyEntryProof: {
+        kind: "normal-return-from-source-call",
+        resultType: "undefined",
       },
     });
     const explicitDhCalls = publicCalls.filter((recipe) =>

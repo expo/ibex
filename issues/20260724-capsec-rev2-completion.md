@@ -4448,6 +4448,48 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — executed harness-owned readline `Interface.close`
+
+- Promoted exactly `node_readline.Interface.close`. A dedicated setup
+  constructs one fresh non-terminal `Interface` over an inert harness-owned
+  input shim. The constructor must install exactly the data, error, end, and
+  close listeners and call `resume` once. The selected close call must detach
+  all four listeners, call `pause` once, mark the receiver closed, emit one
+  close event, return `undefined`, and reach quiescence with zero legacy or
+  typed decisions.
+- `Interface.pause` was deliberately rejected: it normally returns while
+  retaining the constructor listeners. The recipe author, independent
+  JavaScript evidence validator, Rust catalog validator, and loaded-engine
+  JavaScript harness repeat the exact source descriptor, owner, non-terminal
+  mode, listener lifecycle, cleanup, result, and zero-decision contract. No
+  generic stream-like setup was added for other readline methods to inherit.
+- The regenerated Apple catalog digest
+  `sha256-UoI9CrFFOXA7W5CTQ1P0hDpnUQxqrj3R6rkaeMcR1pA` reports 23,584
+  required / **3,702 fully executable** / 3,036 internally verified / 16,846
+  unresolved. The regenerated Windows digest
+  `sha256-bClIPRrXUIfI0ao3JWNDD0qN0C7TVHD3IJHOCbJMm8U` reports 23,243
+  required / **3,359 fully executable** / 3,022 internally verified / 16,862
+  unresolved. The descriptor-only output residual manifest falls from 544 to
+  543 rows.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 55 focused rows
+  plus `Interface.close` under catalog digest
+  `sha256-nrdvRisG_0EoHOEIgOswHRw5yEL-Q0TEKROHshQwSLs` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 56
+  fixtures pass. The close result records `cleanupPerformed: true` and
+  `inputLifecycleVerified: true`, reaches quiescence, and records zero
+  decisions. The raw evidence SHA-256 is
+  `4e422060b3b209429edbf23509392e1f76dcb4926c2d99ab42fb5dec70cf2c77`;
+  independent JavaScript validation accepted all 56 executions and produced
+  diagnostic execution digest
+  `sha256-9HPERX1hQMynwbghuVKkc4_lCYaKOKBUM58H5bBSNVo` (artifact SHA-256
+  `b50acb4a7a35ef67465be3cf355c04a50a537b75a95403fd7244c3ed08fbc243`).
+- The focused author/catalog/validator/output-accounting suite passes
+  **194/194** tests with 125,304 assertions. The Linux replay remains
+  diagnostic rather than Apple promotion evidence.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

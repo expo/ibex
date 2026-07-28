@@ -119,9 +119,10 @@ describe("builtin non-capability/closed output recipes", () => {
   test("accounts for the exact callable/accessor and descriptor residual universe", async () => {
     const rows = await loaded;
     // Fresh HTTP/UDP lifecycle calls, X509Certificate.toString, and the three
-    // source-only compatibility helpers now have exact loaded zero-decision
-    // recipes instead of descriptor-only residual accounts.
-    expect(rows).toHaveLength(544);
+    // source-only compatibility helpers and Interface.close now have exact
+    // loaded zero-decision recipes instead of descriptor-only residual
+    // accounts.
+    expect(rows).toHaveLength(543);
     expect(
       Object.fromEntries(
         ["non-capability", "closed"].map((classification) => [
@@ -131,30 +132,30 @@ describe("builtin non-capability/closed output recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ "non-capability": 324, closed: 220 });
+    ).toEqual({ "non-capability": 323, closed: 220 });
     expect(
       builtinNoncapClosedOutputRouteManifest(rows.map((row) => row.invocation)),
     ).toMatchObject({
-      total: 544,
+      total: 543,
       operations: {
         call: 246,
         construct: 16,
         "import-refusal": 22,
-        unexercisable: 260,
+        unexercisable: 259,
       },
       residualReasons: {
         "codec-route-retains-native-or-deferred-stream-state": 73,
         "crypto-route-needs-authentic-key-cipher-or-callback-fixture": 6,
         "no-bounded-source-owned-receiver": 50,
-        "receiver-needs-external-or-network-lifecycle": 70,
+        "receiver-needs-external-or-network-lifecycle": 69,
         "runtime-inspection-or-escape-surface-has-no-safe-receiver": 61,
       },
     });
     // The 24 settled consumers, eight fixed-DH operations, six base Stream
     // lifecycle calls, 11 idle zlib destroys, nine fresh HTTP lifecycle calls,
     // six fresh UDP socket lifecycle calls, and three source-only
-    // compatibility helpers and KeyObject.equals now have bounded public
-    // probes. Those 69 rows are
+    // compatibility helpers, KeyObject.equals, and Interface.close now have
+    // bounded public probes. Those 70 rows are
     // no longer descriptor-only residuals; Duplex
     // `_undestroy` is one representative inherited descriptor.
     expect(

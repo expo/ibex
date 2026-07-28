@@ -4972,6 +4972,88 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/malformed authored pure compatibility proof/);
   });
 
+  test("accepts only harness-owned readline Interface.close lifecycle proof", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:readline";
+    invocation.exportName = "Interface.close";
+    invocation.templateId = "node-readline-pure-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_readline",
+      exportName: "Interface.close",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: [
+        "node:readline",
+        "node:readline/promises",
+        "readline",
+        "readline/promises",
+      ],
+      sourceRef: "src/builtins/readline.js#exports:Interface.close",
+      valueShape: "callable",
+      access: {
+        kind: "prototype-property",
+        path: ["Interface", "prototype", "close"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.arguments = [];
+    invocation.setup = {
+      kind: "readline-interface-owner",
+      ownerExportName: "Interface",
+      terminal: false,
+    };
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "undefined",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.result.dispatchKind = "prototype-call";
+    observed.invocation.result.cleanupPerformed = true;
+    observed.invocation.result.inputLifecycleVerified = true;
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.exportName = "Interface.pause";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.terminal = true;
+      },
+      (_value, runtime) => {
+        runtime.invocation.result.cleanupPerformed = false;
+      },
+      (_value, runtime) => {
+        runtime.invocation.result.inputLifecycleVerified = false;
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      const tamperedObservation = structuredClone(observed);
+      mutate(tamperedRecipe, tamperedObservation);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: tamperedObservation,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored (?:pure compatibility|readline Interface\.close) proof|did not prove its exact normal return|does not match recipe|descriptor drift/,
+      );
+    }
+  });
+
   test("accepts only exact harness-owned KeyObject equality", () => {
     const catalog = completeNoncapBuiltinCallCatalog();
     const recipe = catalog.recipes[0];

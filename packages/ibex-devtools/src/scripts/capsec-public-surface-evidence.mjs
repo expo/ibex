@@ -352,6 +352,7 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["construct-target", "construct"],
   ["constructed-owner", "prototype-call"],
   ["key-object-pair-owner", "prototype-call"],
+  ["readline-interface-owner", "prototype-call"],
   ["buffer-owner", "prototype-call"],
   ["call-tracker-owner", "prototype-call"],
   ["stream-owner", "prototype-call"],
@@ -525,6 +526,35 @@ const KEY_OBJECT_EQUALS_CONTRACT = {
   },
   arguments: [{ kind: "setup-value", name: "peer" }],
   resultType: "boolean",
+};
+const READLINE_INTERFACE_CLOSE_CONTRACT = {
+  moduleSpecifier: "node:readline",
+  templateId: "node-readline-pure-v1",
+  sourceDescriptor: {
+    kind: "builtin-export",
+    sourceKey: "node_readline",
+    exportName: "Interface.close",
+    exportIdioms: ["exported-constructor-prototype"],
+    moduleSpecifiers: [
+      "node:readline",
+      "node:readline/promises",
+      "readline",
+      "readline/promises",
+    ],
+    sourceRef: "src/builtins/readline.js#exports:Interface.close",
+    valueShape: "callable",
+    access: {
+      kind: "prototype-property",
+      path: ["Interface", "prototype", "close"],
+    },
+  },
+  setup: {
+    kind: "readline-interface-owner",
+    ownerExportName: "Interface",
+    terminal: false,
+  },
+  arguments: [],
+  resultType: "undefined",
 };
 const BASE_STREAM_MODULE_VALUE_CALL_CONTRACTS = new Map([
   [
@@ -4817,9 +4847,13 @@ function validateRuntimeInvocation(observation, recipe) {
     const pureCompatibilityContract = PURE_COMPATIBILITY_CALL_CONTRACTS.get(
       `${authored.sourceDescriptor.sourceKey}:${authored.exportName}`,
     );
+    const readlineInterfaceClose =
+      authored.sourceDescriptor.sourceKey === "node_readline" &&
+      authored.exportName === "Interface.close";
     if (
       authored.sourceDescriptor.sourceKey === "node_readline" &&
-      !pureCompatibilityContract
+      !pureCompatibilityContract &&
+      !readlineInterfaceClose
     ) {
       throw new Error(
         `${recipe.fixtureId}: malformed authored pure compatibility proof`,
@@ -4851,6 +4885,26 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: malformed authored pure compatibility proof`,
+      );
+    }
+    if (
+      readlineInterfaceClose &&
+      (authored.moduleSpecifier !==
+        READLINE_INTERFACE_CLOSE_CONTRACT.moduleSpecifier ||
+        authored.templateId !==
+          READLINE_INTERFACE_CLOSE_CONTRACT.templateId ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !==
+          READLINE_INTERFACE_CLOSE_CONTRACT.resultType ||
+        canonicalJson(authored.sourceDescriptor) !==
+          canonicalJson(READLINE_INTERFACE_CLOSE_CONTRACT.sourceDescriptor) ||
+        canonicalJson(authored.setup) !==
+          canonicalJson(READLINE_INTERFACE_CLOSE_CONTRACT.setup) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson(READLINE_INTERFACE_CLOSE_CONTRACT.arguments))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored readline Interface.close proof`,
       );
     }
     if (
@@ -5034,7 +5088,12 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: malformed authored normal-return setup`,
       );
     }
-    const cleanupRequired = authored.setup.kind === "zlib-owner";
+    const cleanupRequired = new Set([
+      "readline-interface-owner",
+      "zlib-owner",
+    ]).has(authored.setup.kind);
+    const readlineLifecycleRequired =
+      authored.setup.kind === "readline-interface-owner";
     exactKeys(
       invocation.result,
       [
@@ -5045,6 +5104,7 @@ function validateRuntimeInvocation(observation, recipe) {
         "dispatchKind",
         "bodyEntryProof",
         ...(cleanupRequired ? ["cleanupPerformed"] : []),
+        ...(readlineLifecycleRequired ? ["inputLifecycleVerified"] : []),
       ],
       `${recipe.fixtureId}: builtin normal-return result`,
     );
@@ -5058,7 +5118,9 @@ function validateRuntimeInvocation(observation, recipe) {
       invocation.result.valueType !== authored.bodyEntryProof.resultType ||
       invocation.result.dispatchKind !== expectedDispatchKind ||
       invocation.result.bodyEntryProof !== authored.bodyEntryProof.kind ||
-      (cleanupRequired && invocation.result.cleanupPerformed !== true)
+      (cleanupRequired && invocation.result.cleanupPerformed !== true) ||
+      (readlineLifecycleRequired &&
+        invocation.result.inputLifecycleVerified !== true)
     ) {
       throw new Error(
         `${recipe.fixtureId}: builtin call did not prove its exact normal return`,

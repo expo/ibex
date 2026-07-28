@@ -1142,6 +1142,22 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
             validate_byte_array(&setup["bytes"], "KeyObject pair bytes");
             allow_setup_value = true;
         }
+        "readline-interface-owner" => {
+            assert_object_keys(
+                &invocation.setup,
+                &["kind", "ownerExportName", "terminal"],
+                "readline Interface owner setup",
+            );
+            assert!(prototype);
+            assert_eq!(descriptor.source_key, "node_readline");
+            assert_eq!(descriptor.export_name, "Interface.close");
+            assert_eq!(setup["ownerExportName"], "Interface");
+            assert_eq!(setup["terminal"], false);
+            assert_eq!(
+                descriptor.access.path,
+                ["Interface", "prototype", "close"].map(str::to_owned)
+            );
+        }
         "buffer-owner" => {
             assert_object_keys(
                 &invocation.setup,
@@ -1419,6 +1435,56 @@ fn validate_key_object_equals_contract(
     );
     assert_eq!(proof.kind, "normal-return-from-source-call");
     assert_eq!(proof.result_type, "boolean");
+}
+
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+// independently close the exact listener-owning readline lifecycle receipt.
+fn validate_readline_interface_close_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    if descriptor.source_key != "node_readline"
+        || descriptor.export_name != "Interface.close"
+    {
+        return;
+    }
+    assert_eq!(invocation.module_specifier, "node:readline");
+    assert_eq!(
+        invocation.template_id.as_deref(),
+        Some("node-readline-pure-v1")
+    );
+    assert_eq!(descriptor.export_idioms, ["exported-constructor-prototype"]);
+    assert_eq!(
+        descriptor.module_specifiers,
+        [
+            "node:readline",
+            "node:readline/promises",
+            "readline",
+            "readline/promises",
+        ]
+    );
+    assert_eq!(
+        descriptor.source_ref,
+        "src/builtins/readline.js#exports:Interface.close"
+    );
+    assert_eq!(descriptor.value_shape, "callable");
+    assert_eq!(descriptor.access.kind, "prototype-property");
+    assert_eq!(
+        descriptor.access.path,
+        ["Interface", "prototype", "close"].map(str::to_owned)
+    );
+    assert_eq!(
+        invocation.setup,
+        serde_json::json!({
+            "kind": "readline-interface-owner",
+            "ownerExportName": "Interface",
+            "terminal": false,
+        })
+    );
+    assert!(invocation.arguments.is_empty());
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, "undefined");
 }
 
 fn validate_base_stream_module_value_contract(
@@ -2072,6 +2138,11 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         validate_x509_state_contract(invocation, &descriptor, proof);
         validate_pure_compatibility_contract(invocation, &descriptor, proof);
         validate_key_object_equals_contract(invocation, &descriptor, proof);
+        validate_readline_interface_close_contract(
+            invocation,
+            &descriptor,
+            proof,
+        );
         validate_base_stream_module_value_contract(invocation, &descriptor, proof);
         validate_idle_zlib_destroy_contract(invocation, &descriptor, proof);
         validate_idle_http_contract(invocation, &descriptor, proof);
@@ -2728,6 +2799,15 @@ async fn execute_recipe(
         {
             return Err(format!(
                 "{}: public zlib call did not prove native-state cleanup: {invocation_result}",
+                recipe.fixture_id
+            ));
+        }
+        if probe.invocation.setup["kind"] == "readline-interface-owner"
+            && (invocation_result["cleanupPerformed"] != true
+                || invocation_result["inputLifecycleVerified"] != true)
+        {
+            return Err(format!(
+                "{}: public readline call did not prove listener cleanup and input lifecycle: {invocation_result}",
                 recipe.fixture_id
             ));
         }

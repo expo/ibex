@@ -665,6 +665,16 @@ const keyObjectPairOwner = (bytes) =>
     [setupValueArgument("peer")],
     "boolean",
   );
+const readlineInterfaceOwner = () =>
+  callSpec(
+    {
+      kind: "readline-interface-owner",
+      ownerExportName: "Interface",
+      terminal: false,
+    },
+    [],
+    "undefined",
+  );
 
 const ZLIB_OWNER_NAMES = Object.freeze([
   "BrotliCompress",
@@ -1284,6 +1294,13 @@ const ROOT_CALL_SPECS = Object.freeze({
     // CSI concatenates one harness-owned string array into a terminal escape
     // sequence; it opens no terminal and retains no stream.
     CSI: rootCall([jsonArgument(["31m"])], "string"),
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // exact listener teardown, not generic Interface compatibility.
+    // A dedicated inert input shim proves Interface construction installs
+    // exactly the reviewed listeners and resumes once. close must detach every
+    // listener, pause once, mark the receiver closed, and emit one close event.
+    // pause remains residual because it retains the constructor listeners.
+    "Interface.close": readlineInterfaceOwner(),
   }),
   node_perf_hooks: Object.freeze({
     Performance: constructTarget([]),
@@ -2189,6 +2206,7 @@ function callTemplateFor(descriptor) {
         "construct-target",
         "constructed-owner",
         "key-object-pair-owner",
+        "readline-interface-owner",
         "zlib-owner",
         "stream-owner",
       ]).has(setupKind)) ||

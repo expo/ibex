@@ -343,7 +343,10 @@
     var readlineCsi =
       sourceKey === "node_readline" && exportName === "CSI";
     if (!cryptoKeyWrapper && !readlineCsi) {
-      return sourceKey !== "node_readline";
+      return (
+        sourceKey !== "node_readline" ||
+        exportName === "Interface.close"
+      );
     }
     var expectedModuleSpecifier = cryptoKeyWrapper
       ? "node:crypto"
@@ -410,6 +413,66 @@
         "normal-return-from-source-call" &&
       invocation.bodyEntryProof.resultType ===
         (cryptoKeyWrapper ? "object" : "string")
+    );
+  }
+
+  function isReviewedReadlineInterfaceCloseInvocation(invocation) {
+    var descriptor = invocation.sourceDescriptor;
+    if (
+      !descriptor ||
+      descriptor.sourceKey !== "node_readline" ||
+      invocation.exportName !== "Interface.close"
+    ) {
+      return true;
+    }
+    var setup = invocation.setup;
+    return (
+      invocation.invocationSchema ===
+        "ibex/capsec-builtin-call-invocation/1" &&
+      invocation.kind === "builtin-export-call" &&
+      invocation.moduleSpecifier === "node:readline" &&
+      invocation.templateId === "node-readline-pure-v1" &&
+      exactObjectKeys(descriptor, [
+        "access",
+        "exportIdioms",
+        "exportName",
+        "kind",
+        "moduleSpecifiers",
+        "sourceKey",
+        "sourceRef",
+        "valueShape",
+      ]) &&
+      descriptor.kind === "builtin-export" &&
+      descriptor.exportName === "Interface.close" &&
+      descriptor.valueShape === "callable" &&
+      descriptor.sourceRef ===
+        "src/builtins/readline.js#exports:Interface.close" &&
+      sameStringArray(descriptor.exportIdioms, [
+        "exported-constructor-prototype",
+      ]) &&
+      sameStringArray(descriptor.moduleSpecifiers, [
+        "node:readline",
+        "node:readline/promises",
+        "readline",
+        "readline/promises",
+      ]) &&
+      exactObjectKeys(descriptor.access, ["kind", "path"]) &&
+      descriptor.access.kind === "prototype-property" &&
+      sameStringArray(descriptor.access.path, [
+        "Interface",
+        "prototype",
+        "close",
+      ]) &&
+      exactObjectKeys(setup, ["kind", "ownerExportName", "terminal"]) &&
+      setup.kind === "readline-interface-owner" &&
+      setup.ownerExportName === "Interface" &&
+      setup.terminal === false &&
+      Array.isArray(invocation.arguments) &&
+      invocation.arguments.length === 0 &&
+      exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) &&
+      invocation.bodyEntryProof.kind ===
+        "normal-return-from-source-call" &&
+      invocation.bodyEntryProof.resultType === "undefined"
     );
   }
 
@@ -741,6 +804,84 @@
     return instance;
   }
 
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // materialize and audit the exact harness-owned Interface lifecycle.
+  function createReadlineInterfaceInstance(moduleValue) {
+    var owner = moduleValue.Interface;
+    if (typeof owner !== "function") {
+      throw new TypeError("missing authored readline Interface owner");
+    }
+    var allowedEvents = ["close", "data", "end", "error"];
+    var listeners = Object.create(null);
+    var state = {
+      valid: true,
+      resumeCalls: 0,
+      pauseCalls: 0,
+      closeEvents: 0,
+      listeners: listeners,
+      initialVerified: false,
+    };
+    var input = {
+      on: function (eventName, listener) {
+        if (
+          allowedEvents.indexOf(eventName) === -1 ||
+          typeof listener !== "function" ||
+          own.call(listeners, eventName)
+        ) {
+          state.valid = false;
+          return this;
+        }
+        listeners[eventName] = listener;
+        return this;
+      },
+      removeListener: function (eventName, listener) {
+        if (
+          !own.call(listeners, eventName) ||
+          listeners[eventName] !== listener
+        ) {
+          state.valid = false;
+          return this;
+        }
+        delete listeners[eventName];
+        return this;
+      },
+      resume: function () {
+        state.resumeCalls++;
+        return this;
+      },
+      pause: function () {
+        state.pauseCalls++;
+        return this;
+      },
+    };
+    var receiver = Reflect.construct(owner, [
+      { input: input, output: null, terminal: false },
+    ]);
+    state.initialVerified =
+      state.valid &&
+      state.resumeCalls === 1 &&
+      state.pauseCalls === 0 &&
+      Object.keys(listeners).sort().join(",") ===
+        allowedEvents.slice().sort().join(",");
+    receiver.once("close", function () {
+      state.closeEvents++;
+    });
+    return { receiver: receiver, state: state };
+  }
+
+  function verifyReadlineInterfaceClose(receiver, state) {
+    return (
+      state.initialVerified === true &&
+      state.valid === true &&
+      receiver.closed === true &&
+      state.resumeCalls === 1 &&
+      state.pauseCalls === 1 &&
+      state.closeEvents === 1 &&
+      receiver.listenerCount("close") === 0 &&
+      Object.keys(state.listeners).length === 0
+    );
+  }
+
   function materialize(argument, moduleValue, bindings) {
     if (!argument || typeof argument.kind !== "string") {
       throw new TypeError("invalid authored builtin argument");
@@ -824,11 +965,14 @@
 
   try {
     var cleanupPerformed = false;
+    var inputLifecycleVerified = false;
+    var readlineLifecycleState = null;
     if (
       !isReviewedIdleHttpInvocation(config) ||
       !isReviewedIdleDgramInvocation(config) ||
       !isReviewedX509StateInvocation(config) ||
       !isReviewedPureCompatibilityInvocation(config) ||
+      !isReviewedReadlineInterfaceCloseInvocation(config) ||
       !isReviewedKeyObjectEqualsInvocation(config)
     ) {
       return failure("contract-mismatch");
@@ -906,6 +1050,17 @@
         setup.keyType,
         new Uint8Array(setup.bytes),
       ]);
+      dispatchKind = "prototype-call";
+    } else if (setup.kind === "readline-interface-owner") {
+      var readlineInstance = createReadlineInterfaceInstance(moduleValue);
+      receiver = readlineInstance.receiver;
+      readlineLifecycleState = readlineInstance.state;
+      if (!readlineLifecycleState.initialVerified) {
+        return failure("setup-mismatch", {
+          setupKind: setup.kind,
+          ownerExportName: setup.ownerExportName,
+        });
+      }
       dispatchKind = "prototype-call";
     } else if (setup.kind === "buffer-owner") {
       var bufferOwner = moduleValue[setup.ownerExportName];
@@ -985,6 +1140,19 @@
       } else {
         result = Reflect.apply(target, receiver, callArguments);
       }
+      if (setup.kind === "readline-interface-owner") {
+        inputLifecycleVerified = verifyReadlineInterfaceClose(
+          receiver,
+          readlineLifecycleState,
+        );
+        cleanupPerformed = inputLifecycleVerified;
+        if (!inputLifecycleVerified) {
+          return failure("cleanup-mismatch", {
+            setupKind: setup.kind,
+            ownerExportName: setup.ownerExportName,
+          });
+        }
+      }
     } finally {
       if (
         setup.kind === "zlib-owner" &&
@@ -1011,6 +1179,11 @@
         if (setup.kind === "zlib-owner") {
           capturedSuccess.cleanupPerformed = cleanupPerformed;
         }
+        if (setup.kind === "readline-interface-owner") {
+          capturedSuccess.cleanupPerformed = cleanupPerformed;
+          capturedSuccess.inputLifecycleVerified =
+            inputLifecycleVerified;
+        }
         return failure("return", capturedSuccess);
       }
       var actualResultType = valueType(result);
@@ -1028,6 +1201,10 @@
       };
       if (setup.kind === "zlib-owner") {
         success.cleanupPerformed = cleanupPerformed;
+      }
+      if (setup.kind === "readline-interface-owner") {
+        success.cleanupPerformed = cleanupPerformed;
+        success.inputLifecycleVerified = inputLifecycleVerified;
       }
       return failure("return", success);
     }
