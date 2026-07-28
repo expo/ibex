@@ -3666,6 +3666,73 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — extended exact post-initialization builtin values
+
+- Extended the post-initialization family by exactly 13 source-reviewed
+  values: `exact_crypto`'s `subtle` and `webcrypto`; `node_console`'s default
+  export; `node_events`'s `captureRejectionSymbol` and `errorMonitor`;
+  `node_fs` and `node_fs_promises`'s respective `constants`; `node_http2`'s
+  `sensitiveHeaders`; `node_module`'s `builtinModules`; `node_perf_hooks`'s
+  `performance`; `node_timers_promises`'s `scheduler`; and the
+  `path_posix_alias` and `path_win32_alias` default exports. Physical execution
+  proves ten objects and three symbols.
+- The recipe author, Rust executor, and independent JavaScript validator each
+  repeat the closed source key, export name, source reference, public aliases,
+  source idioms, exact property-or-module-value access, and expected runtime
+  type. No candidate had a cross-source export or constructor-instance
+  projection. Generic unknown-shape values and all unreviewed cross-source or
+  constructor projections remain residual.
+- Moving `main` was integrated at merge checkpoint `bc0d9e03`, through
+  upstream `e4d96bb0`. The post-initialization implementation checkpoint is
+  `2dfc5e81db097a98e187d5474d8d5edd746dd998`, with tree digest
+  `sha256-dFAqrWy8QWiHhAang_7z_qsgF366RCfpzKiG5qXnzyE`.
+- Final Apple catalog digest
+  `sha256-BWfjHMoIswlw381yHcKuO3ukH1Lz_h11BLhIGZM1L00` reports 23,584
+  required / **3,583 fully executable** / 3,036 internally verified / 16,965
+  unresolved. The local M5 strict-provenance, stale-vendored physical batch
+  passes **1,278/1,278**, including all 13 new values with zero decisions. It
+  binds engine digest
+  `sha256-PzMZqlPaba3S9taiDvkd7H-DCuBv2MXbYOmLoVbZP3I`; the raw evidence
+  SHA-256 is
+  `4c0be96c1a25e46cdec5a836589bba9e4e9765de54a1e9cc13c16f59a3b3a39d`.
+  Independent validation produced execution digest
+  `sha256-jeBaBJiBRaNnNyBqDM5UsomLZUNRfxtSIzjuiuzACLk`.
+- Final Windows catalog digest
+  `sha256-pDGit3-GJP3fxK9an7GZjwR-km8jpD35x119x79qVMA` reports 23,243
+  required / **3,242 fully executable** / 3,022 internally verified / 16,979
+  unresolved. The NucBox imported the MSVC developer environment and bound
+  the reviewed compiler, headers, import library, DLL, and provenance receipt.
+  Its strict batch passes **1,242/1,242**, including all 13 new values with
+  zero decisions, against engine digest
+  `sha256-4HsCwsHz-UDTGNW8-89DnujWOx9rFegBL0wYbUFHPHE`; the raw evidence
+  SHA-256 is
+  `0e5e5d8d018ad95fb95af4094b74b2e65207d1ed00f3d92ecdcdb36864bb1bd3`.
+  Independent validation accepted exactly the expected 1,242 fixtures and
+  produced execution digest
+  `sha256-YWXEEx-QaBtVGBNv4L1OnHTj1u4maDNP2ikcUsHytuI`.
+- The focused three-file JavaScript suite passes **176/176** tests with
+  116,695 assertions. `ref-check` validates 41 LLP documents and 2,220
+  references with zero errors (one stable URL remains unchecked), and the
+  regenerated runtime-environment inventory suite passes **11/11**. The
+  definitive broad local `bun test packages` run, with `IBEX_BIN` bound to an
+  intentionally absent path so the optional live-binary fixture takes its
+  documented skip, passes **2,436 tests with one intended skip, zero
+  failures, 288,401 assertions, and 170 files** in 321.09 seconds. A preceding
+  unoverridden run usefully exposed the four-offset inventory drift fixed in
+  `2dfc5e81` and found an unrelated stale local `target/debug/ibex`; neither
+  condition remains represented as a source-family test failure.
+- Hard parts: the initial Rust predicate assumed every reviewed value used an
+  export-property path, so Apple correctly rejected the two module-value
+  defaults until execution was changed to compare the exact authored access
+  descriptor. Windows correctly rejected a shell without the MSVC development
+  environment before accepting the exact SDK-bound replay. A Hetzner broad
+  run was unsuitable because that noninteractive account has Bun and Rust but
+  no `node`, so the physical Apple and Windows runs remained on appropriate
+  fleet machines rather than weakening their platform bindings.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
