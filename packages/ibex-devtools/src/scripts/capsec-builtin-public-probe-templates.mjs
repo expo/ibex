@@ -639,6 +639,7 @@ const REVIEWED_DGRAM_SOCKET_INSTANCE_VALUE_EXPORTS = new Map([
 
 const jsonArgument = (value) => ({ kind: "json", value });
 const noopArgument = () => ({ kind: "noop-function" });
+const timerCallbackArgument = () => ({ kind: "timer-callback" });
 const throwingArgument = () => ({
   kind: "throwing-function",
   errorMessage: "ibex-capsec-authored-throw",
@@ -804,6 +805,92 @@ const ZLIB_PROCESS_CHUNK_CONTRACTS = new Map(
     [bytes, outputContract],
   ]),
 );
+
+const TIMER_ROOT_CALL_SPECS = Object.freeze({
+  active: callSpec(
+    { kind: "timer-legacy-root", operation: "active" },
+    [setupValueArgument("timerRecord")],
+    "undefined",
+  ),
+  _unrefActive: callSpec(
+    { kind: "timer-legacy-root", operation: "_unrefActive" },
+    [setupValueArgument("timerRecord")],
+    "undefined",
+  ),
+  enroll: callSpec(
+    { kind: "timer-legacy-root", operation: "enroll" },
+    [setupValueArgument("timerRecord"), jsonArgument(60_000)],
+    "undefined",
+  ),
+  unenroll: callSpec(
+    { kind: "timer-legacy-root", operation: "unenroll" },
+    [setupValueArgument("timerRecord")],
+    "undefined",
+  ),
+  clearInterval: callSpec(
+    { kind: "timer-clear-root", timerKind: "interval" },
+    [setupValueArgument("timerHandle")],
+    "undefined",
+  ),
+  clearTimeout: callSpec(
+    { kind: "timer-clear-root", timerKind: "timeout" },
+    [setupValueArgument("timerHandle")],
+    "undefined",
+  ),
+  setImmediate: callSpec(
+    { kind: "timer-factory-root", timerKind: "immediate" },
+    [timerCallbackArgument()],
+    "object",
+  ),
+  setInterval: callSpec(
+    { kind: "timer-factory-root", timerKind: "interval" },
+    [timerCallbackArgument(), jsonArgument(60_000)],
+    "object",
+  ),
+  setTimeout: callSpec(
+    { kind: "timer-factory-root", timerKind: "timeout" },
+    [timerCallbackArgument(), jsonArgument(60_000)],
+    "object",
+  ),
+});
+
+function timerPrototypeSpec(exportName) {
+  const [ownerExportName, methodName, ...extra] = exportName.split(".");
+  if (
+    extra.length !== 0 ||
+    !new Set(["Immediate", "Timeout"]).has(ownerExportName)
+  ) {
+    return null;
+  }
+  const methods =
+    ownerExportName === "Immediate"
+      ? new Map([
+          ["close", "object"],
+          ["hasRef", "boolean"],
+          ["ref", "object"],
+          ["unref", "object"],
+        ])
+      : new Map([
+          ["_scheduleNative", "undefined"],
+          ["close", "object"],
+          ["hasRef", "boolean"],
+          ["ref", "object"],
+          ["refresh", "object"],
+          ["unref", "object"],
+        ]);
+  const resultType = methods.get(methodName);
+  if (!resultType) return null;
+  return callSpec(
+    {
+      kind: "timer-owner",
+      ownerExportName,
+      preclosed: methodName === "_scheduleNative",
+    },
+    [],
+    resultType,
+  );
+}
+
 function zlibRootCallSpecs() {
   const specs = Object.create(null);
   const deflateBytes = [120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169];
@@ -1680,6 +1767,7 @@ const ROOT_CALL_SPECS = Object.freeze({
     ),
   }),
   node_stream: STREAM_ROOT_CALL_SPECS,
+  node_timers: TIMER_ROOT_CALL_SPECS,
   node_url: Object.freeze({
     canParse: rootCall([jsonArgument("https://example.test/ibex")], "boolean"),
     fileURLToPath: rootCall([jsonArgument("file:///tmp/ibex")], "string"),
@@ -2424,6 +2512,7 @@ const CALL_TEMPLATE_IDS = Object.freeze({
   node_stream: "node-stream-bounded-v1",
   node_stream_web: "node-stream-web-pure-v1",
   node_string_decoder: "node-string-decoder-bounded-v1",
+  node_timers: "node-timers-bounded-v1",
   node_tls: "node-tls-pure-v1",
   node_url: "node-url-pure-v1",
   node_util: "node-util-pure-v1",
@@ -2450,6 +2539,9 @@ function callTemplateFor(descriptor) {
   if (!spec && descriptor.sourceKey === "node_stream") {
     spec = streamPrototypeSpec(descriptor.exportName);
   }
+  if (!spec && descriptor.sourceKey === "node_timers") {
+    spec = timerPrototypeSpec(descriptor.exportName);
+  }
   const templateId = ownValue(CALL_TEMPLATE_IDS, descriptor.sourceKey);
   if (!spec || !templateId) return null;
 
@@ -2470,6 +2562,7 @@ function callTemplateFor(descriptor) {
         "readline-interface-owner",
         "readline-interface-pause-owner",
         "tls-server-construct-target",
+        "timer-owner",
         "zlib-end-owner",
         "zlib-owner",
         "zlib-process-chunk-owner",
@@ -2481,6 +2574,9 @@ function callTemplateFor(descriptor) {
         "root-call",
         "tls-server-construct-target",
         "tls-server-root-call",
+        "timer-clear-root",
+        "timer-factory-root",
+        "timer-legacy-root",
       ]).has(setupKind))
   ) {
     return null;

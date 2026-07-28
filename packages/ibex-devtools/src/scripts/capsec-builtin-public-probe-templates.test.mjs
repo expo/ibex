@@ -1371,6 +1371,145 @@ describe("source-bound builtin public probes", () => {
     }
   });
 
+  test("authors only exact cancellable timer lifecycles", () => {
+    const rootContracts = new Map([
+      [
+        "active",
+        [
+          { kind: "timer-legacy-root", operation: "active" },
+          [{ kind: "setup-value", name: "timerRecord" }],
+          "undefined",
+        ],
+      ],
+      [
+        "_unrefActive",
+        [
+          { kind: "timer-legacy-root", operation: "_unrefActive" },
+          [{ kind: "setup-value", name: "timerRecord" }],
+          "undefined",
+        ],
+      ],
+      [
+        "enroll",
+        [
+          { kind: "timer-legacy-root", operation: "enroll" },
+          [
+            { kind: "setup-value", name: "timerRecord" },
+            { kind: "json", value: 60_000 },
+          ],
+          "undefined",
+        ],
+      ],
+      [
+        "unenroll",
+        [
+          { kind: "timer-legacy-root", operation: "unenroll" },
+          [{ kind: "setup-value", name: "timerRecord" }],
+          "undefined",
+        ],
+      ],
+      ...[
+        ["clearInterval", "interval"],
+        ["clearTimeout", "timeout"],
+      ].map(([exportName, timerKind]) => [
+        exportName,
+        [
+          { kind: "timer-clear-root", timerKind },
+          [{ kind: "setup-value", name: "timerHandle" }],
+          "undefined",
+        ],
+      ]),
+      [
+        "setImmediate",
+        [
+          { kind: "timer-factory-root", timerKind: "immediate" },
+          [{ kind: "timer-callback" }],
+          "object",
+        ],
+      ],
+      ...[
+        ["setInterval", "interval"],
+        ["setTimeout", "timeout"],
+      ].map(([exportName, timerKind]) => [
+        exportName,
+        [
+          { kind: "timer-factory-root", timerKind },
+          [
+            { kind: "timer-callback" },
+            { kind: "json", value: 60_000 },
+          ],
+          "object",
+        ],
+      ]),
+    ]);
+    for (const [exportName, [setup, arguments_, resultType]] of rootContracts) {
+      expect(
+        probeFor({
+          sourceKey: "node_timers",
+          exportName,
+          exportIdioms: ["module-exports-object"],
+          moduleSpecifiers: ["node:timers", "timers"],
+          sourceRefs: [`src/builtins/timers.js#exports:${exportName}`],
+          valueShape: "callable",
+        }),
+      ).toMatchObject({
+        invocation: {
+          templateId: "node-timers-bounded-v1",
+          setup,
+          arguments: arguments_,
+          bodyEntryProof: { resultType },
+        },
+      });
+    }
+    for (const [exportName, resultType] of [
+      ["Immediate.close", "object"],
+      ["Immediate.hasRef", "boolean"],
+      ["Immediate.ref", "object"],
+      ["Immediate.unref", "object"],
+      ["Timeout._scheduleNative", "undefined"],
+      ["Timeout.close", "object"],
+      ["Timeout.hasRef", "boolean"],
+      ["Timeout.ref", "object"],
+      ["Timeout.refresh", "object"],
+      ["Timeout.unref", "object"],
+    ]) {
+      const ownerExportName = exportName.split(".")[0];
+      expect(
+        probeFor({
+          sourceKey: "node_timers",
+          exportName,
+          exportIdioms: ["exported-constructor-prototype"],
+          moduleSpecifiers: ["node:timers", "timers"],
+          sourceRefs: [`src/builtins/timers.js#exports:${exportName}`],
+          valueShape: "callable",
+        }),
+      ).toMatchObject({
+        invocation: {
+          templateId: "node-timers-bounded-v1",
+          setup: {
+            kind: "timer-owner",
+            ownerExportName,
+            preclosed: exportName === "Timeout._scheduleNative",
+          },
+          arguments: [],
+          bodyEntryProof: { resultType },
+        },
+      });
+    }
+    for (const exportName of ["clearImmediate", "Immediate", "Timeout"]) {
+      expect(
+        probeFor({
+          sourceKey: "node_timers",
+          exportName,
+          exportIdioms: ["module-exports-object"],
+          moduleSpecifiers: ["node:timers", "timers"],
+          sourceRefs: [`src/builtins/timers.js#exports:${exportName}`],
+          valueShape: "callable",
+        }),
+      ).toBeNull();
+    }
+  });
+
   test("authors configured stream receivers and settled consumers while leaving retained sources residual", async () => {
     expect(
       probeFor({

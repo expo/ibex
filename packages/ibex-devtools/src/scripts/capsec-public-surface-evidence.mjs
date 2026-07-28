@@ -378,6 +378,10 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["buffer-owner", "prototype-call"],
   ["call-tracker-owner", "prototype-call"],
   ["stream-owner", "prototype-call"],
+  ["timer-clear-root", "call"],
+  ["timer-factory-root", "call"],
+  ["timer-legacy-root", "call"],
+  ["timer-owner", "prototype-call"],
   ["zlib-end-owner", "prototype-call"],
   ["zlib-owner", "prototype-call"],
   ["zlib-process-chunk-owner", "prototype-call"],
@@ -942,6 +946,104 @@ const ZLIB_PROCESS_CHUNK_CONTRACTS = new Map(
       outputContract: contract.outputContract,
     }),
   ]),
+);
+const TIMER_ROOT_CONTRACTS = new Map([
+  [
+    "active",
+    {
+      setup: { kind: "timer-legacy-root", operation: "active" },
+      arguments: [{ kind: "setup-value", name: "timerRecord" }],
+      resultType: "undefined",
+    },
+  ],
+  [
+    "_unrefActive",
+    {
+      setup: { kind: "timer-legacy-root", operation: "_unrefActive" },
+      arguments: [{ kind: "setup-value", name: "timerRecord" }],
+      resultType: "undefined",
+    },
+  ],
+  [
+    "enroll",
+    {
+      setup: { kind: "timer-legacy-root", operation: "enroll" },
+      arguments: [
+        { kind: "setup-value", name: "timerRecord" },
+        { kind: "json", value: 60_000 },
+      ],
+      resultType: "undefined",
+    },
+  ],
+  [
+    "unenroll",
+    {
+      setup: { kind: "timer-legacy-root", operation: "unenroll" },
+      arguments: [{ kind: "setup-value", name: "timerRecord" }],
+      resultType: "undefined",
+    },
+  ],
+  ...[
+    ["clearInterval", "interval"],
+    ["clearTimeout", "timeout"],
+  ].map(([exportName, timerKind]) => [
+    exportName,
+    {
+      setup: { kind: "timer-clear-root", timerKind },
+      arguments: [{ kind: "setup-value", name: "timerHandle" }],
+      resultType: "undefined",
+    },
+  ]),
+  [
+    "setImmediate",
+    {
+      setup: { kind: "timer-factory-root", timerKind: "immediate" },
+      arguments: [{ kind: "timer-callback" }],
+      resultType: "object",
+    },
+  ],
+  ...[
+    ["setInterval", "interval"],
+    ["setTimeout", "timeout"],
+  ].map(([exportName, timerKind]) => [
+    exportName,
+    {
+      setup: { kind: "timer-factory-root", timerKind },
+      arguments: [
+        { kind: "timer-callback" },
+        { kind: "json", value: 60_000 },
+      ],
+      resultType: "object",
+    },
+  ]),
+]);
+const TIMER_PROTOTYPE_CONTRACTS = new Map(
+  [
+    ["Immediate.close", "object"],
+    ["Immediate.hasRef", "boolean"],
+    ["Immediate.ref", "object"],
+    ["Immediate.unref", "object"],
+    ["Timeout._scheduleNative", "undefined"],
+    ["Timeout.close", "object"],
+    ["Timeout.hasRef", "boolean"],
+    ["Timeout.ref", "object"],
+    ["Timeout.refresh", "object"],
+    ["Timeout.unref", "object"],
+  ].map(([exportName, resultType]) => {
+    const ownerExportName = exportName.split(".")[0];
+    return [
+      exportName,
+      {
+        setup: {
+          kind: "timer-owner",
+          ownerExportName,
+          preclosed: exportName === "Timeout._scheduleNative",
+        },
+        arguments: [],
+        resultType,
+      },
+    ];
+  }),
 );
 const ZLIB_SYNC_ENCODERS = new Set([
   "brotliCompressSync",
@@ -5698,6 +5800,21 @@ function validateRuntimeInvocation(observation, recipe) {
       zlibMethod === "_processChunk"
         ? ZLIB_PROCESS_CHUNK_CONTRACTS.get(zlibOwner)
         : null;
+    const timerRootContract =
+      authored.sourceDescriptor.sourceKey === "node_timers"
+        ? TIMER_ROOT_CONTRACTS.get(authored.exportName)
+        : null;
+    const timerPrototypeContract =
+      authored.sourceDescriptor.sourceKey === "node_timers"
+        ? TIMER_PROTOTYPE_CONTRACTS.get(authored.exportName)
+        : null;
+    const timerContract = timerRootContract ?? timerPrototypeContract;
+    const timerSetup = new Set([
+      "timer-clear-root",
+      "timer-factory-root",
+      "timer-legacy-root",
+      "timer-owner",
+    ]).has(authored.setup.kind);
     if (
       zlibIdleDestroy &&
       (authored.templateId !== "node-zlib-bounded-v1" ||
@@ -5781,6 +5898,43 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: malformed authored zlib process-chunk proof`,
       );
     }
+    if (
+      timerSetup &&
+      (!timerContract ||
+        authored.moduleSpecifier !== "node:timers" ||
+        authored.templateId !== "node-timers-bounded-v1" ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !== timerContract.resultType ||
+        authored.sourceDescriptor.kind !== "builtin-export" ||
+        authored.sourceDescriptor.valueShape !== "callable" ||
+        authored.sourceDescriptor.sourceRef !==
+          `src/builtins/timers.js#exports:${authored.exportName}` ||
+        canonicalJson(authored.sourceDescriptor.moduleSpecifiers) !==
+          canonicalJson(["node:timers", "timers"]) ||
+        canonicalJson(authored.sourceDescriptor.exportIdioms) !==
+          canonicalJson(
+            timerPrototypeContract
+              ? ["exported-constructor-prototype"]
+              : ["module-exports-object"],
+          ) ||
+        authored.sourceDescriptor.access.kind !==
+          (timerPrototypeContract ? "prototype-property" : "export-property") ||
+        canonicalJson(authored.sourceDescriptor.access.path) !==
+          canonicalJson(
+            timerPrototypeContract
+              ? [
+                  authored.exportName.split(".")[0],
+                  "prototype",
+                  authored.exportName.split(".")[1],
+                ]
+              : [authored.exportName],
+          ) ||
+        canonicalJson(authored.setup) !== canonicalJson(timerContract.setup) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson(timerContract.arguments))
+    ) {
+      throw new Error(`${recipe.fixtureId}: malformed authored timer proof`);
+    }
     if (!NORMAL_RETURN_DISPATCH_KINDS.has(authored.setup.kind)) {
       throw new Error(
         `${recipe.fixtureId}: malformed authored normal-return setup`,
@@ -5792,6 +5946,10 @@ function validateRuntimeInvocation(observation, recipe) {
       "readline-interface-pause-owner",
       "tls-server-construct-target",
       "tls-server-root-call",
+      "timer-clear-root",
+      "timer-factory-root",
+      "timer-legacy-root",
+      "timer-owner",
       "zlib-end-owner",
       "zlib-owner",
       "zlib-process-chunk-owner",
@@ -5810,6 +5968,7 @@ function validateRuntimeInvocation(observation, recipe) {
       authored.setup.kind === "zlib-end-owner";
     const zlibProcessChunkRequired =
       authored.setup.kind === "zlib-process-chunk-owner";
+    const timerLifecycleRequired = timerSetup;
     exactKeys(
       invocation.result,
       [
@@ -5831,6 +5990,7 @@ function validateRuntimeInvocation(observation, recipe) {
         ...(zlibProcessChunkRequired
           ? ["zlibProcessChunkOutputVerified"]
           : []),
+        ...(timerLifecycleRequired ? ["timerLifecycleVerified"] : []),
         ...(zlibSyncEncoder ? ["zlibSyncEncoderOutputVerified"] : []),
         ...(zlibSyncDecoderArguments
           ? ["zlibSyncDecoderOutputVerified"]
@@ -5864,6 +6024,8 @@ function validateRuntimeInvocation(observation, recipe) {
         invocation.result.zlibEndLifecycleVerified !== true) ||
       (zlibProcessChunkRequired &&
         invocation.result.zlibProcessChunkOutputVerified !== true) ||
+      (timerLifecycleRequired &&
+        invocation.result.timerLifecycleVerified !== true) ||
       (netLifecycleRequired &&
         invocation.result.netLifecycleVerified !== true)
     ) {

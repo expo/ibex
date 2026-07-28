@@ -5618,6 +5618,87 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/did not prove its exact normal return/);
   });
 
+  test("accepts timers only with exact owned cleanup and callback suppression", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:timers";
+    invocation.exportName = "active";
+    invocation.templateId = "node-timers-bounded-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_timers",
+      exportName: "active",
+      exportIdioms: ["module-exports-object"],
+      moduleSpecifiers: ["node:timers", "timers"],
+      sourceRef: "src/builtins/timers.js#exports:active",
+      valueShape: "callable",
+      access: { kind: "export-property", path: ["active"] },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.setup = {
+      kind: "timer-legacy-root",
+      operation: "active",
+    };
+    invocation.arguments = [
+      { kind: "setup-value", name: "timerRecord" },
+    ];
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "undefined",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.result.dispatchKind = "call";
+    observed.invocation.result.cleanupPerformed = true;
+    observed.invocation.result.timerLifecycleVerified = true;
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.operation = "enroll";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments[0].name = "timerHandle";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.templateId =
+          "node-timers-unbounded-v1";
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(/malformed authored timer proof|descriptor drift/);
+    }
+
+    const missingLifecycle = structuredClone(observed);
+    missingLifecycle.invocation.result.timerLifecycleVerified = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: missingLifecycle,
+        coverage,
+      }),
+    ).toThrow(/did not prove its exact normal return/);
+  });
+
   test("accepts direct zlib process-chunk only with exact output and cleanup", () => {
     const catalog = completeNoncapBuiltinCallCatalog();
     const recipe = catalog.recipes[0];

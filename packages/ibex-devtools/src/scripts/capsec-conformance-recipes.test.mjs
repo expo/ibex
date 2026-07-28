@@ -5397,6 +5397,7 @@ describe("exact-target CapSec executable recipes", () => {
         "node_stream",
         "node_stream_web",
         "node_string_decoder",
+        "node_timers",
         "node_tls",
         "node_url",
         "node_util",
@@ -5774,6 +5775,49 @@ describe("exact-target CapSec executable recipes", () => {
             "object",
       ),
     ).toBe(true);
+    const timerCalls = publicCalls.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+        "node_timers",
+    );
+    expect(
+      timerCalls.map(
+        (recipe) => recipe.publicSurfaceProbe.invocation.exportName,
+      ),
+    ).toEqual([
+      "active",
+      "clearInterval",
+      "clearTimeout",
+      "enroll",
+      "Immediate.close",
+      "Immediate.hasRef",
+      "Immediate.ref",
+      "Immediate.unref",
+      "setImmediate",
+      "setInterval",
+      "setTimeout",
+      "Timeout.close",
+      "Timeout.hasRef",
+      "Timeout.ref",
+      "Timeout.refresh",
+      "Timeout._scheduleNative",
+      "Timeout.unref",
+      "unenroll",
+      "_unrefActive",
+    ]);
+    expect(
+      timerCalls.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.templateId ===
+            "node-timers-bounded-v1" &&
+          new Set([
+            "timer-clear-root",
+            "timer-factory-root",
+            "timer-legacy-root",
+            "timer-owner",
+          ]).has(recipe.publicSurfaceProbe.invocation.setup.kind),
+      ),
+    ).toBe(true);
     const boundedHttpCalls = publicCalls.filter(
       (recipe) =>
         recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
@@ -5962,7 +6006,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-builtin-noncap-captured-invocation/1",
     );
-    expect(captured).toHaveLength(141);
+    expect(captured).toHaveLength(122);
     expect(windowsCaptured.map((recipe) => recipe.fixtureId)).toEqual(
       captured.map((recipe) => recipe.fixtureId),
     );
@@ -6008,7 +6052,7 @@ describe("exact-target CapSec executable recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ call: 68, construct: 17, get: 56 });
+    ).toEqual({ call: 49, construct: 17, get: 56 });
     const cryptoCaptured = captured.filter(
       (recipe) =>
         recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===

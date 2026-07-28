@@ -1076,6 +1076,221 @@
     );
   }
 
+  function timerInvocationContract(exportName) {
+    var rootContracts = {
+      active: ["timer-legacy-root", "active", "record", "undefined"],
+      _unrefActive: [
+        "timer-legacy-root",
+        "_unrefActive",
+        "record",
+        "undefined",
+      ],
+      enroll: ["timer-legacy-root", "enroll", "record-delay", "undefined"],
+      unenroll: ["timer-legacy-root", "unenroll", "record", "undefined"],
+      clearInterval: [
+        "timer-clear-root",
+        "interval",
+        "handle",
+        "undefined",
+      ],
+      clearTimeout: [
+        "timer-clear-root",
+        "timeout",
+        "handle",
+        "undefined",
+      ],
+      setImmediate: [
+        "timer-factory-root",
+        "immediate",
+        "callback",
+        "object",
+      ],
+      setInterval: [
+        "timer-factory-root",
+        "interval",
+        "callback-delay",
+        "object",
+      ],
+      setTimeout: [
+        "timer-factory-root",
+        "timeout",
+        "callback-delay",
+        "object",
+      ],
+    };
+    if (own.call(rootContracts, exportName)) {
+      return {
+        setupKind: rootContracts[exportName][0],
+        setupValue: rootContracts[exportName][1],
+        argumentsKind: rootContracts[exportName][2],
+        resultType: rootContracts[exportName][3],
+        prototype: false,
+      };
+    }
+    var parts = typeof exportName === "string" ? exportName.split(".") : [];
+    if (parts.length !== 2) return null;
+    var owner = parts[0];
+    var method = parts[1];
+    var resultType = null;
+    if (
+      (owner === "Immediate" &&
+        (method === "close" || method === "ref" || method === "unref")) ||
+      (owner === "Timeout" &&
+        (method === "close" ||
+          method === "ref" ||
+          method === "refresh" ||
+          method === "unref"))
+    ) {
+      resultType = "object";
+    } else if (
+      (owner === "Immediate" || owner === "Timeout") &&
+      method === "hasRef"
+    ) {
+      resultType = "boolean";
+    } else if (owner === "Timeout" && method === "_scheduleNative") {
+      resultType = "undefined";
+    }
+    if (resultType === null) return null;
+    return {
+      setupKind: "timer-owner",
+      setupValue: owner,
+      argumentsKind: "none",
+      resultType: resultType,
+      prototype: true,
+      preclosed: method === "_scheduleNative",
+    };
+  }
+
+  function timerArgumentsMatch(arguments_, kind) {
+    if (!Array.isArray(arguments_)) return false;
+    if (kind === "none") return arguments_.length === 0;
+    var first = arguments_[0];
+    if (kind === "record" || kind === "record-delay") {
+      if (
+        !exactObjectKeys(first, ["kind", "name"]) ||
+        first.kind !== "setup-value" ||
+        first.name !== "timerRecord" ||
+        arguments_.length !== (kind === "record-delay" ? 2 : 1)
+      ) {
+        return false;
+      }
+    } else if (kind === "handle") {
+      return (
+        arguments_.length === 1 &&
+        exactObjectKeys(first, ["kind", "name"]) &&
+        first.kind === "setup-value" &&
+        first.name === "timerHandle"
+      );
+    } else if (kind === "callback" || kind === "callback-delay") {
+      if (
+        !exactObjectKeys(first, ["kind"]) ||
+        first.kind !== "timer-callback" ||
+        arguments_.length !== (kind === "callback-delay" ? 2 : 1)
+      ) {
+        return false;
+      }
+    } else {
+      return false;
+    }
+    if (kind === "record-delay" || kind === "callback-delay") {
+      return (
+        exactObjectKeys(arguments_[1], ["kind", "value"]) &&
+        arguments_[1].kind === "json" &&
+        arguments_[1].value === 60000
+      );
+    }
+    return true;
+  }
+
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // Timer evidence owns every callback and native handle, cancels all pending
+  // work, and proves quiescence instead of treating a scheduled return as
+  // completion.
+  function isReviewedTimerInvocation(invocation) {
+    var timerSetup =
+      invocation &&
+      invocation.setup &&
+      (invocation.setup.kind === "timer-clear-root" ||
+        invocation.setup.kind === "timer-factory-root" ||
+        invocation.setup.kind === "timer-legacy-root" ||
+        invocation.setup.kind === "timer-owner");
+    if (
+      !invocation ||
+      !invocation.sourceDescriptor ||
+      invocation.sourceDescriptor.sourceKey !== "node_timers"
+    ) {
+      return !timerSetup;
+    }
+    // Captured-output timer rows keep their separate exact reviewer. This
+    // function owns only the dedicated lifecycle setup vocabulary.
+    if (!timerSetup) return true;
+    var contract = timerInvocationContract(invocation.exportName);
+    if (contract === null) return false;
+    var descriptor = invocation.sourceDescriptor;
+    var path = contract.prototype
+      ? [invocation.exportName.split(".")[0], "prototype", invocation.exportName.split(".")[1]]
+      : [invocation.exportName];
+    var setupMatches = false;
+    if (contract.setupKind === "timer-owner") {
+      setupMatches =
+        exactObjectKeys(invocation.setup, [
+          "kind",
+          "ownerExportName",
+          "preclosed",
+        ]) &&
+        invocation.setup.kind === contract.setupKind &&
+        invocation.setup.ownerExportName === contract.setupValue &&
+        invocation.setup.preclosed === contract.preclosed;
+    } else {
+      var setupValueKey =
+        contract.setupKind === "timer-legacy-root"
+          ? "operation"
+          : "timerKind";
+      setupMatches =
+        exactObjectKeys(invocation.setup, ["kind", setupValueKey]) &&
+        invocation.setup.kind === contract.setupKind &&
+        invocation.setup[setupValueKey] === contract.setupValue;
+    }
+    return (
+      invocation.invocationSchema ===
+        "ibex/capsec-builtin-call-invocation/1" &&
+      invocation.kind === "builtin-export-call" &&
+      invocation.moduleSpecifier === "node:timers" &&
+      invocation.templateId === "node-timers-bounded-v1" &&
+      exactObjectKeys(descriptor, [
+        "access",
+        "exportIdioms",
+        "exportName",
+        "kind",
+        "moduleSpecifiers",
+        "sourceKey",
+        "sourceRef",
+        "valueShape",
+      ]) &&
+      descriptor.kind === "builtin-export" &&
+      descriptor.exportName === invocation.exportName &&
+      descriptor.valueShape === "callable" &&
+      descriptor.sourceRef ===
+        "src/builtins/timers.js#exports:" + invocation.exportName &&
+      sameStringArray(descriptor.exportIdioms, [
+        contract.prototype
+          ? "exported-constructor-prototype"
+          : "module-exports-object",
+      ]) &&
+      sameStringArray(descriptor.moduleSpecifiers, ["node:timers", "timers"]) &&
+      exactObjectKeys(descriptor.access, ["kind", "path"]) &&
+      descriptor.access.kind ===
+        (contract.prototype ? "prototype-property" : "export-property") &&
+      sameStringArray(descriptor.access.path, path) &&
+      setupMatches &&
+      timerArgumentsMatch(invocation.arguments, contract.argumentsKind) &&
+      exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) &&
+      invocation.bodyEntryProof.kind ===
+        "normal-return-from-source-call" &&
+      invocation.bodyEntryProof.resultType === contract.resultType
+    );
+  }
+
   // X509Certificate.toString is a narrowly reviewed state projection. Keep
   // its fresh receiver and own-prototype path exact so another certificate
   // method cannot borrow this no-decision receipt.
@@ -1834,6 +2049,14 @@
     }
     if (argument.kind === "json") return argument.value;
     if (argument.kind === "noop-function") return function () {};
+    if (argument.kind === "timer-callback") {
+      if (!bindings.timerLifecycleState) {
+        throw new TypeError("missing authored timer lifecycle state");
+      }
+      return function () {
+        bindings.timerLifecycleState.callbackCalls++;
+      };
+    }
     if (argument.kind === "throwing-function") {
       return function () {
         throw new Error(argument.errorMessage);
@@ -1957,6 +2180,8 @@
     var zlibEndLifecycleVerified = false;
     var zlibEndLifecyclePromise = null;
     var zlibProcessChunkOutputVerified = false;
+    var timerLifecycleState = null;
+    var timerLifecycleVerified = false;
     var readlineLifecycleState = null;
     if (
       !isReviewedBoundedHttpInvocation(config) ||
@@ -1969,6 +2194,7 @@
       !isReviewedZlibCallbackInvocation(config) ||
       !isReviewedZlibEndInvocation(config) ||
       !isReviewedZlibProcessChunkInvocation(config) ||
+      !isReviewedTimerInvocation(config) ||
       !isReviewedX509StateInvocation(config) ||
       !isReviewedPureCompatibilityInvocation(config) ||
       !isReviewedReadlineInterfaceLifecycleInvocation(config) ||
@@ -2020,6 +2246,90 @@
     ) {
       receiver = moduleValue;
       dispatchKind = "call";
+    } else if (
+      setup.kind === "timer-clear-root" ||
+      setup.kind === "timer-factory-root" ||
+      setup.kind === "timer-legacy-root"
+    ) {
+      timerLifecycleState = {
+        callbackCalls: 0,
+        setupHandles: [],
+        timerRecord: null,
+      };
+      bindings.timerLifecycleState = timerLifecycleState;
+      var trackedTimerCallback = function () {
+        timerLifecycleState.callbackCalls++;
+      };
+      if (setup.kind === "timer-clear-root") {
+        var setupTimerHandle = Reflect.construct(moduleValue.Timeout, [
+          trackedTimerCallback,
+          60000,
+          [],
+          setup.timerKind === "interval",
+        ]);
+        timerLifecycleState.setupHandles.push(setupTimerHandle);
+        bindings.timerHandle = setupTimerHandle;
+      } else if (setup.kind === "timer-legacy-root") {
+        var timerRecord = {
+          _idleTimeout: 60000,
+          _onTimeout: trackedTimerCallback,
+        };
+        if (setup.operation === "unenroll") {
+          timerRecord._exactActiveHandle = globalThis.setTimeout(
+            trackedTimerCallback,
+            60000,
+          );
+          timerRecord._exactUnrefHandle = globalThis.setTimeout(
+            trackedTimerCallback,
+            60000,
+          );
+          timerLifecycleState.setupHandles.push(
+            timerRecord._exactActiveHandle,
+            timerRecord._exactUnrefHandle,
+          );
+        }
+        timerLifecycleState.timerRecord = timerRecord;
+        bindings.timerRecord = timerRecord;
+      }
+      receiver = moduleValue;
+      dispatchKind = "call";
+    } else if (setup.kind === "timer-owner") {
+      timerLifecycleState = {
+        callbackCalls: 0,
+        setupHandles: [],
+        timerRecord: null,
+      };
+      bindings.timerLifecycleState = timerLifecycleState;
+      var timerOwner = moduleValue[setup.ownerExportName];
+      if (typeof timerOwner !== "function") {
+        return failure("setup-mismatch", {
+          setupKind: setup.kind,
+          ownerExportName: setup.ownerExportName,
+        });
+      }
+      var ownerTimerCallback = function () {
+        timerLifecycleState.callbackCalls++;
+      };
+      receiver =
+        setup.ownerExportName === "Immediate"
+          ? Reflect.construct(timerOwner, [ownerTimerCallback, []])
+          : Reflect.construct(timerOwner, [
+              ownerTimerCallback,
+              60000,
+              [],
+              false,
+            ]);
+      if (
+        !receiver ||
+        typeof receiver.close !== "function" ||
+        (setup.preclosed && receiver.close() !== receiver)
+      ) {
+        return failure("setup-mismatch", {
+          setupKind: setup.kind,
+          ownerExportName: setup.ownerExportName,
+        });
+      }
+      dispatchKind = "prototype-call";
     } else if (
       setup.kind === "construct-target" ||
       setup.kind === "tls-server-construct-target"
@@ -2294,6 +2604,132 @@
     if (own.call(bindings, "zlibCallbackState")) {
       zlibCallbackPromise = bindings.zlibCallbackState.promise;
     }
+    function finishTimerLifecycle() {
+      if (!timerLifecycleState) return;
+      var targetEffectVerified = false;
+      var cleanupVerified = false;
+      try {
+        if (setup.kind === "timer-clear-root") {
+          var clearedHandle = timerLifecycleState.setupHandles[0];
+          targetEffectVerified =
+            result === undefined &&
+            clearedHandle &&
+            typeof clearedHandle === "object" &&
+            clearedHandle._destroyed === true;
+          if (
+            clearedHandle &&
+            typeof clearedHandle === "object" &&
+            typeof clearedHandle.close === "function"
+          ) {
+            clearedHandle.close();
+          } else if (clearedHandle !== undefined) {
+            globalThis.clearTimeout(clearedHandle);
+          }
+          cleanupVerified =
+            !clearedHandle ||
+            typeof clearedHandle !== "object" ||
+            clearedHandle._destroyed === true;
+        } else if (setup.kind === "timer-factory-root") {
+          targetEffectVerified =
+            result &&
+            typeof result === "object" &&
+            typeof result.close === "function" &&
+            result._destroyed === false;
+          if (result && typeof result.close === "function") {
+            result.close();
+          }
+          cleanupVerified =
+            result &&
+            typeof result === "object" &&
+            result._destroyed === true;
+        } else if (setup.kind === "timer-legacy-root") {
+          var record = timerLifecycleState.timerRecord;
+          if (setup.operation === "active") {
+            targetEffectVerified =
+              result === undefined &&
+              record._exactActiveHandle != null;
+            if (
+              record._exactActiveHandle &&
+              typeof record._exactActiveHandle.close === "function"
+            ) {
+              record._exactActiveHandle.close();
+            } else if (record._exactActiveHandle != null) {
+              globalThis.clearTimeout(record._exactActiveHandle);
+            }
+            record._exactActiveHandle = null;
+            record._idleTimeout = -1;
+          } else if (setup.operation === "_unrefActive") {
+            targetEffectVerified =
+              result === undefined &&
+              record._exactUnrefHandle != null &&
+              (typeof record._exactUnrefHandle !== "object" ||
+                (typeof record._exactUnrefHandle.hasRef === "function" &&
+                  record._exactUnrefHandle.hasRef() === false));
+            if (
+              record._exactUnrefHandle &&
+              typeof record._exactUnrefHandle.close === "function"
+            ) {
+              record._exactUnrefHandle.close();
+            } else if (record._exactUnrefHandle != null) {
+              globalThis.clearTimeout(record._exactUnrefHandle);
+            }
+            record._exactUnrefHandle = null;
+            record._idleTimeout = -1;
+          } else if (setup.operation === "enroll") {
+            targetEffectVerified =
+              result === undefined && record._idleTimeout === 60000;
+            record._idleTimeout = -1;
+          } else if (setup.operation === "unenroll") {
+            targetEffectVerified =
+              result === undefined &&
+              record._idleTimeout === -1 &&
+              record._exactActiveHandle === null &&
+              record._exactUnrefHandle === null &&
+              timerLifecycleState.setupHandles.every(function (handle) {
+                return (
+                  handle != null &&
+                  (typeof handle !== "object" ||
+                    handle._destroyed === true)
+                );
+              });
+          }
+          cleanupVerified =
+            record._idleTimeout === -1 &&
+            record._exactActiveHandle == null &&
+            record._exactUnrefHandle == null;
+        } else if (setup.kind === "timer-owner") {
+          var timerMethod = config.exportName.split(".")[1];
+          if (timerMethod === "hasRef") {
+            targetEffectVerified = result === true;
+          } else if (timerMethod === "unref") {
+            targetEffectVerified =
+              result === receiver && receiver._refed === false;
+          } else if (timerMethod === "_scheduleNative") {
+            targetEffectVerified =
+              result === undefined &&
+              receiver._nativeHandle != null &&
+              receiver._destroyed === true;
+          } else if (timerMethod === "close") {
+            targetEffectVerified =
+              result === receiver && receiver._destroyed === true;
+          } else {
+            targetEffectVerified =
+              result === receiver &&
+              receiver._refed === true &&
+              receiver._destroyed === false;
+          }
+          receiver.close();
+          cleanupVerified = receiver._destroyed === true;
+        }
+      } catch (_timerCleanupError) {
+        cleanupVerified = false;
+      }
+      cleanupPerformed = cleanupVerified;
+      timerLifecycleVerified =
+        targetEffectVerified &&
+        cleanupVerified &&
+        timerLifecycleState.callbackCalls === 0;
+    }
     try {
       sourceOperationAttempted = true;
       if (dispatchKind === "construct") {
@@ -2410,6 +2846,7 @@
         });
       }
     } finally {
+      finishTimerLifecycle();
       if (
         (setup.kind === "zlib-owner" ||
           setup.kind === "zlib-process-chunk-owner") &&
@@ -2447,6 +2884,16 @@
         if (setup.kind === "net-terminal-owner") {
           capturedSuccess.cleanupPerformed = cleanupPerformed;
           capturedSuccess.netLifecycleVerified = netLifecycleVerified;
+        }
+        if (
+          setup.kind === "timer-clear-root" ||
+          setup.kind === "timer-factory-root" ||
+          setup.kind === "timer-legacy-root" ||
+          setup.kind === "timer-owner"
+        ) {
+          capturedSuccess.cleanupPerformed = cleanupPerformed;
+          capturedSuccess.timerLifecycleVerified =
+            timerLifecycleVerified;
         }
         if (
           setup.kind === "tls-server-construct-target" ||
@@ -2505,6 +2952,15 @@
       if (setup.kind === "net-terminal-owner") {
         success.cleanupPerformed = cleanupPerformed;
         success.netLifecycleVerified = netLifecycleVerified;
+      }
+      if (
+        setup.kind === "timer-clear-root" ||
+        setup.kind === "timer-factory-root" ||
+        setup.kind === "timer-legacy-root" ||
+        setup.kind === "timer-owner"
+      ) {
+        success.cleanupPerformed = cleanupPerformed;
+        success.timerLifecycleVerified = timerLifecycleVerified;
       }
       if (
         setup.kind === "tls-server-construct-target" ||

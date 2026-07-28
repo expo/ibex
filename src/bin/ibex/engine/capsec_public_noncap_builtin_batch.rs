@@ -1112,6 +1112,100 @@ fn zlib_process_chunk_contract(value: &str) -> Option<(&'static [u8], &'static s
     }
 }
 
+fn timer_root_contract(
+    export_name: &str,
+) -> Option<(serde_json::Value, serde_json::Value, &'static str)> {
+    let contract = match export_name {
+        "active" | "_unrefActive" | "unenroll" => (
+            serde_json::json!({
+                "kind": "timer-legacy-root",
+                "operation": export_name
+            }),
+            serde_json::json!([
+                {"kind": "setup-value", "name": "timerRecord"}
+            ]),
+            "undefined",
+        ),
+        "enroll" => (
+            serde_json::json!({
+                "kind": "timer-legacy-root",
+                "operation": "enroll"
+            }),
+            serde_json::json!([
+                {"kind": "setup-value", "name": "timerRecord"},
+                {"kind": "json", "value": 60_000}
+            ]),
+            "undefined",
+        ),
+        "clearInterval" | "clearTimeout" => {
+            let timer_kind = match export_name {
+                "clearInterval" => "interval",
+                "clearTimeout" => "timeout",
+                _ => unreachable!(),
+            };
+            (
+                serde_json::json!({
+                    "kind": "timer-clear-root",
+                    "timerKind": timer_kind
+                }),
+                serde_json::json!([
+                    {"kind": "setup-value", "name": "timerHandle"}
+                ]),
+                "undefined",
+            )
+        }
+        "setImmediate" => (
+            serde_json::json!({
+                "kind": "timer-factory-root",
+                "timerKind": "immediate"
+            }),
+            serde_json::json!([
+                {"kind": "timer-callback"}
+            ]),
+            "object",
+        ),
+        "setInterval" | "setTimeout" => (
+            serde_json::json!({
+                "kind": "timer-factory-root",
+                "timerKind": if export_name == "setInterval" {
+                    "interval"
+                } else {
+                    "timeout"
+                }
+            }),
+            serde_json::json!([
+                {"kind": "timer-callback"},
+                {"kind": "json", "value": 60_000}
+            ]),
+            "object",
+        ),
+        _ => return None,
+    };
+    Some(contract)
+}
+
+fn timer_prototype_contract(
+    export_name: &str,
+) -> Option<(serde_json::Value, serde_json::Value, &'static str)> {
+    let (owner, method) = export_name.split_once('.')?;
+    let result_type = match (owner, method) {
+        ("Immediate", "close" | "ref" | "unref")
+        | ("Timeout", "close" | "ref" | "refresh" | "unref") => "object",
+        ("Immediate" | "Timeout", "hasRef") => "boolean",
+        ("Timeout", "_scheduleNative") => "undefined",
+        _ => return None,
+    };
+    Some((
+        serde_json::json!({
+            "kind": "timer-owner",
+            "ownerExportName": owner,
+            "preclosed": method == "_scheduleNative"
+        }),
+        serde_json::json!([]),
+        result_type,
+    ))
+}
+
 fn is_stream_owner(value: &str) -> bool {
     matches!(
         value,
@@ -1134,7 +1228,7 @@ fn validate_authored_argument(argument: &serde_json::Value, allow_setup_value: b
                 "JSON argument is unbounded"
             );
         }
-        "noop-function" | "event-emitter" => {
+        "noop-function" | "event-emitter" | "timer-callback" => {
             assert_object_keys(argument, &["kind"], "authored special argument");
         }
         "constant-function" => {
@@ -1199,7 +1293,7 @@ fn validate_authored_argument(argument: &serde_json::Value, allow_setup_value: b
             assert_object_keys(argument, &["kind", "name"], "setup value argument");
             assert!(matches!(
                 object["name"].as_str(),
-                Some("tracked" | "peer")
+                Some("tracked" | "peer" | "timerHandle" | "timerRecord")
             ));
         }
         "zlib-input" => {
@@ -1249,6 +1343,25 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
         "root-call" => {
             assert_object_keys(&invocation.setup, &["kind"], "root call setup");
             assert!(!prototype, "root call cannot dispatch a prototype surface");
+        }
+        "timer-clear-root" | "timer-factory-root" | "timer-legacy-root" => {
+            assert!(!prototype);
+            assert_eq!(descriptor.source_key, "node_timers");
+            let (expected_setup, _, _) = timer_root_contract(&descriptor.export_name)
+                .expect("timer root setup must name a reviewed operation");
+            assert_eq!(invocation.setup, expected_setup);
+            allow_setup_value = matches!(kind, "timer-clear-root" | "timer-legacy-root");
+        }
+        "timer-owner" => {
+            assert!(prototype);
+            assert_eq!(descriptor.source_key, "node_timers");
+            let (expected_setup, _, _) = timer_prototype_contract(&descriptor.export_name)
+                .expect("timer owner setup must name a reviewed operation");
+            assert_eq!(invocation.setup, expected_setup);
+            assert_eq!(
+                descriptor.access.path.first().map(String::as_str),
+                setup["ownerExportName"].as_str()
+            );
         }
         "construct-target" => {
             assert_object_keys(&invocation.setup, &["kind"], "target constructor setup");
@@ -2029,6 +2142,75 @@ fn validate_zlib_process_chunk_contract(
     );
 }
 
+fn validate_timer_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    if descriptor.source_key != "node_timers" {
+        return;
+    }
+    let root_contract = timer_root_contract(&descriptor.export_name);
+    let prototype_contract = timer_prototype_contract(&descriptor.export_name);
+    let (setup, arguments, result_type) = root_contract
+        .as_ref()
+        .or(prototype_contract.as_ref())
+        .expect("node:timers call must name an exact reviewed contract");
+    let prototype = prototype_contract.is_some();
+    assert_eq!(invocation.module_specifier, "node:timers");
+    assert_eq!(
+        invocation.template_id.as_deref(),
+        Some("node-timers-bounded-v1")
+    );
+    assert_eq!(descriptor.kind, "builtin-export");
+    assert_eq!(descriptor.value_shape, "callable");
+    assert_eq!(
+        descriptor.source_ref,
+        format!(
+            "src/builtins/timers.js#exports:{}",
+            descriptor.export_name
+        )
+    );
+    assert_eq!(descriptor.module_specifiers, ["node:timers", "timers"]);
+    assert_eq!(
+        descriptor.export_idioms,
+        if prototype {
+            vec!["exported-constructor-prototype".to_owned()]
+        } else {
+            vec!["module-exports-object".to_owned()]
+        }
+    );
+    assert_eq!(
+        descriptor.access.kind,
+        if prototype {
+            "prototype-property"
+        } else {
+            "export-property"
+        }
+    );
+    let expected_path = if prototype {
+        let (owner, method) = descriptor
+            .export_name
+            .split_once('.')
+            .expect("reviewed timer prototype has owner and method");
+        vec![
+            owner.to_owned(),
+            "prototype".to_owned(),
+            method.to_owned(),
+        ]
+    } else {
+        vec![descriptor.export_name.clone()]
+    };
+    assert_eq!(descriptor.access.path, expected_path);
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, *result_type);
+    assert_eq!(&invocation.setup, setup);
+    assert_eq!(
+        serde_json::Value::Array(invocation.arguments.clone()),
+        *arguments
+    );
+}
+
 fn validate_zlib_sync_encoder_contract(
     invocation: &BuiltinInvocation,
     descriptor: &BuiltinSourceDescriptor,
@@ -2632,6 +2814,7 @@ fn expected_template_id(source_key: &str) -> Option<&'static str> {
         "node_stream" => Some("node-stream-bounded-v1"),
         "node_stream_web" => Some("node-stream-web-pure-v1"),
         "node_string_decoder" => Some("node-string-decoder-bounded-v1"),
+        "node_timers" => Some("node-timers-bounded-v1"),
         "node_tls" => Some("node-tls-pure-v1"),
         "node_url" => Some("node-url-pure-v1"),
         "node_util" => Some("node-util-pure-v1"),
@@ -3015,6 +3198,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         validate_idle_zlib_destroy_contract(invocation, &descriptor, proof);
         validate_zlib_end_contract(invocation, &descriptor, proof);
         validate_zlib_process_chunk_contract(invocation, &descriptor, proof);
+        validate_timer_contract(invocation, &descriptor, proof);
         validate_zlib_sync_encoder_contract(invocation, &descriptor, proof);
         validate_zlib_sync_decoder_contract(invocation, &descriptor, proof);
         validate_zlib_callback_contract(invocation, &descriptor, proof);
@@ -3723,6 +3907,22 @@ async fn execute_recipe(
         {
             return Err(format!(
                 "{}: public zlib process-chunk call did not prove output and cleanup: {invocation_result}",
+                recipe.fixture_id
+            ));
+        }
+        if matches!(
+            probe.invocation.setup["kind"].as_str(),
+            Some(
+                "timer-clear-root"
+                    | "timer-factory-root"
+                    | "timer-legacy-root"
+                    | "timer-owner"
+            )
+        ) && (invocation_result["cleanupPerformed"] != true
+            || invocation_result["timerLifecycleVerified"] != true)
+        {
+            return Err(format!(
+                "{}: public timer call did not prove callback suppression and cleanup: {invocation_result}",
                 recipe.fixture_id
             ));
         }

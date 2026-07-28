@@ -5188,6 +5188,72 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — prove direct timer lifecycles
+
+- Strengthened 19 already executable `node:timers` calls from generic
+  captured-output receipts to direct source-bound lifecycle receipts:
+  `active`, `clearInterval`, `clearTimeout`, `enroll`, `Immediate.close`,
+  `Immediate.hasRef`, `Immediate.ref`, `Immediate.unref`, `setImmediate`,
+  `setInterval`, `setTimeout`, `Timeout.close`, `Timeout.hasRef`,
+  `Timeout.ref`, `Timeout.refresh`, `Timeout._scheduleNative`,
+  `Timeout.unref`, `unenroll`, and `_unrefActive`.
+- Every receipt fixes the exact root or inherited-prototype descriptor,
+  harness-owned setup, argument vocabulary, result, inert callback behavior,
+  cleanup, event-loop quiescence, and zero decisions. Factory and legacy
+  scheduling calls use a fixed 60-second delay, so passing proves
+  cancellation rather than callback delivery. For native numeric handles
+  returned by `active` and `_unrefActive`, the harness proves the source call
+  returned the created handle, clears it outside observation, and relies on
+  the final quiescence check to prove that no retained work survives.
+  `clearImmediate` remains on its pre-existing closed/generic route, while the
+  `Immediate` and `Timeout` constructors remain generic captured-output rows
+  because an empty direct construction would create invalid scheduled work.
+- The author, independent JavaScript evidence validator, Rust catalog
+  validator, and loaded-engine harness independently repeat the closed
+  19-name vocabulary, source descriptor, setup, arguments, result, lifecycle,
+  cleanup, and quiescence contract. The generic captured-output set falls from
+  141 to 122 rows (call rows 68 to 49), and the descriptor residual manifest
+  falls from 485 to 466 rows. Because the same 19 rows were already executable
+  through generic receipts, this is an evidence-quality improvement rather
+  than a coverage-count increase.
+- The regenerated Apple catalog digest
+  `sha256-8ZLFhuAesyDSWkUGvPL2kR9LJ1oeZseStrSUYsNhmXg` remains at 23,584
+  required / **3,758 fully executable** / 3,036 internally verified / 16,790
+  unresolved. The regenerated Windows digest
+  `sha256-j1VfBu88apDr05expbuv54hMhfgyz_HAWEaulYmpoX4` remains at 23,243
+  required / **3,407 fully executable** / 3,022 internally verified / 16,814
+  unresolved.
+- A supplemental preservation cohort added every other executable
+  `node_timers`-related value, captured-output, promises, and import row to the
+  135 focused recipes. All 144 rows passed with quiescence and zero decisions
+  under catalog digest
+  `sha256-rHuyk_xHBAe59achjazTYoHhvy4EfbdgKjDrHHW69-0`; its raw evidence
+  SHA-256 is
+  `9b68e856dda7a155d1248d849ff0827a147842219e7652e56dc16657cb66c0a2`.
+  This guards the separate generic reviewer while the dedicated timer reviewer
+  remains closed to any unlisted lifecycle setup.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 116 focused rows
+  plus the 19 timer lifecycles under catalog digest
+  `sha256-NhSiZHcGA4y5VW0-gm2G7hF686VENTZtHvdJiGMXHSw` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 135
+  fixtures pass; all 19 timer results report
+  `timerLifecycleVerified: true`, every completion is quiescent, and no
+  legacy or typed decisions appear. Two exact-current-file replays are
+  byte-identical. The raw evidence SHA-256 is
+  `867ca1d0541a4aca458da9ec26e49a1d656ec331ea5d1e51b2d00bc8ce780fd2`;
+  independent JavaScript validation accepted all 135 executions and produced
+  diagnostic execution digest
+  `sha256-o-P75IbrdbTqT0Hx8pUKjof3GhSUGo4Xzh96FlRJP8A` (artifact SHA-256
+  `a531cd309275c6121af060e7eeedcee3468a86e0b0efe65aa67ea9db74b9b395`).
+  The diagnostic source binding is baseline revision
+  `389f1e4ec48460ca58641f946875b995b5f9bacc` / tree digest
+  `sha256-MqmKa9MjvuWGWMGmCVAzYrcKxMOGEeQej5TWVOOKGXk`.
+- The focused author/catalog/validator/output-accounting suite plus inventory
+  regression passes **222/222** tests with 124,543 assertions.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
