@@ -4024,6 +4024,95 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — integrated the reviewed Hermes source-pin advance
+
+- Fetched the concurrently landed `main` change
+  `2afa439b857fd58cd14c3b3211f5b53719c4a994` and merged it at
+  `0fa705289d6e6da8e9d66f40594d82549036fed3` rather than rebasing or
+  overwriting either history. The merge retains the newer Windows builder
+  authority while advancing Hermes to
+  `e639a7bad8bfca844d982afa54fac786c65a8856`, patch-stack digest
+  `sha256-9a846368e13304659cb6e0d4be78853bad6415de01f68a4191f7cd9b3af2c7d7`,
+  and verified patched tree `36d01d2c726abbc9ddaa32d772946758b82af7b0`.
+- Regenerated authorities bind the combined evaluator review identity
+  `hermes-evaluators.95636991e7b12fe7988c0aac235faeb331a8aa13abc023a28d38c427fe4721ee`.
+  Generated drift, `ref-check`, 38/38 Hermes patch replays, and the source
+  inventory suite pass. Two locally time-limited inventory checks were rerun
+  successfully on the EPYC host, including the hard 15-second case in 4.24
+  seconds.
+- Rebuilt both exact physical engines with the debugger disabled. The Apple
+  source build produced the universal framework and independently verified
+  that the loaded arm64 image exports no debugger symbols. The Windows source
+  build produced and attested the reviewed x64 bundle.
+- Hard parts: the incoming branch carried 133 commits not based on this
+  completion branch, so a trial rebase was aborted before mutation and the
+  histories were reconciled by merge. Existing Cargo outputs then correctly
+  refused both old engine receipts; new content-bound build directories were
+  used instead of cleaning or reusing caches. The Windows installer also exits
+  too early when an installed `gh` is unauthenticated; `-Source` preserved the
+  exact build, and
+  [the installer fallback defect](./20260727-windows-hermes-installer-unauthenticated-gh-fallback.md)
+  is tracked separately so changing its authority cannot invalidate this
+  receipt mid-run.
+
+### 2026-07-27 — executed idle zlib destruction
+
+- Promoted exactly 11 Apple calls: `destroy` on `BrotliCompress`,
+  `BrotliDecompress`, `Deflate`, `DeflateRaw`, `Gunzip`, `Gzip`, `Inflate`,
+  `InflateRaw`, `Unzip`, `ZstdCompress`, and `ZstdDecompress`. Windows promotes
+  the nine target-installed owners and leaves the two Brotli owners residual
+  because their native codec prerequisite is absent.
+- Construction establishes the principal-bound native selector; the reviewed
+  public `destroy` path authenticates before delegating, and `_destroy` closes
+  that idle selector. The harness performs idempotent cleanup and waits for
+  quiescence without submitting codec input. The recipe author, independent
+  validator, and Rust executor separately repeat the closed owner list, empty
+  arguments, object result, cleanup, and zero-decision contract.
+- The implementation checkpoint is
+  `144d8fede2e0d21adc79b0efc7598de16f42782f`, with tree digest
+  `sha256-cuu_VtwPK7MBcRzT_0WEoz666jwVlYHY6dW1W2GnvSQ`. Upstream `main`
+  remained at the already integrated `2afa439b` throughout both physical
+  replays.
+- Final Apple catalog digest
+  `sha256-3ZRTLvLaa4Bl1rkO2HlmsqyecghZ1jJO4RvZWMgEkZo` reports 23,584
+  required / **3,673 fully executable** / 3,036 internally verified / 16,875
+  unresolved. The local M5 exact debugger-disabled batch passes
+  **1,368/1,368**: 1,189 export probes, 145 captured routes, and 34 isolated
+  imports, against loaded engine digest
+  `sha256-RirkpjQcxaQ16Qtgn9c_5g7DQZLkWsAIXGihLY3r4_s`. All 11 new calls
+  return an object, clean up, reach quiescence, and emit zero legacy or typed
+  decisions. The raw evidence SHA-256 is
+  `2dda45bb9a513b24a01fb982ce798d11ab7061ac6dfcfaf69dadf33f3989a926`;
+  independent validation accepted exactly 1,368 fixtures and produced
+  execution digest
+  `sha256-YizOqSNIT9D0K4gr6f6nNHcb6h8sBEp5iGqs1UYpKTs`.
+- Final Windows catalog digest
+  `sha256-DXCxKUsrqGPPYWLoYceCq8qj4QINQzZ8-ckVZd6__c0` reports 23,243
+  required / **3,330 fully executable** / 3,022 internally verified / 16,891
+  unresolved. The NucBox exact MSVC/debugger-disabled batch passes
+  **1,330/1,330**: 1,151 export probes, 145 captured routes, and 34 isolated
+  imports, against loaded engine digest
+  `sha256-nxoEui-4wwI_QIJUr7F8jtUyO0W1R06AI61IjuD1dkI`. All nine installed
+  owners satisfy the same result, cleanup, quiescence, and zero-decision
+  contract. The raw evidence SHA-256 is
+  `437738631dc56533e2df606c1003d2daff7c144558499a836bec3bccdd6143ac`;
+  independent validation accepted exactly 1,330 fixtures and produced
+  execution digest
+  `sha256-w8crmxGmrW6C_2mE8iX1ihfnYFfjZATE3L4_lOX1mlI`.
+- The expanded author/catalog/validator/output-accounting suite passes
+  **185/185** tests with 125,336 assertions. The EPYC broad sweep exposed one
+  stale descriptor-only counter outside the earlier focused set: the 24
+  settled consumers, eight fixed-DH operations, six base Stream calls, and 11
+  idle zlib destroys remove exactly 49 rows, changing that manifest from 613
+  to 564. Its independently grouped operation counts now agree and the gate
+  passes. The exact secure Cargo profile compiles against the new receipt and
+  confirms debugger-symbol absence; all generated-drift gates pass, and
+  `ref-check` validates 41 LLP documents and 2,221 references with zero errors
+  (one stable URL remains unchecked).
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

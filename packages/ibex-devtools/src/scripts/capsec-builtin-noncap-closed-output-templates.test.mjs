@@ -118,7 +118,7 @@ const loaded = residualInvocations();
 describe("builtin non-capability/closed output recipes", () => {
   test("accounts for the exact callable/accessor and descriptor residual universe", async () => {
     const rows = await loaded;
-    expect(rows).toHaveLength(613);
+    expect(rows).toHaveLength(564);
     expect(
       Object.fromEntries(
         ["non-capability", "closed"].map((classification) => [
@@ -128,14 +128,14 @@ describe("builtin non-capability/closed output recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ "non-capability": 393, closed: 220 });
+    ).toEqual({ "non-capability": 344, closed: 220 });
     expect(
       builtinNoncapClosedOutputRouteManifest(rows.map((row) => row.invocation)),
     ).toMatchObject({
-      total: 613,
+      total: 564,
       operations: {
-        call: 297,
-        construct: 18,
+        call: 250,
+        construct: 16,
         "import-refusal": 22,
         unexercisable: 276,
       },
@@ -147,9 +147,10 @@ describe("builtin non-capability/closed output recipes", () => {
         "runtime-inspection-or-escape-surface-has-no-safe-receiver": 61,
       },
     });
-    // Duplex now owns an explicit `_undestroy` descriptor, so its invocation
-    // is exercised by the public-probe family rather than this inherited
-    // descriptor-residual family.
+    // The 24 settled consumers, eight fixed-DH operations, six base Stream
+    // lifecycle calls, and 11 idle zlib destroys now have bounded public
+    // probes. Those 49 rows are no longer descriptor-only residuals; Duplex
+    // `_undestroy` is one representative inherited descriptor.
     expect(
       rows.some(
         ({ surface }) =>

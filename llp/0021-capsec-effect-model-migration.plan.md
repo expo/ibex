@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-27 (promotes idle `destroy` on exactly 11 Apple zlib owners and the nine installed Windows owners: construction establishes the principal-bound native selector, the public source path authenticates before delegating, `_destroy` closes the selector, and the harness performs idempotent cleanup before proving quiescence; authoring, independent validation, and Rust execution repeat the exact owner/method/result contract; Windows Brotli owners remain residual because their native codec prerequisite is not installed; Apple accounting is 3,673 fully executable / 3,036 internally verified / 16,875 unresolved and Windows accounting is 3,330 / 3,022 / 16,891)
 **Revised:** 2026-07-27 (promotes exactly six lifecycle calls on the base `node:stream` module-value constructor: `_close`, `_emitClose`, `_undestroy`, `constructor`, `destroy`, and `unpipe`; authoring, validation, and physical execution independently require `["prototype", method]` rather than the nonexistent `["default", "prototype", method]`, and only this closed name set receives the module-value correction; `default.pipe` remains residual because it retains listener and pipeline ownership; Apple accounting is 3,662 fully executable / 3,036 internally verified / 16,886 unresolved and Windows accounting is 3,321 / 3,022 / 16,900)
 **Revised:** 2026-07-27 (promotes exactly eight explicit-parameter `exact_crypto` Diffie-Hellman calls: `DiffieHellman`, `createDiffieHellman`, and `getGenerator`, `getPrime`, `getPrivateKey`, `getPublicKey`, `setPrivateKey`, and `setPublicKey` on a harness-owned instance constructed from fixed prime 23 and generator 5; the author, independent validator, and Rust executor separately repeat the exact setup, arguments, result types, and ordinary-return proof, while `generateKeys` and `computeSecret` remain residual because they enter random or modular work; Apple accounting is 3,656 fully executable / 3,036 internally verified / 16,892 unresolved and Windows accounting is 3,315 / 3,022 / 16,906)
 **Revised:** 2026-07-27 (promotes exactly 24 Promise-returning readable-stream consumers: `every`, `find`, `forEach`, `reduce`, `some`, and `toArray` on `Duplex`, `PassThrough`, `Readable`, and `Transform`; every recipe constructs an already-ended empty stream, awaits the exact returned Promise inside the observation, then requires event-loop quiescence and zero decisions, while the independent validator and Rust executor repeat the closed owner/method/argument/result contract; `wrap`, `compose`, and `pipeline` remain residual because their delegated ownership is not closed by this receipt; Apple accounting is 3,648 fully executable / 3,036 internally verified / 16,900 unresolved and Windows accounting is 3,307 / 3,022 / 16,914)
@@ -2693,6 +2694,20 @@ constructor, factory, four getters, two setters, setup kinds, arguments, and
 result types. `generateKeys` and `computeSecret` remain residual because this
 receipt does not own random-key generation or broaden bounded state evidence
 into modular key-agreement evidence.
+
+Idle zlib destruction is executable only for a closed owner allowlist. Each
+constructor establishes its principal-bound native selector before the
+invocation, the public `destroy` source path authenticates that selector before
+delegating to the stream lifecycle, and `_destroy` closes it. The harness then
+performs idempotent cleanup and requires event-loop quiescence; no input is
+submitted to a codec. The recipe author, independent evidence validator, and
+Rust executor separately enumerate the exact owners, empty argument list,
+object result, cleanup, and zero-decision contract. Apple installs and executes
+`BrotliCompress`, `BrotliDecompress`, `Deflate`, `DeflateRaw`, `Gunzip`, `Gzip`,
+`Inflate`, `InflateRaw`, `Unzip`, `ZstdCompress`, and `ZstdDecompress`.
+Windows executes the same set except the two Brotli owners, whose absent native
+codec prerequisite remains explicit residual evidence rather than a throwing
+wrapper being credited as normal execution.
 
 Acceptance:
 
