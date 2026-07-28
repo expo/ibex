@@ -4829,6 +4829,149 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/unknown or missing fields|module-import invocation descriptor drift/);
   });
 
+  test("accepts only exact source-only compatibility calls", () => {
+    for (const contract of [
+      {
+        sourceKey: "exact_crypto",
+        exportName: "createPrivateKey",
+        moduleSpecifier: "node:crypto",
+        templateId: "exact-crypto-bounded-v1",
+        exportIdioms: ["object-binding", "object-source"],
+        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+        sourceRef: "src/builtins/crypto.js#exports:createPrivateKey",
+        arguments: [{ kind: "json", value: "ibex-key" }],
+        resultType: "object",
+      },
+      {
+        sourceKey: "node_readline",
+        exportName: "CSI",
+        moduleSpecifier: "node:readline",
+        templateId: "node-readline-pure-v1",
+        exportIdioms: ["module-exports-object"],
+        moduleSpecifiers: [
+          "node:readline",
+          "node:readline/promises",
+          "readline",
+          "readline/promises",
+        ],
+        sourceRef: "src/builtins/readline.js#exports:CSI",
+        arguments: [{ kind: "json", value: ["31m"] }],
+        resultType: "string",
+      },
+    ]) {
+      const catalog = completeNoncapBuiltinCallCatalog();
+      const recipe = catalog.recipes[0];
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      invocation.moduleSpecifier = contract.moduleSpecifier;
+      invocation.exportName = contract.exportName;
+      invocation.templateId = contract.templateId;
+      invocation.sourceDescriptor = {
+        kind: "builtin-export",
+        sourceKey: contract.sourceKey,
+        exportName: contract.exportName,
+        exportIdioms: contract.exportIdioms,
+        moduleSpecifiers: contract.moduleSpecifiers,
+        sourceRef: contract.sourceRef,
+        valueShape: "callable",
+        access: {
+          kind: "export-property",
+          path: [contract.exportName],
+        },
+      };
+      invocation.sourceDescriptorDigest = taggedDigest(
+        invocation.sourceDescriptor,
+      );
+      invocation.arguments = contract.arguments;
+      invocation.setup = { kind: "root-call" };
+      invocation.bodyEntryProof = {
+        kind: "normal-return-from-source-call",
+        resultType: contract.resultType,
+      };
+      const observed = noncapBuiltinCallObservation(recipe);
+
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).not.toThrow();
+
+      for (const mutate of [
+        (value) => {
+          value.publicSurfaceProbe.invocation.arguments[0].value =
+            contract.sourceKey === "exact_crypto" ? "other-key" : ["32m"];
+        },
+        (value) => {
+          value.publicSurfaceProbe.invocation.templateId =
+            "generic-pure-v1";
+        },
+        (value) => {
+          value.publicSurfaceProbe.invocation.bodyEntryProof.resultType =
+            contract.resultType === "object" ? "string" : "object";
+        },
+      ]) {
+        const tamperedRecipe = structuredClone(recipe);
+        mutate(tamperedRecipe);
+        expect(() =>
+          buildPublicFixtureEvidence({
+            recipe: tamperedRecipe,
+            engineBinaryDigest: engine.binaryDigest,
+            runtimeObservation: observed,
+            coverage,
+          }),
+        ).toThrow(
+          /malformed authored pure compatibility proof|wrong value type/,
+        );
+      }
+    }
+
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:readline";
+    invocation.exportName = "emitKeypressEvents";
+    invocation.templateId = "node-readline-pure-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_readline",
+      exportName: "emitKeypressEvents",
+      exportIdioms: ["module-exports-object"],
+      moduleSpecifiers: [
+        "node:readline",
+        "node:readline/promises",
+        "readline",
+        "readline/promises",
+      ],
+      sourceRef:
+        "src/builtins/readline.js#exports:emitKeypressEvents",
+      valueShape: "callable",
+      access: {
+        kind: "export-property",
+        path: ["emitKeypressEvents"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.arguments = [];
+    invocation.setup = { kind: "root-call" };
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "undefined",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).toThrow(/malformed authored pure compatibility proof/);
+  });
+
   test("accepts settled stream returns only for ended reviewed consumers", () => {
     const catalog = completeNoncapBuiltinCallCatalog();
     const recipe = catalog.recipes[0];

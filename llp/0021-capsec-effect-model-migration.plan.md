@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-27 (promotes exactly three source-only compatibility calls: `exact_crypto.createPrivateKey("ibex-key")`, `exact_crypto.createPublicKey("ibex-key")`, and `node_readline.CSI(["31m"])`; the first two construct only in-memory compatibility wrappers without parsing, importing, or consulting a native key store, while CSI concatenates a harness-owned string array without opening a terminal or retaining a stream; authoring, independent evidence validation, Rust validation, and the loaded-engine JavaScript harness repeat the complete source descriptor, literal argument, root-call setup, result type, quiescence, and zero-decision contract; the cross-source `dns/promises.getDefaultResultOrder` projection remains residual; Apple accounting is 3,700 fully executable / 3,036 internally verified / 16,848 unresolved and Windows accounting is 3,357 / 3,022 / 16,864)
 **Revised:** 2026-07-27 (promotes exactly two bounded X509 instance operations: an own `raw` accessor read and `toString()` on a fresh harness-owned `X509Certificate("ibex-x509-fixture")`; the locked primordial `Object.prototype.toString` previously swallowed ordinary prototype assignment, so `crypto.js` now installs the intended own override with an explicit descriptor while preserving lockdown; the author, independent evidence validator, Rust validator, and loaded-engine JavaScript harness separately repeat the exact constructor, access/call, result type, quiescence, and zero-decision contract; Apple accounting is 3,697 fully executable / 3,036 internally verified / 16,851 unresolved and Windows accounting is 3,354 / 3,022 / 16,867)
 **Revised:** 2026-07-27 (promotes exactly six fresh `node:dgram` udp4 construction/lifecycle calls: `Socket`, `Socket.close`, `Socket.constructor`, `Socket.ref`, `Socket.unref`, and `createSocket`; construction creates the principal stamp but no native handle, binding, poll timer, or peer route, while close must drain its terminal event before quiescence; the author, independent evidence validator, Rust validator, and loaded-engine JavaScript harness each repeat the real `src/builtins/dgram.js` descriptor, canonical `node:dgram` invocation, exact udp4 setup, result, and normal-return proof; bind, connect, send, address, membership, and buffer operations remain residual; Apple accounting is 3,695 fully executable / 3,036 internally verified / 16,853 unresolved and Windows accounting is 3,352 / 3,022 / 16,869)
 **Revised:** 2026-07-27 (promotes exactly nine fresh `node:http` construction/lifecycle calls: `Agent.destroy`, `Server`, `Server.close`, `Server.closeAllConnections`, `Server.closeIdleConnections`, `Server.constructor`, `Server.ref`, `Server.unref`, and `createServer`; the author, independent evidence validator, Rust validator, and loaded-engine JavaScript harness each repeat the complete source descriptor, empty arguments, exact fresh receiver setup, result type, and normal-return proof; no receiver has a listener, socket, or native selector, and `Server.close` must drain its terminal event before quiescence; listening, client-request, and transport-retaining routes remain residual; Apple accounting is 3,689 fully executable / 3,036 internally verified / 16,859 unresolved and Windows accounting is 3,346 / 3,022 / 16,875)
@@ -2771,6 +2772,21 @@ access or call kind, result type, quiescence, and zero-decision contract. This
 receipt does not admit certificate verification, hostname/email/IP checks,
 public-key export, or other X509 operations whose inputs or outputs require a
 separate bounded proof.
+
+Three source-only compatibility helpers have a similarly closed receipt.
+`exact_crypto.createPrivateKey("ibex-key")` and
+`exact_crypto.createPublicKey("ibex-key")` construct only the source-defined
+in-memory key wrappers; these compatibility functions do not parse or import
+the bytes and do not consult a native key store. `node_readline.CSI(["31m"])`
+only concatenates the harness-owned string array into an escape sequence; it
+does not open a terminal or retain a stream. The author, independent evidence
+validator, Rust validator, and loaded-engine JavaScript harness separately
+repeat the exact source descriptor, root-call setup, literal argument, result
+type, quiescence, and zero-decision contract. This closed list does not admit
+other crypto or readline calls. In particular,
+`dns/promises.getDefaultResultOrder` remains residual because its public export
+is an explicitly marked cross-source projection rather than a locally authored
+callable.
 
 Acceptance:
 

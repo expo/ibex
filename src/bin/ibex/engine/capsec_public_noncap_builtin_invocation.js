@@ -328,6 +328,91 @@
     );
   }
 
+  // Keep the source-only key wrappers and terminal escape formatter closed at
+  // the loaded-engine boundary. A new crypto or readline callable must not
+  // inherit these zero-decision literals.
+  function isReviewedPureCompatibilityInvocation(invocation) {
+    var descriptor = invocation.sourceDescriptor;
+    if (!descriptor) return true;
+    var sourceKey = descriptor.sourceKey;
+    var exportName = invocation.exportName;
+    var cryptoKeyWrapper =
+      sourceKey === "exact_crypto" &&
+      (exportName === "createPrivateKey" ||
+        exportName === "createPublicKey");
+    var readlineCsi =
+      sourceKey === "node_readline" && exportName === "CSI";
+    if (!cryptoKeyWrapper && !readlineCsi) {
+      return sourceKey !== "node_readline";
+    }
+    var expectedModuleSpecifier = cryptoKeyWrapper
+      ? "node:crypto"
+      : "node:readline";
+    var expectedTemplateId = cryptoKeyWrapper
+      ? "exact-crypto-bounded-v1"
+      : "node-readline-pure-v1";
+    var expectedIdioms = cryptoKeyWrapper
+      ? ["object-binding", "object-source"]
+      : ["module-exports-object"];
+    var expectedModuleSpecifiers = cryptoKeyWrapper
+      ? ["crypto", "exact:crypto", "node:crypto"]
+      : [
+          "node:readline",
+          "node:readline/promises",
+          "readline",
+          "readline/promises",
+        ];
+    var expectedSourceRef = cryptoKeyWrapper
+      ? "src/builtins/crypto.js#exports:" + exportName
+      : "src/builtins/readline.js#exports:CSI";
+    var argument = invocation.arguments && invocation.arguments[0];
+    return (
+      invocation.invocationSchema ===
+        "ibex/capsec-builtin-call-invocation/1" &&
+      invocation.kind === "builtin-export-call" &&
+      invocation.moduleSpecifier === expectedModuleSpecifier &&
+      invocation.templateId === expectedTemplateId &&
+      exactObjectKeys(descriptor, [
+        "access",
+        "exportIdioms",
+        "exportName",
+        "kind",
+        "moduleSpecifiers",
+        "sourceKey",
+        "sourceRef",
+        "valueShape",
+      ]) &&
+      descriptor.kind === "builtin-export" &&
+      descriptor.exportName === exportName &&
+      descriptor.valueShape === "callable" &&
+      descriptor.sourceRef === expectedSourceRef &&
+      sameStringArray(descriptor.exportIdioms, expectedIdioms) &&
+      sameStringArray(
+        descriptor.moduleSpecifiers,
+        expectedModuleSpecifiers,
+      ) &&
+      exactObjectKeys(descriptor.access, ["kind", "path"]) &&
+      descriptor.access.kind === "export-property" &&
+      sameStringArray(descriptor.access.path, [exportName]) &&
+      exactObjectKeys(invocation.setup, ["kind"]) &&
+      invocation.setup.kind === "root-call" &&
+      Array.isArray(invocation.arguments) &&
+      invocation.arguments.length === 1 &&
+      exactObjectKeys(argument, ["kind", "value"]) &&
+      argument.kind === "json" &&
+      (cryptoKeyWrapper
+        ? argument.value === "ibex-key"
+        : Array.isArray(argument.value) &&
+          argument.value.length === 1 &&
+          argument.value[0] === "31m") &&
+      exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) &&
+      invocation.bodyEntryProof.kind ===
+        "normal-return-from-source-call" &&
+      invocation.bodyEntryProof.resultType ===
+        (cryptoKeyWrapper ? "object" : "string")
+    );
+  }
+
   // Output-shape capture is deliberately non-coercing. Primitive values are
   // retained exactly; functions, symbols, and undefined use the established
   // null payload; compound values retain their actual shape without invoking
@@ -668,7 +753,8 @@
     if (
       !isReviewedIdleHttpInvocation(config) ||
       !isReviewedIdleDgramInvocation(config) ||
-      !isReviewedX509StateInvocation(config)
+      !isReviewedX509StateInvocation(config) ||
+      !isReviewedPureCompatibilityInvocation(config)
     ) {
       return failure("contract-mismatch");
     }

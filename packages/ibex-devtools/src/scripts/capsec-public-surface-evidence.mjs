@@ -467,6 +467,39 @@ const X509_STATE_CALL_CONTRACTS = new Map([
     },
   ],
 ]);
+// Independently repeat the three source-only compatibility helpers whose
+// bounded literals cannot reach a native key store or terminal stream.
+const PURE_COMPATIBILITY_CALL_CONTRACTS = new Map([
+  ...["createPrivateKey", "createPublicKey"].map((exportName) => [
+    `exact_crypto:${exportName}`,
+    {
+      moduleSpecifier: "node:crypto",
+      templateId: "exact-crypto-bounded-v1",
+      exportIdioms: ["object-binding", "object-source"],
+      moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+      sourceRef: `src/builtins/crypto.js#exports:${exportName}`,
+      arguments: [{ kind: "json", value: "ibex-key" }],
+      resultType: "object",
+    },
+  ]),
+  [
+    "node_readline:CSI",
+    {
+      moduleSpecifier: "node:readline",
+      templateId: "node-readline-pure-v1",
+      exportIdioms: ["module-exports-object"],
+      moduleSpecifiers: [
+        "node:readline",
+        "node:readline/promises",
+        "readline",
+        "readline/promises",
+      ],
+      sourceRef: "src/builtins/readline.js#exports:CSI",
+      arguments: [{ kind: "json", value: ["31m"] }],
+      resultType: "string",
+    },
+  ],
+]);
 const BASE_STREAM_MODULE_VALUE_CALL_CONTRACTS = new Map([
   [
     "default._close",
@@ -4753,6 +4786,45 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: malformed authored X509 state proof`,
+      );
+    }
+    const pureCompatibilityContract = PURE_COMPATIBILITY_CALL_CONTRACTS.get(
+      `${authored.sourceDescriptor.sourceKey}:${authored.exportName}`,
+    );
+    if (
+      authored.sourceDescriptor.sourceKey === "node_readline" &&
+      !pureCompatibilityContract
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored pure compatibility proof`,
+      );
+    }
+    if (
+      pureCompatibilityContract &&
+      (authored.moduleSpecifier !==
+        pureCompatibilityContract.moduleSpecifier ||
+        authored.templateId !== pureCompatibilityContract.templateId ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !==
+          pureCompatibilityContract.resultType ||
+        authored.sourceDescriptor.kind !== "builtin-export" ||
+        authored.sourceDescriptor.valueShape !== "callable" ||
+        canonicalJson(authored.sourceDescriptor.exportIdioms) !==
+          canonicalJson(pureCompatibilityContract.exportIdioms) ||
+        canonicalJson(authored.sourceDescriptor.moduleSpecifiers) !==
+          canonicalJson(pureCompatibilityContract.moduleSpecifiers) ||
+        authored.sourceDescriptor.sourceRef !==
+          pureCompatibilityContract.sourceRef ||
+        authored.sourceDescriptor.access.kind !== "export-property" ||
+        canonicalJson(authored.sourceDescriptor.access.path) !==
+          canonicalJson([authored.exportName]) ||
+        canonicalJson(authored.setup) !==
+          canonicalJson({ kind: "root-call" }) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson(pureCompatibilityContract.arguments))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored pure compatibility proof`,
       );
     }
     const baseStreamContract =

@@ -4360,6 +4360,57 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — executed exact source-only compatibility helpers
+
+- Promoted exactly three normal-return calls:
+  `exact_crypto.createPrivateKey("ibex-key")`,
+  `exact_crypto.createPublicKey("ibex-key")`, and
+  `node_readline.CSI(["31m"])`. The crypto functions create only their
+  source-defined in-memory wrapper and do not parse, import, or consult a
+  native key store; CSI concatenates one harness-owned string array without
+  opening a terminal or retaining a stream.
+- The recipe author, independent JavaScript evidence validator, Rust catalog
+  validator, and loaded-engine JavaScript harness independently repeat the
+  exact source descriptor, public module, literal argument, root-call setup,
+  result type, normal-return proof, quiescence, and zero-decision contract.
+  The closed loaded-engine validator refuses any other `node_readline`
+  callable from inheriting CSI's contract.
+- The regenerated Apple catalog digest
+  `sha256-VBUGxJ65oDc_gCWFXGfWxy1t2wNghU2XURg5nIUrsy8` reports 23,584
+  required / **3,700 fully executable** / 3,036 internally verified / 16,848
+  unresolved. The regenerated Windows digest
+  `sha256-6YHv3JzD8Ye5sVQsCEmPPu7TjDntcvgpP1MFH4pAiuw` reports 23,243
+  required / **3,357 fully executable** / 3,022 internally verified / 16,864
+  unresolved. The descriptor-only output residual manifest falls from 548 to
+  545 rows.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 51 focused rows
+  plus these three compatibility calls under catalog digest
+  `sha256-NXlt-Jhn1N6i7DMtnozbArfNGIEHATr6NQ7QK_i0Q7E` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 54
+  fixtures pass. The key wrappers return objects, CSI returns a string, and
+  all three reach event-loop quiescence with zero legacy or typed decisions.
+  The raw evidence SHA-256 is
+  `24ec9fd6ba5c3f34f1efed8e2c4785b728843448160ce80b05a9463cf871d6fe`;
+  independent JavaScript validation accepted exactly 54 executions and
+  produced diagnostic execution digest
+  `sha256-93hxl3xk9xODmiO-Z7GZuwPpjo7NLZPpOowDuu0bmr8`.
+- The Linux replay remains diagnostic rather than Apple promotion evidence.
+  Under fleet-standard Bun 1.3.14, the focused
+  author/catalog/validator/output-accounting suite passes **192/192** tests
+  with 125,305 assertions. The 11-test runtime-environment inventory suite,
+  complete generated-drift gate, and `ref-check` pass; advertisements remain
+  empty.
+- Hard parts: the first physical attempt failed closed before execution
+  because the Rust batch's source-family allowlist did not yet admit
+  `node_readline`; adding its exact template binding made the warm-cache rerun
+  pass. `dns/promises.getDefaultResultOrder` was deliberately rejected because
+  its inventory row is a cross-source projection, and callback-invariant
+  `events`/timer candidates remain residual rather than borrowing a generic
+  normal-return receipt.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

@@ -1299,6 +1299,66 @@ fn validate_x509_state_contract(
     assert!(invocation.arguments.is_empty());
 }
 
+fn validate_pure_compatibility_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    let (
+        module_specifier,
+        template_id,
+        export_idioms,
+        module_specifiers,
+        source_ref,
+        argument,
+        result_type,
+    ) = match (
+        descriptor.source_key.as_str(),
+        descriptor.export_name.as_str(),
+    ) {
+        ("exact_crypto", "createPrivateKey" | "createPublicKey") => (
+            "node:crypto",
+            "exact-crypto-bounded-v1",
+            vec!["object-binding".to_owned(), "object-source".to_owned()],
+            vec![
+                "crypto".to_owned(),
+                "exact:crypto".to_owned(),
+                "node:crypto".to_owned(),
+            ],
+            format!("src/builtins/crypto.js#exports:{}", descriptor.export_name),
+            serde_json::json!({"kind": "json", "value": "ibex-key"}),
+            "object",
+        ),
+        ("node_readline", "CSI") => (
+            "node:readline",
+            "node-readline-pure-v1",
+            vec!["module-exports-object".to_owned()],
+            vec![
+                "node:readline".to_owned(),
+                "node:readline/promises".to_owned(),
+                "readline".to_owned(),
+                "readline/promises".to_owned(),
+            ],
+            "src/builtins/readline.js#exports:CSI".to_owned(),
+            serde_json::json!({"kind": "json", "value": ["31m"]}),
+            "string",
+        ),
+        _ => return,
+    };
+    assert_eq!(invocation.module_specifier, module_specifier);
+    assert_eq!(invocation.template_id.as_deref(), Some(template_id));
+    assert_eq!(descriptor.export_idioms, export_idioms);
+    assert_eq!(descriptor.module_specifiers, module_specifiers);
+    assert_eq!(descriptor.source_ref, source_ref);
+    assert_eq!(descriptor.value_shape, "callable");
+    assert_eq!(descriptor.access.kind, "export-property");
+    assert_eq!(descriptor.access.path, [descriptor.export_name.clone()]);
+    assert_eq!(invocation.setup, serde_json::json!({"kind": "root-call"}));
+    assert_eq!(invocation.arguments, [argument]);
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, result_type);
+}
+
 fn validate_base_stream_module_value_contract(
     invocation: &BuiltinInvocation,
     descriptor: &BuiltinSourceDescriptor,
@@ -1605,6 +1665,7 @@ fn expected_template_id(source_key: &str) -> Option<&'static str> {
         "node_path" => Some("node-path-pure-v1"),
         "node_punycode" => Some("node-punycode-pure-v1"),
         "node_querystring" => Some("node-querystring-pure-v1"),
+        "node_readline" => Some("node-readline-pure-v1"),
         "node_stream" => Some("node-stream-bounded-v1"),
         "node_stream_web" => Some("node-stream-web-pure-v1"),
         "node_string_decoder" => Some("node-string-decoder-bounded-v1"),
@@ -1947,6 +2008,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         }
         validate_explicit_diffie_hellman_contract(invocation, &descriptor, proof);
         validate_x509_state_contract(invocation, &descriptor, proof);
+        validate_pure_compatibility_contract(invocation, &descriptor, proof);
         validate_base_stream_module_value_contract(invocation, &descriptor, proof);
         validate_idle_zlib_destroy_contract(invocation, &descriptor, proof);
         validate_idle_http_contract(invocation, &descriptor, proof);

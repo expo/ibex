@@ -803,6 +803,11 @@ function exactCryptoCallSpecs() {
     ]),
     createHash: rootCall([...CRYPTO_HASH_CONSTRUCTOR_ARGUMENTS], "object"),
     createHmac: rootCall([...CRYPTO_HMAC_CONSTRUCTOR_ARGUMENTS], "object"),
+    // These compatibility constructors retain only the harness-owned key
+    // bytes and classify their in-memory wrapper; they do not parse, import,
+    // or consult a native key store.
+    createPrivateKey: rootCall([jsonArgument("ibex-key")], "object"),
+    createPublicKey: rootCall([jsonArgument("ibex-key")], "object"),
     createDiffieHellmanGroup: rootCall(
       [...CRYPTO_DH_GROUP_CONSTRUCTOR_ARGUMENTS],
       "object",
@@ -1263,6 +1268,11 @@ const ROOT_CALL_SPECS = Object.freeze({
     wrap: rootCall([jsonArgument("return 'ibex';")], "string"),
   }),
   node_net: NODE_NET_CALL_SPECS,
+  node_readline: Object.freeze({
+    // CSI concatenates one harness-owned string array into a terminal escape
+    // sequence; it opens no terminal and retains no stream.
+    CSI: rootCall([jsonArgument(["31m"])], "string"),
+  }),
   node_perf_hooks: Object.freeze({
     Performance: constructTarget([]),
     "Performance.clearMarks": constructedOwner("Performance", [], "undefined"),
@@ -2121,6 +2131,7 @@ const CALL_TEMPLATE_IDS = Object.freeze({
   node_path: "node-path-pure-v1",
   node_punycode: "node-punycode-pure-v1",
   node_querystring: "node-querystring-pure-v1",
+  node_readline: "node-readline-pure-v1",
   node_stream: "node-stream-bounded-v1",
   node_stream_web: "node-stream-web-pure-v1",
   node_string_decoder: "node-string-decoder-bounded-v1",

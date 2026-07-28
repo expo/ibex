@@ -427,7 +427,9 @@ describe("exact-target CapSec executable recipes", () => {
     // and 58 exact values remain separate from their modules' initialization
     // or are read through a reviewed inert prototype path. Eight fixed-prime
     // DiffieHellman construction and state-only calls add no random work.
-    // Eleven idle zlib destroy calls authenticate and close their
+    // Three exact source-only compatibility helpers retain only harness-owned
+    // values and perform no native key-store or terminal work. Eleven idle
+    // zlib destroy calls authenticate and close their
     // constructor-owned native selectors without processing codec input.
     // Seven inert stream.closed reads use fresh harness-owned instances.
     // Nine fresh HTTP construction/lifecycle calls own no listener, socket, or
@@ -437,11 +439,11 @@ describe("exact-target CapSec executable recipes", () => {
     // binding, poll timer, or peer route; close drains its terminal event.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_697);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_700);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_851);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_848);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -597,8 +599,10 @@ describe("exact-target CapSec executable recipes", () => {
     // absent RSA aliases and the unsafe or deliberately throwing crypto/zlib
     // claims. The 23 exact post-initialization value reads and 31 reviewed
     // prototype values execute on both targets. The fixed-prime DiffieHellman
-    // family adds eight bounded state-only calls. This target proves nine idle
-    // zlib destroy calls; its two unavailable Zstd constructors remain
+    // family adds eight bounded state-only calls. Three exact source-only
+    // compatibility helpers retain only harness-owned values on both targets.
+    // This target proves nine idle zlib destroy calls; its two unavailable
+    // Zstd constructors remain
     // target-local residuals. Seven inert stream.closed reads use fresh
     // harness-owned instances on both targets. Nine fresh HTTP
     // construction/lifecycle calls own no live transport state, and the close
@@ -607,9 +611,9 @@ describe("exact-target CapSec executable recipes", () => {
     // binding, poll timer, or peer route. The restricted no-eval constructor
     // added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_354);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_357);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_867);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_864);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -625,7 +629,7 @@ describe("exact-target CapSec executable recipes", () => {
       windowsCryptoRecipes.filter(
         (recipe) => recipe.status === "fully-executable",
       ),
-    ).toHaveLength(123);
+    ).toHaveLength(125);
     const unavailableWindowsNativeRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5333,6 +5337,7 @@ describe("exact-target CapSec executable recipes", () => {
         "node_path",
         "node_punycode",
         "node_querystring",
+        "node_readline",
         "node_stream",
         "node_stream_web",
         "node_string_decoder",
@@ -5345,7 +5350,14 @@ describe("exact-target CapSec executable recipes", () => {
     );
     expect(
       Object.fromEntries(
-        ["exact_crypto", "node_fs", "node_module", "node_net", "node_v8"].map(
+        [
+          "exact_crypto",
+          "node_fs",
+          "node_module",
+          "node_net",
+          "node_readline",
+          "node_v8",
+        ].map(
           (sourceKey) => [
             sourceKey,
             publicCalls.filter(
@@ -5357,12 +5369,55 @@ describe("exact-target CapSec executable recipes", () => {
         ),
       ),
     ).toEqual({
-      exact_crypto: 94,
+      exact_crypto: 96,
       node_fs: 10,
       node_module: 3,
       node_net: 22,
+      node_readline: 1,
       node_v8: 1,
     });
+    const pureCompatibilityCalls = publicCalls.filter((recipe) =>
+      new Set([
+        "builtin:export:exact_crypto:createPrivateKey",
+        "builtin:export:exact_crypto:createPublicKey",
+        "builtin:export:node_readline:CSI",
+      ]).has(recipe.terminalObservedKey),
+    );
+    expect(pureCompatibilityCalls).toHaveLength(3);
+    expect(
+      pureCompatibilityCalls.map((recipe) => {
+        const invocation = recipe.publicSurfaceProbe.invocation;
+        return [
+          invocation.sourceDescriptor.sourceKey,
+          invocation.exportName,
+          invocation.arguments,
+          invocation.setup,
+          invocation.bodyEntryProof.resultType,
+        ];
+      }),
+    ).toEqual([
+      [
+        "exact_crypto",
+        "createPrivateKey",
+        [{ kind: "json", value: "ibex-key" }],
+        { kind: "root-call" },
+        "object",
+      ],
+      [
+        "exact_crypto",
+        "createPublicKey",
+        [{ kind: "json", value: "ibex-key" }],
+        { kind: "root-call" },
+        "object",
+      ],
+      [
+        "node_readline",
+        "CSI",
+        [{ kind: "json", value: ["31m"] }],
+        { kind: "root-call" },
+        "string",
+      ],
+    ]);
     const explicitDhCalls = publicCalls.filter((recipe) =>
       new Set([
         "DiffieHellman",

@@ -1352,6 +1352,25 @@ describe("source-bound builtin public probes", () => {
   });
 
   test("authors bounded crypto operations and keeps native crashes residual", () => {
+    for (const exportName of ["createPrivateKey", "createPublicKey"]) {
+      expect(
+        probeFor({
+          sourceKey: "exact_crypto",
+          exportName,
+          exportIdioms: ["object-binding", "object-source"],
+          moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+          sourceRefs: [`src/builtins/crypto.js#exports:${exportName}`],
+          valueShape: "callable",
+        }),
+      ).toMatchObject({
+        invocation: {
+          templateId: "exact-crypto-bounded-v1",
+          arguments: [{ kind: "json", value: "ibex-key" }],
+          setup: { kind: "root-call" },
+          bodyEntryProof: { resultType: "object" },
+        },
+      });
+    }
     expect(
       probeFor({
         sourceKey: "exact_crypto",
@@ -1765,6 +1784,28 @@ describe("source-bound builtin public probes", () => {
   });
 
   test("authors pure IP, module, clock, URL, and version helpers", () => {
+    expect(
+      probeFor({
+        sourceKey: "node_readline",
+        exportName: "CSI",
+        exportIdioms: ["module-exports-object"],
+        moduleSpecifiers: [
+          "node:readline",
+          "node:readline/promises",
+          "readline",
+          "readline/promises",
+        ],
+        sourceRefs: ["src/builtins/readline.js#exports:CSI"],
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        templateId: "node-readline-pure-v1",
+        arguments: [{ kind: "json", value: ["31m"] }],
+        setup: { kind: "root-call" },
+        bodyEntryProof: { resultType: "string" },
+      },
+    });
     expect(
       probeFor({
         sourceKey: "node_net",
