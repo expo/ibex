@@ -5640,6 +5640,95 @@ describe("CapSec public-surface promotion evidence", () => {
     }
   });
 
+  test("accepts only transport-free TLS socket lifecycle calls", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:tls";
+    invocation.exportName = "TLSSocket.destroy";
+    invocation.templateId = "node-tls-pure-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_tls",
+      exportName: "TLSSocket.destroy",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: ["node:tls", "tls"],
+      sourceRef: "src/builtins/tls.js#exports:TLSSocket.destroy",
+      valueShape: "callable",
+      access: {
+        kind: "prototype-property",
+        path: ["TLSSocket", "prototype", "destroy"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.setup = {
+      kind: "constructed-owner",
+      ownerExportName: "TLSSocket",
+      constructorArguments: [],
+    };
+    invocation.arguments = [];
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "object",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.moduleSpecifier = "node:tls";
+    observed.invocation.result.moduleSpecifier = "node:tls";
+    observed.invocation.result.exportName = "TLSSocket.destroy";
+    observed.invocation.result.dispatchKind = "prototype-call";
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.ownerExportName = "Server";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.constructorArguments = [
+          { kind: "json", value: {} },
+        ];
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments = [
+          { kind: "json", value: null },
+        ];
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.templateId =
+          "node-net-bounded-v1";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.sourceDescriptor.access.path = [
+          "TLSSocket",
+          "prototype",
+          "connect",
+        ];
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored idle TLS socket proof|not source-descriptor bound/,
+      );
+    }
+  });
+
   test("accepts only reviewed fresh UDP socket lifecycle calls", () => {
     const catalog = completeNoncapBuiltinCallCatalog();
     const recipe = catalog.recipes[0];

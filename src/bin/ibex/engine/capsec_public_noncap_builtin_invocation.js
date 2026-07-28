@@ -186,6 +186,95 @@
   }
 
   // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // A TLSSocket created without a transport has no native owner token, TLS
+  // engine, selector, listener, or pending timer. Keep this exact lifecycle
+  // vocabulary separate from transport-binding TLS operations.
+  function isReviewedIdleTlsSocketInvocation(invocation) {
+    if (
+      invocation.invocationSchema !==
+        "ibex/capsec-builtin-call-invocation/1" ||
+      invocation.kind !== "builtin-export-call" ||
+      !invocation.sourceDescriptor ||
+      invocation.sourceDescriptor.sourceKey !== "node_tls" ||
+      invocation.exportName === "getCiphers"
+    ) {
+      return true;
+    }
+    var descriptor = invocation.sourceDescriptor;
+    var exportName = invocation.exportName;
+    var segments =
+      typeof exportName === "string" ? exportName.split(".") : [];
+    var prototype = segments.length === 2;
+    if (
+      invocation.moduleSpecifier !== "node:tls" ||
+      invocation.templateId !== "node-tls-pure-v1" ||
+      descriptor.exportName !== exportName ||
+      !exactObjectKeys(descriptor, [
+        "access",
+        "exportIdioms",
+        "exportName",
+        "kind",
+        "moduleSpecifiers",
+        "sourceKey",
+        "sourceRef",
+        "valueShape",
+      ]) ||
+      descriptor.kind !== "builtin-export" ||
+      descriptor.valueShape !== "callable" ||
+      descriptor.sourceRef !==
+        "src/builtins/tls.js#exports:" + exportName ||
+      !sameStringArray(descriptor.exportIdioms, [
+        prototype
+          ? "exported-constructor-prototype"
+          : "module-exports-object",
+      ]) ||
+      !sameStringArray(descriptor.moduleSpecifiers, ["node:tls", "tls"]) ||
+      !exactObjectKeys(descriptor.access, ["kind", "path"]) ||
+      descriptor.access.kind !==
+        (prototype ? "prototype-property" : "export-property") ||
+      !sameStringArray(
+        descriptor.access.path,
+        prototype
+          ? ["TLSSocket", "prototype", segments[1]]
+          : ["TLSSocket"],
+      ) ||
+      !Array.isArray(invocation.arguments) ||
+      invocation.arguments.length !== 0 ||
+      !exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) ||
+      invocation.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+      invocation.bodyEntryProof.resultType !== "object"
+    ) {
+      return false;
+    }
+    var setup = invocation.setup;
+    if (exportName === "TLSSocket") {
+      return (
+        exactObjectKeys(setup, ["kind"]) &&
+        setup.kind === "construct-target"
+      );
+    }
+    if (
+      exportName !== "TLSSocket.close" &&
+      exportName !== "TLSSocket.destroy" &&
+      exportName !== "TLSSocket.ref" &&
+      exportName !== "TLSSocket.unref"
+    ) {
+      return false;
+    }
+    return (
+      exactObjectKeys(setup, [
+        "constructorArguments",
+        "kind",
+        "ownerExportName",
+      ]) &&
+      setup.kind === "constructed-owner" &&
+      setup.ownerExportName === "TLSSocket" &&
+      Array.isArray(setup.constructorArguments) &&
+      setup.constructorArguments.length === 0
+    );
+  }
+
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
   // A fresh udp4 Socket has an owner stamp but no native handle, binding,
   // polling timer, or peer route. Keep that exact closed vocabulary separate
   // from network-bearing dgram operations at the final execution boundary.
@@ -1048,6 +1137,7 @@
     var readlineLifecycleState = null;
     if (
       !isReviewedBoundedHttpInvocation(config) ||
+      !isReviewedIdleTlsSocketInvocation(config) ||
       !isReviewedIdleDgramInvocation(config) ||
       !isReviewedX509StateInvocation(config) ||
       !isReviewedPureCompatibilityInvocation(config) ||

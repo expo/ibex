@@ -439,15 +439,18 @@ describe("exact-target CapSec executable recipes", () => {
     // native selector; Server.close's terminal event timer drains before the
     // quiescent observation completes. Four root validators inspect only fixed
     // harness-owned header strings.
+    // Five transport-free TLSSocket construction/lifecycle calls own no native
+    // token, engine, selector, listener, or preexisting timer; close/destroy
+    // drain their terminal timer before quiescence.
     // Six fresh udp4 Socket construction/lifecycle calls own no native handle,
     // binding, poll timer, or peer route; close drains its terminal event.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_703);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_708);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_845);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_840);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -613,13 +616,16 @@ describe("exact-target CapSec executable recipes", () => {
     // construction/lifecycle calls own no live transport state, and the close
     // event timer drains before quiescence. Four root validators inspect only
     // fixed harness-owned header strings.
+    // Five transport-free TLSSocket construction/lifecycle calls own no native
+    // token, engine, selector, listener, or preexisting timer; close/destroy
+    // drain their terminal timer before quiescence.
     // Six fresh udp4 Socket construction/lifecycle calls own no native handle,
     // binding, poll timer, or peer route. The restricted no-eval constructor
     // added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_360);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_365);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_861);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_856);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5363,6 +5369,7 @@ describe("exact-target CapSec executable recipes", () => {
           "node_module",
           "node_net",
           "node_readline",
+          "node_tls",
           "node_v8",
         ].map(
           (sourceKey) => [
@@ -5382,6 +5389,7 @@ describe("exact-target CapSec executable recipes", () => {
       node_module: 3,
       node_net: 22,
       node_readline: 3,
+      node_tls: 6,
       node_v8: 1,
     });
     const pureCompatibilityCalls = publicCalls.filter((recipe) =>
@@ -5601,6 +5609,27 @@ describe("exact-target CapSec executable recipes", () => {
         (recipe) =>
           recipe.publicSurfaceProbe.invocation.templateId ===
           "node-http-idle-v1",
+      ),
+    ).toBe(true);
+    const idleTlsSocketCalls = publicCalls.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+          "node_tls" &&
+        recipe.publicSurfaceProbe.invocation.exportName !== "getCiphers",
+    );
+    expect(idleTlsSocketCalls).toHaveLength(5);
+    expect(
+      idleTlsSocketCalls.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.templateId ===
+            "node-tls-pure-v1" &&
+          new Set([
+            "TLSSocket",
+            "TLSSocket.close",
+            "TLSSocket.destroy",
+            "TLSSocket.ref",
+            "TLSSocket.unref",
+          ]).has(recipe.publicSurfaceProbe.invocation.exportName),
       ),
     ).toBe(true);
     const idleDgramCalls = publicCalls.filter(

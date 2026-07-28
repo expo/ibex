@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-28 (promotes exactly five transport-free `node:tls` socket calls: `TLSSocket`, `TLSSocket.close`, `TLSSocket.destroy`, `TLSSocket.ref`, and `TLSSocket.unref`; the harness constructs every receiver without an underlying transport, so no native TLS owner token, engine, selector, listener, or timer exists before the selected call, while close/destroy must drain their terminal timer before quiescence; the author, independent evidence validator, Rust validator, and loaded-engine harness repeat the exact closed vocabulary and zero-decision contract; Apple accounting is 3,708 fully executable / 3,036 internally verified / 16,840 unresolved and Windows is 3,365 / 3,022 / 16,856)
 **Revised:** 2026-07-28 (strengthens the four already executable `node:http` header validators from generic captured-output evidence to dedicated `ibex/capsec-builtin-call-invocation/1` contracts: `_checkInvalidHeaderChar("ibex")`, `_checkIsHttpToken("x-ibex")`, `validateHeaderName("x-ibex")`, and `validateHeaderValue("x-ibex", "ibex")`; the author, independent evidence validator, Rust validator, and loaded-engine harness repeat the literal arguments, direct root-call dispatch, result type, quiescence, and zero-decision proof; because all four rows were already executable, Apple accounting remains 3,703 fully executable / 3,036 internally verified / 16,845 unresolved and Windows remains 3,360 / 3,022 / 16,861, while the generic captured-output set falls from 145 to 141 and the descriptor residual manifest from 542 to 538)
 **Revised:** 2026-07-28 (promotes exactly `node_readline.Interface.pause` through a separate harness-owned non-terminal `Interface` lifecycle receipt: the selected call must return the receiver object while leaving it open but paused, preserve the constructor's exact data/error/end/close listener set, record one resume and one pause, and emit no close event; the harness then invokes exact `Interface.close` as auxiliary cleanup and proves all listeners detached, two total pauses, one close event, quiescence, and zero decisions; the three constructor-instance `_on*` closures remain residual; Apple accounting is 3,703 fully executable / 3,036 internally verified / 16,845 unresolved and Windows accounting is 3,360 / 3,022 / 16,861)
 **Revised:** 2026-07-28 (promotes exactly `node_readline.Interface.close` on a fresh harness-owned non-terminal `Interface` whose inert input shim proves the constructor installed the exact data/error/end/close listener set and resumed once, then proves the selected close call detached every listener, paused once, marked the receiver closed, emitted one close event, returned `undefined`, reached quiescence, and emitted zero decisions; `Interface.pause` remains residual because it returns while retaining those constructor listeners; Apple accounting is 3,702 fully executable / 3,036 internally verified / 16,846 unresolved and Windows accounting is 3,359 / 3,022 / 16,862)
@@ -2760,6 +2761,21 @@ total; it removes them from the generic captured set and from the
 descriptor-only residual manifest. This closed proof does not admit malformed
 input, thrown validation results, arbitrary header data, or other HTTP
 exports.
+
+Transport-free TLS socket evidence is limited to five independently repeated
+contracts: construction through `TLSSocket`, plus `close`, `destroy`, `ref`,
+and `unref` on a fresh harness-created `TLSSocket`. The constructor receives no
+underlying transport, so it does not capture a native TLS owner token, create a
+TLS engine, bind a selector, install transport listeners, or schedule a timer.
+`ref` and `unref` consequently return the wrapper without delegating, while
+`close` and `destroy` update only wrapper state and queue the terminal close
+event; the receipt is valid only after that timer drains and event-loop
+quiescence is observed. The recipe author, independent evidence validator,
+Rust validator, and loaded-engine JavaScript harness separately repeat the
+complete `node_tls` descriptor, canonical `node:tls` invocation, empty
+transport/argument setup, object result, and zero-decision contract. This
+closed proof does not admit `connect`, `write`, `end`, server construction, or
+any call that binds or operates on a transport.
 
 Fresh UDP lifecycle evidence is similarly limited to `Socket`,
 `Socket.constructor`, `createSocket`, `Socket.close`, `Socket.ref`, and

@@ -1226,6 +1226,20 @@ const NODE_DGRAM_CALL_SPECS = Object.freeze({
   createSocket: rootCall([jsonArgument("udp4")], "object"),
 });
 
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — A
+// TLSSocket constructed without a transport owns no native TLS owner token,
+// engine, selector, listener, or timer. These exact calls therefore affect
+// only the harness-owned wrapper; close/destroy's terminal timer must drain
+// before the shared quiescence observation completes.
+const NODE_TLS_CALL_SPECS = Object.freeze({
+  getCiphers: rootCall([], "object"),
+  TLSSocket: constructTarget([]),
+  "TLSSocket.close": constructedOwner("TLSSocket", [], "object"),
+  "TLSSocket.destroy": constructedOwner("TLSSocket", [], "object"),
+  "TLSSocket.ref": constructedOwner("TLSSocket", [], "object"),
+  "TLSSocket.unref": constructedOwner("TLSSocket", [], "object"),
+});
+
 const NODE_FS_CALL_SPECS = Object.freeze({
   _toUnixTimestamp: rootCall([jsonArgument(1)], "number"),
   Stats: constructTarget([
@@ -1300,9 +1314,7 @@ const ROOT_CALL_SPECS = Object.freeze({
     isReadableStream: rootCall([jsonArgument({})], "boolean"),
     isWritableStream: rootCall([jsonArgument({})], "boolean"),
   }),
-  node_tls: Object.freeze({
-    getCiphers: rootCall([], "object"),
-  }),
+  node_tls: NODE_TLS_CALL_SPECS,
   node_module: Object.freeze({
     _nodeModulePaths: rootCall([jsonArgument("/ibex/project/src")], "object"),
     isBuiltin: rootCall([jsonArgument("node:path")], "boolean"),

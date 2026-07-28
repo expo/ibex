@@ -1797,6 +1797,75 @@ fn validate_bounded_http_contract(
     assert_eq!(invocation.arguments, expected_arguments);
 }
 
+fn validate_idle_tls_socket_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    if descriptor.source_key != "node_tls" || descriptor.export_name == "getCiphers" {
+        return;
+    }
+    let expected_setup = match descriptor.export_name.as_str() {
+        "TLSSocket" => serde_json::json!({"kind": "construct-target"}),
+        "TLSSocket.close" | "TLSSocket.destroy" | "TLSSocket.ref" | "TLSSocket.unref" => {
+            serde_json::json!({
+                "kind": "constructed-owner",
+                "ownerExportName": "TLSSocket",
+                "constructorArguments": []
+            })
+        }
+        other => panic!("unsupported idle TLS socket call {other}"),
+    };
+    let segments = descriptor.export_name.split('.').collect::<Vec<_>>();
+    let prototype = segments.len() == 2;
+    assert!(matches!(segments.len(), 1 | 2));
+    assert_eq!(invocation.module_specifier, "node:tls");
+    assert_eq!(
+        descriptor.export_idioms,
+        vec![if prototype {
+            "exported-constructor-prototype".to_owned()
+        } else {
+            "module-exports-object".to_owned()
+        }]
+    );
+    assert_eq!(
+        descriptor.module_specifiers,
+        ["node:tls", "tls"].map(str::to_owned)
+    );
+    assert_eq!(
+        descriptor.source_ref,
+        format!(
+            "src/builtins/tls.js#exports:{}",
+            descriptor.export_name
+        )
+    );
+    assert_eq!(descriptor.value_shape, "callable");
+    assert_eq!(
+        descriptor.access.kind,
+        if prototype {
+            "prototype-property"
+        } else {
+            "export-property"
+        }
+    );
+    assert_eq!(
+        descriptor.access.path,
+        if prototype {
+            vec![
+                "TLSSocket".to_owned(),
+                "prototype".to_owned(),
+                segments[1].to_owned(),
+            ]
+        } else {
+            vec!["TLSSocket".to_owned()]
+        }
+    );
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, "object");
+    assert_eq!(invocation.setup, expected_setup);
+    assert!(invocation.arguments.is_empty());
+}
+
 fn validate_idle_dgram_contract(
     invocation: &BuiltinInvocation,
     descriptor: &BuiltinSourceDescriptor,
@@ -2251,6 +2320,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         validate_base_stream_module_value_contract(invocation, &descriptor, proof);
         validate_idle_zlib_destroy_contract(invocation, &descriptor, proof);
         validate_bounded_http_contract(invocation, &descriptor, proof);
+        validate_idle_tls_socket_contract(invocation, &descriptor, proof);
         validate_idle_dgram_contract(invocation, &descriptor, proof);
         assert!(matches!(
             proof.result_type.as_str(),

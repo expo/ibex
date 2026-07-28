@@ -118,12 +118,12 @@ const loaded = residualInvocations();
 describe("builtin non-capability/closed output recipes", () => {
   test("accounts for the exact callable/accessor and descriptor residual universe", async () => {
     const rows = await loaded;
-    // Bounded HTTP/UDP calls, X509Certificate.toString, and the three
+    // Bounded HTTP/UDP/TLS calls, X509Certificate.toString, and the three
     // source-only compatibility helpers and both reviewed Interface lifecycle
     // calls now have exact
     // loaded zero-decision recipes instead of descriptor-only residual
     // accounts.
-    expect(rows).toHaveLength(538);
+    expect(rows).toHaveLength(533);
     expect(
       Object.fromEntries(
         ["non-capability", "closed"].map((classification) => [
@@ -133,30 +133,31 @@ describe("builtin non-capability/closed output recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ "non-capability": 318, closed: 220 });
+    ).toEqual({ "non-capability": 313, closed: 220 });
     expect(
       builtinNoncapClosedOutputRouteManifest(rows.map((row) => row.invocation)),
     ).toMatchObject({
-      total: 538,
+      total: 533,
       operations: {
         call: 242,
         construct: 16,
         "import-refusal": 22,
-        unexercisable: 258,
+        unexercisable: 253,
       },
       residualReasons: {
         "codec-route-retains-native-or-deferred-stream-state": 73,
         "crypto-route-needs-authentic-key-cipher-or-callback-fixture": 6,
         "no-bounded-source-owned-receiver": 50,
-        "receiver-needs-external-or-network-lifecycle": 68,
+        "receiver-needs-external-or-network-lifecycle": 63,
         "runtime-inspection-or-escape-surface-has-no-safe-receiver": 61,
       },
     });
     // The 24 settled consumers, eight fixed-DH operations, six base Stream
     // lifecycle calls, 11 idle zlib destroys, 13 bounded HTTP calls,
-    // six fresh UDP socket lifecycle calls, and three source-only
+    // five transport-free TLS socket lifecycle calls, six fresh UDP socket
+    // lifecycle calls, and three source-only
     // compatibility helpers, KeyObject.equals, Interface.close, and
-    // Interface.pause now have bounded public probes. Those 75 rows are
+    // Interface.pause now have bounded public probes. Those 80 rows are
     // no longer descriptor-only residuals; Duplex
     // `_undestroy` is one representative inherited descriptor.
     expect(

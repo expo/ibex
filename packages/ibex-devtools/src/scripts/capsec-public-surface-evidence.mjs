@@ -703,6 +703,31 @@ const BOUNDED_HTTP_MODULE_SPECIFIERS = [
   "http",
   "node:http",
 ];
+// A TLSSocket constructed without a transport has no native owner token,
+// engine, selector, listener, or pending timer. Keep this closed lifecycle set
+// separate from transport-binding TLS operations.
+const IDLE_TLS_SOCKET_CALL_CONTRACTS = new Map([
+  [
+    "TLSSocket",
+    {
+      setup: { kind: "construct-target" },
+      arguments: [],
+      resultType: "object",
+    },
+  ],
+  ...["close", "destroy", "ref", "unref"].map((methodName) => [
+    `TLSSocket.${methodName}`,
+    {
+      setup: {
+        kind: "constructed-owner",
+        ownerExportName: "TLSSocket",
+        constructorArguments: [],
+      },
+      arguments: [],
+      resultType: "object",
+    },
+  ]),
+]);
 // A fresh udp4 wrapper owns only an authenticated principal stamp. The
 // constructor does not allocate a native handle; ref/unref see no poll timer,
 // and close only schedules the terminal close event required by quiescence.
@@ -5040,6 +5065,59 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: malformed authored bounded HTTP proof`,
+      );
+    }
+    const idleTlsSocketContract =
+      authored.sourceDescriptor.sourceKey === "node_tls"
+        ? IDLE_TLS_SOCKET_CALL_CONTRACTS.get(authored.exportName)
+        : null;
+    const idleTlsSocketPrototype =
+      idleTlsSocketContract && authored.exportName.includes(".");
+    const expectedIdleTlsSocketDescriptor = idleTlsSocketContract
+      ? {
+          kind: "builtin-export",
+          sourceKey: "node_tls",
+          exportName: authored.exportName,
+          exportIdioms: [
+            idleTlsSocketPrototype
+              ? "exported-constructor-prototype"
+              : "module-exports-object",
+          ],
+          moduleSpecifiers: ["node:tls", "tls"],
+          sourceRef: `src/builtins/tls.js#exports:${authored.exportName}`,
+          valueShape: "callable",
+          access: idleTlsSocketPrototype
+            ? {
+                kind: "prototype-property",
+                path: [
+                  "TLSSocket",
+                  "prototype",
+                  authored.exportName.split(".")[1],
+                ],
+              }
+            : {
+                kind: "export-property",
+                path: ["TLSSocket"],
+              },
+        }
+      : null;
+    if (
+      authored.sourceDescriptor.sourceKey === "node_tls" &&
+      authored.exportName !== "getCiphers" &&
+      (!idleTlsSocketContract ||
+        authored.templateId !== "node-tls-pure-v1" ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !==
+          idleTlsSocketContract.resultType ||
+        canonicalJson(authored.setup) !==
+          canonicalJson(idleTlsSocketContract.setup) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson(idleTlsSocketContract.arguments) ||
+        canonicalJson(authored.sourceDescriptor) !==
+          canonicalJson(expectedIdleTlsSocketDescriptor))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored idle TLS socket proof`,
       );
     }
     const idleDgramContract =

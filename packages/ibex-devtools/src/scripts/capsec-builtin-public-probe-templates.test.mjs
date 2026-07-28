@@ -1756,6 +1756,87 @@ describe("source-bound builtin public probes", () => {
     }
   });
 
+  test("authors only transport-free TLS socket lifecycle calls", () => {
+    const contracts = [
+      ["TLSSocket", { kind: "construct-target" }],
+      [
+        "TLSSocket.close",
+        {
+          kind: "constructed-owner",
+          ownerExportName: "TLSSocket",
+          constructorArguments: [],
+        },
+      ],
+      [
+        "TLSSocket.destroy",
+        {
+          kind: "constructed-owner",
+          ownerExportName: "TLSSocket",
+          constructorArguments: [],
+        },
+      ],
+      [
+        "TLSSocket.ref",
+        {
+          kind: "constructed-owner",
+          ownerExportName: "TLSSocket",
+          constructorArguments: [],
+        },
+      ],
+      [
+        "TLSSocket.unref",
+        {
+          kind: "constructed-owner",
+          ownerExportName: "TLSSocket",
+          constructorArguments: [],
+        },
+      ],
+    ];
+    for (const [exportName, setup] of contracts) {
+      const prototype = exportName.includes(".");
+      expect(
+        probeFor({
+          sourceKey: "node_tls",
+          exportName,
+          exportIdioms: prototype
+            ? ["exported-constructor-prototype"]
+            : ["module-exports-object"],
+          moduleSpecifiers: ["node:tls", "tls"],
+          valueShape: "callable",
+        }),
+      ).toMatchObject({
+        invocation: {
+          templateId: "node-tls-pure-v1",
+          arguments: [],
+          setup,
+          bodyEntryProof: {
+            kind: "normal-return-from-source-call",
+            resultType: "object",
+          },
+        },
+      });
+    }
+    for (const exportName of [
+      "Server",
+      "TLSSocket.connect",
+      "TLSSocket.end",
+      "TLSSocket.write",
+      "createServer",
+    ]) {
+      expect(
+        probeFor({
+          sourceKey: "node_tls",
+          exportName,
+          exportIdioms: exportName.includes(".")
+            ? ["exported-constructor-prototype"]
+            : ["module-exports-object"],
+          moduleSpecifiers: ["node:tls", "tls"],
+          valueShape: "callable",
+        }),
+      ).toBeNull();
+    }
+  });
+
   test("authors only the exact fresh UDP socket lifecycle family", () => {
     const udp4 = [{ kind: "json", value: "udp4" }];
     const contracts = [
