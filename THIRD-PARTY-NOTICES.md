@@ -12,7 +12,7 @@ Ibex embeds a patched build of the [Hermes JavaScript
 engine](https://github.com/facebook/hermes).
 
 - The pinned upstream source is `facebook/hermes` at commit
-  `ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138` (Ibex Hermes version
+  `e639a7bad8bfca844d982afa54fac786c65a8856` (Ibex Hermes version
   `260318099.0.0`; see `scripts/hermes-version.sh`, which is the single
   authority for the pin).
 - The patch series under `patches/hermes/` modifies Hermes VM sources and is a

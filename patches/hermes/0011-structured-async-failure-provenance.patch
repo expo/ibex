@@ -32,7 +32,7 @@
 #     (getSafeStage1Text / getSafeJSErrorMetadata).
 #
 diff --git a/API/hermes/hermes.cpp b/API/hermes/hermes.cpp
-index 96808afcc1940ba8141867447889086563ae22fc..1e6e6340281be5d055ae6e8b6cc2c2a6aa062ef6 100644
+index 65200e0d963bfeaaa3d59f6d55f7c4fca24415d4..598d8dbdd2b4645f6e55133903d6401eabf1c286 100644
 --- a/API/hermes/hermes.cpp
 +++ b/API/hermes/hermes.cpp
 @@ -23,12 +23,14 @@

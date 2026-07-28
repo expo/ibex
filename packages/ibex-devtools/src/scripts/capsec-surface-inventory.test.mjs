@@ -3273,8 +3273,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       {
         ...inputs,
         hermesVersionText: inputs.hermesVersionText.replace(
-          "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
-          "bc8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
+          "e639a7bad8bfca844d982afa54fac786c65a8856",
+          "f639a7bad8bfca844d982afa54fac786c65a8856",
         ),
       },
       {

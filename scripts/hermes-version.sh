@@ -2,9 +2,11 @@
 
 # Shared Hermes release pins for Ibex build/install scripts.
 #
-# The 260318099.0.0 release is published as a stable source branch rather than
-# a GitHub release tag with prebuilt Darwin tarballs. Android's Maven artifact
-# has not caught up yet, so keep that platform pin explicit and separate.
+# The 260318099.0.0 release train is published as a moving stable source branch
+# rather than with prebuilt Darwin tarballs. The selected source commit is
+# post-260318099.0.1 and includes the WeakRef read-barrier fix. Maven publishes
+# Android only through 260318099.0.1, so keep that reviewed platform profile on
+# its older, unaffected artifact until a fixed AAR is available.
 
 IBEX_HERMES_VERSION="${IBEX_HERMES_VERSION:-260318099.0.0}"
 IBEX_HERMES_SOURCE_REF="${IBEX_HERMES_SOURCE_REF:-${IBEX_HERMES_VERSION}-stable}"
@@ -16,7 +18,7 @@ IBEX_HERMES_SOURCE_REF="${IBEX_HERMES_SOURCE_REF:-${IBEX_HERMES_VERSION}-stable}
 # shipped — so the build scripts check out this commit, not the branch
 # (ENG-23092). Update both together per the pin-bump runbook
 # (patches/hermes/README.md; LLP 0013 upstream-tracking).
-IBEX_HERMES_SOURCE_COMMIT="${IBEX_HERMES_SOURCE_COMMIT:-ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138}"
+IBEX_HERMES_SOURCE_COMMIT="${IBEX_HERMES_SOURCE_COMMIT:-e639a7bad8bfca844d982afa54fac786c65a8856}"
 
 # What the build scripts actually build by default: the pinned commit, with
 # the branch name kept as a fallback if the commit pin is explicitly unset.

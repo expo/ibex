@@ -146,9 +146,11 @@ AAR-based builds can use bootstrap JS source when no matching host `hermesc` is
 installed. `HERMES_ANDROID_VERSION`, `REACT_ANDROID_VERSION`,
 `ANDROID_HERMES_VARIANT`, and `ANDROID_API` are overrideable. The default
 Android artifact pair is `hermes-android:250829098.0.14` with
-`react-android:0.86.0`, because Maven Central does not yet publish
-`hermes-android:260318099.0.0` and the JSI PREFAB must include
-`jsi/hermes-interfaces.h`.
+`react-android:0.86.0`. Maven Central now publishes the
+`260318099.0.0`/`.0.1` Hermes AARs, but `.0.1` predates the WeakRef
+read-barrier fix in the source-built pin. Android therefore stays on the older,
+unaffected reviewed artifact until a fixed AAR is available; the paired JSI
+PREFAB must continue to include `jsi/hermes-interfaces.h`.
 
 ## Crypto profiles
 

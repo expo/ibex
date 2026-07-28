@@ -5,6 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
+**Revised:** 2026-07-28 (the source-patched Hermes profiles move to post-260318099.0.1 commit e639a7bad8bf, carrying the upstream WeakRef read-barrier fix; all fourteen patches were re-derived against that source while Android remains on its older unaffected reviewed AAR)
 **Revised:** 2026-07-27 (patch 0014 adds the reviewed one-way Hermes dynamic-code latch and closes the cached `Function("return this")` fast path when eval is disabled)
 **Revised:** 2026-07-17 (cross-principal authenticated route-cache hits now carry the resolution kind and revalidate the complete immutable-snapshot edge tuple, preventing a warmed SourceId or leaked loader closure from substituting another subpath or CJS/dynamic-import edge to the same locator; same-principal file routes retain exact SourceId ownership authorization)
 **Revised:** 2026-07-17 (ENG-24933 gives Windows its own source-patched Hermes profile and exact builder/installer receipt identity while retaining independent-build and mapped-image blockers; a loader-reported pathname reopen is not mapped-code attestation)
@@ -51,7 +52,7 @@
 > `scripts/update-hermes.sh` (or any `build-hermes-*.sh`) materializes it;
 > this document's `hermes:` citations were verified against the checkout at
 > `~/.cache/exact/hermes/hermes-src`, commit
-> `ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138` (HEAD of
+> `e639a7bad8bfca844d982afa54fac786c65a8856` (post-260318099.0.1 on
 > `origin/260318099.0.0-stable`). Equivalent:
 > `git clone --branch 260318099.0.0-stable https://github.com/facebook/hermes.git`.
 

@@ -2941,7 +2941,7 @@ const REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES = Object.freeze([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.b63fe0f5449b8732e110e9bc551540da9be95e85e3679bd89c0a79aaf04e8089";
+  "hermes-evaluators.e2f9d545ee737b7d6605e7847d43815c15e21f438396d64ace7edcdcb2c56694";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
