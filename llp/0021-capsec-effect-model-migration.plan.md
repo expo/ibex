@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-27 (promotes exactly nine fresh `node:http` construction/lifecycle calls: `Agent.destroy`, `Server`, `Server.close`, `Server.closeAllConnections`, `Server.closeIdleConnections`, `Server.constructor`, `Server.ref`, `Server.unref`, and `createServer`; the author, independent evidence validator, Rust validator, and loaded-engine JavaScript harness each repeat the complete source descriptor, empty arguments, exact fresh receiver setup, result type, and normal-return proof; no receiver has a listener, socket, or native selector, and `Server.close` must drain its terminal event before quiescence; listening, client-request, and transport-retaining routes remain residual; Apple accounting is 3,689 fully executable / 3,036 internally verified / 16,859 unresolved and Windows accounting is 3,346 / 3,022 / 16,875)
 **Revised:** 2026-07-27 (promotes exactly seven inert `closed` boolean reads on fresh harness-owned `default`, `Duplex`, `PassThrough`, `Readable`, `Stream`, `Transform`, and `Writable` instances; the inventory's inherited/prototype rows do not describe a value on those prototypes, so authoring, independent validation, and Rust execution require the separate `constructed-instance-property` access kind, exact owner setup, own getter, boolean result, quiescence, and zero decisions; mutable `readableState` and `writableState` graphs remain residual; Apple accounting is 3,680 fully executable / 3,036 internally verified / 16,868 unresolved and Windows accounting is 3,337 / 3,022 / 16,884)
 **Revised:** 2026-07-27 (promotes idle `destroy` on exactly 11 Apple zlib owners and the nine installed Windows owners: construction establishes the principal-bound native selector, the public source path authenticates before delegating, `_destroy` closes the selector, and the harness performs idempotent cleanup before proving quiescence; authoring, independent validation, and Rust execution repeat the exact owner/method/result contract; Windows Brotli owners remain residual because their native codec prerequisite is not installed; Apple accounting is 3,673 fully executable / 3,036 internally verified / 16,875 unresolved and Windows accounting is 3,330 / 3,022 / 16,891)
 **Revised:** 2026-07-27 (promotes exactly six lifecycle calls on the base `node:stream` module-value constructor: `_close`, `_emitClose`, `_undestroy`, `constructor`, `destroy`, and `unpipe`; authoring, validation, and physical execution independently require `["prototype", method]` rather than the nonexistent `["default", "prototype", method]`, and only this closed name set receives the module-value correction; `default.pipe` remains residual because it retains listener and pipeline ownership; Apple accounting is 3,662 fully executable / 3,036 internally verified / 16,886 unresolved and Windows accounting is 3,321 / 3,022 / 16,900)
@@ -2721,6 +2722,22 @@ then proves event-loop quiescence with zero decisions. The author, independent
 validator, and Rust executor separately repeat that owner/access/result
 contract. `readableState` and `writableState` remain residual because their
 mutable object graphs are not justified by this scalar receipt.
+
+Fresh HTTP lifecycle evidence is limited to nine independently repeated
+contracts: `Agent.destroy`; construction through `Server`,
+`Server.constructor`, or `createServer`; and `Server.close`,
+`Server.closeAllConnections`, `Server.closeIdleConnections`, `Server.ref`, and
+`Server.unref`. Every receiver is constructed by the harness with empty
+arguments and owns no listener, socket, or native selector. The recipe author,
+independent evidence validator, Rust validator, and loaded-engine JavaScript
+harness each repeat the complete `node_http` source descriptor, canonical
+`node:http` invocation, exact receiver setup, empty argument list, result type,
+and normal-return proof. `Server.close` may schedule its terminal close event;
+the receipt is valid only after that event drains and event-loop quiescence is
+observed with zero typed decisions. This exception does not admit arbitrary
+HTTP calls: client-request operations, `Agent.addRequest`, `Server.listen`,
+`Server.getConnections`, and every route requiring or retaining live transport
+state remain residual.
 
 Acceptance:
 

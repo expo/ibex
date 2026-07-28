@@ -4204,6 +4204,58 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — executed fresh HTTP lifecycle calls
+
+- Promoted exactly nine `node:http` rows: `Agent.destroy`, `Server`,
+  `Server.close`, `Server.closeAllConnections`, `Server.closeIdleConnections`,
+  `Server.constructor`, `Server.ref`, `Server.unref`, and `createServer`.
+  Every receiver is constructed fresh with no listener, socket, or native
+  selector. `Server.close` schedules its terminal close event, so the receipt
+  requires that timer to drain before event-loop quiescence.
+- Admission remains exact rather than source-family-wide. The recipe author,
+  independent JavaScript evidence validator, Rust catalog validator, and
+  loaded-engine JavaScript harness separately bind the full `node_http`
+  descriptor and aliases, canonical `node:http` invocation, exact empty
+  receiver setup, empty arguments, normal-return proof, and result type.
+  `Agent.addRequest`, client-request operations, `Server.listen`,
+  `Server.getConnections`, and other transport-retaining routes remain
+  residual.
+- The regenerated Apple catalog digest
+  `sha256-_KlvYNDazlhFHmYhtb_bzRhjnkXV07Ir_dO-N2PnMmU` reports 23,584
+  required / **3,689 fully executable** / 3,036 internally verified / 16,859
+  unresolved. The regenerated Windows digest
+  `sha256-urMBUhvfpQaE3lg7BNodkwke2HSzBxhW7EaiqcirBMU` reports 23,243
+  required / **3,346 fully executable** / 3,022 internally verified / 16,875
+  unresolved. The descriptor-only output residual manifest correspondingly
+  falls from 564 to 555 rows.
+- The EPYC exact-Hermes diagnostic receipt binds the 34 required fresh imports
+  plus all nine new HTTP calls under focused catalog digest
+  `sha256-em_a2d8cukFF6c2U6j_JRAn1JaHMXEgCFgrGGu6Qpwk` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 43
+  fixtures pass. Every HTTP result reaches event-loop quiescence and records
+  zero typed decisions. The raw evidence SHA-256 is
+  `60261b3a94c0784df374cd97b0dbbde9dbda111cb1c7d7cb925c470c712c5d8e`;
+  independent JavaScript validation accepted exactly 43 executions and
+  produced execution digest
+  `sha256-ATxmPaRPxCC0zzPJC_Tfk9dbsfbke4OQb0Dl8H2LdP4`.
+- This Linux replay is diagnostic, not Apple target-promotion evidence: it
+  deliberately validates a digest-bound subset and cannot substitute Linux
+  target-absence results for the full Apple catalog. The focused
+  author/catalog/validator/output-accounting suite passes **188/188** tests
+  with 125,344 assertions, and the regenerated runtime-environment inventory
+  passes all 11 tests and accounts for 169 source-derived rows. Contract,
+  registry, runtime-projection, and inventory drift gates pass; `ref-check`
+  validates 41 LLP documents and 2,227 references with zero errors (one stable
+  URL remains unchecked).
+- Hard parts: a generic constructed receiver would turn newly inventoried HTTP
+  methods into unintended executable claims, so four independent layers had
+  to repeat the complete closed vocabulary. `Server.close` also disproved the
+  tempting assumption that an idle server schedules nothing; the proof
+  instead observes the real terminal event and waits for quiescence.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

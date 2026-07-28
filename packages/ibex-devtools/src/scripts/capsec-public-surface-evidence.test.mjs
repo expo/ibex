@@ -5126,6 +5126,104 @@ describe("CapSec public-surface promotion evidence", () => {
     }
   });
 
+  test("accepts only reviewed fresh HTTP lifecycle calls", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:http";
+    invocation.exportName = "Server.close";
+    invocation.templateId = "node-http-idle-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_http",
+      exportName: "Server.close",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: [
+        "_http_agent",
+        "_http_common",
+        "_http_incoming",
+        "_http_outgoing",
+        "_http_server",
+        "http",
+        "node:http",
+      ],
+      sourceRef: "src/builtins/http.js#exports:Server.close",
+      valueShape: "callable",
+      access: {
+        kind: "prototype-property",
+        path: ["Server", "prototype", "close"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.setup = {
+      kind: "constructed-owner",
+      ownerExportName: "Server",
+      constructorArguments: [],
+    };
+    invocation.arguments = [];
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "object",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.result.dispatchKind = "prototype-call";
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.ownerExportName = "Agent";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.constructorArguments = [
+          { kind: "json", value: {} },
+        ];
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments = [
+          { kind: "noop-function" },
+        ];
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.bodyEntryProof.resultType =
+          "undefined";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.templateId =
+          "node-http2-pure-v1";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.sourceDescriptor.access.path = [
+          "Server",
+          "prototype",
+          "listen",
+        ];
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored idle HTTP proof|wrong value type|not source-descriptor bound/,
+      );
+    }
+  });
+
   test("accepts only reviewed dns/promises error reads that return strings", () => {
     const catalog = completeDnsPromiseErrorReadCatalog();
     const recipe = catalog.recipes[0];

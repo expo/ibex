@@ -1529,6 +1529,116 @@ describe("source-bound builtin public probes", () => {
     ).toBeNull();
   });
 
+  test("authors only the exact fresh HTTP lifecycle family", () => {
+    const contracts = [
+      [
+        "Agent.destroy",
+        {
+          kind: "constructed-owner",
+          ownerExportName: "Agent",
+          constructorArguments: [],
+        },
+        "undefined",
+      ],
+      ["Server", { kind: "construct-target" }, "object"],
+      [
+        "Server.close",
+        {
+          kind: "constructed-owner",
+          ownerExportName: "Server",
+          constructorArguments: [],
+        },
+        "object",
+      ],
+      [
+        "Server.closeAllConnections",
+        {
+          kind: "constructed-owner",
+          ownerExportName: "Server",
+          constructorArguments: [],
+        },
+        "undefined",
+      ],
+      [
+        "Server.closeIdleConnections",
+        {
+          kind: "constructed-owner",
+          ownerExportName: "Server",
+          constructorArguments: [],
+        },
+        "undefined",
+      ],
+      ["Server.constructor", { kind: "construct-target" }, "object"],
+      [
+        "Server.ref",
+        {
+          kind: "constructed-owner",
+          ownerExportName: "Server",
+          constructorArguments: [],
+        },
+        "object",
+      ],
+      [
+        "Server.unref",
+        {
+          kind: "constructed-owner",
+          ownerExportName: "Server",
+          constructorArguments: [],
+        },
+        "object",
+      ],
+      ["createServer", { kind: "root-call" }, "object"],
+    ];
+    for (const [exportName, setup, resultType] of contracts) {
+      const prototype = exportName.includes(".");
+      expect(
+        probeFor({
+          sourceKey: "node_http",
+          exportName,
+          exportIdioms: prototype
+            ? ["exported-constructor-prototype"]
+            : ["module-exports-object"],
+          moduleSpecifiers: [
+            "_http_agent",
+            "_http_common",
+            "_http_incoming",
+            "_http_outgoing",
+            "_http_server",
+            "http",
+            "node:http",
+          ],
+          valueShape: "callable",
+        }),
+      ).toMatchObject({
+        invocation: {
+          templateId: "node-http-idle-v1",
+          arguments: [],
+          setup,
+          bodyEntryProof: {
+            kind: "normal-return-from-source-call",
+            resultType,
+          },
+        },
+      });
+    }
+    for (const exportName of [
+      "Agent.addRequest",
+      "ClientRequest.destroy",
+      "Server.getConnections",
+      "Server.listen",
+    ]) {
+      expect(
+        probeFor({
+          sourceKey: "node_http",
+          exportName,
+          exportIdioms: ["exported-constructor-prototype"],
+          moduleSpecifiers: ["http", "node:http"],
+          valueShape: "callable",
+        }),
+      ).toBeNull();
+    }
+  });
+
   test("authors pure IP, module, clock, URL, and version helpers", () => {
     expect(
       probeFor({

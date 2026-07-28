@@ -1365,6 +1365,109 @@ fn validate_idle_zlib_destroy_contract(
     assert!(invocation.arguments.is_empty());
 }
 
+fn validate_idle_http_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    if descriptor.source_key != "node_http" {
+        return;
+    }
+    let (expected_setup, expected_result_type) = match descriptor.export_name.as_str() {
+        "Agent.destroy" => (
+            serde_json::json!({
+                "kind": "constructed-owner",
+                "ownerExportName": "Agent",
+                "constructorArguments": []
+            }),
+            "undefined",
+        ),
+        "Server" | "Server.constructor" => {
+            (serde_json::json!({"kind": "construct-target"}), "object")
+        }
+        "Server.close" => (
+            serde_json::json!({
+                "kind": "constructed-owner",
+                "ownerExportName": "Server",
+                "constructorArguments": []
+            }),
+            "object",
+        ),
+        "Server.closeAllConnections" | "Server.closeIdleConnections" => (
+            serde_json::json!({
+                "kind": "constructed-owner",
+                "ownerExportName": "Server",
+                "constructorArguments": []
+            }),
+            "undefined",
+        ),
+        "Server.ref" | "Server.unref" => (
+            serde_json::json!({
+                "kind": "constructed-owner",
+                "ownerExportName": "Server",
+                "constructorArguments": []
+            }),
+            "object",
+        ),
+        "createServer" => (serde_json::json!({"kind": "root-call"}), "object"),
+        other => panic!("unsupported idle HTTP call {other}"),
+    };
+    let segments = descriptor.export_name.split('.').collect::<Vec<_>>();
+    let prototype = segments.len() == 2;
+    assert!(matches!(segments.len(), 1 | 2));
+    assert_eq!(
+        descriptor.export_idioms,
+        vec![if prototype {
+            "exported-constructor-prototype".to_owned()
+        } else {
+            "module-exports-object".to_owned()
+        }]
+    );
+    assert_eq!(
+        descriptor.module_specifiers,
+        [
+            "_http_agent",
+            "_http_common",
+            "_http_incoming",
+            "_http_outgoing",
+            "_http_server",
+            "http",
+            "node:http",
+        ]
+        .map(str::to_owned)
+    );
+    assert_eq!(
+        descriptor.source_ref,
+        format!("src/builtins/http.js#exports:{}", descriptor.export_name)
+    );
+    assert_eq!(descriptor.value_shape, "callable");
+    assert_eq!(
+        descriptor.access.kind,
+        if prototype {
+            "prototype-property"
+        } else {
+            "export-property"
+        }
+    );
+    assert_eq!(
+        descriptor.access.path,
+        if prototype {
+            vec![
+                segments[0].to_owned(),
+                "prototype".to_owned(),
+                segments[1].to_owned(),
+            ]
+        } else {
+            vec![segments[0].to_owned()]
+        }
+    );
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, expected_result_type);
+    assert_eq!(invocation.setup, expected_setup);
+    assert!(invocation.arguments.is_empty());
+}
+
 fn expected_template_id(source_key: &str) -> Option<&'static str> {
     match source_key {
         "exact_crypto" => Some("exact-crypto-bounded-v1"),
@@ -1372,6 +1475,7 @@ fn expected_template_id(source_key: &str) -> Option<&'static str> {
         "node_buffer" => Some("node-buffer-bounded-v1"),
         "node_dns" => Some("node-dns-pure-v1"),
         "node_fs" => Some("node-fs-pure-v1"),
+        "node_http" => Some("node-http-idle-v1"),
         "node_http2" => Some("node-http2-pure-v1"),
         "node_events" => Some("node-events-bounded-v1"),
         "node_module" => Some("node-module-pure-v1"),
@@ -1712,6 +1816,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         validate_explicit_diffie_hellman_contract(invocation, &descriptor, proof);
         validate_base_stream_module_value_contract(invocation, &descriptor, proof);
         validate_idle_zlib_destroy_contract(invocation, &descriptor, proof);
+        validate_idle_http_contract(invocation, &descriptor, proof);
         assert!(matches!(
             proof.result_type.as_str(),
             "bigint"

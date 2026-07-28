@@ -1114,6 +1114,24 @@ const NODE_NET_CALL_SPECS = Object.freeze({
   isIPv6: rootCall([jsonArgument("::1")], "boolean"),
 });
 
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — A
+// fresh HTTP Agent or Server has no socket, listener, or native selector.
+// These exact lifecycle operations either construct that idle wrapper, clear
+// empty harness-owned collections, update only in-memory terminal state, or
+// skip native ref/unref because no selector exists. Server.close may schedule
+// its terminal close event, which the required quiescence observation drains.
+const NODE_HTTP_CALL_SPECS = Object.freeze({
+  "Agent.destroy": constructedOwner("Agent", [], "undefined"),
+  Server: constructTarget([]),
+  "Server.close": constructedOwner("Server", [], "object"),
+  "Server.closeAllConnections": constructedOwner("Server", [], "undefined"),
+  "Server.closeIdleConnections": constructedOwner("Server", [], "undefined"),
+  "Server.constructor": constructTarget([]),
+  "Server.ref": constructedOwner("Server", [], "object"),
+  "Server.unref": constructedOwner("Server", [], "object"),
+  createServer: rootCall([], "object"),
+});
+
 const NODE_FS_CALL_SPECS = Object.freeze({
   _toUnixTimestamp: rootCall([jsonArgument(1)], "number"),
   Stats: constructTarget([
@@ -1182,6 +1200,7 @@ const ROOT_CALL_SPECS = Object.freeze({
     getDefaultSettings: rootCall([], "object"),
   }),
   node_fs: NODE_FS_CALL_SPECS,
+  node_http: NODE_HTTP_CALL_SPECS,
   node_stream_web: Object.freeze({
     isReadableStream: rootCall([jsonArgument({})], "boolean"),
     isWritableStream: rootCall([jsonArgument({})], "boolean"),
@@ -2042,6 +2061,7 @@ const CALL_TEMPLATE_IDS = Object.freeze({
   node_assert: "node-assert-bounded-v1",
   node_buffer: "node-buffer-bounded-v1",
   node_dns: "node-dns-pure-v1",
+  node_http: "node-http-idle-v1",
   node_http2: "node-http2-pure-v1",
   node_events: "node-events-bounded-v1",
   node_fs: "node-fs-pure-v1",
@@ -2253,6 +2273,7 @@ function sourceDescriptor(
   {
     allowTargetAbsence = false,
     allowReviewedPostInitializationValue = false,
+    allowReviewedIdleHttpCall = false,
   } = {},
 ) {
   const metadata = surface?.metadata;
@@ -2271,7 +2292,12 @@ function sourceDescriptor(
     typeof metadata.sourceKey !== "string" ||
     metadata.sourceKey.length === 0 ||
     (NONCAP_GENERIC_EXPORT_EXCLUSIONS.has(metadata.sourceKey) &&
-      !allowReviewedPostInitializationValue) ||
+      !allowReviewedPostInitializationValue &&
+      !(
+        allowReviewedIdleHttpCall &&
+        metadata.sourceKey === "node_http" &&
+        ownValue(NODE_HTTP_CALL_SPECS, metadata.exportName)
+      )) ||
     !allowedValueShapes.has(metadata.valueShape) ||
     typeof metadata.exportName !== "string" ||
     metadata.exportName.length === 0 ||
@@ -2533,7 +2559,9 @@ function authoredNonCapabilityBuiltinInvocationDefinition({
           readDescriptor.access.kind === "export-property")));
   const callDescriptor = readEligible
     ? null
-    : sourceDescriptor(surface, target, new Set(["callable"]));
+    : sourceDescriptor(surface, target, new Set(["callable"]), {
+        allowReviewedIdleHttpCall: true,
+      });
   const callTemplate = callDescriptor ? callTemplateFor(callDescriptor) : null;
   const descriptor = readEligible ? readDescriptor : callDescriptor;
   if (!descriptor || (!readEligible && !callTemplate)) return null;

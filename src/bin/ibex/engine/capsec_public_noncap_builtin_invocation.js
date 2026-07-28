@@ -6,6 +6,150 @@
     return value === null ? "null" : typeof value;
   }
 
+  function exactObjectKeys(value, expected) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return false;
+    }
+    var keys = Object.keys(value).sort();
+    var wanted = expected.slice().sort();
+    if (keys.length !== wanted.length) return false;
+    for (var index = 0; index < keys.length; index++) {
+      if (keys[index] !== wanted[index]) return false;
+    }
+    return true;
+  }
+
+  function sameStringArray(value, expected) {
+    if (!Array.isArray(value) || value.length !== expected.length) {
+      return false;
+    }
+    for (var index = 0; index < value.length; index++) {
+      if (value[index] !== expected[index]) return false;
+    }
+    return true;
+  }
+
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // Independently close the HTTP recipe family at execution time. Generic
+  // constructed receivers must not turn a newly catalogued HTTP method into
+  // an executable lifecycle claim.
+  function isReviewedIdleHttpInvocation(invocation) {
+    if (
+      invocation.invocationSchema !==
+        "ibex/capsec-builtin-call-invocation/1" ||
+      invocation.kind !== "builtin-export-call" ||
+      !invocation.sourceDescriptor ||
+      invocation.sourceDescriptor.sourceKey !== "node_http"
+    ) {
+      return true;
+    }
+    var descriptor = invocation.sourceDescriptor;
+    var exportName = invocation.exportName;
+    var segments =
+      typeof exportName === "string" ? exportName.split(".") : [];
+    var prototype = segments.length === 2;
+    if (
+      invocation.moduleSpecifier !== "node:http" ||
+      invocation.templateId !== "node-http-idle-v1" ||
+      descriptor.exportName !== exportName ||
+      !exactObjectKeys(descriptor, [
+        "access",
+        "exportIdioms",
+        "exportName",
+        "kind",
+        "moduleSpecifiers",
+        "sourceKey",
+        "sourceRef",
+        "valueShape",
+      ]) ||
+      descriptor.kind !== "builtin-export" ||
+      descriptor.valueShape !== "callable" ||
+      descriptor.sourceRef !==
+        "src/builtins/http.js#exports:" + exportName ||
+      !sameStringArray(descriptor.exportIdioms, [
+        prototype
+          ? "exported-constructor-prototype"
+          : "module-exports-object",
+      ]) ||
+      !sameStringArray(descriptor.moduleSpecifiers, [
+        "_http_agent",
+        "_http_common",
+        "_http_incoming",
+        "_http_outgoing",
+        "_http_server",
+        "http",
+        "node:http",
+      ]) ||
+      !exactObjectKeys(descriptor.access, ["kind", "path"]) ||
+      descriptor.access.kind !==
+        (prototype ? "prototype-property" : "export-property") ||
+      !sameStringArray(
+        descriptor.access.path,
+        prototype
+          ? [segments[0], "prototype", segments[1]]
+          : [exportName],
+      ) ||
+      !Array.isArray(invocation.arguments) ||
+      invocation.arguments.length !== 0 ||
+      !exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) ||
+      invocation.bodyEntryProof.kind !== "normal-return-from-source-call"
+    ) {
+      return false;
+    }
+    var setup = invocation.setup;
+    var resultType;
+    if (exportName === "Server" || exportName === "Server.constructor") {
+      resultType = "object";
+      return (
+        invocation.bodyEntryProof.resultType === resultType &&
+        exactObjectKeys(setup, ["kind"]) &&
+        setup.kind === "construct-target"
+      );
+    }
+    if (exportName === "createServer") {
+      resultType = "object";
+      return (
+        invocation.bodyEntryProof.resultType === resultType &&
+        exactObjectKeys(setup, ["kind"]) &&
+        setup.kind === "root-call"
+      );
+    }
+    var owner;
+    if (exportName === "Agent.destroy") {
+      owner = "Agent";
+      resultType = "undefined";
+    } else if (exportName === "Server.close") {
+      owner = "Server";
+      resultType = "object";
+    } else if (
+      exportName === "Server.closeAllConnections" ||
+      exportName === "Server.closeIdleConnections"
+    ) {
+      owner = "Server";
+      resultType = "undefined";
+    } else if (
+      exportName === "Server.ref" ||
+      exportName === "Server.unref"
+    ) {
+      owner = "Server";
+      resultType = "object";
+    } else {
+      return false;
+    }
+    return (
+      invocation.bodyEntryProof.resultType === resultType &&
+      exactObjectKeys(setup, [
+        "constructorArguments",
+        "kind",
+        "ownerExportName",
+      ]) &&
+      setup.kind === "constructed-owner" &&
+      setup.ownerExportName === owner &&
+      Array.isArray(setup.constructorArguments) &&
+      setup.constructorArguments.length === 0
+    );
+  }
+
   // Output-shape capture is deliberately non-coercing. Primitive values are
   // retained exactly; functions, symbols, and undefined use the established
   // null payload; compound values retain their actual shape without invoking
@@ -300,6 +444,9 @@
 
   try {
     var cleanupPerformed = false;
+    if (!isReviewedIdleHttpInvocation(config)) {
+      return failure("contract-mismatch");
+    }
     var moduleValue = require(config.moduleSpecifier);
     var resolved = resolveExport(moduleValue, config.sourceDescriptor);
     if (resolved.error) return resolved.error;
