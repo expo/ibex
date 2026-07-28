@@ -5224,6 +5224,98 @@ describe("CapSec public-surface promotion evidence", () => {
     }
   });
 
+  test("accepts only reviewed fresh UDP socket lifecycle calls", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:dgram";
+    invocation.exportName = "Socket.close";
+    invocation.templateId = "node-dgram-idle-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_dgram",
+      exportName: "Socket.close",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: ["dgram", "node:dgram"],
+      sourceRef: "src/builtins/dgram.js#exports:Socket.close",
+      valueShape: "callable",
+      access: {
+        kind: "prototype-property",
+        path: ["Socket", "prototype", "close"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.setup = {
+      kind: "constructed-owner",
+      ownerExportName: "Socket",
+      constructorArguments: [{ kind: "json", value: "udp4" }],
+    };
+    invocation.arguments = [];
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "object",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.moduleSpecifier = "node:dgram";
+    observed.invocation.result.moduleSpecifier = "node:dgram";
+    observed.invocation.result.exportName = "Socket.close";
+    observed.invocation.result.dispatchKind = "prototype-call";
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.ownerExportName = "Agent";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.constructorArguments[0].value =
+          "udp6";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments = [
+          { kind: "noop-function" },
+        ];
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.bodyEntryProof.resultType =
+          "undefined";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.templateId =
+          "node-http-idle-v1";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.sourceDescriptor.access.path = [
+          "Socket",
+          "prototype",
+          "bind",
+        ];
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored idle UDP socket proof|wrong value type|not source-descriptor bound/,
+      );
+    }
+  });
+
   test("accepts only reviewed dns/promises error reads that return strings", () => {
     const catalog = completeDnsPromiseErrorReadCatalog();
     const recipe = catalog.recipes[0];

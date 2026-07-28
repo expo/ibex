@@ -555,6 +555,40 @@ const IDLE_HTTP_MODULE_SPECIFIERS = [
   "http",
   "node:http",
 ];
+// A fresh udp4 wrapper owns only an authenticated principal stamp. The
+// constructor does not allocate a native handle; ref/unref see no poll timer,
+// and close only schedules the terminal close event required by quiescence.
+const IDLE_DGRAM_CALL_CONTRACTS = new Map([
+  ...["Socket", "Socket.constructor"].map((exportName) => [
+    exportName,
+    {
+      setup: { kind: "construct-target" },
+      arguments: [{ kind: "json", value: "udp4" }],
+      resultType: "object",
+    },
+  ]),
+  ...["close", "ref", "unref"].map((method) => [
+    `Socket.${method}`,
+    {
+      setup: {
+        kind: "constructed-owner",
+        ownerExportName: "Socket",
+        constructorArguments: [{ kind: "json", value: "udp4" }],
+      },
+      arguments: [],
+      resultType: "object",
+    },
+  ]),
+  [
+    "createSocket",
+    {
+      setup: { kind: "root-call" },
+      arguments: [{ kind: "json", value: "udp4" }],
+      resultType: "object",
+    },
+  ],
+]);
+const IDLE_DGRAM_MODULE_SPECIFIERS = ["dgram", "node:dgram"];
 const ZLIB_IDLE_DESTROY_OWNERS = new Set([
   "BrotliCompress",
   "BrotliDecompress",
@@ -4722,6 +4756,58 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: malformed authored idle HTTP proof`,
+      );
+    }
+    const idleDgramContract =
+      authored.sourceDescriptor.sourceKey === "node_dgram"
+        ? IDLE_DGRAM_CALL_CONTRACTS.get(authored.exportName)
+        : null;
+    const idleDgramPrototype =
+      idleDgramContract && authored.exportName.includes(".");
+    const expectedIdleDgramDescriptor = idleDgramContract
+      ? {
+          kind: "builtin-export",
+          sourceKey: "node_dgram",
+          exportName: authored.exportName,
+          exportIdioms: [
+            idleDgramPrototype
+              ? "exported-constructor-prototype"
+              : "module-exports-object",
+          ],
+          moduleSpecifiers: IDLE_DGRAM_MODULE_SPECIFIERS,
+          sourceRef: `src/builtins/dgram.js#exports:${authored.exportName}`,
+          valueShape: "callable",
+          access: idleDgramPrototype
+            ? {
+                kind: "prototype-property",
+                path: [
+                  authored.exportName.split(".")[0],
+                  "prototype",
+                  authored.exportName.split(".")[1],
+                ],
+              }
+            : {
+                kind: "export-property",
+                path: [authored.exportName],
+              },
+        }
+      : null;
+    if (
+      authored.sourceDescriptor.sourceKey === "node_dgram" &&
+      (!idleDgramContract ||
+        authored.moduleSpecifier !== "node:dgram" ||
+        authored.templateId !== "node-dgram-idle-v1" ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !== idleDgramContract.resultType ||
+        canonicalJson(authored.setup) !==
+          canonicalJson(idleDgramContract.setup) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson(idleDgramContract.arguments) ||
+        canonicalJson(authored.sourceDescriptor) !==
+          canonicalJson(expectedIdleDgramDescriptor))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored idle UDP socket proof`,
       );
     }
     const [zlibOwner, zlibMethod, ...zlibExtra] =

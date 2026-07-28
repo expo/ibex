@@ -4256,6 +4256,56 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — executed fresh UDP socket lifecycle calls
+
+- Promoted exactly six `node:dgram` udp4 rows: `Socket`, `Socket.close`,
+  `Socket.constructor`, `Socket.ref`, `Socket.unref`, and `createSocket`.
+  Construction creates the authenticated owner stamp but no native handle,
+  binding, poll timer, or peer route. `close` schedules its terminal close
+  event, which must drain before the receipt reaches quiescence.
+- Admission is repeated independently by the recipe author, JavaScript
+  evidence validator, Rust catalog validator, and loaded-engine JavaScript
+  harness. Each binds the actual `src/builtins/dgram.js` source descriptor,
+  both aliases, canonical `node:dgram`, exact udp4 constructor argument, empty
+  lifecycle arguments, object result, and normal-return proof. Bind, connect,
+  disconnect, send, address, membership, buffer-size, and socket-option routes
+  remain residual.
+- The regenerated Apple catalog digest
+  `sha256-HlmosEOQCb9Ewsz-_tOlKtDhJxIKPUuBz-KPjH4vtV0` reports 23,584
+  required / **3,695 fully executable** / 3,036 internally verified / 16,853
+  unresolved. The regenerated Windows digest
+  `sha256-6Q5gYJ7UGZMkTqDrcHXCECTx7SeY_1-wKpasJvQrrFI` reports 23,243
+  required / **3,352 fully executable** / 3,022 internally verified / 16,869
+  unresolved. The descriptor-only output residual manifest falls from 555 to
+  549 rows.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 43 focused rows
+  plus all six UDP rows under catalog digest
+  `sha256-wyNg9ljKxJa37PaCQgcujOAjg5zURQSZlRO0F1qmHuA` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 49
+  fixtures pass. Every UDP result is an object, reaches event-loop
+  quiescence, and records zero typed decisions. The raw evidence SHA-256 is
+  `220615cc280fef87404f331f85fd034dc63e9fbde0e4e52e7047e10180ca0863`;
+  independent JavaScript validation accepted exactly 49 executions and
+  produced execution digest
+  `sha256-XlcWb_3PGTPpsfTiJ7gPaA32I0BuUJEwvPmpjhusnzg`.
+- The Linux replay remains diagnostic rather than Apple promotion evidence.
+  The focused author/catalog/validator/output-accounting suite passes
+  **190/190** tests with 125,315 assertions. The runtime-environment inventory
+  passes all 11 tests and accounts for 169 source-derived rows. Contract,
+  registry, runtime-projection, and inventory drift gates pass; `ref-check`
+  validates 41 LLP documents and 2,230 references with zero errors (one stable
+  URL remains unchecked).
+- Hard parts: the first physical attempt failed closed before execution
+  because a synthetic unit helper derived `node_dgram.js`, while the real
+  inventory and catalog correctly bind `dgram.js`. Production validators and
+  the synthetic fixture now repeat the actual source path. A separate review
+  also rejected five tempting HTTP rows because they are effect-bearing
+  multi-scenario obligations; a convenient zero-decision branch cannot
+  reclassify or satisfy their allow/deny/wrong-principal matrix.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

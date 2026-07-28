@@ -150,6 +150,112 @@
     );
   }
 
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // A fresh udp4 Socket has an owner stamp but no native handle, binding,
+  // polling timer, or peer route. Keep that exact closed vocabulary separate
+  // from network-bearing dgram operations at the final execution boundary.
+  function isReviewedIdleDgramInvocation(invocation) {
+    if (
+      invocation.invocationSchema !==
+        "ibex/capsec-builtin-call-invocation/1" ||
+      invocation.kind !== "builtin-export-call" ||
+      !invocation.sourceDescriptor ||
+      invocation.sourceDescriptor.sourceKey !== "node_dgram"
+    ) {
+      return true;
+    }
+    var descriptor = invocation.sourceDescriptor;
+    var exportName = invocation.exportName;
+    var segments =
+      typeof exportName === "string" ? exportName.split(".") : [];
+    var prototype = segments.length === 2;
+    if (
+      invocation.moduleSpecifier !== "node:dgram" ||
+      invocation.templateId !== "node-dgram-idle-v1" ||
+      descriptor.exportName !== exportName ||
+      !exactObjectKeys(descriptor, [
+        "access",
+        "exportIdioms",
+        "exportName",
+        "kind",
+        "moduleSpecifiers",
+        "sourceKey",
+        "sourceRef",
+        "valueShape",
+      ]) ||
+      descriptor.kind !== "builtin-export" ||
+      descriptor.valueShape !== "callable" ||
+      descriptor.sourceRef !==
+        "src/builtins/dgram.js#exports:" + exportName ||
+      !sameStringArray(descriptor.exportIdioms, [
+        prototype
+          ? "exported-constructor-prototype"
+          : "module-exports-object",
+      ]) ||
+      !sameStringArray(descriptor.moduleSpecifiers, ["dgram", "node:dgram"]) ||
+      !exactObjectKeys(descriptor.access, ["kind", "path"]) ||
+      descriptor.access.kind !==
+        (prototype ? "prototype-property" : "export-property") ||
+      !sameStringArray(
+        descriptor.access.path,
+        prototype
+          ? [segments[0], "prototype", segments[1]]
+          : [exportName],
+      ) ||
+      !exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) ||
+      invocation.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+      invocation.bodyEntryProof.resultType !== "object"
+    ) {
+      return false;
+    }
+    function isUdp4Argument(value) {
+      return (
+        exactObjectKeys(value, ["kind", "value"]) &&
+        value.kind === "json" &&
+        value.value === "udp4"
+      );
+    }
+    if (exportName === "Socket" || exportName === "Socket.constructor") {
+      return (
+        exactObjectKeys(invocation.setup, ["kind"]) &&
+        invocation.setup.kind === "construct-target" &&
+        Array.isArray(invocation.arguments) &&
+        invocation.arguments.length === 1 &&
+        isUdp4Argument(invocation.arguments[0])
+      );
+    }
+    if (exportName === "createSocket") {
+      return (
+        exactObjectKeys(invocation.setup, ["kind"]) &&
+        invocation.setup.kind === "root-call" &&
+        Array.isArray(invocation.arguments) &&
+        invocation.arguments.length === 1 &&
+        isUdp4Argument(invocation.arguments[0])
+      );
+    }
+    if (
+      exportName !== "Socket.close" &&
+      exportName !== "Socket.ref" &&
+      exportName !== "Socket.unref"
+    ) {
+      return false;
+    }
+    return (
+      exactObjectKeys(invocation.setup, [
+        "constructorArguments",
+        "kind",
+        "ownerExportName",
+      ]) &&
+      invocation.setup.kind === "constructed-owner" &&
+      invocation.setup.ownerExportName === "Socket" &&
+      Array.isArray(invocation.setup.constructorArguments) &&
+      invocation.setup.constructorArguments.length === 1 &&
+      isUdp4Argument(invocation.setup.constructorArguments[0]) &&
+      Array.isArray(invocation.arguments) &&
+      invocation.arguments.length === 0
+    );
+  }
+
   // Output-shape capture is deliberately non-coercing. Primitive values are
   // retained exactly; functions, symbols, and undefined use the established
   // null payload; compound values retain their actual shape without invoking
@@ -444,7 +550,10 @@
 
   try {
     var cleanupPerformed = false;
-    if (!isReviewedIdleHttpInvocation(config)) {
+    if (
+      !isReviewedIdleHttpInvocation(config) ||
+      !isReviewedIdleDgramInvocation(config)
+    ) {
       return failure("contract-mismatch");
     }
     var moduleValue = require(config.moduleSpecifier);

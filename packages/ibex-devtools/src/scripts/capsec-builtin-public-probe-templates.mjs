@@ -1132,6 +1132,35 @@ const NODE_HTTP_CALL_SPECS = Object.freeze({
   createServer: rootCall([], "object"),
 });
 
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — A
+// fresh UDP Socket owns a principal stamp but no native handle, binding, poll
+// timer, or peer route. These exact construction and idle lifecycle calls use
+// only that harness-owned wrapper; close's terminal event must drain before
+// the shared quiescence observation completes.
+const NODE_DGRAM_CALL_SPECS = Object.freeze({
+  Socket: constructTarget([jsonArgument("udp4")]),
+  "Socket.close": constructedOwner(
+    "Socket",
+    [],
+    "object",
+    [jsonArgument("udp4")],
+  ),
+  "Socket.constructor": constructTarget([jsonArgument("udp4")]),
+  "Socket.ref": constructedOwner(
+    "Socket",
+    [],
+    "object",
+    [jsonArgument("udp4")],
+  ),
+  "Socket.unref": constructedOwner(
+    "Socket",
+    [],
+    "object",
+    [jsonArgument("udp4")],
+  ),
+  createSocket: rootCall([jsonArgument("udp4")], "object"),
+});
+
 const NODE_FS_CALL_SPECS = Object.freeze({
   _toUnixTimestamp: rootCall([jsonArgument(1)], "number"),
   Stats: constructTarget([
@@ -1196,6 +1225,7 @@ const ROOT_CALL_SPECS = Object.freeze({
   node_dns: Object.freeze({
     getDefaultResultOrder: rootCall([], "string"),
   }),
+  node_dgram: NODE_DGRAM_CALL_SPECS,
   node_http2: Object.freeze({
     getDefaultSettings: rootCall([], "object"),
   }),
@@ -2061,6 +2091,7 @@ const CALL_TEMPLATE_IDS = Object.freeze({
   node_assert: "node-assert-bounded-v1",
   node_buffer: "node-buffer-bounded-v1",
   node_dns: "node-dns-pure-v1",
+  node_dgram: "node-dgram-idle-v1",
   node_http: "node-http-idle-v1",
   node_http2: "node-http2-pure-v1",
   node_events: "node-events-bounded-v1",

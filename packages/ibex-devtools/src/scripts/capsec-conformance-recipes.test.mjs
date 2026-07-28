@@ -432,13 +432,15 @@ describe("exact-target CapSec executable recipes", () => {
     // Nine fresh HTTP construction/lifecycle calls own no listener, socket, or
     // native selector; Server.close's terminal event timer drains before the
     // quiescent observation completes.
+    // Six fresh udp4 Socket construction/lifecycle calls own no native handle,
+    // binding, poll timer, or peer route; close drains its terminal event.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_689);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_695);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_859);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_853);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -599,12 +601,14 @@ describe("exact-target CapSec executable recipes", () => {
     // target-local residuals. Seven inert stream.closed reads use fresh
     // harness-owned instances on both targets. Nine fresh HTTP
     // construction/lifecycle calls own no live transport state, and the close
-    // event timer drains before quiescence. The restricted no-eval constructor
+    // event timer drains before quiescence.
+    // Six fresh udp4 Socket construction/lifecycle calls own no native handle,
+    // binding, poll timer, or peer route. The restricted no-eval constructor
     // added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_346);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_352);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_875);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_869);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5308,6 +5312,7 @@ describe("exact-target CapSec executable recipes", () => {
         "exact_crypto",
         "node_assert",
         "node_buffer",
+        "node_dgram",
         "node_dns",
         "node_events",
         "node_fs",
@@ -5419,6 +5424,27 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe.invocation.templateId ===
             "node-http-idle-v1" &&
           recipe.publicSurfaceProbe.invocation.arguments.length === 0,
+      ),
+    ).toBe(true);
+    const idleDgramCalls = publicCalls.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+        "node_dgram",
+    );
+    expect(idleDgramCalls).toHaveLength(6);
+    expect(
+      idleDgramCalls.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.templateId ===
+            "node-dgram-idle-v1" &&
+          new Set([
+            "Socket",
+            "Socket.close",
+            "Socket.constructor",
+            "Socket.ref",
+            "Socket.unref",
+            "createSocket",
+          ]).has(recipe.publicSurfaceProbe.invocation.exportName),
       ),
     ).toBe(true);
     expect(

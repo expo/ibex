@@ -1468,11 +1468,91 @@ fn validate_idle_http_contract(
     assert!(invocation.arguments.is_empty());
 }
 
+fn validate_idle_dgram_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    if descriptor.source_key != "node_dgram" {
+        return;
+    }
+    let udp4_argument = serde_json::json!({"kind": "json", "value": "udp4"});
+    let (expected_setup, expected_arguments) = match descriptor.export_name.as_str() {
+        "Socket" | "Socket.constructor" => (
+            serde_json::json!({"kind": "construct-target"}),
+            vec![udp4_argument],
+        ),
+        "Socket.close" | "Socket.ref" | "Socket.unref" => (
+            serde_json::json!({
+                "kind": "constructed-owner",
+                "ownerExportName": "Socket",
+                "constructorArguments": [udp4_argument]
+            }),
+            Vec::new(),
+        ),
+        "createSocket" => (
+            serde_json::json!({"kind": "root-call"}),
+            vec![udp4_argument],
+        ),
+        other => panic!("unsupported idle UDP socket call {other}"),
+    };
+    let segments = descriptor.export_name.split('.').collect::<Vec<_>>();
+    let prototype = segments.len() == 2;
+    assert!(matches!(segments.len(), 1 | 2));
+    assert_eq!(invocation.module_specifier, "node:dgram");
+    assert_eq!(
+        descriptor.export_idioms,
+        vec![if prototype {
+            "exported-constructor-prototype".to_owned()
+        } else {
+            "module-exports-object".to_owned()
+        }]
+    );
+    assert_eq!(
+        descriptor.module_specifiers,
+        ["dgram", "node:dgram"].map(str::to_owned)
+    );
+    assert_eq!(
+        descriptor.source_ref,
+        format!(
+            "src/builtins/dgram.js#exports:{}",
+            descriptor.export_name
+        )
+    );
+    assert_eq!(descriptor.value_shape, "callable");
+    assert_eq!(
+        descriptor.access.kind,
+        if prototype {
+            "prototype-property"
+        } else {
+            "export-property"
+        }
+    );
+    assert_eq!(
+        descriptor.access.path,
+        if prototype {
+            vec![
+                segments[0].to_owned(),
+                "prototype".to_owned(),
+                segments[1].to_owned(),
+            ]
+        } else {
+            vec![segments[0].to_owned()]
+        }
+    );
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, "object");
+    assert_eq!(invocation.setup, expected_setup);
+    assert_eq!(invocation.arguments, expected_arguments);
+}
+
 fn expected_template_id(source_key: &str) -> Option<&'static str> {
     match source_key {
         "exact_crypto" => Some("exact-crypto-bounded-v1"),
         "node_assert" => Some("node-assert-bounded-v1"),
         "node_buffer" => Some("node-buffer-bounded-v1"),
+        "node_dgram" => Some("node-dgram-idle-v1"),
         "node_dns" => Some("node-dns-pure-v1"),
         "node_fs" => Some("node-fs-pure-v1"),
         "node_http" => Some("node-http-idle-v1"),
@@ -1817,6 +1897,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         validate_base_stream_module_value_contract(invocation, &descriptor, proof);
         validate_idle_zlib_destroy_contract(invocation, &descriptor, proof);
         validate_idle_http_contract(invocation, &descriptor, proof);
+        validate_idle_dgram_contract(invocation, &descriptor, proof);
         assert!(matches!(
             proof.result_type.as_str(),
             "bigint"

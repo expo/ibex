@@ -1639,6 +1639,84 @@ describe("source-bound builtin public probes", () => {
     }
   });
 
+  test("authors only the exact fresh UDP socket lifecycle family", () => {
+    const udp4 = [{ kind: "json", value: "udp4" }];
+    const contracts = [
+      ["Socket", { kind: "construct-target" }, udp4],
+      [
+        "Socket.close",
+        {
+          kind: "constructed-owner",
+          ownerExportName: "Socket",
+          constructorArguments: udp4,
+        },
+        [],
+      ],
+      ["Socket.constructor", { kind: "construct-target" }, udp4],
+      [
+        "Socket.ref",
+        {
+          kind: "constructed-owner",
+          ownerExportName: "Socket",
+          constructorArguments: udp4,
+        },
+        [],
+      ],
+      [
+        "Socket.unref",
+        {
+          kind: "constructed-owner",
+          ownerExportName: "Socket",
+          constructorArguments: udp4,
+        },
+        [],
+      ],
+      ["createSocket", { kind: "root-call" }, udp4],
+    ];
+    for (const [exportName, setup, arguments_] of contracts) {
+      const prototype = exportName.includes(".");
+      expect(
+        probeFor({
+          sourceKey: "node_dgram",
+          exportName,
+          exportIdioms: prototype
+            ? ["exported-constructor-prototype"]
+            : ["module-exports-object"],
+          moduleSpecifiers: ["dgram", "node:dgram"],
+          sourceRefs: [`src/builtins/dgram.js#exports:${exportName}`],
+          valueShape: "callable",
+        }),
+      ).toMatchObject({
+        invocation: {
+          templateId: "node-dgram-idle-v1",
+          arguments: arguments_,
+          setup,
+          bodyEntryProof: {
+            kind: "normal-return-from-source-call",
+            resultType: "object",
+          },
+        },
+      });
+    }
+    for (const exportName of [
+      "Socket.address",
+      "Socket.bind",
+      "Socket.disconnect",
+      "Socket.send",
+    ]) {
+      expect(
+        probeFor({
+          sourceKey: "node_dgram",
+          exportName,
+          exportIdioms: ["exported-constructor-prototype"],
+          moduleSpecifiers: ["dgram", "node:dgram"],
+          sourceRefs: [`src/builtins/dgram.js#exports:${exportName}`],
+          valueShape: "callable",
+        }),
+      ).toBeNull();
+    }
+  });
+
   test("authors pure IP, module, clock, URL, and version helpers", () => {
     expect(
       probeFor({
