@@ -6540,6 +6540,87 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       if ('_umask' in g.process) {
         throw new TypeError('process._umask could not be sealed');
       }
+
+      // The shared process facade is runtime-owned, but its event registry is
+      // shared by every package principal in that runtime. Preserve only the
+      // spec's diagnosed exit/beforeExit no-effect aliases; close every other
+      // registration, removal, or inspection before it can observe or mutate
+      // another principal's listeners. Pin both the instance spelling and the
+      // defining prototype so `Process.prototype.on.call(process, ...)` cannot
+      // bypass the public gate.
+      // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+      // @ref LLP 0025#8-exit-and-lifecycle
+      var processObject = g.process;
+      var processPrototype = getProto(processObject);
+      var reflectApply = Reflect.apply;
+      function processEventDenied(methodName) {
+        var error = new Error(
+          'process.' + methodName + ' is disabled for this event in an armed runtime');
+        error.code = 'ERR_ACCESS_DENIED';
+        error.permission = 'ProcessEvents';
+        throw error;
+      }
+      function isLifecycleEvent(event) {
+        return event === 'exit' || event === 'beforeExit';
+      }
+      function pinProcessMethod(name, allowLifecycle) {
+        var original = processObject[name];
+        if (typeof original !== 'function') {
+          throw new TypeError('armed process method is unavailable: ' + name);
+        }
+        function armedProcessMethod(event) {
+          if (!allowLifecycle || !isLifecycleEvent(event)) {
+            return processEventDenied(name);
+          }
+          return reflectApply(original, processObject, arguments);
+        }
+        defineProp(processObject, name, {
+          value: armedProcessMethod,
+          writable: false,
+          enumerable: false,
+          configurable: false
+        });
+        if (processPrototype && hasOwn.call(processPrototype, name)) {
+          defineProp(processPrototype, name, {
+            value: armedProcessMethod,
+            writable: false,
+            enumerable: false,
+            configurable: false
+          });
+        }
+      }
+      var lifecycleListenerMethods = [
+        'addListener',
+        'listenerCount',
+        'listeners',
+        'off',
+        'on',
+        'once',
+        'prependListener',
+        'prependOnceListener',
+        'rawListeners',
+        'removeAllListeners',
+        'removeListener'
+      ];
+      for (var processListenerIndex = 0;
+           processListenerIndex < lifecycleListenerMethods.length;
+           processListenerIndex++) {
+        pinProcessMethod(lifecycleListenerMethods[processListenerIndex], true);
+      }
+      var closedProcessEventMethods = [
+        'emit',
+        'emitWarning',
+        'eventNames',
+        'getMaxListeners',
+        'hasUncaughtExceptionCaptureCallback',
+        'setMaxListeners',
+        'setUncaughtExceptionCaptureCallback'
+      ];
+      for (var closedProcessEventIndex = 0;
+           closedProcessEventIndex < closedProcessEventMethods.length;
+           closedProcessEventIndex++) {
+        pinProcessMethod(closedProcessEventMethods[closedProcessEventIndex], false);
+      }
     } catch (e) { throw e; }
   }
 

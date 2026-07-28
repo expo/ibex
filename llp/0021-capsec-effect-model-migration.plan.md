@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-28 (closes the armed shared-process event registry at its final lockdown boundary: the eleven listener registration/removal/introspection aliases retain only the LLP 0025 `exit` / `beforeExit` diagnosed no-effect branches, while other event names and the seven wholly closed emitter/introspection methods throw stable `ERR_ACCESS_DENIED` before touching shared state or typed authority; the public instance and defining prototype are both pinned against replacement and prototype-call bypass, and the runtime bundle moves its listener map, capture callback, hook flags, lifecycle diagnosis latch, and listener limit into a module-private `WeakMap` rather than TypeScript-private public cells; a real armed-Hermes regression proves both lifecycle branches, ordinary and prototype denials, immutable descriptors, hidden backing state, and zero typed decisions; exact-target recipe authoring remains a separate follow-on before these catalog rows receive executable credit)
 **Revised:** 2026-07-28 (integrates the linear dynamic-import scanner from the moving main branch and classifies its two source-inventoried index recognizers, `indexAfterDynamicImport` and `indexAfterLoweredDynamicImport`, as exact WP1 pure-in-memory computation; near-miss names remain fail-closed, the scanner's performance rationale now points to local LLP 0026, and the source-derived registry grows to 7,525 edges / 7,826 branches / 15,050 target cells / 13,380 references; each target gains two unresolved non-capability obligations without executable credit, yielding Apple catalog `sha256-nEKb_9CF470hyx564E5B_kzYSvy6XC-0IAMoDZfD_Uw` at 23,592 required / 3,811 fully executable / 3,040 internally verified / 16,741 unresolved and Windows catalog `sha256-5YC94zWdHp5ceY9cEA1sZrC1PICvc2FaDun_hNPXM4w` at 23,251 / 3,450 / 3,026 / 16,775; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes direct `_flush(callback)` on exactly eleven Apple zlib owners and nine Windows owners: the harness first feeds the owner-specific fixed encoder input or complete compressed decoder member through the same receiver and awaits that prefill callback, then invokes only the selected `_flush`; every call returns undefined, sets `_flushed`, leaves the writable side non-terminal, and delivers exactly one callback before owner destruction, native-handle closure, quiescence, and zero decisions; the nine established owners require a successful callback, while `ZstdCompress` and `ZstdDecompress` require the exact source-defined `ENOSYS` callback refusal because no native zstd backend is installed, so those rows prove finalization control flow rather than codec support; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact owner/prefill/callback-outcome/final-state/cleanup contract; final Apple accounting is 23,590 required / 3,811 fully executable / 3,040 internally verified / 16,739 unresolved and Windows is 23,249 / 3,450 / 3,026 / 16,773; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes direct `_transform(Buffer, "buffer", callback)` on exactly eleven Apple zlib owners and nine Windows owners: each fixed encoder or complete decoder input returns undefined, invokes the callback exactly once without error, records the exact accepted byte length, leaves the receiver non-terminal, destroys it, closes any native handle, quiesces, and observes zero decisions; zstd wrappers are confined to the current no-bridge retained-input branch and make no codec claim; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact owner/input/encoding/callback/accepted-state/cleanup contract; final Apple accounting is 23,590 required / 3,800 fully executable / 3,040 internally verified / 16,750 unresolved and Windows is 23,249 / 3,441 / 3,026 / 16,782; advertisements remain empty)
@@ -1855,6 +1856,19 @@ source-derived facade path and both root-global disposition identities are
 digest-bound in the loaded-engine fixture. Cwd mutation remains denied without
 changing the host process directory. Live armed fixtures cover these
 boundaries.
+Armed lockdown also seals the shared process-event registry after trusted
+bootstrap has installed its internal lifecycle and IPC machinery. The eleven
+listener aliases admit only `exit` and `beforeExit`, whose LLP 0025 behavior is
+a diagnosed no-op that stores and exposes no listener; any other event throws
+`ERR_ACCESS_DENIED` before registry access. Manual emit/warning publication,
+event-name and listener-limit inspection, and uncaught-capture mutation are
+wholly closed. Both the instance methods and their defining prototype methods
+are non-writable and non-configurable, preventing a prototype-call bypass. The
+shared-runtime implementation keeps the actual event map and related hook
+state in a module-private `WeakMap`, so TypeScript's erased `private` modifier
+does not leave a public backing cell. A physical armed-Hermes regression
+exercises ordinary calls, prototype calls, attempted replacement, both
+lifecycle branches, hidden backing state, and the zero-decision invariant.
 The same live fixture invokes shell exec, synchronous spawn, and asynchronous
 spawn with a real marker-file command. All three are denied at the armed native
 boundary and the marker remains absent, so executable selection, child

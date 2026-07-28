@@ -9029,6 +9029,148 @@ module.exports = JSON.stringify({
         );
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_process_event_registry_is_closed_with_lifecycle_no_effect_branches() {
+        use capsec_semantics::model::{LogicalPath, LogicalRoot};
+        use ibex_runtime::engine::evaluation::SubmissionSequence;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (host, digest) =
+            build_armed_test_host_custom(None, false, false, false, vec![], None, |snapshot| {
+                snapshot["principals"][0]["imports"]["builtins"] =
+                    serde_json::json!(["node:process"]);
+            });
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let session = host.mint_armed_session_token().unwrap();
+        let mut sequence = SubmissionSequence::new(session.clone()).unwrap();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+
+        let request = sequence
+            .mint_repl(LogicalPath {
+                root: LogicalRoot::Project,
+                components: Vec::new(),
+                host_bound: None,
+            })
+            .unwrap()
+            .authorize_inline()
+            .bind_bytes(
+                br#"(function () {
+                  var listener = function () {};
+                  var proto = Object.getPrototypeOf(process);
+                  var lifecycleMethods = [
+                    'addListener', 'listenerCount', 'listeners', 'off', 'on',
+                    'once', 'prependListener', 'prependOnceListener',
+                    'rawListeners', 'removeAllListeners', 'removeListener'
+                  ];
+                  var closedMethods = [
+                    ['emit', ['warning']],
+                    ['emitWarning', ['ibex-capsec-warning']],
+                    ['eventNames', []],
+                    ['getMaxListeners', []],
+                    ['hasUncaughtExceptionCaptureCallback', []],
+                    ['setMaxListeners', [17]],
+                    ['setUncaughtExceptionCaptureCallback', [null]]
+                  ];
+                  function denied(fn) {
+                    try { fn(); return false; }
+                    catch (error) {
+                      return error && error.code === 'ERR_ACCESS_DENIED' &&
+                        error.permission === 'ProcessEvents';
+                    }
+                  }
+                  function argumentsFor(name, event) {
+                    if (name === 'listenerCount' || name === 'listeners' ||
+                        name === 'rawListeners' || name === 'removeAllListeners') {
+                      return [event];
+                    }
+                    return [event, listener];
+                  }
+                  function lifecycleResultIsNoEffect(name, event) {
+                    var result = process[name].apply(process, argumentsFor(name, event));
+                    if (name === 'listenerCount') return result === 0;
+                    if (name === 'listeners' || name === 'rawListeners') {
+                      return Array.isArray(result) && result.length === 0;
+                    }
+                    return result === process;
+                  }
+                  for (var i = 0; i < lifecycleMethods.length; i++) {
+                    var name = lifecycleMethods[i];
+                    var descriptor = Object.getOwnPropertyDescriptor(process, name);
+                    var prototypeDescriptor = Object.getOwnPropertyDescriptor(proto, name);
+                    if (!descriptor || descriptor.writable !== false ||
+                        descriptor.configurable !== false ||
+                        !prototypeDescriptor ||
+                        prototypeDescriptor.writable !== false ||
+                        prototypeDescriptor.configurable !== false ||
+                        descriptor.value !== prototypeDescriptor.value) {
+                      return false;
+                    }
+                    if (!lifecycleResultIsNoEffect(name, 'exit') ||
+                        !lifecycleResultIsNoEffect(name, 'beforeExit')) {
+                      return false;
+                    }
+                    var args = argumentsFor(name, 'ibex-capsec-shared-event');
+                    if (!denied(function () {
+                      return process[name].apply(process, args);
+                    }) || !denied(function () {
+                      return proto[name].apply(process, args);
+                    })) {
+                      return false;
+                    }
+                    try { process[name] = function () {}; } catch (_) {}
+                    if (!denied(function () {
+                      return process[name].apply(process, args);
+                    })) {
+                      return false;
+                    }
+                  }
+                  for (var j = 0; j < closedMethods.length; j++) {
+                    var entry = closedMethods[j];
+                    var closedName = entry[0];
+                    var closedArgs = entry[1];
+                    if (!denied(function () {
+                      return process[closedName].apply(process, closedArgs);
+                    }) || !denied(function () {
+                      return proto[closedName].apply(process, closedArgs);
+                    })) {
+                      return false;
+                    }
+                  }
+                  return !('_events' in process) &&
+                    !('_maxListeners' in process) &&
+                    !('_uncaughtCaptureCb' in process) &&
+                    !('_uncaughtExceptionHooked' in process) &&
+                    !('_unhandledRejectionHooked' in process);
+                })()"#
+                    .to_vec(),
+            )
+            .into_request()
+            .unwrap();
+
+        let typed_before = host.typed_decision_count();
+        let AuthenticatedEvaluation::Value { display, receipt } = engine
+            .evaluate_authenticated(&session, request)
+            .await
+            .expect("armed process event-registry probe must evaluate")
+        else {
+            panic!("armed process event-registry probe did not return its boolean verdict")
+        };
+        assert_eq!(display.kind, AuthenticatedDisplayKind::Boolean);
+        assert_eq!(display.text, "true");
+        engine
+            .release_undisplayed_value(receipt.expect("probe value must retain a receipt"))
+            .await
+            .unwrap();
+        assert_eq!(
+            host.typed_decision_count(),
+            typed_before,
+            "closed process events and lifecycle no-effect branches must not enter the typed evaluator"
+        );
+    }
+
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     #[cfg(not(feature = "insecure"))]

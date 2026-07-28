@@ -1527,8 +1527,66 @@ export function createEnvProxy(): Record<string, string | undefined> {
 /**
  * Process object providing Node.js-like environment info.
  */
+type ProcessListener = (...args: any[]) => void;
+type ProcessListenerEntry = { fn: ProcessListener; once: boolean };
+type ProcessEventState = {
+  events: Map<string, ProcessListenerEntry[]>;
+  lifecycleListenerNoEffectDiagnosed: boolean;
+  maxListeners: number;
+  uncaughtCaptureCallback: ((err: Error) => void) | null;
+  uncaughtExceptionHooked: boolean;
+  unhandledRejectionHooked: boolean;
+};
+
+// Event state is deliberately module-private rather than a TypeScript
+// `private` property. The latter is only a type-system restriction and would
+// compile to a reachable `process._events` cell, letting one package inspect
+// or mutate another package's process listeners without crossing the public
+// methods that armed lockdown closes.
+// @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+const processEventStates = new WeakMap<object, ProcessEventState>();
+
+function processEventState(receiver: object): ProcessEventState {
+  const state = processEventStates.get(receiver);
+  if (!state) {
+    throw new TypeError('Illegal invocation');
+  }
+  return state;
+}
+
+function emitProcessEvent(
+  receiver: object,
+  event: string,
+  args: any[],
+): boolean {
+  if (event === 'exit' || event === 'beforeExit') return false;
+  const state = processEventState(receiver);
+  const listeners = state.events.get(event);
+  if (!listeners || listeners.length === 0) return false;
+  // Prune once-listeners BEFORE invoking (Node semantics). Rewriting the list
+  // only after the loop meant a throwing handler remained registered.
+  const snapshot = listeners.slice();
+  state.events.set(
+    event,
+    listeners.filter((entry) => !entry.once),
+  );
+  for (const entry of snapshot) {
+    entry.fn(...args);
+  }
+  return true;
+}
+
 class Process {
-  private _maxListeners = 10;
+  constructor() {
+    processEventStates.set(this, {
+      events: new Map(),
+      lifecycleListenerNoEffectDiagnosed: false,
+      maxListeners: 10,
+      uncaughtCaptureCallback: null,
+      uncaughtExceptionHooked: false,
+      unhandledRejectionHooked: false,
+    });
+  }
   /**
    * Environment variables.
    * Armed access is caller-sensitive and mediated by the native principal
@@ -2279,7 +2337,7 @@ class Process {
     if (type && warningObj.name !== type) warningObj.name = type;
     if (typeof detail === 'string') warningObj.detail = detail;
     // Node.js emits warnings asynchronously via nextTick
-    this.nextTick(() => { this.emit('warning', warningObj); });
+    this.nextTick(() => { emitProcessEvent(this, 'warning', [warningObj]); });
   }
 
   /**
@@ -2344,23 +2402,23 @@ class Process {
     return old;
   };
 
-  private _uncaughtCaptureCb: ((err: Error) => void) | null = null;
   setUncaughtExceptionCaptureCallback(fn: ((err: Error) => void) | null): void {
+    const state = processEventState(this);
     if (fn !== null && typeof fn !== 'function') {
       const e: any = new TypeError('The "fn" argument must be of type function or null. Received type ' + typeof fn + ' (' + String(fn) + ')');
       e.code = 'ERR_INVALID_ARG_TYPE';
       throw e;
     }
-    if (fn !== null && this._uncaughtCaptureCb !== null) {
+    if (fn !== null && state.uncaughtCaptureCallback !== null) {
       const e: any = new Error('process.setupUncaughtExceptionCapture() was called while a capture callback was already active');
       e.code = 'ERR_UNCAUGHT_EXCEPTION_CAPTURE_ALREADY_SET';
       throw e;
     }
-    this._uncaughtCaptureCb = fn;
+    state.uncaughtCaptureCallback = fn;
   }
 
   hasUncaughtExceptionCaptureCallback(): boolean {
-    return this._uncaughtCaptureCb !== null;
+    return processEventState(this).uncaughtCaptureCallback !== null;
   }
 
   report = {
@@ -2489,17 +2547,14 @@ class Process {
     return false;
   }
 
-  // Real event emitter storage
-  private _events: Map<string, Array<{ fn: (...args: any[]) => void; once: boolean }>> = new Map();
-  private _lifecycleListenerNoEffectDiagnosed = false;
-
   private _isLifecycleListenerEvent(event: string): boolean {
     return event === 'exit' || event === 'beforeExit';
   }
 
   private _diagnoseLifecycleListenerNoEffect(): void {
-    if (this._lifecycleListenerNoEffectDiagnosed) return;
-    this._lifecycleListenerNoEffectDiagnosed = true;
+    const state = processEventState(this);
+    if (state.lifecycleListenerNoEffectDiagnosed) return;
+    state.lifecycleListenerNoEffectDiagnosed = true;
     const message = 'process exit and beforeExit listeners are unsupported in Ibex and have no effect';
     const warning: any = new Error(message);
     warning.name = 'IbexLifecycleWarning';
@@ -2508,7 +2563,7 @@ class Process {
     // otherwise keep the diagnosis observable on stderr. There is one path,
     // and therefore one diagnosis, rather than an event plus duplicate output.
     this.nextTick(() => {
-      if (this.emit('warning', warning)) return;
+      if (emitProcessEvent(this, 'warning', [warning])) return;
       const consoleWarn = (globalThis as any).console?.warn;
       if (typeof consoleWarn === 'function') {
         consoleWarn.call((globalThis as any).console, `[${warning.code}] ${message}`);
@@ -2525,9 +2580,10 @@ class Process {
       this._diagnoseLifecycleListenerNoEffect();
       return this;
     }
-    const listeners = this._events.get(event) || [];
+    const state = processEventState(this);
+    const listeners = state.events.get(event) || [];
     listeners.push({ fn: listener, once: false });
-    this._events.set(event, listeners);
+    state.events.set(event, listeners);
     if (event === 'uncaughtException') {
       this._hookUncaughtException();
     }
@@ -2551,9 +2607,10 @@ class Process {
       this._diagnoseLifecycleListenerNoEffect();
       return this;
     }
-    const listeners = this._events.get(event) || [];
+    const state = processEventState(this);
+    const listeners = state.events.get(event) || [];
     listeners.push({ fn: listener, once: true });
-    this._events.set(event, listeners);
+    state.events.set(event, listeners);
     if (event === 'uncaughtException') {
       this._hookUncaughtException();
     }
@@ -2569,9 +2626,10 @@ class Process {
       this._diagnoseLifecycleListenerNoEffect();
       return this;
     }
-    const listeners = this._events.get(event) || [];
+    const state = processEventState(this);
+    const listeners = state.events.get(event) || [];
     listeners.unshift({ fn: listener, once: false });
-    this._events.set(event, listeners);
+    state.events.set(event, listeners);
     _syncSignalTrap(event);
     return this;
   }
@@ -2581,39 +2639,24 @@ class Process {
       this._diagnoseLifecycleListenerNoEffect();
       return this;
     }
-    const listeners = this._events.get(event) || [];
+    const state = processEventState(this);
+    const listeners = state.events.get(event) || [];
     listeners.unshift({ fn: listener, once: true });
-    this._events.set(event, listeners);
+    state.events.set(event, listeners);
     _syncSignalTrap(event);
     return this;
   }
 
   emit(event: string, ...args: any[]): boolean {
-    if (this._isLifecycleListenerEvent(event)) return false;
-    const listeners = this._events.get(event);
-    if (!listeners || listeners.length === 0) return false;
-    // Prune once-listeners BEFORE invoking (Node semantics). Rewriting the
-    // list only after the loop meant a throwing handler left already-run
-    // once-entries registered, double-firing them on the next emit (e.g. a
-    // throwing process.once('warning') handler). Iterating a snapshot also
-    // keeps listeners added during the emit out of the current dispatch,
-    // matching Node. (ENG-23140)
-    const snapshot = listeners.slice();
-    this._events.set(
-      event,
-      listeners.filter((entry) => !entry.once),
-    );
-    for (const entry of snapshot) {
-      entry.fn(...args);
-    }
-    return true;
+    return emitProcessEvent(this, event, args);
   }
 
   removeListener(event: string, listener: (...args: any[]) => void): this {
     if (this._isLifecycleListenerEvent(event)) return this;
-    const listeners = this._events.get(event);
+    const state = processEventState(this);
+    const listeners = state.events.get(event);
     if (listeners) {
-      this._events.set(event, listeners.filter(e => e.fn !== listener));
+      state.events.set(event, listeners.filter(e => e.fn !== listener));
     }
     _syncSignalTrap(event);
     return this;
@@ -2621,10 +2664,11 @@ class Process {
 
   removeAllListeners(event?: string): this {
     if (event !== undefined && this._isLifecycleListenerEvent(event)) return this;
+    const state = processEventState(this);
     if (event) {
-      this._events.delete(event);
+      state.events.delete(event);
     } else {
-      this._events.clear();
+      state.events.clear();
     }
     // No argument = every event was cleared; sync every trapped signal.
     _syncSignalTrap(event);
@@ -2633,7 +2677,7 @@ class Process {
 
   listeners(event: string): Array<(...args: any[]) => void> {
     if (this._isLifecycleListenerEvent(event)) return [];
-    return (this._events.get(event) || []).map(e => e.fn);
+    return (processEventState(this).events.get(event) || []).map(e => e.fn);
   }
 
   rawListeners(event: string): Array<(...args: any[]) => void> {
@@ -2642,35 +2686,37 @@ class Process {
 
   listenerCount(event: string): number {
     if (this._isLifecycleListenerEvent(event)) return 0;
-    return (this._events.get(event) || []).length;
+    return (processEventState(this).events.get(event) || []).length;
   }
 
   eventNames(): string[] {
-    return Array.from(this._events.keys()).filter(
-      (event) => !this._isLifecycleListenerEvent(event) && this.listenerCount(event) > 0,
+    const state = processEventState(this);
+    return Array.from(state.events.keys()).filter(
+      (event) => !this._isLifecycleListenerEvent(event) &&
+        (state.events.get(event)?.length ?? 0) > 0,
     );
   }
 
   setMaxListeners(count: number): this {
-    this._maxListeners = count;
+    processEventState(this).maxListeners = count;
     return this;
   }
 
   getMaxListeners(): number {
-    return this._maxListeners;
+    return processEventState(this).maxListeners;
   }
 
-  private _uncaughtExceptionHooked = false;
   private _hookUncaughtException(): void {
-    if (this._uncaughtExceptionHooked) return;
-    this._uncaughtExceptionHooked = true;
+    const state = processEventState(this);
+    if (state.uncaughtExceptionHooked) return;
+    state.uncaughtExceptionHooked = true;
     const g = globalThis as any;
     const self = this;
     const prev = g.onerror;
     g.onerror = function(msg: any, _src: any, _line: any, _col: any, err: any) {
       const error = err instanceof Error ? err : new Error(String(msg));
-      if (self.listenerCount('uncaughtException') > 0) {
-        self.emit('uncaughtException', error);
+      if ((processEventState(self).events.get('uncaughtException')?.length ?? 0) > 0) {
+        emitProcessEvent(self, 'uncaughtException', [error]);
         return true; // suppress default
       }
       if (typeof prev === 'function') return prev(msg, _src, _line, _col, err);
@@ -2678,17 +2724,17 @@ class Process {
     };
   }
 
-  private _unhandledRejectionHooked = false;
   private _hookUnhandledRejection(): void {
-    if (this._unhandledRejectionHooked) return;
-    this._unhandledRejectionHooked = true;
+    const state = processEventState(this);
+    if (state.unhandledRejectionHooked) return;
+    state.unhandledRejectionHooked = true;
     const g = globalThis as any;
     const self = this;
     const addFn = g.addEventListener;
     if (typeof addFn === 'function') {
       addFn.call(g, 'unhandledrejection', (event: any) => {
-        if (self.listenerCount('unhandledRejection') > 0) {
-          self.emit('unhandledRejection', event.reason, event.promise);
+        if ((processEventState(self).events.get('unhandledRejection')?.length ?? 0) > 0) {
+          emitProcessEvent(self, 'unhandledRejection', [event.reason, event.promise]);
           event.preventDefault?.();
         }
       });

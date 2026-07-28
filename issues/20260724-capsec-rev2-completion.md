@@ -5525,13 +5525,42 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — close the armed shared-process event registry
+
+- Closed a real WP7 enforcement gap behind the residual process-listener
+  recipes. In an armed runtime, the eleven registration, removal, and
+  introspection aliases now admit only exact `exit` / `beforeExit` calls, which
+  preserve LLP 0025's diagnosed no-effect behavior. Every other event name is
+  rejected with `ERR_ACCESS_DENIED` / `ProcessEvents` before shared state or
+  typed authority is touched.
+- Pinned the gate on both the process instance and its defining prototype,
+  preventing `Process.prototype.on.call(process, ...)` and corresponding
+  removal/introspection bypasses. Seven wholly closed event methods (`emit`,
+  `emitWarning`, `eventNames`, listener-limit access, and uncaught-capture
+  access) are pinned deny-only as well.
+- Moved the shared-runtime listener map, lifecycle diagnosis latch, listener
+  limit, capture callback, and exception/rejection hook flags from
+  TypeScript-private-but-runtime-public fields into a module-private `WeakMap`.
+  Armed code can no longer reach `_events` or mutate the registry behind the
+  public gate.
+- Rebuilt the embedded runtime bundle. The five focused LLP 0025 JavaScript
+  tests pass. A real EPYC armed-Hermes regression passes after compiling the
+  changed engine and proves immutable instance/prototype descriptors, both
+  lifecycle branches across all eleven aliases, ordinary and prototype
+  denials, failed replacement, absent backing cells, and zero typed decisions.
+- This is an enforcement checkpoint, not catalog credit. Source-bound recipe
+  authoring and exact-target batch evidence remain the next step; the prior
+  Apple/Windows catalog counts and empty advertisements therefore remain
+  unchanged.
+- Important enforcement mechanisms rise to about **99.8% complete**, while the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
-select the highest-leverage residual public-evidence family, add a
-source-bound executor only where it reaches the real production route, and
-regenerate both target catalogs. Continue separating remaining startup,
-environment, and loader operations that can be safely executed from those that
-must remain closed. Do not treat the empty advertisement set as criterion 7
-completion, and do not convert catalog labels or generic failed imports into
-public execution evidence.
+bind the new process-event closure to source-derived public recipes, execute
+the closed default and lifecycle no-effect branches through the real armed
+engine, and regenerate both target catalogs. Do not treat the empty
+advertisement set as criterion 7 completion, and do not convert catalog labels
+or generic failed imports into public execution evidence.
