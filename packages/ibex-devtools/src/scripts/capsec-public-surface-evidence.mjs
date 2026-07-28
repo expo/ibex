@@ -387,6 +387,7 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["zlib-owner", "prototype-call"],
   ["zlib-params-owner", "prototype-call"],
   ["zlib-process-chunk-owner", "prototype-call"],
+  ["zlib-transform-owner", "prototype-call"],
   ["zlib-write-owner", "prototype-call"],
 ]);
 const SETTLED_STREAM_CONSUMER_CONTRACTS = new Map([
@@ -966,6 +967,20 @@ const ZLIB_FLUSH_OWNERS = new Set([
   ...ZLIB_END_CONTRACTS.keys(),
   "ZstdCompress",
   "ZstdDecompress",
+]);
+const ZLIB_TRANSFORM_INPUTS = new Map([
+  ...[...ZLIB_END_CONTRACTS].map(([owner, contract]) => [
+    owner,
+    contract.arguments[0],
+  ]),
+  [
+    "ZstdCompress",
+    Object.freeze({ kind: "buffer", bytes: Object.freeze([105, 98, 101, 120]) }),
+  ],
+  [
+    "ZstdDecompress",
+    Object.freeze({ kind: "buffer", bytes: Object.freeze([105, 98, 101, 120]) }),
+  ],
 ]);
 const TIMER_ROOT_CONTRACTS = new Map([
   [
@@ -5836,6 +5851,12 @@ function validateRuntimeInvocation(observation, recipe) {
       zlibExtra.length === 0 &&
       zlibMethod === "params" &&
       ZLIB_FLUSH_OWNERS.has(zlibOwner);
+    const zlibTransformInput =
+      authored.sourceDescriptor.sourceKey === "node_zlib" &&
+      zlibExtra.length === 0 &&
+      zlibMethod === "_transform"
+        ? ZLIB_TRANSFORM_INPUTS.get(zlibOwner)
+        : null;
     const timerRootContract =
       authored.sourceDescriptor.sourceKey === "node_timers"
         ? TIMER_ROOT_CONTRACTS.get(authored.exportName)
@@ -6037,6 +6058,42 @@ function validateRuntimeInvocation(observation, recipe) {
       );
     }
     if (
+      zlibTransformInput &&
+      (authored.moduleSpecifier !== "node:zlib" ||
+        authored.templateId !== "node-zlib-bounded-v1" ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !== "undefined" ||
+        authored.sourceDescriptor.kind !== "builtin-export" ||
+        authored.sourceDescriptor.valueShape !== "callable" ||
+        authored.sourceDescriptor.sourceRef !==
+          `src/builtins/zlib.js#exports:${authored.exportName}` ||
+        canonicalJson(authored.sourceDescriptor.exportIdioms) !==
+          canonicalJson(["exported-constructor-inherited-prototype"]) ||
+        canonicalJson(authored.sourceDescriptor.moduleSpecifiers) !==
+          canonicalJson(["node:zlib", "zlib"]) ||
+        authored.sourceDescriptor.access.kind !==
+          "inherited-prototype-property" ||
+        canonicalJson(authored.sourceDescriptor.access.path) !==
+          canonicalJson([zlibOwner, "prototype", "_transform"]) ||
+        canonicalJson(authored.setup) !==
+          canonicalJson({
+            kind: "zlib-transform-owner",
+            ownerExportName: zlibOwner,
+            inputLength: zlibTransformInput.bytes.length,
+            cleanupMethod: "destroy",
+          }) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson([
+            zlibTransformInput,
+            { kind: "json", value: "buffer" },
+            { kind: "zlib-transform-callback" },
+          ]))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored zlib transform lifecycle proof`,
+      );
+    }
+    if (
       timerSetup &&
       (!timerContract ||
         authored.moduleSpecifier !== "node:timers" ||
@@ -6093,6 +6150,7 @@ function validateRuntimeInvocation(observation, recipe) {
       "zlib-owner",
       "zlib-params-owner",
       "zlib-process-chunk-owner",
+      "zlib-transform-owner",
       "zlib-write-owner",
     ]).has(authored.setup.kind);
     const readlineLifecycleRequired = new Set([
@@ -6115,6 +6173,8 @@ function validateRuntimeInvocation(observation, recipe) {
       authored.setup.kind === "zlib-flush-owner";
     const zlibParamsLifecycleRequired =
       authored.setup.kind === "zlib-params-owner";
+    const zlibTransformLifecycleRequired =
+      authored.setup.kind === "zlib-transform-owner";
     const timerLifecycleRequired = timerSetup;
     exactKeys(
       invocation.result,
@@ -6145,6 +6205,9 @@ function validateRuntimeInvocation(observation, recipe) {
           : []),
         ...(zlibParamsLifecycleRequired
           ? ["zlibParamsLifecycleVerified"]
+          : []),
+        ...(zlibTransformLifecycleRequired
+          ? ["zlibTransformLifecycleVerified"]
           : []),
         ...(timerLifecycleRequired ? ["timerLifecycleVerified"] : []),
         ...(zlibSyncEncoder ? ["zlibSyncEncoderOutputVerified"] : []),
@@ -6186,6 +6249,8 @@ function validateRuntimeInvocation(observation, recipe) {
         invocation.result.zlibFlushLifecycleVerified !== true) ||
       (zlibParamsLifecycleRequired &&
         invocation.result.zlibParamsLifecycleVerified !== true) ||
+      (zlibTransformLifecycleRequired &&
+        invocation.result.zlibTransformLifecycleVerified !== true) ||
       (timerLifecycleRequired &&
         invocation.result.timerLifecycleVerified !== true) ||
       (netLifecycleRequired &&

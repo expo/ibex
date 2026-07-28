@@ -642,6 +642,9 @@ const noopArgument = () => ({ kind: "noop-function" });
 const timerCallbackArgument = () => ({ kind: "timer-callback" });
 const zlibFlushCallbackArgument = () => ({ kind: "zlib-flush-callback" });
 const zlibParamsCallbackArgument = () => ({ kind: "zlib-params-callback" });
+const zlibTransformCallbackArgument = () => ({
+  kind: "zlib-transform-callback",
+});
 const zlibWriteCallbackArgument = () => ({ kind: "zlib-write-callback" });
 const throwingArgument = () => ({
   kind: "throwing-function",
@@ -818,6 +821,11 @@ const ZLIB_FLUSH_OWNERS = new Set([
   ...ZLIB_END_CONTRACTS.keys(),
   "ZstdCompress",
   "ZstdDecompress",
+]);
+const ZLIB_TRANSFORM_INPUTS = new Map([
+  ...[...ZLIB_END_CONTRACTS].map(([owner, [bytes]]) => [owner, bytes]),
+  ["ZstdCompress", [105, 98, 101, 120]],
+  ["ZstdDecompress", [105, 98, 101, 120]],
 ]);
 
 const TIMER_ROOT_CALL_SPECS = Object.freeze({
@@ -2302,10 +2310,27 @@ function zlibPrototypeSpec(exportName) {
       "object",
     );
   }
+  if (methodName === "_transform") {
+    const input = ZLIB_TRANSFORM_INPUTS.get(ownerExportName);
+    if (!input) return null;
+    return callSpec(
+      {
+        kind: "zlib-transform-owner",
+        ownerExportName,
+        inputLength: input.length,
+        cleanupMethod: "destroy",
+      },
+      [
+        bufferArgument(input),
+        jsonArgument("buffer"),
+        zlibTransformCallbackArgument(),
+      ],
+      "undefined",
+    );
+  }
   if (
     new Set([
       "_flush",
-      "_transform",
       "_writeNative",
     ]).has(methodName)
   ) {
@@ -2623,6 +2648,7 @@ function callTemplateFor(descriptor) {
         "zlib-owner",
         "zlib-params-owner",
         "zlib-process-chunk-owner",
+        "zlib-transform-owner",
         "zlib-write-owner",
         "stream-owner",
       ]).has(setupKind)) ||

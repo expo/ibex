@@ -6075,6 +6075,99 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/did not prove its exact normal return/);
   });
 
+  test("accepts direct zlib transform only after exact input acceptance, callback, and cleanup", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:zlib";
+    invocation.exportName = "InflateRaw._transform";
+    invocation.templateId = "node-zlib-bounded-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_zlib",
+      exportName: "InflateRaw._transform",
+      exportIdioms: ["exported-constructor-inherited-prototype"],
+      moduleSpecifiers: ["node:zlib", "zlib"],
+      sourceRef: "src/builtins/zlib.js#exports:InflateRaw._transform",
+      valueShape: "callable",
+      access: {
+        kind: "inherited-prototype-property",
+        path: ["InflateRaw", "prototype", "_transform"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(invocation.sourceDescriptor);
+    invocation.setup = {
+      kind: "zlib-transform-owner",
+      ownerExportName: "InflateRaw",
+      inputLength: 6,
+      cleanupMethod: "destroy",
+    };
+    invocation.arguments = [
+      { kind: "buffer", bytes: [203, 76, 74, 173, 0, 0] },
+      { kind: "json", value: "buffer" },
+      { kind: "zlib-transform-callback" },
+    ];
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "undefined",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.result.dispatchKind = "prototype-call";
+    observed.invocation.result.valueType = "undefined";
+    observed.invocation.result.cleanupPerformed = true;
+    observed.invocation.result.zlibTransformLifecycleVerified = true;
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments[0].bytes[0] = 204;
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments[1].value = "utf8";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments[2].kind =
+          "noop-function";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.inputLength = 5;
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored zlib transform lifecycle proof|descriptor drift|not source-descriptor bound/,
+      );
+    }
+
+    const missingLifecycleProof = structuredClone(observed);
+    missingLifecycleProof.invocation.result.zlibTransformLifecycleVerified =
+      false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: missingLifecycleProof,
+        coverage,
+      }),
+    ).toThrow(/did not prove its exact normal return/);
+  });
+
   test("accepts only reviewed isolated sync zlib encoders", () => {
     const catalog = completeNoncapBuiltinCallCatalog();
     const recipe = catalog.recipes[0];

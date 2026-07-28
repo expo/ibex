@@ -5406,6 +5406,41 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — prove direct zlib transform lifecycles
+
+- Promoted direct `_transform(Buffer, "buffer", callback)` for eleven Apple
+  and nine Windows owners. Encoders receive `ibex`; established decoders
+  receive their fixed complete compressed members. Each call returns
+  undefined, delivers one error-free callback, records the exact accepted byte
+  length, stays non-terminal, and is owner-destroyed with no native handle
+  remaining. Zstd is confined to its current no-bridge retained-input branch
+  and receives no codec credit.
+- The descriptor residual manifest falls from 435 to 424 rows and the
+  codec-state residual family from 24 to 13.
+- Apple catalog
+  `sha256-MHz6xlWzyDjlKF6XM0FJj4ujdjUsIOgW25VYIuaecCU`: 23,590 required /
+  **3,800 executable** / 3,040 internally verified / 16,750 unresolved.
+  Windows catalog
+  `sha256---Cqnxpv-P0rvjpmjcfo6cn0lSf82djxtQOnqvkMqPE`: 23,249 /
+  **3,441** / 3,026 / 16,782.
+- The EPYC 177-row cohort uses catalog digest
+  `sha256-8mncEVoKGQHHxmZef9VuG-S-gPi12p8E-UuEM3LNbaM` and engine
+  `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All rows pass
+  twice byte-identically with quiescence and zero decisions; all eleven new
+  rows report `zlibTransformLifecycleVerified: true`. Raw evidence SHA-256:
+  `d1c8e27608cc5e1ec8eac97f774b0984e24c0f72547d29e463c3200f3d3f12a8`.
+  Independent execution digest:
+  `sha256-Vwtz0lB6LTbvy8KMYzxN7ZazriE-iibHM_UneVUElss`; artifact SHA-256:
+  `734fbba477366d646acfccb64e51cd6d034be18196633d22fb07c669ea1e7093`.
+  Baseline: `c4f92b121e3d8adcb2da5a3815c875cd0f2a6016` /
+  `sha256-Yt3hCrzQMFN7_euS_6ds5C2VRxvV_JHnW7RQp4vS-A0`.
+- Focused validation passes **215/215** tests with 124,258 assertions. The
+  final nine-file integration suite passes **511/511** tests with 201,637
+  assertions on EPYC.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-28 (promotes direct `_transform(Buffer, "buffer", callback)` on exactly eleven Apple zlib owners and nine Windows owners: each fixed encoder or complete decoder input returns undefined, invokes the callback exactly once without error, records the exact accepted byte length, leaves the receiver non-terminal, destroys it, closes any native handle, quiesces, and observes zero decisions; zstd wrappers are confined to the current no-bridge retained-input branch and make no codec claim; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact owner/input/encoding/callback/accepted-state/cleanup contract; final Apple accounting is 23,590 required / 3,800 fully executable / 3,040 internally verified / 16,750 unresolved and Windows is 23,249 / 3,441 / 3,026 / 16,782; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes public `params(1, 0, callback)` on exactly eleven Apple zlib owners and nine Windows owners: every selected call fixes compression level 1 and default strategy 0, returns its fresh receiver, invokes the callback exactly once without error, proves the selected `_level` and `_strategy` while the receiver remains non-terminal, destroys it, closes any native handle, quiesces, and observes zero decisions; Brotli, decoder, and zstd wrappers are included only for their source-defined retained-state control path, while native deflate-family compressors additionally enter the installed parameter bridge; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact owner/arguments/callback/selected-state/cleanup contract; final Apple accounting is 23,590 required / 3,789 fully executable / 3,040 internally verified / 16,761 unresolved and Windows is 23,249 / 3,432 / 3,026 / 16,791; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes public `flush(callback)` on exactly eleven Apple zlib owners and nine Windows owners: every selected call uses the first-argument callback form and therefore the source-defined default full-flush branch, returns its fresh receiver, invokes the callback exactly once without error, proves the receiver is still non-terminal before cleanup, destroys it, closes any native handle, quiesces, and observes zero decisions; the owner vocabulary includes the two zstd wrappers because this exact control write is a safe source-defined no-op when the zstd bridge is absent, without claiming zstd codec execution; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact owner/callback/return/non-terminal/cleanup contract; final Apple accounting is 23,590 required / 3,778 fully executable / 3,040 internally verified / 16,772 unresolved and Windows is 23,249 / 3,423 / 3,026 / 16,800; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes direct incremental `write(Buffer, callback)` on exactly nine Apple zlib owners and seven Windows owners: every selected call must return a boolean, invoke its dedicated callback exactly once without error, retain the fixed input until a separate harness-owned empty terminal `end`, emit a nonempty encoded byte view or exact decoded bytes `[105, 98, 101, 120]`, emit exactly one `finish`, reach flushed and ended writable state, destroy the receiver, close the native handle, quiesce, and observe zero decisions; this terminal-write contract accommodates the Apple Brotli wrappers, which buffer writes until finalization, without conflating the selected `write` return/callback with the auxiliary `end`; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact owner/input/callback/terminal/output/cleanup contract; the merged diagnostic loader's two late-resolver selector functions are also classified as exact WP3 control-plane surfaces, adding six fixture obligations (four internally verified, two unresolved) without executable credit; final Apple accounting is 23,590 required / 3,767 fully executable / 3,040 internally verified / 16,783 unresolved and Windows is 23,249 / 3,414 / 3,026 / 16,809; both zstd owners remain residual and advertisements remain empty)
@@ -2863,6 +2864,21 @@ validator, Rust validator, and loaded-engine JavaScript boundary each repeat
 the exact owner vocabulary, inherited descriptor, arguments, callback,
 selected state, receiver return, and cleanup contract. `_flush`,
 `_writeNative`, and `_transform` remain outside this receipt.
+
+Direct zlib `_transform(Buffer, "buffer", callback)` has a bounded
+accepted-input receipt over the same eleven Apple and nine Windows owners. Each
+encoder receives `[105, 98, 101, 120]`; the nine established decoders receive
+their fixed complete Brotli, deflate, raw-deflate, or gzip member. The direct
+source call must return undefined, deliver its callback exactly once without
+error, and set both byte counters to the exact input length while leaving
+`_flushed` and `writableEnded` false. The harness drains byte-view output,
+destroys the receiver, closes any native handle, quiesces, and observes zero
+decisions. The two zstd wrappers receive fixed bytes only on the current
+no-bridge retained-input branch, so this receipt makes no zstd codec claim.
+The author, independent evidence validator, Rust validator, and loaded-engine
+boundary repeat the exact owner, input, encoding, callback, accepted-state,
+undefined-return, and cleanup contract. `_flush` and `_writeNative` remain
+outside this receipt.
 
 Direct synchronous zlib `_processChunk(Buffer, Z_FINISH)` has a distinct
 one-shot receipt for the same nine Apple owners and seven non-Brotli Windows

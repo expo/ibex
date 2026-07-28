@@ -1329,6 +1329,56 @@ describe("source-bound builtin public probes", () => {
         },
       });
     }
+    for (const [ownerExportName, bytes] of [
+      ["BrotliCompress", [105, 98, 101, 120]],
+      ["BrotliDecompress", [139, 1, 128, 105, 98, 101, 120, 3]],
+      ["Deflate", [105, 98, 101, 120]],
+      ["DeflateRaw", [105, 98, 101, 120]],
+      [
+        "Gunzip",
+        [
+          31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30,
+          109, 106, 4, 0, 0, 0,
+        ],
+      ],
+      ["Gzip", [105, 98, 101, 120]],
+      ["Inflate", [120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169]],
+      ["InflateRaw", [203, 76, 74, 173, 0, 0]],
+      [
+        "Unzip",
+        [
+          31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30,
+          109, 106, 4, 0, 0, 0,
+        ],
+      ],
+      ["ZstdCompress", [105, 98, 101, 120]],
+      ["ZstdDecompress", [105, 98, 101, 120]],
+    ]) {
+      expect(
+        probeFor({
+          sourceKey: "node_zlib",
+          exportName: `${ownerExportName}._transform`,
+          exportIdioms: ["exported-constructor-inherited-prototype"],
+          moduleSpecifiers: ["node:zlib", "zlib"],
+          valueShape: "callable",
+        }),
+      ).toMatchObject({
+        invocation: {
+          arguments: [
+            { kind: "buffer", bytes },
+            { kind: "json", value: "buffer" },
+            { kind: "zlib-transform-callback" },
+          ],
+          setup: {
+            kind: "zlib-transform-owner",
+            ownerExportName,
+            inputLength: bytes.length,
+            cleanupMethod: "destroy",
+          },
+          bodyEntryProof: { resultType: "undefined" },
+        },
+      });
+    }
     for (const ownerExportName of [
       "BrotliCompress",
       "BrotliDecompress",
