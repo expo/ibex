@@ -7494,6 +7494,45 @@ if (scenario === 'success') {
     }
 
     #[test]
+    fn diagnostic_loader_observes_a_late_exact_resolver_replacement() {
+        let (runner, _) = find_js_runner().expect("JavaScript runner");
+        let loader_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("src/engine/bootstrap/module-loader.js");
+        let loader_path = serde_json::to_string(loader_path.to_str().unwrap()).unwrap();
+        let fixture = tempdir().unwrap();
+        let script = r#"
+const fs = require('fs');
+const loader = fs.readFileSync(__LOADER_PATH__, 'utf8');
+globalThis.__exactHasSharedRuntimeBundle = true;
+globalThis.__exactModuleResolve = function() {
+  return JSON.stringify({id:'old',kind:'cjs',source:'module.exports=1;'});
+};
+globalThis.__exactNativeModuleResolve = globalThis.__exactModuleResolve;
+(0, eval)(loader);
+globalThis.__exactModuleResolve = function(specifier) {
+  return JSON.stringify({id:specifier,kind:'cjs',source:'module.exports=42;'});
+};
+if (globalThis.require('entry') !== 42) {
+  throw new Error('diagnostic loader retained the construction-time resolver');
+}
+"#
+        .replace("__LOADER_PATH__", &loader_path);
+        let script_path = fixture.path().join("diagnostic-late-resolver.cjs");
+        std::fs::write(&script_path, script).unwrap();
+        let output = Command::new(&runner)
+            .arg(&script_path)
+            .output()
+            .expect("run diagnostic late-resolver fixture");
+        assert!(
+            output.status.success(),
+            "diagnostic late-resolver fixture failed with {}\nstdout:\n{}\nstderr:\n{}",
+            runner.display(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
     fn resolves_directory_import_to_index_ts() {
         // @ref LLP 0004#resolution-order
         let dir = tempdir().unwrap();

@@ -74,6 +74,23 @@
     ? g.__exactFsMutationGuard
     : null;
   var __armedResolverCapture = typeof g.__exactCaptureSessionStaticImport === 'function';
+  // Diagnostic embedders intentionally retain their ambient resolver bridge.
+  // Exact's development envelope replaces that bridge after the shared
+  // runtime bootstrap with an in-band Vite table. Keep armed resolution
+  // construction-private, while allowing the explicitly unarmed diagnostic
+  // posture to observe that documented late replacement.
+  function currentDiagnosticModuleResolve() {
+    if (!__armedResolverCapture && typeof g.__exactModuleResolve === 'function') {
+      return g.__exactModuleResolve;
+    }
+    return __privModuleResolve;
+  }
+  function currentDiagnosticModuleResolveMeta() {
+    if (!__armedResolverCapture && typeof g.__exactModuleResolveMeta === 'function') {
+      return g.__exactModuleResolveMeta;
+    }
+    return currentDiagnosticModuleResolve();
+  }
   if (__armedResolverCapture) {
     var __rawResolverNames = [
       '__exactModuleResolve',
@@ -6344,7 +6361,9 @@
       } else {
         var resolver = manifestBuiltinInternal
           ? __privResolveManifestBuiltinInternal
-          : (useStructuredRootResolver ? __privSessionModuleResolve : __privModuleResolve);
+          : (useStructuredRootResolver
+            ? __privSessionModuleResolve
+            : currentDiagnosticModuleResolve());
         if (typeof resolver !== 'function') {
           throw new Error("Module resolver is unavailable");
         }
@@ -7691,7 +7710,7 @@
     return resolverVirtualPath(record.path) || record.id || specifier;
   }
   function __exactResolvePath(specifier, referrer) {
-    var resolveMeta = __privModuleResolveMeta || __privModuleResolve;
+    var resolveMeta = currentDiagnosticModuleResolveMeta();
     if (typeof resolveMeta !== 'function') {
       throw new Error('Module resolver is unavailable');
     }
@@ -8025,10 +8044,11 @@
       // detached attribution. This is the ordinary-module counterpart of the
       // private structured-session dynamic-import hook.
       if (__importResolution !== null && !authenticatedCacheAuthorization) {
-        if (typeof __privModuleResolve !== 'function') {
+        var __importResolve = currentDiagnosticModuleResolve();
+        if (typeof __importResolve !== 'function') {
           throw new Error('Module resolver is unavailable');
         }
-        var __importJson = __privModuleResolve(
+        var __importJson = __importResolve(
           __normalizedImportSpecifier,
           __importResolution.nativeReferrer,
           2
@@ -8101,7 +8121,7 @@
           // resolver would read + transpile + JSON-escape the module body a
           // second time on the JS thread for every relative/absolute dynamic
           // import, just for load() to redo it in the microtask (ENG-23481 #10).
-          var __iresolve = __privModuleResolveMeta || __privModuleResolve;
+          var __iresolve = currentDiagnosticModuleResolveMeta();
           if (typeof __iresolve !== 'function') {
             throw new Error('Module resolver is unavailable');
           }
