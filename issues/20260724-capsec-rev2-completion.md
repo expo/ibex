@@ -3966,6 +3966,64 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — executed base Stream module-value lifecycle calls
+
+- Promoted exactly six lifecycle calls on the base `node:stream` module-value
+  constructor: `_close`, `_emitClose`, `_undestroy`, `constructor`, `destroy`,
+  and `unpipe`. Each recipe creates a plain harness-owned Stream and invokes
+  only bounded lifecycle/state work; `default.pipe` remains residual because
+  its return leaves listener and pipeline ownership behind.
+- The source inventory names these rows `default.*`, but `require("node:stream")`
+  returns the Stream constructor itself rather than an object with a nested
+  `default`. The author, independent validator, and Rust executor separately
+  require the exact `["prototype", method]` access path, six-name allowlist,
+  setup, arguments, and result types. Generic default-owner prototype
+  correction remains unavailable.
+- The implementation checkpoint is
+  `496b4d2f9136d2eecf682f69cb53b419122c644b`, with tree digest
+  `sha256-JAd3WX90b354kzzalXde6ENOhPKG1JlcT5r1FZx5OOo`. Upstream `main`
+  remained at the already-integrated `e4d96bb0` immediately before the
+  implementation commit.
+- Final Apple catalog digest
+  `sha256-pA8r4s1ppRCuwb7SYfc6TbkW3lhpZMyKZoi67veTKDE` reports 23,584
+  required / **3,662 fully executable** / 3,036 internally verified / 16,886
+  unresolved. The local M5 strict-provenance, stale-vendored batch passes
+  **1,357/1,357**: 1,178 export probes, 145 captured routes, and 34 isolated
+  imports, against engine digest
+  `sha256-PzMZqlPaba3S9taiDvkd7H-DCuBv2MXbYOmLoVbZP3I`. All six calls have
+  their exact object or undefined result type, quiescent completion, and zero
+  decisions. The raw evidence SHA-256 is
+  `5423986c2f7cb792661d725cf27d9dc7629eac998d4d9521a147b0cc17e443e5`;
+  independent validation accepted exactly 1,357 fixtures and produced
+  execution digest
+  `sha256-8i_UkbyefRMDF3bqKzFmZMJnefrOd9MgQ0fbGnlh1pI`.
+- Final Windows catalog digest
+  `sha256-5hQFOZ09kNaMN3XQR384EdfBM8sYJF0QRd1pcSGM21Q` reports 23,243
+  required / **3,321 fully executable** / 3,022 internally verified / 16,900
+  unresolved. The NucBox's exact MSVC/reviewed-Hermes batch passes
+  **1,321/1,321**: 1,142 export probes, 145 captured routes, and 34 isolated
+  imports, against engine digest
+  `sha256-4HsCwsHz-UDTGNW8-89DnujWOx9rFegBL0wYbUFHPHE`. The raw evidence
+  SHA-256 is
+  `d88a53a3f17100bdd04fec165275168df8234c502b39a27b6013ebeffda59899`;
+  independent validation accepted exactly 1,321 fixtures and produced
+  execution digest
+  `sha256-tUsN8Tp6jjSYLaiCo8Quo9OHc5rcNHPAWBzt4Fy449M`.
+- The focused author/catalog/validator suite passes **180/180** tests with
+  117,287 assertions. The exact secure Cargo profile compiles, all generated
+  drift gates pass, and `ref-check` validates 41 LLP documents and 2,221
+  references with zero errors (one stable URL remains unchecked).
+- Hard parts: using the generic inventory path would have attempted the
+  nonexistent `module.default.prototype`; the correction had to be repeated
+  independently and constrained to six reviewed names so it could not
+  accidentally promote resource-retaining methods. The cached Windows build
+  still emits its known non-fatal static OpenSSL missing-PDB warnings, but this
+  replay linked in 13.85s and remained isolated on the Nuc. The M4 mini and
+  busy MacBook Air again needed no disturbance.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

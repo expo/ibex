@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-27 (promotes exactly six lifecycle calls on the base `node:stream` module-value constructor: `_close`, `_emitClose`, `_undestroy`, `constructor`, `destroy`, and `unpipe`; authoring, validation, and physical execution independently require `["prototype", method]` rather than the nonexistent `["default", "prototype", method]`, and only this closed name set receives the module-value correction; `default.pipe` remains residual because it retains listener and pipeline ownership; Apple accounting is 3,662 fully executable / 3,036 internally verified / 16,886 unresolved and Windows accounting is 3,321 / 3,022 / 16,900)
 **Revised:** 2026-07-27 (promotes exactly eight explicit-parameter `exact_crypto` Diffie-Hellman calls: `DiffieHellman`, `createDiffieHellman`, and `getGenerator`, `getPrime`, `getPrivateKey`, `getPublicKey`, `setPrivateKey`, and `setPublicKey` on a harness-owned instance constructed from fixed prime 23 and generator 5; the author, independent validator, and Rust executor separately repeat the exact setup, arguments, result types, and ordinary-return proof, while `generateKeys` and `computeSecret` remain residual because they enter random or modular work; Apple accounting is 3,656 fully executable / 3,036 internally verified / 16,892 unresolved and Windows accounting is 3,315 / 3,022 / 16,906)
 **Revised:** 2026-07-27 (promotes exactly 24 Promise-returning readable-stream consumers: `every`, `find`, `forEach`, `reduce`, `some`, and `toArray` on `Duplex`, `PassThrough`, `Readable`, and `Transform`; every recipe constructs an already-ended empty stream, awaits the exact returned Promise inside the observation, then requires event-loop quiescence and zero decisions, while the independent validator and Rust executor repeat the closed owner/method/argument/result contract; `wrap`, `compose`, and `pipeline` remain residual because their delegated ownership is not closed by this receipt; Apple accounting is 3,648 fully executable / 3,036 internally verified / 16,900 unresolved and Windows accounting is 3,307 / 3,022 / 16,914)
 **Revised:** 2026-07-27 (promotes exactly 15 post-initialization scalar reads from `cluster`, `http`, and `os`: each capability-bearing module is loaded and quiesced before the export observer opens, so initialization receives no credit, while an independently duplicated descriptor/type allowlist requires the later authenticated cached read to return its exact boolean, number, object, string, or symbol type with zero decisions; generic exports from these three modules remain excluded; Apple accounting is 3,570 fully executable / 3,036 internally verified / 16,977 unresolved and Windows accounting is 3,229 / 3,022 / 16,991)
@@ -2673,6 +2674,14 @@ repeat the closed owner, method, arguments, and settled result type. A Promise
 object returned to a synchronous harness is not completion evidence. Stream
 composition, wrapping, and pipeline operations retain delegated sources or
 pipelines and remain residual until a recipe owns and drains those resources.
+
+The base `node:stream` constructor is the module value itself. It has no nested
+`default` property, so its reviewed lifecycle calls resolve through
+`["prototype", method]`. That correction is executable only for the separately
+enumerated `_close`, `_emitClose`, `_undestroy`, `constructor`, `destroy`, and
+`unpipe` set on a harness-created plain Stream; generic default-owner prototype
+authoring remains unavailable. In particular, `pipe` retains listener and
+pipeline ownership after returning and remains residual.
 
 Explicit-parameter Diffie-Hellman construction and state-only accessors are
 executable only with the independently repeated evidence vector: prime 23 as
