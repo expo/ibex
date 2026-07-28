@@ -196,6 +196,19 @@ const PROCESS_EVENT_METHOD_ARGUMENT_SHAPES = new Map([
 ]);
 const PROCESS_EVENT_ENFORCEMENT_SOURCE_REF =
   "src/engine/hermes_runtime.cc#armed-process-event-methods";
+const PROCESS_LIFECYCLE_RESULT_KINDS = new Map([
+  ["addListener", "process"],
+  ["listenerCount", "zero"],
+  ["listeners", "empty-array"],
+  ["off", "process"],
+  ["on", "process"],
+  ["once", "process"],
+  ["prependListener", "process"],
+  ["prependOnceListener", "process"],
+  ["rawListeners", "empty-array"],
+  ["removeAllListeners", "process"],
+  ["removeListener", "process"],
+]);
 
 const CLOSED_FS_BUILTIN_INVOCATION_SHAPES = new Map([
   ["chmod", ["chmod", "path-mode"]],
@@ -1681,17 +1694,135 @@ function filesystemMutationProbe({
   };
 }
 
+function processLifecycleNoEffectProbe({
+  plan,
+  scenario,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+  coverageByEdge,
+  target,
+}) {
+  if (
+    !["branch-selection", "no-effect"].includes(scenario) ||
+    !EXACT_RUNTIME_CANDIDATE_TRIPLES.has(target?.triple) ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const prefix = "native-op:global:process.";
+  if (!surfaceObservedKey.startsWith(prefix)) return null;
+  const methodName = surfaceObservedKey.slice(prefix.length);
+  const argumentShape = PROCESS_EVENT_METHOD_ARGUMENT_SHAPES.get(methodName);
+  const expectedReturnKind = PROCESS_LIFECYCLE_RESULT_KINDS.get(methodName);
+  if (!argumentShape || !expectedReturnKind) return null;
+  const edge = coverageByEdge.get(plan.edgeIds[0]);
+  const logicalBranch = edge?.logicalBranches?.find((branch) =>
+    plan.fixtureId.endsWith(`.logical.${branch.id}.${scenario}`),
+  );
+  const eventName = new Map([
+    ["before-exit", "beforeExit"],
+    ["exit", "exit"],
+  ]).get(logicalBranch?.id);
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const observedEdge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  const selectedBranches = metadata?.installationBranches?.filter((branch) =>
+    plan.implementationBranchIds.some((branchId) =>
+      branchId.endsWith(`.${branch.id}`),
+    ),
+  );
+  if (
+    eventName === undefined ||
+    logicalBranch.disposition !== "no-effect" ||
+    canonicalJson(logicalBranch.when) !==
+      canonicalJson([
+        {
+          fact: "process.listener.event",
+          equals: logicalBranch.id,
+        },
+      ]) ||
+    live?.kind !== "native-op" ||
+    live.name !== `global:process.${methodName}` ||
+    metadata?.surfaceType !== "global-api" ||
+    metadata.globalName !== "process" ||
+    metadata.memberName !== methodName ||
+    metadata.exportName !== `process.${methodName}` ||
+    !metadata.memberKinds?.includes("prototype-method") ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length === 0 ||
+    !Array.isArray(selectedBranches) ||
+    selectedBranches.length !== 1 ||
+    selectedBranches[0].sourceRefs.some(
+      (sourceRef) => !live.sourceRefs.includes(sourceRef),
+    ) ||
+    observedEdge?.id !== edge.id ||
+    edge.classification !== "closed" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const selectedLogicalBranch = structuredClone(logicalBranch);
+  const sourceDescriptor = {
+    kind: "closed-process-lifecycle-no-effect",
+    surfaceObservedKey,
+    globalName: "process",
+    memberName: methodName,
+    argumentShape,
+    targetTriple: target.triple,
+    implementationBranchIds: structuredClone(plan.implementationBranchIds),
+    enforcementBranchIds: structuredClone(plan.enforcementBranchIds),
+    enforcementSourceRef: PROCESS_EVENT_ENFORCEMENT_SOURCE_REF,
+    selectedLogicalBranch,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "native-op",
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "process-event-lifecycle-no-effect",
+        scenario,
+        methodName,
+        argumentShape,
+        eventName,
+        logicalBranchId: logicalBranch.id,
+        expectedReturnKind,
+      },
+      expectedResult: "no-effect",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
 export function authoredClosedPublicProbe(options) {
   const { plan, scenario } = options;
   if (
     plan.classification !== "closed" ||
-    scenario !== "closed" ||
+    !["closed", "branch-selection", "no-effect"].includes(scenario) ||
     plan.expectedObservation?.kind !== "enforcement-branch" ||
     plan.edgeIds.length !== 1 ||
     plan.actionIds.length !== 0
   ) {
     return null;
   }
+  const lifecycleNoEffect = processLifecycleNoEffectProbe(options);
+  if (lifecycleNoEffect) return lifecycleNoEffect;
+  if (scenario !== "closed") return null;
   return (
     startupEnvironmentProbe(options) ??
     cliControlProbe(options) ??

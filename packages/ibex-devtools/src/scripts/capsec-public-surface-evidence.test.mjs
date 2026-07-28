@@ -2278,6 +2278,42 @@ function completeClosedProcessEventCatalog() {
   return catalog;
 }
 
+function completeProcessLifecycleNoEffectCatalog() {
+  const catalog = completeClosedProcessEventCatalog();
+  const recipe = catalog.recipes[0];
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  recipe.fixtureId =
+    "fixture.process.add-listener.posix.logical.before-exit.no-effect";
+  recipe.scenario = "no-effect";
+  invocation.sourceDescriptor.kind =
+    "closed-process-lifecycle-no-effect";
+  invocation.sourceDescriptor.selectedLogicalBranch = {
+    id: "before-exit",
+    when: [
+      {
+        fact: "process.listener.event",
+        equals: "before-exit",
+      },
+    ],
+    disposition: "no-effect",
+  };
+  invocation.sourceDescriptorDigest = taggedDigest(
+    invocation.sourceDescriptor,
+  );
+  invocation.operation = {
+    kind: "process-event-lifecycle-no-effect",
+    scenario: "no-effect",
+    methodName: "addListener",
+    argumentShape: "event-listener",
+    eventName: "beforeExit",
+    logicalBranchId: "before-exit",
+    expectedReturnKind: "process",
+  };
+  invocation.expectedResult = "no-effect";
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
 function completeClosedCliCatalog() {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
@@ -3044,6 +3080,46 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
           invocation.operation.kind === "process-event-closure"
             ? true
             : projectCodeExecuted,
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
+}
+
+function processLifecycleNoEffectObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  const operation = invocation.operation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      surfaceKind: invocation.surfaceKind,
+      surfaceName: invocation.surfaceName,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      result: {
+        kind: "no-effect",
+        surfaceKind: invocation.surfaceKind,
+        surfaceName: invocation.surfaceName,
+        mechanism: operation.kind,
+        scenario: operation.scenario,
+        methodName: operation.methodName,
+        argumentShape: operation.argumentShape,
+        eventName: operation.eventName,
+        logicalBranchId: operation.logicalBranchId,
+        directReturnKind: operation.expectedReturnKind,
+        prototypeReturnKind: operation.expectedReturnKind,
+        listenerCount: 0,
+        listenersEmpty: true,
+        rawListenersEmpty: true,
+        listenerCalled: false,
+        descriptorPinned: true,
+        prototypeDescriptorPinned: true,
+        backingStateHidden: true,
+        engineExecuted: true,
+        projectCodeExecuted: true,
       },
     },
     legacyObservationCount: 0,
@@ -7707,6 +7783,48 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/selected source branch and final armed gate/);
+  });
+
+  test("accepts process lifecycle receipts only with exact no-effect state", () => {
+    const catalog = completeProcessLifecycleNoEffectCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: processLifecycleNoEffectObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const storedListener = processLifecycleNoEffectObservation(recipe);
+    storedListener.invocation.result.listenerCount = 1;
+    storedListener.invocation.result.listenersEmpty = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: storedListener,
+        coverage,
+      }),
+    ).toThrow(/exact no-effect return and empty listener state/);
+
+    const inventedBranch = structuredClone(recipe);
+    inventedBranch.publicSurfaceProbe.invocation.sourceDescriptor
+      .selectedLogicalBranch.when[0].equals = "exit";
+    inventedBranch.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        inventedBranch.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: inventedBranch,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation:
+          processLifecycleNoEffectObservation(inventedBranch),
+        coverage,
+      }),
+    ).toThrow(/logical branch, source branch, and final armed gate/);
   });
 
   test("accepts CLI closure only with the authored production rejection", () => {

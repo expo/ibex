@@ -4666,6 +4666,7 @@ export function buildConformanceRecipeCatalog({
       route,
       liveByObservedKey,
       coverageByObservedKey,
+      coverageByEdge,
       target,
     });
     const startupPublicSurfaceProbe = authoredStartupPublicProbe({

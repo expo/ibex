@@ -124,6 +124,8 @@ struct ClosedSourceDescriptor {
     enforcement_branch_ids: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     enforcement_source_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    selected_logical_branch: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -248,6 +250,19 @@ enum ClosedOperation {
         #[serde(rename = "expectedError")]
         expected_error: String,
     },
+    ProcessEventLifecycleNoEffect {
+        scenario: String,
+        #[serde(rename = "methodName")]
+        method_name: String,
+        #[serde(rename = "argumentShape")]
+        argument_shape: String,
+        #[serde(rename = "eventName")]
+        event_name: String,
+        #[serde(rename = "logicalBranchId")]
+        logical_branch_id: String,
+        #[serde(rename = "expectedReturnKind")]
+        expected_return_kind: String,
+    },
     FilesystemUnboundMutation {
         #[serde(rename = "targetTriple")]
         target_triple: String,
@@ -302,6 +317,7 @@ impl ClosedOperation {
             Self::SharedRuntimeGlobalAbsence { .. } => "shared-runtime-global-absence",
             Self::ArmedNativeGlobalAbsence { .. } => "armed-native-global-absence",
             Self::ProcessEventClosure { .. } => "process-event-closure",
+            Self::ProcessEventLifecycleNoEffect { .. } => "process-event-lifecycle-no-effect",
             Self::FilesystemUnboundMutation { .. } => "filesystem-unbound-mutation",
         }
     }
@@ -321,6 +337,7 @@ impl ClosedOperation {
             Self::SharedRuntimeGlobalAbsence { .. }
             | Self::ArmedNativeGlobalAbsence { .. }
             | Self::ProcessEventClosure { .. }
+            | Self::ProcessEventLifecycleNoEffect { .. }
             | Self::FilesystemUnboundMutation { .. } => None,
         }
     }
@@ -389,8 +406,7 @@ impl AuthenticatedClosedEngine {
                     "authenticated closed-surface submission {ordinal} failed: {error:#}"
                 )
             });
-        let publications =
-            self.drain_publications("after authenticated closed-surface evaluation");
+        let publications = self.drain_publications("after authenticated closed-surface evaluation");
         let evaluation = match (evaluation, publications) {
             (Err(evaluation_error), Err(publication_error)) => anyhow::bail!(
                 "authenticated closed-surface submission {ordinal} failed ({evaluation_error:#}) and its publication stream failed ({publication_error:#})"
@@ -445,8 +461,7 @@ impl AuthenticatedClosedEngine {
     }
 
     fn finish(&mut self) -> anyhow::Result<()> {
-        let publications =
-            self.drain_publications("authenticated closed-surface engine finish");
+        let publications = self.drain_publications("authenticated closed-surface engine finish");
         let due = self
             .publications
             .require_no_due_schedules("authenticated closed-surface engine finish");
@@ -884,8 +899,8 @@ async fn execute_closed_tamed_evaluator(
     let expected_error_message_literal = serde_json::to_string(&expected_error_message)
         .expect("serialize tamed-evaluator refusal message");
     let directory = tempfile::tempdir().expect("create tamed-evaluator project root");
-    let project_root = std::fs::canonicalize(directory.path())
-        .expect("canonicalize tamed-evaluator project root");
+    let project_root =
+        std::fs::canonicalize(directory.path()).expect("canonicalize tamed-evaluator project root");
     std::fs::write(
         project_root.join("package.json"),
         r#"{"name":"capsec-tamed-evaluator","private":true,"type":"module"}"#,
@@ -1018,9 +1033,11 @@ if (
     let hermes_target = bytecode_cache_identity();
     let session_id = format!("closed-evaluator:{}", recipe.plan_digest);
     #[cfg(not(windows))]
-    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
-        &format!("{session_id}:admission")
-    ));
+    assert!(
+        ibex_runtime::host::abi::begin_installed_conformance_observation(&format!(
+            "{session_id}:admission"
+        ))
+    );
     #[cfg(not(windows))]
     let execution_session_id = session_id.clone();
     #[cfg(not(windows))]
@@ -1065,8 +1082,7 @@ if (
             matches!(evaluation, AuthenticatedEvaluation::Empty),
             "authenticated tamed-evaluator module did not complete its self-check: {evaluation:?}"
         );
-        let observations =
-            ibex_runtime::host::abi::take_installed_conformance_observations();
+        let observations = ibex_runtime::host::abi::take_installed_conformance_observations();
         vfs.close();
         observations
     };
@@ -1076,9 +1092,7 @@ if (
     // evaluator there without relabeling the unavailable module path.
     #[cfg(windows)]
     let (legacy, typed) = {
-        assert!(
-            ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id)
-        );
+        assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
         let _ = engine
             .eval_immediate(&source)
             .await
@@ -1432,27 +1446,27 @@ fn reviewed_builtin_filesystem_mutation(
         }
     } else {
         match normalized {
-        "chmod" => ("chmod", "path-mode"),
-        "chown" => ("chown", "path-owner"),
-        "copyfile" => ("copyfile", "two-paths"),
-        "cp" => ("cp", "two-paths"),
-        "fchmod" => ("fchmod", "descriptor-mode"),
-        "fchown" => ("fchown", "descriptor-owner"),
-        "futimes" => ("futimes", "descriptor-times"),
-        "lchmod" => ("lchmod", "path-mode"),
-        "lchown" => ("lchown", "path-owner"),
-        "link" => ("link", "two-paths"),
-        "lutimes" => ("lutimes", "path-times"),
-        "mkdtemp" | "mkdtempdisposable" => ("mkdtemp", "path-prefix"),
-        "rename" => ("rename", "two-paths"),
-        "rm" => ("rm", "path"),
-        "rmdir" => ("rmdir", "path"),
-        "symlink" => ("symlink", "two-paths"),
-        "unlink" => ("unlink", "path"),
-        "utimes" => ("utime", "path-times"),
-        "watch" => ("watch", "path"),
-        "watchfile" => ("watchFile", "path"),
-        _ => return None,
+            "chmod" => ("chmod", "path-mode"),
+            "chown" => ("chown", "path-owner"),
+            "copyfile" => ("copyfile", "two-paths"),
+            "cp" => ("cp", "two-paths"),
+            "fchmod" => ("fchmod", "descriptor-mode"),
+            "fchown" => ("fchown", "descriptor-owner"),
+            "futimes" => ("futimes", "descriptor-times"),
+            "lchmod" => ("lchmod", "path-mode"),
+            "lchown" => ("lchown", "path-owner"),
+            "link" => ("link", "two-paths"),
+            "lutimes" => ("lutimes", "path-times"),
+            "mkdtemp" | "mkdtempdisposable" => ("mkdtemp", "path-prefix"),
+            "rename" => ("rename", "two-paths"),
+            "rm" => ("rm", "path"),
+            "rmdir" => ("rmdir", "path"),
+            "symlink" => ("symlink", "two-paths"),
+            "unlink" => ("unlink", "path"),
+            "utimes" => ("utime", "path-times"),
+            "watch" => ("watch", "path"),
+            "watchfile" => ("watchFile", "path"),
+            _ => return None,
         }
     };
     let invocation_style = if file_handle {
@@ -1902,9 +1916,7 @@ async fn execute_closed_filesystem_mutation(
     let before = filesystem_tree_state(project_root);
     let before_digest = tagged_jcs_digest(&before);
     let session_id = format!("public-observation:{}", recipe.plan_digest);
-    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
-        &session_id
-    ));
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
     let encoded = engine
         .eval_immediate(&filesystem_mutation_script(
             &invocation.operation,
@@ -1946,8 +1958,7 @@ async fn execute_closed_filesystem_mutation(
         .as_str()
         .expect("closed filesystem mutation has no error message");
     assert!(
-        error_message.contains(expected_error_fragment)
-            && error_message.contains(guard_operation),
+        error_message.contains(expected_error_fragment) && error_message.contains(guard_operation),
         "closed filesystem mutation returned the wrong refusal: {error_message}"
     );
     assert!(legacy.is_empty());
@@ -2301,7 +2312,10 @@ async fn execute_closed_sqlite_extension_refusal(
         ClosedOperation::SqliteExtensionLoad { extension_path, .. } => {
             assert_eq!(method_name, "loadExtension");
             assert_eq!(extension_path, "ibex-capsec-closed-extension");
-            assert_eq!(expected_rejection_fragment, "Extension loading not supported");
+            assert_eq!(
+                expected_rejection_fragment,
+                "Extension loading not supported"
+            );
         }
         ClosedOperation::SqliteCrSqliteEnable { .. } => {
             assert_eq!(method_name, "enableCrSqlite");
@@ -2340,7 +2354,10 @@ async fn execute_closed_sqlite_extension_refusal(
         Some(probe.surface_observed_key.as_str())
     );
     assert_eq!(descriptor.source_key.as_deref(), Some("exact_sqlite"));
-    assert_eq!(descriptor.module_specifiers.as_ref(), Some(module_specifiers));
+    assert_eq!(
+        descriptor.module_specifiers.as_ref(),
+        Some(module_specifiers)
+    );
     assert_eq!(
         descriptor.source_refs,
         [format!(
@@ -3058,7 +3075,10 @@ async fn execute_closed_shared_runtime_global_absence(
         descriptor.surface_observed_key.as_deref(),
         Some(probe.surface_observed_key.as_str())
     );
-    assert_eq!(descriptor.global_name.as_deref(), Some(global_name.as_str()));
+    assert_eq!(
+        descriptor.global_name.as_deref(),
+        Some(global_name.as_str())
+    );
     assert_eq!(descriptor.member_name.as_ref(), member_name);
     assert_eq!(
         descriptor.target_triple.as_deref(),
@@ -3103,7 +3123,10 @@ async fn execute_closed_shared_runtime_global_absence(
                 assert_eq!(metadata["sourceKey"], "evaluated_native_script");
                 assert_eq!(branches[0]["route"], "evaluated-native-script");
                 assert_eq!(metadata["evaluatedScript"], "kPrelude");
-                assert_eq!(metadata["sourceUrls"], serde_json::json!(["worklet-prelude.js"]));
+                assert_eq!(
+                    metadata["sourceUrls"],
+                    serde_json::json!(["worklet-prelude.js"])
+                );
             }
         } else {
             assert_eq!(metadata["sourceKey"], "native_jsi_global");
@@ -3136,8 +3159,7 @@ async fn execute_closed_shared_runtime_global_absence(
         let composed_shared_runtime = metadata["sourceKey"] == "shared_runtime"
             && branches[0]["route"] == "composed:legacy-bootstrap+shared-runtime"
             && branches[0]["targetVariant"] == "default"
-            && branches[0]["routes"]
-                == serde_json::json!(["legacy-bootstrap", "shared-runtime"]);
+            && branches[0]["routes"] == serde_json::json!(["legacy-bootstrap", "shared-runtime"]);
         assert!(
             if metadata["sourceKey"] == "shared_runtime" {
                 shared_runtime || composed_shared_runtime
@@ -3171,10 +3193,8 @@ async fn execute_closed_shared_runtime_global_absence(
     let script = if root_is_sealed {
         format!("{global_json} in globalThis?'present':'absent'")
     } else if let Some(member_name) = member_name {
-        let member_path_json = serde_json::to_string(
-            &member_name.split('.').collect::<Vec<_>>(),
-        )
-        .unwrap();
+        let member_path_json =
+            serde_json::to_string(&member_name.split('.').collect::<Vec<_>>()).unwrap();
         format!(
             "(function(){{function descriptorIn(value,key){{while(value!==null){{var descriptor=Object.getOwnPropertyDescriptor(value,key);if(descriptor!==undefined)return descriptor;value=Object.getPrototypeOf(value);}}}}var root=descriptorIn(globalThis,{global_json});if(!root)return 'absent';if(!Object.prototype.hasOwnProperty.call(root,'value'))return 'present';var value=root.value;var path={member_path_json};for(var index=0;index<path.length;index+=1){{if((typeof value!=='object'&&typeof value!=='function')||value===null)return 'absent';var descriptor=descriptorIn(value,path[index]);if(descriptor===undefined)return 'absent';if(index+1===path.length)return 'present';if(!Object.prototype.hasOwnProperty.call(descriptor,'value'))return 'present';value=descriptor.value;}}return 'absent';}})()"
         )
@@ -3269,6 +3289,22 @@ fn reviewed_process_event_argument_shape(method_name: &str) -> Option<&'static s
         "eventNames" | "getMaxListeners" | "hasUncaughtExceptionCaptureCallback" => "none",
         "setMaxListeners" => "listener-limit",
         "setUncaughtExceptionCaptureCallback" => "null-capture-callback",
+        _ => return None,
+    })
+}
+
+fn reviewed_process_lifecycle_return_kind(method_name: &str) -> Option<&'static str> {
+    Some(match method_name {
+        "addListener"
+        | "off"
+        | "on"
+        | "once"
+        | "prependListener"
+        | "prependOnceListener"
+        | "removeAllListeners"
+        | "removeListener" => "process",
+        "listenerCount" => "zero",
+        "listeners" | "rawListeners" => "empty-array",
         _ => return None,
     })
 }
@@ -3555,6 +3591,327 @@ async fn execute_closed_process_event(
     observation
         .as_object_mut()
         .expect("expected closed observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-closed-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
+#[cfg(test)]
+async fn execute_process_event_lifecycle_no_effect(
+    engine: &mut AuthenticatedClosedEngine,
+    recipe: &Recipe,
+    probe: &ClosedSurfaceProbe,
+    coverage: &BTreeMap<String, (String, String)>,
+    engine_binary_digest: &str,
+    target_triple: &str,
+) -> serde_json::Value {
+    let invocation = &probe.invocation;
+    let ClosedOperation::ProcessEventLifecycleNoEffect {
+        scenario,
+        method_name,
+        argument_shape,
+        event_name,
+        logical_branch_id,
+        expected_return_kind,
+    } = &invocation.operation
+    else {
+        panic!("process lifecycle probe has the wrong operation")
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "closed");
+    assert!(matches!(
+        recipe.scenario.as_str(),
+        "branch-selection" | "no-effect"
+    ));
+    assert_eq!(&recipe.scenario, scenario);
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
+    assert_eq!(invocation.kind, "closed-surface");
+    assert_eq!(invocation.surface_kind, "native-op");
+    assert_eq!(
+        invocation.surface_name,
+        format!("global:process.{method_name}")
+    );
+    assert_eq!(invocation.expected_result, "no-effect");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert!(invocation.allowed_coverage_edge_ids.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(
+        reviewed_process_event_argument_shape(method_name),
+        Some(argument_shape.as_str())
+    );
+    assert_eq!(
+        reviewed_process_lifecycle_return_kind(method_name),
+        Some(expected_return_kind.as_str())
+    );
+    let expected_event = match logical_branch_id.as_str() {
+        "before-exit" => "beforeExit",
+        "exit" => "exit",
+        branch => panic!("unreviewed process lifecycle branch {branch}"),
+    };
+    assert_eq!(event_name, expected_event);
+    assert!(recipe
+        .fixture_id
+        .ends_with(&format!(".logical.{logical_branch_id}.{scenario}")));
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+
+    let descriptor = &invocation.source_descriptor;
+    assert_eq!(descriptor.kind, "closed-process-lifecycle-no-effect");
+    assert_eq!(
+        descriptor.surface_observed_key.as_deref(),
+        Some(probe.surface_observed_key.as_str())
+    );
+    assert_eq!(descriptor.global_name.as_deref(), Some("process"));
+    assert_eq!(
+        descriptor.member_name.as_deref(),
+        Some(method_name.as_str())
+    );
+    assert_eq!(
+        descriptor.argument_shape.as_deref(),
+        Some(argument_shape.as_str())
+    );
+    assert_eq!(descriptor.target_triple.as_deref(), Some(target_triple));
+    assert_eq!(
+        descriptor.enforcement_source_ref.as_deref(),
+        Some("src/engine/hermes_runtime.cc#armed-process-event-methods")
+    );
+    assert_eq!(
+        descriptor.implementation_branch_ids.as_ref(),
+        Some(&recipe.implementation_branch_ids)
+    );
+    assert_eq!(
+        descriptor.enforcement_branch_ids.as_ref(),
+        Some(&recipe.enforcement_branch_ids)
+    );
+    let logical_branch = descriptor
+        .selected_logical_branch
+        .as_ref()
+        .expect("process lifecycle descriptor has no logical branch");
+    assert_eq!(logical_branch["id"], logical_branch_id.as_str());
+    assert_eq!(logical_branch["disposition"], "no-effect");
+    assert_eq!(
+        logical_branch["when"],
+        serde_json::json!([{
+            "fact": "process.listener.event",
+            "equals": logical_branch_id,
+        }])
+    );
+    assert!(!descriptor.source_refs.is_empty());
+    let metadata = &descriptor.source_metadata;
+    assert_eq!(metadata["surfaceType"], "global-api");
+    assert_eq!(metadata["globalName"], "process");
+    assert_eq!(metadata["memberName"], method_name.as_str());
+    assert_eq!(metadata["exportName"], format!("process.{method_name}"));
+    assert!(metadata["memberKinds"]
+        .as_array()
+        .expect("process lifecycle member kinds must be an array")
+        .iter()
+        .any(|kind| kind == "prototype-method"));
+    let branches = metadata["installationBranches"]
+        .as_array()
+        .expect("process lifecycle source must name installation branches");
+    let selected_variants = recipe
+        .implementation_branch_ids
+        .iter()
+        .map(|branch_id| {
+            branch_id
+                .rsplit_once('.')
+                .expect("implementation branch id has no variant")
+                .1
+        })
+        .collect::<Vec<_>>();
+    let selected = branches
+        .iter()
+        .filter(|branch| {
+            branch["id"]
+                .as_str()
+                .is_some_and(|id| selected_variants.contains(&id))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(selected.len(), 1);
+    for source_ref in selected[0]["sourceRefs"]
+        .as_array()
+        .expect("selected process lifecycle source refs must be an array")
+    {
+        assert!(descriptor
+            .source_refs
+            .iter()
+            .any(|candidate| source_ref == candidate));
+    }
+
+    let (surface_kind, surface_name) = coverage
+        .get(&recipe.edge_ids[0])
+        .expect("process lifecycle recipe names an unknown coverage edge");
+    assert_eq!(surface_kind, &invocation.surface_kind);
+    assert_eq!(surface_name, &invocation.surface_name);
+    let terminal_observed_key = format!("{surface_kind}:{surface_name}");
+    assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
+    assert_eq!(terminal_observed_key, probe.surface_observed_key);
+
+    let method_json = serde_json::to_string(method_name).unwrap();
+    let shape_json = serde_json::to_string(argument_shape).unwrap();
+    let event_json = serde_json::to_string(event_name).unwrap();
+    let script = format!(
+        r#"(function(methodName, argumentShape, eventName) {{
+  var processObject = globalThis.process;
+  var prototype = Object.getPrototypeOf(processObject);
+  var listenerCalled = false;
+  function listener() {{ listenerCalled = true; }}
+  function argumentsFor() {{
+    return argumentShape === 'event-listener'
+      ? [eventName, listener]
+      : [eventName];
+  }}
+  function returnKind(value) {{
+    if (value === processObject) return 'process';
+    if (value === 0) return 'zero';
+    if (Array.isArray(value) && value.length === 0) return 'empty-array';
+    return 'unexpected';
+  }}
+  var directReturnKind = returnKind(
+    processObject[methodName].apply(processObject, argumentsFor())
+  );
+  var prototypeReturnKind = returnKind(
+    prototype[methodName].apply(processObject, argumentsFor())
+  );
+  var listenerCount = processObject.listenerCount(eventName);
+  var listeners = processObject.listeners(eventName);
+  var rawListeners = processObject.rawListeners(eventName);
+  var descriptor = Object.getOwnPropertyDescriptor(processObject, methodName);
+  var prototypeDescriptor =
+    Object.getOwnPropertyDescriptor(prototype, methodName);
+  return JSON.stringify({{
+    kind: 'no-effect',
+    methodName: methodName,
+    argumentShape: argumentShape,
+    eventName: eventName,
+    directReturnKind: directReturnKind,
+    prototypeReturnKind: prototypeReturnKind,
+    listenerCount: listenerCount,
+    listenersEmpty: Array.isArray(listeners) && listeners.length === 0,
+    rawListenersEmpty:
+      Array.isArray(rawListeners) && rawListeners.length === 0,
+    listenerCalled: listenerCalled,
+    descriptorPinned: !!descriptor &&
+      descriptor.writable === false &&
+      descriptor.configurable === false,
+    prototypeDescriptorPinned: !!prototypeDescriptor &&
+      prototypeDescriptor.writable === false &&
+      prototypeDescriptor.configurable === false &&
+      prototypeDescriptor.value === descriptor.value,
+    backingStateHidden:
+      !('_events' in processObject) &&
+      !('_maxListeners' in processObject) &&
+      !('_uncaughtCaptureCb' in processObject) &&
+      !('_uncaughtExceptionHooked' in processObject) &&
+      !('_unhandledRejectionHooked' in processObject)
+  }});
+}})({method_json}, {shape_json}, {event_json})"#
+    );
+    let session_id = format!("public-observation:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
+    let encoded = engine
+        .eval_immediate(&script)
+        .await
+        .expect("execute process lifecycle no-effect method")
+        .expect("process lifecycle no-effect method returned no result");
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    let observed: serde_json::Value =
+        serde_json::from_str(&encoded).expect("process lifecycle result must be JSON");
+    assert_eq!(observed["kind"], "no-effect");
+    assert_eq!(observed["methodName"], method_name.as_str());
+    assert_eq!(observed["argumentShape"], argument_shape.as_str());
+    assert_eq!(observed["eventName"], event_name.as_str());
+    assert_eq!(observed["directReturnKind"], expected_return_kind.as_str());
+    assert_eq!(
+        observed["prototypeReturnKind"],
+        expected_return_kind.as_str()
+    );
+    assert_eq!(observed["listenerCount"], 0);
+    assert_eq!(observed["listenersEmpty"], true);
+    assert_eq!(observed["rawListenersEmpty"], true);
+    assert_eq!(observed["listenerCalled"], false);
+    assert_eq!(observed["descriptorPinned"], true);
+    assert_eq!(observed["prototypeDescriptorPinned"], true);
+    assert_eq!(observed["backingStateHidden"], true);
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let result = serde_json::json!({
+        "kind": "no-effect",
+        "surfaceKind": surface_kind,
+        "surfaceName": surface_name,
+        "mechanism": invocation.operation.kind(),
+        "scenario": scenario,
+        "methodName": method_name,
+        "argumentShape": argument_shape,
+        "eventName": event_name,
+        "logicalBranchId": logical_branch_id,
+        "directReturnKind": observed["directReturnKind"],
+        "prototypeReturnKind": observed["prototypeReturnKind"],
+        "listenerCount": 0,
+        "listenersEmpty": true,
+        "rawListenersEmpty": true,
+        "listenerCalled": false,
+        "descriptorPinned": true,
+        "prototypeDescriptorPinned": true,
+        "backingStateHidden": true,
+        "engineExecuted": true,
+        "projectCodeExecuted": true,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": terminal_observed_key,
+            "surfaceKind": surface_kind,
+            "surfaceName": surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": 0,
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected lifecycle observation must be an object")
         .insert("result".into(), serde_json::Value::String("passed".into()));
     let mut evidence = serde_json::json!({
         "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
@@ -4024,11 +4381,8 @@ async fn execute_closed_module_runner_namespace(
     // @ref LLP 0027#canonical-encoding-and-validation
     let producer_digest = crate::runtime::module_producer_binary_digest()
         .expect("authenticate mapped Ibex module producer");
-    let graph = match build_authenticated_source_graph_v1(
-        &entry,
-        producer_digest.clone(),
-    )
-    .expect("build authenticated closed module-runner graph")
+    let graph = match build_authenticated_source_graph_v1(&entry, producer_digest.clone())
+        .expect("build authenticated closed module-runner graph")
     {
         SourceModuleGraphBuildV1::Native(graph) => graph,
         SourceModuleGraphBuildV1::LegacyRequired(requirement) => panic!(
@@ -4397,7 +4751,9 @@ async fn capsec_closed_native_seal_preserves_diagnostic_runtime_compatibility() 
         serde_json::from_str(&observed).expect("decode diagnostic compatibility globals");
     assert_eq!(observed.len(), 9);
     assert!(
-        observed.iter().all(|(_, value_type)| value_type == "function"),
+        observed
+            .iter()
+            .all(|(_, value_type)| value_type == "function"),
         "foreground diagnostic runtime lost reviewed compatibility globals: {observed:?}"
     );
     let accessibility = engine
@@ -4443,8 +4799,8 @@ async fn capsec_closed_native_seal_preserves_diagnostic_runtime_compatibility() 
     assert_eq!(
         storage,
         [
-            "object", "object", "object", "object", "function", "function", "function",
-            "function", "function", "function", "function", "function", "function",
+            "object", "object", "object", "object", "function", "function", "function", "function",
+            "function", "function", "function", "function", "function",
         ]
     );
 }
@@ -4622,6 +4978,18 @@ async fn capsec_public_closed_recipe_batch() {
             )
         })
         .count();
+    let process_lifecycle_no_effect_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::ProcessEventLifecycleNoEffect { .. }
+            )
+        })
+        .count();
     let filesystem_mutation_count = recipe_indexes
         .iter()
         .filter(|index| {
@@ -4649,6 +5017,7 @@ async fn capsec_public_closed_recipe_batch() {
             + shared_runtime_global_absence_count
             + armed_native_global_absence_count
             + process_event_count
+            + process_lifecycle_no_effect_count
             + filesystem_mutation_count,
         "every closed recipe must have an accounted execution family"
     );
@@ -4693,14 +5062,14 @@ async fn capsec_public_closed_recipe_batch() {
         expected_native_absence,
         expected_filesystem_mutations,
     ) = match catalog.target.triple.as_str() {
-            "aarch64-apple-darwin" => (18, 322, 18, 93),
-            // The Windows-native roots in the reviewed absence vocabulary are
-            // either installed by the platform replacement or belong to
-            // POSIX-only source branches. Only the eleven worklet/app-runtime
-            // roots remain target-applicable here.
-            "x86_64-pc-windows-msvc" => (18, 322, 11, 79),
-            target => panic!("closed public batch has no reviewed target shape for {target}"),
-        };
+        "aarch64-apple-darwin" => (18, 322, 18, 93),
+        // The Windows-native roots in the reviewed absence vocabulary are
+        // either installed by the platform replacement or belong to
+        // POSIX-only source branches. Only the eleven worklet/app-runtime
+        // roots remain target-applicable here.
+        "x86_64-pc-windows-msvc" => (18, 322, 11, 79),
+        target => panic!("closed public batch has no reviewed target shape for {target}"),
+    };
     assert_eq!(
         debugger_abi_count, expected_debugger_abi,
         "expected every target-applicable debugger ABI and native-operation facet"
@@ -4716,6 +5085,10 @@ async fn capsec_public_closed_recipe_batch() {
     assert_eq!(
         process_event_count, 18,
         "expected every reviewed closed process event method"
+    );
+    assert_eq!(
+        process_lifecycle_no_effect_count, 44,
+        "expected both lifecycle events and both logical obligations for every no-effect process event method"
     );
     assert_eq!(
         filesystem_mutation_count, expected_filesystem_mutations,
@@ -4816,18 +5189,11 @@ async fn capsec_public_closed_recipe_batch() {
                 )
             })
             .collect::<Vec<_>>();
-        let (host, snapshot_digest) = build_armed_test_host_custom(
-            None,
-            false,
-            false,
-            false,
-            Vec::new(),
-            None,
-            |snapshot| {
+        let (host, snapshot_digest) =
+            build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |snapshot| {
                 snapshot["principals"][0]["imports"]["builtins"] =
                     serde_json::json!(["bun:sqlite", "exact:sqlite"]);
-            },
-        );
+            });
         assert_ne!(crate::host::abi::install_host(host.clone()), 0);
         let _reset = HostResetGuard;
         let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
@@ -5004,6 +5370,54 @@ async fn capsec_public_closed_recipe_batch() {
             .finish()
             .expect("finish authenticated process-event-closure publications");
     }
+    if process_lifecycle_no_effect_count > 0 {
+        let process_lifecycle_indexes = recipe_indexes
+            .iter()
+            .copied()
+            .filter(|index| {
+                matches!(
+                    &closed_surface_probe(&catalog.recipes[*index])
+                        .unwrap()
+                        .invocation
+                        .operation,
+                    ClosedOperation::ProcessEventLifecycleNoEffect { .. }
+                )
+            })
+            .collect::<Vec<_>>();
+        let (host, snapshot_digest) =
+            build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+            .expect("create exact process lifecycle no-effect engine");
+        engine
+            .load_runtime()
+            .await
+            .expect("load exact process lifecycle no-effect runtime");
+        let mut engine = AuthenticatedClosedEngine {
+            host,
+            engine,
+            publications: AuthenticatedPublicationTracker::default(),
+        };
+        for index in process_lifecycle_indexes {
+            let recipe = &catalog.recipes[index];
+            let probe = closed_surface_probe(recipe).unwrap();
+            executions.push(
+                execute_process_event_lifecycle_no_effect(
+                    &mut engine,
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                    &catalog.target.triple,
+                )
+                .await,
+            );
+        }
+        engine
+            .finish()
+            .expect("finish authenticated process-lifecycle publications");
+    }
     if filesystem_mutation_count > 0 {
         let filesystem_indexes = recipe_indexes
             .iter()
@@ -5089,13 +5503,14 @@ async fn capsec_public_closed_recipe_batch() {
         let probe = closed_surface_probe(recipe).unwrap();
         if matches!(
             &probe.invocation.operation,
-                ClosedOperation::TerminalBuiltinImport { .. }
+            ClosedOperation::TerminalBuiltinImport { .. }
                 | ClosedOperation::SqliteExtensionLoad { .. }
                 | ClosedOperation::SqliteCrSqliteEnable { .. }
                 | ClosedOperation::DebuggerAbiDisabled { .. }
                 | ClosedOperation::SharedRuntimeGlobalAbsence { .. }
                 | ClosedOperation::ArmedNativeGlobalAbsence { .. }
                 | ClosedOperation::ProcessEventClosure { .. }
+                | ClosedOperation::ProcessEventLifecycleNoEffect { .. }
                 | ClosedOperation::FilesystemUnboundMutation { .. }
         ) {
             continue;
@@ -5156,6 +5571,7 @@ async fn capsec_public_closed_recipe_batch() {
             ClosedOperation::SharedRuntimeGlobalAbsence { .. } => unreachable!(),
             ClosedOperation::ArmedNativeGlobalAbsence { .. } => unreachable!(),
             ClosedOperation::ProcessEventClosure { .. } => unreachable!(),
+            ClosedOperation::ProcessEventLifecycleNoEffect { .. } => unreachable!(),
             ClosedOperation::FilesystemUnboundMutation { .. } => unreachable!(),
         });
     }

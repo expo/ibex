@@ -1870,6 +1870,17 @@ state in a module-private `WeakMap`, so TypeScript's erased `private` modifier
 does not leave a public backing cell. A physical armed-Hermes regression
 exercises ordinary calls, prototype calls, attempted replacement, both
 lifecycle branches, hidden backing state, and the zero-decision invariant.
+WP10 additionally binds each lifecycle case to public execution evidence:
+eleven exact methods times `exit` / `beforeExit` times the independently
+required branch-selection / no-effect obligations produce forty-four receipts.
+Each receipt authenticates the target-local installation branch, the registry
+logical-branch predicate, and the final armed gate, then invokes both the
+instance and defining prototype. The physical result must preserve the exact
+source-defined return (`process`, zero, or an empty array), store no listener,
+expose empty listener views, keep both descriptors pinned and backing state
+hidden, and emit no legacy or typed decision. The once-per-session diagnostic
+remains covered by the shared-runtime lifecycle regression; it is not
+fabricated as a per-recipe observation.
 The same live fixture invokes shell exec, synchronous spawn, and asynchronous
 spawn with a real marker-file command. All three are denied at the armed native
 boundary and the marker remains absent, so executable selection, child

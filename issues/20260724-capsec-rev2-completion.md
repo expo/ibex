@@ -5605,12 +5605,50 @@ ticket closes.
   open, lifecycle `exit` / `beforeExit` branch-selection and no-effect recipes
   remain residual, and both advertisement sets remain empty.
 
+### 2026-07-28 — prove process lifecycle branch selection and no-effect state
+
+- Promoted exactly forty-four lifecycle receipts: eleven public process-event
+  methods × `exit` / `beforeExit` × the separately required branch-selection
+  and no-effect scenarios. Each recipe binds the exact registry logical branch,
+  target-local installation branch, and final
+  `src/engine/hermes_runtime.cc#armed-process-event-methods` gate.
+- The physical harness invokes both the process instance and its defining
+  prototype. It proves the exact source-defined return kind (`process`, zero,
+  or empty array), zero stored listeners, empty public and raw listener views,
+  no listener callback, pinned descriptors, hidden backing state, and zero
+  legacy or typed decisions. The once-per-session compatibility diagnosis
+  remains covered by the shared-runtime lifecycle regression and is
+  deliberately not claimed once per recipe.
+- The independent JavaScript validator repeats the complete method, event,
+  scenario, logical predicate, branch, source, return, storage, descriptor, and
+  decision contract. Negative tests reject a fabricated logical predicate and
+  a receipt that stored a listener.
+- Apple catalog
+  `sha256-Rvdhlh6cf6FJ_EXnM3qINER7Bg-ykeCvK36A-VUaEqc`: 23,592 required /
+  **3,873 executable** / 3,040 internally verified / 16,679 unresolved.
+  Windows catalog
+  `sha256-vyJ3qy09KoPwxvEMo7bt1YUQj6CMJIKLBdZFEPgLGfs`: 23,251 /
+  **3,512** / 3,026 / 16,713. Closed-denial residuals fall to 497 and
+  480 respectively.
+- The EPYC closed batch passes 1/1 and emits 794 passing rows, including all
+  forty-four lifecycle records against loaded engine
+  `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. Independent JavaScript
+  validation accepts all 44 records (22 per scenario). Raw batch evidence
+  SHA-256:
+  `b453b760a72445f76baf407c050f61701f20f75ba6f9af1a8c7d995c28874377`.
+- Focused recipe and evidence validation passes **179/179** tests. The
+  source-discovery, registry, recipe, evidence, output, contract, and runtime
+  environment integration suite passes on the M5 host; ref-check reports 41
+  LLP documents / 2,259 references / 0 errors / 1 unchecked.
+- Important enforcement mechanisms remain about **99.8% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
-author source-bound branch-selection and diagnosed no-effect recipes for the
-exact `exit` / `beforeExit` lifecycle cases, execute them through the real
-armed engine, and continue reducing the remaining highest-confidence
-public-surface residuals. Do not treat the empty advertisement set as criterion
-7 completion, and do not convert catalog labels or generic failed imports into
-public execution evidence.
+reduce the remaining highest-confidence public-surface residuals through
+source-bound loaded-engine receipts, prioritizing exact closed surfaces and
+bounded zero-decision operations. Do not treat the empty advertisement set as
+criterion 7 completion, and do not convert catalog labels or generic failed
+imports into public execution evidence.

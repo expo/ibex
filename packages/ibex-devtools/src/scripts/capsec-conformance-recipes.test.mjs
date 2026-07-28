@@ -466,11 +466,13 @@ describe("exact-target CapSec executable recipes", () => {
     // residual until it has loaded-engine evidence.
     // Five fresh net terminal calls observe close delivery after proving that
     // their harness-owned receiver never acquired a transport.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_829);
+    // Forty-four process lifecycle receipts bind exit and beforeExit across
+    // both their branch-selection and no-effect obligations.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_873);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_040);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_723);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_679);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -655,9 +657,11 @@ describe("exact-target CapSec executable recipes", () => {
     // remains one explicit residual until it has loaded-engine evidence.
     // Five fresh net terminal calls observe close delivery after proving that
     // their harness-owned receiver never acquired a transport.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_468);
+    // The same source-defined lifecycle branches are target-applicable on
+    // Windows and execute against its selected installation branch.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_512);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_026);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_757);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_713);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5042,6 +5046,56 @@ describe("exact-target CapSec executable recipes", () => {
         },
       },
     });
+  });
+
+  test("binds every exit lifecycle no-effect obligation to its logical branch", () => {
+    for (const catalog of [recipes, windowsRecipes]) {
+      const rows = catalog.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+          "process-event-lifecycle-no-effect",
+      );
+      expect(rows, catalog.target.triple).toHaveLength(44);
+      expect(
+        rows.every((recipe) => {
+          const invocation = recipe.publicSurfaceProbe.invocation;
+          const operation = invocation.operation;
+          const branch = invocation.sourceDescriptor.selectedLogicalBranch;
+          return (
+            recipe.status === "fully-executable" &&
+            recipe.classification === "closed" &&
+            ["branch-selection", "no-effect"].includes(recipe.scenario) &&
+            recipe.actionIds.length === 0 &&
+            recipe.residualReasons.length === 0 &&
+            invocation.expectedResult === "no-effect" &&
+            invocation.expectedTypedDecisionCount === 0 &&
+            invocation.sourceDescriptor.enforcementSourceRef ===
+              "src/engine/hermes_runtime.cc#armed-process-event-methods" &&
+            operation.scenario === recipe.scenario &&
+            branch.id === operation.logicalBranchId &&
+            branch.disposition === "no-effect" &&
+            branch.when.length === 1 &&
+            branch.when[0].fact === "process.listener.event" &&
+            branch.when[0].equals === operation.logicalBranchId &&
+            operation.eventName ===
+              (operation.logicalBranchId === "before-exit"
+                ? "beforeExit"
+                : "exit")
+          );
+        }),
+      ).toBe(true);
+      expect(new Set(rows.map((recipe) => recipe.scenario))).toEqual(
+        new Set(["branch-selection", "no-effect"]),
+      );
+      expect(
+        new Set(
+          rows.map(
+            (recipe) =>
+              recipe.publicSurfaceProbe.invocation.operation.methodName,
+          ),
+        ).size,
+      ).toBe(11);
+    }
   });
 
   test("binds reviewed direct native globals to armed runtime absence", () => {

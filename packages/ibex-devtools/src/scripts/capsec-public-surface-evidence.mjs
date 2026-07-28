@@ -4599,6 +4599,125 @@ function validateRuntimeInvocation(observation, recipe) {
         );
       }
     }
+    if (
+      authored.operation?.kind === "process-event-lifecycle-no-effect"
+    ) {
+      const lifecycleResults = new Map([
+        ["addListener", ["event-listener", "process"]],
+        ["listenerCount", ["event", "zero"]],
+        ["listeners", ["event", "empty-array"]],
+        ["off", ["event-listener", "process"]],
+        ["on", ["event-listener", "process"]],
+        ["once", ["event-listener", "process"]],
+        ["prependListener", ["event-listener", "process"]],
+        ["prependOnceListener", ["event-listener", "process"]],
+        ["rawListeners", ["event", "empty-array"]],
+        ["removeAllListeners", ["event", "process"]],
+        ["removeListener", ["event-listener", "process"]],
+      ]);
+      const descriptor = authored.sourceDescriptor;
+      const operation = authored.operation;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "globalName",
+          "memberName",
+          "argumentShape",
+          "targetTriple",
+          "implementationBranchIds",
+          "enforcementBranchIds",
+          "enforcementSourceRef",
+          "selectedLogicalBranch",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: process lifecycle source descriptor`,
+      );
+      exactKeys(
+        operation,
+        [
+          "kind",
+          "scenario",
+          "methodName",
+          "argumentShape",
+          "eventName",
+          "logicalBranchId",
+          "expectedReturnKind",
+        ],
+        `${recipe.fixtureId}: process lifecycle operation`,
+      );
+      const methodExpectation = lifecycleResults.get(operation.methodName);
+      const logicalEvent = new Map([
+        ["before-exit", "beforeExit"],
+        ["exit", "exit"],
+      ]).get(operation.logicalBranchId);
+      const metadata = descriptor.sourceMetadata;
+      const branches = metadata?.installationBranches;
+      const selectedVariants = descriptor.implementationBranchIds?.map(
+        (branchId) => branchId.slice(branchId.lastIndexOf(".") + 1),
+      );
+      const selectedBranches = branches?.filter((branch) =>
+        selectedVariants?.includes(branch.id),
+      );
+      if (
+        methodExpectation === undefined ||
+        !["branch-selection", "no-effect"].includes(recipe.scenario) ||
+        operation.scenario !== recipe.scenario ||
+        authored.expectedResult !== "no-effect" ||
+        authored.surfaceKind !== "native-op" ||
+        authored.surfaceName !==
+          `global:process.${operation.methodName}` ||
+        recipe.terminalObservedKey !==
+          `native-op:global:process.${operation.methodName}` ||
+        descriptor.kind !== "closed-process-lifecycle-no-effect" ||
+        descriptor.surfaceObservedKey !== recipe.terminalObservedKey ||
+        descriptor.globalName !== "process" ||
+        descriptor.memberName !== operation.methodName ||
+        descriptor.argumentShape !== methodExpectation[0] ||
+        operation.argumentShape !== methodExpectation[0] ||
+        operation.expectedReturnKind !== methodExpectation[1] ||
+        logicalEvent === undefined ||
+        operation.eventName !== logicalEvent ||
+        descriptor.selectedLogicalBranch?.id !==
+          operation.logicalBranchId ||
+        descriptor.selectedLogicalBranch?.disposition !== "no-effect" ||
+        canonicalJson(descriptor.selectedLogicalBranch?.when) !==
+          canonicalJson([
+            {
+              fact: "process.listener.event",
+              equals: operation.logicalBranchId,
+            },
+          ]) ||
+        !new Set([
+          "aarch64-apple-darwin",
+          "x86_64-pc-windows-msvc",
+        ]).has(descriptor.targetTriple) ||
+        canonicalJson(descriptor.implementationBranchIds) !==
+          canonicalJson(recipe.implementationBranchIds) ||
+        canonicalJson(descriptor.enforcementBranchIds) !==
+          canonicalJson(recipe.enforcementBranchIds) ||
+        descriptor.enforcementSourceRef !==
+          "src/engine/hermes_runtime.cc#armed-process-event-methods" ||
+        !Array.isArray(descriptor.sourceRefs) ||
+        descriptor.sourceRefs.length === 0 ||
+        metadata?.surfaceType !== "global-api" ||
+        metadata.globalName !== "process" ||
+        metadata.memberName !== operation.methodName ||
+        metadata.exportName !== `process.${operation.methodName}` ||
+        !metadata.memberKinds?.includes("prototype-method") ||
+        !Array.isArray(branches) ||
+        selectedBranches?.length !== 1 ||
+        !selectedBranches[0].sourceRefs?.every((sourceRef) =>
+          descriptor.sourceRefs.includes(sourceRef),
+        )
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: process lifecycle no-effect receipt is not bound to its logical branch, source branch, and final armed gate`,
+        );
+      }
+    }
     if (authored.operation?.kind === "shared-runtime-global-absence") {
       const reviewedSurfaces = new Set([
         "__exactAllowNativesSyntax",
@@ -7098,6 +7217,66 @@ function validateRuntimeInvocation(observation, recipe) {
         }
       }
     }
+  } else if (authored.expectedResult === "no-effect") {
+    if (authored.operation?.kind !== "process-event-lifecycle-no-effect") {
+      throw new Error(
+        `${recipe.fixtureId}: unsupported public no-effect operation`,
+      );
+    }
+    exactKeys(
+      invocation.result,
+      [
+        "kind",
+        "surfaceKind",
+        "surfaceName",
+        "mechanism",
+        "scenario",
+        "methodName",
+        "argumentShape",
+        "eventName",
+        "logicalBranchId",
+        "directReturnKind",
+        "prototypeReturnKind",
+        "listenerCount",
+        "listenersEmpty",
+        "rawListenersEmpty",
+        "listenerCalled",
+        "descriptorPinned",
+        "prototypeDescriptorPinned",
+        "backingStateHidden",
+        "engineExecuted",
+        "projectCodeExecuted",
+      ],
+      `${recipe.fixtureId}: process lifecycle no-effect runtime result`,
+    );
+    const operation = authored.operation;
+    if (
+      invocation.result.kind !== "no-effect" ||
+      invocation.result.surfaceKind !== authored.surfaceKind ||
+      invocation.result.surfaceName !== authored.surfaceName ||
+      invocation.result.mechanism !== operation.kind ||
+      invocation.result.scenario !== operation.scenario ||
+      invocation.result.methodName !== operation.methodName ||
+      invocation.result.argumentShape !== operation.argumentShape ||
+      invocation.result.eventName !== operation.eventName ||
+      invocation.result.logicalBranchId !== operation.logicalBranchId ||
+      invocation.result.directReturnKind !== operation.expectedReturnKind ||
+      invocation.result.prototypeReturnKind !==
+        operation.expectedReturnKind ||
+      invocation.result.listenerCount !== 0 ||
+      invocation.result.listenersEmpty !== true ||
+      invocation.result.rawListenersEmpty !== true ||
+      invocation.result.listenerCalled !== false ||
+      invocation.result.descriptorPinned !== true ||
+      invocation.result.prototypeDescriptorPinned !== true ||
+      invocation.result.backingStateHidden !== true ||
+      invocation.result.engineExecuted !== true ||
+      invocation.result.projectCodeExecuted !== true
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: armed process lifecycle method did not prove its exact no-effect return and empty listener state`,
+      );
+    }
   } else if (authored.expectedResult === "closed") {
     const filesystemMutation =
       authored.operation?.kind === "filesystem-unbound-mutation";
@@ -8441,6 +8620,10 @@ export function validatePublicFixtureRuntimeObservation(
       (recipe.classification === "non-capability" &&
         recipe.scenario === "non-capability") ||
       (recipe.classification === "closed" && recipe.scenario === "closed") ||
+      (recipe.classification === "closed" &&
+        authored.operation?.kind ===
+          "process-event-lifecycle-no-effect" &&
+        ["branch-selection", "no-effect"].includes(recipe.scenario)) ||
       (recipe.classification === "effects" &&
         recipe.actionIds.length === 0 &&
         ["branch-selection", "no-effect"].includes(recipe.scenario)) ||
