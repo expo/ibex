@@ -359,6 +359,8 @@ const NORMAL_RETURN_PROOF_KINDS = new Set([
 const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["root-call", "call"],
   ["construct-target", "construct"],
+  ["tls-server-root-call", "call"],
+  ["tls-server-construct-target", "construct"],
   ["constructed-owner", "prototype-call"],
   ["key-object-pair-owner", "prototype-call"],
   ["readline-interface-owner", "prototype-call"],
@@ -736,6 +738,28 @@ const IDLE_TLS_SOCKET_CALL_CONTRACTS = new Map([
       resultType: "object",
     },
   ]),
+]);
+// Fresh TLS Server construction owns no transport or native listener, but it
+// does mint one private TLS owner token and install registry listeners. The
+// loaded harness must close the result, observe its close event, and prove the
+// delayed retirement made the guarded server terminal.
+const IDLE_TLS_SERVER_CALL_CONTRACTS = new Map([
+  ...["Server", "Server.constructor"].map((exportName) => [
+    exportName,
+    {
+      setup: { kind: "tls-server-construct-target" },
+      arguments: [],
+      resultType: "object",
+    },
+  ]),
+  [
+    "createServer",
+    {
+      setup: { kind: "tls-server-root-call" },
+      arguments: [],
+      resultType: "object",
+    },
+  ],
 ]);
 // A fresh udp4 wrapper owns only an authenticated principal stamp. The
 // constructor does not allocate a native handle; ref/unref see no poll timer,
@@ -5102,6 +5126,10 @@ function validateRuntimeInvocation(observation, recipe) {
       authored.sourceDescriptor.sourceKey === "node_tls"
         ? IDLE_TLS_SOCKET_CALL_CONTRACTS.get(authored.exportName)
         : null;
+    const idleTlsServerContract =
+      authored.sourceDescriptor.sourceKey === "node_tls"
+        ? IDLE_TLS_SERVER_CALL_CONTRACTS.get(authored.exportName)
+        : null;
     const idleTlsSocketPrototype =
       idleTlsSocketContract && authored.exportName.includes(".");
     const expectedIdleTlsSocketDescriptor = idleTlsSocketContract
@@ -5133,10 +5161,8 @@ function validateRuntimeInvocation(observation, recipe) {
         }
       : null;
     if (
-      authored.sourceDescriptor.sourceKey === "node_tls" &&
-      authored.exportName !== "getCiphers" &&
-      (!idleTlsSocketContract ||
-        authored.templateId !== "node-tls-pure-v1" ||
+      idleTlsSocketContract &&
+      (authored.templateId !== "node-tls-pure-v1" ||
         authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
         authored.bodyEntryProof.resultType !==
           idleTlsSocketContract.resultType ||
@@ -5150,6 +5176,57 @@ function validateRuntimeInvocation(observation, recipe) {
       throw new Error(
         `${recipe.fixtureId}: malformed authored idle TLS socket proof`,
       );
+    }
+    const idleTlsServerPrototype =
+      authored.exportName === "Server.constructor";
+    const expectedIdleTlsServerDescriptor = idleTlsServerContract
+      ? {
+          kind: "builtin-export",
+          sourceKey: "node_tls",
+          exportName: authored.exportName,
+          exportIdioms: [
+            idleTlsServerPrototype
+              ? "exported-constructor-prototype"
+              : "module-exports-object",
+          ],
+          moduleSpecifiers: ["node:tls", "tls"],
+          sourceRef: `src/builtins/tls.js#exports:${authored.exportName}`,
+          valueShape: "callable",
+          access: idleTlsServerPrototype
+            ? {
+                kind: "prototype-property",
+                path: ["Server", "prototype", "constructor"],
+              }
+            : {
+                kind: "export-property",
+                path: [authored.exportName],
+              },
+        }
+      : null;
+    if (
+      idleTlsServerContract &&
+      (authored.templateId !== "node-tls-pure-v1" ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !==
+          idleTlsServerContract.resultType ||
+        canonicalJson(authored.setup) !==
+          canonicalJson(idleTlsServerContract.setup) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson(idleTlsServerContract.arguments) ||
+        canonicalJson(authored.sourceDescriptor) !==
+          canonicalJson(expectedIdleTlsServerDescriptor))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored idle TLS Server proof`,
+      );
+    }
+    if (
+      authored.sourceDescriptor.sourceKey === "node_tls" &&
+      authored.exportName !== "getCiphers" &&
+      !idleTlsSocketContract &&
+      !idleTlsServerContract
+    ) {
+      throw new Error(`${recipe.fixtureId}: unreviewed authored TLS proof`);
     }
     const idleDgramContract =
       authored.sourceDescriptor.sourceKey === "node_dgram"
@@ -5239,11 +5316,17 @@ function validateRuntimeInvocation(observation, recipe) {
     const cleanupRequired = new Set([
       "readline-interface-owner",
       "readline-interface-pause-owner",
+      "tls-server-construct-target",
+      "tls-server-root-call",
       "zlib-owner",
     ]).has(authored.setup.kind);
     const readlineLifecycleRequired = new Set([
       "readline-interface-owner",
       "readline-interface-pause-owner",
+    ]).has(authored.setup.kind);
+    const tlsServerLifecycleRequired = new Set([
+      "tls-server-construct-target",
+      "tls-server-root-call",
     ]).has(authored.setup.kind);
     exactKeys(
       invocation.result,
@@ -5256,6 +5339,9 @@ function validateRuntimeInvocation(observation, recipe) {
         "bodyEntryProof",
         ...(cleanupRequired ? ["cleanupPerformed"] : []),
         ...(readlineLifecycleRequired ? ["inputLifecycleVerified"] : []),
+        ...(tlsServerLifecycleRequired
+          ? ["tlsServerLifecycleVerified"]
+          : []),
       ],
       `${recipe.fixtureId}: builtin normal-return result`,
     );
@@ -5271,7 +5357,9 @@ function validateRuntimeInvocation(observation, recipe) {
       invocation.result.bodyEntryProof !== authored.bodyEntryProof.kind ||
       (cleanupRequired && invocation.result.cleanupPerformed !== true) ||
       (readlineLifecycleRequired &&
-        invocation.result.inputLifecycleVerified !== true)
+        invocation.result.inputLifecycleVerified !== true) ||
+      (tlsServerLifecycleRequired &&
+        invocation.result.tlsServerLifecycleVerified !== true)
     ) {
       throw new Error(
         `${recipe.fixtureId}: builtin call did not prove its exact normal return`,

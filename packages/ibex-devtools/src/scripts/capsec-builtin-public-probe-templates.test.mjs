@@ -1850,11 +1850,9 @@ describe("source-bound builtin public probes", () => {
       });
     }
     for (const exportName of [
-      "Server",
       "TLSSocket.connect",
       "TLSSocket.end",
       "TLSSocket.write",
-      "createServer",
     ]) {
       expect(
         probeFor({
@@ -1867,6 +1865,37 @@ describe("source-bound builtin public probes", () => {
           valueShape: "callable",
         }),
       ).toBeNull();
+    }
+  });
+
+  test("authors TLS Server construction only with exact retirement cleanup", () => {
+    for (const [exportName, setup] of [
+      ["Server", { kind: "tls-server-construct-target" }],
+      ["Server.constructor", { kind: "tls-server-construct-target" }],
+      ["createServer", { kind: "tls-server-root-call" }],
+    ]) {
+      const prototype = exportName.includes(".");
+      expect(
+        probeFor({
+          sourceKey: "node_tls",
+          exportName,
+          exportIdioms: prototype
+            ? ["exported-constructor-prototype"]
+            : ["module-exports-object"],
+          moduleSpecifiers: ["node:tls", "tls"],
+          valueShape: "callable",
+        }),
+      ).toMatchObject({
+        invocation: {
+          templateId: "node-tls-pure-v1",
+          arguments: [],
+          setup,
+          bodyEntryProof: {
+            kind: "normal-return-from-source-call",
+            resultType: "object",
+          },
+        },
+      });
     }
   });
 

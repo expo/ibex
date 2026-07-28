@@ -196,7 +196,10 @@
       invocation.kind !== "builtin-export-call" ||
       !invocation.sourceDescriptor ||
       invocation.sourceDescriptor.sourceKey !== "node_tls" ||
-      invocation.exportName === "getCiphers"
+      invocation.exportName === "getCiphers" ||
+      invocation.exportName === "Server" ||
+      invocation.exportName === "Server.constructor" ||
+      invocation.exportName === "createServer"
     ) {
       return true;
     }
@@ -272,6 +275,77 @@
       Array.isArray(setup.constructorArguments) &&
       setup.constructorArguments.length === 0
     );
+  }
+
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // Fresh TLS Server construction owns no transport, native listener, or
+  // accept loop, but it does mint one private owner token. Admit only the
+  // three exact constructor surfaces whose dedicated setup closes the result
+  // and proves delayed token retirement before the harness returns.
+  function isReviewedIdleTlsServerInvocation(invocation) {
+    if (
+      invocation.invocationSchema !==
+        "ibex/capsec-builtin-call-invocation/1" ||
+      invocation.kind !== "builtin-export-call" ||
+      !invocation.sourceDescriptor ||
+      invocation.sourceDescriptor.sourceKey !== "node_tls" ||
+      (invocation.exportName !== "Server" &&
+        invocation.exportName !== "Server.constructor" &&
+        invocation.exportName !== "createServer")
+    ) {
+      return true;
+    }
+    var descriptor = invocation.sourceDescriptor;
+    var exportName = invocation.exportName;
+    var prototype = exportName === "Server.constructor";
+    var expectedSetupKind =
+      exportName === "createServer"
+        ? "tls-server-root-call"
+        : "tls-server-construct-target";
+    if (
+      invocation.moduleSpecifier !== "node:tls" ||
+      invocation.templateId !== "node-tls-pure-v1" ||
+      descriptor.exportName !== exportName ||
+      !exactObjectKeys(descriptor, [
+        "access",
+        "exportIdioms",
+        "exportName",
+        "kind",
+        "moduleSpecifiers",
+        "sourceKey",
+        "sourceRef",
+        "valueShape",
+      ]) ||
+      descriptor.kind !== "builtin-export" ||
+      descriptor.valueShape !== "callable" ||
+      descriptor.sourceRef !==
+        "src/builtins/tls.js#exports:" + exportName ||
+      !sameStringArray(descriptor.exportIdioms, [
+        prototype
+          ? "exported-constructor-prototype"
+          : "module-exports-object",
+      ]) ||
+      !sameStringArray(descriptor.moduleSpecifiers, ["node:tls", "tls"]) ||
+      !exactObjectKeys(descriptor.access, ["kind", "path"]) ||
+      descriptor.access.kind !==
+        (prototype ? "prototype-property" : "export-property") ||
+      !sameStringArray(
+        descriptor.access.path,
+        prototype
+          ? ["Server", "prototype", "constructor"]
+          : [exportName],
+      ) ||
+      !exactObjectKeys(invocation.setup, ["kind"]) ||
+      invocation.setup.kind !== expectedSetupKind ||
+      !Array.isArray(invocation.arguments) ||
+      invocation.arguments.length !== 0 ||
+      !exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) ||
+      invocation.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+      invocation.bodyEntryProof.resultType !== "object"
+    ) {
+      return false;
+    }
+    return true;
   }
 
   // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
@@ -1173,10 +1247,13 @@
   try {
     var cleanupPerformed = false;
     var inputLifecycleVerified = false;
+    var tlsServerLifecycleVerified = false;
+    var tlsServerLifecyclePromise = null;
     var readlineLifecycleState = null;
     if (
       !isReviewedBoundedHttpInvocation(config) ||
       !isReviewedIdleTlsSocketInvocation(config) ||
+      !isReviewedIdleTlsServerInvocation(config) ||
       !isReviewedIdleDgramInvocation(config) ||
       !isReviewedX509StateInvocation(config) ||
       !isReviewedPureCompatibilityInvocation(config) ||
@@ -1223,10 +1300,16 @@
     var receiver;
     var result;
     var dispatchKind;
-    if (setup.kind === "root-call") {
+    if (
+      setup.kind === "root-call" ||
+      setup.kind === "tls-server-root-call"
+    ) {
       receiver = moduleValue;
       dispatchKind = "call";
-    } else if (setup.kind === "construct-target") {
+    } else if (
+      setup.kind === "construct-target" ||
+      setup.kind === "tls-server-construct-target"
+    ) {
       dispatchKind = "construct";
     } else if (setup.kind === "constructed-owner") {
       var owner = moduleValue[setup.ownerExportName];
@@ -1379,6 +1462,43 @@
           });
         }
       }
+      if (
+        setup.kind === "tls-server-construct-target" ||
+        setup.kind === "tls-server-root-call"
+      ) {
+        var tlsServer = result;
+        if (
+          !tlsServer ||
+          typeof tlsServer.once !== "function" ||
+          typeof tlsServer.close !== "function" ||
+          typeof tlsServer.address !== "function"
+        ) {
+          return failure("cleanup-mismatch", {
+            setupKind: setup.kind,
+          });
+        }
+        tlsServerLifecyclePromise = new Promise(function (resolve) {
+          var closeEvents = 0;
+          tlsServer.once("close", function () {
+            closeEvents++;
+            setTimeout(function () {
+              var retirementError = null;
+              try {
+                tlsServer.address();
+              } catch (error) {
+                retirementError = error;
+              }
+              tlsServerLifecycleVerified =
+                closeEvents === 1 &&
+                retirementError !== null &&
+                retirementError.code === "ERR_TLS_SERVER_CLOSED";
+              cleanupPerformed = tlsServerLifecycleVerified;
+              resolve(tlsServerLifecycleVerified);
+            }, 0);
+          });
+          tlsServer.close();
+        });
+      }
     } finally {
       if (
         setup.kind === "zlib-owner" &&
@@ -1413,6 +1533,14 @@
           capturedSuccess.inputLifecycleVerified =
             inputLifecycleVerified;
         }
+        if (
+          setup.kind === "tls-server-construct-target" ||
+          setup.kind === "tls-server-root-call"
+        ) {
+          capturedSuccess.cleanupPerformed = cleanupPerformed;
+          capturedSuccess.tlsServerLifecycleVerified =
+            tlsServerLifecycleVerified;
+        }
         return failure("return", capturedSuccess);
       }
       var actualResultType = valueType(result);
@@ -1438,7 +1566,26 @@
         success.cleanupPerformed = cleanupPerformed;
         success.inputLifecycleVerified = inputLifecycleVerified;
       }
+      if (
+        setup.kind === "tls-server-construct-target" ||
+        setup.kind === "tls-server-root-call"
+      ) {
+        success.cleanupPerformed = cleanupPerformed;
+        success.tlsServerLifecycleVerified =
+          tlsServerLifecycleVerified;
+      }
       return failure("return", success);
+    }
+
+    if (tlsServerLifecyclePromise) {
+      return tlsServerLifecyclePromise.then(function (verified) {
+        if (!verified) {
+          return failure("cleanup-mismatch", {
+            setupKind: setup.kind,
+          });
+        }
+        return finishResult(result);
+      });
     }
 
     if (

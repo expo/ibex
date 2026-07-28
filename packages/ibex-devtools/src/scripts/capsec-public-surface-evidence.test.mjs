@@ -5747,6 +5747,92 @@ describe("CapSec public-surface promotion evidence", () => {
     }
   });
 
+  test("accepts TLS Server construction only after exact retirement", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:tls";
+    invocation.exportName = "createServer";
+    invocation.templateId = "node-tls-pure-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_tls",
+      exportName: "createServer",
+      exportIdioms: ["module-exports-object"],
+      moduleSpecifiers: ["node:tls", "tls"],
+      sourceRef: "src/builtins/tls.js#exports:createServer",
+      valueShape: "callable",
+      access: {
+        kind: "export-property",
+        path: ["createServer"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.setup = { kind: "tls-server-root-call" };
+    invocation.arguments = [];
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "object",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.moduleSpecifier = "node:tls";
+    observed.invocation.result.moduleSpecifier = "node:tls";
+    observed.invocation.result.exportName = "createServer";
+    observed.invocation.result.dispatchKind = "call";
+    observed.invocation.result.cleanupPerformed = true;
+    observed.invocation.result.tlsServerLifecycleVerified = true;
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.kind =
+          "tls-server-construct-target";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.exportName = "connect";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments = [
+          { kind: "json", value: {} },
+        ];
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored idle TLS Server proof|unreviewed authored TLS proof|not source-descriptor bound|descriptor drift/,
+      );
+    }
+
+    const incompleteObservation = structuredClone(observed);
+    incompleteObservation.invocation.result.tlsServerLifecycleVerified = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: incompleteObservation,
+        coverage,
+      }),
+    ).toThrow(/did not prove its exact normal return/);
+  });
+
   test("accepts only reviewed fresh UDP socket lifecycle calls", () => {
     const catalog = completeNoncapBuiltinCallCatalog();
     const recipe = catalog.recipes[0];

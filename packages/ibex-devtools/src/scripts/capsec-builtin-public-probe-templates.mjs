@@ -707,6 +707,10 @@ const readlineInterfacePauseOwner = () =>
     [],
     "object",
   );
+const tlsServerConstructTarget = () =>
+  callSpec({ kind: "tls-server-construct-target" }, [], "object");
+const tlsServerRootCall = () =>
+  callSpec({ kind: "tls-server-root-call" }, [], "object");
 
 const ZLIB_OWNER_NAMES = Object.freeze([
   "BrotliCompress",
@@ -1249,16 +1253,20 @@ const NODE_DGRAM_CALL_SPECS = Object.freeze({
 
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — A
 // TLSSocket constructed without a transport owns no native TLS owner token,
-// engine, selector, listener, or timer. These exact calls therefore affect
-// only the harness-owned wrapper; close/destroy's terminal timer must drain
-// before the shared quiescence observation completes.
+// engine, selector, listener, or timer. Fresh TLS Server construction does
+// mint exactly one owner token and installs its private registry listeners, so
+// its dedicated setup closes the idle server and proves the close event plus
+// delayed token retirement before returning. Neither family binds a transport.
 const NODE_TLS_CALL_SPECS = Object.freeze({
   getCiphers: rootCall([], "object"),
+  Server: tlsServerConstructTarget(),
+  "Server.constructor": tlsServerConstructTarget(),
   TLSSocket: constructTarget([]),
   "TLSSocket.close": constructedOwner("TLSSocket", [], "object"),
   "TLSSocket.destroy": constructedOwner("TLSSocket", [], "object"),
   "TLSSocket.ref": constructedOwner("TLSSocket", [], "object"),
   "TLSSocket.unref": constructedOwner("TLSSocket", [], "object"),
+  createServer: tlsServerRootCall(),
 });
 
 const NODE_FS_CALL_SPECS = Object.freeze({
@@ -2263,11 +2271,17 @@ function callTemplateFor(descriptor) {
         "key-object-pair-owner",
         "readline-interface-owner",
         "readline-interface-pause-owner",
+        "tls-server-construct-target",
         "zlib-owner",
         "stream-owner",
       ]).has(setupKind)) ||
     (!prototypeAccess &&
-      !new Set(["construct-target", "root-call"]).has(setupKind))
+      !new Set([
+        "construct-target",
+        "root-call",
+        "tls-server-construct-target",
+        "tls-server-root-call",
+      ]).has(setupKind))
   ) {
     return null;
   }

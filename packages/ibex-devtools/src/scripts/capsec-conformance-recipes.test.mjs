@@ -447,11 +447,11 @@ describe("exact-target CapSec executable recipes", () => {
     // binding, poll timer, or peer route; close drains its terminal event.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_709);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_712);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_839);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_836);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -624,9 +624,9 @@ describe("exact-target CapSec executable recipes", () => {
     // binding, poll timer, or peer route. The restricted no-eval constructor
     // added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_366);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_369);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_855);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_852);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5396,7 +5396,7 @@ describe("exact-target CapSec executable recipes", () => {
       node_module: 3,
       node_net: 22,
       node_readline: 3,
-      node_tls: 6,
+      node_tls: 9,
       node_v8: 1,
     });
     const pureCompatibilityCalls = publicCalls.filter((recipe) =>
@@ -5622,7 +5622,9 @@ describe("exact-target CapSec executable recipes", () => {
       (recipe) =>
         recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
           "node_tls" &&
-        recipe.publicSurfaceProbe.invocation.exportName !== "getCiphers",
+        recipe.publicSurfaceProbe.invocation.exportName.startsWith(
+          "TLSSocket",
+        ),
     );
     expect(idleTlsSocketCalls).toHaveLength(5);
     expect(
@@ -5637,6 +5639,26 @@ describe("exact-target CapSec executable recipes", () => {
             "TLSSocket.ref",
             "TLSSocket.unref",
           ]).has(recipe.publicSurfaceProbe.invocation.exportName),
+      ),
+    ).toBe(true);
+    const idleTlsServerCalls = publicCalls.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+          "node_tls" &&
+        new Set(["Server", "Server.constructor", "createServer"]).has(
+          recipe.publicSurfaceProbe.invocation.exportName,
+        ),
+    );
+    expect(idleTlsServerCalls).toHaveLength(3);
+    expect(
+      idleTlsServerCalls.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.templateId ===
+            "node-tls-pure-v1" &&
+          new Set([
+            "tls-server-construct-target",
+            "tls-server-root-call",
+          ]).has(recipe.publicSurfaceProbe.invocation.setup.kind),
       ),
     ).toBe(true);
     const idleDgramCalls = publicCalls.filter(

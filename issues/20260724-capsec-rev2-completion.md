@@ -4654,6 +4654,56 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — retire fresh TLS server ownership exactly
+
+- Promoted exactly `node_tls.Server`, `node_tls.Server.constructor`, and
+  `node_tls.createServer`. Fresh construction creates no transport, native
+  listener, accept timer, or connection, but `_decorateServer` mints one
+  private runtime/principal TLS owner token and installs the two registry
+  lifecycle listeners.
+- A dedicated setup now attaches one harness close observer, invokes exact
+  guarded `close`, awaits the internal close hook and delayed retirement timer,
+  and proves one close event plus terminal `ERR_TLS_SERVER_CLOSED` from a later
+  guarded `address()` call. That terminal state is reachable only after native
+  token release succeeds and private server state is scrubbed. Server listen,
+  handshake, credential, ticket-key, and accepted-connection routes remain
+  residual.
+- The recipe author, independent JavaScript evidence validator, Rust catalog
+  validator, and loaded-engine JavaScript harness separately repeat the exact
+  three-name vocabulary, source descriptor, empty arguments, call/construct
+  dispatch, object source result, cleanup fields, quiescence, and zero-decision
+  contract. Negative evidence tests reject substituting the setup kind,
+  arguments, export, or a lifecycle receipt that did not retire.
+- The regenerated Apple catalog digest
+  `sha256-UNlPlXNqv81GHR7XSixWKX_4B5JA2ckdv6YNk7K9r3k` reports 23,584
+  required / **3,712 fully executable** / 3,036 internally verified / 16,836
+  unresolved. The regenerated Windows digest
+  `sha256-6Lj57hFuEXpQKSr5QhKulJCqzJtQcDqHzCmKqFeCRxA` reports 23,243
+  required / **3,369 fully executable** / 3,022 internally verified / 16,852
+  unresolved. The descriptor-only output manifest falls from 533 to 530 rows.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 67 focused rows
+  plus the three server constructors under catalog digest
+  `sha256-i5yjHaVZB_pjDkKC-VLwLzqLs9CUmr9OHxd4dL5bY48` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 70
+  fixtures pass. Every new result reports `cleanupPerformed: true`,
+  `tlsServerLifecycleVerified: true`, one normal source return, quiescence,
+  and zero legacy or typed decisions. The raw evidence SHA-256 is
+  `d9a683526b716cae2f57e5518b7343e66b191b3da84a17797730de633a96e56f`;
+  independent JavaScript validation accepted all 70 executions and produced
+  diagnostic execution digest
+  `sha256-gb0E2uqGYGuStkTwlYsm5X1nouFKJxozUHRsKow1A6Y` (artifact SHA-256
+  `4ee70651eda6975fdeb6fee372543f1415617faed253d70ba6b2b29ea242e558`).
+  The diagnostic source binding is baseline revision
+  `d80135125d9761115af0cf0f31489e3cd5e15af9` / tree digest
+  `sha256-8WiFrkTZz8sRKdSbYAmnyLW5m3hZF206dPVoAahiBrk`.
+- The focused author/catalog/validator/output-accounting suite passes
+  **199/199** tests with 125,185 assertions on EPYC Bun 1.3.14; the physical
+  Rust exact-Hermes batch passes 70/70. The Linux replay remains diagnostic
+  rather than Apple promotion evidence.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

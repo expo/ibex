@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-28 (promotes exactly three fresh `node:tls` server constructors: `Server`, `Server.constructor`, and `createServer`; each source call creates no transport or native listener but does mint one private runtime/principal owner token and install the two registry lifecycle listeners, so the dedicated loaded-engine setup attaches one harness close observer, invokes exact `close`, awaits the internal close hook and delayed retirement timer, and requires a subsequent guarded lifecycle call to fail with `ERR_TLS_SERVER_CLOSED`; authoring, independent evidence validation, Rust validation, and physical Hermes execution repeat the exact descriptor/dispatch/cleanup contract; Apple accounting is 3,712 fully executable / 3,036 internally verified / 16,836 unresolved and Windows is 3,369 / 3,022 / 16,852, while the descriptor residual manifest falls from 533 to 530)
 **Revised:** 2026-07-28 (promotes exactly the `node:tls` `SecureContext.context` read on a fresh harness-owned `SecureContext`: source construction installs one own enumerable, non-writable, non-configurable, frozen opaque object without allocating a TLS engine or consulting native trust state; the author, independent evidence validator, Rust validator, and loaded-engine harness repeat the exact constructed-instance descriptor, empty constructor, object result, quiescence, and zero-decision contract; Apple accounting is 3,709 fully executable / 3,036 internally verified / 16,839 unresolved and Windows is 3,366 / 3,022 / 16,855)
 **Revised:** 2026-07-28 (promotes exactly five transport-free `node:tls` socket calls: `TLSSocket`, `TLSSocket.close`, `TLSSocket.destroy`, `TLSSocket.ref`, and `TLSSocket.unref`; the harness constructs every receiver without an underlying transport, so no native TLS owner token, engine, selector, listener, or timer exists before the selected call, while close/destroy must drain their terminal timer before quiescence; the author, independent evidence validator, Rust validator, and loaded-engine harness repeat the exact closed vocabulary and zero-decision contract; Apple accounting is 3,708 fully executable / 3,036 internally verified / 16,840 unresolved and Windows is 3,365 / 3,022 / 16,856)
 **Revised:** 2026-07-28 (strengthens the four already executable `node:http` header validators from generic captured-output evidence to dedicated `ibex/capsec-builtin-call-invocation/1` contracts: `_checkInvalidHeaderChar("ibex")`, `_checkIsHttpToken("x-ibex")`, `validateHeaderName("x-ibex")`, and `validateHeaderValue("x-ibex", "ibex")`; the author, independent evidence validator, Rust validator, and loaded-engine harness repeat the literal arguments, direct root-call dispatch, result type, quiescence, and zero-decision proof; because all four rows were already executable, Apple accounting remains 3,703 fully executable / 3,036 internally verified / 16,845 unresolved and Windows remains 3,360 / 3,022 / 16,861, while the generic captured-output set falls from 145 to 141 and the descriptor residual manifest from 542 to 538)
@@ -2789,6 +2790,24 @@ descriptor, empty constructor, `["context"]` instance access, object result,
 quiescence, and zero-decision proof. This scalar-shaped receipt does not expose
 the constructor's private WeakMap state or admit certificate, key, cipher, or
 server operations.
+
+Fresh TLS Server construction is executable only through a separate retirement
+contract for `Server`, `Server.constructor`, and `createServer`. Each source
+call creates an idle `net.Server` with no bound transport, native listener,
+accept timer, or connection, but `_decorateServer` still mints one private
+runtime/principal TLS owner token and installs its `listening` and `close`
+registry hooks. The loaded harness therefore attaches exactly one close
+observer, invokes the guarded `close`, awaits the internal close hook and the
+subsequent retirement timer, and requires one close event plus a later guarded
+`address()` call failing with `ERR_TLS_SERVER_CLOSED`. Reaching that terminal
+state proves native token release completed before the private state was
+scrubbed; a close failure instead escapes the timer and fails the fixture. The
+recipe author, independent evidence validator, Rust validator, and loaded
+engine separately repeat the exact constructor surface, dispatch kind, empty
+arguments, object source result, cleanup fields, quiescence, and zero-decision
+contract. This receipt does not admit `listen`, accepted connections,
+handshakes, credentials, ticket keys, or any other transport-bearing server
+operation.
 
 Fresh UDP lifecycle evidence is similarly limited to `Socket`,
 `Socket.constructor`, `createSocket`, `Socket.close`, `Socket.ref`, and

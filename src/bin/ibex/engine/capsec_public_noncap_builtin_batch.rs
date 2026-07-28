@@ -1126,6 +1126,32 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
                 assert!(descriptor.export_name.ends_with(".constructor"));
             }
         }
+        "tls-server-construct-target" => {
+            assert_object_keys(
+                &invocation.setup,
+                &["kind"],
+                "TLS Server constructor setup",
+            );
+            assert_eq!(descriptor.source_key, "node_tls");
+            assert!(matches!(
+                descriptor.export_name.as_str(),
+                "Server" | "Server.constructor"
+            ));
+            assert_eq!(
+                prototype,
+                descriptor.export_name == "Server.constructor"
+            );
+        }
+        "tls-server-root-call" => {
+            assert_object_keys(
+                &invocation.setup,
+                &["kind"],
+                "TLS Server root-call setup",
+            );
+            assert!(!prototype);
+            assert_eq!(descriptor.source_key, "node_tls");
+            assert_eq!(descriptor.export_name, "createServer");
+        }
         "constructed-owner" => {
             assert_object_keys(
                 &invocation.setup,
@@ -1825,7 +1851,12 @@ fn validate_idle_tls_socket_contract(
     descriptor: &BuiltinSourceDescriptor,
     proof: &BodyEntryProof,
 ) {
-    if descriptor.source_key != "node_tls" || descriptor.export_name == "getCiphers" {
+    if descriptor.source_key != "node_tls"
+        || matches!(
+            descriptor.export_name.as_str(),
+            "getCiphers" | "Server" | "Server.constructor" | "createServer"
+        )
+    {
         return;
     }
     let expected_setup = match descriptor.export_name.as_str() {
@@ -1881,6 +1912,72 @@ fn validate_idle_tls_socket_contract(
             ]
         } else {
             vec!["TLSSocket".to_owned()]
+        }
+    );
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, "object");
+    assert_eq!(invocation.setup, expected_setup);
+    assert!(invocation.arguments.is_empty());
+}
+
+fn validate_idle_tls_server_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    if descriptor.source_key != "node_tls"
+        || !matches!(
+            descriptor.export_name.as_str(),
+            "Server" | "Server.constructor" | "createServer"
+        )
+    {
+        return;
+    }
+    let prototype = descriptor.export_name == "Server.constructor";
+    let expected_setup = if descriptor.export_name == "createServer" {
+        serde_json::json!({"kind": "tls-server-root-call"})
+    } else {
+        serde_json::json!({"kind": "tls-server-construct-target"})
+    };
+    assert_eq!(invocation.module_specifier, "node:tls");
+    assert_eq!(
+        invocation.template_id.as_deref(),
+        Some("node-tls-pure-v1")
+    );
+    assert_eq!(
+        descriptor.export_idioms,
+        vec![if prototype {
+            "exported-constructor-prototype".to_owned()
+        } else {
+            "module-exports-object".to_owned()
+        }]
+    );
+    assert_eq!(
+        descriptor.module_specifiers,
+        ["node:tls", "tls"].map(str::to_owned)
+    );
+    assert_eq!(
+        descriptor.source_ref,
+        format!(
+            "src/builtins/tls.js#exports:{}",
+            descriptor.export_name
+        )
+    );
+    assert_eq!(descriptor.value_shape, "callable");
+    assert_eq!(
+        descriptor.access.kind,
+        if prototype {
+            "prototype-property"
+        } else {
+            "export-property"
+        }
+    );
+    assert_eq!(
+        descriptor.access.path,
+        if prototype {
+            ["Server", "prototype", "constructor"].map(str::to_owned).to_vec()
+        } else {
+            vec![descriptor.export_name.clone()]
         }
     );
     assert_eq!(proof.kind, "normal-return-from-source-call");
@@ -2357,6 +2454,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         validate_idle_zlib_destroy_contract(invocation, &descriptor, proof);
         validate_bounded_http_contract(invocation, &descriptor, proof);
         validate_idle_tls_socket_contract(invocation, &descriptor, proof);
+        validate_idle_tls_server_contract(invocation, &descriptor, proof);
         validate_idle_dgram_contract(invocation, &descriptor, proof);
         assert!(matches!(
             proof.result_type.as_str(),
