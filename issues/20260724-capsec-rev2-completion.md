@@ -3549,6 +3549,59 @@ ticket closes.
   refreshes platform confidence without promoting another family; criterion 7
   remains open and both advertisement sets remain empty.
 
+### 2026-07-27 — executed exact `dns/promises` error-code reads
+
+- Promoted exactly 24 locally authored `node_dns_promises` error-code data
+  reads. The source copies the provider strings through a computed loop, so
+  the static inventory honestly retains `valueShape: "unknown"`; an exact
+  duplicated allowlist admits only those 24 member assignments and requires
+  `expectedValueType: "string"`.
+- The recipe author, Rust physical executor, and independent JavaScript
+  evidence validator each bind the exact source key, export name, source ref,
+  public alias pair, member-assignment idiom, single-segment access path, and
+  runtime string result. Generic unknown-shape reads remain residual, as do
+  all 42 `dns/promises` callable projections and three `node_dns` Resolver
+  `_handle` callables.
+- Apple catalog digest
+  `sha256-uFPeraUt4MqXeOwd1fmKqFYoHPyemuipfHW8bVAbIgU` reports 23,583 required /
+  **3,555 fully executable** / 3,036 internally verified / 16,992 unresolved.
+  The local M5 strict-provenance, stale-vendored physical batch passes
+  **1,250/1,250**: 34 isolated module imports, 1,071 export probes, and 145
+  captured routes. All 24 new rows return strings with zero decisions. It
+  binds engine digest
+  `sha256-hp_73KCVTIaojyc6G9nbvv1yGAHdPeS0ZBIucL_k2kQ`; the evidence-file
+  SHA-256 is
+  `4eae334ba74631004a5595533af31156260a7cda18895648f1cf117488897c65`,
+  and independent validation produced execution digest
+  `sha256-CFCki9UG_12ayL7dLloONuHiYCYB7Hf3OicMG5OwOxA`.
+- Windows catalog digest
+  `sha256-jOA2oQW_NTzEEl4YGRUJiX2eGkEhdnN3YACLht3gInU` reports 23,242 required /
+  **3,214 fully executable** / 3,022 internally verified / 17,006 unresolved.
+  The NucBox strict-provenance, stale-vendored physical batch passes
+  **1,214/1,214**: 34 isolated imports, 1,035 export probes, and 145 captured
+  routes. Its same exact 24 new rows return strings with zero decisions. It
+  binds engine digest
+  `sha256-c83EWIx-kLld5RMwgXnP2eetL6NLcgHT-P6oWqocWP8`; the evidence-file
+  SHA-256 is
+  `c11e113e0cf7025af35cc15c140f4690a2e0c2c220c8846d039073823a14a696`,
+  and independent validation produced execution digest
+  `sha256--92F25MWB_p4JMFNA2KMPViN4UhSPTrWF5-l9w8aPRk`.
+- Both independent aggregates bind implementation revision
+  `59390fe91d4648ec59a42c7144e77f3ffc043826` and tree digest
+  `sha256-xN1RHvEj8TfUi4VaWqI62N2JDQB0LpwhLK7VMUVk538`. The complete local
+  devtools corpus passes **1,285/1,285 tests across 88 files with 232,843
+  assertions**. Secure Cargo checking, complete generated-drift checking,
+  `cargo fmt --check`, `git diff --check`, and `ref-check` also pass.
+- Hard part: a static `unknown` shape cannot itself justify a read, and the
+  computed export loop must not become a precedent for accepting arbitrary
+  dynamic tables. The exact source-owned set is therefore repeated across
+  independent authoring, execution, and validation boundaries, while the
+  physical value—not an expected value copied into evidence—must prove the
+  string type on each loaded engine.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
