@@ -39,22 +39,35 @@ const REVIEWED_DNS_PROMISE_ERROR_CODES = [
   "SERVFAIL",
   "TIMEOUT",
 ];
-const REVIEWED_EFFECTFUL_MODULE_SCALARS = [
-  ["node_cluster", "SCHED_NONE", "data", "number", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
-  ["node_cluster", "SCHED_RR", "data", "number", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
-  ["node_cluster", "isMaster", "data", "boolean", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
-  ["node_cluster", "isPrimary", "data", "boolean", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
-  ["node_cluster", "isWorker", "unknown", "boolean", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
-  ["node_http", "METHODS", "data", "object", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
-  ["node_http", "STATUS_CODES", "data", "object", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
-  ["node_http", "kConnectionsCheckingInterval", "unknown", "symbol", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
-  ["node_http", "kHighWaterMark", "unknown", "symbol", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
-  ["node_http", "kTimeout", "unknown", "symbol", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
-  ["node_http", "maxHeaderSize", "unknown", "number", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
-  ["node_http", "methods", "data", "object", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
-  ["node_os", "EOL", "data", "string", ["define-property"], ["node:os", "os"], "os.js"],
-  ["node_os", "constants", "data", "object", ["module-exports-object"], ["node:os", "os"], "os.js"],
-  ["node_os", "devNull", "data", "string", ["module-exports-object"], ["node:os", "os"], "os.js"],
+const REVIEWED_POST_INITIALIZATION_VALUES = [
+  ["node_cluster", "SCHED_NONE", "data", "number", ["member-assignment"], ["cluster", "node:cluster"], "src/builtins/cluster.js#exports:SCHED_NONE"],
+  ["node_cluster", "SCHED_RR", "data", "number", ["member-assignment"], ["cluster", "node:cluster"], "src/builtins/cluster.js#exports:SCHED_RR"],
+  ["node_cluster", "isMaster", "data", "boolean", ["member-assignment"], ["cluster", "node:cluster"], "src/builtins/cluster.js#exports:isMaster"],
+  ["node_cluster", "isPrimary", "data", "boolean", ["member-assignment"], ["cluster", "node:cluster"], "src/builtins/cluster.js#exports:isPrimary"],
+  ["node_cluster", "isWorker", "unknown", "boolean", ["member-assignment"], ["cluster", "node:cluster"], "src/builtins/cluster.js#exports:isWorker"],
+  ["node_http", "METHODS", "data", "object", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "src/builtins/http.js#exports:METHODS"],
+  ["node_http", "STATUS_CODES", "data", "object", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "src/builtins/http.js#exports:STATUS_CODES"],
+  ["node_http", "kConnectionsCheckingInterval", "unknown", "symbol", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "src/builtins/http.js#exports:kConnectionsCheckingInterval"],
+  ["node_http", "kHighWaterMark", "unknown", "symbol", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "src/builtins/http.js#exports:kHighWaterMark"],
+  ["node_http", "kTimeout", "unknown", "symbol", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "src/builtins/http.js#exports:kTimeout"],
+  ["node_http", "maxHeaderSize", "unknown", "number", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "src/builtins/http.js#exports:maxHeaderSize"],
+  ["node_http", "methods", "data", "object", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "src/builtins/http.js#exports:methods"],
+  ["node_os", "EOL", "data", "string", ["define-property"], ["node:os", "os"], "src/builtins/os.js#exports:EOL"],
+  ["node_os", "constants", "data", "object", ["module-exports-object"], ["node:os", "os"], "src/builtins/os.js#exports:constants"],
+  ["node_os", "devNull", "data", "string", ["module-exports-object"], ["node:os", "os"], "src/builtins/os.js#exports:devNull"],
+  ["exact_crypto", "subtle", "unknown", "object", ["object-binding", "object-source"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:subtle"],
+  ["exact_crypto", "webcrypto", "unknown", "object", ["object-binding", "object-source"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:webcrypto"],
+  ["node_console", "default", "unknown", "object", ["module-exports-assignment"], ["console", "node:console"], "src/builtins/console.js#exports:default"],
+  ["node_events", "captureRejectionSymbol", "unknown", "symbol", ["member-assignment"], ["events", "node:events"], "src/builtins/events.js#exports:captureRejectionSymbol"],
+  ["node_events", "errorMonitor", "unknown", "symbol", ["member-assignment"], ["events", "node:events"], "src/builtins/events.js#exports:errorMonitor"],
+  ["node_fs", "constants", "unknown", "object", ["module-exports-object"], ["bun:fs", "fs", "node:fs"], "src/builtins/fs.js#exports:constants"],
+  ["node_fs_promises", "constants", "unknown", "object", ["object-binding", "object-source"], ["bun:fs/promises", "fs/promises", "internal/fs/promises", "node:fs/promises"], "src/builtins/fs-promises.js#exports:constants"],
+  ["node_http2", "sensitiveHeaders", "unknown", "symbol", ["module-exports-object"], ["http2", "node:http2"], "src/builtins/http2.js#exports:sensitiveHeaders"],
+  ["node_module", "builtinModules", "unknown", "object", ["member-assignment", "object-binding", "object-source"], ["module", "node:module"], "src/builtins/module.js#exports:builtinModules"],
+  ["node_perf_hooks", "performance", "unknown", "object", ["module-exports-object"], ["node:perf_hooks", "perf_hooks"], "src/builtins/perf-hooks.js#exports:performance"],
+  ["node_timers_promises", "scheduler", "unknown", "object", ["module-exports-object"], ["node:timers/promises", "timers/promises"], "src/builtins/timers-promises.js#exports:scheduler"],
+  ["path_posix_alias", "default", "unknown", "object", ["module-exports-assignment"], ["node:path/posix", "path/posix"], "modules.ts#sources:path_posix_alias:exports:default"],
+  ["path_win32_alias", "default", "unknown", "object", ["module-exports-assignment"], ["node:path/win32", "path/win32"], "modules.ts#sources:path_win32_alias:exports:default"],
 ];
 const REVIEWED_MODULE_IMPORTS = [
   ["buffer", "node_buffer", true, "object"],
@@ -247,7 +260,7 @@ describe("source-bound builtin public probes", () => {
     ).toBeNull();
   });
 
-  test("reads only exact scalars after effectful module initialization", () => {
+  test("reads only exact values after reviewed module initialization", () => {
     for (const [
       sourceKey,
       exportName,
@@ -255,17 +268,15 @@ describe("source-bound builtin public probes", () => {
       expectedValueType,
       exportIdioms,
       moduleSpecifiers,
-      sourceFile,
-    ] of REVIEWED_EFFECTFUL_MODULE_SCALARS) {
+      sourceRef,
+    ] of REVIEWED_POST_INITIALIZATION_VALUES) {
       expect(
         probeFor({
           sourceKey,
           exportName,
           exportIdioms,
           moduleSpecifiers,
-          sourceRefs: [
-            `src/builtins/${sourceFile}#exports:${exportName}`,
-          ],
+          sourceRefs: [sourceRef],
           valueShape,
         }),
       ).toMatchObject({
@@ -277,12 +288,14 @@ describe("source-bound builtin public probes", () => {
             exportName,
             exportIdioms,
             moduleSpecifiers,
-            sourceRef:
-              `src/builtins/${sourceFile}#exports:${exportName}`,
+            sourceRef,
             valueShape,
             access: {
-              kind: "export-property",
-              path: [exportName],
+              kind:
+                exportName === "default"
+                  ? "module-value"
+                  : "export-property",
+              path: exportName === "default" ? [] : [exportName],
             },
             expectedValueType,
           },

@@ -480,7 +480,7 @@ fn is_reviewed_dns_promise_error_descriptor(descriptor: &BuiltinSourceDescriptor
         && descriptor.access.path == [descriptor.export_name.clone()]
 }
 
-fn reviewed_effectful_module_scalar_spec(
+fn reviewed_post_initialization_value_spec(
     source_key: &str,
     export_name: &str,
 ) -> Option<(&'static str, &'static str)> {
@@ -496,15 +496,28 @@ fn reviewed_effectful_module_scalar_spec(
         ("node_http", "maxHeaderSize") => Some(("unknown", "number")),
         ("node_os", "EOL" | "devNull") => Some(("data", "string")),
         ("node_os", "constants") => Some(("data", "object")),
+        ("exact_crypto", "subtle" | "webcrypto") => Some(("unknown", "object")),
+        ("node_console", "default") => Some(("unknown", "object")),
+        ("node_events", "captureRejectionSymbol" | "errorMonitor") => {
+            Some(("unknown", "symbol"))
+        }
+        ("node_fs" | "node_fs_promises", "constants") => Some(("unknown", "object")),
+        ("node_http2", "sensitiveHeaders") => Some(("unknown", "symbol")),
+        ("node_module", "builtinModules")
+        | ("node_perf_hooks", "performance")
+        | ("node_timers_promises", "scheduler")
+        | ("path_posix_alias" | "path_win32_alias", "default") => {
+            Some(("unknown", "object"))
+        }
         _ => None,
     }
 }
 
-fn is_reviewed_effectful_module_scalar_descriptor(
+fn is_reviewed_post_initialization_value_descriptor(
     descriptor: &BuiltinSourceDescriptor,
 ) -> bool {
     let Some((value_shape, expected_value_type)) =
-        reviewed_effectful_module_scalar_spec(&descriptor.source_key, &descriptor.export_name)
+        reviewed_post_initialization_value_spec(&descriptor.source_key, &descriptor.export_name)
     else {
         return false;
     };
@@ -550,14 +563,90 @@ fn is_reviewed_effectful_module_scalar_descriptor(
                         descriptor.export_name
                     )
         }
+        "exact_crypto" => {
+            descriptor.export_idioms == ["object-binding", "object-source"]
+                && descriptor.module_specifiers == ["crypto", "exact:crypto", "node:crypto"]
+                && descriptor.source_ref
+                    == format!(
+                        "src/builtins/crypto.js#exports:{}",
+                        descriptor.export_name
+                    )
+        }
+        "node_console" => {
+            descriptor.export_idioms == ["module-exports-assignment"]
+                && descriptor.module_specifiers == ["console", "node:console"]
+                && descriptor.source_ref == "src/builtins/console.js#exports:default"
+        }
+        "node_events" => {
+            descriptor.export_idioms == ["member-assignment"]
+                && descriptor.module_specifiers == ["events", "node:events"]
+                && descriptor.source_ref
+                    == format!(
+                        "src/builtins/events.js#exports:{}",
+                        descriptor.export_name
+                    )
+        }
+        "node_fs" => {
+            descriptor.export_idioms == ["module-exports-object"]
+                && descriptor.module_specifiers == ["bun:fs", "fs", "node:fs"]
+                && descriptor.source_ref == "src/builtins/fs.js#exports:constants"
+        }
+        "node_fs_promises" => {
+            descriptor.export_idioms == ["object-binding", "object-source"]
+                && descriptor.module_specifiers
+                    == [
+                        "bun:fs/promises",
+                        "fs/promises",
+                        "internal/fs/promises",
+                        "node:fs/promises",
+                    ]
+                && descriptor.source_ref
+                    == "src/builtins/fs-promises.js#exports:constants"
+        }
+        "node_http2" => {
+            descriptor.export_idioms == ["module-exports-object"]
+                && descriptor.module_specifiers == ["http2", "node:http2"]
+                && descriptor.source_ref
+                    == "src/builtins/http2.js#exports:sensitiveHeaders"
+        }
+        "node_module" => {
+            descriptor.export_idioms
+                == ["member-assignment", "object-binding", "object-source"]
+                && descriptor.module_specifiers == ["module", "node:module"]
+                && descriptor.source_ref
+                    == "src/builtins/module.js#exports:builtinModules"
+        }
+        "node_perf_hooks" => {
+            descriptor.export_idioms == ["module-exports-object"]
+                && descriptor.module_specifiers == ["node:perf_hooks", "perf_hooks"]
+                && descriptor.source_ref
+                    == "src/builtins/perf-hooks.js#exports:performance"
+        }
+        "node_timers_promises" => {
+            descriptor.export_idioms == ["module-exports-object"]
+                && descriptor.module_specifiers == ["node:timers/promises", "timers/promises"]
+                && descriptor.source_ref
+                    == "src/builtins/timers-promises.js#exports:scheduler"
+        }
+        "path_posix_alias" => {
+            descriptor.export_idioms == ["module-exports-assignment"]
+                && descriptor.module_specifiers == ["node:path/posix", "path/posix"]
+                && descriptor.source_ref
+                    == "modules.ts#sources:path_posix_alias:exports:default"
+        }
+        "path_win32_alias" => {
+            descriptor.export_idioms == ["module-exports-assignment"]
+                && descriptor.module_specifiers == ["node:path/win32", "path/win32"]
+                && descriptor.source_ref
+                    == "modules.ts#sources:path_win32_alias:exports:default"
+        }
         _ => false,
     };
     source_contract_matches
         && descriptor.value_shape == value_shape
         && descriptor.expected_value_type.as_deref() == Some(expected_value_type)
         && descriptor.platform_availability.is_none()
-        && descriptor.access.kind == "export-property"
-        && descriptor.access.path == [descriptor.export_name.clone()]
+        && expected_access(descriptor).as_ref() == Some(&descriptor.access)
 }
 
 fn module_specifier_rank(value: &str) -> u8 {
@@ -1099,7 +1188,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
     assert!(!descriptor.source_key.is_empty());
     assert!(
         descriptor.source_key != "node_os"
-            || is_reviewed_effectful_module_scalar_descriptor(&descriptor)
+            || is_reviewed_post_initialization_value_descriptor(&descriptor)
     );
     assert_eq!(
         invocation.export_name.as_deref(),
@@ -1144,7 +1233,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         assert_eq!(invocation.setup, serde_json::json!({"kind": "none"}));
         let reviewed_runtime_typed_read =
             is_reviewed_dns_promise_error_descriptor(&descriptor)
-                || is_reviewed_effectful_module_scalar_descriptor(&descriptor);
+                || is_reviewed_post_initialization_value_descriptor(&descriptor);
         assert!(
             reviewed_runtime_typed_read
                 || (matches!(descriptor.value_shape.as_str(), "accessor" | "data")

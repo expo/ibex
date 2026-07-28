@@ -40,7 +40,7 @@ const repoRoot = path.resolve(
 );
 const readJson = (relativePath) =>
   JSON.parse(fs.readFileSync(path.join(repoRoot, relativePath), "utf8"));
-const REVIEWED_EFFECTFUL_MODULE_SCALAR_TYPES = new Map([
+const REVIEWED_POST_INITIALIZATION_VALUE_TYPES = new Map([
   ["node_cluster:SCHED_NONE", "number"],
   ["node_cluster:SCHED_RR", "number"],
   ["node_cluster:isMaster", "boolean"],
@@ -56,6 +56,19 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_TYPES = new Map([
   ["node_os:EOL", "string"],
   ["node_os:constants", "object"],
   ["node_os:devNull", "string"],
+  ["exact_crypto:subtle", "object"],
+  ["exact_crypto:webcrypto", "object"],
+  ["node_console:default", "object"],
+  ["node_events:captureRejectionSymbol", "symbol"],
+  ["node_events:errorMonitor", "symbol"],
+  ["node_fs:constants", "object"],
+  ["node_fs_promises:constants", "object"],
+  ["node_http2:sensitiveHeaders", "symbol"],
+  ["node_module:builtinModules", "object"],
+  ["node_perf_hooks:performance", "object"],
+  ["node_timers_promises:scheduler", "object"],
+  ["path_posix_alias:default", "object"],
+  ["path_win32_alias:default", "object"],
 ]);
 
 describe("exact-target CapSec executable recipes", () => {
@@ -359,15 +372,14 @@ describe("exact-target CapSec executable recipes", () => {
     // The merged catalog retains every source-bound Apple probe while removing
     // the superseded WebGPU-specific Ibex surface under LLP 0040. The 24 exact
     // dns/promises error-code reads additionally prove their runtime strings,
-    // and 15 exact scalar exports remain separate from their modules'
-    // capability-bearing initialization. The restricted no-eval constructor
-    // added on main remains one explicit residual until it has loaded-engine
-    // evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_570);
+    // and 28 exact values remain separate from their modules' initialization.
+    // The restricted no-eval constructor added on main remains one explicit
+    // residual until it has loaded-engine evidence.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_583);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_978);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_965);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -385,22 +397,22 @@ describe("exact-target CapSec executable recipes", () => {
             "unknown",
       ),
     ).toBeTrue();
-    const effectfulModuleScalarReads = recipes.recipes.filter((recipe) => {
+    const postInitializationValueReads = recipes.recipes.filter((recipe) => {
       const descriptor =
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor;
-      return REVIEWED_EFFECTFUL_MODULE_SCALAR_TYPES.has(
+      return REVIEWED_POST_INITIALIZATION_VALUE_TYPES.has(
         `${descriptor?.sourceKey}:${descriptor?.exportName}`,
       );
     });
-    expect(effectfulModuleScalarReads).toHaveLength(15);
+    expect(postInitializationValueReads).toHaveLength(28);
     expect(
-      effectfulModuleScalarReads.every((recipe) => {
+      postInitializationValueReads.every((recipe) => {
         const invocation = recipe.publicSurfaceProbe.invocation;
         const descriptor = invocation.sourceDescriptor;
         return (
           invocation.kind === "builtin-export-read" &&
           descriptor.expectedValueType ===
-            REVIEWED_EFFECTFUL_MODULE_SCALAR_TYPES.get(
+            REVIEWED_POST_INITIALIZATION_VALUE_TYPES.get(
               `${descriptor.sourceKey}:${descriptor.exportName}`,
             )
         );
@@ -521,11 +533,12 @@ describe("exact-target CapSec executable recipes", () => {
     // exact assert promise validators, and five harness-owned filesystem
     // object lifecycle routes; target-local physical evidence also retires
     // absent RSA aliases and the unsafe or deliberately throwing crypto/zlib
-    // claims. The restricted no-eval constructor added on main remains one
-    // explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_229);
+    // claims. Thirteen exact post-initialization object/symbol reads execute
+    // on both targets. The restricted no-eval constructor added on main
+    // remains one explicit residual until it has loaded-engine evidence.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_242);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_992);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_979);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -541,7 +554,7 @@ describe("exact-target CapSec executable recipes", () => {
       windowsCryptoRecipes.filter(
         (recipe) => recipe.status === "fully-executable",
       ),
-    ).toHaveLength(95);
+    ).toHaveLength(97);
     const unavailableWindowsNativeRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -3326,8 +3339,8 @@ describe("exact-target CapSec executable recipes", () => {
           descriptor.sourceKey === "node_dns_promises" &&
           descriptor.valueShape === "unknown" &&
           descriptor.expectedValueType === "string";
-        const reviewedEffectfulModuleScalar =
-          REVIEWED_EFFECTFUL_MODULE_SCALAR_TYPES.get(
+        const reviewedPostInitializationValue =
+          REVIEWED_POST_INITIALIZATION_VALUE_TYPES.get(
             `${descriptor.sourceKey}:${descriptor.exportName}`,
           ) === descriptor.expectedValueType &&
           new Set(["data", "unknown"]).has(descriptor.valueShape);
@@ -3343,7 +3356,7 @@ describe("exact-target CapSec executable recipes", () => {
             .timeoutMilliseconds === 1_000 &&
           (new Set(["accessor", "data"]).has(descriptor.valueShape) ||
             reviewedRuntimeString ||
-            reviewedEffectfulModuleScalar) &&
+            reviewedPostInitializationValue) &&
           new Set(["export-property", "module-value"]).has(
             descriptor.access.kind,
           ) &&

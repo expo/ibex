@@ -124,11 +124,11 @@ const REVIEWED_DNS_PROMISE_ERROR_CODES = new Set([
   "TIMEOUT",
 ]);
 
-// These scalar exports are read only after their capability-bearing module
-// initialization has completed. Keep the set and runtime types exact so this
-// does not weaken the generic exclusion for cluster, HTTP, or OS exports.
+// These value exports are read only after their module initialization has
+// completed. Keep the set, provenance, and runtime types exact so this does
+// not weaken the generic exclusion for effectful modules or unknown shapes.
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
-const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
+const REVIEWED_POST_INITIALIZATION_VALUE_EXPORTS = new Map(
   [
     [
       "node_cluster",
@@ -137,7 +137,7 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
       "number",
       ["member-assignment"],
       ["cluster", "node:cluster"],
-      "cluster.js",
+      "src/builtins/cluster.js#exports:SCHED_NONE",
     ],
     [
       "node_cluster",
@@ -146,7 +146,7 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
       "number",
       ["member-assignment"],
       ["cluster", "node:cluster"],
-      "cluster.js",
+      "src/builtins/cluster.js#exports:SCHED_RR",
     ],
     [
       "node_cluster",
@@ -155,7 +155,7 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
       "boolean",
       ["member-assignment"],
       ["cluster", "node:cluster"],
-      "cluster.js",
+      "src/builtins/cluster.js#exports:isMaster",
     ],
     [
       "node_cluster",
@@ -164,7 +164,7 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
       "boolean",
       ["member-assignment"],
       ["cluster", "node:cluster"],
-      "cluster.js",
+      "src/builtins/cluster.js#exports:isPrimary",
     ],
     [
       "node_cluster",
@@ -173,7 +173,7 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
       "boolean",
       ["member-assignment"],
       ["cluster", "node:cluster"],
-      "cluster.js",
+      "src/builtins/cluster.js#exports:isWorker",
     ],
     [
       "node_http",
@@ -190,7 +190,7 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
         "http",
         "node:http",
       ],
-      "http.js",
+      "src/builtins/http.js#exports:METHODS",
     ],
     [
       "node_http",
@@ -207,7 +207,7 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
         "http",
         "node:http",
       ],
-      "http.js",
+      "src/builtins/http.js#exports:STATUS_CODES",
     ],
     [
       "node_http",
@@ -224,7 +224,7 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
         "http",
         "node:http",
       ],
-      "http.js",
+      "src/builtins/http.js#exports:kConnectionsCheckingInterval",
     ],
     [
       "node_http",
@@ -241,7 +241,7 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
         "http",
         "node:http",
       ],
-      "http.js",
+      "src/builtins/http.js#exports:kHighWaterMark",
     ],
     [
       "node_http",
@@ -258,7 +258,7 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
         "http",
         "node:http",
       ],
-      "http.js",
+      "src/builtins/http.js#exports:kTimeout",
     ],
     [
       "node_http",
@@ -275,7 +275,7 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
         "http",
         "node:http",
       ],
-      "http.js",
+      "src/builtins/http.js#exports:maxHeaderSize",
     ],
     [
       "node_http",
@@ -292,7 +292,7 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
         "http",
         "node:http",
       ],
-      "http.js",
+      "src/builtins/http.js#exports:methods",
     ],
     [
       "node_os",
@@ -301,7 +301,7 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
       "string",
       ["define-property"],
       ["node:os", "os"],
-      "os.js",
+      "src/builtins/os.js#exports:EOL",
     ],
     [
       "node_os",
@@ -310,7 +310,7 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
       "object",
       ["module-exports-object"],
       ["node:os", "os"],
-      "os.js",
+      "src/builtins/os.js#exports:constants",
     ],
     [
       "node_os",
@@ -319,7 +319,124 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
       "string",
       ["module-exports-object"],
       ["node:os", "os"],
-      "os.js",
+      "src/builtins/os.js#exports:devNull",
+    ],
+    [
+      "exact_crypto",
+      "subtle",
+      "unknown",
+      "object",
+      ["object-binding", "object-source"],
+      ["crypto", "exact:crypto", "node:crypto"],
+      "src/builtins/crypto.js#exports:subtle",
+    ],
+    [
+      "exact_crypto",
+      "webcrypto",
+      "unknown",
+      "object",
+      ["object-binding", "object-source"],
+      ["crypto", "exact:crypto", "node:crypto"],
+      "src/builtins/crypto.js#exports:webcrypto",
+    ],
+    [
+      "node_console",
+      "default",
+      "unknown",
+      "object",
+      ["module-exports-assignment"],
+      ["console", "node:console"],
+      "src/builtins/console.js#exports:default",
+    ],
+    [
+      "node_events",
+      "captureRejectionSymbol",
+      "unknown",
+      "symbol",
+      ["member-assignment"],
+      ["events", "node:events"],
+      "src/builtins/events.js#exports:captureRejectionSymbol",
+    ],
+    [
+      "node_events",
+      "errorMonitor",
+      "unknown",
+      "symbol",
+      ["member-assignment"],
+      ["events", "node:events"],
+      "src/builtins/events.js#exports:errorMonitor",
+    ],
+    [
+      "node_fs",
+      "constants",
+      "unknown",
+      "object",
+      ["module-exports-object"],
+      ["bun:fs", "fs", "node:fs"],
+      "src/builtins/fs.js#exports:constants",
+    ],
+    [
+      "node_fs_promises",
+      "constants",
+      "unknown",
+      "object",
+      ["object-binding", "object-source"],
+      ["bun:fs/promises", "fs/promises", "internal/fs/promises", "node:fs/promises"],
+      "src/builtins/fs-promises.js#exports:constants",
+    ],
+    [
+      "node_http2",
+      "sensitiveHeaders",
+      "unknown",
+      "symbol",
+      ["module-exports-object"],
+      ["http2", "node:http2"],
+      "src/builtins/http2.js#exports:sensitiveHeaders",
+    ],
+    [
+      "node_module",
+      "builtinModules",
+      "unknown",
+      "object",
+      ["member-assignment", "object-binding", "object-source"],
+      ["module", "node:module"],
+      "src/builtins/module.js#exports:builtinModules",
+    ],
+    [
+      "node_perf_hooks",
+      "performance",
+      "unknown",
+      "object",
+      ["module-exports-object"],
+      ["node:perf_hooks", "perf_hooks"],
+      "src/builtins/perf-hooks.js#exports:performance",
+    ],
+    [
+      "node_timers_promises",
+      "scheduler",
+      "unknown",
+      "object",
+      ["module-exports-object"],
+      ["node:timers/promises", "timers/promises"],
+      "src/builtins/timers-promises.js#exports:scheduler",
+    ],
+    [
+      "path_posix_alias",
+      "default",
+      "unknown",
+      "object",
+      ["module-exports-assignment"],
+      ["node:path/posix", "path/posix"],
+      "modules.ts#sources:path_posix_alias:exports:default",
+    ],
+    [
+      "path_win32_alias",
+      "default",
+      "unknown",
+      "object",
+      ["module-exports-assignment"],
+      ["node:path/win32", "path/win32"],
+      "modules.ts#sources:path_win32_alias:exports:default",
     ],
   ].map(
     ([
@@ -329,7 +446,7 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
       expectedValueType,
       exportIdioms,
       moduleSpecifiers,
-      sourceFile,
+      sourceRef,
     ]) => [
       `${sourceKey}:${exportName}`,
       {
@@ -339,7 +456,7 @@ const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
         expectedValueType,
         exportIdioms,
         moduleSpecifiers,
-        sourceFile,
+        sourceRef,
       },
     ],
   ),
@@ -1915,7 +2032,7 @@ function sourceDescriptor(
   allowedValueShapes,
   {
     allowTargetAbsence = false,
-    allowReviewedEffectfulModuleScalar = false,
+    allowReviewedPostInitializationValue = false,
   } = {},
 ) {
   const metadata = surface?.metadata;
@@ -1934,7 +2051,7 @@ function sourceDescriptor(
     typeof metadata.sourceKey !== "string" ||
     metadata.sourceKey.length === 0 ||
     (NONCAP_GENERIC_EXPORT_EXCLUSIONS.has(metadata.sourceKey) &&
-      !allowReviewedEffectfulModuleScalar) ||
+      !allowReviewedPostInitializationValue) ||
     !allowedValueShapes.has(metadata.valueShape) ||
     typeof metadata.exportName !== "string" ||
     metadata.exportName.length === 0 ||
@@ -1982,12 +2099,12 @@ function sourceDescriptor(
   return descriptor;
 }
 
-function reviewedEffectfulModuleScalarSourceDescriptor(surface, target) {
+function reviewedPostInitializationValueSourceDescriptor(surface, target) {
   const metadata = surface?.metadata;
   const expected =
     typeof metadata?.sourceKey === "string" &&
     typeof metadata?.exportName === "string"
-      ? REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS.get(
+      ? REVIEWED_POST_INITIALIZATION_VALUE_EXPORTS.get(
           `${metadata.sourceKey}:${metadata.exportName}`,
         )
       : null;
@@ -1996,7 +2113,7 @@ function reviewedEffectfulModuleScalarSourceDescriptor(surface, target) {
     surface,
     target,
     new Set(["data", "unknown"]),
-    { allowReviewedEffectfulModuleScalar: true },
+    { allowReviewedPostInitializationValue: true },
   );
   const expectedDescriptor = {
     kind: "builtin-export",
@@ -2004,13 +2121,9 @@ function reviewedEffectfulModuleScalarSourceDescriptor(surface, target) {
     exportName: expected.exportName,
     exportIdioms: expected.exportIdioms,
     moduleSpecifiers: expected.moduleSpecifiers,
-    sourceRef:
-      `src/builtins/${expected.sourceFile}#exports:${expected.exportName}`,
+    sourceRef: expected.sourceRef,
     valueShape: expected.valueShape,
-    access: {
-      kind: "export-property",
-      path: [expected.exportName],
-    },
+    access: exportAccess(expected.exportName, expected.exportIdioms),
   };
   if (
     !descriptor ||
@@ -2094,7 +2207,7 @@ function authoredNonCapabilityBuiltinInvocationDefinition({
     targetPlatform !== null &&
     !availability.includes(targetPlatform);
   const readDescriptor =
-    reviewedEffectfulModuleScalarSourceDescriptor(surface, target) ??
+    reviewedPostInitializationValueSourceDescriptor(surface, target) ??
     reviewedDnsPromiseErrorCodeSourceDescriptor(surface, target) ??
     sourceDescriptor(surface, target, new Set(["accessor", "data"]), {
       allowTargetAbsence: allowTargetAbsence && targetAbsent,
