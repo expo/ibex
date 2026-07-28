@@ -509,6 +509,37 @@ describe("source-bound builtin public probes", () => {
     });
   });
 
+  test("reads only the owner-checked close bit from a fresh UDP socket", () => {
+    const probe = probeFor({
+      sourceKey: "node_dgram",
+      exportName: "Socket._closed",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: ["dgram", "node:dgram"],
+      sourceRefs: ["src/builtins/dgram.js#exports:Socket._closed"],
+      valueShape: "unknown",
+    });
+    expect(probe).toMatchObject({
+      invocation: {
+        kind: "builtin-export-read",
+        exportName: "Socket._closed",
+        sourceDescriptor: {
+          sourceKey: "node_dgram",
+          access: {
+            kind: "constructed-instance-property",
+            path: ["_closed"],
+          },
+          expectedValueType: "boolean",
+        },
+        setup: {
+          kind: "constructed-owner",
+          ownerExportName: "Socket",
+          constructorArguments: [{ kind: "json", value: "udp4" }],
+        },
+        expectedResult: "return",
+      },
+    });
+  });
+
   test("reads only reviewed closed booleans on fresh stream instances", () => {
     for (const [
       sourceKey,
@@ -1933,7 +1964,7 @@ describe("source-bound builtin public probes", () => {
   test("authors only the exact fresh UDP socket lifecycle family", () => {
     const udp4 = [{ kind: "json", value: "udp4" }];
     const contracts = [
-      ["Socket", { kind: "construct-target" }, udp4],
+      ["Socket", { kind: "construct-target" }, udp4, "object"],
       [
         "Socket.close",
         {
@@ -1942,8 +1973,19 @@ describe("source-bound builtin public probes", () => {
           constructorArguments: udp4,
         },
         [],
+        "object",
       ],
-      ["Socket.constructor", { kind: "construct-target" }, udp4],
+      ["Socket.constructor", { kind: "construct-target" }, udp4, "object"],
+      [
+        "Socket.dropMembership",
+        {
+          kind: "constructed-owner",
+          ownerExportName: "Socket",
+          constructorArguments: udp4,
+        },
+        [{ kind: "json", value: "224.0.0.1" }],
+        "undefined",
+      ],
       [
         "Socket.ref",
         {
@@ -1952,6 +1994,7 @@ describe("source-bound builtin public probes", () => {
           constructorArguments: udp4,
         },
         [],
+        "object",
       ],
       [
         "Socket.unref",
@@ -1961,10 +2004,11 @@ describe("source-bound builtin public probes", () => {
           constructorArguments: udp4,
         },
         [],
+        "object",
       ],
-      ["createSocket", { kind: "root-call" }, udp4],
+      ["createSocket", { kind: "root-call" }, udp4, "object"],
     ];
-    for (const [exportName, setup, arguments_] of contracts) {
+    for (const [exportName, setup, arguments_, resultType] of contracts) {
       const prototype = exportName.includes(".");
       expect(
         probeFor({
@@ -1984,7 +2028,7 @@ describe("source-bound builtin public probes", () => {
           setup,
           bodyEntryProof: {
             kind: "normal-return-from-source-call",
-            resultType: "object",
+            resultType,
           },
         },
       });

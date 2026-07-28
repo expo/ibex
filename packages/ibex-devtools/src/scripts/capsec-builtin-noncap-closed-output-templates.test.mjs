@@ -124,7 +124,7 @@ describe("builtin non-capability/closed output recipes", () => {
     // calls now have exact
     // loaded zero-decision recipes instead of descriptor-only residual
     // accounts.
-    expect(rows).toHaveLength(522);
+    expect(rows).toHaveLength(521);
     expect(
       Object.fromEntries(
         ["non-capability", "closed"].map((classification) => [
@@ -134,22 +134,22 @@ describe("builtin non-capability/closed output recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ "non-capability": 302, closed: 220 });
+    ).toEqual({ "non-capability": 301, closed: 220 });
     expect(
       builtinNoncapClosedOutputRouteManifest(rows.map((row) => row.invocation)),
     ).toMatchObject({
-      total: 522,
+      total: 521,
       operations: {
         call: 242,
         construct: 16,
         "import-refusal": 22,
-        unexercisable: 242,
+        unexercisable: 241,
       },
       residualReasons: {
         "codec-route-retains-native-or-deferred-stream-state": 73,
         "crypto-route-needs-authentic-key-cipher-or-callback-fixture": 6,
         "no-bounded-source-owned-receiver": 50,
-        "receiver-needs-external-or-network-lifecycle": 52,
+        "receiver-needs-external-or-network-lifecycle": 51,
         "runtime-inspection-or-escape-surface-has-no-safe-receiver": 61,
       },
     });
@@ -158,9 +158,9 @@ describe("builtin non-capability/closed output recipes", () => {
     // five fresh net terminal calls, five transport-free TLS socket lifecycle
     // calls, three retired idle TLS
     // Server constructions, three retired idle HTTPS Server constructions,
-    // six fresh UDP socket lifecycle calls, and three source-only compatibility
+    // seven fresh UDP socket lifecycle calls, and three source-only compatibility
     // helpers, KeyObject.equals, Interface.close, and Interface.pause now have
-    // bounded public probes. Those 91 rows are
+    // bounded public probes. Those 92 descriptor-only rows are
     // no longer descriptor-only residuals; Duplex
     // `_undestroy` is one representative inherited descriptor.
     expect(

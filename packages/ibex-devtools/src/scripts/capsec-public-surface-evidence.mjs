@@ -279,6 +279,15 @@ const REVIEWED_TLS_SECURE_CONTEXT_INSTANCE_VALUE = Object.freeze({
   moduleSpecifiers: ["node:tls", "tls"],
   sourceRef: "src/builtins/tls.js#exports:SecureContext.context",
 });
+const REVIEWED_DGRAM_SOCKET_CLOSED_INSTANCE_VALUE = Object.freeze({
+  sourceKey: "node_dgram",
+  exportName: "Socket._closed",
+  valueShape: "unknown",
+  expectedValueType: "boolean",
+  exportIdioms: ["exported-constructor-prototype"],
+  moduleSpecifiers: ["dgram", "node:dgram"],
+  sourceRef: "src/builtins/dgram.js#exports:Socket._closed",
+});
 const EFFECT_BUILTIN_MODULE_IMPORT_ALIASES = new Map(
   [
     ["node:sys", "node_util", true, true, "env:read"],
@@ -819,7 +828,8 @@ const IDLE_TLS_SERVER_CALL_CONTRACTS = new Map(
 );
 // A fresh udp4 wrapper owns only an authenticated principal stamp. The
 // constructor does not allocate a native handle; ref/unref see no poll timer,
-// and close only schedules the terminal close event required by quiescence.
+// close only schedules the terminal close event required by quiescence, and
+// exact dropMembership returns before the native hook on the absent handle.
 const IDLE_DGRAM_CALL_CONTRACTS = new Map([
   ...["Socket", "Socket.constructor"].map((exportName) => [
     exportName,
@@ -841,6 +851,18 @@ const IDLE_DGRAM_CALL_CONTRACTS = new Map([
       resultType: "object",
     },
   ]),
+  [
+    "Socket.dropMembership",
+    {
+      setup: {
+        kind: "constructed-owner",
+        ownerExportName: "Socket",
+        constructorArguments: [{ kind: "json", value: "udp4" }],
+      },
+      arguments: [{ kind: "json", value: "224.0.0.1" }],
+      resultType: "undefined",
+    },
+  ],
   [
     "createSocket",
     {
@@ -1453,6 +1475,27 @@ function isReviewedTlsSecureContextInstanceValueDescriptor(descriptor) {
       access: {
         kind: "constructed-instance-property",
         path: ["context"],
+      },
+      expectedValueType: expected.expectedValueType,
+    })
+  );
+}
+
+function isReviewedDgramSocketClosedInstanceValueDescriptor(descriptor) {
+  const expected = REVIEWED_DGRAM_SOCKET_CLOSED_INSTANCE_VALUE;
+  return (
+    canonicalJson(descriptor) ===
+    canonicalJson({
+      kind: "builtin-export",
+      sourceKey: expected.sourceKey,
+      exportName: expected.exportName,
+      exportIdioms: expected.exportIdioms,
+      moduleSpecifiers: expected.moduleSpecifiers,
+      sourceRef: expected.sourceRef,
+      valueShape: expected.valueShape,
+      access: {
+        kind: "constructed-instance-property",
+        path: ["_closed"],
       },
       expectedValueType: expected.expectedValueType,
     })
@@ -3490,7 +3533,8 @@ function validateRuntimeInvocation(observation, recipe) {
         !isReviewedPrototypeValueDescriptor(descriptor) &&
         !isReviewedStreamInstanceValueDescriptor(descriptor) &&
         !isReviewedX509RawInstanceValueDescriptor(descriptor) &&
-        !isReviewedTlsSecureContextInstanceValueDescriptor(descriptor)
+        !isReviewedTlsSecureContextInstanceValueDescriptor(descriptor) &&
+        !isReviewedDgramSocketClosedInstanceValueDescriptor(descriptor)
       ) {
         throw new Error(
           `${recipe.fixtureId}: builtin read has an unreviewed runtime value-type expectation`,
@@ -5586,6 +5630,10 @@ function validateRuntimeInvocation(observation, recipe) {
         isReviewedTlsSecureContextInstanceValueDescriptor(
           authored.sourceDescriptor,
         );
+      const dgramSocketClosedInstanceRead =
+        isReviewedDgramSocketClosedInstanceValueDescriptor(
+          authored.sourceDescriptor,
+        );
       const expectedReadSetup = streamInstanceRead
         ? {
             kind: "stream-owner",
@@ -5606,6 +5654,14 @@ function validateRuntimeInvocation(observation, recipe) {
                 ownerExportName: "SecureContext",
                 constructorArguments: [],
               }
+            : dgramSocketClosedInstanceRead
+              ? {
+                  kind: "constructed-owner",
+                  ownerExportName: "Socket",
+                  constructorArguments: [
+                    { kind: "json", value: "udp4" },
+                  ],
+                }
             : { kind: "none" };
       if (
         canonicalJson(authored.setup) !== canonicalJson(expectedReadSetup)

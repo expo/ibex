@@ -187,6 +187,9 @@ const REVIEWED_X509_INSTANCE_VALUES = [
 const REVIEWED_TLS_SECURE_CONTEXT_INSTANCE_VALUES = [
   ["node_tls", "SecureContext.context", "unknown", "object", ["exported-constructor-prototype"], ["node:tls", "tls"], "src/builtins/tls.js#exports:SecureContext.context"],
 ];
+const REVIEWED_DGRAM_SOCKET_INSTANCE_VALUES = [
+  ["node_dgram", "Socket._closed", "unknown", "boolean", ["exported-constructor-prototype"], ["dgram", "node:dgram"], "src/builtins/dgram.js#exports:Socket._closed"],
+];
 
 const target = {
   triple: "aarch64-apple-darwin",
@@ -1620,6 +1623,8 @@ function completePostInitializationValueReadCatalog([
   const tlsSecureContextInstance =
     sourceKey === "node_tls" &&
     exportName === "SecureContext.context";
+  const dgramSocketClosedInstance =
+    sourceKey === "node_dgram" && exportName === "Socket._closed";
   const prototypePath =
     sourceKey === "node_stream" && exportName === "default.destroyed"
       ? ["prototype", "destroyed"]
@@ -1632,7 +1637,11 @@ function completePostInitializationValueReadCatalog([
     moduleSpecifiers,
     sourceRef,
     valueShape,
-    access: streamInstance || x509RawInstance || tlsSecureContextInstance
+    access:
+      streamInstance ||
+      x509RawInstance ||
+      tlsSecureContextInstance ||
+      dgramSocketClosedInstance
       ? {
           kind: "constructed-instance-property",
           path: [
@@ -1640,7 +1649,9 @@ function completePostInitializationValueReadCatalog([
               ? "closed"
               : x509RawInstance
                 ? "raw"
-                : "context",
+                : tlsSecureContextInstance
+                  ? "context"
+                  : "_closed",
           ],
         }
       : prototype || inheritedPrototype
@@ -1692,6 +1703,12 @@ function completePostInitializationValueReadCatalog([
             kind: "constructed-owner",
             ownerExportName: "SecureContext",
             constructorArguments: [],
+          }
+      : dgramSocketClosedInstance
+        ? {
+            kind: "constructed-owner",
+            ownerExportName: "Socket",
+            constructorArguments: [{ kind: "json", value: "udp4" }],
           }
       : { kind: "none" };
   catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
@@ -6056,6 +6073,50 @@ describe("CapSec public-surface promotion evidence", () => {
       }),
     ).not.toThrow();
 
+    const dropRecipe = structuredClone(recipe);
+    const dropInvocation = dropRecipe.publicSurfaceProbe.invocation;
+    dropInvocation.exportName = "Socket.dropMembership";
+    dropInvocation.sourceDescriptor.exportName = "Socket.dropMembership";
+    dropInvocation.sourceDescriptor.sourceRef =
+      "src/builtins/dgram.js#exports:Socket.dropMembership";
+    dropInvocation.sourceDescriptor.access.path = [
+      "Socket",
+      "prototype",
+      "dropMembership",
+    ];
+    dropInvocation.sourceDescriptorDigest = taggedDigest(
+      dropInvocation.sourceDescriptor,
+    );
+    dropInvocation.arguments = [{ kind: "json", value: "224.0.0.1" }];
+    dropInvocation.bodyEntryProof.resultType = "undefined";
+    const dropObserved = noncapBuiltinCallObservation(dropRecipe);
+    dropObserved.invocation.moduleSpecifier = "node:dgram";
+    dropObserved.invocation.result.moduleSpecifier = "node:dgram";
+    dropObserved.invocation.result.exportName = "Socket.dropMembership";
+    dropObserved.invocation.result.dispatchKind = "prototype-call";
+    dropObserved.invocation.result.valueType = "undefined";
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: dropRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: dropObserved,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const unreviewedDrop = structuredClone(dropRecipe);
+    unreviewedDrop.publicSurfaceProbe.invocation.arguments[0].value =
+      "239.255.0.1";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: unreviewedDrop,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: dropObserved,
+        coverage,
+      }),
+    ).toThrow(/malformed authored idle UDP socket proof/);
+
     for (const mutate of [
       (value) => {
         value.publicSurfaceProbe.invocation.setup.ownerExportName = "Agent";
@@ -6157,6 +6218,7 @@ describe("CapSec public-surface promotion evidence", () => {
       ...REVIEWED_STREAM_INSTANCE_VALUES,
       ...REVIEWED_X509_INSTANCE_VALUES,
       ...REVIEWED_TLS_SECURE_CONTEXT_INSTANCE_VALUES,
+      ...REVIEWED_DGRAM_SOCKET_INSTANCE_VALUES,
     ]) {
       const catalog = completePostInitializationValueReadCatalog(entry);
       const recipe = catalog.recipes[0];
@@ -6187,6 +6249,25 @@ describe("CapSec public-surface promotion evidence", () => {
         runtimeObservation: dnsPromiseErrorReadObservation(
           tlsContextRecipe,
           "object",
+        ),
+        coverage,
+      }),
+    ).toThrow(/setup did not match its reviewed receiver/);
+
+    const dgramClosedCatalog = completePostInitializationValueReadCatalog(
+      REVIEWED_DGRAM_SOCKET_INSTANCE_VALUES[0],
+    );
+    const dgramClosedRecipe = dgramClosedCatalog.recipes[0];
+    const tamperedDgramClosedRecipe = structuredClone(dgramClosedRecipe);
+    tamperedDgramClosedRecipe.publicSurfaceProbe.invocation.setup
+      .constructorArguments[0].value = "udp6";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: tamperedDgramClosedRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: dnsPromiseErrorReadObservation(
+          dgramClosedRecipe,
+          "boolean",
         ),
         coverage,
       }),

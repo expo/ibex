@@ -83,6 +83,7 @@ const REVIEWED_POST_INITIALIZATION_VALUE_TYPES = new Map([
   ["node_console:default", "object"],
   ["node_dns:default", "object"],
   ["node_dns_promises:default", "object"],
+  ["node_dgram:Socket._closed", "boolean"],
   ["node_events:captureRejectionSymbol", "symbol"],
   ["node_events:errorMonitor", "symbol"],
   ["node_fs:constants", "object"],
@@ -446,17 +447,19 @@ describe("exact-target CapSec executable recipes", () => {
     // Three fresh TLS and three fresh HTTPS server constructors bind no
     // transport; each server receipt drains close and proves the private TLS
     // owner token reached its terminal state.
-    // Six fresh udp4 Socket construction/lifecycle calls own no native handle,
-    // binding, poll timer, or peer route; close drains its terminal event.
+    // Seven fresh udp4 Socket construction/lifecycle calls own no native
+    // handle, binding, poll timer, or peer route; close drains its terminal
+    // event. One exact constructed-instance read projects only the
+    // owner-checked close bit from the same idle state.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
     // Five fresh net terminal calls observe close delivery after proving that
     // their harness-owned receiver never acquired a transport.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_720);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_722);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_828);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_826);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -481,7 +484,7 @@ describe("exact-target CapSec executable recipes", () => {
         `${descriptor?.sourceKey}:${descriptor?.exportName}`,
       );
     });
-    expect(postInitializationValueReads).toHaveLength(78);
+    expect(postInitializationValueReads).toHaveLength(79);
     expect(
       postInitializationValueReads.every((recipe) => {
         const invocation = recipe.publicSurfaceProbe.invocation;
@@ -628,15 +631,17 @@ describe("exact-target CapSec executable recipes", () => {
     // Three fresh TLS and three fresh HTTPS server constructors bind no
     // transport; each server receipt drains close and proves the private TLS
     // owner token reached its terminal state.
-    // Six fresh udp4 Socket construction/lifecycle calls own no native handle,
-    // binding, poll timer, or peer route. The restricted no-eval constructor
+    // Seven fresh udp4 Socket construction/lifecycle calls own no native
+    // handle, binding, poll timer, or peer route. One exact
+    // constructed-instance read projects only its owner-checked close bit.
+    // The restricted no-eval constructor
     // added on main
     // remains one explicit residual until it has loaded-engine evidence.
     // Five fresh net terminal calls observe close delivery after proving that
     // their harness-owned receiver never acquired a transport.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_377);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_379);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_844);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_842);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -3469,6 +3474,14 @@ describe("exact-target CapSec executable recipes", () => {
                     ownerExportName: "SecureContext",
                     constructorArguments: [],
                   }
+                : descriptor.sourceKey === "node_dgram"
+                  ? {
+                      kind: "constructed-owner",
+                      ownerExportName: "Socket",
+                      constructorArguments: [
+                        { kind: "json", value: "udp4" },
+                      ],
+                    }
                 : {
                     kind: "stream-owner",
                     ownerExportName: descriptor.exportName.split(".")[0],
@@ -5721,7 +5734,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
         "node_dgram",
     );
-    expect(idleDgramCalls).toHaveLength(6);
+    expect(idleDgramCalls).toHaveLength(7);
     expect(
       idleDgramCalls.every(
         (recipe) =>
@@ -5731,6 +5744,7 @@ describe("exact-target CapSec executable recipes", () => {
             "Socket",
             "Socket.close",
             "Socket.constructor",
+            "Socket.dropMembership",
             "Socket.ref",
             "Socket.unref",
             "createSocket",

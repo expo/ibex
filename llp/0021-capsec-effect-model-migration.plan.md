@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-28 (promotes exactly two additional fresh `node:dgram` operations: the owner-checked `Socket._closed` boolean read and `Socket.dropMembership("224.0.0.1")` on an unbound udp4 receiver; construction creates only source-owned state and a principal stamp, `_closed` reads the own non-configurable accessor, and `dropMembership` returns before the native hook because the handle remains `-1`; authoring, independent evidence validation, Rust validation, and the loaded-engine harness separately repeat the exact constructed-instance/call descriptors, udp4 setup, literal group address, result types, quiescence, and zero-decision contract; Apple accounting is 3,722 fully executable / 3,036 internally verified / 16,826 unresolved and Windows is 3,379 / 3,022 / 16,842, while the descriptor residual manifest falls from 522 to 521)
 **Revised:** 2026-07-28 (promotes exactly five terminal calls on fresh `node:net` receivers: `Server.close`, `Socket.close`, `Socket.resetAndDestroy`, `Stream.close`, and `Stream.resetAndDestroy`; the dedicated setup constructs each receiver without a transport, attaches one harness close observer before dispatch, and requires exact close delivery plus terminal in-memory state before completion; authoring, independent evidence validation, Rust validation, and the loaded-engine harness repeat the closed five-name vocabulary, exact source descriptor, owner setup, dispatch, cleanup fields, quiescence, and zero-decision contract; Apple accounting is 3,720 fully executable / 3,036 internally verified / 16,828 unresolved and Windows is 3,377 / 3,022 / 16,844, while the descriptor residual manifest falls from 527 to 522)
 **Revised:** 2026-07-28 (promotes exactly three fresh `node:https` server constructors: `Server`, `Server.constructor`, and `createServer`; each source call layers one private-state HTTP wrapper over one idle TLS server without binding a transport or creating an HTTP selector, while the inner TLS server still mints one runtime/principal owner token; the dedicated loaded-engine setup closes the outer server, awaits outer close delivery and delayed inner token retirement, and requires a later outer `address()` call to reach the guarded inner server and fail with `ERR_TLS_SERVER_CLOSED`; authoring, independent evidence validation, Rust validation, and physical Hermes execution repeat the exact `node:https` descriptor, `member-assignment` provenance, dispatch, cleanup, and quiescence contract; Apple accounting is 3,715 fully executable / 3,036 internally verified / 16,833 unresolved and Windows is 3,372 / 3,022 / 16,849, while the descriptor residual manifest falls from 530 to 527)
 **Revised:** 2026-07-28 (promotes exactly three fresh `node:tls` server constructors: `Server`, `Server.constructor`, and `createServer`; each source call creates no transport or native listener but does mint one private runtime/principal owner token and install the two registry lifecycle listeners, so the dedicated loaded-engine setup attaches one harness close observer, invokes exact `close`, awaits the internal close hook and delayed retirement timer, and requires a subsequent guarded lifecycle call to fail with `ERR_TLS_SERVER_CLOSED`; authoring, independent evidence validation, Rust validation, and physical Hermes execution repeat the exact descriptor/dispatch/cleanup contract; Apple accounting is 3,712 fully executable / 3,036 internally verified / 16,836 unresolved and Windows is 3,369 / 3,022 / 16,852, while the descriptor residual manifest falls from 533 to 530)
@@ -2846,19 +2847,30 @@ cleanup fields, quiescence, and zero-decision contract. This does not admit
 client transports.
 
 Fresh UDP lifecycle evidence is similarly limited to `Socket`,
-`Socket.constructor`, `createSocket`, `Socket.close`, `Socket.ref`, and
-`Socket.unref`, all with the exact `udp4` constructor argument. Construction
-creates the authenticated principal stamp but no native handle, binding, poll
-timer, or peer route. `ref` and `unref` therefore update only wrapper state,
-while `close` marks the wrapper closed and schedules its terminal event; the
-receipt requires that event to drain before quiescence. The author, independent
-evidence validator, Rust validator, and loaded-engine JavaScript harness each
-repeat the real `src/builtins/dgram.js` descriptor, two public module aliases,
-canonical `node:dgram` invocation, exact setup, result type, and normal-return
-proof. The closed set does not include bind, connect, disconnect, send, address,
-membership, buffer-size, or socket-option operations; those still require a
-bound handle, peer route, throwing result, or separately owned network
-lifecycle.
+`Socket.constructor`, `createSocket`, `Socket.close`, `Socket.ref`,
+`Socket.unref`, and `Socket.dropMembership("224.0.0.1")`, all with the exact
+`udp4` constructor argument. Construction creates the authenticated principal
+stamp but no native handle, binding, poll timer, or peer route. `ref` and
+`unref` therefore update only wrapper state, while `close` marks the wrapper
+closed and schedules its terminal event; the receipt requires that event to
+drain before quiescence. On that same fresh receiver `dropMembership` returns
+`undefined` before consulting the native membership hook because the private
+handle remains `-1`; the literal group address does not widen the contract to
+other membership calls or receiver states.
+
+The separate `Socket._closed` read constructs the same fresh udp4 receiver and
+accesses only its own non-enumerable, non-configurable getter/setter pair. The
+getter authenticates the retained owner state and returns its boolean close
+bit; it does not expose `_handle`, the private WeakMap state, a binding, or a
+route. The author, independent evidence validator, Rust validator, and
+loaded-engine JavaScript harness each repeat the real
+`src/builtins/dgram.js` descriptor, two public module aliases, canonical
+`node:dgram` invocation, exact constructed receiver, access/call shape, literal
+argument, result type, and zero-decision proof. The closed set still excludes
+bind, connect, disconnect, send, address, add-membership,
+source-specific-membership, buffer-size, socket-option, and every operation
+that requires a bound handle, peer route, throwing result, or separately owned
+network lifecycle.
 
 X509 instance evidence is limited to two bounded operations on a fresh
 harness-owned `X509Certificate("ibex-x509-fixture")`. The `raw` row requires

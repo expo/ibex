@@ -492,7 +492,8 @@
       ) ||
       !exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) ||
       invocation.bodyEntryProof.kind !== "normal-return-from-source-call" ||
-      invocation.bodyEntryProof.resultType !== "object"
+      invocation.bodyEntryProof.resultType !==
+        (exportName === "Socket.dropMembership" ? "undefined" : "object")
     ) {
       return false;
     }
@@ -523,6 +524,7 @@
     }
     if (
       exportName !== "Socket.close" &&
+      exportName !== "Socket.dropMembership" &&
       exportName !== "Socket.ref" &&
       exportName !== "Socket.unref"
     ) {
@@ -540,7 +542,12 @@
       invocation.setup.constructorArguments.length === 1 &&
       isUdp4Argument(invocation.setup.constructorArguments[0]) &&
       Array.isArray(invocation.arguments) &&
-      invocation.arguments.length === 0
+      (exportName === "Socket.dropMembership"
+        ? invocation.arguments.length === 1 &&
+          exactObjectKeys(invocation.arguments[0], ["kind", "value"]) &&
+          invocation.arguments[0].kind === "json" &&
+          invocation.arguments[0].value === "224.0.0.1"
+        : invocation.arguments.length === 0)
     );
   }
 
@@ -1028,6 +1035,49 @@
           return {
             error: failure("shape-mismatch", {
               expectedShape: "own-frozen-opaque-object",
+            }),
+          };
+        }
+      } else if (
+        descriptor.sourceKey === "node_dgram" &&
+        descriptor.exportName === "Socket._closed" &&
+        access.path[0] === "_closed" &&
+        config.setup &&
+        config.setup.kind === "constructed-owner" &&
+        config.setup.ownerExportName === "Socket" &&
+        exactObjectKeys(config.setup, [
+          "constructorArguments",
+          "kind",
+          "ownerExportName",
+        ]) &&
+        Array.isArray(config.setup.constructorArguments) &&
+        config.setup.constructorArguments.length === 1 &&
+        exactObjectKeys(config.setup.constructorArguments[0], [
+          "kind",
+          "value",
+        ]) &&
+        config.setup.constructorArguments[0].kind === "json" &&
+        config.setup.constructorArguments[0].value === "udp4"
+      ) {
+        var dgramSocketOwner = moduleValue.Socket;
+        if (typeof dgramSocketOwner !== "function") {
+          return { error: failure("setup-mismatch") };
+        }
+        instance = Reflect.construct(dgramSocketOwner, ["udp4"]);
+        var dgramClosedDescriptor = Object.getOwnPropertyDescriptor(
+          instance,
+          "_closed",
+        );
+        if (
+          !dgramClosedDescriptor ||
+          dgramClosedDescriptor.enumerable !== false ||
+          dgramClosedDescriptor.configurable !== false ||
+          typeof dgramClosedDescriptor.get !== "function" ||
+          typeof dgramClosedDescriptor.set !== "function"
+        ) {
+          return {
+            error: failure("shape-mismatch", {
+              expectedShape: "own-private-state-accessor",
             }),
           };
         }

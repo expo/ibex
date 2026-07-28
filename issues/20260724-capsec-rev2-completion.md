@@ -4807,6 +4807,59 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — prove exact idle UDP state and membership no-op
+
+- Promoted exactly `node_dgram.Socket._closed` and
+  `node_dgram.Socket.dropMembership`. Both receipts construct a fresh udp4
+  socket, which owns a principal stamp and source-only private state but no
+  native handle, binding, poll timer, or peer route.
+- `_closed` uses a separate constructed-instance read contract. The loaded
+  harness requires the own non-enumerable, non-configurable getter/setter pair,
+  invokes the owner-checked getter, and observes a boolean. The generic
+  constructed-instance read vocabulary remains closed.
+- `dropMembership` receives only the fixed group `224.0.0.1`. Because the
+  fresh receiver's handle remains `-1`, the source returns `undefined` before
+  consulting the native membership hook. Bind, add-membership,
+  source-specific membership, active-socket drop, address, route, buffer, and
+  socket-option operations remain residual.
+- The recipe author, independent JavaScript evidence validator, Rust catalog
+  validator, and loaded-engine JavaScript harness separately repeat the two
+  exact descriptors, canonical `node:dgram` module identity, udp4 constructor,
+  access/call shape, literal argument, result type, quiescence, and
+  zero-decision contract. Negative tests reject another constructor type,
+  membership address, owner, access path, or result type. The physical gate
+  also caught an initially misplaced loaded-engine result-type check before
+  any source dispatch; the corrected final allowlist now keeps TLS Server
+  results at `object` and admits `undefined` only for this exact UDP call.
+- The regenerated Apple catalog digest
+  `sha256-A_lPSwHnJmfkp8R6OZo8Gx2M-J8fVnZYeeHBDg6Cz1w` reports 23,584
+  required / **3,722 fully executable** / 3,036 internally verified / 16,826
+  unresolved. The regenerated Windows digest
+  `sha256-ra3I5loRr8iJ9FJfqfRkS7591nF1u02VYczuklL0kUA` reports 23,243
+  required / **3,379 fully executable** / 3,022 internally verified / 16,842
+  unresolved. The descriptor-only output manifest falls from 522 to 521 rows.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 78 focused rows
+  plus these two UDP rows under catalog digest
+  `sha256-vRdS0eV9KrmCzyzgX7QPyXfYTV1btMPXkomWSnVXH64` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 80
+  fixtures pass, reach quiescence, and record zero legacy or typed decisions.
+  The raw evidence SHA-256 is
+  `205dfc66c0b0bcaa7b99ac01da7718ea041993c594aeaba1ed2437d632a8addd`;
+  independent JavaScript validation accepted all 80 executions and produced
+  diagnostic execution digest
+  `sha256-A9eyR8pOXPUcsz-1W7iUu1Tdn7lPbFTWc1Ug-_3pJ4Q` (artifact SHA-256
+  `9c8977eb7ef9ae1887f92b38e7778f470c38e620ca436e7648237faf4db864e0`).
+  The diagnostic source binding is baseline revision
+  `4177060f121960f825b13ff372999e1cce6e5287` / tree digest
+  `sha256-KsGoViQOSGeH--dParHELvy6riba1MKtO58v3TZxZh4`.
+- The focused author/catalog/validator/output-accounting suite passes
+  **204/204** tests with 125,147 assertions on EPYC Bun 1.3.14; the physical
+  Rust exact-Hermes batch passes 80/80. The Linux replay remains diagnostic
+  rather than Apple promotion evidence.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

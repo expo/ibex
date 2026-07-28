@@ -616,6 +616,27 @@ const REVIEWED_TLS_SECURE_CONTEXT_INSTANCE_VALUE_EXPORTS = new Map([
   ],
 ]);
 
+// `Socket._closed` is an own non-configurable accessor installed by a fresh
+// udp4 Socket. The owner check projects one boolean from the source-only state;
+// the receiver has no native handle, binding, poll timer, or peer route.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+const REVIEWED_DGRAM_SOCKET_INSTANCE_VALUE_EXPORTS = new Map([
+  [
+    "node_dgram:Socket._closed",
+    {
+      sourceKey: "node_dgram",
+      exportName: "Socket._closed",
+      valueShape: "unknown",
+      expectedValueType: "boolean",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: ["dgram", "node:dgram"],
+      sourceRef: "src/builtins/dgram.js#exports:Socket._closed",
+      ownerExportName: "Socket",
+      constructorArguments: [{ kind: "json", value: "udp4" }],
+    },
+  ],
+]);
+
 const jsonArgument = (value) => ({ kind: "json", value });
 const noopArgument = () => ({ kind: "noop-function" });
 const throwingArgument = () => ({
@@ -1257,7 +1278,8 @@ const NODE_HTTPS_CALL_SPECS = Object.freeze({
 // fresh UDP Socket owns a principal stamp but no native handle, binding, poll
 // timer, or peer route. These exact construction and idle lifecycle calls use
 // only that harness-owned wrapper; close's terminal event must drain before
-// the shared quiescence observation completes.
+// the shared quiescence observation completes, while dropMembership returns
+// before its native hook because the fresh handle remains absent.
 const NODE_DGRAM_CALL_SPECS = Object.freeze({
   Socket: constructTarget([jsonArgument("udp4")]),
   "Socket.close": constructedOwner(
@@ -1267,6 +1289,12 @@ const NODE_DGRAM_CALL_SPECS = Object.freeze({
     [jsonArgument("udp4")],
   ),
   "Socket.constructor": constructTarget([jsonArgument("udp4")]),
+  "Socket.dropMembership": constructedOwner(
+    "Socket",
+    [jsonArgument("224.0.0.1")],
+    "undefined",
+    [jsonArgument("udp4")],
+  ),
   "Socket.ref": constructedOwner(
     "Socket",
     [],
@@ -2746,6 +2774,46 @@ function reviewedTlsSecureContextInstanceValueSourceDescriptor(
   };
 }
 
+function reviewedDgramSocketInstanceValueSourceDescriptor(surface, target) {
+  const metadata = surface?.metadata;
+  const expected =
+    typeof metadata?.sourceKey === "string" &&
+    typeof metadata?.exportName === "string"
+      ? REVIEWED_DGRAM_SOCKET_INSTANCE_VALUE_EXPORTS.get(
+          `${metadata.sourceKey}:${metadata.exportName}`,
+        )
+      : null;
+  if (!expected) return null;
+  const descriptor = sourceDescriptor(surface, target, new Set(["unknown"]), {
+    allowReviewedPostInitializationValue: true,
+  });
+  const access = {
+    kind: "constructed-instance-property",
+    path: ["_closed"],
+  };
+  const reviewedDescriptor = descriptor ? { ...descriptor, access } : null;
+  const expectedDescriptor = {
+    kind: "builtin-export",
+    sourceKey: expected.sourceKey,
+    exportName: expected.exportName,
+    exportIdioms: expected.exportIdioms,
+    moduleSpecifiers: expected.moduleSpecifiers,
+    sourceRef: expected.sourceRef,
+    valueShape: expected.valueShape,
+    access,
+  };
+  if (
+    !reviewedDescriptor ||
+    canonicalJson(reviewedDescriptor) !== canonicalJson(expectedDescriptor)
+  ) {
+    return null;
+  }
+  return {
+    ...reviewedDescriptor,
+    expectedValueType: expected.expectedValueType,
+  };
+}
+
 function reviewedDnsPromiseErrorCodeSourceDescriptor(surface, target) {
   const descriptor = sourceDescriptor(surface, target, new Set(["unknown"]));
   if (
@@ -2823,12 +2891,15 @@ function authoredNonCapabilityBuiltinInvocationDefinition({
     reviewedX509InstanceValueSourceDescriptor(surface, target);
   const reviewedTlsSecureContextInstanceDescriptor =
     reviewedTlsSecureContextInstanceValueSourceDescriptor(surface, target);
+  const reviewedDgramSocketInstanceDescriptor =
+    reviewedDgramSocketInstanceValueSourceDescriptor(surface, target);
   const readDescriptor =
     reviewedPostInitializationValueSourceDescriptor(surface, target) ??
     reviewedPrototypeDescriptor ??
     reviewedStreamInstanceDescriptor ??
     reviewedX509InstanceDescriptor ??
     reviewedTlsSecureContextInstanceDescriptor ??
+    reviewedDgramSocketInstanceDescriptor ??
     reviewedDnsPromiseErrorCodeSourceDescriptor(surface, target) ??
     sourceDescriptor(surface, target, new Set(["accessor", "data"]), {
       allowTargetAbsence: allowTargetAbsence && targetAbsent,
@@ -2839,6 +2910,7 @@ function authoredNonCapabilityBuiltinInvocationDefinition({
       readDescriptor === reviewedStreamInstanceDescriptor ||
       readDescriptor === reviewedX509InstanceDescriptor ||
       readDescriptor === reviewedTlsSecureContextInstanceDescriptor ||
+      readDescriptor === reviewedDgramSocketInstanceDescriptor ||
       (new Set(["export-property", "module-value"]).has(
         readDescriptor.access.kind,
       ) &&
@@ -2886,6 +2958,14 @@ function authoredNonCapabilityBuiltinInvocationDefinition({
                 ownerExportName: "SecureContext",
                 constructorArguments: [],
               }
+            : reviewedDgramSocketInstanceDescriptor
+              ? {
+                  kind: "constructed-owner",
+                  ownerExportName: "Socket",
+                  constructorArguments: [
+                    { kind: "json", value: "udp4" },
+                  ],
+                }
             : { kind: "none" }
       : callTemplate.setup,
     completion: { ...EVENT_LOOP_COMPLETION },

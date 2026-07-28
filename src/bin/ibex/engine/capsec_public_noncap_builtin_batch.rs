@@ -495,6 +495,21 @@ fn is_reviewed_tls_secure_context_instance_descriptor(
         && descriptor.access.path == ["context"]
 }
 
+fn is_reviewed_dgram_socket_closed_instance_descriptor(
+    descriptor: &BuiltinSourceDescriptor,
+) -> bool {
+    descriptor.source_key == "node_dgram"
+        && descriptor.export_name == "Socket._closed"
+        && descriptor.export_idioms == ["exported-constructor-prototype"]
+        && descriptor.module_specifiers == ["dgram", "node:dgram"]
+        && descriptor.source_ref == "src/builtins/dgram.js#exports:Socket._closed"
+        && descriptor.value_shape == "unknown"
+        && descriptor.expected_value_type.as_deref() == Some("boolean")
+        && descriptor.platform_availability.is_none()
+        && descriptor.access.kind == "constructed-instance-property"
+        && descriptor.access.path == ["_closed"]
+}
+
 fn reviewed_post_initialization_value_spec(
     source_key: &str,
     export_name: &str,
@@ -875,6 +890,14 @@ fn expected_access(descriptor: &BuiltinSourceDescriptor) -> Option<BuiltinAccess
         return Some(BuiltinAccess {
             kind: "constructed-instance-property".to_owned(),
             path: vec!["context".to_owned()],
+        });
+    }
+    if descriptor.source_key == "node_dgram"
+        && descriptor.export_name == "Socket._closed"
+    {
+        return Some(BuiltinAccess {
+            kind: "constructed-instance-property".to_owned(),
+            path: vec!["_closed".to_owned()],
         });
     }
     // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
@@ -2118,6 +2141,17 @@ fn validate_idle_dgram_contract(
             }),
             Vec::new(),
         ),
+        "Socket.dropMembership" => (
+            serde_json::json!({
+                "kind": "constructed-owner",
+                "ownerExportName": "Socket",
+                "constructorArguments": [udp4_argument]
+            }),
+            vec![serde_json::json!({
+                "kind": "json",
+                "value": "224.0.0.1"
+            })],
+        ),
         "createSocket" => (
             serde_json::json!({"kind": "root-call"}),
             vec![udp4_argument],
@@ -2169,7 +2203,14 @@ fn validate_idle_dgram_contract(
         }
     );
     assert_eq!(proof.kind, "normal-return-from-source-call");
-    assert_eq!(proof.result_type, "object");
+    assert_eq!(
+        proof.result_type,
+        if descriptor.export_name == "Socket.dropMembership" {
+            "undefined"
+        } else {
+            "object"
+        }
+    );
     assert_eq!(invocation.setup, expected_setup);
     assert_eq!(invocation.arguments, expected_arguments);
 }
@@ -2452,13 +2493,28 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
                     "constructorArguments": [],
                 })
             );
+        } else if descriptor.source_key == "node_dgram" && constructed_instance_read {
+            assert!(is_reviewed_dgram_socket_closed_instance_descriptor(
+                &descriptor
+            ));
+            assert_eq!(
+                invocation.setup,
+                serde_json::json!({
+                    "kind": "constructed-owner",
+                    "ownerExportName": "Socket",
+                    "constructorArguments": [
+                        {"kind": "json", "value": "udp4"}
+                    ],
+                })
+            );
         } else {
             assert_eq!(invocation.setup, serde_json::json!({"kind": "none"}));
         }
         let reviewed_runtime_typed_read =
             is_reviewed_dns_promise_error_descriptor(&descriptor)
                 || is_reviewed_post_initialization_value_descriptor(&descriptor)
-                || is_reviewed_tls_secure_context_instance_descriptor(&descriptor);
+                || is_reviewed_tls_secure_context_instance_descriptor(&descriptor)
+                || is_reviewed_dgram_socket_closed_instance_descriptor(&descriptor);
         assert!(
             reviewed_runtime_typed_read
                 || (matches!(descriptor.value_shape.as_str(), "accessor" | "data")
