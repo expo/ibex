@@ -4614,6 +4614,46 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — read the exact opaque TLS secure context
+
+- Promoted exactly `node_tls.SecureContext.context` on a fresh harness-owned
+  `SecureContext()`. Source construction installs one own enumerable,
+  non-writable, non-configurable data property whose value is a frozen opaque
+  object. It allocates no TLS engine and consults no native trust, certificate,
+  key, or cipher state.
+- The recipe author, independent JavaScript evidence validator, Rust catalog
+  validator, and loaded-engine JavaScript harness separately repeat the exact
+  `node_tls` descriptor, canonical `node:tls` invocation, empty constructor,
+  constructed-instance `["context"]` access, object result, quiescence, and
+  zero-decision contract. A negative test rejects substituting `TLSSocket` as
+  the owner.
+- The regenerated Apple catalog digest
+  `sha256-bIHqGpbhoxJVej_xwQGCR2B2UQGj82u_RbtAwfUob0I` reports 23,584
+  required / **3,709 fully executable** / 3,036 internally verified / 16,839
+  unresolved. The regenerated Windows digest
+  `sha256-zCuy4Pg4qYtf_TikUIw4Pp3FnAeqxbm0jMWnj53fqj4` reports 23,243
+  required / **3,366 fully executable** / 3,022 internally verified / 16,855
+  unresolved. The descriptor-only output manifest remains 533 rows because
+  this exact property receipt does not replace one of its output-route rows.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 66 focused rows
+  plus the context read under catalog digest
+  `sha256-5P5dcVL9nVptsnf2bKDzqzY_xYoVJ1teV0sO-JrxQcg` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 67
+  fixtures pass; the context read returns an object, reaches quiescence, and
+  records zero decisions. The raw evidence SHA-256 is
+  `c99a4e5512b2953a2d19462af8e178e33428aaf3d089e7c40e36f43d32af18c7`;
+  independent JavaScript validation accepted all 67 executions and produced
+  diagnostic execution digest
+  `sha256-SwH6bOJFa9iZVpYP1PgUzzy8j5lz2pOA_iTlrh67G6Y` (artifact SHA-256
+  `70adfb5ebbd3e1ba0b60d7534435cd812d7ecd8487a415dd2c972eeb84402e59`).
+- The focused author/catalog/validator/output-accounting suite passes
+  **197/197** tests with 125,201 assertions on EPYC Bun 1.3.14; the physical
+  Rust exact-Hermes batch passes 67/67. The Linux replay remains diagnostic
+  rather than Apple promotion evidence.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

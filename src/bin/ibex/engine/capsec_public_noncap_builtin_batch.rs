@@ -480,6 +480,21 @@ fn is_reviewed_dns_promise_error_descriptor(descriptor: &BuiltinSourceDescriptor
         && descriptor.access.path == [descriptor.export_name.clone()]
 }
 
+fn is_reviewed_tls_secure_context_instance_descriptor(
+    descriptor: &BuiltinSourceDescriptor,
+) -> bool {
+    descriptor.source_key == "node_tls"
+        && descriptor.export_name == "SecureContext.context"
+        && descriptor.export_idioms == ["exported-constructor-prototype"]
+        && descriptor.module_specifiers == ["node:tls", "tls"]
+        && descriptor.source_ref == "src/builtins/tls.js#exports:SecureContext.context"
+        && descriptor.value_shape == "unknown"
+        && descriptor.expected_value_type.as_deref() == Some("object")
+        && descriptor.platform_availability.is_none()
+        && descriptor.access.kind == "constructed-instance-property"
+        && descriptor.access.path == ["context"]
+}
+
 fn reviewed_post_initialization_value_spec(
     source_key: &str,
     export_name: &str,
@@ -852,6 +867,14 @@ fn expected_access(descriptor: &BuiltinSourceDescriptor) -> Option<BuiltinAccess
         return Some(BuiltinAccess {
             kind: "constructed-instance-property".to_owned(),
             path: vec!["raw".to_owned()],
+        });
+    }
+    if descriptor.source_key == "node_tls"
+        && descriptor.export_name == "SecureContext.context"
+    {
+        return Some(BuiltinAccess {
+            kind: "constructed-instance-property".to_owned(),
+            path: vec!["context".to_owned()],
         });
     }
     // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
@@ -2210,12 +2233,25 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
                     ],
                 })
             );
+        } else if descriptor.source_key == "node_tls" && constructed_instance_read {
+            assert!(is_reviewed_tls_secure_context_instance_descriptor(
+                &descriptor
+            ));
+            assert_eq!(
+                invocation.setup,
+                serde_json::json!({
+                    "kind": "constructed-owner",
+                    "ownerExportName": "SecureContext",
+                    "constructorArguments": [],
+                })
+            );
         } else {
             assert_eq!(invocation.setup, serde_json::json!({"kind": "none"}));
         }
         let reviewed_runtime_typed_read =
             is_reviewed_dns_promise_error_descriptor(&descriptor)
-                || is_reviewed_post_initialization_value_descriptor(&descriptor);
+                || is_reviewed_post_initialization_value_descriptor(&descriptor)
+                || is_reviewed_tls_secure_context_instance_descriptor(&descriptor);
         assert!(
             reviewed_runtime_typed_read
                 || (matches!(descriptor.value_shape.as_str(), "accessor" | "data")

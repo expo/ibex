@@ -476,6 +476,39 @@ describe("source-bound builtin public probes", () => {
     });
   });
 
+  test("reads only the opaque context from a fresh owned SecureContext", () => {
+    const probe = probeFor({
+      sourceKey: "node_tls",
+      exportName: "SecureContext.context",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: ["node:tls", "tls"],
+      sourceRefs: [
+        "src/builtins/tls.js#exports:SecureContext.context",
+      ],
+      valueShape: "unknown",
+    });
+    expect(probe).toMatchObject({
+      invocation: {
+        kind: "builtin-export-read",
+        exportName: "SecureContext.context",
+        sourceDescriptor: {
+          sourceKey: "node_tls",
+          access: {
+            kind: "constructed-instance-property",
+            path: ["context"],
+          },
+          expectedValueType: "object",
+        },
+        setup: {
+          kind: "constructed-owner",
+          ownerExportName: "SecureContext",
+          constructorArguments: [],
+        },
+        expectedResult: "return",
+      },
+    });
+  });
+
   test("reads only reviewed closed booleans on fresh stream instances", () => {
     for (const [
       sourceKey,

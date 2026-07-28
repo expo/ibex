@@ -270,6 +270,15 @@ const REVIEWED_X509_RAW_INSTANCE_VALUE = Object.freeze({
   moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
   sourceRef: "src/builtins/crypto.js#exports:X509Certificate.raw",
 });
+const REVIEWED_TLS_SECURE_CONTEXT_INSTANCE_VALUE = Object.freeze({
+  sourceKey: "node_tls",
+  exportName: "SecureContext.context",
+  valueShape: "unknown",
+  expectedValueType: "object",
+  exportIdioms: ["exported-constructor-prototype"],
+  moduleSpecifiers: ["node:tls", "tls"],
+  sourceRef: "src/builtins/tls.js#exports:SecureContext.context",
+});
 const EFFECT_BUILTIN_MODULE_IMPORT_ALIASES = new Map(
   [
     ["node:sys", "node_util", true, true, "env:read"],
@@ -1343,6 +1352,27 @@ function isReviewedX509RawInstanceValueDescriptor(descriptor) {
       access: {
         kind: "constructed-instance-property",
         path: ["raw"],
+      },
+      expectedValueType: expected.expectedValueType,
+    })
+  );
+}
+
+function isReviewedTlsSecureContextInstanceValueDescriptor(descriptor) {
+  const expected = REVIEWED_TLS_SECURE_CONTEXT_INSTANCE_VALUE;
+  return (
+    canonicalJson(descriptor) ===
+    canonicalJson({
+      kind: "builtin-export",
+      sourceKey: expected.sourceKey,
+      exportName: expected.exportName,
+      exportIdioms: expected.exportIdioms,
+      moduleSpecifiers: expected.moduleSpecifiers,
+      sourceRef: expected.sourceRef,
+      valueShape: expected.valueShape,
+      access: {
+        kind: "constructed-instance-property",
+        path: ["context"],
       },
       expectedValueType: expected.expectedValueType,
     })
@@ -3379,7 +3409,8 @@ function validateRuntimeInvocation(observation, recipe) {
         !isReviewedPostInitializationValueDescriptor(descriptor) &&
         !isReviewedPrototypeValueDescriptor(descriptor) &&
         !isReviewedStreamInstanceValueDescriptor(descriptor) &&
-        !isReviewedX509RawInstanceValueDescriptor(descriptor)
+        !isReviewedX509RawInstanceValueDescriptor(descriptor) &&
+        !isReviewedTlsSecureContextInstanceValueDescriptor(descriptor)
       ) {
         throw new Error(
           `${recipe.fixtureId}: builtin read has an unreviewed runtime value-type expectation`,
@@ -5341,6 +5372,10 @@ function validateRuntimeInvocation(observation, recipe) {
         isReviewedX509RawInstanceValueDescriptor(
           authored.sourceDescriptor,
         );
+      const tlsSecureContextInstanceRead =
+        isReviewedTlsSecureContextInstanceValueDescriptor(
+          authored.sourceDescriptor,
+        );
       const expectedReadSetup = streamInstanceRead
         ? {
             kind: "stream-owner",
@@ -5355,7 +5390,13 @@ function validateRuntimeInvocation(observation, recipe) {
                 { kind: "json", value: "ibex-x509-fixture" },
               ],
             }
-          : { kind: "none" };
+          : tlsSecureContextInstanceRead
+            ? {
+                kind: "constructed-owner",
+                ownerExportName: "SecureContext",
+                constructorArguments: [],
+              }
+            : { kind: "none" };
       if (
         canonicalJson(authored.setup) !== canonicalJson(expectedReadSetup)
       ) {

@@ -595,6 +595,27 @@ const REVIEWED_X509_INSTANCE_VALUE_EXPORTS = new Map([
   ],
 ]);
 
+// `SecureContext.context` is an own frozen opaque object installed by a fresh
+// source-only SecureContext constructor. It does not allocate a TLS engine or
+// consult native trust state.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+const REVIEWED_TLS_SECURE_CONTEXT_INSTANCE_VALUE_EXPORTS = new Map([
+  [
+    "node_tls:SecureContext.context",
+    {
+      sourceKey: "node_tls",
+      exportName: "SecureContext.context",
+      valueShape: "unknown",
+      expectedValueType: "object",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: ["node:tls", "tls"],
+      sourceRef: "src/builtins/tls.js#exports:SecureContext.context",
+      ownerExportName: "SecureContext",
+      constructorArguments: [],
+    },
+  ],
+]);
+
 const jsonArgument = (value) => ({ kind: "json", value });
 const noopArgument = () => ({ kind: "noop-function" });
 const throwingArgument = () => ({
@@ -2634,6 +2655,49 @@ function reviewedX509InstanceValueSourceDescriptor(surface, target) {
   };
 }
 
+function reviewedTlsSecureContextInstanceValueSourceDescriptor(
+  surface,
+  target,
+) {
+  const metadata = surface?.metadata;
+  const expected =
+    typeof metadata?.sourceKey === "string" &&
+    typeof metadata?.exportName === "string"
+      ? REVIEWED_TLS_SECURE_CONTEXT_INSTANCE_VALUE_EXPORTS.get(
+          `${metadata.sourceKey}:${metadata.exportName}`,
+        )
+      : null;
+  if (!expected) return null;
+  const descriptor = sourceDescriptor(surface, target, new Set(["unknown"]), {
+    allowReviewedPostInitializationValue: true,
+  });
+  const access = {
+    kind: "constructed-instance-property",
+    path: ["context"],
+  };
+  const reviewedDescriptor = descriptor ? { ...descriptor, access } : null;
+  const expectedDescriptor = {
+    kind: "builtin-export",
+    sourceKey: expected.sourceKey,
+    exportName: expected.exportName,
+    exportIdioms: expected.exportIdioms,
+    moduleSpecifiers: expected.moduleSpecifiers,
+    sourceRef: expected.sourceRef,
+    valueShape: expected.valueShape,
+    access,
+  };
+  if (
+    !reviewedDescriptor ||
+    canonicalJson(reviewedDescriptor) !== canonicalJson(expectedDescriptor)
+  ) {
+    return null;
+  }
+  return {
+    ...reviewedDescriptor,
+    expectedValueType: expected.expectedValueType,
+  };
+}
+
 function reviewedDnsPromiseErrorCodeSourceDescriptor(surface, target) {
   const descriptor = sourceDescriptor(surface, target, new Set(["unknown"]));
   if (
@@ -2709,11 +2773,14 @@ function authoredNonCapabilityBuiltinInvocationDefinition({
     reviewedStreamInstanceValueSourceDescriptor(surface, target);
   const reviewedX509InstanceDescriptor =
     reviewedX509InstanceValueSourceDescriptor(surface, target);
+  const reviewedTlsSecureContextInstanceDescriptor =
+    reviewedTlsSecureContextInstanceValueSourceDescriptor(surface, target);
   const readDescriptor =
     reviewedPostInitializationValueSourceDescriptor(surface, target) ??
     reviewedPrototypeDescriptor ??
     reviewedStreamInstanceDescriptor ??
     reviewedX509InstanceDescriptor ??
+    reviewedTlsSecureContextInstanceDescriptor ??
     reviewedDnsPromiseErrorCodeSourceDescriptor(surface, target) ??
     sourceDescriptor(surface, target, new Set(["accessor", "data"]), {
       allowTargetAbsence: allowTargetAbsence && targetAbsent,
@@ -2723,6 +2790,7 @@ function authoredNonCapabilityBuiltinInvocationDefinition({
     (readDescriptor === reviewedPrototypeDescriptor ||
       readDescriptor === reviewedStreamInstanceDescriptor ||
       readDescriptor === reviewedX509InstanceDescriptor ||
+      readDescriptor === reviewedTlsSecureContextInstanceDescriptor ||
       (new Set(["export-property", "module-value"]).has(
         readDescriptor.access.kind,
       ) &&
@@ -2764,7 +2832,13 @@ function authoredNonCapabilityBuiltinInvocationDefinition({
                 { kind: "json", value: "ibex-x509-fixture" },
               ],
             }
-          : { kind: "none" }
+          : reviewedTlsSecureContextInstanceDescriptor
+            ? {
+                kind: "constructed-owner",
+                ownerExportName: "SecureContext",
+                constructorArguments: [],
+              }
+            : { kind: "none" }
       : callTemplate.setup,
     completion: { ...EVENT_LOOP_COMPLETION },
   };

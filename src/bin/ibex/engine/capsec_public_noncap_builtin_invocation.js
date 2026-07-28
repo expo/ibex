@@ -828,6 +828,45 @@
             }),
           };
         }
+      } else if (
+        descriptor.sourceKey === "node_tls" &&
+        descriptor.exportName === "SecureContext.context" &&
+        access.path[0] === "context" &&
+        config.setup &&
+        config.setup.kind === "constructed-owner" &&
+        config.setup.ownerExportName === "SecureContext" &&
+        exactObjectKeys(config.setup, [
+          "constructorArguments",
+          "kind",
+          "ownerExportName",
+        ]) &&
+        Array.isArray(config.setup.constructorArguments) &&
+        config.setup.constructorArguments.length === 0
+      ) {
+        var secureContextOwner = moduleValue.SecureContext;
+        if (typeof secureContextOwner !== "function") {
+          return { error: failure("setup-mismatch") };
+        }
+        instance = Reflect.construct(secureContextOwner, []);
+        var secureContextDescriptor = Object.getOwnPropertyDescriptor(
+          instance,
+          "context",
+        );
+        if (
+          !secureContextDescriptor ||
+          secureContextDescriptor.enumerable !== true ||
+          secureContextDescriptor.configurable !== false ||
+          secureContextDescriptor.writable !== false ||
+          secureContextDescriptor.value === null ||
+          typeof secureContextDescriptor.value !== "object" ||
+          !Object.isFrozen(secureContextDescriptor.value)
+        ) {
+          return {
+            error: failure("shape-mismatch", {
+              expectedShape: "own-frozen-opaque-object",
+            }),
+          };
+        }
       } else {
         return { error: failure("access-mismatch") };
       }

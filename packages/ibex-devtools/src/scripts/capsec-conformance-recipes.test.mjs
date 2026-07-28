@@ -115,6 +115,7 @@ const REVIEWED_POST_INITIALIZATION_VALUE_TYPES = new Map([
   ["node_stream_web:WritableStream", "function"],
   ["node_stream_web:WritableStreamDefaultWriter", "function"],
   ["node_timers_promises:scheduler", "object"],
+  ["node_tls:SecureContext.context", "object"],
   ["path_posix_alias:default", "object"],
   ["path_win32_alias:default", "object"],
   ["ws:WebSocket.CLOSED", "number"],
@@ -446,11 +447,11 @@ describe("exact-target CapSec executable recipes", () => {
     // binding, poll timer, or peer route; close drains its terminal event.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_708);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_709);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_840);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_839);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -475,7 +476,7 @@ describe("exact-target CapSec executable recipes", () => {
         `${descriptor?.sourceKey}:${descriptor?.exportName}`,
       );
     });
-    expect(postInitializationValueReads).toHaveLength(77);
+    expect(postInitializationValueReads).toHaveLength(78);
     expect(
       postInitializationValueReads.every((recipe) => {
         const invocation = recipe.publicSurfaceProbe.invocation;
@@ -623,9 +624,9 @@ describe("exact-target CapSec executable recipes", () => {
     // binding, poll timer, or peer route. The restricted no-eval constructor
     // added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_365);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_366);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_856);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_855);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -3452,11 +3453,17 @@ describe("exact-target CapSec executable recipes", () => {
                     { kind: "json", value: "ibex-x509-fixture" },
                   ],
                 }
-              : {
-                  kind: "stream-owner",
-                  ownerExportName: descriptor.exportName.split(".")[0],
-                  endedInput: false,
-                };
+              : descriptor.sourceKey === "node_tls"
+                ? {
+                    kind: "constructed-owner",
+                    ownerExportName: "SecureContext",
+                    constructorArguments: [],
+                  }
+                : {
+                    kind: "stream-owner",
+                    ownerExportName: descriptor.exportName.split(".")[0],
+                    endedInput: false,
+                  };
         return (
           recipe.status === "fully-executable" &&
           recipe.classification === "non-capability" &&

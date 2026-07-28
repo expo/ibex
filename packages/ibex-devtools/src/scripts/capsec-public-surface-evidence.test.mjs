@@ -184,6 +184,9 @@ const REVIEWED_STREAM_INSTANCE_VALUES = [
 const REVIEWED_X509_INSTANCE_VALUES = [
   ["exact_crypto", "X509Certificate.raw", "accessor", "object", ["exported-constructor-prototype"], ["crypto", "exact:crypto", "node:crypto"], "src/builtins/crypto.js#exports:X509Certificate.raw"],
 ];
+const REVIEWED_TLS_SECURE_CONTEXT_INSTANCE_VALUES = [
+  ["node_tls", "SecureContext.context", "unknown", "object", ["exported-constructor-prototype"], ["node:tls", "tls"], "src/builtins/tls.js#exports:SecureContext.context"],
+];
 
 const target = {
   triple: "aarch64-apple-darwin",
@@ -1614,6 +1617,9 @@ function completePostInitializationValueReadCatalog([
   const x509RawInstance =
     sourceKey === "exact_crypto" &&
     exportName === "X509Certificate.raw";
+  const tlsSecureContextInstance =
+    sourceKey === "node_tls" &&
+    exportName === "SecureContext.context";
   const prototypePath =
     sourceKey === "node_stream" && exportName === "default.destroyed"
       ? ["prototype", "destroyed"]
@@ -1626,10 +1632,16 @@ function completePostInitializationValueReadCatalog([
     moduleSpecifiers,
     sourceRef,
     valueShape,
-    access: streamInstance || x509RawInstance
+    access: streamInstance || x509RawInstance || tlsSecureContextInstance
       ? {
           kind: "constructed-instance-property",
-          path: [streamInstance ? "closed" : "raw"],
+          path: [
+            streamInstance
+              ? "closed"
+              : x509RawInstance
+                ? "raw"
+                : "context",
+          ],
         }
       : prototype || inheritedPrototype
       ? {
@@ -1675,6 +1687,12 @@ function completePostInitializationValueReadCatalog([
             { kind: "json", value: "ibex-x509-fixture" },
           ],
         }
+      : tlsSecureContextInstance
+        ? {
+            kind: "constructed-owner",
+            ownerExportName: "SecureContext",
+            constructorArguments: [],
+          }
       : { kind: "none" };
   catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
   return catalog;
@@ -5877,6 +5895,7 @@ describe("CapSec public-surface promotion evidence", () => {
       ...REVIEWED_PROTOTYPE_VALUES,
       ...REVIEWED_STREAM_INSTANCE_VALUES,
       ...REVIEWED_X509_INSTANCE_VALUES,
+      ...REVIEWED_TLS_SECURE_CONTEXT_INSTANCE_VALUES,
     ]) {
       const catalog = completePostInitializationValueReadCatalog(entry);
       const recipe = catalog.recipes[0];
@@ -5892,6 +5911,25 @@ describe("CapSec public-surface promotion evidence", () => {
         }),
       ).not.toThrow();
     }
+
+    const tlsContextCatalog = completePostInitializationValueReadCatalog(
+      REVIEWED_TLS_SECURE_CONTEXT_INSTANCE_VALUES[0],
+    );
+    const tlsContextRecipe = tlsContextCatalog.recipes[0];
+    const tamperedTlsContextRecipe = structuredClone(tlsContextRecipe);
+    tamperedTlsContextRecipe.publicSurfaceProbe.invocation.setup.ownerExportName =
+      "TLSSocket";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: tamperedTlsContextRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: dnsPromiseErrorReadObservation(
+          tlsContextRecipe,
+          "object",
+        ),
+        coverage,
+      }),
+    ).toThrow(/setup did not match its reviewed receiver/);
 
     const catalog = completePostInitializationValueReadCatalog(
       REVIEWED_POST_INITIALIZATION_VALUES[0],
