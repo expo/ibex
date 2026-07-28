@@ -5,6 +5,11 @@
 **Systems:** Build, Release, CapSec, Product
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-07-27
+**Revised:** 2026-07-27 (implementation complete: Ibex main
+`63ad33bcb45d8a08e036108be3394a0302556e37` carries the reconciled consumer
+ABI; Snapback main `f08a903b996e737fe8185c3109eaaa337f690bb2` and Exact main
+`0b33b6e1af5426c6b862f8eb504824fcd684c255` both pin it; all six compat
+commits are dispositioned and the obsolete refs are retired)
 **Revised:** 2026-07-27 (**accepted by the author.** The five wording-level
 minors left open at loop convergence are folded in here: rule 4's overdue
 predicate now requires a newer `main`-lineage commit to exist and names where
@@ -221,6 +226,19 @@ Tracking `main` means tracking ibex's deliberate inversions and churn:
 5. **Advance Exact's pin** (a `main`-lineage commit; `002ba828` on Exact's
    `origin/main` as of this writing) at its next convenient window; Exact
    needs no compat reconciliation.
+
+### Remediation completion (2026-07-27)
+
+Steps 1–2 landed on Ibex main at `63ad33bcb45d8a08e036108be3394a0302556e37`;
+the complete disposition ledger is retained in
+`issues/closed/20260727-upstream-snapback-compat-abi.md`. Step 3 landed on
+Snapback main at `f08a903b996e737fe8185c3109eaaa337f690bb2`, including full
+workspace verification. Step 5 landed on Exact main at
+`0b33b6e1af5426c6b862f8eb504824fcd684c255`, with the public `expo/ibex`
+origin and a provenance-matched Apple Hermes artifact set. Both consumers
+pin the same Ibex main commit, satisfying the retention and transferability
+goals. Step 4's obsolete local compatibility branches and incidental
+artifact-cache tag are therefore safe to remove.
 
 ## Alternatives considered
 
