@@ -919,6 +919,41 @@ const ZLIB_SYNC_DECODER_ARGUMENTS = new Map(
     ]),
   ]),
 );
+const ZLIB_CALLBACK_ARGUMENTS = new Map(
+  [
+    ["deflate", [105, 98, 101, 120], "nonempty-byte-view"],
+    ["deflateRaw", [105, 98, 101, 120], "nonempty-byte-view"],
+    ["gzip", [105, 98, 101, 120], "nonempty-byte-view"],
+    [
+      "gunzip",
+      [
+        31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30,
+        109, 106, 4, 0, 0, 0,
+      ],
+      "exact-ibex-byte-view",
+    ],
+    [
+      "inflate",
+      [120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169],
+      "exact-ibex-byte-view",
+    ],
+    ["inflateRaw", [203, 76, 74, 173, 0, 0], "exact-ibex-byte-view"],
+    [
+      "unzip",
+      [
+        31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30,
+        109, 106, 4, 0, 0, 0,
+      ],
+      "exact-ibex-byte-view",
+    ],
+  ].map(([exportName, bytes, resultContract]) => [
+    exportName,
+    Object.freeze([
+      Object.freeze({ kind: "buffer", bytes: Object.freeze(bytes) }),
+      Object.freeze({ kind: "zlib-callback", resultContract }),
+    ]),
+  ]),
+);
 const NATIVE_FILESYSTEM_DENIAL_GLOBALS = new Set([
   "__exactAppendFile",
   "__exactFsOpen",
@@ -5480,6 +5515,18 @@ function validateRuntimeInvocation(observation, recipe) {
       authored.sourceDescriptor.sourceKey === "node_zlib"
         ? ZLIB_SYNC_DECODER_ARGUMENTS.get(authored.exportName)
         : undefined;
+    const zlibCallbackArguments =
+      authored.sourceDescriptor.sourceKey === "node_zlib"
+        ? ZLIB_CALLBACK_ARGUMENTS.get(authored.exportName)
+        : undefined;
+    const hasZlibCallbackArgument = authored.arguments.some(
+      (argument) => argument?.kind === "zlib-callback",
+    );
+    if (hasZlibCallbackArgument !== Boolean(zlibCallbackArguments)) {
+      throw new Error(
+        `${recipe.fixtureId}: zlib callback credential escaped its reviewed operation`,
+      );
+    }
     if (
       zlibSyncEncoder &&
       (authored.moduleSpecifier !== "node:zlib" ||
@@ -5536,6 +5583,35 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: malformed authored sync zlib decoder proof`,
+      );
+    }
+    if (
+      zlibCallbackArguments &&
+      (authored.moduleSpecifier !== "node:zlib" ||
+        authored.templateId !== "node-zlib-bounded-v1" ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !== "undefined" ||
+        canonicalJson(authored.sourceDescriptor) !==
+          canonicalJson({
+            kind: "builtin-export",
+            sourceKey: "node_zlib",
+            exportName: authored.exportName,
+            exportIdioms: ["object-binding", "object-source"],
+            moduleSpecifiers: ["node:zlib", "zlib"],
+            sourceRef: `src/builtins/zlib.js#exports:${authored.exportName}`,
+            valueShape: "callable",
+            access: {
+              kind: "export-property",
+              path: [authored.exportName],
+            },
+          }) ||
+        canonicalJson(authored.setup) !==
+          canonicalJson({ kind: "root-call" }) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson(zlibCallbackArguments))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored zlib callback proof`,
       );
     }
     const [zlibOwner, zlibMethod, ...zlibExtra] =
@@ -5608,6 +5684,7 @@ function validateRuntimeInvocation(observation, recipe) {
         ...(zlibSyncDecoderArguments
           ? ["zlibSyncDecoderOutputVerified"]
           : []),
+        ...(zlibCallbackArguments ? ["zlibCallbackOutputVerified"] : []),
       ],
       `${recipe.fixtureId}: builtin normal-return result`,
     );
@@ -5630,6 +5707,8 @@ function validateRuntimeInvocation(observation, recipe) {
         invocation.result.zlibSyncEncoderOutputVerified !== true) ||
       (zlibSyncDecoderArguments &&
         invocation.result.zlibSyncDecoderOutputVerified !== true) ||
+      (zlibCallbackArguments &&
+        invocation.result.zlibCallbackOutputVerified !== true) ||
       (netLifecycleRequired &&
         invocation.result.netLifecycleVerified !== true)
     ) {

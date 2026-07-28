@@ -1032,6 +1032,27 @@ fn zlib_sync_decoder_input(value: &str) -> Option<&'static [u8]> {
     }
 }
 
+fn zlib_callback_contract(value: &str) -> Option<(&'static [u8], &'static str)> {
+    match value {
+        "deflate" | "deflateRaw" | "gzip" => {
+            Some((&[105, 98, 101, 120], "nonempty-byte-view"))
+        }
+        "gunzip" | "unzip" => Some((
+            &[
+                31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30, 109, 106,
+                4, 0, 0, 0,
+            ],
+            "exact-ibex-byte-view",
+        )),
+        "inflate" => Some((
+            &[120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169],
+            "exact-ibex-byte-view",
+        )),
+        "inflateRaw" => Some((&[203, 76, 74, 173, 0, 0], "exact-ibex-byte-view")),
+        _ => None,
+    }
+}
+
 fn is_stream_owner(value: &str) -> bool {
     matches!(
         value,
@@ -1132,6 +1153,17 @@ fn validate_authored_argument(argument: &serde_json::Value, allow_setup_value: b
                 .as_str()
                 .expect("zlib input owner must be text");
             assert!(is_zlib_owner(owner));
+        }
+        "zlib-callback" => {
+            assert_object_keys(
+                argument,
+                &["kind", "resultContract"],
+                "zlib callback argument",
+            );
+            assert!(matches!(
+                object["resultContract"].as_str(),
+                Some("nonempty-byte-view" | "exact-ibex-byte-view")
+            ));
         }
         other => panic!("unsupported authored builtin argument kind {other}"),
     }
@@ -1853,6 +1885,58 @@ fn validate_zlib_sync_decoder_contract(
     assert_eq!(
         serde_json::Value::Array(invocation.arguments.clone()),
         serde_json::json!([{"kind": "buffer", "bytes": input}])
+    );
+}
+
+fn validate_zlib_callback_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    let has_callback_argument = invocation.arguments.iter().any(|argument| {
+        argument
+            .get("kind")
+            .and_then(serde_json::Value::as_str)
+            == Some("zlib-callback")
+    });
+    let contract = (descriptor.source_key == "node_zlib")
+        .then(|| zlib_callback_contract(&descriptor.export_name))
+        .flatten();
+    let Some((input, result_contract)) = contract else {
+        assert!(
+            !has_callback_argument,
+            "zlib callback credential escaped its reviewed operation"
+        );
+        return;
+    };
+    assert!(has_callback_argument);
+    assert_eq!(invocation.module_specifier, "node:zlib");
+    assert_eq!(
+        invocation.template_id.as_deref(),
+        Some("node-zlib-bounded-v1")
+    );
+    assert_eq!(descriptor.kind, "builtin-export");
+    assert_eq!(descriptor.value_shape, "callable");
+    assert_eq!(
+        descriptor.export_idioms,
+        ["object-binding", "object-source"]
+    );
+    assert_eq!(descriptor.module_specifiers, ["node:zlib", "zlib"]);
+    assert_eq!(
+        descriptor.source_ref,
+        format!("src/builtins/zlib.js#exports:{}", descriptor.export_name)
+    );
+    assert_eq!(descriptor.access.kind, "export-property");
+    assert_eq!(descriptor.access.path, [descriptor.export_name.clone()]);
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, "undefined");
+    assert_eq!(invocation.setup, serde_json::json!({"kind": "root-call"}));
+    assert_eq!(
+        serde_json::Value::Array(invocation.arguments.clone()),
+        serde_json::json!([
+            {"kind": "buffer", "bytes": input},
+            {"kind": "zlib-callback", "resultContract": result_contract}
+        ])
     );
 }
 
@@ -2713,6 +2797,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         validate_idle_zlib_destroy_contract(invocation, &descriptor, proof);
         validate_zlib_sync_encoder_contract(invocation, &descriptor, proof);
         validate_zlib_sync_decoder_contract(invocation, &descriptor, proof);
+        validate_zlib_callback_contract(invocation, &descriptor, proof);
         validate_idle_net_terminal_contract(invocation, &descriptor, proof);
         validate_bounded_http_contract(invocation, &descriptor, proof);
         validate_idle_tls_socket_contract(invocation, &descriptor, proof);
@@ -3391,6 +3476,15 @@ async fn execute_recipe(
         {
             return Err(format!(
                 "{}: public sync zlib decoder did not prove the exact decoded bytes: {invocation_result}",
+                recipe.fixture_id
+            ));
+        }
+        if descriptor.source_key == "node_zlib"
+            && zlib_callback_contract(&descriptor.export_name).is_some()
+            && invocation_result["zlibCallbackOutputVerified"] != true
+        {
+            return Err(format!(
+                "{}: public zlib callback did not prove its exact delivery contract: {invocation_result}",
                 recipe.fixture_id
             ));
         }

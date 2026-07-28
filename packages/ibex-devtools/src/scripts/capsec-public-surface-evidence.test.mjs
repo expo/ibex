@@ -5693,6 +5693,96 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/did not prove its exact normal return/);
   });
 
+  test("accepts only reviewed deferred zlib callback deliveries", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:zlib";
+    invocation.exportName = "inflate";
+    invocation.templateId = "node-zlib-bounded-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_zlib",
+      exportName: "inflate",
+      exportIdioms: ["object-binding", "object-source"],
+      moduleSpecifiers: ["node:zlib", "zlib"],
+      sourceRef: "src/builtins/zlib.js#exports:inflate",
+      valueShape: "callable",
+      access: {
+        kind: "export-property",
+        path: ["inflate"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.setup = { kind: "root-call" };
+    invocation.arguments = [
+      {
+        kind: "buffer",
+        bytes: [120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169],
+      },
+      {
+        kind: "zlib-callback",
+        resultContract: "exact-ibex-byte-view",
+      },
+    ];
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "undefined",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.result.valueType = "undefined";
+    observed.invocation.result.zlibCallbackOutputVerified = true;
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments[0].bytes[0] = 121;
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments[1].resultContract =
+          "nonempty-byte-view";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.sourceDescriptor.sourceRef =
+          "src/builtins/zlib.js#exports:deflate";
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored zlib callback proof|descriptor drift|not source-descriptor bound/,
+      );
+    }
+
+    const missingOutputProof = structuredClone(observed);
+    missingOutputProof.invocation.result.zlibCallbackOutputVerified = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: missingOutputProof,
+        coverage,
+      }),
+    ).toThrow(/did not prove its exact normal return/);
+  });
+
   test("accepts only reviewed bounded HTTP calls", () => {
     const catalog = completeNoncapBuiltinCallCatalog();
     const recipe = catalog.recipes[0];

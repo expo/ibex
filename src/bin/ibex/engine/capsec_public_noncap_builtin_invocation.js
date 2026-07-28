@@ -721,6 +721,110 @@
     );
   }
 
+  function zlibCallbackContract(invocation) {
+    if (
+      !invocation ||
+      !invocation.sourceDescriptor ||
+      invocation.sourceDescriptor.sourceKey !== "node_zlib"
+    ) {
+      return null;
+    }
+    switch (invocation.exportName) {
+      case "deflate":
+      case "deflateRaw":
+      case "gzip":
+        return {
+          input: [105, 98, 101, 120],
+          resultContract: "nonempty-byte-view",
+        };
+      case "gunzip":
+      case "unzip":
+        return {
+          input: [
+            31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55,
+            30, 109, 106, 4, 0, 0, 0,
+          ],
+          resultContract: "exact-ibex-byte-view",
+        };
+      case "inflate":
+        return {
+          input: [120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169],
+          resultContract: "exact-ibex-byte-view",
+        };
+      case "inflateRaw":
+        return {
+          input: [203, 76, 74, 173, 0, 0],
+          resultContract: "exact-ibex-byte-view",
+        };
+      default:
+        return null;
+    }
+  }
+
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // The callback wrapper is credited only after its single deferred delivery,
+  // with no error and a codec-specific byte-view result.
+  function isReviewedZlibCallbackInvocation(invocation) {
+    var contract = zlibCallbackContract(invocation);
+    if (contract === null) {
+      var arguments_ = invocation && invocation.arguments;
+      if (!Array.isArray(arguments_)) return true;
+      for (var index = 0; index < arguments_.length; index++) {
+        if (arguments_[index] && arguments_[index].kind === "zlib-callback") {
+          return false;
+        }
+      }
+      return true;
+    }
+    var descriptor = invocation.sourceDescriptor;
+    var input = invocation.arguments && invocation.arguments[0];
+    var callback = invocation.arguments && invocation.arguments[1];
+    return (
+      invocation.invocationSchema ===
+        "ibex/capsec-builtin-call-invocation/1" &&
+      invocation.kind === "builtin-export-call" &&
+      invocation.moduleSpecifier === "node:zlib" &&
+      invocation.templateId === "node-zlib-bounded-v1" &&
+      exactObjectKeys(descriptor, [
+        "access",
+        "exportIdioms",
+        "exportName",
+        "kind",
+        "moduleSpecifiers",
+        "sourceKey",
+        "sourceRef",
+        "valueShape",
+      ]) &&
+      descriptor.kind === "builtin-export" &&
+      descriptor.exportName === invocation.exportName &&
+      descriptor.valueShape === "callable" &&
+      descriptor.sourceRef ===
+        "src/builtins/zlib.js#exports:" + invocation.exportName &&
+      sameStringArray(descriptor.exportIdioms, [
+        "object-binding",
+        "object-source",
+      ]) &&
+      sameStringArray(descriptor.moduleSpecifiers, ["node:zlib", "zlib"]) &&
+      exactObjectKeys(descriptor.access, ["kind", "path"]) &&
+      descriptor.access.kind === "export-property" &&
+      sameStringArray(descriptor.access.path, [invocation.exportName]) &&
+      exactObjectKeys(invocation.setup, ["kind"]) &&
+      invocation.setup.kind === "root-call" &&
+      Array.isArray(invocation.arguments) &&
+      invocation.arguments.length === 2 &&
+      exactObjectKeys(input, ["bytes", "kind"]) &&
+      input.kind === "buffer" &&
+      sameByteArray(input.bytes, contract.input) &&
+      exactObjectKeys(callback, ["kind", "resultContract"]) &&
+      callback.kind === "zlib-callback" &&
+      callback.resultContract === contract.resultContract &&
+      exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) &&
+      invocation.bodyEntryProof.kind ===
+        "normal-return-from-source-call" &&
+      invocation.bodyEntryProof.resultType === "undefined"
+    );
+  }
+
   // X509Certificate.toString is a narrowly reviewed state projection. Keep
   // its fresh receiver and own-prototype path exact so another certificate
   // method cannot borrow this no-decision receipt.
@@ -1501,6 +1605,40 @@
       }
       return BufferOwner.from(argument.bytes);
     }
+    if (argument.kind === "zlib-callback") {
+      if (
+        own.call(bindings, "zlibCallbackState") ||
+        !own.call(bindings, "zlibCallbackContract") ||
+        argument.resultContract !==
+          bindings.zlibCallbackContract.resultContract
+      ) {
+        throw new TypeError("invalid authored zlib callback");
+      }
+      var resolveCallback;
+      var state = {
+        calls: 0,
+        outputVerified: false,
+        promise: new Promise(function (resolve) {
+          resolveCallback = resolve;
+        }),
+      };
+      bindings.zlibCallbackState = state;
+      return function (error, output) {
+        state.calls++;
+        state.outputVerified =
+          state.calls === 1 &&
+          error === null &&
+          (argument.resultContract === "nonempty-byte-view"
+            ? output !== null &&
+              typeof output === "object" &&
+              ArrayBuffer.isView(output) &&
+              typeof output.byteLength === "number" &&
+              output.byteLength > 0
+            : argument.resultContract === "exact-ibex-byte-view" &&
+              sameByteView(output, [105, 98, 101, 120]));
+        resolveCallback(state.outputVerified);
+      };
+    }
     if (argument.kind === "bigint") {
       return BigInt(argument.value);
     }
@@ -1563,6 +1701,8 @@
     var tlsServerLifecyclePromise = null;
     var zlibSyncEncoderOutputVerified = false;
     var zlibSyncDecoderOutputVerified = false;
+    var zlibCallbackOutputVerified = false;
+    var zlibCallbackPromise = null;
     var readlineLifecycleState = null;
     if (
       !isReviewedBoundedHttpInvocation(config) ||
@@ -1572,6 +1712,7 @@
       !isReviewedIdleDgramInvocation(config) ||
       !isReviewedZlibSyncEncoderInvocation(config) ||
       !isReviewedZlibSyncDecoderInvocation(config) ||
+      !isReviewedZlibCallbackInvocation(config) ||
       !isReviewedX509StateInvocation(config) ||
       !isReviewedPureCompatibilityInvocation(config) ||
       !isReviewedReadlineInterfaceLifecycleInvocation(config) ||
@@ -1779,11 +1920,18 @@
       return failure("unsupported-setup", { setupKind: setup.kind });
     }
 
+    var reviewedZlibCallbackContract = zlibCallbackContract(config);
+    if (reviewedZlibCallbackContract !== null) {
+      bindings.zlibCallbackContract = reviewedZlibCallbackContract;
+    }
     var callArguments = materializeList(
       config.arguments,
       moduleValue,
       bindings,
     );
+    if (own.call(bindings, "zlibCallbackState")) {
+      zlibCallbackPromise = bindings.zlibCallbackState.promise;
+    }
     try {
       sourceOperationAttempted = true;
       if (dispatchKind === "construct") {
@@ -1953,6 +2101,10 @@
         success.zlibSyncDecoderOutputVerified =
           zlibSyncDecoderOutputVerified;
       }
+      if (zlibCallbackContract(config) !== null) {
+        success.zlibCallbackOutputVerified =
+          zlibCallbackOutputVerified;
+      }
       if (
         setup.kind === "readline-interface-owner" ||
         setup.kind === "readline-interface-pause-owner"
@@ -1994,6 +2146,18 @@
             setupKind: setup.kind,
           });
         }
+        return finishResult(result);
+      });
+    }
+
+    if (zlibCallbackPromise) {
+      return zlibCallbackPromise.then(function (verified) {
+        if (!verified) {
+          return failure("callback-mismatch", {
+            expectedContract: zlibCallbackContract(config).resultContract,
+          });
+        }
+        zlibCallbackOutputVerified = true;
         return finishResult(result);
       });
     }

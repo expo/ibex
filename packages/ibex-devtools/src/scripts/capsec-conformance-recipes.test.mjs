@@ -440,6 +440,8 @@ describe("exact-target CapSec executable recipes", () => {
     // return a nonempty byte view without retaining stream state.
     // Four isolated sync decoders consume fixed compressed literals and must
     // reproduce that exact four-byte payload.
+    // Seven callback wrappers additionally prove their single deferred
+    // delivery and its exact encoder/decoder byte-view contract.
     // Seven inert stream.closed reads use fresh harness-owned instances.
     // Nine fresh HTTP construction/lifecycle calls own no listener, socket, or
     // native selector; Server.close's terminal event timer drains before the
@@ -459,11 +461,11 @@ describe("exact-target CapSec executable recipes", () => {
     // residual until it has loaded-engine evidence.
     // Five fresh net terminal calls observe close delivery after proving that
     // their harness-owned receiver never acquired a transport.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_729);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_736);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_819);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_812);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -630,6 +632,7 @@ describe("exact-target CapSec executable recipes", () => {
     // nonempty byte-view result contract on both targets.
     // Four isolated sync decoders use fixed compressed literals and exact
     // four-byte output contracts on both targets.
+    // Seven callback wrappers await one exact deferred byte-view delivery.
     // construction/lifecycle calls own no live transport state, and the close
     // event timer drains before quiescence. Four root validators inspect only
     // fixed harness-owned header strings.
@@ -647,9 +650,9 @@ describe("exact-target CapSec executable recipes", () => {
     // remains one explicit residual until it has loaded-engine evidence.
     // Five fresh net terminal calls observe close delivery after proving that
     // their harness-owned receiver never acquired a transport.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_386);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_393);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_835);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_828);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5683,6 +5686,34 @@ describe("exact-target CapSec executable recipes", () => {
             0 &&
           recipe.publicSurfaceProbe.invocation.bodyEntryProof.resultType ===
             "object",
+      ),
+    ).toBe(true);
+    const callbackZlibCalls = publicCalls.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+          "node_zlib" &&
+        new Set([
+          "deflate",
+          "deflateRaw",
+          "gunzip",
+          "gzip",
+          "inflate",
+          "inflateRaw",
+          "unzip",
+        ]).has(recipe.publicSurfaceProbe.invocation.exportName),
+    );
+    expect(callbackZlibCalls).toHaveLength(7);
+    expect(
+      callbackZlibCalls.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.setup.kind === "root-call" &&
+          recipe.publicSurfaceProbe.invocation.arguments.length === 2 &&
+          recipe.publicSurfaceProbe.invocation.arguments[0].kind ===
+            "buffer" &&
+          recipe.publicSurfaceProbe.invocation.arguments[1].kind ===
+            "zlib-callback" &&
+          recipe.publicSurfaceProbe.invocation.bodyEntryProof.resultType ===
+            "undefined",
       ),
     ).toBe(true);
     const boundedHttpCalls = publicCalls.filter(

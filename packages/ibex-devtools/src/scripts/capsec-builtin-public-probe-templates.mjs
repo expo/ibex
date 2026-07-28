@@ -651,6 +651,10 @@ const regexpArgument = (source, flags = "") => ({
 const eventEmitterArgument = () => ({ kind: "event-emitter" });
 const uint8ArrayArgument = (bytes) => ({ kind: "uint8-array", bytes });
 const bufferArgument = (bytes) => ({ kind: "buffer", bytes });
+const zlibCallbackArgument = (resultContract) => ({
+  kind: "zlib-callback",
+  resultContract,
+});
 const bigintArgument = (value) => ({ kind: "bigint", value: String(value) });
 const setupValueArgument = (name) => ({ kind: "setup-value", name });
 const constantFunctionArgument = (value) => ({
@@ -788,6 +792,26 @@ function zlibRootCallSpecs() {
   );
   specs.gunzipSync = rootCall([bufferArgument(gzipBytes)], "object");
   specs.unzipSync = rootCall([bufferArgument(gzipBytes)], "object");
+  for (const exportName of ["deflate", "deflateRaw", "gzip"]) {
+    specs[exportName] = rootCall(
+      [
+        bufferArgument([105, 98, 101, 120]),
+        zlibCallbackArgument("nonempty-byte-view"),
+      ],
+      "undefined",
+    );
+  }
+  for (const [exportName, bytes] of [
+    ["gunzip", gzipBytes],
+    ["inflate", deflateBytes],
+    ["inflateRaw", deflateRawBytes],
+    ["unzip", gzipBytes],
+  ]) {
+    specs[exportName] = rootCall(
+      [bufferArgument(bytes), zlibCallbackArgument("exact-ibex-byte-view")],
+      "undefined",
+    );
+  }
   // One-shot codec functions, synchronous and callback-based alike, enter
   // native codec work that currently can terminate the bound static-Hermes
   // process. Keep every unaudited member residual until each backend has

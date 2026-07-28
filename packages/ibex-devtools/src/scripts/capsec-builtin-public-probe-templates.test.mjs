@@ -1184,8 +1184,54 @@ describe("source-bound builtin public probes", () => {
         },
       });
     }
+    for (const [exportName, bytes, resultContract] of [
+      ["deflate", [105, 98, 101, 120], "nonempty-byte-view"],
+      ["deflateRaw", [105, 98, 101, 120], "nonempty-byte-view"],
+      ["gzip", [105, 98, 101, 120], "nonempty-byte-view"],
+      [
+        "gunzip",
+        [
+          31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30,
+          109, 106, 4, 0, 0, 0,
+        ],
+        "exact-ibex-byte-view",
+      ],
+      [
+        "inflate",
+        [120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169],
+        "exact-ibex-byte-view",
+      ],
+      ["inflateRaw", [203, 76, 74, 173, 0, 0], "exact-ibex-byte-view"],
+      [
+        "unzip",
+        [
+          31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30,
+          109, 106, 4, 0, 0, 0,
+        ],
+        "exact-ibex-byte-view",
+      ],
+    ]) {
+      expect(
+        probeFor({
+          sourceKey: "node_zlib",
+          exportName,
+          exportIdioms: ["object-binding", "object-source"],
+          moduleSpecifiers: ["node:zlib", "zlib"],
+          valueShape: "callable",
+        }),
+      ).toMatchObject({
+        invocation: {
+          arguments: [
+            { kind: "buffer", bytes },
+            { kind: "zlib-callback", resultContract },
+          ],
+          setup: { kind: "root-call" },
+          bodyEntryProof: { resultType: "undefined" },
+        },
+      });
+    }
     for (const exportName of [
-      "gunzip",
+      "brotliDecompress",
       "Gunzip._processChunk",
       "ZstdDecompress._processChunk",
     ]) {

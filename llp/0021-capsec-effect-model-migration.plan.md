@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-28 (promotes exactly seven one-shot `node:zlib` callback wrappers: `deflate`, `deflateRaw`, `gzip`, `gunzip`, `inflate`, `inflateRaw`, and `unzip`; the loaded harness passes a dedicated callback credential, awaits exactly one deferred delivery, rejects errors, and verifies a nonempty encoded byte view or the exact decoded bytes `[105, 98, 101, 120]` before quiescence; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact seven-name vocabulary, source descriptor, compressed/input bytes, callback contract, undefined source return, and delivery proof; Apple accounting is 3,736 fully executable / 3,036 internally verified / 16,812 unresolved and Windows is 3,393 / 3,022 / 16,828; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes exactly four isolated `node:zlib` synchronous decoders: `gunzipSync`, `inflateRawSync`, `inflateSync`, and `unzipSync`; each public root call receives one fixed deflate, raw-deflate, or gzip Buffer and must return the exact decoded bytes `[105, 98, 101, 120]`, with no retained stream and zero decisions; authoring, independent evidence validation, Rust validation, and the loaded-engine harness separately repeat the exact four-name vocabulary, source descriptor, compressed input, dispatch, and decoded-byte proof; Apple accounting is 3,729 fully executable / 3,036 internally verified / 16,819 unresolved and Windows is 3,386 / 3,022 / 16,835; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes exactly three isolated `node:zlib` synchronous encoders: `deflateRawSync`, `deflateSync`, and `gzipSync`; each public root call receives the fixed Buffer bytes `[105, 98, 101, 120]`, returns a nonempty byte view, retains no codec stream, reaches quiescence, and observes zero decisions; authoring, independent evidence validation, Rust validation, and the loaded-engine harness separately repeat the exact three-name vocabulary, source descriptor, input, dispatch, result, and byte-view proof; Apple accounting is 3,725 fully executable / 3,036 internally verified / 16,823 unresolved and Windows is 3,382 / 3,022 / 16,839, while the descriptor residual manifest falls from 521 to 518; decoders, callback codecs, and stream-processing calls remain residual)
 **Revised:** 2026-07-28 (promotes exactly two additional fresh `node:dgram` operations: the owner-checked `Socket._closed` boolean read and `Socket.dropMembership("224.0.0.1")` on an unbound udp4 receiver; construction creates only source-owned state and a principal stamp, `_closed` reads the own non-configurable accessor, and `dropMembership` returns before the native hook because the handle remains `-1`; authoring, independent evidence validation, Rust validation, and the loaded-engine harness separately repeat the exact constructed-instance/call descriptors, udp4 setup, literal group address, result types, quiescence, and zero-decision contract; Apple accounting is 3,722 fully executable / 3,036 internally verified / 16,826 unresolved and Windows is 3,379 / 3,022 / 16,842, while the descriptor residual manifest falls from 522 to 521)
@@ -2750,6 +2751,19 @@ repeat the exact four-name allowlist, source descriptor, compressed bytes,
 root-call dispatch, object result, and decoded-byte proof. Brotli, zstd,
 callback codecs, retained codec objects, multi-member variants beyond the
 single fixed gzip member, and every incremental stream method remain residual.
+
+Seven one-shot callback wrappers have a distinct deferred-delivery receipt:
+`deflate`, `deflateRaw`, `gzip`, `gunzip`, `inflate`, `inflateRaw`, and
+`unzip`. The harness passes the fixed encoder or decoder Buffer followed by a
+dedicated callback credential, requires the public source call itself to return
+`undefined`, awaits exactly one later callback, rejects any error, and accepts
+only a nonempty encoder byte view or the exact decoded bytes
+`[105, 98, 101, 120]`. Completion then requires event-loop quiescence and zero
+decisions. The author, independent evidence validator, Rust validator, and
+loaded-engine boundary each repeat the exact seven-name allowlist, source
+descriptor, input, callback-result contract, dispatch, return type, and
+delivery proof. This does not admit Brotli or zstd wrappers, `info` engines,
+arbitrary callbacks, multiple delivery, or any retained codec stream.
 
 The seven reviewed `node:stream` `closed` projections require a constructed
 receiver even though the source inventory exposes them as inherited or direct
