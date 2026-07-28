@@ -430,8 +430,9 @@ describe("exact-target CapSec executable recipes", () => {
     // Three exact source-only compatibility helpers retain only harness-owned
     // values and perform no native key-store or terminal work. A separately
     // bounded readline Interface.close call proves exact listener teardown on
-    // an inert harness-owned input shim. Eleven idle
-    // zlib destroy calls authenticate and close their
+    // an inert harness-owned input shim. Interface.pause separately proves its
+    // retained paused state and then closes that shim before completion.
+    // Eleven idle zlib destroy calls authenticate and close their
     // constructor-owned native selectors without processing codec input.
     // Seven inert stream.closed reads use fresh harness-owned instances.
     // Nine fresh HTTP construction/lifecycle calls own no listener, socket, or
@@ -441,11 +442,11 @@ describe("exact-target CapSec executable recipes", () => {
     // binding, poll timer, or peer route; close drains its terminal event.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_702);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_703);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_846);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_845);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -603,7 +604,7 @@ describe("exact-target CapSec executable recipes", () => {
     // prototype values execute on both targets. The fixed-prime DiffieHellman
     // family adds eight bounded state-only calls. Three exact source-only
     // compatibility helpers retain only harness-owned values on both targets.
-    // The dedicated Interface.close proof tears down an inert input shim.
+    // The two dedicated Interface lifecycle proofs tear down inert input shims.
     // This target proves nine idle zlib destroy calls; its two unavailable
     // Zstd constructors remain
     // target-local residuals. Seven inert stream.closed reads use fresh
@@ -614,9 +615,9 @@ describe("exact-target CapSec executable recipes", () => {
     // binding, poll timer, or peer route. The restricted no-eval constructor
     // added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_359);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_360);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_862);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_861);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5376,7 +5377,7 @@ describe("exact-target CapSec executable recipes", () => {
       node_fs: 10,
       node_module: 3,
       node_net: 22,
-      node_readline: 2,
+      node_readline: 3,
       node_v8: 1,
     });
     const pureCompatibilityCalls = publicCalls.filter((recipe) =>
@@ -5458,6 +5459,26 @@ describe("exact-target CapSec executable recipes", () => {
       bodyEntryProof: {
         kind: "normal-return-from-source-call",
         resultType: "undefined",
+      },
+    });
+    const readlineInterfacePause = publicCalls.find(
+      (recipe) =>
+        recipe.terminalObservedKey ===
+        "builtin:export:node_readline:Interface.pause",
+    );
+    expect(readlineInterfacePause?.publicSurfaceProbe.invocation).toMatchObject({
+      moduleSpecifier: "node:readline",
+      templateId: "node-readline-pure-v1",
+      arguments: [],
+      setup: {
+        kind: "readline-interface-pause-owner",
+        ownerExportName: "Interface",
+        terminal: false,
+        cleanupMethod: "close",
+      },
+      bodyEntryProof: {
+        kind: "normal-return-from-source-call",
+        resultType: "object",
       },
     });
     const explicitDhCalls = publicCalls.filter((recipe) =>

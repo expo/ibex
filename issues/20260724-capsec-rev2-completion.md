@@ -4490,6 +4490,51 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — executed readline `Interface.pause` with exact cleanup
+
+- Promoted exactly `node_readline.Interface.pause` through a second dedicated
+  lifecycle setup. Before cleanup, the loaded harness proves that the selected
+  call returned the receiver object, left it open but paused, preserved exactly
+  the constructor-installed data, error, end, and close listeners, recorded
+  one constructor `resume` and one selected `pause`, and emitted no close
+  event. It then invokes exact `Interface.close` as auxiliary cleanup and
+  proves every listener detached, two total pauses, one close event,
+  quiescence, and zero legacy or typed decisions. Cleanup also runs when the
+  pre-cleanup assertion fails.
+- The recipe author, independent JavaScript evidence validator, Rust catalog
+  validator, and loaded-engine JavaScript harness repeat the exact pause
+  descriptor, harness-owned receiver, listener lifecycle, result, cleanup, and
+  zero-decision contract. No generic owner or method projection was added.
+  The constructor-instance `_onAbortSignal`, `_onClose`, and `_onError`
+  closures remain residual.
+- The regenerated Apple catalog digest
+  `sha256-8pWMY4I6aAgBvBechC1t3znLLSxEQzmF1jmCMLIQJHg` reports 23,584
+  required / **3,703 fully executable** / 3,036 internally verified / 16,845
+  unresolved. The regenerated Windows digest
+  `sha256-uWQgs8D94OdMuZVhuThkfv9aWCj2dxJ4T7krJdMJr8M` reports 23,243
+  required / **3,360 fully executable** / 3,022 internally verified / 16,861
+  unresolved. The descriptor-only output residual manifest falls from 543 to
+  542 rows.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 56 focused rows
+  plus `Interface.pause` under catalog digest
+  `sha256-HxdlgqaKcE_7RhC3pt6GAhumSbf01Yll8AbyGhu337o` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 57
+  fixtures pass. The pause result records `cleanupPerformed: true` and
+  `inputLifecycleVerified: true`, reaches quiescence, and records zero
+  decisions. The raw evidence SHA-256 is
+  `95874f4e8f299b495df49ed4e24fc395b1f987adfb5a6964eb05795cdac15609`;
+  independent JavaScript validation accepted all 57 executions and produced
+  diagnostic execution digest
+  `sha256-FzctU-p0fVPnS-oo5FbwY5kElXMoE5TomkGSCbERAiE` (artifact SHA-256
+  `c627b092fff8e2b00b1f16cdeb28a683abafed8b4d29f389f3b68999f305ec6b`).
+- The focused author/catalog/validator/output-accounting suite passes
+  **194/194** tests with 125,299 assertions locally and on EPYC Bun 1.3.14;
+  the physical Rust exact-Hermes batch passes 57/57. The Linux replay remains
+  diagnostic rather than Apple promotion evidence.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

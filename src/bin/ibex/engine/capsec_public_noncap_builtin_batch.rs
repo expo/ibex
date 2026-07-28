@@ -1158,6 +1158,23 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
                 ["Interface", "prototype", "close"].map(str::to_owned)
             );
         }
+        "readline-interface-pause-owner" => {
+            assert_object_keys(
+                &invocation.setup,
+                &["cleanupMethod", "kind", "ownerExportName", "terminal"],
+                "readline Interface pause owner setup",
+            );
+            assert!(prototype);
+            assert_eq!(descriptor.source_key, "node_readline");
+            assert_eq!(descriptor.export_name, "Interface.pause");
+            assert_eq!(setup["ownerExportName"], "Interface");
+            assert_eq!(setup["terminal"], false);
+            assert_eq!(setup["cleanupMethod"], "close");
+            assert_eq!(
+                descriptor.access.path,
+                ["Interface", "prototype", "pause"].map(str::to_owned)
+            );
+        }
         "buffer-owner" => {
             assert_object_keys(
                 &invocation.setup,
@@ -1438,7 +1455,7 @@ fn validate_key_object_equals_contract(
 }
 
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
-// independently close the exact listener-owning readline lifecycle receipt.
+// independently close exact listener-owning readline lifecycle receipts.
 fn validate_readline_interface_close_contract(
     invocation: &BuiltinInvocation,
     descriptor: &BuiltinSourceDescriptor,
@@ -1485,6 +1502,55 @@ fn validate_readline_interface_close_contract(
     assert!(invocation.arguments.is_empty());
     assert_eq!(proof.kind, "normal-return-from-source-call");
     assert_eq!(proof.result_type, "undefined");
+}
+
+fn validate_readline_interface_pause_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    if descriptor.source_key != "node_readline"
+        || descriptor.export_name != "Interface.pause"
+    {
+        return;
+    }
+    assert_eq!(invocation.module_specifier, "node:readline");
+    assert_eq!(
+        invocation.template_id.as_deref(),
+        Some("node-readline-pure-v1")
+    );
+    assert_eq!(descriptor.export_idioms, ["exported-constructor-prototype"]);
+    assert_eq!(
+        descriptor.module_specifiers,
+        [
+            "node:readline",
+            "node:readline/promises",
+            "readline",
+            "readline/promises",
+        ]
+    );
+    assert_eq!(
+        descriptor.source_ref,
+        "src/builtins/readline.js#exports:Interface.pause"
+    );
+    assert_eq!(descriptor.value_shape, "callable");
+    assert_eq!(descriptor.access.kind, "prototype-property");
+    assert_eq!(
+        descriptor.access.path,
+        ["Interface", "prototype", "pause"].map(str::to_owned)
+    );
+    assert_eq!(
+        invocation.setup,
+        serde_json::json!({
+            "kind": "readline-interface-pause-owner",
+            "ownerExportName": "Interface",
+            "terminal": false,
+            "cleanupMethod": "close",
+        })
+    );
+    assert!(invocation.arguments.is_empty());
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, "object");
 }
 
 fn validate_base_stream_module_value_contract(
@@ -2139,6 +2205,11 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         validate_pure_compatibility_contract(invocation, &descriptor, proof);
         validate_key_object_equals_contract(invocation, &descriptor, proof);
         validate_readline_interface_close_contract(
+            invocation,
+            &descriptor,
+            proof,
+        );
+        validate_readline_interface_pause_contract(
             invocation,
             &descriptor,
             proof,
@@ -2802,7 +2873,10 @@ async fn execute_recipe(
                 recipe.fixture_id
             ));
         }
-        if probe.invocation.setup["kind"] == "readline-interface-owner"
+        if matches!(
+            probe.invocation.setup["kind"].as_str(),
+            Some("readline-interface-owner" | "readline-interface-pause-owner")
+        )
             && (invocation_result["cleanupPerformed"] != true
                 || invocation_result["inputLifecycleVerified"] != true)
         {

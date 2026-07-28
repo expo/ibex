@@ -675,6 +675,17 @@ const readlineInterfaceOwner = () =>
     [],
     "undefined",
   );
+const readlineInterfacePauseOwner = () =>
+  callSpec(
+    {
+      kind: "readline-interface-pause-owner",
+      ownerExportName: "Interface",
+      terminal: false,
+      cleanupMethod: "close",
+    },
+    [],
+    "object",
+  );
 
 const ZLIB_OWNER_NAMES = Object.freeze([
   "BrotliCompress",
@@ -1299,8 +1310,11 @@ const ROOT_CALL_SPECS = Object.freeze({
     // A dedicated inert input shim proves Interface construction installs
     // exactly the reviewed listeners and resumes once. close must detach every
     // listener, pause once, mark the receiver closed, and emit one close event.
-    // pause remains residual because it retains the constructor listeners.
     "Interface.close": readlineInterfaceOwner(),
+    // pause's normal return deliberately retains those listeners. Its separate
+    // receipt proves the paused state first and then invokes exact close
+    // cleanup before the fixture can complete.
+    "Interface.pause": readlineInterfacePauseOwner(),
   }),
   node_perf_hooks: Object.freeze({
     Performance: constructTarget([]),
@@ -2207,6 +2221,7 @@ function callTemplateFor(descriptor) {
         "constructed-owner",
         "key-object-pair-owner",
         "readline-interface-owner",
+        "readline-interface-pause-owner",
         "zlib-owner",
         "stream-owner",
       ]).has(setupKind)) ||

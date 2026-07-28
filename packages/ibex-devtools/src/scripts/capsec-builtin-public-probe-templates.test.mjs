@@ -1873,7 +1873,22 @@ describe("source-bound builtin public probes", () => {
         sourceRefs: ["src/builtins/readline.js#exports:Interface.pause"],
         valueShape: "callable",
       }),
-    ).toBeNull();
+    ).toMatchObject({
+      invocation: {
+        templateId: "node-readline-pure-v1",
+        arguments: [],
+        setup: {
+          kind: "readline-interface-pause-owner",
+          ownerExportName: "Interface",
+          terminal: false,
+          cleanupMethod: "close",
+        },
+        bodyEntryProof: {
+          kind: "normal-return-from-source-call",
+          resultType: "object",
+        },
+      },
+    });
     expect(
       probeFor({
         sourceKey: "node_net",

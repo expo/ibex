@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-28 (promotes exactly `node_readline.Interface.pause` through a separate harness-owned non-terminal `Interface` lifecycle receipt: the selected call must return the receiver object while leaving it open but paused, preserve the constructor's exact data/error/end/close listener set, record one resume and one pause, and emit no close event; the harness then invokes exact `Interface.close` as auxiliary cleanup and proves all listeners detached, two total pauses, one close event, quiescence, and zero decisions; the three constructor-instance `_on*` closures remain residual; Apple accounting is 3,703 fully executable / 3,036 internally verified / 16,845 unresolved and Windows accounting is 3,360 / 3,022 / 16,861)
 **Revised:** 2026-07-28 (promotes exactly `node_readline.Interface.close` on a fresh harness-owned non-terminal `Interface` whose inert input shim proves the constructor installed the exact data/error/end/close listener set and resumed once, then proves the selected close call detached every listener, paused once, marked the receiver closed, emitted one close event, returned `undefined`, reached quiescence, and emitted zero decisions; `Interface.pause` remains residual because it returns while retaining those constructor listeners; Apple accounting is 3,702 fully executable / 3,036 internally verified / 16,846 unresolved and Windows accounting is 3,359 / 3,022 / 16,862)
 **Revised:** 2026-07-27 (promotes exactly `exact_crypto.KeyObject.equals` for two separately constructed harness-owned secret `KeyObject` instances containing the same fixed four-byte `ibex` value; the author, independent evidence validator, Rust validator, and loaded-engine JavaScript harness repeat a dedicated pair-owner setup, exact prototype descriptor, peer binding, boolean result, quiescence, and zero-decision contract without adding a generic nested-constructor facility; Apple accounting is 3,701 fully executable / 3,036 internally verified / 16,847 unresolved and Windows accounting is 3,358 / 3,022 / 16,863)
 **Revised:** 2026-07-27 (promotes exactly three source-only compatibility calls: `exact_crypto.createPrivateKey("ibex-key")`, `exact_crypto.createPublicKey("ibex-key")`, and `node_readline.CSI(["31m"])`; the first two construct only in-memory compatibility wrappers without parsing, importing, or consulting a native key store, while CSI concatenates a harness-owned string array without opening a terminal or retaining a stream; authoring, independent evidence validation, Rust validation, and the loaded-engine JavaScript harness repeat the complete source descriptor, literal argument, root-call setup, result type, quiescence, and zero-decision contract; the cross-source `dns/promises.getDefaultResultOrder` projection remains residual; Apple accounting is 3,700 fully executable / 3,036 internally verified / 16,848 unresolved and Windows accounting is 3,357 / 3,022 / 16,864)
@@ -2800,20 +2801,24 @@ quiescence, and zero-decision contract. The setup kind is specific to this
 route; it does not expose a generic nested-constructor argument that another
 crypto callable could inherit.
 
-`node_readline.Interface.close` has a separate lifecycle-owner receipt. The
-harness constructs a fresh non-terminal `Interface` over an inert input shim
-that accepts only the exact data, error, end, and close listeners. Before the
-selected call, the shim must contain all four listeners and record exactly one
-constructor resume. After the call, every listener must be detached, the input
-must have paused exactly once, the receiver must be closed, and the receiver
-must have emitted exactly one close event. The call must return `undefined`
-and reach event-loop quiescence with zero legacy or typed decisions. The
-recipe author, independent evidence validator, Rust validator, and loaded-engine
-JavaScript harness separately repeat the complete descriptor, owner, terminal
-mode, listener lifecycle, result, cleanup, and zero-decision contract. This
-does not admit other `Interface` methods: in particular, `pause` remains
-residual because it returns while retaining the constructor-installed
-listeners.
+`node_readline.Interface.close` and `node_readline.Interface.pause` have
+separate lifecycle-owner receipts. Each harness constructs a fresh
+non-terminal `Interface` over an inert input shim that accepts only the exact
+data, error, end, and close listeners and records exactly one constructor
+resume. The close receipt proves the selected call detaches every listener,
+pauses exactly once, closes the receiver, emits one close event, returns
+`undefined`, and reaches event-loop quiescence with zero legacy or typed
+decisions. The pause receipt first proves the selected call returns the
+receiver object while leaving it open but paused, preserves all four
+constructor listeners, records exactly one pause, and emits no close event.
+The harness then invokes exact `Interface.close` as auxiliary cleanup and
+proves every listener detached, two total pauses, one close event, quiescence,
+and zero decisions. Cleanup runs even when the pre-cleanup pause-state check
+fails. The recipe author, independent evidence validator, Rust validator, and
+loaded-engine JavaScript harness separately repeat each complete descriptor,
+owner, terminal mode, listener lifecycle, result, cleanup, and zero-decision
+contract. This closed list does not admit the constructor-instance
+`_onAbortSignal`, `_onClose`, or `_onError` closures.
 
 Acceptance:
 

@@ -4972,7 +4972,7 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/malformed authored pure compatibility proof/);
   });
 
-  test("accepts only harness-owned readline Interface.close lifecycle proof", () => {
+  test("accepts only harness-owned readline Interface lifecycle proofs", () => {
     const catalog = completeNoncapBuiltinCallCatalog();
     const recipe = catalog.recipes[0];
     const invocation = recipe.publicSurfaceProbe.invocation;
@@ -5024,6 +5024,52 @@ describe("CapSec public-surface promotion evidence", () => {
       }),
     ).not.toThrow();
 
+    const pauseRecipe = structuredClone(recipe);
+    const pauseInvocation = pauseRecipe.publicSurfaceProbe.invocation;
+    pauseInvocation.exportName = "Interface.pause";
+    pauseInvocation.sourceDescriptor.exportName = "Interface.pause";
+    pauseInvocation.sourceDescriptor.sourceRef =
+      "src/builtins/readline.js#exports:Interface.pause";
+    pauseInvocation.sourceDescriptor.access.path = [
+      "Interface",
+      "prototype",
+      "pause",
+    ];
+    pauseInvocation.sourceDescriptorDigest = taggedDigest(
+      pauseInvocation.sourceDescriptor,
+    );
+    pauseInvocation.setup = {
+      kind: "readline-interface-pause-owner",
+      ownerExportName: "Interface",
+      terminal: false,
+      cleanupMethod: "close",
+    };
+    pauseInvocation.bodyEntryProof.resultType = "object";
+    const pauseObserved = noncapBuiltinCallObservation(pauseRecipe);
+    pauseObserved.invocation.result.dispatchKind = "prototype-call";
+    pauseObserved.invocation.result.cleanupPerformed = true;
+    pauseObserved.invocation.result.inputLifecycleVerified = true;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: pauseRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: pauseObserved,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const tamperedPauseRecipe = structuredClone(pauseRecipe);
+    tamperedPauseRecipe.publicSurfaceProbe.invocation.setup.cleanupMethod =
+      "destroy";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: tamperedPauseRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: pauseObserved,
+        coverage,
+      }),
+    ).toThrow(/malformed authored readline Interface lifecycle proof/);
+
     for (const mutate of [
       (value) => {
         value.publicSurfaceProbe.invocation.exportName = "Interface.pause";
@@ -5049,7 +5095,7 @@ describe("CapSec public-surface promotion evidence", () => {
           coverage,
         }),
       ).toThrow(
-        /malformed authored (?:pure compatibility|readline Interface\.close) proof|did not prove its exact normal return|does not match recipe|descriptor drift/,
+        /malformed authored (?:pure compatibility|readline Interface lifecycle) proof|did not prove its exact normal return|does not match recipe|descriptor drift/,
       );
     }
   });

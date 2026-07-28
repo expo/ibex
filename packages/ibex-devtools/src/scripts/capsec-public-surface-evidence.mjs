@@ -353,6 +353,7 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["constructed-owner", "prototype-call"],
   ["key-object-pair-owner", "prototype-call"],
   ["readline-interface-owner", "prototype-call"],
+  ["readline-interface-pause-owner", "prototype-call"],
   ["buffer-owner", "prototype-call"],
   ["call-tracker-owner", "prototype-call"],
   ["stream-owner", "prototype-call"],
@@ -555,6 +556,25 @@ const READLINE_INTERFACE_CLOSE_CONTRACT = {
   },
   arguments: [],
   resultType: "undefined",
+};
+const READLINE_INTERFACE_PAUSE_CONTRACT = {
+  ...READLINE_INTERFACE_CLOSE_CONTRACT,
+  sourceDescriptor: {
+    ...READLINE_INTERFACE_CLOSE_CONTRACT.sourceDescriptor,
+    exportName: "Interface.pause",
+    sourceRef: "src/builtins/readline.js#exports:Interface.pause",
+    access: {
+      kind: "prototype-property",
+      path: ["Interface", "prototype", "pause"],
+    },
+  },
+  setup: {
+    kind: "readline-interface-pause-owner",
+    ownerExportName: "Interface",
+    terminal: false,
+    cleanupMethod: "close",
+  },
+  resultType: "object",
 };
 const BASE_STREAM_MODULE_VALUE_CALL_CONTRACTS = new Map([
   [
@@ -4847,13 +4867,18 @@ function validateRuntimeInvocation(observation, recipe) {
     const pureCompatibilityContract = PURE_COMPATIBILITY_CALL_CONTRACTS.get(
       `${authored.sourceDescriptor.sourceKey}:${authored.exportName}`,
     );
-    const readlineInterfaceClose =
-      authored.sourceDescriptor.sourceKey === "node_readline" &&
-      authored.exportName === "Interface.close";
+    const readlineInterfaceContract =
+      authored.sourceDescriptor.sourceKey !== "node_readline"
+        ? null
+        : authored.exportName === "Interface.close"
+          ? READLINE_INTERFACE_CLOSE_CONTRACT
+          : authored.exportName === "Interface.pause"
+            ? READLINE_INTERFACE_PAUSE_CONTRACT
+            : null;
     if (
       authored.sourceDescriptor.sourceKey === "node_readline" &&
       !pureCompatibilityContract &&
-      !readlineInterfaceClose
+      !readlineInterfaceContract
     ) {
       throw new Error(
         `${recipe.fixtureId}: malformed authored pure compatibility proof`,
@@ -4888,23 +4913,23 @@ function validateRuntimeInvocation(observation, recipe) {
       );
     }
     if (
-      readlineInterfaceClose &&
+      readlineInterfaceContract &&
       (authored.moduleSpecifier !==
-        READLINE_INTERFACE_CLOSE_CONTRACT.moduleSpecifier ||
+        readlineInterfaceContract.moduleSpecifier ||
         authored.templateId !==
-          READLINE_INTERFACE_CLOSE_CONTRACT.templateId ||
+          readlineInterfaceContract.templateId ||
         authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
         authored.bodyEntryProof.resultType !==
-          READLINE_INTERFACE_CLOSE_CONTRACT.resultType ||
+          readlineInterfaceContract.resultType ||
         canonicalJson(authored.sourceDescriptor) !==
-          canonicalJson(READLINE_INTERFACE_CLOSE_CONTRACT.sourceDescriptor) ||
+          canonicalJson(readlineInterfaceContract.sourceDescriptor) ||
         canonicalJson(authored.setup) !==
-          canonicalJson(READLINE_INTERFACE_CLOSE_CONTRACT.setup) ||
+          canonicalJson(readlineInterfaceContract.setup) ||
         canonicalJson(authored.arguments) !==
-          canonicalJson(READLINE_INTERFACE_CLOSE_CONTRACT.arguments))
+          canonicalJson(readlineInterfaceContract.arguments))
     ) {
       throw new Error(
-        `${recipe.fixtureId}: malformed authored readline Interface.close proof`,
+        `${recipe.fixtureId}: malformed authored readline Interface lifecycle proof`,
       );
     }
     if (
@@ -5090,10 +5115,13 @@ function validateRuntimeInvocation(observation, recipe) {
     }
     const cleanupRequired = new Set([
       "readline-interface-owner",
+      "readline-interface-pause-owner",
       "zlib-owner",
     ]).has(authored.setup.kind);
-    const readlineLifecycleRequired =
-      authored.setup.kind === "readline-interface-owner";
+    const readlineLifecycleRequired = new Set([
+      "readline-interface-owner",
+      "readline-interface-pause-owner",
+    ]).has(authored.setup.kind);
     exactKeys(
       invocation.result,
       [

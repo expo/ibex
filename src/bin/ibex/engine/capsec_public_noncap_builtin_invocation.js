@@ -345,7 +345,8 @@
     if (!cryptoKeyWrapper && !readlineCsi) {
       return (
         sourceKey !== "node_readline" ||
-        exportName === "Interface.close"
+        exportName === "Interface.close" ||
+        exportName === "Interface.pause"
       );
     }
     var expectedModuleSpecifier = cryptoKeyWrapper
@@ -416,16 +417,24 @@
     );
   }
 
-  function isReviewedReadlineInterfaceCloseInvocation(invocation) {
+  function isReviewedReadlineInterfaceLifecycleInvocation(invocation) {
     var descriptor = invocation.sourceDescriptor;
+    var exportName = invocation.exportName;
+    var methodName =
+      exportName === "Interface.close"
+        ? "close"
+        : exportName === "Interface.pause"
+          ? "pause"
+          : null;
     if (
       !descriptor ||
       descriptor.sourceKey !== "node_readline" ||
-      invocation.exportName !== "Interface.close"
+      methodName === null
     ) {
       return true;
     }
     var setup = invocation.setup;
+    var close = methodName === "close";
     return (
       invocation.invocationSchema ===
         "ibex/capsec-builtin-call-invocation/1" &&
@@ -443,10 +452,10 @@
         "valueShape",
       ]) &&
       descriptor.kind === "builtin-export" &&
-      descriptor.exportName === "Interface.close" &&
+      descriptor.exportName === exportName &&
       descriptor.valueShape === "callable" &&
       descriptor.sourceRef ===
-        "src/builtins/readline.js#exports:Interface.close" &&
+        "src/builtins/readline.js#exports:" + exportName &&
       sameStringArray(descriptor.exportIdioms, [
         "exported-constructor-prototype",
       ]) &&
@@ -461,18 +470,33 @@
       sameStringArray(descriptor.access.path, [
         "Interface",
         "prototype",
-        "close",
+        methodName,
       ]) &&
-      exactObjectKeys(setup, ["kind", "ownerExportName", "terminal"]) &&
-      setup.kind === "readline-interface-owner" &&
+      exactObjectKeys(
+        setup,
+        close
+          ? ["kind", "ownerExportName", "terminal"]
+          : [
+              "cleanupMethod",
+              "kind",
+              "ownerExportName",
+              "terminal",
+            ],
+      ) &&
+      setup.kind ===
+        (close
+          ? "readline-interface-owner"
+          : "readline-interface-pause-owner") &&
       setup.ownerExportName === "Interface" &&
       setup.terminal === false &&
+      (close || setup.cleanupMethod === "close") &&
       Array.isArray(invocation.arguments) &&
       invocation.arguments.length === 0 &&
       exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) &&
       invocation.bodyEntryProof.kind ===
         "normal-return-from-source-call" &&
-      invocation.bodyEntryProof.resultType === "undefined"
+      invocation.bodyEntryProof.resultType ===
+        (close ? "undefined" : "object")
     );
   }
 
@@ -869,13 +893,33 @@
     return { receiver: receiver, state: state };
   }
 
-  function verifyReadlineInterfaceClose(receiver, state) {
+  function verifyReadlineInterfacePause(receiver, state) {
+    return (
+      state.initialVerified === true &&
+      state.valid === true &&
+      receiver.closed === false &&
+      receiver.paused === true &&
+      receiver._paused === true &&
+      state.resumeCalls === 1 &&
+      state.pauseCalls === 1 &&
+      state.closeEvents === 0 &&
+      receiver.listenerCount("close") === 1 &&
+      Object.keys(state.listeners).sort().join(",") ===
+        ["close", "data", "end", "error"].join(",")
+    );
+  }
+
+  function verifyReadlineInterfaceClose(
+    receiver,
+    state,
+    expectedPauseCalls,
+  ) {
     return (
       state.initialVerified === true &&
       state.valid === true &&
       receiver.closed === true &&
       state.resumeCalls === 1 &&
-      state.pauseCalls === 1 &&
+      state.pauseCalls === expectedPauseCalls &&
       state.closeEvents === 1 &&
       receiver.listenerCount("close") === 0 &&
       Object.keys(state.listeners).length === 0
@@ -972,7 +1016,7 @@
       !isReviewedIdleDgramInvocation(config) ||
       !isReviewedX509StateInvocation(config) ||
       !isReviewedPureCompatibilityInvocation(config) ||
-      !isReviewedReadlineInterfaceCloseInvocation(config) ||
+      !isReviewedReadlineInterfaceLifecycleInvocation(config) ||
       !isReviewedKeyObjectEqualsInvocation(config)
     ) {
       return failure("contract-mismatch");
@@ -1051,7 +1095,10 @@
         new Uint8Array(setup.bytes),
       ]);
       dispatchKind = "prototype-call";
-    } else if (setup.kind === "readline-interface-owner") {
+    } else if (
+      setup.kind === "readline-interface-owner" ||
+      setup.kind === "readline-interface-pause-owner"
+    ) {
       var readlineInstance = createReadlineInterfaceInstance(moduleValue);
       receiver = readlineInstance.receiver;
       readlineLifecycleState = readlineInstance.state;
@@ -1140,11 +1187,26 @@
       } else {
         result = Reflect.apply(target, receiver, callArguments);
       }
-      if (setup.kind === "readline-interface-owner") {
-        inputLifecycleVerified = verifyReadlineInterfaceClose(
-          receiver,
-          readlineLifecycleState,
-        );
+      if (
+        setup.kind === "readline-interface-owner" ||
+        setup.kind === "readline-interface-pause-owner"
+      ) {
+        var pauseVerified =
+          setup.kind !== "readline-interface-pause-owner" ||
+          verifyReadlineInterfacePause(
+            receiver,
+            readlineLifecycleState,
+          );
+        if (setup.kind === "readline-interface-pause-owner") {
+          receiver.close();
+        }
+        inputLifecycleVerified =
+          pauseVerified &&
+          verifyReadlineInterfaceClose(
+            receiver,
+            readlineLifecycleState,
+            setup.kind === "readline-interface-owner" ? 1 : 2,
+          );
         cleanupPerformed = inputLifecycleVerified;
         if (!inputLifecycleVerified) {
           return failure("cleanup-mismatch", {
@@ -1179,7 +1241,10 @@
         if (setup.kind === "zlib-owner") {
           capturedSuccess.cleanupPerformed = cleanupPerformed;
         }
-        if (setup.kind === "readline-interface-owner") {
+        if (
+          setup.kind === "readline-interface-owner" ||
+          setup.kind === "readline-interface-pause-owner"
+        ) {
           capturedSuccess.cleanupPerformed = cleanupPerformed;
           capturedSuccess.inputLifecycleVerified =
             inputLifecycleVerified;
@@ -1202,7 +1267,10 @@
       if (setup.kind === "zlib-owner") {
         success.cleanupPerformed = cleanupPerformed;
       }
-      if (setup.kind === "readline-interface-owner") {
+      if (
+        setup.kind === "readline-interface-owner" ||
+        setup.kind === "readline-interface-pause-owner"
+      ) {
         success.cleanupPerformed = cleanupPerformed;
         success.inputLifecycleVerified = inputLifecycleVerified;
       }
