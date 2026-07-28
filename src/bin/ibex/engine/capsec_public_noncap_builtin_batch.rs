@@ -1412,7 +1412,52 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
             .body_entry_proof
             .as_ref()
             .expect("authored builtin call requires a body-entry proof");
-        assert_eq!(proof.kind, "normal-return-from-source-call");
+        assert!(matches!(
+            proof.kind.as_str(),
+            "normal-return-from-source-call" | "settled-return-from-source-call"
+        ));
+        if proof.kind == "settled-return-from-source-call" {
+            assert_eq!(descriptor.source_key, "node_stream");
+            assert_eq!(invocation.setup["kind"], "stream-owner");
+            assert_eq!(invocation.setup["endedInput"], true);
+            let (owner, method) = descriptor
+                .export_name
+                .split_once('.')
+                .expect("settled stream consumer must name one owner and method");
+            assert!(matches!(
+                owner,
+                "Duplex" | "PassThrough" | "Readable" | "Transform"
+            ));
+            assert_eq!(invocation.setup["ownerExportName"], owner);
+            let (arguments, result_type) = match method {
+                "every" | "some" => (
+                    serde_json::json!([{"kind": "constant-function", "value": true}]),
+                    "boolean",
+                ),
+                "find" => (
+                    serde_json::json!([{"kind": "constant-function", "value": true}]),
+                    "undefined",
+                ),
+                "forEach" => (
+                    serde_json::json!([{"kind": "noop-function"}]),
+                    "undefined",
+                ),
+                "reduce" => (
+                    serde_json::json!([
+                        {"kind": "constant-function", "value": "ibex"},
+                        {"kind": "json", "value": "ibex-initial"}
+                    ]),
+                    "string",
+                ),
+                "toArray" => (serde_json::json!([]), "object"),
+                other => panic!("unsupported settled stream consumer {other}"),
+            };
+            assert_eq!(
+                serde_json::Value::Array(invocation.arguments.clone()),
+                arguments
+            );
+            assert_eq!(proof.result_type, result_type);
+        }
         assert!(matches!(
             proof.result_type.as_str(),
             "bigint"
@@ -1687,7 +1732,7 @@ fn invocation_script(invocation: &BuiltinInvocation) -> String {
         );
     }
     format!(
-        "JSON.stringify(({})({}))",
+        "JSON.stringify(await ({})({}))",
         HARNESS.trim(),
         serde_json::to_string(invocation).expect("serialize authored builtin invocation")
     )

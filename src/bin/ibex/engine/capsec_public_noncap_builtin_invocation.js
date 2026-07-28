@@ -404,36 +404,58 @@
         cleanupPerformed = true;
       }
     }
-    if (config.captureRawOutput === true) {
-      var capturedSuccess = {
-        valueType: valueType(result),
+    function finishResult(settledResult) {
+      result = settledResult;
+      var proofKind =
+        (config.bodyEntryProof && config.bodyEntryProof.kind) ||
+        "normal-return-from-source-call";
+      if (config.captureRawOutput === true) {
+        var capturedSuccess = {
+          valueType: valueType(result),
+          dispatchKind: dispatchKind,
+          bodyEntryProof: proofKind,
+          sourceOperationAttempted: sourceOperationAttempted,
+          rawOutput: rawReturn(result),
+        };
+        if (setup.kind === "zlib-owner") {
+          capturedSuccess.cleanupPerformed = cleanupPerformed;
+        }
+        return failure("return", capturedSuccess);
+      }
+      var actualResultType = valueType(result);
+      if (actualResultType !== config.bodyEntryProof.resultType) {
+        return failure("result-type-mismatch", {
+          expectedResultType: config.bodyEntryProof.resultType,
+          actualResultType: actualResultType,
+          dispatchKind: dispatchKind,
+        });
+      }
+      var success = {
+        valueType: actualResultType,
         dispatchKind: dispatchKind,
-        bodyEntryProof: "normal-return-from-source-call",
-        sourceOperationAttempted: sourceOperationAttempted,
-        rawOutput: rawReturn(result),
+        bodyEntryProof: proofKind,
       };
       if (setup.kind === "zlib-owner") {
-        capturedSuccess.cleanupPerformed = cleanupPerformed;
+        success.cleanupPerformed = cleanupPerformed;
       }
-      return failure("return", capturedSuccess);
+      return failure("return", success);
     }
-    var actualResultType = valueType(result);
-    if (actualResultType !== config.bodyEntryProof.resultType) {
-      return failure("result-type-mismatch", {
-        expectedResultType: config.bodyEntryProof.resultType,
-        actualResultType: actualResultType,
-        dispatchKind: dispatchKind,
-      });
+
+    if (
+      config.bodyEntryProof &&
+      config.bodyEntryProof.kind === "settled-return-from-source-call"
+    ) {
+      return Promise.resolve(result).then(
+        finishResult,
+        function (error) {
+          return failure("throw", {
+            errorName: String((error && error.name) || "Error"),
+            errorMessage: String((error && error.message) || error),
+          });
+        },
+      );
     }
-    var success = {
-      valueType: actualResultType,
-      dispatchKind: dispatchKind,
-      bodyEntryProof: config.bodyEntryProof.kind,
-    };
-    if (setup.kind === "zlib-owner") {
-      success.cleanupPerformed = cleanupPerformed;
-    }
-    return failure("return", success);
+    return finishResult(result);
   } catch (error) {
     if (config.captureRawOutput === true && sourceOperationAttempted) {
       var capturedThrow = {

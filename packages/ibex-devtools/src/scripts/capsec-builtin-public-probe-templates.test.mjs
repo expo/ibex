@@ -966,7 +966,7 @@ describe("source-bound builtin public probes", () => {
     }
   });
 
-  test("authors configured stream receivers but leaves throwing base methods residual", () => {
+  test("authors configured stream receivers and settled consumers while leaving retained sources residual", async () => {
     expect(
       probeFor({
         sourceKey: "node_stream",
@@ -996,7 +996,7 @@ describe("source-bound builtin public probes", () => {
         valueShape: "callable",
       }),
     ).toBeNull();
-    for (const exportName of ["pipeline", "Readable.every", "Readable.wrap"]) {
+    for (const exportName of ["pipeline", "Readable.wrap"]) {
       expect(
         probeFor({
           sourceKey: "node_stream",
@@ -1009,6 +1009,35 @@ describe("source-bound builtin public probes", () => {
         }),
       ).toBeNull();
     }
+    const settledProbe = probeFor({
+      sourceKey: "node_stream",
+      exportName: "Readable.every",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: ["node:stream", "stream"],
+      valueShape: "callable",
+    });
+    expect(settledProbe).toMatchObject({
+      invocation: {
+        arguments: [{ kind: "constant-function", value: true }],
+        setup: {
+          kind: "stream-owner",
+          ownerExportName: "Readable",
+          endedInput: true,
+        },
+        bodyEntryProof: {
+          kind: "settled-return-from-source-call",
+          resultType: "boolean",
+        },
+      },
+    });
+    expect(
+      await builtinInvocationHarness(settledProbe.invocation),
+    ).toMatchObject({
+      kind: "return",
+      valueType: "boolean",
+      dispatchKind: "prototype-call",
+      bodyEntryProof: "settled-return-from-source-call",
+    });
     expect(
       probeFor({
         sourceKey: "node_stream",

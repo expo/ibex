@@ -4792,6 +4792,81 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/unknown or missing fields|module-import invocation descriptor drift/);
   });
 
+  test("accepts settled stream returns only for ended reviewed consumers", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:stream";
+    invocation.exportName = "Readable.every";
+    invocation.templateId = "node-stream-bounded-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_stream",
+      exportName: "Readable.every",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: ["node:stream", "stream"],
+      sourceRef: "src/builtins/stream.js#exports:Readable.every",
+      valueShape: "callable",
+      access: {
+        kind: "prototype-property",
+        path: ["Readable", "prototype", "every"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.setup = {
+      kind: "stream-owner",
+      ownerExportName: "Readable",
+      endedInput: true,
+    };
+    invocation.arguments = [{ kind: "constant-function", value: true }];
+    invocation.bodyEntryProof = {
+      kind: "settled-return-from-source-call",
+      resultType: "boolean",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.result.dispatchKind = "prototype-call";
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.endedInput = false;
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey =
+          "node_path";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.exportName = "Readable.wrap";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments = [];
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored settled-return proof|descriptor drift|not source-descriptor bound/,
+      );
+    }
+  });
+
   test("accepts only reviewed dns/promises error reads that return strings", () => {
     const catalog = completeDnsPromiseErrorReadCatalog();
     const recipe = catalog.recipes[0];

@@ -417,11 +417,11 @@ describe("exact-target CapSec executable recipes", () => {
     // or are read through a reviewed inert prototype path.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_624);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_648);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_924);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_900);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -579,9 +579,9 @@ describe("exact-target CapSec executable recipes", () => {
     // prototype values execute on both targets. The restricted
     // no-eval constructor added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_283);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_307);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_938);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_914);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5323,14 +5323,36 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe.invocation.kind === "builtin-export-call" &&
           recipe.publicSurfaceProbe.invocation.expectedResult ===
             "normal-return" &&
-          recipe.publicSurfaceProbe.invocation.bodyEntryProof.kind ===
-            "normal-return-from-source-call" &&
+          new Set([
+            "normal-return-from-source-call",
+            "settled-return-from-source-call",
+          ]).has(
+            recipe.publicSurfaceProbe.invocation.bodyEntryProof.kind,
+          ) &&
           recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
             0 &&
           recipe.publicSurfaceProbe.invocation.completion.kind ===
             "event-loop-quiescence" &&
           recipe.publicSurfaceProbe.invocation.completion
             .timeoutMilliseconds === 1_000,
+      ),
+    ).toBe(true);
+    const settledStreamCalls = publicCalls.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.bodyEntryProof.kind ===
+        "settled-return-from-source-call",
+    );
+    expect(settledStreamCalls).toHaveLength(24);
+    expect(
+      settledStreamCalls.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+            "node_stream" &&
+          recipe.publicSurfaceProbe.invocation.setup.kind === "stream-owner" &&
+          recipe.publicSurfaceProbe.invocation.setup.endedInput === true &&
+          new Set(["every", "find", "forEach", "reduce", "some", "toArray"]).has(
+            recipe.publicSurfaceProbe.invocation.exportName.split(".").at(-1),
+          ),
       ),
     ).toBe(true);
     expect(

@@ -566,8 +566,13 @@ const ownValue = (object, key) =>
     ? object[key]
     : null;
 
-function callSpec(setup, arguments_, resultType) {
-  return { setup, arguments: arguments_, resultType };
+function callSpec(
+  setup,
+  arguments_,
+  resultType,
+  proofKind = "normal-return-from-source-call",
+) {
+  return { setup, arguments: arguments_, resultType, proofKind };
 }
 
 const rootCall = (arguments_, resultType) =>
@@ -636,14 +641,13 @@ const STREAM_READABLE_OWNER_SET = new Set([
   "Readable",
   "Transform",
 ]);
-const STREAM_DEFERRED_METHOD_SET = new Set([
+const STREAM_SETTLED_CONSUMER_METHOD_SET = new Set([
   "every",
   "find",
   "forEach",
   "reduce",
   "some",
   "toArray",
-  "wrap",
 ]);
 
 function streamRootCallSpecs() {
@@ -1733,6 +1737,7 @@ function streamOwnerCall(
   arguments_,
   resultType,
   endedInput = false,
+  proofKind = "normal-return-from-source-call",
 ) {
   return callSpec(
     {
@@ -1742,6 +1747,7 @@ function streamOwnerCall(
     },
     arguments_,
     resultType,
+    proofKind,
   );
 }
 
@@ -1856,12 +1862,41 @@ function streamPrototypeSpec(exportName) {
     if (methodName === "take") {
       return streamOwnerCall(ownerExportName, [jsonArgument(1)], "object");
     }
-    // Promise-returning consumers and wrap() retain source work after this
-    // synchronous harness returns. Leave them residual until an awaited,
-    // resource-draining recipe can prove completion inside one observation.
-    if (STREAM_DEFERRED_METHOD_SET.has(methodName)) {
-      return null;
+    if (STREAM_SETTLED_CONSUMER_METHOD_SET.has(methodName)) {
+      const argumentsByMethod = {
+        every: [constantFunctionArgument(true)],
+        find: [constantFunctionArgument(true)],
+        forEach: [noopArgument()],
+        reduce: [
+          constantFunctionArgument("ibex"),
+          jsonArgument("ibex-initial"),
+        ],
+        some: [constantFunctionArgument(true)],
+        toArray: [],
+      };
+      const resultTypeByMethod = {
+        every: "boolean",
+        find: "undefined",
+        forEach: "undefined",
+        reduce: "string",
+        some: "boolean",
+        toArray: "object",
+      };
+      // These consumers own their Promise until the harness awaits it. An
+      // already-ended, empty, harness-created stream gives each method a
+      // deterministic terminal path; the outer event-loop quiescence proof
+      // then establishes that no deferred source work escaped the receipt.
+      return streamOwnerCall(
+        ownerExportName,
+        argumentsByMethod[methodName],
+        resultTypeByMethod[methodName],
+        true,
+        "settled-return-from-source-call",
+      );
     }
+    // wrap() retains its delegated source after returning and needs a
+    // separately owned source/cleanup recipe.
+    if (methodName === "wrap") return null;
   }
   if (methodName === "_transform" && ownerExportName === "PassThrough") {
     return streamOwnerCall(
@@ -1975,7 +2010,7 @@ function callTemplateFor(descriptor) {
     setup: spec.setup,
     arguments: spec.arguments,
     bodyEntryProof: {
-      kind: "normal-return-from-source-call",
+      kind: spec.proofKind,
       resultType: spec.resultType,
     },
   };

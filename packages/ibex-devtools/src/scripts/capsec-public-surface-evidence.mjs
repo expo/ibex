@@ -302,6 +302,10 @@ const NORMAL_RETURN_RESULT_TYPES = new Set([
   "string",
   "undefined",
 ]);
+const NORMAL_RETURN_PROOF_KINDS = new Set([
+  "normal-return-from-source-call",
+  "settled-return-from-source-call",
+]);
 const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["root-call", "call"],
   ["construct-target", "construct"],
@@ -310,6 +314,50 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["call-tracker-owner", "prototype-call"],
   ["stream-owner", "prototype-call"],
   ["zlib-owner", "prototype-call"],
+]);
+const SETTLED_STREAM_CONSUMER_CONTRACTS = new Map([
+  [
+    "every",
+    {
+      arguments: [{ kind: "constant-function", value: true }],
+      resultType: "boolean",
+    },
+  ],
+  [
+    "find",
+    {
+      arguments: [{ kind: "constant-function", value: true }],
+      resultType: "undefined",
+    },
+  ],
+  [
+    "forEach",
+    { arguments: [{ kind: "noop-function" }], resultType: "undefined" },
+  ],
+  [
+    "reduce",
+    {
+      arguments: [
+        { kind: "constant-function", value: "ibex" },
+        { kind: "json", value: "ibex-initial" },
+      ],
+      resultType: "string",
+    },
+  ],
+  [
+    "some",
+    {
+      arguments: [{ kind: "constant-function", value: true }],
+      resultType: "boolean",
+    },
+  ],
+  ["toArray", { arguments: [], resultType: "object" }],
+]);
+const SETTLED_STREAM_CONSUMER_OWNERS = new Set([
+  "Duplex",
+  "PassThrough",
+  "Readable",
+  "Transform",
 ]);
 const NATIVE_FILESYSTEM_DENIAL_GLOBALS = new Set([
   "__exactAppendFile",
@@ -4316,13 +4364,36 @@ function validateRuntimeInvocation(observation, recipe) {
       authored.invocationSchema !== "ibex/capsec-builtin-call-invocation/1" ||
       authored.kind !== "builtin-export-call" ||
       !authored.bodyEntryProof ||
-      authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+      !NORMAL_RETURN_PROOF_KINDS.has(authored.bodyEntryProof.kind) ||
       !NORMAL_RETURN_RESULT_TYPES.has(authored.bodyEntryProof.resultType) ||
       !authored.setup ||
       typeof authored.setup.kind !== "string"
     ) {
       throw new Error(
         `${recipe.fixtureId}: malformed authored normal-return proof`,
+      );
+    }
+    if (
+      authored.bodyEntryProof.kind === "settled-return-from-source-call" &&
+      (() => {
+        const [owner, method, ...extra] = authored.exportName.split(".");
+        const contract = SETTLED_STREAM_CONSUMER_CONTRACTS.get(method);
+        return (
+          extra.length !== 0 ||
+          !SETTLED_STREAM_CONSUMER_OWNERS.has(owner) ||
+          !contract ||
+          authored.setup.kind !== "stream-owner" ||
+          authored.setup.ownerExportName !== owner ||
+          authored.setup.endedInput !== true ||
+          authored.sourceDescriptor.sourceKey !== "node_stream" ||
+          authored.sourceDescriptor.exportName !== authored.exportName ||
+          authored.bodyEntryProof.resultType !== contract.resultType ||
+          canonicalJson(authored.arguments) !== canonicalJson(contract.arguments)
+        );
+      })()
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored settled-return proof`,
       );
     }
     if (!NORMAL_RETURN_DISPATCH_KINDS.has(authored.setup.kind)) {
