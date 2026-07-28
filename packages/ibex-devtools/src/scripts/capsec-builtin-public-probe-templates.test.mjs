@@ -1294,9 +1294,65 @@ describe("source-bound builtin public probes", () => {
         },
       });
     }
+    for (const [ownerExportName, bytes, outputContract] of [
+      ["BrotliCompress", [105, 98, 101, 120], "nonempty-byte-view"],
+      [
+        "BrotliDecompress",
+        [139, 1, 128, 105, 98, 101, 120, 3],
+        "exact-ibex-byte-view",
+      ],
+      ["Deflate", [105, 98, 101, 120], "nonempty-byte-view"],
+      ["DeflateRaw", [105, 98, 101, 120], "nonempty-byte-view"],
+      [
+        "Gunzip",
+        [
+          31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30,
+          109, 106, 4, 0, 0, 0,
+        ],
+        "exact-ibex-byte-view",
+      ],
+      ["Gzip", [105, 98, 101, 120], "nonempty-byte-view"],
+      [
+        "Inflate",
+        [120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169],
+        "exact-ibex-byte-view",
+      ],
+      ["InflateRaw", [203, 76, 74, 173, 0, 0], "exact-ibex-byte-view"],
+      [
+        "Unzip",
+        [
+          31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30,
+          109, 106, 4, 0, 0, 0,
+        ],
+        "exact-ibex-byte-view",
+      ],
+    ]) {
+      expect(
+        probeFor({
+          sourceKey: "node_zlib",
+          exportName: `${ownerExportName}._processChunk`,
+          exportIdioms: ["exported-constructor-inherited-prototype"],
+          moduleSpecifiers: ["node:zlib", "zlib"],
+          valueShape: "callable",
+        }),
+      ).toMatchObject({
+        invocation: {
+          arguments: [
+            { kind: "buffer", bytes },
+            { kind: "json", value: 4 },
+          ],
+          setup: {
+            kind: "zlib-process-chunk-owner",
+            ownerExportName,
+            outputContract,
+          },
+          bodyEntryProof: { resultType: "object" },
+        },
+      });
+    }
     for (const exportName of [
       "zstdDecompress",
-      "Gunzip._processChunk",
+      "ZstdCompress._processChunk",
       "ZstdCompress.end",
       "ZstdDecompress.end",
       "ZstdDecompress._processChunk",

@@ -380,6 +380,7 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["stream-owner", "prototype-call"],
   ["zlib-end-owner", "prototype-call"],
   ["zlib-owner", "prototype-call"],
+  ["zlib-process-chunk-owner", "prototype-call"],
 ]);
 const SETTLED_STREAM_CONSUMER_CONTRACTS = new Map([
   [
@@ -927,6 +928,18 @@ const ZLIB_END_CONTRACTS = new Map(
         Object.freeze({ kind: "buffer", bytes: Object.freeze(bytes) }),
       ]),
       outputContract,
+    }),
+  ]),
+);
+const ZLIB_PROCESS_CHUNK_CONTRACTS = new Map(
+  [...ZLIB_END_CONTRACTS].map(([owner, contract]) => [
+    owner,
+    Object.freeze({
+      arguments: Object.freeze([
+        contract.arguments[0],
+        Object.freeze({ kind: "json", value: 4 }),
+      ]),
+      outputContract: contract.outputContract,
     }),
   ]),
 );
@@ -5679,6 +5692,12 @@ function validateRuntimeInvocation(observation, recipe) {
       zlibMethod === "end"
         ? ZLIB_END_CONTRACTS.get(zlibOwner)
         : null;
+    const zlibProcessChunkContract =
+      authored.sourceDescriptor.sourceKey === "node_zlib" &&
+      zlibExtra.length === 0 &&
+      zlibMethod === "_processChunk"
+        ? ZLIB_PROCESS_CHUNK_CONTRACTS.get(zlibOwner)
+        : null;
     if (
       zlibIdleDestroy &&
       (authored.templateId !== "node-zlib-bounded-v1" ||
@@ -5731,6 +5750,37 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: malformed authored zlib end lifecycle proof`,
       );
     }
+    if (
+      zlibProcessChunkContract &&
+      (authored.moduleSpecifier !== "node:zlib" ||
+        authored.templateId !== "node-zlib-bounded-v1" ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !== "object" ||
+        authored.sourceDescriptor.kind !== "builtin-export" ||
+        authored.sourceDescriptor.valueShape !== "callable" ||
+        authored.sourceDescriptor.sourceRef !==
+          `src/builtins/zlib.js#exports:${authored.exportName}` ||
+        canonicalJson(authored.sourceDescriptor.exportIdioms) !==
+          canonicalJson(["exported-constructor-inherited-prototype"]) ||
+        canonicalJson(authored.sourceDescriptor.moduleSpecifiers) !==
+          canonicalJson(["node:zlib", "zlib"]) ||
+        authored.sourceDescriptor.access.kind !==
+          "inherited-prototype-property" ||
+        canonicalJson(authored.sourceDescriptor.access.path) !==
+          canonicalJson([zlibOwner, "prototype", "_processChunk"]) ||
+        canonicalJson(authored.setup) !==
+          canonicalJson({
+            kind: "zlib-process-chunk-owner",
+            ownerExportName: zlibOwner,
+            outputContract: zlibProcessChunkContract.outputContract,
+          }) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson(zlibProcessChunkContract.arguments))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored zlib process-chunk proof`,
+      );
+    }
     if (!NORMAL_RETURN_DISPATCH_KINDS.has(authored.setup.kind)) {
       throw new Error(
         `${recipe.fixtureId}: malformed authored normal-return setup`,
@@ -5744,6 +5794,7 @@ function validateRuntimeInvocation(observation, recipe) {
       "tls-server-root-call",
       "zlib-end-owner",
       "zlib-owner",
+      "zlib-process-chunk-owner",
     ]).has(authored.setup.kind);
     const readlineLifecycleRequired = new Set([
       "readline-interface-owner",
@@ -5757,6 +5808,8 @@ function validateRuntimeInvocation(observation, recipe) {
       authored.setup.kind === "net-terminal-owner";
     const zlibEndLifecycleRequired =
       authored.setup.kind === "zlib-end-owner";
+    const zlibProcessChunkRequired =
+      authored.setup.kind === "zlib-process-chunk-owner";
     exactKeys(
       invocation.result,
       [
@@ -5774,6 +5827,9 @@ function validateRuntimeInvocation(observation, recipe) {
         ...(netLifecycleRequired ? ["netLifecycleVerified"] : []),
         ...(zlibEndLifecycleRequired
           ? ["zlibEndLifecycleVerified"]
+          : []),
+        ...(zlibProcessChunkRequired
+          ? ["zlibProcessChunkOutputVerified"]
           : []),
         ...(zlibSyncEncoder ? ["zlibSyncEncoderOutputVerified"] : []),
         ...(zlibSyncDecoderArguments
@@ -5806,6 +5862,8 @@ function validateRuntimeInvocation(observation, recipe) {
         invocation.result.zlibCallbackOutputVerified !== true) ||
       (zlibEndLifecycleRequired &&
         invocation.result.zlibEndLifecycleVerified !== true) ||
+      (zlibProcessChunkRequired &&
+        invocation.result.zlibProcessChunkOutputVerified !== true) ||
       (netLifecycleRequired &&
         invocation.result.netLifecycleVerified !== true)
     ) {

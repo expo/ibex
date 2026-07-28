@@ -798,6 +798,12 @@ const ZLIB_END_CONTRACTS = new Map([
     ],
   ],
 ]);
+const ZLIB_PROCESS_CHUNK_CONTRACTS = new Map(
+  [...ZLIB_END_CONTRACTS].map(([owner, [bytes, outputContract]]) => [
+    owner,
+    [bytes, outputContract],
+  ]),
+);
 function zlibRootCallSpecs() {
   const specs = Object.create(null);
   const deflateBytes = [120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169];
@@ -2137,10 +2143,22 @@ function zlibPrototypeSpec(exportName) {
       "object",
     );
   }
+  if (methodName === "_processChunk") {
+    const contract = ZLIB_PROCESS_CHUNK_CONTRACTS.get(ownerExportName);
+    if (!contract) return null;
+    return callSpec(
+      {
+        kind: "zlib-process-chunk-owner",
+        ownerExportName,
+        outputContract: contract[1],
+      },
+      [bufferArgument(contract[0]), jsonArgument(4)],
+      "object",
+    );
+  }
   if (
     new Set([
       "_flush",
-      "_processChunk",
       "_transform",
       "_writeNative",
       "flush",
@@ -2454,6 +2472,7 @@ function callTemplateFor(descriptor) {
         "tls-server-construct-target",
         "zlib-end-owner",
         "zlib-owner",
+        "zlib-process-chunk-owner",
         "stream-owner",
       ]).has(setupKind)) ||
     (!prototypeAccess &&

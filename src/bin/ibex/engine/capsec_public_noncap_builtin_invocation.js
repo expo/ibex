@@ -953,6 +953,129 @@
     );
   }
 
+  function zlibProcessChunkContract(invocation) {
+    if (
+      !invocation ||
+      !invocation.sourceDescriptor ||
+      invocation.sourceDescriptor.sourceKey !== "node_zlib"
+    ) {
+      return null;
+    }
+    var owner = invocation.exportName.split(".")[0];
+    switch (owner) {
+      case "BrotliCompress":
+      case "Deflate":
+      case "DeflateRaw":
+      case "Gzip":
+        return {
+          input: [105, 98, 101, 120],
+          outputContract: "nonempty-byte-view",
+        };
+      case "BrotliDecompress":
+        return {
+          input: [139, 1, 128, 105, 98, 101, 120, 3],
+          outputContract: "exact-ibex-byte-view",
+        };
+      case "Gunzip":
+      case "Unzip":
+        return {
+          input: [
+            31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55,
+            30, 109, 106, 4, 0, 0, 0,
+          ],
+          outputContract: "exact-ibex-byte-view",
+        };
+      case "Inflate":
+        return {
+          input: [120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169],
+          outputContract: "exact-ibex-byte-view",
+        };
+      case "InflateRaw":
+        return {
+          input: [203, 76, 74, 173, 0, 0],
+          outputContract: "exact-ibex-byte-view",
+        };
+      default:
+        return null;
+    }
+  }
+
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // Direct process-chunk evidence is a synchronous one-shot result plus
+  // cleanup; it does not claim incremental write or flush state.
+  function isReviewedZlibProcessChunkInvocation(invocation) {
+    if (
+      !invocation ||
+      typeof invocation.exportName !== "string" ||
+      !invocation.exportName.endsWith("._processChunk")
+    ) {
+      return !(
+        invocation &&
+        invocation.setup &&
+        invocation.setup.kind === "zlib-process-chunk-owner"
+      );
+    }
+    var contract = zlibProcessChunkContract(invocation);
+    if (contract === null) return false;
+    var owner = invocation.exportName.split(".")[0];
+    var descriptor = invocation.sourceDescriptor;
+    var input = invocation.arguments && invocation.arguments[0];
+    var flushFlag = invocation.arguments && invocation.arguments[1];
+    return (
+      invocation.invocationSchema ===
+        "ibex/capsec-builtin-call-invocation/1" &&
+      invocation.kind === "builtin-export-call" &&
+      invocation.moduleSpecifier === "node:zlib" &&
+      invocation.templateId === "node-zlib-bounded-v1" &&
+      exactObjectKeys(descriptor, [
+        "access",
+        "exportIdioms",
+        "exportName",
+        "kind",
+        "moduleSpecifiers",
+        "sourceKey",
+        "sourceRef",
+        "valueShape",
+      ]) &&
+      descriptor.kind === "builtin-export" &&
+      descriptor.exportName === invocation.exportName &&
+      descriptor.valueShape === "callable" &&
+      descriptor.sourceRef ===
+        "src/builtins/zlib.js#exports:" + invocation.exportName &&
+      sameStringArray(descriptor.exportIdioms, [
+        "exported-constructor-inherited-prototype",
+      ]) &&
+      sameStringArray(descriptor.moduleSpecifiers, ["node:zlib", "zlib"]) &&
+      exactObjectKeys(descriptor.access, ["kind", "path"]) &&
+      descriptor.access.kind === "inherited-prototype-property" &&
+      sameStringArray(descriptor.access.path, [
+        owner,
+        "prototype",
+        "_processChunk",
+      ]) &&
+      exactObjectKeys(invocation.setup, [
+        "kind",
+        "outputContract",
+        "ownerExportName",
+      ]) &&
+      invocation.setup.kind === "zlib-process-chunk-owner" &&
+      invocation.setup.ownerExportName === owner &&
+      invocation.setup.outputContract === contract.outputContract &&
+      Array.isArray(invocation.arguments) &&
+      invocation.arguments.length === 2 &&
+      exactObjectKeys(input, ["bytes", "kind"]) &&
+      input.kind === "buffer" &&
+      sameByteArray(input.bytes, contract.input) &&
+      exactObjectKeys(flushFlag, ["kind", "value"]) &&
+      flushFlag.kind === "json" &&
+      flushFlag.value === 4 &&
+      exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) &&
+      invocation.bodyEntryProof.kind ===
+        "normal-return-from-source-call" &&
+      invocation.bodyEntryProof.resultType === "object"
+    );
+  }
+
   // X509Certificate.toString is a narrowly reviewed state projection. Keep
   // its fresh receiver and own-prototype path exact so another certificate
   // method cannot borrow this no-decision receipt.
@@ -1833,6 +1956,7 @@
     var zlibCallbackPromise = null;
     var zlibEndLifecycleVerified = false;
     var zlibEndLifecyclePromise = null;
+    var zlibProcessChunkOutputVerified = false;
     var readlineLifecycleState = null;
     if (
       !isReviewedBoundedHttpInvocation(config) ||
@@ -1844,6 +1968,7 @@
       !isReviewedZlibSyncDecoderInvocation(config) ||
       !isReviewedZlibCallbackInvocation(config) ||
       !isReviewedZlibEndInvocation(config) ||
+      !isReviewedZlibProcessChunkInvocation(config) ||
       !isReviewedX509StateInvocation(config) ||
       !isReviewedPureCompatibilityInvocation(config) ||
       !isReviewedReadlineInterfaceLifecycleInvocation(config) ||
@@ -2127,6 +2252,25 @@
         receiver.on("finish", onFinish);
       });
       dispatchKind = "prototype-call";
+    } else if (setup.kind === "zlib-process-chunk-owner") {
+      var zlibProcessChunkOwner = moduleValue[setup.ownerExportName];
+      if (typeof zlibProcessChunkOwner !== "function") {
+        return failure("setup-mismatch", {
+          setupKind: setup.kind,
+          ownerExportName: setup.ownerExportName,
+        });
+      }
+      receiver = Reflect.construct(zlibProcessChunkOwner, []);
+      if (
+        !receiver ||
+        typeof receiver._closeNativeStream !== "function"
+      ) {
+        return failure("setup-mismatch", {
+          setupKind: setup.kind,
+          ownerExportName: setup.ownerExportName,
+        });
+      }
+      dispatchKind = "prototype-call";
     } else if (setup.kind === "stream-owner") {
       receiver = createStreamInstance(
         moduleValue,
@@ -2179,6 +2323,24 @@
         if (!zlibSyncDecoderOutputVerified) {
           return failure("result-shape-mismatch", {
             expectedShape: "exact-byte-view",
+          });
+        }
+      }
+      var zlibProcessChunkOutputContract =
+        setup.kind === "zlib-process-chunk-owner"
+          ? setup.outputContract
+          : null;
+      if (zlibProcessChunkOutputContract !== null) {
+        zlibProcessChunkOutputVerified =
+          zlibProcessChunkOutputContract === "nonempty-byte-view"
+            ? result !== null &&
+              typeof result === "object" &&
+              ArrayBuffer.isView(result) &&
+              result.byteLength > 0
+            : sameByteView(result, [105, 98, 101, 120]);
+        if (!zlibProcessChunkOutputVerified) {
+          return failure("result-shape-mismatch", {
+            expectedShape: zlibProcessChunkOutputContract,
           });
         }
       }
@@ -2249,7 +2411,8 @@
       }
     } finally {
       if (
-        setup.kind === "zlib-owner" &&
+        (setup.kind === "zlib-owner" ||
+          setup.kind === "zlib-process-chunk-owner") &&
         receiver &&
         typeof receiver._closeNativeStream === "function"
       ) {
@@ -2314,6 +2477,11 @@
       if (setup.kind === "zlib-end-owner") {
         success.cleanupPerformed = cleanupPerformed;
         success.zlibEndLifecycleVerified = zlibEndLifecycleVerified;
+      }
+      if (setup.kind === "zlib-process-chunk-owner") {
+        success.cleanupPerformed = cleanupPerformed;
+        success.zlibProcessChunkOutputVerified =
+          zlibProcessChunkOutputVerified;
       }
       if (isZlibSyncEncoderInvocation(config)) {
         success.zlibSyncEncoderOutputVerified =

@@ -463,11 +463,11 @@ describe("exact-target CapSec executable recipes", () => {
     // residual until it has loaded-engine evidence.
     // Five fresh net terminal calls observe close delivery after proving that
     // their harness-owned receiver never acquired a transport.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_749);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_758);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_799);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_790);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -652,9 +652,9 @@ describe("exact-target CapSec executable recipes", () => {
     // remains one explicit residual until it has loaded-engine evidence.
     // Five fresh net terminal calls observe close delivery after proving that
     // their harness-owned receiver never acquired a transport.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_400);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_407);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_821);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_814);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5744,6 +5744,32 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe.invocation.arguments.length === 1 &&
           recipe.publicSurfaceProbe.invocation.arguments[0].kind ===
             "buffer" &&
+          recipe.publicSurfaceProbe.invocation.bodyEntryProof.resultType ===
+            "object",
+      ),
+    ).toBe(true);
+    const zlibProcessChunkCalls = publicCalls.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+          "node_zlib" &&
+        recipe.publicSurfaceProbe.invocation.exportName.endsWith(
+          "._processChunk",
+        ),
+    );
+    expect(zlibProcessChunkCalls).toHaveLength(9);
+    expect(
+      zlibProcessChunkCalls.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.setup.kind ===
+            "zlib-process-chunk-owner" &&
+          new Set(["nonempty-byte-view", "exact-ibex-byte-view"]).has(
+            recipe.publicSurfaceProbe.invocation.setup.outputContract,
+          ) &&
+          recipe.publicSurfaceProbe.invocation.arguments.length === 2 &&
+          recipe.publicSurfaceProbe.invocation.arguments[0].kind ===
+            "buffer" &&
+          recipe.publicSurfaceProbe.invocation.arguments[1].kind === "json" &&
+          recipe.publicSurfaceProbe.invocation.arguments[1].value === 4 &&
           recipe.publicSurfaceProbe.invocation.bodyEntryProof.resultType ===
             "object",
       ),

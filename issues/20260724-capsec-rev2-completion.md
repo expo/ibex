@@ -5126,6 +5126,68 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — prove direct zlib process-chunk calls
+
+- Promoted direct synchronous `_processChunk(Buffer, Z_FINISH)` on exactly
+  nine Apple owners: `BrotliCompress`, `BrotliDecompress`, `Deflate`,
+  `DeflateRaw`, `Gunzip`, `Gzip`, `Inflate`, `InflateRaw`, and `Unzip`.
+  Windows promotes the same seven non-Brotli owners and leaves both Brotli
+  rows target-unavailable. Both targets leave the two zstd owners residual
+  because their one-shot function deliberately reports `ENOSYS`.
+- Compression receives the fixed Buffer bytes `[105, 98, 101, 120]` and must
+  return a nonempty byte view. Each decoder receives one fixed complete
+  Brotli, deflate, raw-deflate, or gzip member and must return exactly
+  `[105, 98, 101, 120]`. Every invocation also fixes the numeric flag to
+  `Z_FINISH` (`4`), closes constructor-created idle native state, reaches
+  quiescence, and observes zero decisions.
+- The author, independent JavaScript evidence validator, Rust catalog
+  validator, and final loaded-engine harness separately repeat the exact owner
+  vocabulary, inherited prototype descriptor, fixed input, numeric flag,
+  output contract, dispatch, cleanup, and quiescence proof. This one-shot
+  receipt does not credit `_writeNative`, `_transform`, `write`, `flush`,
+  `_flush`, `_final`, `params`, or any incremental stream state.
+- Every owner passed its own 108/108 static-Hermes process under isolated
+  catalog digests
+  `sha256-P1rjGGMxapRYQrIZHY-VE-iwSQZcQuPUXd4P2xGrWd8`,
+  `sha256-RiceTLpeldldvxLkfNaWVxmmkgYZ52l99EUYCzwl78g`,
+  `sha256-n85rClyJB1jLvgcypw5BNPlhsMJCxYbLUiwL7JilRis`,
+  `sha256-RCx0VdfZxjTpb9DuCksXim6DdjScD-dzcjzpSR0gVIE`,
+  `sha256-1o0seX_9YyIpTYzcKWZjvAe9FbDalUN0n4LSGiGHjO8`,
+  `sha256-YIvxhh3q2ZiNA9W5-MRpa9nqRGHb78_B1aKIJnYQNp4`,
+  `sha256-YVOWQD5UoeSZZhem_QFUYuoXJIwDhmbLLOaoPvEQ6eE`,
+  `sha256-Zm-_YXvrWOHWSPavvZYn3pPqlqUaj6IdiJaVteqpTvQ`, and
+  `sha256-xwF8CW-GYLi7HJ0-48aCchSpcqfvq1OSmBOkWBO0vig` before the combined
+  116/116 batch.
+- The regenerated Apple catalog digest
+  `sha256-c5-ST8_8hof2z3kfoRgIX6rjafP5uWzcwbCotTx1oXo` reports 23,584
+  required / **3,758 fully executable** / 3,036 internally verified / 16,790
+  unresolved. The regenerated Windows digest
+  `sha256-POEM3Hnb6SWudXi2jAQtg3btUC9BIxcdjiCXDchsvEY` reports 23,243
+  required / **3,407 fully executable** / 3,022 internally verified / 16,814
+  unresolved. The descriptor-only output manifest falls from 494 to 485 rows.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 107 focused rows
+  plus the nine process-chunk calls under catalog digest
+  `sha256-Qxl9wqN-TW-6nD8AyvmDgY_rRvh0Nq7xPf9fIkyadNY` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 116
+  fixtures pass; every new result reports
+  `zlibProcessChunkOutputVerified: true`, cleanup, quiescence, and zero legacy
+  or typed decisions. The raw evidence SHA-256 is
+  `825c386869f3520b973cea2ed0495ea5aaa4fb8c71c2d6632ae485201c30b411`;
+  independent JavaScript validation accepted all 116 executions and produced
+  diagnostic execution digest
+  `sha256-bfdWSpDNZDkSQujjnb7D7Q_aGrb9CdJftw-yZZ5cBfM` (artifact SHA-256
+  `19c5e5b1f83836a11289e3d65746d9a1677ec8e3c61fafcdec762d896318c316`).
+  The diagnostic source binding is baseline revision
+  `247ed0c923e381e04102a1e32c2ac1555520c03d` / tree digest
+  `sha256-LXI-oUZSYke7S3f-EM9F6SSTdMqT_W1uyAtzTw1XOOM`.
+- The focused author/catalog/validator/output-accounting suite plus inventory
+  regression passes **220/220** tests with 124,950 assertions. A final
+  exact-current-file replay also passed all 116 fixtures and was byte-identical
+  to the raw receipt above.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

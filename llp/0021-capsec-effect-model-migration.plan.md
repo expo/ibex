@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-28 (promotes direct synchronous `_processChunk(Buffer, Z_FINISH)` on exactly nine Apple zlib owners and seven Windows owners: every call must return a nonempty encoded byte view or exact decoded bytes `[105, 98, 101, 120]`, close the constructor-created idle native selector, quiesce, and observe zero decisions; Apple additionally covers `BrotliCompress` and `BrotliDecompress`, while Windows leaves them target-unavailable and both targets leave zstd residual because no native zstd bridge exists; the receipt is explicitly one-shot and does not cover incremental write, transform, parameter, flush, or finalization state; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact owner/input/flush-flag/output/cleanup contract; Apple accounting is 3,758 fully executable / 3,036 internally verified / 16,790 unresolved and Windows is 3,407 / 3,022 / 16,814; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes terminal `end(Buffer)` on exactly nine Apple zlib owners and seven Windows owners: every call must return the receiver, deliver a nonempty encoded byte view or exact decoded bytes `[105, 98, 101, 120]`, emit exactly one `finish`, reach terminal writable state, leave no native codec ownership live, quiesce, and observe zero decisions; Apple additionally covers `BrotliCompress` and `BrotliDecompress`, while Windows leaves them target-unavailable and both targets leave zstd residual because no native zstd bridge exists; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact owner/input/output/lifecycle contract; Apple accounting is 3,749 fully executable / 3,036 internally verified / 16,799 unresolved and Windows is 3,400 / 3,022 / 16,821; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes exactly four Apple-only one-shot Brotli routes: `brotliCompressSync`, `brotliDecompressSync`, `brotliCompress`, and `brotliDecompress`; the synchronous calls require a nonempty encoded byte view or exact decoded bytes `[105, 98, 101, 120]`, while the callbacks return `undefined`, deliver exactly once without error, satisfy the same output proof, and reach quiescence; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact four-name vocabulary, source descriptor, fixed input/compressed bytes, dispatch, and output contract; Apple accounting is 3,740 fully executable / 3,036 internally verified / 16,808 unresolved while Windows remains 3,393 / 3,022 / 16,828 because it does not install the native Brotli bridge; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes exactly seven one-shot `node:zlib` callback wrappers: `deflate`, `deflateRaw`, `gzip`, `gunzip`, `inflate`, `inflateRaw`, and `unzip`; the loaded harness passes a dedicated callback credential, awaits exactly one deferred delivery, rejects errors, and verifies a nonempty encoded byte view or the exact decoded bytes `[105, 98, 101, 120]` before quiescence; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact seven-name vocabulary, source descriptor, compressed/input bytes, callback contract, undefined source return, and delivery proof; Apple accounting is 3,736 fully executable / 3,036 internally verified / 16,812 unresolved and Windows is 3,393 / 3,022 / 16,828; advertisements remain empty)
@@ -2804,6 +2805,22 @@ finish, cleanup, and quiescence proof. `ZstdCompress.end` and
 no native zstd bridge. Other writes, parameter changes, flushes, transforms,
 and synchronous `_processChunk` calls remain residual pending separately
 bounded input, output, callback, and native-lifecycle evidence.
+
+Direct synchronous zlib `_processChunk(Buffer, Z_FINISH)` has a distinct
+one-shot receipt for the same nine Apple owners and seven non-Brotli Windows
+owners as terminal `end`. Compression receives `[105, 98, 101, 120]` and must
+return a nonempty byte view; each decoder receives its fixed complete Brotli,
+deflate, raw-deflate, or gzip member and must return exactly
+`[105, 98, 101, 120]`. The flush flag is fixed to `Z_FINISH` (`4`), even though
+the compatibility method currently delegates directly to its stored one-shot
+function. Construction may establish an idle native selector, so the harness
+must close it in every return or throw path before quiescence. The author,
+independent evidence validator, Rust validator, and loaded-engine JavaScript
+boundary separately repeat the exact owner set, inherited prototype
+descriptor, input, numeric flag, result contract, cleanup, and zero-decision
+proof. This receipt does not credit `_writeNative`, `_transform`, `write`,
+`flush`, `_flush`, `_final`, or `params`, and it leaves both zstd owners
+residual because their one-shot function deliberately reports `ENOSYS`.
 
 The seven reviewed `node:stream` `closed` projections require a constructed
 receiver even though the source inventory exposes them as inherited or direct
