@@ -112,6 +112,15 @@ const REVIEWED_PROTOTYPE_VALUES = [
   ["ws", "WebSocket.CONNECTING", "data", "number", ["exported-constructor-prototype"], ["ws"], "src/builtins/ws.js#exports:WebSocket.CONNECTING"],
   ["ws", "WebSocket.OPEN", "data", "number", ["exported-constructor-prototype"], ["ws"], "src/builtins/ws.js#exports:WebSocket.OPEN"],
 ];
+const REVIEWED_STREAM_INSTANCE_VALUES = [
+  ["node_stream", "default.closed", "unknown", "boolean", ["exported-constructor-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:default.closed"],
+  ["node_stream", "Duplex.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Duplex.closed"],
+  ["node_stream", "PassThrough.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:PassThrough.closed"],
+  ["node_stream", "Readable.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Readable.closed"],
+  ["node_stream", "Stream.closed", "unknown", "boolean", ["exported-constructor-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Stream.closed"],
+  ["node_stream", "Transform.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Transform.closed"],
+  ["node_stream", "Writable.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Writable.closed"],
+];
 const REVIEWED_MODULE_IMPORTS = [
   ["buffer", "node_buffer", true, "object"],
   ["bun:sqlite", "exact_sqlite", false, "function"],
@@ -439,6 +448,69 @@ describe("source-bound builtin public probes", () => {
       },
     ]) {
       expect(probeFor(input)).toBeNull();
+    }
+  });
+
+  test("reads only reviewed closed booleans on fresh stream instances", () => {
+    for (const [
+      sourceKey,
+      exportName,
+      valueShape,
+      expectedValueType,
+      exportIdioms,
+      moduleSpecifiers,
+      sourceRef,
+    ] of REVIEWED_STREAM_INSTANCE_VALUES) {
+      const ownerExportName = exportName.split(".")[0];
+      const probe = probeFor({
+        sourceKey,
+        exportName,
+        exportIdioms,
+        moduleSpecifiers,
+        sourceRefs: [sourceRef],
+        valueShape,
+      });
+      expect(probe).toMatchObject({
+        invocation: {
+          kind: "builtin-export-read",
+          exportName,
+          sourceDescriptor: {
+            sourceKey,
+            exportName,
+            exportIdioms,
+            moduleSpecifiers,
+            sourceRef,
+            valueShape,
+            access: {
+              kind: "constructed-instance-property",
+              path: ["closed"],
+            },
+            expectedValueType,
+          },
+          setup: {
+            kind: "stream-owner",
+            ownerExportName,
+            endedInput: false,
+          },
+          expectedResult: "return",
+        },
+      });
+    }
+
+    for (const exportName of [
+      "Readable.readableState",
+      "Writable.writableState",
+    ]) {
+      expect(
+        probeFor({
+          sourceKey: "node_stream",
+          exportName,
+          exportIdioms: ["exported-constructor-prototype"],
+          moduleSpecifiers: ["node:stream", "stream"],
+          sourceRefs: [`src/builtins/stream.js#exports:${exportName}`],
+          valueShape: "unknown",
+        }),
+      ).toBeNull();
     }
   });
 

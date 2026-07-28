@@ -475,8 +475,8 @@ const REVIEWED_POST_INITIALIZATION_VALUE_EXPORTS = new Map(
 // These exact prototype properties are safe to read on the exported
 // prototype itself. Accessor rows below have source bodies that return only
 // inert defaults when `this` is the prototype; `X509Certificate.raw`, the
-// filesystem accessors, and instance-state projections are deliberately
-// absent because they throw or require a constructed resource.
+// filesystem accessors and unreviewed instance-state projections are
+// deliberately absent because they throw or require a constructed resource.
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
 const REVIEWED_PROTOTYPE_VALUE_EXPORTS = new Map(
   [
@@ -511,6 +511,45 @@ const REVIEWED_PROTOTYPE_VALUE_EXPORTS = new Map(
     ["ws", "WebSocket.CLOSING", "data", "number", ["exported-constructor-prototype"], ["ws"], "src/builtins/ws.js#exports:WebSocket.CLOSING"],
     ["ws", "WebSocket.CONNECTING", "data", "number", ["exported-constructor-prototype"], ["ws"], "src/builtins/ws.js#exports:WebSocket.CONNECTING"],
     ["ws", "WebSocket.OPEN", "data", "number", ["exported-constructor-prototype"], ["ws"], "src/builtins/ws.js#exports:WebSocket.OPEN"],
+  ].map(
+    ([
+      sourceKey,
+      exportName,
+      valueShape,
+      expectedValueType,
+      exportIdioms,
+      moduleSpecifiers,
+      sourceRef,
+    ]) => [
+      `${sourceKey}:${exportName}`,
+      {
+        sourceKey,
+        exportName,
+        valueShape,
+        expectedValueType,
+        exportIdioms,
+        moduleSpecifiers,
+        sourceRef,
+      },
+    ],
+  ),
+);
+
+// These exact inherited inventory rows describe an own accessor installed by
+// the Stream constructor rather than a value that exists on the exported
+// prototype. Execute the read only on a fresh, idle, harness-owned stream.
+// The boolean projection is inert; mutable readableState/writableState graphs
+// remain deliberately residual.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+const REVIEWED_STREAM_INSTANCE_VALUE_EXPORTS = new Map(
+  [
+    ["node_stream", "default.closed", "unknown", "boolean", ["exported-constructor-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:default.closed"],
+    ["node_stream", "Duplex.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Duplex.closed"],
+    ["node_stream", "PassThrough.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:PassThrough.closed"],
+    ["node_stream", "Readable.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Readable.closed"],
+    ["node_stream", "Stream.closed", "unknown", "boolean", ["exported-constructor-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Stream.closed"],
+    ["node_stream", "Transform.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Transform.closed"],
+    ["node_stream", "Writable.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Writable.closed"],
   ].map(
     ([
       sourceKey,
@@ -2362,6 +2401,46 @@ function reviewedPrototypeValueSourceDescriptor(surface, target) {
     : null;
 }
 
+function reviewedStreamInstanceValueSourceDescriptor(surface, target) {
+  const metadata = surface?.metadata;
+  const expected =
+    typeof metadata?.sourceKey === "string" &&
+    typeof metadata?.exportName === "string"
+      ? REVIEWED_STREAM_INSTANCE_VALUE_EXPORTS.get(
+          `${metadata.sourceKey}:${metadata.exportName}`,
+        )
+      : null;
+  if (!expected) return null;
+  const descriptor = sourceDescriptor(
+    surface,
+    target,
+    new Set(["unknown"]),
+    { allowReviewedPostInitializationValue: true },
+  );
+  const access = { kind: "constructed-instance-property", path: ["closed"] };
+  const reviewedDescriptor = descriptor ? { ...descriptor, access } : null;
+  const expectedDescriptor = {
+    kind: "builtin-export",
+    sourceKey: expected.sourceKey,
+    exportName: expected.exportName,
+    exportIdioms: expected.exportIdioms,
+    moduleSpecifiers: expected.moduleSpecifiers,
+    sourceRef: expected.sourceRef,
+    valueShape: expected.valueShape,
+    access,
+  };
+  if (
+    !reviewedDescriptor ||
+    canonicalJson(reviewedDescriptor) !== canonicalJson(expectedDescriptor)
+  ) {
+    return null;
+  }
+  return {
+    ...reviewedDescriptor,
+    expectedValueType: expected.expectedValueType,
+  };
+}
+
 function reviewedDnsPromiseErrorCodeSourceDescriptor(surface, target) {
   const descriptor = sourceDescriptor(surface, target, new Set(["unknown"]));
   if (
@@ -2433,9 +2512,12 @@ function authoredNonCapabilityBuiltinInvocationDefinition({
     !availability.includes(targetPlatform);
   const reviewedPrototypeDescriptor =
     reviewedPrototypeValueSourceDescriptor(surface, target);
+  const reviewedStreamInstanceDescriptor =
+    reviewedStreamInstanceValueSourceDescriptor(surface, target);
   const readDescriptor =
     reviewedPostInitializationValueSourceDescriptor(surface, target) ??
     reviewedPrototypeDescriptor ??
+    reviewedStreamInstanceDescriptor ??
     reviewedDnsPromiseErrorCodeSourceDescriptor(surface, target) ??
     sourceDescriptor(surface, target, new Set(["accessor", "data"]), {
       allowTargetAbsence: allowTargetAbsence && targetAbsent,
@@ -2443,6 +2525,7 @@ function authoredNonCapabilityBuiltinInvocationDefinition({
   const readEligible =
     readDescriptor &&
     (readDescriptor === reviewedPrototypeDescriptor ||
+      readDescriptor === reviewedStreamInstanceDescriptor ||
       (new Set(["export-property", "module-value"]).has(
         readDescriptor.access.kind,
       ) &&
@@ -2466,7 +2549,16 @@ function authoredNonCapabilityBuiltinInvocationDefinition({
     sourceDescriptorDigest: taggedDigest(descriptor),
     ...(!readEligible ? { templateId: callTemplate.templateId } : {}),
     arguments: readEligible ? [] : callTemplate.arguments,
-    setup: readEligible ? { kind: "none" } : callTemplate.setup,
+    setup: readEligible
+      ? reviewedStreamInstanceDescriptor
+        ? {
+            kind: "stream-owner",
+            ownerExportName:
+              reviewedStreamInstanceDescriptor.exportName.split(".")[0],
+            endedInput: false,
+          }
+        : { kind: "none" }
+      : callTemplate.setup,
     completion: { ...EVENT_LOOP_COMPLETION },
   };
   return {

@@ -16,7 +16,10 @@ import {
   fixtureCatalogForTarget,
   fixtureExecutionPlans,
 } from "./capsec-conformance.mjs";
-import { validateOccurrenceSemantics } from "./capsec-contract.mjs";
+import {
+  canonicalJson,
+  validateOccurrenceSemantics,
+} from "./capsec-contract.mjs";
 import {
   INTERNAL_INVARIANT_COMMAND,
   INTERNALLY_VERIFIED_SCENARIOS,
@@ -95,6 +98,13 @@ const REVIEWED_POST_INITIALIZATION_VALUE_TYPES = new Map([
   ["node_stream:Transform.destroyed", "boolean"],
   ["node_stream:Writable.__exactWritableProtoPatched", "boolean"],
   ["node_stream:Writable.destroyed", "boolean"],
+  ["node_stream:default.closed", "boolean"],
+  ["node_stream:Duplex.closed", "boolean"],
+  ["node_stream:PassThrough.closed", "boolean"],
+  ["node_stream:Readable.closed", "boolean"],
+  ["node_stream:Stream.closed", "boolean"],
+  ["node_stream:Transform.closed", "boolean"],
+  ["node_stream:Writable.closed", "boolean"],
   ["node_stream_web:ByteLengthQueuingStrategy", "function"],
   ["node_stream_web:CountQueuingStrategy", "function"],
   ["node_stream_web:ReadableStream", "function"],
@@ -418,13 +428,14 @@ describe("exact-target CapSec executable recipes", () => {
     // DiffieHellman construction and state-only calls add no random work.
     // Eleven idle zlib destroy calls authenticate and close their
     // constructor-owned native selectors without processing codec input.
+    // Seven inert stream.closed reads use fresh harness-owned instances.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_673);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_680);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_875);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_868);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -449,7 +460,7 @@ describe("exact-target CapSec executable recipes", () => {
         `${descriptor?.sourceKey}:${descriptor?.exportName}`,
       );
     });
-    expect(postInitializationValueReads).toHaveLength(69);
+    expect(postInitializationValueReads).toHaveLength(76);
     expect(
       postInitializationValueReads.every((recipe) => {
         const invocation = recipe.publicSurfaceProbe.invocation;
@@ -582,12 +593,13 @@ describe("exact-target CapSec executable recipes", () => {
     // prototype values execute on both targets. The fixed-prime DiffieHellman
     // family adds eight bounded state-only calls. This target proves nine idle
     // zlib destroy calls; its two unavailable Zstd constructors remain
-    // target-local residuals. The restricted
+    // target-local residuals. Seven inert stream.closed reads use fresh
+    // harness-owned instances on both targets. The restricted
     // no-eval constructor added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_330);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_337);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_891);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_884);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -3401,7 +3413,16 @@ describe("exact-target CapSec executable recipes", () => {
             new Set([
               "prototype-property",
               "inherited-prototype-property",
+              "constructed-instance-property",
             ]).has(descriptor.access.kind));
+        const expectedSetup =
+          descriptor.access.kind === "constructed-instance-property"
+            ? {
+                kind: "stream-owner",
+                ownerExportName: descriptor.exportName.split(".")[0],
+                endedInput: false,
+              }
+            : { kind: "none" };
         return (
           recipe.status === "fully-executable" &&
           recipe.classification === "non-capability" &&
@@ -3416,6 +3437,8 @@ describe("exact-target CapSec executable recipes", () => {
             reviewedRuntimeString ||
             reviewedRuntimeTypedValue) &&
           readAccessIsExact &&
+          canonicalJson(recipe.publicSurfaceProbe.invocation.setup) ===
+            canonicalJson(expectedSetup) &&
           recipe.route.alternatives.length === 1 &&
           recipe.route.alternatives[0].terminalObservedKey ===
             recipe.publicSurfaceProbe.surfaceObservedKey

@@ -229,6 +229,38 @@ const REVIEWED_PROTOTYPE_VALUE_EXPORTS = new Map(
     ],
   ),
 );
+const REVIEWED_STREAM_INSTANCE_VALUE_EXPORTS = new Map(
+  [
+    ["node_stream", "default.closed", "unknown", "boolean", ["exported-constructor-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:default.closed"],
+    ["node_stream", "Duplex.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Duplex.closed"],
+    ["node_stream", "PassThrough.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:PassThrough.closed"],
+    ["node_stream", "Readable.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Readable.closed"],
+    ["node_stream", "Stream.closed", "unknown", "boolean", ["exported-constructor-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Stream.closed"],
+    ["node_stream", "Transform.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Transform.closed"],
+    ["node_stream", "Writable.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Writable.closed"],
+  ].map(
+    ([
+      sourceKey,
+      exportName,
+      valueShape,
+      expectedValueType,
+      exportIdioms,
+      moduleSpecifiers,
+      sourceRef,
+    ]) => [
+      `${sourceKey}:${exportName}`,
+      {
+        sourceKey,
+        exportName,
+        valueShape,
+        expectedValueType,
+        exportIdioms,
+        moduleSpecifiers,
+        sourceRef,
+      },
+    ],
+  ),
+);
 const EFFECT_BUILTIN_MODULE_IMPORT_ALIASES = new Map(
   [
     ["node:sys", "node_util", true, true, "env:read"],
@@ -992,6 +1024,30 @@ function isReviewedPrototypeValueDescriptor(descriptor) {
             ? "inherited-prototype-property"
             : "prototype-property",
           path: accessPath,
+        },
+        expectedValueType: expected.expectedValueType,
+      })
+  );
+}
+
+function isReviewedStreamInstanceValueDescriptor(descriptor) {
+  const expected = REVIEWED_STREAM_INSTANCE_VALUE_EXPORTS.get(
+    `${descriptor?.sourceKey}:${descriptor?.exportName}`,
+  );
+  return (
+    expected !== undefined &&
+    canonicalJson(descriptor) ===
+      canonicalJson({
+        kind: "builtin-export",
+        sourceKey: expected.sourceKey,
+        exportName: expected.exportName,
+        exportIdioms: expected.exportIdioms,
+        moduleSpecifiers: expected.moduleSpecifiers,
+        sourceRef: expected.sourceRef,
+        valueShape: expected.valueShape,
+        access: {
+          kind: "constructed-instance-property",
+          path: ["closed"],
         },
         expectedValueType: expected.expectedValueType,
       })
@@ -3026,7 +3082,8 @@ function validateRuntimeInvocation(observation, recipe) {
           descriptor.valueShape === "unknown") &&
         !isReviewedDnsPromiseErrorDescriptor(descriptor) &&
         !isReviewedPostInitializationValueDescriptor(descriptor) &&
-        !isReviewedPrototypeValueDescriptor(descriptor)
+        !isReviewedPrototypeValueDescriptor(descriptor) &&
+        !isReviewedStreamInstanceValueDescriptor(descriptor)
       ) {
         throw new Error(
           `${recipe.fixtureId}: builtin read has an unreviewed runtime value-type expectation`,
@@ -4701,6 +4758,22 @@ function validateRuntimeInvocation(observation, recipe) {
       }
     }
     if (authored.kind === "builtin-export-read") {
+      const streamInstanceRead =
+        isReviewedStreamInstanceValueDescriptor(authored.sourceDescriptor);
+      const expectedReadSetup = streamInstanceRead
+        ? {
+            kind: "stream-owner",
+            ownerExportName: authored.exportName.split(".")[0],
+            endedInput: false,
+          }
+        : { kind: "none" };
+      if (
+        canonicalJson(authored.setup) !== canonicalJson(expectedReadSetup)
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: builtin read setup did not match its reviewed receiver`,
+        );
+      }
       exactKeys(
         invocation.result,
         ["kind", "moduleSpecifier", "exportName", "valueType"],

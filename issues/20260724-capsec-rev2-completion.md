@@ -4113,6 +4113,60 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — executed fresh-stream `closed` reads
+
+- Promoted exactly seven scalar reads: `closed` on fresh harness-owned
+  `default`, `Duplex`, `PassThrough`, `Readable`, `Stream`, `Transform`, and
+  `Writable` instances. `readableState` and `writableState` remain residual:
+  their mutable object graphs are intentionally outside this inert boolean
+  receipt.
+- The source inventory presents these as inherited or direct prototype rows,
+  but `Stream()` installs `closed` as an own accessor backed by `_closed`.
+  The author, independent validator, JavaScript harness, and Rust executor
+  therefore require the separate `constructed-instance-property` access kind,
+  the exact owner, an idle receiver, an own getter, a boolean result,
+  quiescence, and zero decisions. Generic prototype or constructed-instance
+  authoring remains unavailable.
+- The regenerated Apple catalog digest
+  `sha256-l4io_Hc95rgkj7JZZyzIEKN7_rd4M_Yll7Ep8lt5NhI` reports 23,584
+  required / **3,680 fully executable** / 3,036 internally verified / 16,868
+  unresolved. The regenerated Windows catalog digest
+  `sha256-o8BAeqz2pkl9X50OX8jFBhyA7D3lwOPsINeb84XJ8J4` reports 23,243
+  required / **3,337 fully executable** / 3,022 internally verified / 16,884
+  unresolved.
+- The EPYC exact-Hermes focused receipt binds 34 fresh module imports plus the
+  seven new rows under catalog digest
+  `sha256-Vt2ry7J5qQMend9TxCNKK8u2v3MNIVV_xoiaK59qyYA` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`.
+  All seven rows return booleans, reach event-loop quiescence, and emit zero
+  typed decisions; the 41-row evidence SHA-256 is
+  `f59ba0568374b78ec210964c32a142b240782b3162cb0f11429db0f86693d2e4`.
+- The focused author/catalog/validator/output-accounting suite passes
+  **186/186** tests with 125,394 assertions. Secure observer compilation and
+  the focused physical recipe batch pass on the EPYC host; generated registry
+  drift passes, and `ref-check` validates 41 LLP documents and 2,224
+  references with zero errors (one stable URL remains unchecked).
+- The definitive product-backed EPYC package sweep ran 2,414 tests:
+  2,384 passed, 11 skipped, and 19 initially failed. Sixteen filesystem tests
+  and the process-normalization test pass immediately in isolation, identifying
+  cross-file Bun harness contamination rather than product failure. The named
+  reproducible product-backed failure is environmental: Ubuntu's linked
+  libcurl 8.5.0 advertises no `ws`/`wss` protocols, so the Linux WebSocket
+  loopback test cannot execute on this host. One unnamed broad-run failure did
+  not identify its file in the truncated terminal output; a second sweep is
+  retaining its complete log for localization. Neither result affects the
+  Apple or Windows exact-target evidence.
+- Hard parts: resolving these rows through a prototype would have read a
+  nonexistent value or silently changed the meaning of the inventory. The
+  correction had to remain exact across three independent contracts and the
+  loaded-engine harness. A full Apple catalog cannot be replayed on Linux
+  because target-absent constants differ, so the physical audit used a
+  digest-bound 41-row subset containing all 34 required fresh imports and all
+  seven new reads rather than borrowing Apple target-absence results.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

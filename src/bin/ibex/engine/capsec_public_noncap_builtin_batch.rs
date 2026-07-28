@@ -539,14 +539,28 @@ fn reviewed_post_initialization_value_spec(
         (
             "node_stream",
             "default.destroyed"
+            | "default.closed"
+            | "Duplex.closed"
             | "Duplex.destroyed"
+            | "PassThrough.closed"
             | "PassThrough.destroyed"
+            | "Readable.closed"
             | "Readable.destroyed"
+            | "Stream.closed"
             | "Stream.destroyed"
+            | "Transform.closed"
             | "Transform.destroyed"
             | "Writable.__exactWritableProtoPatched"
+            | "Writable.closed"
             | "Writable.destroyed",
-        ) => Some(("data", "boolean")),
+        ) => Some((
+            if export_name.ends_with(".closed") {
+                "unknown"
+            } else {
+                "data"
+            },
+            "boolean",
+        )),
         (
             "ws",
             "WebSocket.CLOSED"
@@ -646,10 +660,15 @@ fn is_reviewed_post_initialization_value_descriptor(
         "node_stream" => {
             let inherited = matches!(
                 descriptor.export_name.as_str(),
-                "Duplex.destroyed"
+                "Duplex.closed"
+                    | "Duplex.destroyed"
+                    | "PassThrough.closed"
                     | "PassThrough.destroyed"
+                    | "Readable.closed"
                     | "Readable.destroyed"
+                    | "Transform.closed"
                     | "Transform.destroyed"
+                    | "Writable.closed"
                     | "Writable.destroyed"
             );
             descriptor.export_idioms
@@ -824,6 +843,27 @@ fn expected_access(descriptor: &BuiltinSourceDescriptor) -> Option<BuiltinAccess
         .collect::<Vec<_>>();
     if segments.iter().any(String::is_empty) {
         return None;
+    }
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // these inventory prototype rows execute only on fresh owned instances.
+    if descriptor.source_key == "node_stream"
+        && segments.len() == 2
+        && segments[1] == "closed"
+        && matches!(
+            segments[0].as_str(),
+            "default"
+                | "Duplex"
+                | "PassThrough"
+                | "Readable"
+                | "Stream"
+                | "Transform"
+                | "Writable"
+        )
+    {
+        return Some(BuiltinAccess {
+            kind: "constructed-instance-property".to_owned(),
+            path: vec!["closed".to_owned()],
+        });
     }
     let prototype_idioms = descriptor
         .export_idioms
@@ -1559,7 +1599,26 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         assert!(invocation.template_id.is_none());
         assert!(invocation.body_entry_proof.is_none());
         assert!(invocation.arguments.is_empty());
-        assert_eq!(invocation.setup, serde_json::json!({"kind": "none"}));
+        let stream_instance_read =
+            descriptor.source_key == "node_stream"
+                && descriptor.access.kind == "constructed-instance-property";
+        if stream_instance_read {
+            let owner = descriptor
+                .export_name
+                .split_once('.')
+                .expect("stream instance read must name its owner")
+                .0;
+            assert_eq!(
+                invocation.setup,
+                serde_json::json!({
+                    "kind": "stream-owner",
+                    "ownerExportName": owner,
+                    "endedInput": false,
+                })
+            );
+        } else {
+            assert_eq!(invocation.setup, serde_json::json!({"kind": "none"}));
+        }
         let reviewed_runtime_typed_read =
             is_reviewed_dns_promise_error_descriptor(&descriptor)
                 || is_reviewed_post_initialization_value_descriptor(&descriptor);
@@ -1575,6 +1634,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
                     | "module-value"
                     | "prototype-property"
                     | "inherited-prototype-property"
+                    | "constructed-instance-property"
             ));
         } else {
             assert!(matches!(

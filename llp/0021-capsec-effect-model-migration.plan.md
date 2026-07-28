@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-27 (promotes exactly seven inert `closed` boolean reads on fresh harness-owned `default`, `Duplex`, `PassThrough`, `Readable`, `Stream`, `Transform`, and `Writable` instances; the inventory's inherited/prototype rows do not describe a value on those prototypes, so authoring, independent validation, and Rust execution require the separate `constructed-instance-property` access kind, exact owner setup, own getter, boolean result, quiescence, and zero decisions; mutable `readableState` and `writableState` graphs remain residual; Apple accounting is 3,680 fully executable / 3,036 internally verified / 16,868 unresolved and Windows accounting is 3,337 / 3,022 / 16,884)
 **Revised:** 2026-07-27 (promotes idle `destroy` on exactly 11 Apple zlib owners and the nine installed Windows owners: construction establishes the principal-bound native selector, the public source path authenticates before delegating, `_destroy` closes the selector, and the harness performs idempotent cleanup before proving quiescence; authoring, independent validation, and Rust execution repeat the exact owner/method/result contract; Windows Brotli owners remain residual because their native codec prerequisite is not installed; Apple accounting is 3,673 fully executable / 3,036 internally verified / 16,875 unresolved and Windows accounting is 3,330 / 3,022 / 16,891)
 **Revised:** 2026-07-27 (promotes exactly six lifecycle calls on the base `node:stream` module-value constructor: `_close`, `_emitClose`, `_undestroy`, `constructor`, `destroy`, and `unpipe`; authoring, validation, and physical execution independently require `["prototype", method]` rather than the nonexistent `["default", "prototype", method]`, and only this closed name set receives the module-value correction; `default.pipe` remains residual because it retains listener and pipeline ownership; Apple accounting is 3,662 fully executable / 3,036 internally verified / 16,886 unresolved and Windows accounting is 3,321 / 3,022 / 16,900)
 **Revised:** 2026-07-27 (promotes exactly eight explicit-parameter `exact_crypto` Diffie-Hellman calls: `DiffieHellman`, `createDiffieHellman`, and `getGenerator`, `getPrime`, `getPrivateKey`, `getPublicKey`, `setPrivateKey`, and `setPublicKey` on a harness-owned instance constructed from fixed prime 23 and generator 5; the author, independent validator, and Rust executor separately repeat the exact setup, arguments, result types, and ordinary-return proof, while `generateKeys` and `computeSecret` remain residual because they enter random or modular work; Apple accounting is 3,656 fully executable / 3,036 internally verified / 16,892 unresolved and Windows accounting is 3,315 / 3,022 / 16,906)
@@ -2708,6 +2709,18 @@ object result, cleanup, and zero-decision contract. Apple installs and executes
 Windows executes the same set except the two Brotli owners, whose absent native
 codec prerequisite remains explicit residual evidence rather than a throwing
 wrapper being credited as normal execution.
+
+The seven reviewed `node:stream` `closed` projections require a constructed
+receiver even though the source inventory exposes them as inherited or direct
+prototype rows. `Stream()` installs an own accessor backed by `_closed`; the
+value does not live on the exported prototype. Authoring therefore cannot reuse
+generic prototype reads. It constructs exactly one fresh idle `default`,
+`Duplex`, `PassThrough`, `Readable`, `Stream`, `Transform`, or `Writable`,
+requires the final property to be an own getter, reads its inert boolean, and
+then proves event-loop quiescence with zero decisions. The author, independent
+validator, and Rust executor separately repeat that owner/access/result
+contract. `readableState` and `writableState` remain residual because their
+mutable object graphs are not justified by this scalar receipt.
 
 Acceptance:
 

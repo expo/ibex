@@ -64,6 +64,46 @@
 
   function resolveExport(moduleValue, descriptor) {
     var access = descriptor.access;
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // stream.closed is installed as an own accessor on a fresh instance.
+    if (access.kind === "constructed-instance-property") {
+      if (
+        config.kind !== "builtin-export-read" ||
+        access.path.length !== 1 ||
+        access.path[0] !== "closed" ||
+        !config.setup ||
+        config.setup.kind !== "stream-owner" ||
+        config.setup.endedInput !== false
+      ) {
+        return { error: failure("access-mismatch") };
+      }
+      var segments = descriptor.exportName.split(".");
+      if (
+        segments.length !== 2 ||
+        segments[0] !== config.setup.ownerExportName ||
+        segments[1] !== access.path[0]
+      ) {
+        return { error: failure("access-mismatch") };
+      }
+      var stream = createStreamInstance(
+        moduleValue,
+        config.setup.ownerExportName,
+        false,
+      );
+      var streamDescriptor = Object.getOwnPropertyDescriptor(
+        stream,
+        access.path[0],
+      );
+      if (!streamDescriptor || typeof streamDescriptor.get !== "function") {
+        return {
+          error: failure("shape-mismatch", {
+            expectedShape: "own-accessor",
+          }),
+        };
+      }
+      sourceOperationAttempted = true;
+      return { value: stream[access.path[0]] };
+    }
     var value = moduleValue;
     if (access.kind === "module-value") {
       if (config.kind === "builtin-export-read") {

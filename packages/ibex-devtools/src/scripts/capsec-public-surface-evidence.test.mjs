@@ -172,6 +172,15 @@ const REVIEWED_PROTOTYPE_VALUES = [
   ["ws", "WebSocket.CONNECTING", "data", "number", ["exported-constructor-prototype"], ["ws"], "src/builtins/ws.js#exports:WebSocket.CONNECTING"],
   ["ws", "WebSocket.OPEN", "data", "number", ["exported-constructor-prototype"], ["ws"], "src/builtins/ws.js#exports:WebSocket.OPEN"],
 ];
+const REVIEWED_STREAM_INSTANCE_VALUES = [
+  ["node_stream", "default.closed", "unknown", "boolean", ["exported-constructor-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:default.closed"],
+  ["node_stream", "Duplex.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Duplex.closed"],
+  ["node_stream", "PassThrough.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:PassThrough.closed"],
+  ["node_stream", "Readable.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Readable.closed"],
+  ["node_stream", "Stream.closed", "unknown", "boolean", ["exported-constructor-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Stream.closed"],
+  ["node_stream", "Transform.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Transform.closed"],
+  ["node_stream", "Writable.closed", "unknown", "boolean", ["exported-constructor-inherited-prototype"], ["node:stream", "stream"], "src/builtins/stream.js#exports:Writable.closed"],
+];
 
 const target = {
   triple: "aarch64-apple-darwin",
@@ -1597,6 +1606,8 @@ function completePostInitializationValueReadCatalog([
   const inheritedPrototype = exportIdioms.includes(
     "exported-constructor-inherited-prototype",
   );
+  const streamInstance =
+    sourceKey === "node_stream" && exportName.endsWith(".closed");
   const prototypePath =
     sourceKey === "node_stream" && exportName === "default.destroyed"
       ? ["prototype", "destroyed"]
@@ -1609,7 +1620,9 @@ function completePostInitializationValueReadCatalog([
     moduleSpecifiers,
     sourceRef,
     valueShape,
-    access: prototype || inheritedPrototype
+    access: streamInstance
+      ? { kind: "constructed-instance-property", path: ["closed"] }
+      : prototype || inheritedPrototype
       ? {
           kind: inheritedPrototype
             ? "inherited-prototype-property"
@@ -1639,6 +1652,13 @@ function completePostInitializationValueReadCatalog([
   recipe.publicSurfaceProbe.invocation.sourceDescriptor = sourceDescriptor;
   recipe.publicSurfaceProbe.invocation.sourceDescriptorDigest =
     taggedDigest(sourceDescriptor);
+  recipe.publicSurfaceProbe.invocation.setup = streamInstance
+    ? {
+        kind: "stream-owner",
+        ownerExportName: segments[0],
+        endedInput: false,
+      }
+    : { kind: "none" };
   catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
   return catalog;
 }
@@ -5160,6 +5180,7 @@ describe("CapSec public-surface promotion evidence", () => {
     for (const entry of [
       ...REVIEWED_POST_INITIALIZATION_VALUES,
       ...REVIEWED_PROTOTYPE_VALUES,
+      ...REVIEWED_STREAM_INSTANCE_VALUES,
     ]) {
       const catalog = completePostInitializationValueReadCatalog(entry);
       const recipe = catalog.recipes[0];
