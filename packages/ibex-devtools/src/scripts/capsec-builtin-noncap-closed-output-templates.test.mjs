@@ -121,7 +121,7 @@ describe("builtin non-capability/closed output recipes", () => {
     // Fresh HTTP/UDP lifecycle calls, X509Certificate.toString, and the three
     // source-only compatibility helpers now have exact loaded zero-decision
     // recipes instead of descriptor-only residual accounts.
-    expect(rows).toHaveLength(545);
+    expect(rows).toHaveLength(544);
     expect(
       Object.fromEntries(
         ["non-capability", "closed"].map((classification) => [
@@ -131,13 +131,13 @@ describe("builtin non-capability/closed output recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ "non-capability": 325, closed: 220 });
+    ).toEqual({ "non-capability": 324, closed: 220 });
     expect(
       builtinNoncapClosedOutputRouteManifest(rows.map((row) => row.invocation)),
     ).toMatchObject({
-      total: 545,
+      total: 544,
       operations: {
-        call: 247,
+        call: 246,
         construct: 16,
         "import-refusal": 22,
         unexercisable: 260,
@@ -153,7 +153,8 @@ describe("builtin non-capability/closed output recipes", () => {
     // The 24 settled consumers, eight fixed-DH operations, six base Stream
     // lifecycle calls, 11 idle zlib destroys, nine fresh HTTP lifecycle calls,
     // six fresh UDP socket lifecycle calls, and three source-only
-    // compatibility helpers now have bounded public probes. Those 68 rows are
+    // compatibility helpers and KeyObject.equals now have bounded public
+    // probes. Those 69 rows are
     // no longer descriptor-only residuals; Duplex
     // `_undestroy` is one representative inherited descriptor.
     expect(

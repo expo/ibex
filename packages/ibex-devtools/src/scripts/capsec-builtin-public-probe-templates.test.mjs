@@ -1352,6 +1352,30 @@ describe("source-bound builtin public probes", () => {
   });
 
   test("authors bounded crypto operations and keeps native crashes residual", () => {
+    expect(
+      probeFor({
+        sourceKey: "exact_crypto",
+        exportName: "KeyObject.equals",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+        sourceRefs: [
+          "src/builtins/crypto.js#exports:KeyObject.equals",
+        ],
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        templateId: "exact-crypto-bounded-v1",
+        arguments: [{ kind: "setup-value", name: "peer" }],
+        setup: {
+          kind: "key-object-pair-owner",
+          ownerExportName: "KeyObject",
+          keyType: "secret",
+          bytes: [0x69, 0x62, 0x65, 0x78],
+        },
+        bodyEntryProof: { resultType: "boolean" },
+      },
+    });
     for (const exportName of ["createPrivateKey", "createPublicKey"]) {
       expect(
         probeFor({

@@ -4972,6 +4972,85 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/malformed authored pure compatibility proof/);
   });
 
+  test("accepts only exact harness-owned KeyObject equality", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:crypto";
+    invocation.exportName = "KeyObject.equals";
+    invocation.templateId = "exact-crypto-bounded-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "exact_crypto",
+      exportName: "KeyObject.equals",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+      sourceRef: "src/builtins/crypto.js#exports:KeyObject.equals",
+      valueShape: "callable",
+      access: {
+        kind: "prototype-property",
+        path: ["KeyObject", "prototype", "equals"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.arguments = [{ kind: "setup-value", name: "peer" }];
+    invocation.setup = {
+      kind: "key-object-pair-owner",
+      ownerExportName: "KeyObject",
+      keyType: "secret",
+      bytes: [0x69, 0x62, 0x65, 0x78],
+    };
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "boolean",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.moduleSpecifier = "node:crypto";
+    observed.invocation.result.moduleSpecifier = "node:crypto";
+    observed.invocation.result.exportName = "KeyObject.equals";
+    observed.invocation.result.dispatchKind = "prototype-call";
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.bytes[3] = 0x79;
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.keyType = "public";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments[0].name = "other";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.bodyEntryProof.resultType =
+          "object";
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored KeyObject.equals proof|wrong value type/,
+      );
+    }
+  });
+
   test("accepts settled stream returns only for ended reviewed consumers", () => {
     const catalog = completeNoncapBuiltinCallCatalog();
     const recipe = catalog.recipes[0];

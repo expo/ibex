@@ -654,6 +654,17 @@ const constructedOwner = (
     arguments_,
     resultType,
   );
+const keyObjectPairOwner = (bytes) =>
+  callSpec(
+    {
+      kind: "key-object-pair-owner",
+      ownerExportName: "KeyObject",
+      keyType: "secret",
+      bytes,
+    },
+    [setupValueArgument("peer")],
+    "boolean",
+  );
 
 const ZLIB_OWNER_NAMES = Object.freeze([
   "BrotliCompress",
@@ -801,6 +812,7 @@ function exactCryptoCallSpecs() {
       jsonArgument("secret"),
       uint8ArrayArgument([0x69, 0x62, 0x65, 0x78]),
     ]),
+    "KeyObject.equals": keyObjectPairOwner([0x69, 0x62, 0x65, 0x78]),
     createHash: rootCall([...CRYPTO_HASH_CONSTRUCTOR_ARGUMENTS], "object"),
     createHmac: rootCall([...CRYPTO_HMAC_CONSTRUCTOR_ARGUMENTS], "object"),
     // These compatibility constructors retain only the harness-owned key
@@ -2176,6 +2188,7 @@ function callTemplateFor(descriptor) {
         "call-tracker-owner",
         "construct-target",
         "constructed-owner",
+        "key-object-pair-owner",
         "zlib-owner",
         "stream-owner",
       ]).has(setupKind)) ||

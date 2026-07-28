@@ -413,6 +413,80 @@
     );
   }
 
+  function isReviewedKeyObjectEqualsInvocation(invocation) {
+    var descriptor = invocation.sourceDescriptor;
+    if (
+      !descriptor ||
+      descriptor.sourceKey !== "exact_crypto" ||
+      invocation.exportName !== "KeyObject.equals"
+    ) {
+      return true;
+    }
+    var setup = invocation.setup;
+    var argument = invocation.arguments && invocation.arguments[0];
+    return (
+      invocation.invocationSchema ===
+        "ibex/capsec-builtin-call-invocation/1" &&
+      invocation.kind === "builtin-export-call" &&
+      invocation.moduleSpecifier === "node:crypto" &&
+      invocation.templateId === "exact-crypto-bounded-v1" &&
+      exactObjectKeys(descriptor, [
+        "access",
+        "exportIdioms",
+        "exportName",
+        "kind",
+        "moduleSpecifiers",
+        "sourceKey",
+        "sourceRef",
+        "valueShape",
+      ]) &&
+      descriptor.kind === "builtin-export" &&
+      descriptor.exportName === "KeyObject.equals" &&
+      descriptor.valueShape === "callable" &&
+      descriptor.sourceRef ===
+        "src/builtins/crypto.js#exports:KeyObject.equals" &&
+      sameStringArray(descriptor.exportIdioms, [
+        "exported-constructor-prototype",
+      ]) &&
+      sameStringArray(descriptor.moduleSpecifiers, [
+        "crypto",
+        "exact:crypto",
+        "node:crypto",
+      ]) &&
+      exactObjectKeys(descriptor.access, ["kind", "path"]) &&
+      descriptor.access.kind === "prototype-property" &&
+      sameStringArray(descriptor.access.path, [
+        "KeyObject",
+        "prototype",
+        "equals",
+      ]) &&
+      exactObjectKeys(setup, [
+        "bytes",
+        "keyType",
+        "kind",
+        "ownerExportName",
+      ]) &&
+      setup.kind === "key-object-pair-owner" &&
+      setup.ownerExportName === "KeyObject" &&
+      setup.keyType === "secret" &&
+      Array.isArray(setup.bytes) &&
+      setup.bytes.length === 4 &&
+      setup.bytes[0] === 0x69 &&
+      setup.bytes[1] === 0x62 &&
+      setup.bytes[2] === 0x65 &&
+      setup.bytes[3] === 0x78 &&
+      Array.isArray(invocation.arguments) &&
+      invocation.arguments.length === 1 &&
+      exactObjectKeys(argument, ["kind", "name"]) &&
+      argument.kind === "setup-value" &&
+      argument.name === "peer" &&
+      exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) &&
+      invocation.bodyEntryProof.kind ===
+        "normal-return-from-source-call" &&
+      invocation.bodyEntryProof.resultType === "boolean"
+    );
+  }
+
   // Output-shape capture is deliberately non-coercing. Primitive values are
   // retained exactly; functions, symbols, and undefined use the established
   // null payload; compound values retain their actual shape without invoking
@@ -754,7 +828,8 @@
       !isReviewedIdleHttpInvocation(config) ||
       !isReviewedIdleDgramInvocation(config) ||
       !isReviewedX509StateInvocation(config) ||
-      !isReviewedPureCompatibilityInvocation(config)
+      !isReviewedPureCompatibilityInvocation(config) ||
+      !isReviewedKeyObjectEqualsInvocation(config)
     ) {
       return failure("contract-mismatch");
     }
@@ -813,6 +888,24 @@
         owner,
         materializeList(setup.constructorArguments, moduleValue, bindings),
       );
+      dispatchKind = "prototype-call";
+    } else if (setup.kind === "key-object-pair-owner") {
+      var keyObjectOwner = moduleValue[setup.ownerExportName];
+      if (typeof keyObjectOwner !== "function") {
+        return failure("setup-mismatch", {
+          setupKind: setup.kind,
+          ownerExportName: setup.ownerExportName,
+        });
+      }
+      var keyBytes = new Uint8Array(setup.bytes);
+      receiver = Reflect.construct(keyObjectOwner, [
+        setup.keyType,
+        keyBytes,
+      ]);
+      bindings.peer = Reflect.construct(keyObjectOwner, [
+        setup.keyType,
+        new Uint8Array(setup.bytes),
+      ]);
       dispatchKind = "prototype-call";
     } else if (setup.kind === "buffer-owner") {
       var bufferOwner = moduleValue[setup.ownerExportName];

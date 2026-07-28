@@ -351,6 +351,7 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["root-call", "call"],
   ["construct-target", "construct"],
   ["constructed-owner", "prototype-call"],
+  ["key-object-pair-owner", "prototype-call"],
   ["buffer-owner", "prototype-call"],
   ["call-tracker-owner", "prototype-call"],
   ["stream-owner", "prototype-call"],
@@ -500,6 +501,31 @@ const PURE_COMPATIBILITY_CALL_CONTRACTS = new Map([
     },
   ],
 ]);
+const KEY_OBJECT_EQUALS_CONTRACT = {
+  moduleSpecifier: "node:crypto",
+  templateId: "exact-crypto-bounded-v1",
+  sourceDescriptor: {
+    kind: "builtin-export",
+    sourceKey: "exact_crypto",
+    exportName: "KeyObject.equals",
+    exportIdioms: ["exported-constructor-prototype"],
+    moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+    sourceRef: "src/builtins/crypto.js#exports:KeyObject.equals",
+    valueShape: "callable",
+    access: {
+      kind: "prototype-property",
+      path: ["KeyObject", "prototype", "equals"],
+    },
+  },
+  setup: {
+    kind: "key-object-pair-owner",
+    ownerExportName: "KeyObject",
+    keyType: "secret",
+    bytes: [0x69, 0x62, 0x65, 0x78],
+  },
+  arguments: [{ kind: "setup-value", name: "peer" }],
+  resultType: "boolean",
+};
 const BASE_STREAM_MODULE_VALUE_CALL_CONTRACTS = new Map([
   [
     "default._close",
@@ -4825,6 +4851,26 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: malformed authored pure compatibility proof`,
+      );
+    }
+    if (
+      authored.sourceDescriptor.sourceKey === "exact_crypto" &&
+      authored.exportName === "KeyObject.equals" &&
+      (authored.moduleSpecifier !==
+        KEY_OBJECT_EQUALS_CONTRACT.moduleSpecifier ||
+        authored.templateId !== KEY_OBJECT_EQUALS_CONTRACT.templateId ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !==
+          KEY_OBJECT_EQUALS_CONTRACT.resultType ||
+        canonicalJson(authored.sourceDescriptor) !==
+          canonicalJson(KEY_OBJECT_EQUALS_CONTRACT.sourceDescriptor) ||
+        canonicalJson(authored.setup) !==
+          canonicalJson(KEY_OBJECT_EQUALS_CONTRACT.setup) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson(KEY_OBJECT_EQUALS_CONTRACT.arguments))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored KeyObject.equals proof`,
       );
     }
     const baseStreamContract =

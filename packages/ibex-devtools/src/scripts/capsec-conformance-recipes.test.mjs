@@ -439,11 +439,11 @@ describe("exact-target CapSec executable recipes", () => {
     // binding, poll timer, or peer route; close drains its terminal event.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_700);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_701);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_848);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_847);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -611,9 +611,9 @@ describe("exact-target CapSec executable recipes", () => {
     // binding, poll timer, or peer route. The restricted no-eval constructor
     // added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_357);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_358);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_864);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_863);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -629,7 +629,7 @@ describe("exact-target CapSec executable recipes", () => {
       windowsCryptoRecipes.filter(
         (recipe) => recipe.status === "fully-executable",
       ),
-    ).toHaveLength(125);
+    ).toHaveLength(126);
     const unavailableWindowsNativeRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5369,7 +5369,7 @@ describe("exact-target CapSec executable recipes", () => {
         ),
       ),
     ).toEqual({
-      exact_crypto: 96,
+      exact_crypto: 97,
       node_fs: 10,
       node_module: 3,
       node_net: 22,
@@ -5418,6 +5418,26 @@ describe("exact-target CapSec executable recipes", () => {
         "string",
       ],
     ]);
+    const keyObjectEquals = publicCalls.find(
+      (recipe) =>
+        recipe.terminalObservedKey ===
+        "builtin:export:exact_crypto:KeyObject.equals",
+    );
+    expect(keyObjectEquals?.publicSurfaceProbe.invocation).toMatchObject({
+      moduleSpecifier: "node:crypto",
+      templateId: "exact-crypto-bounded-v1",
+      arguments: [{ kind: "setup-value", name: "peer" }],
+      setup: {
+        kind: "key-object-pair-owner",
+        ownerExportName: "KeyObject",
+        keyType: "secret",
+        bytes: [0x69, 0x62, 0x65, 0x78],
+      },
+      bodyEntryProof: {
+        kind: "normal-return-from-source-call",
+        resultType: "boolean",
+      },
+    });
     const explicitDhCalls = publicCalls.filter((recipe) =>
       new Set([
         "DiffieHellman",

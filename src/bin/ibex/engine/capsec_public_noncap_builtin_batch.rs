@@ -1055,7 +1055,10 @@ fn validate_authored_argument(argument: &serde_json::Value, allow_setup_value: b
                 "setup value used outside its authored setup"
             );
             assert_object_keys(argument, &["kind", "name"], "setup value argument");
-            assert_eq!(object["name"], "tracked");
+            assert!(matches!(
+                object["name"].as_str(),
+                Some("tracked" | "peer")
+            ));
         }
         "zlib-input" => {
             assert_object_keys(
@@ -1121,6 +1124,23 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
             for argument in constructor_arguments {
                 validate_authored_argument(argument, false);
             }
+        }
+        "key-object-pair-owner" => {
+            assert_object_keys(
+                &invocation.setup,
+                &["bytes", "keyType", "kind", "ownerExportName"],
+                "KeyObject pair owner setup",
+            );
+            assert!(prototype);
+            assert_eq!(descriptor.source_key, "exact_crypto");
+            assert_eq!(setup["ownerExportName"], "KeyObject");
+            assert_eq!(setup["keyType"], "secret");
+            assert_eq!(
+                descriptor.access.path.first().map(String::as_str),
+                Some("KeyObject")
+            );
+            validate_byte_array(&setup["bytes"], "KeyObject pair bytes");
+            allow_setup_value = true;
         }
         "buffer-owner" => {
             assert_object_keys(
@@ -1357,6 +1377,48 @@ fn validate_pure_compatibility_contract(
     assert_eq!(invocation.arguments, [argument]);
     assert_eq!(proof.kind, "normal-return-from-source-call");
     assert_eq!(proof.result_type, result_type);
+}
+
+fn validate_key_object_equals_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    if descriptor.source_key != "exact_crypto" || descriptor.export_name != "KeyObject.equals" {
+        return;
+    }
+    assert_eq!(invocation.module_specifier, "node:crypto");
+    assert_eq!(
+        invocation.template_id.as_deref(),
+        Some("exact-crypto-bounded-v1")
+    );
+    assert_eq!(descriptor.export_idioms, ["exported-constructor-prototype"]);
+    assert_eq!(
+        descriptor.module_specifiers,
+        ["crypto", "exact:crypto", "node:crypto"]
+    );
+    assert_eq!(
+        descriptor.source_ref,
+        "src/builtins/crypto.js#exports:KeyObject.equals"
+    );
+    assert_eq!(descriptor.value_shape, "callable");
+    assert_eq!(descriptor.access.kind, "prototype-property");
+    assert_eq!(descriptor.access.path, ["KeyObject", "prototype", "equals"]);
+    assert_eq!(
+        invocation.setup,
+        serde_json::json!({
+            "kind": "key-object-pair-owner",
+            "ownerExportName": "KeyObject",
+            "keyType": "secret",
+            "bytes": [0x69, 0x62, 0x65, 0x78],
+        })
+    );
+    assert_eq!(
+        invocation.arguments,
+        [serde_json::json!({"kind": "setup-value", "name": "peer"})]
+    );
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, "boolean");
 }
 
 fn validate_base_stream_module_value_contract(
@@ -2009,6 +2071,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         validate_explicit_diffie_hellman_contract(invocation, &descriptor, proof);
         validate_x509_state_contract(invocation, &descriptor, proof);
         validate_pure_compatibility_contract(invocation, &descriptor, proof);
+        validate_key_object_equals_contract(invocation, &descriptor, proof);
         validate_base_stream_module_value_contract(invocation, &descriptor, proof);
         validate_idle_zlib_destroy_contract(invocation, &descriptor, proof);
         validate_idle_http_contract(invocation, &descriptor, proof);

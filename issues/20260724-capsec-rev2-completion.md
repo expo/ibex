@@ -4411,6 +4411,43 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — executed harness-owned `KeyObject.equals`
+
+- Promoted exactly `exact_crypto.KeyObject.equals`. The harness separately
+  constructs two secret `KeyObject` instances containing the same fixed
+  four-byte `ibex` value, invokes the exact prototype method with the peer, and
+  requires a boolean normal return.
+- The setup is deliberately route-specific. The recipe author, independent
+  JavaScript evidence validator, Rust catalog validator, and loaded-engine
+  JavaScript harness repeat the exact prototype descriptor, pair-owner bytes
+  and key type, named peer binding, result, quiescence, and zero-decision
+  contract. No generic nested-constructor argument was added for other crypto
+  routes to inherit.
+- The regenerated Apple catalog digest
+  `sha256-3BtVX9Nizn-Yy1sMnqon24rKgqX0E7lPvABMVkyOmPw` reports 23,584
+  required / **3,701 fully executable** / 3,036 internally verified / 16,847
+  unresolved. The regenerated Windows digest
+  `sha256-FGHGqweHdn04Fm042ahOvQKt6j8WmxpteBXoJg_gDyw` reports 23,243
+  required / **3,358 fully executable** / 3,022 internally verified / 16,863
+  unresolved. The descriptor-only output residual manifest falls from 545 to
+  544 rows.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 54 focused rows
+  plus `KeyObject.equals` under catalog digest
+  `sha256-BPwQzmmy_HKwUcACxHHcbfRoMToCF-jmEVhfZ7vignI` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 55
+  fixtures pass; the equality result is boolean and reaches event-loop
+  quiescence with zero legacy or typed decisions. The raw evidence SHA-256 is
+  `98827123bcfcd6b646b60d311c68757a469068b529aaceb33f2923ff124477f4`;
+  independent JavaScript validation produced diagnostic execution digest
+  `sha256-BZRJ6-Jkmy9ZKnEeFywaTv1u1Ko-4yQoX3r7k0oYYcU`.
+- Under fleet-standard Bun 1.3.14, the focused
+  author/catalog/validator/output-accounting suite passes **193/193** tests
+  with 125,304 assertions. The Linux replay remains diagnostic rather than
+  Apple promotion evidence.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

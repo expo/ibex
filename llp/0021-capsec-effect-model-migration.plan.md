@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-27 (promotes exactly `exact_crypto.KeyObject.equals` for two separately constructed harness-owned secret `KeyObject` instances containing the same fixed four-byte `ibex` value; the author, independent evidence validator, Rust validator, and loaded-engine JavaScript harness repeat a dedicated pair-owner setup, exact prototype descriptor, peer binding, boolean result, quiescence, and zero-decision contract without adding a generic nested-constructor facility; Apple accounting is 3,701 fully executable / 3,036 internally verified / 16,847 unresolved and Windows accounting is 3,358 / 3,022 / 16,863)
 **Revised:** 2026-07-27 (promotes exactly three source-only compatibility calls: `exact_crypto.createPrivateKey("ibex-key")`, `exact_crypto.createPublicKey("ibex-key")`, and `node_readline.CSI(["31m"])`; the first two construct only in-memory compatibility wrappers without parsing, importing, or consulting a native key store, while CSI concatenates a harness-owned string array without opening a terminal or retaining a stream; authoring, independent evidence validation, Rust validation, and the loaded-engine JavaScript harness repeat the complete source descriptor, literal argument, root-call setup, result type, quiescence, and zero-decision contract; the cross-source `dns/promises.getDefaultResultOrder` projection remains residual; Apple accounting is 3,700 fully executable / 3,036 internally verified / 16,848 unresolved and Windows accounting is 3,357 / 3,022 / 16,864)
 **Revised:** 2026-07-27 (promotes exactly two bounded X509 instance operations: an own `raw` accessor read and `toString()` on a fresh harness-owned `X509Certificate("ibex-x509-fixture")`; the locked primordial `Object.prototype.toString` previously swallowed ordinary prototype assignment, so `crypto.js` now installs the intended own override with an explicit descriptor while preserving lockdown; the author, independent evidence validator, Rust validator, and loaded-engine JavaScript harness separately repeat the exact constructor, access/call, result type, quiescence, and zero-decision contract; Apple accounting is 3,697 fully executable / 3,036 internally verified / 16,851 unresolved and Windows accounting is 3,354 / 3,022 / 16,867)
 **Revised:** 2026-07-27 (promotes exactly six fresh `node:dgram` udp4 construction/lifecycle calls: `Socket`, `Socket.close`, `Socket.constructor`, `Socket.ref`, `Socket.unref`, and `createSocket`; construction creates the principal stamp but no native handle, binding, poll timer, or peer route, while close must drain its terminal event before quiescence; the author, independent evidence validator, Rust validator, and loaded-engine JavaScript harness each repeat the real `src/builtins/dgram.js` descriptor, canonical `node:dgram` invocation, exact udp4 setup, result, and normal-return proof; bind, connect, send, address, membership, and buffer operations remain residual; Apple accounting is 3,695 fully executable / 3,036 internally verified / 16,853 unresolved and Windows accounting is 3,352 / 3,022 / 16,869)
@@ -2787,6 +2788,16 @@ other crypto or readline calls. In particular,
 `dns/promises.getDefaultResultOrder` remains residual because its public export
 is an explicitly marked cross-source projection rather than a locally authored
 callable.
+
+`exact_crypto.KeyObject.equals` has a separate pair-owner receipt. The harness
+constructs two distinct secret `KeyObject` instances from the same fixed four
+bytes (`ibex`) and passes the second only through a named setup binding to the
+first instance's exact prototype method. The returned boolean proves the
+source-defined in-memory byte comparison. The four validators repeat the
+complete descriptor, bytes, key type, receiver, peer binding, result,
+quiescence, and zero-decision contract. The setup kind is specific to this
+route; it does not expose a generic nested-constructor argument that another
+crypto callable could inherit.
 
 Acceptance:
 
