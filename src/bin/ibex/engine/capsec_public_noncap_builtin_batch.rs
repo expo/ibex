@@ -1062,6 +1062,31 @@ fn zlib_callback_contract(value: &str) -> Option<(&'static [u8], &'static str)> 
     }
 }
 
+fn zlib_end_contract(value: &str) -> Option<(&'static [u8], &'static str)> {
+    match value {
+        "BrotliCompress" | "Deflate" | "DeflateRaw" | "Gzip" => {
+            Some((&[105, 98, 101, 120], "nonempty-byte-view"))
+        }
+        "BrotliDecompress" => Some((
+            &[139, 1, 128, 105, 98, 101, 120, 3],
+            "exact-ibex-byte-view",
+        )),
+        "Gunzip" | "Unzip" => Some((
+            &[
+                31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30, 109,
+                106, 4, 0, 0, 0,
+            ],
+            "exact-ibex-byte-view",
+        )),
+        "Inflate" => Some((
+            &[120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169],
+            "exact-ibex-byte-view",
+        )),
+        "InflateRaw" => Some((&[203, 76, 74, 173, 0, 0], "exact-ibex-byte-view")),
+        _ => None,
+    }
+}
+
 fn is_stream_owner(value: &str) -> bool {
     matches!(
         value,
@@ -1386,6 +1411,25 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
                 Some(owner)
             );
             assert!(setup["ensureNativeStream"].is_boolean());
+        }
+        "zlib-end-owner" => {
+            assert_object_keys(
+                &invocation.setup,
+                &["kind", "outputContract", "ownerExportName"],
+                "zlib end owner setup",
+            );
+            assert!(prototype);
+            assert_eq!(descriptor.source_key, "node_zlib");
+            let owner = setup["ownerExportName"]
+                .as_str()
+                .expect("zlib end owner name must be text");
+            let (_, output_contract) =
+                zlib_end_contract(owner).expect("zlib end owner must be reviewed");
+            assert_eq!(setup["outputContract"].as_str(), Some(output_contract));
+            assert_eq!(
+                descriptor.access.path.first().map(String::as_str),
+                Some(owner)
+            );
         }
         "stream-owner" => {
             assert_object_keys(
@@ -1818,6 +1862,65 @@ fn validate_idle_zlib_destroy_contract(
         })
     );
     assert!(invocation.arguments.is_empty());
+}
+
+fn validate_zlib_end_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    if descriptor.source_key != "node_zlib"
+        || !descriptor.export_name.ends_with(".end")
+    {
+        return;
+    }
+    let (owner, method) = descriptor
+        .export_name
+        .split_once('.')
+        .expect("zlib end export has owner and method");
+    let Some((input, output_contract)) = zlib_end_contract(owner) else {
+        return;
+    };
+    assert_eq!(method, "end");
+    assert_eq!(invocation.module_specifier, "node:zlib");
+    assert_eq!(
+        invocation.template_id.as_deref(),
+        Some("node-zlib-bounded-v1")
+    );
+    assert_eq!(descriptor.kind, "builtin-export");
+    assert_eq!(descriptor.value_shape, "callable");
+    assert_eq!(
+        descriptor.source_ref,
+        format!("src/builtins/zlib.js#exports:{}", descriptor.export_name)
+    );
+    assert_eq!(
+        descriptor.export_idioms,
+        ["exported-constructor-inherited-prototype"]
+    );
+    assert_eq!(descriptor.module_specifiers, ["node:zlib", "zlib"]);
+    assert_eq!(descriptor.access.kind, "inherited-prototype-property");
+    assert_eq!(
+        descriptor.access.path,
+        vec![
+            owner.to_owned(),
+            "prototype".to_owned(),
+            "end".to_owned()
+        ]
+    );
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, "object");
+    assert_eq!(
+        invocation.setup,
+        serde_json::json!({
+            "kind": "zlib-end-owner",
+            "ownerExportName": owner,
+            "outputContract": output_contract
+        })
+    );
+    assert_eq!(
+        serde_json::Value::Array(invocation.arguments.clone()),
+        serde_json::json!([{"kind": "buffer", "bytes": input}])
+    );
 }
 
 fn validate_zlib_sync_encoder_contract(
@@ -2804,6 +2907,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         );
         validate_base_stream_module_value_contract(invocation, &descriptor, proof);
         validate_idle_zlib_destroy_contract(invocation, &descriptor, proof);
+        validate_zlib_end_contract(invocation, &descriptor, proof);
         validate_zlib_sync_encoder_contract(invocation, &descriptor, proof);
         validate_zlib_sync_decoder_contract(invocation, &descriptor, proof);
         validate_zlib_callback_contract(invocation, &descriptor, proof);
@@ -3462,8 +3566,10 @@ async fn execute_recipe(
                 recipe.fixture_id
             ));
         }
-        if probe.invocation.setup["kind"] == "zlib-owner"
-            && invocation_result["cleanupPerformed"] != true
+        if matches!(
+            probe.invocation.setup["kind"].as_str(),
+            Some("zlib-owner" | "zlib-end-owner")
+        ) && invocation_result["cleanupPerformed"] != true
         {
             return Err(format!(
                 "{}: public zlib call did not prove native-state cleanup: {invocation_result}",
@@ -3494,6 +3600,14 @@ async fn execute_recipe(
         {
             return Err(format!(
                 "{}: public zlib callback did not prove its exact delivery contract: {invocation_result}",
+                recipe.fixture_id
+            ));
+        }
+        if probe.invocation.setup["kind"] == "zlib-end-owner"
+            && invocation_result["zlibEndLifecycleVerified"] != true
+        {
+            return Err(format!(
+                "{}: public zlib end call did not prove finish, output, and cleanup: {invocation_result}",
                 recipe.fixture_id
             ));
         }

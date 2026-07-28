@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-28 (promotes terminal `end(Buffer)` on exactly nine Apple zlib owners and seven Windows owners: every call must return the receiver, deliver a nonempty encoded byte view or exact decoded bytes `[105, 98, 101, 120]`, emit exactly one `finish`, reach terminal writable state, leave no native codec ownership live, quiesce, and observe zero decisions; Apple additionally covers `BrotliCompress` and `BrotliDecompress`, while Windows leaves them target-unavailable and both targets leave zstd residual because no native zstd bridge exists; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact owner/input/output/lifecycle contract; Apple accounting is 3,749 fully executable / 3,036 internally verified / 16,799 unresolved and Windows is 3,400 / 3,022 / 16,821; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes exactly four Apple-only one-shot Brotli routes: `brotliCompressSync`, `brotliDecompressSync`, `brotliCompress`, and `brotliDecompress`; the synchronous calls require a nonempty encoded byte view or exact decoded bytes `[105, 98, 101, 120]`, while the callbacks return `undefined`, deliver exactly once without error, satisfy the same output proof, and reach quiescence; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact four-name vocabulary, source descriptor, fixed input/compressed bytes, dispatch, and output contract; Apple accounting is 3,740 fully executable / 3,036 internally verified / 16,808 unresolved while Windows remains 3,393 / 3,022 / 16,828 because it does not install the native Brotli bridge; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes exactly seven one-shot `node:zlib` callback wrappers: `deflate`, `deflateRaw`, `gzip`, `gunzip`, `inflate`, `inflateRaw`, and `unzip`; the loaded harness passes a dedicated callback credential, awaits exactly one deferred delivery, rejects errors, and verifies a nonempty encoded byte view or the exact decoded bytes `[105, 98, 101, 120]` before quiescence; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact seven-name vocabulary, source descriptor, compressed/input bytes, callback contract, undefined source return, and delivery proof; Apple accounting is 3,736 fully executable / 3,036 internally verified / 16,812 unresolved and Windows is 3,393 / 3,022 / 16,828; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes exactly four isolated `node:zlib` synchronous decoders: `gunzipSync`, `inflateRawSync`, `inflateSync`, and `unzipSync`; each public root call receives one fixed deflate, raw-deflate, or gzip Buffer and must return the exact decoded bytes `[105, 98, 101, 120]`, with no retained stream and zero decisions; authoring, independent evidence validation, Rust validation, and the loaded-engine harness separately repeat the exact four-name vocabulary, source descriptor, compressed input, dispatch, and decoded-byte proof; Apple accounting is 3,729 fully executable / 3,036 internally verified / 16,819 unresolved and Windows is 3,386 / 3,022 / 16,835; advertisements remain empty)
@@ -2782,8 +2783,27 @@ boundary each repeat the exact four-name vocabulary, source descriptor, fixed
 bytes, root dispatch, return contract, and output proof. Windows continues to
 leave all four rows residual because that target does not install the native
 Brotli bridge; zstd one-shot wrappers, `info` engines, arbitrary callbacks,
-multiple delivery, retained codec objects, and incremental stream methods
-remain residual on every target.
+multiple delivery, retained codec objects, and incremental stream methods other
+than the separately bounded terminal `end` lifecycles below remain residual.
+
+Terminal zlib `end(Buffer)` has a separate stream-lifecycle receipt for exactly
+nine Apple owners: `BrotliCompress`, `BrotliDecompress`, `Deflate`,
+`DeflateRaw`, `Gunzip`, `Gzip`, `Inflate`, `InflateRaw`, and `Unzip`. Windows
+executes the same set without the two target-unavailable Brotli owners.
+Compression receives `[105, 98, 101, 120]` and must emit a nonempty byte view;
+each decoder receives its fixed complete Brotli, deflate, raw-deflate, or gzip
+member and must emit exactly `[105, 98, 101, 120]`. The selected source call
+must return the receiver object, emit exactly one `finish`, set terminal
+writable state, leave no native selector live, and reach event-loop quiescence
+with zero decisions; owners without a native stream still pass the same
+idempotent cleanup proof. The author, independent evidence validator, Rust
+validator, and loaded-engine JavaScript boundary separately repeat the exact
+owner set, inherited prototype descriptor, input, output contract, dispatch,
+finish, cleanup, and quiescence proof. `ZstdCompress.end` and
+`ZstdDecompress.end` remain residual because the runtime deliberately exposes
+no native zstd bridge. Other writes, parameter changes, flushes, transforms,
+and synchronous `_processChunk` calls remain residual pending separately
+bounded input, output, callback, and native-lifecycle evidence.
 
 The seven reviewed `node:stream` `closed` projections require a constructed
 receiver even though the source inventory exposes them as inherited or direct

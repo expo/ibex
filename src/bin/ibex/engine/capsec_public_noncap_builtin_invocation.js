@@ -597,7 +597,7 @@
   }
 
   // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
-  // These three one-shot encoders receive one exact four-byte Buffer and
+  // These four one-shot encoders receive one exact four-byte Buffer and
   // retain no codec stream. Keep their source descriptor, dispatch, and input
   // closed at the final loaded-engine boundary.
   function isReviewedZlibSyncEncoderInvocation(invocation) {
@@ -835,6 +835,121 @@
       invocation.bodyEntryProof.kind ===
         "normal-return-from-source-call" &&
       invocation.bodyEntryProof.resultType === "undefined"
+    );
+  }
+
+  function zlibEndContract(invocation) {
+    if (
+      !invocation ||
+      !invocation.sourceDescriptor ||
+      invocation.sourceDescriptor.sourceKey !== "node_zlib"
+    ) {
+      return null;
+    }
+    var owner = invocation.exportName.split(".")[0];
+    switch (owner) {
+      case "BrotliCompress":
+      case "Deflate":
+      case "DeflateRaw":
+      case "Gzip":
+        return {
+          input: [105, 98, 101, 120],
+          outputContract: "nonempty-byte-view",
+        };
+      case "BrotliDecompress":
+        return {
+          input: [139, 1, 128, 105, 98, 101, 120, 3],
+          outputContract: "exact-ibex-byte-view",
+        };
+      case "Gunzip":
+      case "Unzip":
+        return {
+          input: [
+            31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55,
+            30, 109, 106, 4, 0, 0, 0,
+          ],
+          outputContract: "exact-ibex-byte-view",
+        };
+      case "Inflate":
+        return {
+          input: [120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169],
+          outputContract: "exact-ibex-byte-view",
+        };
+      case "InflateRaw":
+        return {
+          input: [203, 76, 74, 173, 0, 0],
+          outputContract: "exact-ibex-byte-view",
+        };
+      default:
+        return null;
+    }
+  }
+
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // Stream end is credited only after exact output, one finish event, terminal
+  // writable state, native cleanup, and event-loop quiescence.
+  function isReviewedZlibEndInvocation(invocation) {
+    if (
+      !invocation ||
+      typeof invocation.exportName !== "string" ||
+      !invocation.exportName.endsWith(".end")
+    ) {
+      return !(
+        invocation &&
+        invocation.setup &&
+        invocation.setup.kind === "zlib-end-owner"
+      );
+    }
+    var contract = zlibEndContract(invocation);
+    if (contract === null) return false;
+    var owner = invocation.exportName.split(".")[0];
+    var descriptor = invocation.sourceDescriptor;
+    var input = invocation.arguments && invocation.arguments[0];
+    return (
+      invocation.invocationSchema ===
+        "ibex/capsec-builtin-call-invocation/1" &&
+      invocation.kind === "builtin-export-call" &&
+      invocation.moduleSpecifier === "node:zlib" &&
+      invocation.templateId === "node-zlib-bounded-v1" &&
+      exactObjectKeys(descriptor, [
+        "access",
+        "exportIdioms",
+        "exportName",
+        "kind",
+        "moduleSpecifiers",
+        "sourceKey",
+        "sourceRef",
+        "valueShape",
+      ]) &&
+      descriptor.kind === "builtin-export" &&
+      descriptor.exportName === invocation.exportName &&
+      descriptor.valueShape === "callable" &&
+      descriptor.sourceRef ===
+        "src/builtins/zlib.js#exports:" + invocation.exportName &&
+      sameStringArray(descriptor.exportIdioms, [
+        "exported-constructor-inherited-prototype",
+      ]) &&
+      sameStringArray(descriptor.moduleSpecifiers, ["node:zlib", "zlib"]) &&
+      exactObjectKeys(descriptor.access, ["kind", "path"]) &&
+      descriptor.access.kind === "inherited-prototype-property" &&
+      sameStringArray(descriptor.access.path, [owner, "prototype", "end"]) &&
+      exactObjectKeys(invocation.setup, [
+        "kind",
+        "outputContract",
+        "ownerExportName",
+      ]) &&
+      invocation.setup.kind === "zlib-end-owner" &&
+      invocation.setup.ownerExportName === owner &&
+      invocation.setup.outputContract === contract.outputContract &&
+      Array.isArray(invocation.arguments) &&
+      invocation.arguments.length === 1 &&
+      exactObjectKeys(input, ["bytes", "kind"]) &&
+      input.kind === "buffer" &&
+      sameByteArray(input.bytes, contract.input) &&
+      exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) &&
+      invocation.bodyEntryProof.kind ===
+        "normal-return-from-source-call" &&
+      invocation.bodyEntryProof.resultType === "object"
     );
   }
 
@@ -1716,6 +1831,8 @@
     var zlibSyncDecoderOutputVerified = false;
     var zlibCallbackOutputVerified = false;
     var zlibCallbackPromise = null;
+    var zlibEndLifecycleVerified = false;
+    var zlibEndLifecyclePromise = null;
     var readlineLifecycleState = null;
     if (
       !isReviewedBoundedHttpInvocation(config) ||
@@ -1726,6 +1843,7 @@
       !isReviewedZlibSyncEncoderInvocation(config) ||
       !isReviewedZlibSyncDecoderInvocation(config) ||
       !isReviewedZlibCallbackInvocation(config) ||
+      !isReviewedZlibEndInvocation(config) ||
       !isReviewedX509StateInvocation(config) ||
       !isReviewedPureCompatibilityInvocation(config) ||
       !isReviewedReadlineInterfaceLifecycleInvocation(config) ||
@@ -1922,6 +2040,93 @@
         });
       }
       dispatchKind = "prototype-call";
+    } else if (setup.kind === "zlib-end-owner") {
+      var zlibEndOwner = moduleValue[setup.ownerExportName];
+      if (typeof zlibEndOwner !== "function") {
+        return failure("setup-mismatch", {
+          setupKind: setup.kind,
+          ownerExportName: setup.ownerExportName,
+        });
+      }
+      receiver = Reflect.construct(zlibEndOwner, []);
+      if (
+        !receiver ||
+        typeof receiver.on !== "function" ||
+        typeof receiver.removeListener !== "function" ||
+        typeof receiver._closeNativeStream !== "function"
+      ) {
+        return failure("setup-mismatch", {
+          setupKind: setup.kind,
+          ownerExportName: setup.ownerExportName,
+        });
+      }
+      zlibEndLifecyclePromise = new Promise(function (resolve) {
+        var finishEvents = 0;
+        var outputChunks = [];
+        var failed = false;
+        function onData(chunk) {
+          if (!chunk || !ArrayBuffer.isView(chunk)) {
+            failed = true;
+            return;
+          }
+          outputChunks.push(
+            new Uint8Array(
+              chunk.buffer,
+              chunk.byteOffset,
+              chunk.byteLength,
+            ),
+          );
+        }
+        function onError() {
+          failed = true;
+          resolve(false);
+        }
+        function onFinish() {
+          finishEvents++;
+          if (finishEvents !== 1) return;
+          setTimeout(function () {
+            receiver.removeListener("data", onData);
+            receiver.removeListener("error", onError);
+            receiver.removeListener("finish", onFinish);
+            var totalLength = 0;
+            for (var index = 0; index < outputChunks.length; index++) {
+              totalLength += outputChunks[index].byteLength;
+            }
+            var output = new Uint8Array(totalLength);
+            var offset = 0;
+            for (
+              var chunkIndex = 0;
+              chunkIndex < outputChunks.length;
+              chunkIndex++
+            ) {
+              output.set(outputChunks[chunkIndex], offset);
+              offset += outputChunks[chunkIndex].byteLength;
+            }
+            try {
+              receiver._closeNativeStream();
+              cleanupPerformed = true;
+            } catch (_cleanupError) {
+              failed = true;
+            }
+            var outputVerified =
+              setup.outputContract === "nonempty-byte-view"
+                ? output.byteLength > 0
+                : sameByteView(output, [105, 98, 101, 120]);
+            zlibEndLifecycleVerified =
+              !failed &&
+              finishEvents === 1 &&
+              receiver._flushed === true &&
+              receiver.writableEnded === true &&
+              outputVerified &&
+              cleanupPerformed;
+            resolve(zlibEndLifecycleVerified);
+          }, 0);
+        }
+        receiver.on("data", onData);
+        receiver.on("error", onError);
+        receiver.on("finish", onFinish);
+      });
+      dispatchKind = "prototype-call";
     } else if (setup.kind === "stream-owner") {
       receiver = createStreamInstance(
         moduleValue,
@@ -2106,6 +2311,10 @@
       if (setup.kind === "zlib-owner") {
         success.cleanupPerformed = cleanupPerformed;
       }
+      if (setup.kind === "zlib-end-owner") {
+        success.cleanupPerformed = cleanupPerformed;
+        success.zlibEndLifecycleVerified = zlibEndLifecycleVerified;
+      }
       if (isZlibSyncEncoderInvocation(config)) {
         success.zlibSyncEncoderOutputVerified =
           zlibSyncEncoderOutputVerified;
@@ -2171,6 +2380,18 @@
           });
         }
         zlibCallbackOutputVerified = true;
+        return finishResult(result);
+      });
+    }
+
+    if (zlibEndLifecyclePromise) {
+      return zlibEndLifecyclePromise.then(function (verified) {
+        if (!verified) {
+          return failure("cleanup-mismatch", {
+            setupKind: setup.kind,
+            ownerExportName: setup.ownerExportName,
+          });
+        }
         return finishResult(result);
       });
     }

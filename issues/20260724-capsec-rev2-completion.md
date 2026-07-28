@@ -5062,6 +5062,70 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — prove terminal zlib end lifecycles
+
+- Promoted `end(Buffer)` on exactly nine Apple owners:
+  `BrotliCompress`, `BrotliDecompress`, `Deflate`, `DeflateRaw`, `Gunzip`,
+  `Gzip`, `Inflate`, `InflateRaw`, and `Unzip`. Windows promotes the same
+  seven non-Brotli owners and leaves both Brotli rows target-unavailable. Both
+  targets leave `ZstdCompress.end` and `ZstdDecompress.end` residual because
+  the runtime deliberately has no native zstd bridge.
+- Compression receives the fixed Buffer bytes `[105, 98, 101, 120]` and must
+  emit a nonempty byte view. Each decoder receives one fixed complete Brotli,
+  deflate, raw-deflate, or gzip member and must emit exactly
+  `[105, 98, 101, 120]`. Credit additionally requires the selected source call
+  to return its receiver, exactly one `finish`, terminal writable state,
+  proof that no native selector remains live, event-loop quiescence, and zero
+  decisions.
+- The author, independent JavaScript evidence validator, Rust catalog
+  validator, and final loaded-engine harness separately repeat the exact owner
+  vocabulary, inherited prototype descriptor, fixed input, output contract,
+  dispatch, finish, cleanup, and quiescence proof. The first isolated
+  `Deflate.end` attempt failed closed before the source call because the loaded
+  boundary required an extra prototype idiom not present in the exact source
+  descriptor; it was uncredited. After narrowing the reviewer to the actual
+  inherited-prototype descriptor, every owner passed its own 99/99
+  static-Hermes process before the combined 107/107 batch.
+- The nine isolated catalog digests are
+  `sha256-4sA4saMcfYT8wmVFy_3q8HT0Cisfm_tOH1XCYcPAvu0`,
+  `sha256-pOI7XVXCkWlRFubRmI9IOn37pxjhWDxvU-ChcRXQGQQ`,
+  `sha256-bnGB_LN90P85Ys5Z8Qtm2K0FIWDrdjRgK_sSiFoPoqY`,
+  `sha256-1PbfOQtKTvL9RTBPQvoh-tJAhFwrdaKp9EvBI4hwgX8`,
+  `sha256-XwcfRpaN1F7ZGsLrHn7zdmHxUZMMtZh8kW8hn-ZsVGs`,
+  `sha256--n9P7fM9ZaeKKYV5zvSztgVYB-kco9dgTZdt2wQzzKE`,
+  `sha256-9DrJlYG9irjUls06-TgMIhxhL8QJfJg6d-oAokPqPD4`,
+  `sha256-Z9lTxijdGKgAr5pIo4QIJA__gQCagG_i-INaMY0mbUQ`, and
+  `sha256-3s6KGcWNlkJObb6Xk8x9erID7fz3qH4BcUV_Xgrd5Ic`.
+- The regenerated Apple catalog digest
+  `sha256-ratuRlixg0neQM9emGcKTxilMKfsbtp6R0AA6Uy5rxs` reports 23,584
+  required / **3,749 fully executable** / 3,036 internally verified / 16,799
+  unresolved. The regenerated Windows digest
+  `sha256-N54aj7Eh3Kd8RE86baNX6tj5gcN7XMfOpMk2BvPgFkk` reports 23,243
+  required / **3,400 fully executable** / 3,022 internally verified / 16,821
+  unresolved. The descriptor-only output manifest falls from 503 to 494 rows.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 98 focused rows
+  plus the nine end lifecycles under catalog digest
+  `sha256-ANSpElBnKl9zlLaJcpCSlKf16HIgW9C-q6qxZIMyFMk` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 107
+  fixtures pass; every new result reports `zlibEndLifecycleVerified: true`,
+  cleanup, quiescence, and zero legacy or typed decisions. The raw evidence
+  SHA-256 is
+  `af24bafbaff0d2dec8f312ed99acf01a43fb5db29535e505668481498171deb0`;
+  independent JavaScript validation accepted all 107 executions and produced
+  diagnostic execution digest
+  `sha256-FeZ9uYsQzrHCrb_PYpEZxkY6Wob_VIvHDgLJrgXJE5o` (artifact SHA-256
+  `8a458c15864ad0626c65944d9f0d0f93ca14e87ec61a5c69e13d3032e830454c`).
+  The diagnostic source binding is baseline revision
+  `ebf7070886563ce4b1934b58422f84600add3b38` / tree digest
+  `sha256-d3pI6CMkIbzIedKTyNJ12tNnI1sdjAA8gI34KTjmBX8`.
+- The focused author/catalog/validator/output-accounting suite plus inventory
+  regression passes **219/219** tests with 125,011 assertions. A final
+  exact-current-file replay also passes the 107/107 physical batch and is
+  byte-identical to the raw receipt above.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

@@ -760,6 +760,44 @@ const ZLIB_OWNER_NAMES = Object.freeze([
   "ZstdDecompress",
 ]);
 const ZLIB_OWNER_SET = new Set(ZLIB_OWNER_NAMES);
+const ZLIB_END_CONTRACTS = new Map([
+  ["BrotliCompress", [[105, 98, 101, 120], "nonempty-byte-view"]],
+  [
+    "BrotliDecompress",
+    [[139, 1, 128, 105, 98, 101, 120, 3], "exact-ibex-byte-view"],
+  ],
+  ["Deflate", [[105, 98, 101, 120], "nonempty-byte-view"]],
+  ["DeflateRaw", [[105, 98, 101, 120], "nonempty-byte-view"]],
+  [
+    "Gunzip",
+    [
+      [
+        31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30,
+        109, 106, 4, 0, 0, 0,
+      ],
+      "exact-ibex-byte-view",
+    ],
+  ],
+  ["Gzip", [[105, 98, 101, 120], "nonempty-byte-view"]],
+  [
+    "Inflate",
+    [[120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169], "exact-ibex-byte-view"],
+  ],
+  [
+    "InflateRaw",
+    [[203, 76, 74, 173, 0, 0], "exact-ibex-byte-view"],
+  ],
+  [
+    "Unzip",
+    [
+      [
+        31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30,
+        109, 106, 4, 0, 0, 0,
+      ],
+      "exact-ibex-byte-view",
+    ],
+  ],
+]);
 function zlibRootCallSpecs() {
   const specs = Object.create(null);
   const deflateBytes = [120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169];
@@ -2086,6 +2124,19 @@ function zlibPrototypeSpec(exportName) {
     // performs an idempotent cleanup and waits for event-loop quiescence.
     return zlibOwnerCall(ownerExportName, [], "object");
   }
+  if (methodName === "end") {
+    const contract = ZLIB_END_CONTRACTS.get(ownerExportName);
+    if (!contract) return null;
+    return callSpec(
+      {
+        kind: "zlib-end-owner",
+        ownerExportName,
+        outputContract: contract[1],
+      },
+      [bufferArgument(contract[0])],
+      "object",
+    );
+  }
   if (
     new Set([
       "_flush",
@@ -2401,6 +2452,7 @@ function callTemplateFor(descriptor) {
         "readline-interface-owner",
         "readline-interface-pause-owner",
         "tls-server-construct-target",
+        "zlib-end-owner",
         "zlib-owner",
         "stream-owner",
       ]).has(setupKind)) ||

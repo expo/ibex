@@ -378,6 +378,7 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["buffer-owner", "prototype-call"],
   ["call-tracker-owner", "prototype-call"],
   ["stream-owner", "prototype-call"],
+  ["zlib-end-owner", "prototype-call"],
   ["zlib-owner", "prototype-call"],
 ]);
 const SETTLED_STREAM_CONSUMER_CONTRACTS = new Map([
@@ -886,6 +887,49 @@ const ZLIB_IDLE_DESTROY_OWNERS = new Set([
   "ZstdCompress",
   "ZstdDecompress",
 ]);
+const ZLIB_END_CONTRACTS = new Map(
+  [
+    ["BrotliCompress", [105, 98, 101, 120], "nonempty-byte-view"],
+    [
+      "BrotliDecompress",
+      [139, 1, 128, 105, 98, 101, 120, 3],
+      "exact-ibex-byte-view",
+    ],
+    ["Deflate", [105, 98, 101, 120], "nonempty-byte-view"],
+    ["DeflateRaw", [105, 98, 101, 120], "nonempty-byte-view"],
+    [
+      "Gunzip",
+      [
+        31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30,
+        109, 106, 4, 0, 0, 0,
+      ],
+      "exact-ibex-byte-view",
+    ],
+    ["Gzip", [105, 98, 101, 120], "nonempty-byte-view"],
+    [
+      "Inflate",
+      [120, 156, 203, 76, 74, 173, 0, 0, 4, 16, 1, 169],
+      "exact-ibex-byte-view",
+    ],
+    ["InflateRaw", [203, 76, 74, 173, 0, 0], "exact-ibex-byte-view"],
+    [
+      "Unzip",
+      [
+        31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 76, 74, 173, 0, 0, 55, 30,
+        109, 106, 4, 0, 0, 0,
+      ],
+      "exact-ibex-byte-view",
+    ],
+  ].map(([owner, bytes, outputContract]) => [
+    owner,
+    Object.freeze({
+      arguments: Object.freeze([
+        Object.freeze({ kind: "buffer", bytes: Object.freeze(bytes) }),
+      ]),
+      outputContract,
+    }),
+  ]),
+);
 const ZLIB_SYNC_ENCODERS = new Set([
   "brotliCompressSync",
   "deflateRawSync",
@@ -5629,6 +5673,12 @@ function validateRuntimeInvocation(observation, recipe) {
       zlibExtra.length === 0 &&
       zlibMethod === "destroy" &&
       ZLIB_IDLE_DESTROY_OWNERS.has(zlibOwner);
+    const zlibEndContract =
+      authored.sourceDescriptor.sourceKey === "node_zlib" &&
+      zlibExtra.length === 0 &&
+      zlibMethod === "end"
+        ? ZLIB_END_CONTRACTS.get(zlibOwner)
+        : null;
     if (
       zlibIdleDestroy &&
       (authored.templateId !== "node-zlib-bounded-v1" ||
@@ -5650,6 +5700,37 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: malformed authored idle zlib destroy proof`,
       );
     }
+    if (
+      zlibEndContract &&
+      (authored.moduleSpecifier !== "node:zlib" ||
+        authored.templateId !== "node-zlib-bounded-v1" ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !== "object" ||
+        authored.sourceDescriptor.kind !== "builtin-export" ||
+        authored.sourceDescriptor.valueShape !== "callable" ||
+        authored.sourceDescriptor.sourceRef !==
+          `src/builtins/zlib.js#exports:${authored.exportName}` ||
+        canonicalJson(authored.sourceDescriptor.exportIdioms) !==
+          canonicalJson(["exported-constructor-inherited-prototype"]) ||
+        canonicalJson(authored.sourceDescriptor.moduleSpecifiers) !==
+          canonicalJson(["node:zlib", "zlib"]) ||
+        authored.sourceDescriptor.access.kind !==
+          "inherited-prototype-property" ||
+        canonicalJson(authored.sourceDescriptor.access.path) !==
+          canonicalJson([zlibOwner, "prototype", "end"]) ||
+        canonicalJson(authored.setup) !==
+          canonicalJson({
+            kind: "zlib-end-owner",
+            ownerExportName: zlibOwner,
+            outputContract: zlibEndContract.outputContract,
+          }) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson(zlibEndContract.arguments))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored zlib end lifecycle proof`,
+      );
+    }
     if (!NORMAL_RETURN_DISPATCH_KINDS.has(authored.setup.kind)) {
       throw new Error(
         `${recipe.fixtureId}: malformed authored normal-return setup`,
@@ -5661,6 +5742,7 @@ function validateRuntimeInvocation(observation, recipe) {
       "readline-interface-pause-owner",
       "tls-server-construct-target",
       "tls-server-root-call",
+      "zlib-end-owner",
       "zlib-owner",
     ]).has(authored.setup.kind);
     const readlineLifecycleRequired = new Set([
@@ -5673,6 +5755,8 @@ function validateRuntimeInvocation(observation, recipe) {
     ]).has(authored.setup.kind);
     const netLifecycleRequired =
       authored.setup.kind === "net-terminal-owner";
+    const zlibEndLifecycleRequired =
+      authored.setup.kind === "zlib-end-owner";
     exactKeys(
       invocation.result,
       [
@@ -5688,6 +5772,9 @@ function validateRuntimeInvocation(observation, recipe) {
           ? ["tlsServerLifecycleVerified"]
           : []),
         ...(netLifecycleRequired ? ["netLifecycleVerified"] : []),
+        ...(zlibEndLifecycleRequired
+          ? ["zlibEndLifecycleVerified"]
+          : []),
         ...(zlibSyncEncoder ? ["zlibSyncEncoderOutputVerified"] : []),
         ...(zlibSyncDecoderArguments
           ? ["zlibSyncDecoderOutputVerified"]
@@ -5717,6 +5804,8 @@ function validateRuntimeInvocation(observation, recipe) {
         invocation.result.zlibSyncDecoderOutputVerified !== true) ||
       (zlibCallbackArguments &&
         invocation.result.zlibCallbackOutputVerified !== true) ||
+      (zlibEndLifecycleRequired &&
+        invocation.result.zlibEndLifecycleVerified !== true) ||
       (netLifecycleRequired &&
         invocation.result.netLifecycleVerified !== true)
     ) {
