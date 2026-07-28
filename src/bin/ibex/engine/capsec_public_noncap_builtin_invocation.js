@@ -29,6 +29,23 @@
     return true;
   }
 
+  function sameByteArray(value, expected) {
+    if (!Array.isArray(value) || value.length !== expected.length) {
+      return false;
+    }
+    for (var index = 0; index < value.length; index++) {
+      if (
+        !Number.isInteger(value[index]) ||
+        value[index] < 0 ||
+        value[index] > 255 ||
+        value[index] !== expected[index]
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   function sameJsonStringArguments(value, expected) {
     if (!Array.isArray(value) || value.length !== expected.length) {
       return false;
@@ -548,6 +565,68 @@
           invocation.arguments[0].kind === "json" &&
           invocation.arguments[0].value === "224.0.0.1"
         : invocation.arguments.length === 0)
+    );
+  }
+
+  function isZlibSyncEncoderInvocation(invocation) {
+    return (
+      invocation &&
+      invocation.sourceDescriptor &&
+      invocation.sourceDescriptor.sourceKey === "node_zlib" &&
+      (invocation.exportName === "deflateSync" ||
+        invocation.exportName === "deflateRawSync" ||
+        invocation.exportName === "gzipSync")
+    );
+  }
+
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // These three one-shot encoders receive one exact four-byte Buffer and
+  // retain no codec stream. Keep their source descriptor, dispatch, and input
+  // closed at the final loaded-engine boundary.
+  function isReviewedZlibSyncEncoderInvocation(invocation) {
+    if (!isZlibSyncEncoderInvocation(invocation)) return true;
+    var descriptor = invocation.sourceDescriptor;
+    var argument = invocation.arguments && invocation.arguments[0];
+    return (
+      invocation.invocationSchema ===
+        "ibex/capsec-builtin-call-invocation/1" &&
+      invocation.kind === "builtin-export-call" &&
+      invocation.moduleSpecifier === "node:zlib" &&
+      invocation.templateId === "node-zlib-bounded-v1" &&
+      exactObjectKeys(descriptor, [
+        "access",
+        "exportIdioms",
+        "exportName",
+        "kind",
+        "moduleSpecifiers",
+        "sourceKey",
+        "sourceRef",
+        "valueShape",
+      ]) &&
+      descriptor.kind === "builtin-export" &&
+      descriptor.exportName === invocation.exportName &&
+      descriptor.valueShape === "callable" &&
+      descriptor.sourceRef ===
+        "src/builtins/zlib.js#exports:" + invocation.exportName &&
+      sameStringArray(descriptor.exportIdioms, [
+        "object-binding",
+        "object-source",
+      ]) &&
+      sameStringArray(descriptor.moduleSpecifiers, ["node:zlib", "zlib"]) &&
+      exactObjectKeys(descriptor.access, ["kind", "path"]) &&
+      descriptor.access.kind === "export-property" &&
+      sameStringArray(descriptor.access.path, [invocation.exportName]) &&
+      exactObjectKeys(invocation.setup, ["kind"]) &&
+      invocation.setup.kind === "root-call" &&
+      Array.isArray(invocation.arguments) &&
+      invocation.arguments.length === 1 &&
+      exactObjectKeys(argument, ["bytes", "kind"]) &&
+      argument.kind === "buffer" &&
+      sameByteArray(argument.bytes, [105, 98, 101, 120]) &&
+      exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) &&
+      invocation.bodyEntryProof.kind ===
+        "normal-return-from-source-call" &&
+      invocation.bodyEntryProof.resultType === "object"
     );
   }
 
@@ -1391,6 +1470,7 @@
     var netLifecyclePromise = null;
     var tlsServerLifecycleVerified = false;
     var tlsServerLifecyclePromise = null;
+    var zlibSyncEncoderOutputVerified = false;
     var readlineLifecycleState = null;
     if (
       !isReviewedBoundedHttpInvocation(config) ||
@@ -1398,6 +1478,7 @@
       !isReviewedIdleTlsSocketInvocation(config) ||
       !isReviewedIdleTlsServerInvocation(config) ||
       !isReviewedIdleDgramInvocation(config) ||
+      !isReviewedZlibSyncEncoderInvocation(config) ||
       !isReviewedX509StateInvocation(config) ||
       !isReviewedPureCompatibilityInvocation(config) ||
       !isReviewedReadlineInterfaceLifecycleInvocation(config) ||
@@ -1617,6 +1698,19 @@
       } else {
         result = Reflect.apply(target, receiver, callArguments);
       }
+      if (isZlibSyncEncoderInvocation(config)) {
+        zlibSyncEncoderOutputVerified =
+          result !== null &&
+          typeof result === "object" &&
+          ArrayBuffer.isView(result) &&
+          typeof result.byteLength === "number" &&
+          result.byteLength > 0;
+        if (!zlibSyncEncoderOutputVerified) {
+          return failure("result-shape-mismatch", {
+            expectedShape: "nonempty-byte-view",
+          });
+        }
+      }
       if (
         setup.kind === "readline-interface-owner" ||
         setup.kind === "readline-interface-pause-owner"
@@ -1745,6 +1839,10 @@
       };
       if (setup.kind === "zlib-owner") {
         success.cleanupPerformed = cleanupPerformed;
+      }
+      if (isZlibSyncEncoderInvocation(config)) {
+        success.zlibSyncEncoderOutputVerified =
+          zlibSyncEncoderOutputVerified;
       }
       if (
         setup.kind === "readline-interface-owner" ||

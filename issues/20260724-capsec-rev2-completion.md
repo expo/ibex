@@ -4860,6 +4860,56 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — isolate three synchronous zlib encoders
+
+- Promoted exactly `node_zlib.deflateRawSync`, `node_zlib.deflateSync`, and
+  `node_zlib.gzipSync`. Each public root call receives one harness-owned Buffer
+  containing `[105, 98, 101, 120]`, returns a nonempty byte view, retains no
+  incremental codec selector, callback, listener, or deferred stream, reaches
+  quiescence, and observes zero decisions.
+- The recipe author, independent JavaScript evidence validator, Rust catalog
+  validator, and loaded-engine JavaScript harness separately repeat the exact
+  three-name allowlist, source descriptor, canonical `node:zlib` alias, Buffer
+  argument, root dispatch, object result, and nonempty byte-view proof.
+  Decoders, callback codecs, `_processChunk`, `flush`, `params`, `write`, and
+  every other stream-processing route remain residual.
+- The crash-sensitive audit ran every new encoder in its own static-Hermes
+  process before the combined batch. An initial empty-input diagnostic was
+  rejected by the existing Rust bounded-byte invariant before source dispatch,
+  and an accidentally over-restrictive Cargo `--exact` filter ran zero tests;
+  neither was credited. The corrected fixed four-byte receipts each passed
+  81/81, then the hardened combined receipt passed 83/83.
+- The regenerated Apple catalog digest
+  `sha256-rXKi2calAnVQJk5UciYeZQWK-92dk14WV0oF3SU-Dxk` reports 23,584
+  required / **3,725 fully executable** / 3,036 internally verified / 16,823
+  unresolved. The regenerated Windows digest
+  `sha256-dgKuKwLT9kCDWEhvVSglvqpYrMKUpxUsEeVyW4AMozU` reports 23,243
+  required / **3,382 fully executable** / 3,022 internally verified / 16,839
+  unresolved. The descriptor-only output manifest falls from 521 to 518 rows.
+- The EPYC exact-Hermes diagnostic receipt binds the prior 80 focused rows
+  plus the three encoders under catalog digest
+  `sha256-7HtOn4abh5EOQXNSi1kKv_o-Ees6DgLHhIqH0tT0awE` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 83
+  fixtures pass; every new result reports
+  `zlibSyncEncoderOutputVerified: true`, quiescence, and zero legacy or typed
+  decisions. The raw evidence SHA-256 is
+  `2c983c3e76c0a9eac0d04b23b2a29cf7235411a8b01bfff5ce11dd3bfed5a62f`;
+  independent JavaScript validation accepted all 83 executions and produced
+  diagnostic execution digest
+  `sha256-KL0Yc-ivJp05XWtC8a4Tu_t5_7GCfKnYNqEXEbUSy_U` (artifact SHA-256
+  `c77f2736dafd6ad3dcfc572b98f7d615972e235b2ae7d3d26e2640a797fd0f5c`).
+  The diagnostic source binding is baseline revision
+  `0c73006ef11cb05cc006abed8a0ded35ec3495f5` / tree digest
+  `sha256-PnkUcROtL6wqBlzXVSj9etQKhdJpk20CnEbT9qqvDoc`.
+- The focused author/catalog/validator/output-accounting suite passes
+  **216/216** tests with 125,174 assertions on EPYC Bun 1.3.14. A final
+  exact-current-file replay also passes the 83/83 physical Rust batch, and its
+  raw receipt plus independently rebuilt execution artifact are byte-identical
+  to the published hashes above.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

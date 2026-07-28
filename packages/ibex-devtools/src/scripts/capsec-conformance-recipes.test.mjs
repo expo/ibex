@@ -436,6 +436,8 @@ describe("exact-target CapSec executable recipes", () => {
     // retained paused state and then closes that shim before completion.
     // Eleven idle zlib destroy calls authenticate and close their
     // constructor-owned native selectors without processing codec input.
+    // Three isolated sync encoders process one fixed four-byte Buffer and
+    // return a nonempty byte view without retaining stream state.
     // Seven inert stream.closed reads use fresh harness-owned instances.
     // Nine fresh HTTP construction/lifecycle calls own no listener, socket, or
     // native selector; Server.close's terminal event timer drains before the
@@ -455,11 +457,11 @@ describe("exact-target CapSec executable recipes", () => {
     // residual until it has loaded-engine evidence.
     // Five fresh net terminal calls observe close delivery after proving that
     // their harness-owned receiver never acquired a transport.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_722);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_725);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_826);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_823);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -622,6 +624,8 @@ describe("exact-target CapSec executable recipes", () => {
     // Zstd constructors remain
     // target-local residuals. Seven inert stream.closed reads use fresh
     // harness-owned instances on both targets. Nine fresh HTTP
+    // Three isolated sync encoders use the same fixed four-byte input and
+    // nonempty byte-view result contract on both targets.
     // construction/lifecycle calls own no live transport state, and the close
     // event timer drains before quiescence. Four root validators inspect only
     // fixed harness-owned header strings.
@@ -639,9 +643,9 @@ describe("exact-target CapSec executable recipes", () => {
     // remains one explicit residual until it has loaded-engine evidence.
     // Five fresh net terminal calls observe close delivery after proving that
     // their harness-owned receiver never acquired a transport.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_379);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_382);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_842);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_839);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5627,6 +5631,27 @@ describe("exact-target CapSec executable recipes", () => {
         (recipe) =>
           recipe.publicSurfaceProbe.invocation.setup.kind === "zlib-owner" &&
           recipe.publicSurfaceProbe.invocation.arguments.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.bodyEntryProof.resultType ===
+            "object",
+      ),
+    ).toBe(true);
+    const syncZlibEncoderCalls = publicCalls.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+          "node_zlib" &&
+        new Set(["deflateRawSync", "deflateSync", "gzipSync"]).has(
+          recipe.publicSurfaceProbe.invocation.exportName,
+        ),
+    );
+    expect(syncZlibEncoderCalls).toHaveLength(3);
+    expect(
+      syncZlibEncoderCalls.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.setup.kind === "root-call" &&
+          canonicalJson(recipe.publicSurfaceProbe.invocation.arguments) ===
+            canonicalJson([
+              { kind: "buffer", bytes: [105, 98, 101, 120] },
+            ]) &&
           recipe.publicSurfaceProbe.invocation.bodyEntryProof.resultType ===
             "object",
       ),

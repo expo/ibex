@@ -5528,6 +5528,87 @@ describe("CapSec public-surface promotion evidence", () => {
     }
   });
 
+  test("accepts only reviewed isolated sync zlib encoders", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:zlib";
+    invocation.exportName = "deflateSync";
+    invocation.templateId = "node-zlib-bounded-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_zlib",
+      exportName: "deflateSync",
+      exportIdioms: ["object-binding", "object-source"],
+      moduleSpecifiers: ["node:zlib", "zlib"],
+      sourceRef: "src/builtins/zlib.js#exports:deflateSync",
+      valueShape: "callable",
+      access: {
+        kind: "export-property",
+        path: ["deflateSync"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.setup = { kind: "root-call" };
+    invocation.arguments = [
+      { kind: "buffer", bytes: [105, 98, 101, 120] },
+    ];
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "object",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.result.zlibSyncEncoderOutputVerified = true;
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments[0].bytes[3] = 121;
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.kind = "construct-target";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.sourceDescriptor.sourceRef =
+          "src/builtins/zlib.js#exports:gzipSync";
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored sync zlib encoder proof|descriptor drift|not source-descriptor bound/,
+      );
+    }
+
+    const missingOutputProof = structuredClone(observed);
+    missingOutputProof.invocation.result.zlibSyncEncoderOutputVerified = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: missingOutputProof,
+        coverage,
+      }),
+    ).toThrow(/did not prove its exact normal return/);
+  });
+
   test("accepts only reviewed bounded HTTP calls", () => {
     const catalog = completeNoncapBuiltinCallCatalog();
     const recipe = catalog.recipes[0];

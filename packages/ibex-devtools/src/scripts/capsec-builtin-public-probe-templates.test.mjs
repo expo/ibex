@@ -1071,7 +1071,7 @@ describe("source-bound builtin public probes", () => {
     });
   });
 
-  test("authors non-native zlib setup and keeps native work residual", () => {
+  test("authors bounded zlib setup and isolated sync encoders", () => {
     expect(
       probeFor({
         sourceKey: "node_zlib",
@@ -1128,7 +1128,30 @@ describe("source-bound builtin public probes", () => {
       },
     });
     for (const exportName of [
+      "deflateRawSync",
+      "deflateSync",
       "gzipSync",
+    ]) {
+      expect(
+        probeFor({
+          sourceKey: "node_zlib",
+          exportName,
+          exportIdioms: ["object-binding", "object-source"],
+          moduleSpecifiers: ["node:zlib", "zlib"],
+          valueShape: "callable",
+        }),
+      ).toMatchObject({
+        invocation: {
+          arguments: [
+            { kind: "buffer", bytes: [105, 98, 101, 120] },
+          ],
+          setup: { kind: "root-call" },
+          bodyEntryProof: { resultType: "object" },
+        },
+      });
+    }
+    for (const exportName of [
+      "inflateSync",
       "Gunzip._processChunk",
       "ZstdDecompress._processChunk",
     ]) {

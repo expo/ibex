@@ -763,10 +763,23 @@ function zlibRootCallSpecs() {
     specs[`create${ownerExportName}`] = rootCall([], "object");
   }
   specs.crc32 = rootCall([jsonArgument("ibex")], "number");
+  specs.deflateSync = rootCall(
+    [bufferArgument([105, 98, 101, 120])],
+    "object",
+  );
+  specs.deflateRawSync = rootCall(
+    [bufferArgument([105, 98, 101, 120])],
+    "object",
+  );
+  specs.gzipSync = rootCall(
+    [bufferArgument([105, 98, 101, 120])],
+    "object",
+  );
   // One-shot codec functions, synchronous and callback-based alike, enter
   // native codec work that currently can terminate the bound static-Hermes
-  // process. Keep the whole family residual until each backend has isolated
-  // physical proof; quiescence cannot turn a process crash into a receipt.
+  // process. Keep every unaudited member residual until each backend has
+  // isolated physical proof; quiescence cannot turn a process crash into a
+  // receipt.
   return Object.freeze(specs);
 }
 

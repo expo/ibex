@@ -1016,6 +1016,10 @@ fn is_zlib_owner(value: &str) -> bool {
     )
 }
 
+fn is_zlib_sync_encoder(value: &str) -> bool {
+    matches!(value, "deflateRawSync" | "deflateSync" | "gzipSync")
+}
+
 fn is_stream_owner(value: &str) -> bool {
     matches!(
         value,
@@ -1761,6 +1765,45 @@ fn validate_idle_zlib_destroy_contract(
         })
     );
     assert!(invocation.arguments.is_empty());
+}
+
+fn validate_zlib_sync_encoder_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    if descriptor.source_key != "node_zlib"
+        || !is_zlib_sync_encoder(&descriptor.export_name)
+    {
+        return;
+    }
+    assert_eq!(invocation.module_specifier, "node:zlib");
+    assert_eq!(
+        invocation.template_id.as_deref(),
+        Some("node-zlib-bounded-v1")
+    );
+    assert_eq!(descriptor.kind, "builtin-export");
+    assert_eq!(descriptor.value_shape, "callable");
+    assert_eq!(
+        descriptor.export_idioms,
+        ["object-binding", "object-source"]
+    );
+    assert_eq!(descriptor.module_specifiers, ["node:zlib", "zlib"]);
+    assert_eq!(
+        descriptor.source_ref,
+        format!("src/builtins/zlib.js#exports:{}", descriptor.export_name)
+    );
+    assert_eq!(descriptor.access.kind, "export-property");
+    assert_eq!(descriptor.access.path, [descriptor.export_name.clone()]);
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, "object");
+    assert_eq!(invocation.setup, serde_json::json!({"kind": "root-call"}));
+    assert_eq!(
+        serde_json::Value::Array(invocation.arguments.clone()),
+        serde_json::json!([
+            {"kind": "buffer", "bytes": [105, 98, 101, 120]}
+        ])
+    );
 }
 
 fn validate_idle_net_terminal_contract(
@@ -2618,6 +2661,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         );
         validate_base_stream_module_value_contract(invocation, &descriptor, proof);
         validate_idle_zlib_destroy_contract(invocation, &descriptor, proof);
+        validate_zlib_sync_encoder_contract(invocation, &descriptor, proof);
         validate_idle_net_terminal_contract(invocation, &descriptor, proof);
         validate_bounded_http_contract(invocation, &descriptor, proof);
         validate_idle_tls_socket_contract(invocation, &descriptor, proof);
@@ -3257,6 +3301,9 @@ async fn execute_recipe(
         }
     }
     if probe.invocation.kind == "builtin-export-call" {
+        let descriptor: BuiltinSourceDescriptor =
+            serde_json::from_value(probe.invocation.source_descriptor.clone())
+                .expect("validated builtin call descriptor must remain exact");
         let proof = probe
             .invocation
             .body_entry_proof
@@ -3275,6 +3322,15 @@ async fn execute_recipe(
         {
             return Err(format!(
                 "{}: public zlib call did not prove native-state cleanup: {invocation_result}",
+                recipe.fixture_id
+            ));
+        }
+        if descriptor.source_key == "node_zlib"
+            && is_zlib_sync_encoder(&descriptor.export_name)
+            && invocation_result["zlibSyncEncoderOutputVerified"] != true
+        {
+            return Err(format!(
+                "{}: public sync zlib encoder did not prove a nonempty byte result: {invocation_result}",
                 recipe.fixture_id
             ));
         }

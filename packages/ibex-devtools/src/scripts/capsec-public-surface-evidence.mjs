@@ -886,6 +886,14 @@ const ZLIB_IDLE_DESTROY_OWNERS = new Set([
   "ZstdCompress",
   "ZstdDecompress",
 ]);
+const ZLIB_SYNC_ENCODERS = new Set([
+  "deflateRawSync",
+  "deflateSync",
+  "gzipSync",
+]);
+const ZLIB_SYNC_ENCODER_ARGUMENTS = Object.freeze([
+  Object.freeze({ kind: "buffer", bytes: Object.freeze([105, 98, 101, 120]) }),
+]);
 const NATIVE_FILESYSTEM_DENIAL_GLOBALS = new Set([
   "__exactAppendFile",
   "__exactFsOpen",
@@ -5440,6 +5448,38 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: malformed authored idle UDP socket proof`,
       );
     }
+    const zlibSyncEncoder =
+      authored.sourceDescriptor.sourceKey === "node_zlib" &&
+      ZLIB_SYNC_ENCODERS.has(authored.exportName);
+    if (
+      zlibSyncEncoder &&
+      (authored.moduleSpecifier !== "node:zlib" ||
+        authored.templateId !== "node-zlib-bounded-v1" ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !== "object" ||
+        canonicalJson(authored.sourceDescriptor) !==
+          canonicalJson({
+            kind: "builtin-export",
+            sourceKey: "node_zlib",
+            exportName: authored.exportName,
+            exportIdioms: ["object-binding", "object-source"],
+            moduleSpecifiers: ["node:zlib", "zlib"],
+            sourceRef: `src/builtins/zlib.js#exports:${authored.exportName}`,
+            valueShape: "callable",
+            access: {
+              kind: "export-property",
+              path: [authored.exportName],
+            },
+          }) ||
+        canonicalJson(authored.setup) !==
+          canonicalJson({ kind: "root-call" }) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson(ZLIB_SYNC_ENCODER_ARGUMENTS))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored sync zlib encoder proof`,
+      );
+    }
     const [zlibOwner, zlibMethod, ...zlibExtra] =
       authored.exportName.split(".");
     const zlibIdleDestroy =
@@ -5506,6 +5546,7 @@ function validateRuntimeInvocation(observation, recipe) {
           ? ["tlsServerLifecycleVerified"]
           : []),
         ...(netLifecycleRequired ? ["netLifecycleVerified"] : []),
+        ...(zlibSyncEncoder ? ["zlibSyncEncoderOutputVerified"] : []),
       ],
       `${recipe.fixtureId}: builtin normal-return result`,
     );
@@ -5524,6 +5565,8 @@ function validateRuntimeInvocation(observation, recipe) {
         invocation.result.inputLifecycleVerified !== true) ||
       (tlsServerLifecycleRequired &&
         invocation.result.tlsServerLifecycleVerified !== true) ||
+      (zlibSyncEncoder &&
+        invocation.result.zlibSyncEncoderOutputVerified !== true) ||
       (netLifecycleRequired &&
         invocation.result.netLifecycleVerified !== true)
     ) {
