@@ -947,6 +947,25 @@ describe("source-bound builtin public probes", () => {
         },
       },
     });
+    expect(
+      probeFor({
+        sourceKey: "node_zlib",
+        exportName: "Gzip.destroy",
+        exportIdioms: ["exported-constructor-inherited-prototype"],
+        moduleSpecifiers: ["node:zlib", "zlib"],
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        arguments: [],
+        setup: {
+          kind: "zlib-owner",
+          ownerExportName: "Gzip",
+          ensureNativeStream: false,
+        },
+        bodyEntryProof: { resultType: "object" },
+      },
+    });
     for (const exportName of [
       "gzipSync",
       "Gunzip._processChunk",

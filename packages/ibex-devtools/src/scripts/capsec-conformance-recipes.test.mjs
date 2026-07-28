@@ -416,13 +416,15 @@ describe("exact-target CapSec executable recipes", () => {
     // and 58 exact values remain separate from their modules' initialization
     // or are read through a reviewed inert prototype path. Eight fixed-prime
     // DiffieHellman construction and state-only calls add no random work.
+    // Eleven idle zlib destroy calls authenticate and close their
+    // constructor-owned native selectors without processing codec input.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_662);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_673);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_886);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_875);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -578,12 +580,14 @@ describe("exact-target CapSec executable recipes", () => {
     // absent RSA aliases and the unsafe or deliberately throwing crypto/zlib
     // claims. The 23 exact post-initialization value reads and 31 reviewed
     // prototype values execute on both targets. The fixed-prime DiffieHellman
-    // family adds eight bounded state-only calls. The restricted
+    // family adds eight bounded state-only calls. This target proves nine idle
+    // zlib destroy calls; its two unavailable Zstd constructors remain
+    // target-local residuals. The restricted
     // no-eval constructor added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_321);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_330);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_900);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_891);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5356,6 +5360,22 @@ describe("exact-target CapSec executable recipes", () => {
             "node_stream" &&
           recipe.publicSurfaceProbe.invocation.sourceDescriptor.access.path[0] ===
             "prototype",
+      ),
+    ).toBe(true);
+    const idleZlibDestroyCalls = publicCalls.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+          "node_zlib" &&
+        recipe.publicSurfaceProbe.invocation.exportName.endsWith(".destroy"),
+    );
+    expect(idleZlibDestroyCalls).toHaveLength(11);
+    expect(
+      idleZlibDestroyCalls.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.setup.kind === "zlib-owner" &&
+          recipe.publicSurfaceProbe.invocation.arguments.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.bodyEntryProof.resultType ===
+            "object",
       ),
     ).toBe(true);
     expect(

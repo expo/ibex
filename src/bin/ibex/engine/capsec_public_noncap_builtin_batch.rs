@@ -1286,6 +1286,45 @@ fn validate_base_stream_module_value_contract(
     );
 }
 
+fn validate_idle_zlib_destroy_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    if descriptor.source_key != "node_zlib"
+        || !descriptor.export_name.ends_with(".destroy")
+    {
+        return;
+    }
+    let (owner, method) = descriptor
+        .export_name
+        .split_once('.')
+        .expect("zlib destroy export has owner and method");
+    if method != "destroy" || !is_zlib_owner(owner) {
+        return;
+    }
+    assert_eq!(descriptor.access.kind, "inherited-prototype-property");
+    assert_eq!(
+        descriptor.access.path,
+        vec![
+            owner.to_owned(),
+            "prototype".to_owned(),
+            "destroy".to_owned()
+        ]
+    );
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, "object");
+    assert_eq!(
+        invocation.setup,
+        serde_json::json!({
+            "kind": "zlib-owner",
+            "ownerExportName": owner,
+            "ensureNativeStream": false
+        })
+    );
+    assert!(invocation.arguments.is_empty());
+}
+
 fn expected_template_id(source_key: &str) -> Option<&'static str> {
     match source_key {
         "exact_crypto" => Some("exact-crypto-bounded-v1"),
@@ -1612,6 +1651,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         }
         validate_explicit_diffie_hellman_contract(invocation, &descriptor, proof);
         validate_base_stream_module_value_contract(invocation, &descriptor, proof);
+        validate_idle_zlib_destroy_contract(invocation, &descriptor, proof);
         assert!(matches!(
             proof.result_type.as_str(),
             "bigint"

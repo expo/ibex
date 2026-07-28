@@ -456,6 +456,19 @@ const BASE_STREAM_MODULE_VALUE_CALL_CONTRACTS = new Map([
     },
   ]),
 ]);
+const ZLIB_IDLE_DESTROY_OWNERS = new Set([
+  "BrotliCompress",
+  "BrotliDecompress",
+  "Deflate",
+  "DeflateRaw",
+  "Gunzip",
+  "Gzip",
+  "Inflate",
+  "InflateRaw",
+  "Unzip",
+  "ZstdCompress",
+  "ZstdDecompress",
+]);
 const NATIVE_FILESYSTEM_DENIAL_GLOBALS = new Set([
   "__exactAppendFile",
   "__exactFsOpen",
@@ -4534,6 +4547,34 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: malformed authored base Stream module-value proof`,
+      );
+    }
+    const [zlibOwner, zlibMethod, ...zlibExtra] =
+      authored.exportName.split(".");
+    const zlibIdleDestroy =
+      authored.sourceDescriptor.sourceKey === "node_zlib" &&
+      zlibExtra.length === 0 &&
+      zlibMethod === "destroy" &&
+      ZLIB_IDLE_DESTROY_OWNERS.has(zlibOwner);
+    if (
+      zlibIdleDestroy &&
+      (authored.templateId !== "node-zlib-bounded-v1" ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !== "object" ||
+        authored.sourceDescriptor.access.kind !==
+          "inherited-prototype-property" ||
+        canonicalJson(authored.sourceDescriptor.access.path) !==
+          canonicalJson([zlibOwner, "prototype", "destroy"]) ||
+        canonicalJson(authored.setup) !==
+          canonicalJson({
+            kind: "zlib-owner",
+            ownerExportName: zlibOwner,
+            ensureNativeStream: false,
+          }) ||
+        canonicalJson(authored.arguments) !== canonicalJson([]))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored idle zlib destroy proof`,
       );
     }
     if (!NORMAL_RETURN_DISPATCH_KINDS.has(authored.setup.kind)) {

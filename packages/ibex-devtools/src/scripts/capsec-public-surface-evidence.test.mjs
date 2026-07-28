@@ -5025,6 +5025,87 @@ describe("CapSec public-surface promotion evidence", () => {
     }
   });
 
+  test("accepts only reviewed idle zlib destroy calls", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:zlib";
+    invocation.exportName = "Gzip.destroy";
+    invocation.templateId = "node-zlib-bounded-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_zlib",
+      exportName: "Gzip.destroy",
+      exportIdioms: ["exported-constructor-inherited-prototype"],
+      moduleSpecifiers: ["node:zlib", "zlib"],
+      sourceRef: "src/builtins/zlib.js#exports:Gzip.destroy",
+      valueShape: "callable",
+      access: {
+        kind: "inherited-prototype-property",
+        path: ["Gzip", "prototype", "destroy"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.setup = {
+      kind: "zlib-owner",
+      ownerExportName: "Gzip",
+      ensureNativeStream: false,
+    };
+    invocation.arguments = [];
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "object",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.result.dispatchKind = "prototype-call";
+    observed.invocation.result.cleanupPerformed = true;
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.sourceDescriptor.access.path = [
+          "Gzip",
+          "prototype",
+          "_destroy",
+        ];
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.ownerExportName = "Gunzip";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.ensureNativeStream = true;
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments = [
+          { kind: "json", value: null },
+        ];
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored idle zlib destroy proof|descriptor drift|not source-descriptor bound/,
+      );
+    }
+  });
+
   test("accepts only reviewed dns/promises error reads that return strings", () => {
     const catalog = completeDnsPromiseErrorReadCatalog();
     const recipe = catalog.recipes[0];

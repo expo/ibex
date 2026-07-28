@@ -1743,6 +1743,13 @@ function zlibPrototypeSpec(exportName) {
   if (methodName === "_ensureNativeStream") {
     return zlibOwnerCall(ownerExportName, [], "boolean");
   }
+  if (methodName === "destroy") {
+    // Construction establishes a principal-bound native selector, and the
+    // owned destroy path synchronously authenticates before delegating to the
+    // stream lifecycle. `_destroy` closes that idle selector; the harness then
+    // performs an idempotent cleanup and waits for event-loop quiescence.
+    return zlibOwnerCall(ownerExportName, [], "object");
+  }
   if (
     new Set([
       "_flush",
