@@ -468,11 +468,11 @@ describe("exact-target CapSec executable recipes", () => {
     // their harness-owned receiver never acquired a transport.
     // Forty-four process lifecycle receipts bind exit and beforeExit across
     // both their branch-selection and no-effect obligations.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_873);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_874);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_040);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_679);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_678);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -659,9 +659,9 @@ describe("exact-target CapSec executable recipes", () => {
     // their harness-owned receiver never acquired a transport.
     // The same source-defined lifecycle branches are target-applicable on
     // Windows and execute against its selected installation branch.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_512);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_513);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_026);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_713);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_712);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5095,6 +5095,50 @@ describe("exact-target CapSec executable recipes", () => {
           ),
         ).size,
       ).toBe(11);
+    }
+  });
+
+  test("binds process umask read and write to the pinned armed refusal", () => {
+    for (const catalog of [recipes, windowsRecipes]) {
+      const rows = catalog.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+          "process-umask-closure",
+      );
+      expect(rows, catalog.target.triple).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        status: "fully-executable",
+        classification: "closed",
+        scenario: "closed",
+        actionIds: [],
+        residualReasons: [],
+        terminalObservedKey: "native-op:global:process.umask",
+        publicSurfaceProbe: {
+          invocation: {
+            expectedResult: "closed",
+            expectedTypedDecisionCount: 0,
+            sourceDescriptor: {
+              kind: "closed-process-umask",
+              globalName: "process",
+              memberName: "umask",
+              targetTriple: catalog.target.triple,
+              enforcementSourceRef:
+                "src/engine/hermes_runtime.cc#armed-process-event-methods",
+            },
+            operation: {
+              kind: "process-umask-closure",
+              argumentCases: [
+                { id: "read", arguments: [] },
+                { id: "write", arguments: [0] },
+              ],
+              expectedErrorCode: "ERR_ACCESS_DENIED",
+              expectedPermission: "ProcessUmask",
+              expectedError:
+                "process.umask is disabled in an armed runtime",
+            },
+          },
+        },
+      });
     }
   });
 

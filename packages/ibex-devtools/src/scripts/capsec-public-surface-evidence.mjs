@@ -4599,6 +4599,92 @@ function validateRuntimeInvocation(observation, recipe) {
         );
       }
     }
+    if (authored.operation?.kind === "process-umask-closure") {
+      const descriptor = authored.sourceDescriptor;
+      const operation = authored.operation;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "globalName",
+          "memberName",
+          "targetTriple",
+          "implementationBranchIds",
+          "enforcementBranchIds",
+          "enforcementSourceRef",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: process umask source descriptor`,
+      );
+      exactKeys(
+        operation,
+        [
+          "kind",
+          "argumentCases",
+          "expectedErrorCode",
+          "expectedPermission",
+          "expectedError",
+        ],
+        `${recipe.fixtureId}: process umask operation`,
+      );
+      const metadata = descriptor.sourceMetadata;
+      const branches = metadata?.installationBranches;
+      const selectedVariants = descriptor.implementationBranchIds?.map(
+        (branchId) => branchId.slice(branchId.lastIndexOf(".") + 1),
+      );
+      const selectedBranches = branches?.filter((branch) =>
+        selectedVariants?.includes(branch.id),
+      );
+      if (
+        authored.surfaceKind !== "native-op" ||
+        authored.surfaceName !== "global:process.umask" ||
+        recipe.terminalObservedKey !==
+          "native-op:global:process.umask" ||
+        descriptor.kind !== "closed-process-umask" ||
+        descriptor.surfaceObservedKey !== recipe.terminalObservedKey ||
+        descriptor.globalName !== "process" ||
+        descriptor.memberName !== "umask" ||
+        !new Set([
+          "aarch64-apple-darwin",
+          "x86_64-pc-windows-msvc",
+        ]).has(descriptor.targetTriple) ||
+        canonicalJson(descriptor.implementationBranchIds) !==
+          canonicalJson(recipe.implementationBranchIds) ||
+        canonicalJson(descriptor.enforcementBranchIds) !==
+          canonicalJson(recipe.enforcementBranchIds) ||
+        descriptor.enforcementSourceRef !==
+          "src/engine/hermes_runtime.cc#armed-process-event-methods" ||
+        !Array.isArray(descriptor.sourceRefs) ||
+        descriptor.sourceRefs.length === 0 ||
+        metadata?.surfaceType !== "global-api" ||
+        metadata.globalName !== "process" ||
+        metadata.memberName !== "umask" ||
+        metadata.exportName !== "process.umask" ||
+        metadata.valueShape !== "callable" ||
+        canonicalJson(metadata.memberKinds) !==
+          canonicalJson(["instance-property", "member-assignment"]) ||
+        !Array.isArray(branches) ||
+        selectedBranches?.length !== 1 ||
+        !selectedBranches[0].sourceRefs?.every((sourceRef) =>
+          descriptor.sourceRefs.includes(sourceRef),
+        ) ||
+        canonicalJson(operation.argumentCases) !==
+          canonicalJson([
+            { id: "read", arguments: [] },
+            { id: "write", arguments: [0] },
+          ]) ||
+        operation.expectedErrorCode !== "ERR_ACCESS_DENIED" ||
+        operation.expectedPermission !== "ProcessUmask" ||
+        operation.expectedError !==
+          "process.umask is disabled in an armed runtime"
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: process umask closure is not bound to its selected source branch and final armed gate`,
+        );
+      }
+    }
     if (
       authored.operation?.kind === "process-event-lifecycle-no-effect"
     ) {
@@ -7282,6 +7368,8 @@ function validateRuntimeInvocation(observation, recipe) {
       authored.operation?.kind === "filesystem-unbound-mutation";
     const processEventClosure =
       authored.operation?.kind === "process-event-closure";
+    const processUmaskClosure =
+      authored.operation?.kind === "process-umask-closure";
     exactKeys(
       invocation.result,
       [
@@ -7314,6 +7402,14 @@ function validateRuntimeInvocation(observation, recipe) {
               "backingStateHidden",
             ]
           : []),
+        ...(processUmaskClosure
+          ? [
+              "argumentCases",
+              "descriptorPinned",
+              "backingStateHidden",
+              "replacementDenied",
+            ]
+          : []),
         "errorMessage",
         ...(authored.operation?.kind === "loader-executable-file"
           ? ["errorCode"]
@@ -7329,13 +7425,14 @@ function validateRuntimeInvocation(observation, recipe) {
       invocation.result.surfaceName !== authored.surfaceName ||
       invocation.result.mechanism !== authored.operation?.kind ||
       invocation.result.errorName !==
-        (filesystemMutation || processEventClosure
+        (filesystemMutation || processEventClosure || processUmaskClosure
           ? "Error"
           : "ClosedSurface") ||
       typeof invocation.result.errorMessage !== "string" ||
       invocation.result.errorMessage.length === 0 ||
       typeof invocation.result.engineExecuted !== "boolean" ||
-      invocation.result.projectCodeExecuted !== processEventClosure
+      invocation.result.projectCodeExecuted !==
+        (processEventClosure || processUmaskClosure)
     ) {
       throw new Error(
         `${recipe.fixtureId}: public closed surface did not fail closed`,
@@ -7552,6 +7649,54 @@ function validateRuntimeInvocation(observation, recipe) {
       ) {
         throw new Error(
           `${recipe.fixtureId}: armed process event method did not prove direct and prototype closure`,
+        );
+      }
+    }
+    if (authored.operation?.kind === "process-umask-closure") {
+      exactKeys(
+        invocation.result,
+        [
+          "kind",
+          "surfaceKind",
+          "surfaceName",
+          "mechanism",
+          "argumentCases",
+          "errorName",
+          "errorMessage",
+          "descriptorPinned",
+          "backingStateHidden",
+          "replacementDenied",
+          "engineExecuted",
+          "projectCodeExecuted",
+        ],
+        `${recipe.fixtureId}: closed process umask runtime result`,
+      );
+      const operation = authored.operation;
+      if (
+        invocation.result.kind !== "closed" ||
+        invocation.result.surfaceKind !== "native-op" ||
+        invocation.result.surfaceName !== authored.surfaceName ||
+        invocation.result.mechanism !== operation.kind ||
+        canonicalJson(invocation.result.argumentCases) !==
+          canonicalJson(
+            operation.argumentCases.map(({ id }) => ({
+              id,
+              errorName: "Error",
+              errorCode: operation.expectedErrorCode,
+              errorPermission: operation.expectedPermission,
+              errorMessage: operation.expectedError,
+            })),
+          ) ||
+        invocation.result.errorName !== "Error" ||
+        invocation.result.errorMessage !== operation.expectedError ||
+        invocation.result.descriptorPinned !== true ||
+        invocation.result.backingStateHidden !== true ||
+        invocation.result.replacementDenied !== true ||
+        invocation.result.engineExecuted !== true ||
+        invocation.result.projectCodeExecuted !== true
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: armed process umask did not prove pinned read and write closure`,
         );
       }
     }

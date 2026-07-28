@@ -1881,6 +1881,11 @@ expose empty listener views, keep both descriptors pinned and backing state
 hidden, and emit no legacy or typed decision. The once-per-session diagnostic
 remains covered by the shared-runtime lifecycle regression; it is not
 fabricated as a per-recipe observation.
+The adjacent `process.umask` closure has its own public receipt. It calls both
+the read form and a zero-mask write through the captured public binding,
+requires the exact `ERR_ACCESS_DENIED` / `ProcessUmask` refusal, proves the
+instance descriptor is pinned and `_umask` is absent, rejects replacement, and
+observes no legacy or typed decision.
 The same live fixture invokes shell exec, synchronous spawn, and asynchronous
 spawn with a real marker-file command. All three are denied at the armed native
 boundary and the marker remains absent, so executable selection, child

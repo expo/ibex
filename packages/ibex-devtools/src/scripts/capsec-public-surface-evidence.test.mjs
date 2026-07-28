@@ -2314,6 +2314,74 @@ function completeProcessLifecycleNoEffectCatalog() {
   return catalog;
 }
 
+function completeProcessUmaskCatalog() {
+  const catalog = completeClosedProcessEventCatalog();
+  const recipe = catalog.recipes[0];
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  const branchId = "surface.native.op.global.process.umask.1axcurx.posix";
+  const sourceRefs = [
+    "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process",
+    "packages/ibex-runtime-js/src/node/process.ts#Process.prototype.umask",
+    "src/engine/bootstrap/compat-polyfills.js#process.umask",
+    "src/engine/bootstrap/stream-enhance.js#process.umask",
+  ];
+  recipe.fixtureId =
+    "surface.native.op.global.process.umask.1axcurx.posix.closed";
+  recipe.implementationBranchIds = [branchId];
+  recipe.enforcementBranchIds = [branchId];
+  recipe.terminalObservedKey = "native-op:global:process.umask";
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  invocation.surfaceName = "global:process.umask";
+  invocation.sourceDescriptor = {
+    kind: "closed-process-umask",
+    surfaceObservedKey: recipe.terminalObservedKey,
+    globalName: "process",
+    memberName: "umask",
+    targetTriple: target.triple,
+    implementationBranchIds: [branchId],
+    enforcementBranchIds: [branchId],
+    enforcementSourceRef:
+      "src/engine/hermes_runtime.cc#armed-process-event-methods",
+    sourceRefs,
+    sourceMetadata: {
+      exportName: "process.umask",
+      globalName: "process",
+      installationBranches: [
+        {
+          id: "default",
+          sourceRefs: sourceRefs.slice(0, 3),
+        },
+        {
+          id: "posix",
+          sourceRefs: sourceRefs.slice(3),
+        },
+      ],
+      memberKinds: ["instance-property", "member-assignment"],
+      memberName: "umask",
+      surfaceType: "global-api",
+      valueShape: "callable",
+    },
+  };
+  invocation.sourceDescriptorDigest = taggedDigest(
+    invocation.sourceDescriptor,
+  );
+  invocation.operation = {
+    kind: "process-umask-closure",
+    argumentCases: [
+      { id: "read", arguments: [] },
+      { id: "write", arguments: [0] },
+    ],
+    expectedErrorCode: "ERR_ACCESS_DENIED",
+    expectedPermission: "ProcessUmask",
+    expectedError: "process.umask is disabled in an armed runtime",
+  };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
 function completeClosedCliCatalog() {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
@@ -3118,6 +3186,44 @@ function processLifecycleNoEffectObservation(recipe) {
         descriptorPinned: true,
         prototypeDescriptorPinned: true,
         backingStateHidden: true,
+        engineExecuted: true,
+        projectCodeExecuted: true,
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
+}
+
+function processUmaskObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  const operation = invocation.operation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      surfaceKind: invocation.surfaceKind,
+      surfaceName: invocation.surfaceName,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      result: {
+        kind: "closed",
+        surfaceKind: invocation.surfaceKind,
+        surfaceName: invocation.surfaceName,
+        mechanism: operation.kind,
+        argumentCases: operation.argumentCases.map(({ id }) => ({
+          id,
+          errorName: "Error",
+          errorCode: operation.expectedErrorCode,
+          errorPermission: operation.expectedPermission,
+          errorMessage: operation.expectedError,
+        })),
+        errorName: "Error",
+        errorMessage: operation.expectedError,
+        descriptorPinned: true,
+        backingStateHidden: true,
+        replacementDenied: true,
         engineExecuted: true,
         projectCodeExecuted: true,
       },
@@ -7825,6 +7931,41 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/logical branch, source branch, and final armed gate/);
+  });
+
+  test("accepts process umask closure only with pinned read and write denial", () => {
+    const catalog = completeProcessUmaskCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: processUmaskObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const mutable = processUmaskObservation(recipe);
+    mutable.invocation.result.descriptorPinned = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: mutable,
+        coverage,
+      }),
+    ).toThrow(/pinned read and write closure/);
+
+    const missingWrite = processUmaskObservation(recipe);
+    missingWrite.invocation.result.argumentCases.pop();
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: missingWrite,
+        coverage,
+      }),
+    ).toThrow(/pinned read and write closure/);
   });
 
   test("accepts CLI closure only with the authored production rejection", () => {

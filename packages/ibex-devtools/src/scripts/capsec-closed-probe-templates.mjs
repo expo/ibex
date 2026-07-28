@@ -1408,6 +1408,97 @@ function processEventClosureProbe({
   };
 }
 
+function processUmaskClosureProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+  target,
+}) {
+  if (
+    !EXACT_RUNTIME_CANDIDATE_TRIPLES.has(target?.triple) ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  if (surfaceObservedKey !== "native-op:global:process.umask") return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  const selectedBranches = metadata?.installationBranches?.filter((branch) =>
+    plan.implementationBranchIds.some((branchId) =>
+      branchId.endsWith(`.${branch.id}`),
+    ),
+  );
+  if (
+    live?.kind !== "native-op" ||
+    live.name !== "global:process.umask" ||
+    metadata?.surfaceType !== "global-api" ||
+    metadata.globalName !== "process" ||
+    metadata.memberName !== "umask" ||
+    metadata.exportName !== "process.umask" ||
+    metadata.valueShape !== "callable" ||
+    canonicalJson(metadata.memberKinds) !==
+      canonicalJson(["instance-property", "member-assignment"]) ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length === 0 ||
+    !Array.isArray(selectedBranches) ||
+    selectedBranches.length !== 1 ||
+    selectedBranches[0].sourceRefs.some(
+      (sourceRef) => !live.sourceRefs.includes(sourceRef),
+    ) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    edge.cap !== "process:umask" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-process-umask",
+    surfaceObservedKey,
+    globalName: "process",
+    memberName: "umask",
+    targetTriple: target.triple,
+    implementationBranchIds: structuredClone(plan.implementationBranchIds),
+    enforcementBranchIds: structuredClone(plan.enforcementBranchIds),
+    enforcementSourceRef: PROCESS_EVENT_ENFORCEMENT_SOURCE_REF,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "native-op",
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "process-umask-closure",
+        argumentCases: [
+          { id: "read", arguments: [] },
+          { id: "write", arguments: [0] },
+        ],
+        expectedErrorCode: "ERR_ACCESS_DENIED",
+        expectedPermission: "ProcessUmask",
+        expectedError: "process.umask is disabled in an armed runtime",
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
 function armedNativeGlobalAbsenceProbe({
   plan,
   route,
@@ -1834,6 +1925,7 @@ export function authoredClosedPublicProbe(options) {
     sqliteCrSqliteEnableProbe(options) ??
     terminalBuiltinImportProbe(options) ??
     debuggerAbiDisabledProbe(options) ??
+    processUmaskClosureProbe(options) ??
     processEventClosureProbe(options) ??
     armedNativeGlobalAbsenceProbe(options) ??
     sharedRuntimeGlobalAbsenceProbe(options) ??

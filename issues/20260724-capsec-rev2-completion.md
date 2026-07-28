@@ -5644,6 +5644,34 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — prove pinned process umask closure
+
+- Promoted the exact public `process.umask` row on both candidate targets
+  through a dedicated `process-umask-closure` receipt. The recipe binds the
+  target-local source branch and final armed lockdown gate, then calls both the
+  read form and a zero-mask write through the captured public binding.
+- The physical result requires stable `ERR_ACCESS_DENIED` / `ProcessUmask`
+  refusal for both argument cases, a non-writable/non-configurable descriptor,
+  absent `_umask` backing state, failed replacement, project-code execution,
+  and zero legacy or typed decisions. The independent validator repeats the
+  exact branch, source, argument, error, descriptor, and state contract;
+  negative tests reject a mutable descriptor and missing write evidence.
+- Apple catalog
+  `sha256-9_fNwoxktEBuQ8ojehNUKMokV5tIVBNC0uWulxR4Nbc`: 23,592 required /
+  **3,874 executable** / 3,040 internally verified / 16,678 unresolved.
+  Windows catalog
+  `sha256-PfG3QscH6_wR_wOZa2dqfeeo9K5keEPEfYKlf5x8JRg`: 23,251 /
+  **3,513** / 3,026 / 16,712. Closed-denial residuals fall to 496 and
+  479 respectively.
+- The EPYC closed batch passes 1/1 and emits 795 passing rows, including the
+  exact umask record against loaded engine
+  `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`; independent JavaScript
+  validation accepts the extracted physical record. Raw batch evidence
+  SHA-256:
+  `c081c6a604318ac6297cca11f4fed5c7a1b3b273fa02714820b547acdce83c18`.
+- Focused recipe and evidence validation passes **181/181** tests.
+  Advertisements remain empty and criterion 7 remains open.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

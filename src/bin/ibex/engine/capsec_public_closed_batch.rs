@@ -250,6 +250,16 @@ enum ClosedOperation {
         #[serde(rename = "expectedError")]
         expected_error: String,
     },
+    ProcessUmaskClosure {
+        #[serde(rename = "argumentCases")]
+        argument_cases: Vec<serde_json::Value>,
+        #[serde(rename = "expectedErrorCode")]
+        expected_error_code: String,
+        #[serde(rename = "expectedPermission")]
+        expected_permission: String,
+        #[serde(rename = "expectedError")]
+        expected_error: String,
+    },
     ProcessEventLifecycleNoEffect {
         scenario: String,
         #[serde(rename = "methodName")]
@@ -317,6 +327,7 @@ impl ClosedOperation {
             Self::SharedRuntimeGlobalAbsence { .. } => "shared-runtime-global-absence",
             Self::ArmedNativeGlobalAbsence { .. } => "armed-native-global-absence",
             Self::ProcessEventClosure { .. } => "process-event-closure",
+            Self::ProcessUmaskClosure { .. } => "process-umask-closure",
             Self::ProcessEventLifecycleNoEffect { .. } => "process-event-lifecycle-no-effect",
             Self::FilesystemUnboundMutation { .. } => "filesystem-unbound-mutation",
         }
@@ -337,6 +348,7 @@ impl ClosedOperation {
             Self::SharedRuntimeGlobalAbsence { .. }
             | Self::ArmedNativeGlobalAbsence { .. }
             | Self::ProcessEventClosure { .. }
+            | Self::ProcessUmaskClosure { .. }
             | Self::ProcessEventLifecycleNoEffect { .. }
             | Self::FilesystemUnboundMutation { .. } => None,
         }
@@ -3618,6 +3630,269 @@ async fn execute_closed_process_event(
 }
 
 #[cfg(test)]
+async fn execute_closed_process_umask(
+    engine: &mut AuthenticatedClosedEngine,
+    recipe: &Recipe,
+    probe: &ClosedSurfaceProbe,
+    coverage: &BTreeMap<String, (String, String)>,
+    engine_binary_digest: &str,
+    target_triple: &str,
+) -> serde_json::Value {
+    let invocation = &probe.invocation;
+    let ClosedOperation::ProcessUmaskClosure {
+        argument_cases,
+        expected_error_code,
+        expected_permission,
+        expected_error,
+    } = &invocation.operation
+    else {
+        panic!("process umask probe has the wrong operation")
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "closed");
+    assert_eq!(recipe.scenario, "closed");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(
+        argument_cases,
+        &serde_json::json!([
+            {"id": "read", "arguments": []},
+            {"id": "write", "arguments": [0]},
+        ])
+        .as_array()
+        .unwrap()
+        .clone()
+    );
+    assert_eq!(expected_error_code, "ERR_ACCESS_DENIED");
+    assert_eq!(expected_permission, "ProcessUmask");
+    assert_eq!(
+        expected_error,
+        "process.umask is disabled in an armed runtime"
+    );
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
+    assert_eq!(invocation.kind, "closed-surface");
+    assert_eq!(invocation.surface_kind, "native-op");
+    assert_eq!(invocation.surface_name, "global:process.umask");
+    assert_eq!(invocation.expected_result, "closed");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert!(invocation.allowed_coverage_edge_ids.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+
+    let descriptor = &invocation.source_descriptor;
+    assert_eq!(descriptor.kind, "closed-process-umask");
+    assert_eq!(
+        descriptor.surface_observed_key.as_deref(),
+        Some("native-op:global:process.umask")
+    );
+    assert_eq!(descriptor.global_name.as_deref(), Some("process"));
+    assert_eq!(descriptor.member_name.as_deref(), Some("umask"));
+    assert_eq!(descriptor.target_triple.as_deref(), Some(target_triple));
+    assert_eq!(
+        descriptor.enforcement_source_ref.as_deref(),
+        Some("src/engine/hermes_runtime.cc#armed-process-event-methods")
+    );
+    assert_eq!(
+        descriptor.implementation_branch_ids.as_ref(),
+        Some(&recipe.implementation_branch_ids)
+    );
+    assert_eq!(
+        descriptor.enforcement_branch_ids.as_ref(),
+        Some(&recipe.enforcement_branch_ids)
+    );
+    assert!(!descriptor.source_refs.is_empty());
+    let metadata = &descriptor.source_metadata;
+    assert_eq!(metadata["surfaceType"], "global-api");
+    assert_eq!(metadata["globalName"], "process");
+    assert_eq!(metadata["memberName"], "umask");
+    assert_eq!(metadata["exportName"], "process.umask");
+    assert_eq!(metadata["valueShape"], "callable");
+    assert_eq!(
+        metadata["memberKinds"],
+        serde_json::json!(["instance-property", "member-assignment"])
+    );
+    let branches = metadata["installationBranches"]
+        .as_array()
+        .expect("process umask source must name installation branches");
+    let selected_variants = recipe
+        .implementation_branch_ids
+        .iter()
+        .map(|branch_id| {
+            branch_id
+                .rsplit_once('.')
+                .expect("implementation branch id has no variant")
+                .1
+        })
+        .collect::<Vec<_>>();
+    let selected = branches
+        .iter()
+        .filter(|branch| {
+            branch["id"]
+                .as_str()
+                .is_some_and(|id| selected_variants.contains(&id))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(selected.len(), 1);
+    for source_ref in selected[0]["sourceRefs"]
+        .as_array()
+        .expect("selected process umask source refs must be an array")
+    {
+        assert!(descriptor
+            .source_refs
+            .iter()
+            .any(|candidate| source_ref == candidate));
+    }
+
+    let (surface_kind, surface_name) = coverage
+        .get(&recipe.edge_ids[0])
+        .expect("process umask recipe names an unknown coverage edge");
+    assert_eq!(surface_kind, &invocation.surface_kind);
+    assert_eq!(surface_name, &invocation.surface_name);
+    let terminal_observed_key = format!("{surface_kind}:{surface_name}");
+    assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
+    assert_eq!(terminal_observed_key, probe.surface_observed_key);
+
+    let session_id = format!("public-observation:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
+    let encoded = engine
+        .eval_immediate(
+            r#"(function() {
+  var processObject = globalThis.process;
+  var imported = processObject.umask;
+  function refusal(id, args) {
+    try {
+      imported.apply(processObject, args);
+      return { id: id, returned: true };
+    } catch (error) {
+      return {
+        id: id,
+        errorName: String(error && error.name || 'Error'),
+        errorCode: error && error.code == null ? null : String(error.code),
+        errorPermission:
+          error && error.permission == null ? null : String(error.permission),
+        errorMessage: String(error && error.message || error)
+      };
+    }
+  }
+  var read = refusal('read', []);
+  var write = refusal('write', [0]);
+  try { processObject.umask = function() { return 7; }; } catch (_) {}
+  var descriptor = Object.getOwnPropertyDescriptor(processObject, 'umask');
+  var replacementDenied =
+    processObject.umask === imported &&
+    !refusal('replacement', []).returned;
+  return JSON.stringify({
+    kind: 'closed',
+    argumentCases: [read, write],
+    descriptorPinned: !!descriptor &&
+      descriptor.writable === false &&
+      descriptor.configurable === false,
+    backingStateHidden: !('_umask' in processObject),
+    replacementDenied: replacementDenied
+  });
+})()"#,
+        )
+        .await
+        .expect("execute closed process umask")
+        .expect("closed process umask returned no result");
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    let observed: serde_json::Value =
+        serde_json::from_str(&encoded).expect("closed process umask result must be JSON");
+    assert_eq!(observed["kind"], "closed");
+    for (index, id) in ["read", "write"].iter().enumerate() {
+        assert_eq!(observed["argumentCases"][index]["id"], *id);
+        assert_eq!(observed["argumentCases"][index]["errorName"], "Error");
+        assert_eq!(
+            observed["argumentCases"][index]["errorCode"],
+            expected_error_code.as_str()
+        );
+        assert_eq!(
+            observed["argumentCases"][index]["errorPermission"],
+            expected_permission.as_str()
+        );
+        assert_eq!(
+            observed["argumentCases"][index]["errorMessage"],
+            expected_error.as_str()
+        );
+    }
+    assert_eq!(observed["descriptorPinned"], true);
+    assert_eq!(observed["backingStateHidden"], true);
+    assert_eq!(observed["replacementDenied"], true);
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let result = serde_json::json!({
+        "kind": "closed",
+        "surfaceKind": surface_kind,
+        "surfaceName": surface_name,
+        "mechanism": invocation.operation.kind(),
+        "argumentCases": observed["argumentCases"],
+        "errorName": "Error",
+        "errorMessage": expected_error,
+        "descriptorPinned": true,
+        "backingStateHidden": true,
+        "replacementDenied": true,
+        "engineExecuted": true,
+        "projectCodeExecuted": true,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": terminal_observed_key,
+            "surfaceKind": surface_kind,
+            "surfaceName": surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": 0,
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected process umask observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-closed-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
+#[cfg(test)]
 async fn execute_process_event_lifecycle_no_effect(
     engine: &mut AuthenticatedClosedEngine,
     recipe: &Recipe,
@@ -4978,6 +5253,18 @@ async fn capsec_public_closed_recipe_batch() {
             )
         })
         .count();
+    let process_umask_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::ProcessUmaskClosure { .. }
+            )
+        })
+        .count();
     let process_lifecycle_no_effect_count = recipe_indexes
         .iter()
         .filter(|index| {
@@ -5017,6 +5304,7 @@ async fn capsec_public_closed_recipe_batch() {
             + shared_runtime_global_absence_count
             + armed_native_global_absence_count
             + process_event_count
+            + process_umask_count
             + process_lifecycle_no_effect_count
             + filesystem_mutation_count,
         "every closed recipe must have an accounted execution family"
@@ -5085,6 +5373,10 @@ async fn capsec_public_closed_recipe_batch() {
     assert_eq!(
         process_event_count, 18,
         "expected every reviewed closed process event method"
+    );
+    assert_eq!(
+        process_umask_count, 1,
+        "expected the exact public process umask closure"
     );
     assert_eq!(
         process_lifecycle_no_effect_count, 44,
@@ -5370,6 +5662,54 @@ async fn capsec_public_closed_recipe_batch() {
             .finish()
             .expect("finish authenticated process-event-closure publications");
     }
+    if process_umask_count > 0 {
+        let process_umask_indexes = recipe_indexes
+            .iter()
+            .copied()
+            .filter(|index| {
+                matches!(
+                    &closed_surface_probe(&catalog.recipes[*index])
+                        .unwrap()
+                        .invocation
+                        .operation,
+                    ClosedOperation::ProcessUmaskClosure { .. }
+                )
+            })
+            .collect::<Vec<_>>();
+        let (host, snapshot_digest) =
+            build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+            .expect("create exact process umask closure engine");
+        engine
+            .load_runtime()
+            .await
+            .expect("load exact process umask closure runtime");
+        let mut engine = AuthenticatedClosedEngine {
+            host,
+            engine,
+            publications: AuthenticatedPublicationTracker::default(),
+        };
+        for index in process_umask_indexes {
+            let recipe = &catalog.recipes[index];
+            let probe = closed_surface_probe(recipe).unwrap();
+            executions.push(
+                execute_closed_process_umask(
+                    &mut engine,
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                    &catalog.target.triple,
+                )
+                .await,
+            );
+        }
+        engine
+            .finish()
+            .expect("finish authenticated process-umask publications");
+    }
     if process_lifecycle_no_effect_count > 0 {
         let process_lifecycle_indexes = recipe_indexes
             .iter()
@@ -5510,6 +5850,7 @@ async fn capsec_public_closed_recipe_batch() {
                 | ClosedOperation::SharedRuntimeGlobalAbsence { .. }
                 | ClosedOperation::ArmedNativeGlobalAbsence { .. }
                 | ClosedOperation::ProcessEventClosure { .. }
+                | ClosedOperation::ProcessUmaskClosure { .. }
                 | ClosedOperation::ProcessEventLifecycleNoEffect { .. }
                 | ClosedOperation::FilesystemUnboundMutation { .. }
         ) {
@@ -5571,6 +5912,7 @@ async fn capsec_public_closed_recipe_batch() {
             ClosedOperation::SharedRuntimeGlobalAbsence { .. } => unreachable!(),
             ClosedOperation::ArmedNativeGlobalAbsence { .. } => unreachable!(),
             ClosedOperation::ProcessEventClosure { .. } => unreachable!(),
+            ClosedOperation::ProcessUmaskClosure { .. } => unreachable!(),
             ClosedOperation::ProcessEventLifecycleNoEffect { .. } => unreachable!(),
             ClosedOperation::FilesystemUnboundMutation { .. } => unreachable!(),
         });
