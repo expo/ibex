@@ -3602,6 +3602,70 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — executed exact post-initialization builtin scalars
+
+- Promoted exactly 15 scalar reads that occur only after their
+  capability-bearing module has initialized: `node_cluster`'s `SCHED_NONE`,
+  `SCHED_RR`, `isMaster`, `isPrimary`, and `isWorker`; `node_http`'s
+  `METHODS`, `STATUS_CODES`, `kConnectionsCheckingInterval`,
+  `kHighWaterMark`, `kTimeout`, `maxHeaderSize`, and `methods`; and
+  `node_os`'s `EOL`, `constants`, and `devNull`. The author, Rust executor,
+  and independent JavaScript validator all bind the exact source key, export
+  name, source reference, public aliases, source idiom, access path, and
+  runtime type. Generic reads from those effectful modules remain excluded.
+- Moving `main` was integrated at merge checkpoints `8ced47a5` and
+  `3758a0fd`, through upstream `63ad33bc`. The combined source retains the
+  restricted no-eval constructor, its native async-failure publication, and
+  the scalar evidence family. Regeneration reports 7,521 coverage edges,
+  7,822 enforcement branches, 15,042 target cells, 13,376 observed
+  references, 22 ingress obligations, and 14 output channels. The output
+  catalog digest
+  `sha256-WkmfR1LBIGm36oP_pJN32KnRWLjGvrz7fDczaOf6Dn8` contains 6,517 rows:
+  5,816 output-bearing, 1,700 structural, and 5 unresolved. The new no-eval
+  constructor contributes one honest residual rather than receiving
+  unexecuted credit.
+- Final Apple catalog digest
+  `sha256-oVeW3gnHWpUMqxzN89ilzT5LWesf-wxXRtOLbIE-lKY` reports 23,584
+  required / **3,570 fully executable** / 3,036 internally verified / 16,978
+  unresolved. A newly rebuilt 14-patch no-debugger Hermes on the M4 was copied
+  to the roomier M5 for the strict stale-vendored batch. It passes
+  **1,265/1,265**, including all 15 scalar reads with zero decisions, binds
+  engine digest
+  `sha256-PzMZqlPaba3S9taiDvkd7H-DCuBv2MXbYOmLoVbZP3I`, and has evidence-file
+  SHA-256
+  `d16439bde579dff14dc53595c4813a21d66ca12a64c9d84ab4532afa910f7b13`.
+  Independent validation produced execution digest
+  `sha256-hct2aAmQWBnlzMFd1G4_N3Y0JbkBjW0gxk0ttgY60gY`.
+- Final Windows catalog digest
+  `sha256-S1KN10-G-61cD92Ah-8cwTfLelnLVgGxUiI0Wdvmfpk` reports 23,243
+  required / **3,229 fully executable** / 3,022 internally verified / 16,992
+  unresolved. The NucBox rebuilt the same 14-patch no-debugger profile and its
+  isolated-target strict batch passes **1,229/1,229**, binding engine digest
+  `sha256-4HsCwsHz-UDTGNW8-89DnujWOx9rFegBL0wYbUFHPHE`; the evidence-file
+  SHA-256 is
+  `a59dbc271217ad966becbe7e90c9e496935f366251ed5e7bdf5ad7f439f8b761`.
+  Independent validation produced execution digest
+  `sha256-0RL721gGompF-ld0-xlhO__IbiAbSp_67AAbjEM4LZU`.
+- Both aggregates bind implementation revision
+  `95533e9149902e5f93390161da35ebd7fa64a8be` and tree digest
+  `sha256-WxHMkIA_y8_zymGOammAK7d9En73_qCwBSUFptc-Cjo`. The focused
+  reconciliation passes **208/208** with 179,197 assertions; inventory,
+  ingress, generated-drift, and reference gates pass. The final Hetzner
+  devtools corpus passes **1,277 tests**, with 10 expected Hermes skips, zero
+  failures, 232,948 assertions, and 88 files in 582.99 seconds. Both target
+  advertisement sets remain empty.
+- Hard parts: importing these three modules before the read is not itself
+  evidence, so each row requires the later exact value access and type check.
+  Concurrent main changes shifted source-reviewed digests and added one
+  residual between physical checkpoints. Windows correctly refused a Cargo
+  target bound to an older Hermes bundle, and the M4 ran out of space after
+  completing the reusable engine build. The final runs used distinct targets;
+  the failed M4 Cargo cache was then cleaned, recovering 4.3 GiB without
+  removing source or engine artifacts.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
