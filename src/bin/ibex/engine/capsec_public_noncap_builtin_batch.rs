@@ -801,6 +801,18 @@ fn canonical_module_specifier(values: &[String]) -> Option<&str> {
         .map(String::as_str)
 }
 
+fn is_base_stream_module_value_method(export_name: &str) -> bool {
+    matches!(
+        export_name,
+        "default._close"
+            | "default._emitClose"
+            | "default._undestroy"
+            | "default.constructor"
+            | "default.destroy"
+            | "default.unpipe"
+    )
+}
+
 fn expected_access(descriptor: &BuiltinSourceDescriptor) -> Option<BuiltinAccess> {
     if descriptor.export_name.contains("[[") || descriptor.export_name.contains("]]") {
         return None;
@@ -828,9 +840,13 @@ fn expected_access(descriptor: &BuiltinSourceDescriptor) -> Option<BuiltinAccess
             return None;
         }
         let path = if descriptor.source_key == "node_stream"
-            && descriptor.export_name == "default.destroyed"
+            && (descriptor.export_name == "default.destroyed"
+                || is_base_stream_module_value_method(&descriptor.export_name))
         {
-            vec!["prototype".to_owned(), "destroyed".to_owned()]
+            vec![
+                "prototype".to_owned(),
+                segments.last().expect("prototype method").clone(),
+            ]
         } else {
             let mut path = vec![segments[0].clone(), "prototype".to_owned()];
             path.extend_from_slice(&segments[1..]);
@@ -1120,10 +1136,20 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
                 .as_str()
                 .expect("stream owner name must be text");
             assert!(is_stream_owner(owner));
-            assert_eq!(
-                descriptor.access.path.first().map(String::as_str),
-                Some(owner)
-            );
+            if owner == "default" {
+                assert!(is_base_stream_module_value_method(
+                    &descriptor.export_name
+                ));
+                assert_eq!(
+                    descriptor.access.path.first().map(String::as_str),
+                    Some("prototype")
+                );
+            } else {
+                assert_eq!(
+                    descriptor.access.path.first().map(String::as_str),
+                    Some(owner)
+                );
+            }
             assert!(setup["endedInput"].is_boolean());
         }
         other => panic!("unsupported authored builtin setup kind {other}"),
@@ -1183,6 +1209,74 @@ fn validate_explicit_diffie_hellman_contract(
             ),
             _ => return,
         };
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, expected_result_type);
+    assert_eq!(invocation.setup, expected_setup);
+    assert_eq!(
+        serde_json::Value::Array(invocation.arguments.clone()),
+        expected_arguments
+    );
+}
+
+fn validate_base_stream_module_value_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    if descriptor.source_key != "node_stream"
+        || !is_base_stream_module_value_method(&descriptor.export_name)
+    {
+        return;
+    }
+    let (expected_setup, expected_arguments, expected_result_type) =
+        match descriptor.export_name.as_str() {
+            "default._close" => (
+                serde_json::json!({
+                    "kind": "stream-owner",
+                    "ownerExportName": "default",
+                    "endedInput": false
+                }),
+                serde_json::json!([{"kind": "json", "value": true}]),
+                "undefined",
+            ),
+            "default._emitClose" | "default._undestroy" => (
+                serde_json::json!({
+                    "kind": "stream-owner",
+                    "ownerExportName": "default",
+                    "endedInput": false
+                }),
+                serde_json::json!([]),
+                "undefined",
+            ),
+            "default.constructor" => (
+                serde_json::json!({"kind": "construct-target"}),
+                serde_json::json!([]),
+                "object",
+            ),
+            "default.destroy" | "default.unpipe" => (
+                serde_json::json!({
+                    "kind": "stream-owner",
+                    "ownerExportName": "default",
+                    "endedInput": false
+                }),
+                serde_json::json!([]),
+                "object",
+            ),
+            _ => unreachable!("base Stream contract set drift"),
+        };
+    assert_eq!(descriptor.access.kind, "prototype-property");
+    assert_eq!(
+        descriptor.access.path,
+        vec![
+            "prototype".to_owned(),
+            descriptor
+                .export_name
+                .split('.')
+                .next_back()
+                .expect("base Stream method")
+                .to_owned()
+        ]
+    );
     assert_eq!(proof.kind, "normal-return-from-source-call");
     assert_eq!(proof.result_type, expected_result_type);
     assert_eq!(invocation.setup, expected_setup);
@@ -1517,6 +1611,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
             assert_eq!(proof.result_type, result_type);
         }
         validate_explicit_diffie_hellman_contract(invocation, &descriptor, proof);
+        validate_base_stream_module_value_contract(invocation, &descriptor, proof);
         assert!(matches!(
             proof.result_type.as_str(),
             "bigint"

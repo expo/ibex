@@ -649,6 +649,14 @@ const STREAM_SETTLED_CONSUMER_METHOD_SET = new Set([
   "some",
   "toArray",
 ]);
+const STREAM_DEFAULT_MODULE_VALUE_METHOD_SET = new Set([
+  "_close",
+  "_emitClose",
+  "_undestroy",
+  "constructor",
+  "destroy",
+  "unpipe",
+]);
 
 function streamRootCallSpecs() {
   const specs = Object.create(null);
@@ -1794,9 +1802,15 @@ function streamPrototypeSpec(exportName) {
   if (segments.length !== 2 || !STREAM_OWNER_SET.has(segments[0])) return null;
   const [ownerExportName, methodName] = segments;
   // node:stream is itself the default Stream export; it does not expose a
-  // `default.prototype` property at runtime. The inventory's module-value
-  // alias is exact for the root constructor but not for prototype traversal.
-  if (ownerExportName === "default") return null;
+  // `default.prototype` property at runtime. Only this independently reviewed
+  // lifecycle set receives module-value prototype traversal; every other
+  // default-owner row remains residual.
+  if (
+    ownerExportName === "default" &&
+    !STREAM_DEFAULT_MODULE_VALUE_METHOD_SET.has(methodName)
+  ) {
+    return null;
+  }
   if (methodName === "constructor") return constructTarget([]);
   if (methodName === "_close") {
     return streamOwnerCall(ownerExportName, [jsonArgument(true)], "undefined");
@@ -2238,7 +2252,19 @@ function sourceDescriptor(
   }
   const expectedObservedKey = `builtin:export:${metadata.sourceKey}:${metadata.exportName}`;
   if (surface.observedKey !== expectedObservedKey) return null;
-  const access = exportAccess(metadata.exportName, metadata.exportIdioms);
+  const genericAccess = exportAccess(
+    metadata.exportName,
+    metadata.exportIdioms,
+  );
+  const [ownerExportName, methodName, ...extraSegments] =
+    metadata.exportName.split(".");
+  const access =
+    metadata.sourceKey === "node_stream" &&
+    ownerExportName === "default" &&
+    extraSegments.length === 0 &&
+    STREAM_DEFAULT_MODULE_VALUE_METHOD_SET.has(methodName)
+      ? { kind: "prototype-property", path: ["prototype", methodName] }
+      : genericAccess;
   const moduleSpecifier = canonicalModuleSpecifier(
     metadata.publicModuleSpecifiers,
   );

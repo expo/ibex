@@ -1054,10 +1054,60 @@ describe("source-bound builtin public probes", () => {
       },
       { kind: "json", value: null },
     ]);
+    const defaultDestroyProbe = probeFor({
+      sourceKey: "node_stream",
+      exportName: "default.destroy",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: ["node:stream", "stream"],
+      valueShape: "callable",
+    });
+    expect(defaultDestroyProbe).toMatchObject({
+      invocation: {
+        arguments: [],
+        sourceDescriptor: {
+          access: {
+            kind: "prototype-property",
+            path: ["prototype", "destroy"],
+          },
+        },
+        setup: {
+          kind: "stream-owner",
+          ownerExportName: "default",
+          endedInput: false,
+        },
+        bodyEntryProof: { resultType: "object" },
+      },
+    });
+    for (const [exportName, resultType] of [
+      ["default._close", "undefined"],
+      ["default._emitClose", "undefined"],
+      ["default._undestroy", "undefined"],
+      ["default.constructor", "object"],
+      ["default.destroy", "object"],
+      ["default.unpipe", "object"],
+    ]) {
+      expect(
+        probeFor({
+          sourceKey: "node_stream",
+          exportName,
+          exportIdioms: ["exported-constructor-prototype"],
+          moduleSpecifiers: ["node:stream", "stream"],
+          valueShape: "callable",
+        })?.invocation,
+      ).toMatchObject({
+        sourceDescriptor: {
+          access: {
+            kind: "prototype-property",
+            path: ["prototype", exportName.split(".").at(-1)],
+          },
+        },
+        bodyEntryProof: { resultType },
+      });
+    }
     expect(
       probeFor({
         sourceKey: "node_stream",
-        exportName: "default.destroy",
+        exportName: "default.pipe",
         exportIdioms: ["exported-constructor-prototype"],
         moduleSpecifiers: ["node:stream", "stream"],
         valueShape: "callable",

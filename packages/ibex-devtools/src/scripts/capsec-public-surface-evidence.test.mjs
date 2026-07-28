@@ -4945,6 +4945,86 @@ describe("CapSec public-surface promotion evidence", () => {
     }
   });
 
+  test("accepts only reviewed base Stream module-value calls", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:stream";
+    invocation.exportName = "default.destroy";
+    invocation.templateId = "node-stream-bounded-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_stream",
+      exportName: "default.destroy",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: ["node:stream", "stream"],
+      sourceRef: "src/builtins/stream.js#exports:default.destroy",
+      valueShape: "callable",
+      access: {
+        kind: "prototype-property",
+        path: ["prototype", "destroy"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.setup = {
+      kind: "stream-owner",
+      ownerExportName: "default",
+      endedInput: false,
+    };
+    invocation.arguments = [];
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "object",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.result.dispatchKind = "prototype-call";
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.sourceDescriptor.access.path = [
+          "default",
+          "prototype",
+          "destroy",
+        ];
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.ownerExportName = "Stream";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.endedInput = true;
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments = [
+          { kind: "json", value: null },
+        ];
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored base Stream module-value proof|descriptor drift|not source-descriptor bound/,
+      );
+    }
+  });
+
   test("accepts only reviewed dns/promises error reads that return strings", () => {
     const catalog = completeDnsPromiseErrorReadCatalog();
     const recipe = catalog.recipes[0];

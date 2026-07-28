@@ -418,11 +418,11 @@ describe("exact-target CapSec executable recipes", () => {
     // DiffieHellman construction and state-only calls add no random work.
     // The restricted no-eval constructor added on main remains one explicit
     // residual until it has loaded-engine evidence.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_656);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_662);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_892);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_886);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -581,9 +581,9 @@ describe("exact-target CapSec executable recipes", () => {
     // family adds eight bounded state-only calls. The restricted
     // no-eval constructor added on main
     // remains one explicit residual until it has loaded-engine evidence.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_315);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_321);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_022);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_906);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_900);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5336,6 +5336,26 @@ describe("exact-target CapSec executable recipes", () => {
             "exact_crypto" &&
           recipe.publicSurfaceProbe.invocation.bodyEntryProof.kind ===
             "normal-return-from-source-call",
+      ),
+    ).toBe(true);
+    const baseStreamModuleValueCalls = publicCalls.filter((recipe) =>
+      new Set([
+        "default._close",
+        "default._emitClose",
+        "default._undestroy",
+        "default.constructor",
+        "default.destroy",
+        "default.unpipe",
+      ]).has(recipe.publicSurfaceProbe.invocation.exportName),
+    );
+    expect(baseStreamModuleValueCalls).toHaveLength(6);
+    expect(
+      baseStreamModuleValueCalls.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+            "node_stream" &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.access.path[0] ===
+            "prototype",
       ),
     ).toBe(true);
     expect(

@@ -410,6 +410,52 @@ const EXPLICIT_DH_CALL_CONTRACTS = new Map([
     },
   ]),
 ]);
+const BASE_STREAM_MODULE_VALUE_CALL_CONTRACTS = new Map([
+  [
+    "default._close",
+    {
+      setup: {
+        kind: "stream-owner",
+        ownerExportName: "default",
+        endedInput: false,
+      },
+      arguments: [{ kind: "json", value: true }],
+      resultType: "undefined",
+    },
+  ],
+  ...["_emitClose", "_undestroy"].map((method) => [
+    `default.${method}`,
+    {
+      setup: {
+        kind: "stream-owner",
+        ownerExportName: "default",
+        endedInput: false,
+      },
+      arguments: [],
+      resultType: "undefined",
+    },
+  ]),
+  [
+    "default.constructor",
+    {
+      setup: { kind: "construct-target" },
+      arguments: [],
+      resultType: "object",
+    },
+  ],
+  ...["destroy", "unpipe"].map((method) => [
+    `default.${method}`,
+    {
+      setup: {
+        kind: "stream-owner",
+        ownerExportName: "default",
+        endedInput: false,
+      },
+      arguments: [],
+      resultType: "object",
+    },
+  ]),
+]);
 const NATIVE_FILESYSTEM_DENIAL_GLOBALS = new Set([
   "__exactAppendFile",
   "__exactFsOpen",
@@ -4463,6 +4509,31 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: malformed authored explicit DiffieHellman proof`,
+      );
+    }
+    const baseStreamContract =
+      authored.sourceDescriptor.sourceKey === "node_stream"
+        ? BASE_STREAM_MODULE_VALUE_CALL_CONTRACTS.get(authored.exportName)
+        : null;
+    if (
+      baseStreamContract &&
+      (authored.templateId !== "node-stream-bounded-v1" ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !==
+          baseStreamContract.resultType ||
+        authored.sourceDescriptor.access.kind !== "prototype-property" ||
+        canonicalJson(authored.sourceDescriptor.access.path) !==
+          canonicalJson([
+            "prototype",
+            authored.exportName.split(".").at(-1),
+          ]) ||
+        canonicalJson(authored.setup) !==
+          canonicalJson(baseStreamContract.setup) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson(baseStreamContract.arguments))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored base Stream module-value proof`,
       );
     }
     if (!NORMAL_RETURN_DISPATCH_KINDS.has(authored.setup.kind)) {
