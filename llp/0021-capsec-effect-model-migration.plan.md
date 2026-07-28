@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-28 (promotes direct `_flush(callback)` on exactly eleven Apple zlib owners and nine Windows owners: the harness first feeds the owner-specific fixed encoder input or complete compressed decoder member through the same receiver and awaits that prefill callback, then invokes only the selected `_flush`; every call returns undefined, sets `_flushed`, leaves the writable side non-terminal, and delivers exactly one callback before owner destruction, native-handle closure, quiescence, and zero decisions; the nine established owners require a successful callback, while `ZstdCompress` and `ZstdDecompress` require the exact source-defined `ENOSYS` callback refusal because no native zstd backend is installed, so those rows prove finalization control flow rather than codec support; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact owner/prefill/callback-outcome/final-state/cleanup contract; final Apple accounting is 23,590 required / 3,811 fully executable / 3,040 internally verified / 16,739 unresolved and Windows is 23,249 / 3,450 / 3,026 / 16,773; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes direct `_transform(Buffer, "buffer", callback)` on exactly eleven Apple zlib owners and nine Windows owners: each fixed encoder or complete decoder input returns undefined, invokes the callback exactly once without error, records the exact accepted byte length, leaves the receiver non-terminal, destroys it, closes any native handle, quiesces, and observes zero decisions; zstd wrappers are confined to the current no-bridge retained-input branch and make no codec claim; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact owner/input/encoding/callback/accepted-state/cleanup contract; final Apple accounting is 23,590 required / 3,800 fully executable / 3,040 internally verified / 16,750 unresolved and Windows is 23,249 / 3,441 / 3,026 / 16,782; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes public `params(1, 0, callback)` on exactly eleven Apple zlib owners and nine Windows owners: every selected call fixes compression level 1 and default strategy 0, returns its fresh receiver, invokes the callback exactly once without error, proves the selected `_level` and `_strategy` while the receiver remains non-terminal, destroys it, closes any native handle, quiesces, and observes zero decisions; Brotli, decoder, and zstd wrappers are included only for their source-defined retained-state control path, while native deflate-family compressors additionally enter the installed parameter bridge; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact owner/arguments/callback/selected-state/cleanup contract; final Apple accounting is 23,590 required / 3,789 fully executable / 3,040 internally verified / 16,761 unresolved and Windows is 23,249 / 3,432 / 3,026 / 16,791; advertisements remain empty)
 **Revised:** 2026-07-28 (promotes public `flush(callback)` on exactly eleven Apple zlib owners and nine Windows owners: every selected call uses the first-argument callback form and therefore the source-defined default full-flush branch, returns its fresh receiver, invokes the callback exactly once without error, proves the receiver is still non-terminal before cleanup, destroys it, closes any native handle, quiesces, and observes zero decisions; the owner vocabulary includes the two zstd wrappers because this exact control write is a safe source-defined no-op when the zstd bridge is absent, without claiming zstd codec execution; authoring, independent evidence validation, Rust validation, and loaded-engine validation repeat the exact owner/callback/return/non-terminal/cleanup contract; final Apple accounting is 23,590 required / 3,778 fully executable / 3,040 internally verified / 16,772 unresolved and Windows is 23,249 / 3,423 / 3,026 / 16,800; advertisements remain empty)
@@ -2879,6 +2880,25 @@ The author, independent evidence validator, Rust validator, and loaded-engine
 boundary repeat the exact owner, input, encoding, callback, accepted-state,
 undefined-return, and cleanup contract. `_flush` and `_writeNative` remain
 outside this receipt.
+
+Direct zlib `_flush(callback)` has a separate deferred-dispatch finalization
+receipt over the same eleven Apple and nine Windows owners. Before selecting
+`_flush`, the harness feeds the exact encoder bytes or complete compressed
+decoder member through the same receiver's `_transform` and waits for exactly
+one error-free prefill callback; this ordering covers both synchronous native
+streams and deferred Brotli/zstd fallback buffering without letting setup
+stand in for the selected call. The selected source call must return undefined,
+set `_flushed === true`, leave `writableEnded === false`, and deliver its
+callback exactly once. The nine established owners require no callback error.
+The two no-backend zstd owners instead require the exact `ENOSYS` callback
+refusal after retained-input finalization; this is evidence for the real
+source-defined refusal, not zstd compression or decompression support. The
+harness drains only byte-view output, destroys the receiver, requires a null
+native handle, quiesces, and observes zero decisions. The author, independent
+evidence validator, Rust validator, and loaded-engine boundary repeat the exact
+owner vocabulary, inherited `_flush` descriptor, prefill bytes, callback error
+code, undefined return, final state, and cleanup contract. `_writeNative`
+remains outside this receipt.
 
 Direct synchronous zlib `_processChunk(Buffer, Z_FINISH)` has a distinct
 one-shot receipt for the same nine Apple owners and seven non-Brotli Windows

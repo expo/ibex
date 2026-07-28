@@ -6168,6 +6168,94 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/did not prove its exact normal return/);
   });
 
+  test("accepts direct zlib flush only after exact prefill, callback outcome, and cleanup", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:zlib";
+    invocation.exportName = "InflateRaw._flush";
+    invocation.templateId = "node-zlib-bounded-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_zlib",
+      exportName: "InflateRaw._flush",
+      exportIdioms: ["exported-constructor-inherited-prototype"],
+      moduleSpecifiers: ["node:zlib", "zlib"],
+      sourceRef: "src/builtins/zlib.js#exports:InflateRaw._flush",
+      valueShape: "callable",
+      access: {
+        kind: "inherited-prototype-property",
+        path: ["InflateRaw", "prototype", "_flush"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(invocation.sourceDescriptor);
+    invocation.setup = {
+      kind: "zlib-direct-flush-owner",
+      ownerExportName: "InflateRaw",
+      prefillInput: [203, 76, 74, 173, 0, 0],
+      expectedCallbackErrorCode: null,
+      cleanupMethod: "destroy",
+    };
+    invocation.arguments = [{ kind: "zlib-direct-flush-callback" }];
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "undefined",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.result.dispatchKind = "prototype-call";
+    observed.invocation.result.valueType = "undefined";
+    observed.invocation.result.cleanupPerformed = true;
+    observed.invocation.result.zlibDirectFlushLifecycleVerified = true;
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.prefillInput[0] = 204;
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.expectedCallbackErrorCode =
+          "ENOSYS";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments[0].kind =
+          "noop-function";
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored direct zlib flush lifecycle proof|descriptor drift|not source-descriptor bound/,
+      );
+    }
+
+    const missingLifecycleProof = structuredClone(observed);
+    missingLifecycleProof.invocation.result.zlibDirectFlushLifecycleVerified =
+      false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: missingLifecycleProof,
+        coverage,
+      }),
+    ).toThrow(/did not prove its exact normal return/);
+  });
+
   test("accepts only reviewed isolated sync zlib encoders", () => {
     const catalog = completeNoncapBuiltinCallCatalog();
     const recipe = catalog.recipes[0];

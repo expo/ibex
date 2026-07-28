@@ -5441,6 +5441,58 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — prove direct zlib finalization lifecycles
+
+- Promoted direct `_flush(callback)` for eleven Apple and nine Windows owners.
+  The harness first supplies the same fixed encoder bytes or complete
+  compressed decoder member used by the direct-transform receipt through the
+  exact same receiver, waits for one error-free prefill callback, and only then
+  dispatches the selected `_flush`. This deferred setup is required because
+  native zlib prefill callbacks are synchronous while Brotli and no-bridge zstd
+  retain input through a next-tick callback.
+- Every selected call returns undefined, delivers exactly one callback, sets
+  `_flushed === true`, leaves `writableEnded === false`, destroys the owned
+  receiver, closes any native handle, quiesces, and observes zero decisions.
+  The nine established owners require a successful callback. `ZstdCompress`
+  and `ZstdDecompress` instead require the exact `ENOSYS` callback refusal from
+  the source-defined no-backend path; those two rows prove finalization and
+  refusal semantics, not zstd codec support.
+- The author, JavaScript evidence validator, Rust catalog validator, and loaded
+  engine independently repeat the exact owner vocabulary, inherited `_flush`
+  descriptor, prefill bytes, expected callback error code, undefined result,
+  flushed/non-terminal state, cleanup, and quiescence contract. Exact tamper
+  tests reject modified prefill bytes, callback kinds, refusal codes, and
+  lifecycle receipts.
+- The descriptor residual manifest falls from 424 to 413 rows and the
+  codec-state residual family from 13 to **2**. The only two rows left in that
+  family are the unsupported direct zstd writes.
+- Apple catalog
+  `sha256-ociUo-eGj1TjTZwYmLdI7IWb6QMMLIreIPlMzqQczmM`: 23,590 required /
+  **3,811 executable** / 3,040 internally verified / 16,739 unresolved.
+  Windows catalog
+  `sha256-UUBfAl_Uv5Z7g8nf328fdujsRb24VcekHQn-nue7qZQ`: 23,249 /
+  **3,450** / 3,026 / 16,773.
+- The EPYC 188-row cohort uses catalog digest
+  `sha256-hqMDT8-b2irLa0v6pGs7_Jnz5yMWsqanQotWZN1b6AQ` and engine
+  `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All rows pass
+  twice byte-identically with quiescence and zero decisions; all eleven new
+  rows report `zlibDirectFlushLifecycleVerified: true`. Raw evidence SHA-256:
+  `bc53579e59da11668beb407c6112497c76134bbc6c5e37bcb1219e6060cea52f`.
+  Independent execution digest:
+  `sha256-ong9AFI8eV1SJ5bryKFt6ecFNWG4hI6YLXDZpxPKY3U`; artifact SHA-256:
+  `0cd8160bbd542184a97791740c286fd9da8acbd34236631c4a1199fd5b7da744`.
+  Baseline: `a166b7e39b50df258ee48acb61cd3c223180d261` /
+  `sha256-wdxQN4Iyo1ja_WUblTgJ8OzATl-xV8QA3sF_KLDIjAE`.
+- Focused validation passes **216/216** tests with 124,182 assertions. The
+  final nine-file integration suite passes **512/512** tests with 201,561
+  assertions on EPYC. Registry, runtime projection, the 169-row runtime
+  environment inventory, CapSec contract, ref-check, syntax, and diff hygiene
+  gates pass; `cargo fmt --all -- --check` continues to report only the known,
+  untouched `src/engine/mod.rs:2168` mismatch.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

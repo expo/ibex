@@ -641,6 +641,9 @@ const jsonArgument = (value) => ({ kind: "json", value });
 const noopArgument = () => ({ kind: "noop-function" });
 const timerCallbackArgument = () => ({ kind: "timer-callback" });
 const zlibFlushCallbackArgument = () => ({ kind: "zlib-flush-callback" });
+const zlibDirectFlushCallbackArgument = () => ({
+  kind: "zlib-direct-flush-callback",
+});
 const zlibParamsCallbackArgument = () => ({ kind: "zlib-params-callback" });
 const zlibTransformCallbackArgument = () => ({
   kind: "zlib-transform-callback",
@@ -827,6 +830,17 @@ const ZLIB_TRANSFORM_INPUTS = new Map([
   ["ZstdCompress", [105, 98, 101, 120]],
   ["ZstdDecompress", [105, 98, 101, 120]],
 ]);
+const ZLIB_DIRECT_FLUSH_CONTRACTS = new Map(
+  [...ZLIB_TRANSFORM_INPUTS].map(([owner, prefillInput]) => [
+    owner,
+    [
+      prefillInput,
+      owner === "ZstdCompress" || owner === "ZstdDecompress"
+        ? "ENOSYS"
+        : null,
+    ],
+  ]),
+);
 
 const TIMER_ROOT_CALL_SPECS = Object.freeze({
   active: callSpec(
@@ -2328,9 +2342,23 @@ function zlibPrototypeSpec(exportName) {
       "undefined",
     );
   }
+  if (methodName === "_flush") {
+    const contract = ZLIB_DIRECT_FLUSH_CONTRACTS.get(ownerExportName);
+    if (!contract) return null;
+    return callSpec(
+      {
+        kind: "zlib-direct-flush-owner",
+        ownerExportName,
+        prefillInput: contract[0],
+        expectedCallbackErrorCode: contract[1],
+        cleanupMethod: "destroy",
+      },
+      [zlibDirectFlushCallbackArgument()],
+      "undefined",
+    );
+  }
   if (
     new Set([
-      "_flush",
       "_writeNative",
     ]).has(methodName)
   ) {
@@ -2643,6 +2671,7 @@ function callTemplateFor(descriptor) {
         "readline-interface-pause-owner",
         "tls-server-construct-target",
         "timer-owner",
+        "zlib-direct-flush-owner",
         "zlib-end-owner",
         "zlib-flush-owner",
         "zlib-owner",

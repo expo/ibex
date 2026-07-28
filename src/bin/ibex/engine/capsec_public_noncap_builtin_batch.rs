@@ -1142,6 +1142,18 @@ fn zlib_transform_input(value: &str) -> Option<&'static [u8]> {
         })
 }
 
+fn zlib_direct_flush_contract(
+    value: &str,
+) -> Option<(&'static [u8], Option<&'static str>)> {
+    zlib_transform_input(value).map(|input| {
+        let error_code = match value {
+            "ZstdCompress" | "ZstdDecompress" => Some("ENOSYS"),
+            _ => None,
+        };
+        (input, error_code)
+    })
+}
+
 fn timer_root_contract(
     export_name: &str,
 ) -> Option<(serde_json::Value, serde_json::Value, &'static str)> {
@@ -1261,6 +1273,7 @@ fn validate_authored_argument(argument: &serde_json::Value, allow_setup_value: b
         "noop-function"
         | "event-emitter"
         | "timer-callback"
+        | "zlib-direct-flush-callback"
         | "zlib-flush-callback"
         | "zlib-params-callback"
         | "zlib-transform-callback"
@@ -1720,6 +1733,36 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
             let input =
                 zlib_transform_input(owner).expect("zlib transform owner must be reviewed");
             assert_eq!(setup["inputLength"], input.len());
+            assert_eq!(setup["cleanupMethod"], "destroy");
+            assert_eq!(
+                descriptor.access.path.first().map(String::as_str),
+                Some(owner)
+            );
+        }
+        "zlib-direct-flush-owner" => {
+            assert_object_keys(
+                &invocation.setup,
+                &[
+                    "cleanupMethod",
+                    "expectedCallbackErrorCode",
+                    "kind",
+                    "ownerExportName",
+                    "prefillInput",
+                ],
+                "direct zlib flush owner setup",
+            );
+            assert!(prototype);
+            assert_eq!(descriptor.source_key, "node_zlib");
+            let owner = setup["ownerExportName"]
+                .as_str()
+                .expect("direct zlib flush owner name must be text");
+            let (input, error_code) = zlib_direct_flush_contract(owner)
+                .expect("direct zlib flush owner must be reviewed");
+            assert_eq!(setup["prefillInput"], serde_json::json!(input));
+            assert_eq!(
+                setup["expectedCallbackErrorCode"],
+                serde_json::json!(error_code)
+            );
             assert_eq!(setup["cleanupMethod"], "destroy");
             assert_eq!(
                 descriptor.access.path.first().map(String::as_str),
@@ -2522,6 +2565,65 @@ fn validate_zlib_transform_contract(
             {"kind": "json", "value": "buffer"},
             {"kind": "zlib-transform-callback"}
         ])
+    );
+}
+
+fn validate_zlib_direct_flush_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    if descriptor.source_key != "node_zlib" || !descriptor.export_name.ends_with("._flush") {
+        return;
+    }
+    let (owner, method) = descriptor
+        .export_name
+        .split_once('.')
+        .expect("direct zlib flush export has owner and method");
+    let Some((input, error_code)) = zlib_direct_flush_contract(owner) else {
+        return;
+    };
+    assert_eq!(method, "_flush");
+    assert_eq!(invocation.module_specifier, "node:zlib");
+    assert_eq!(
+        invocation.template_id.as_deref(),
+        Some("node-zlib-bounded-v1")
+    );
+    assert_eq!(descriptor.kind, "builtin-export");
+    assert_eq!(descriptor.value_shape, "callable");
+    assert_eq!(
+        descriptor.source_ref,
+        format!("src/builtins/zlib.js#exports:{}", descriptor.export_name)
+    );
+    assert_eq!(
+        descriptor.export_idioms,
+        ["exported-constructor-inherited-prototype"]
+    );
+    assert_eq!(descriptor.module_specifiers, ["node:zlib", "zlib"]);
+    assert_eq!(descriptor.access.kind, "inherited-prototype-property");
+    assert_eq!(
+        descriptor.access.path,
+        vec![
+            owner.to_owned(),
+            "prototype".to_owned(),
+            "_flush".to_owned()
+        ]
+    );
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, "undefined");
+    assert_eq!(
+        invocation.setup,
+        serde_json::json!({
+            "kind": "zlib-direct-flush-owner",
+            "ownerExportName": owner,
+            "prefillInput": input,
+            "expectedCallbackErrorCode": error_code,
+            "cleanupMethod": "destroy"
+        })
+    );
+    assert_eq!(
+        serde_json::Value::Array(invocation.arguments.clone()),
+        serde_json::json!([{"kind": "zlib-direct-flush-callback"}])
     );
 }
 
@@ -3585,6 +3687,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         validate_zlib_flush_contract(invocation, &descriptor, proof);
         validate_zlib_params_contract(invocation, &descriptor, proof);
         validate_zlib_transform_contract(invocation, &descriptor, proof);
+        validate_zlib_direct_flush_contract(invocation, &descriptor, proof);
         validate_timer_contract(invocation, &descriptor, proof);
         validate_zlib_sync_encoder_contract(invocation, &descriptor, proof);
         validate_zlib_sync_decoder_contract(invocation, &descriptor, proof);
@@ -4248,6 +4351,7 @@ async fn execute_recipe(
             probe.invocation.setup["kind"].as_str(),
             Some(
                 "zlib-owner"
+                    | "zlib-direct-flush-owner"
                     | "zlib-end-owner"
                     | "zlib-process-chunk-owner"
                     | "zlib-flush-owner"
@@ -4334,6 +4438,14 @@ async fn execute_recipe(
         {
             return Err(format!(
                 "{}: direct zlib transform did not prove callback, accepted bytes, and cleanup: {invocation_result}",
+                recipe.fixture_id
+            ));
+        }
+        if probe.invocation.setup["kind"] == "zlib-direct-flush-owner"
+            && invocation_result["zlibDirectFlushLifecycleVerified"] != true
+        {
+            return Err(format!(
+                "{}: direct zlib flush did not prove prefill, callback outcome, final state, and cleanup: {invocation_result}",
                 recipe.fixture_id
             ));
         }
