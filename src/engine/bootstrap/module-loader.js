@@ -4700,6 +4700,76 @@
     // Index of the last significant (non-whitespace, non-comment) code
     // character — the prior-token context for regex-vs-division decisions.
     var lastCode = -1;
+    // Keep the dynamic-import recognizers index-based. The previous scanner
+    // evaluated `source.slice(i).match(...)` for nearly every code character;
+    // Hermes materializes those suffix strings, making this otherwise-linear
+    // pass quadratic for multi-megabyte native startup module tables.
+    // @ref Exact LLP 0128 Phase 6 — warm HBC must improve real startup, not
+    // merely artifact fetch.
+    var isIdentifierPartAt = function(text, index) {
+      if (index < 0 || index >= text.length) {
+        return false;
+      }
+      var code = text.charCodeAt(index);
+      return (code >= 48 && code <= 57) ||
+        (code >= 65 && code <= 90) ||
+        (code >= 97 && code <= 122) ||
+        code === 36 ||
+        code === 95;
+    };
+    var isWhitespaceAt = function(text, index) {
+      if (index < 0 || index >= text.length) {
+        return false;
+      }
+      var code = text.charCodeAt(index);
+      return (code >= 9 && code <= 13) ||
+        code === 32 ||
+        code === 160 ||
+        code === 5760 ||
+        (code >= 8192 && code <= 8202) ||
+        code === 8232 ||
+        code === 8233 ||
+        code === 8239 ||
+        code === 8287 ||
+        code === 12288 ||
+        code === 65279;
+    };
+    var skipWhitespace = function(text, index) {
+      while (index < text.length && isWhitespaceAt(text, index)) {
+        index++;
+      }
+      return index;
+    };
+    var indexAfterLoweredDynamicImport = function(text, index) {
+      if (text.substr(index, 10) !== 'globalThis') {
+        return -1;
+      }
+      var cursor = skipWhitespace(text, index + 10);
+      if (text[cursor] !== '[') {
+        return -1;
+      }
+      cursor = skipWhitespace(text, cursor + 1);
+      var quote = text[cursor];
+      if (quote !== '"' && quote !== "'") {
+        return -1;
+      }
+      if (text.substr(cursor + 1, 6) !== 'import' || text[cursor + 7] !== quote) {
+        return -1;
+      }
+      cursor = skipWhitespace(text, cursor + 8);
+      if (text[cursor] !== ']') {
+        return -1;
+      }
+      cursor = skipWhitespace(text, cursor + 1);
+      return text[cursor] === '(' ? cursor + 1 : -1;
+    };
+    var indexAfterDynamicImport = function(text, index) {
+      if (text.substr(index, 6) !== 'import') {
+        return -1;
+      }
+      var cursor = skipWhitespace(text, index + 6);
+      return text[cursor] === '(' ? cursor + 1 : -1;
+    };
     while (i < len) {
       var ch = source[i];
       var top = templateStack.length ? templateStack[templateStack.length - 1] : null;
@@ -4797,25 +4867,23 @@
       }
       // Check for the compiler-lowered global import spelling. Do not match a
       // property named `globalThis` on another object.
-      if ((i === 0 || !/[A-Za-z0-9_$]/.test(source[i - 1])) &&
+      if (ch === 'g' &&
+          (i === 0 || !isIdentifierPartAt(source, i - 1)) &&
           (lastCode === -1 || source[lastCode] !== '.')) {
-        var lowered = source.slice(i).match(
-          /^globalThis\s*\[\s*(["'])import\1\s*\]\s*\(/
-        );
-        if (lowered) {
+        var loweredEnd = indexAfterLoweredDynamicImport(source, i);
+        if (loweredEnd !== -1) {
           result += '__exactDynamicImport(';
-          i += lowered[0].length;
+          i = loweredEnd;
           lastCode = i - 1;
           continue;
         }
       }
       // Check for import( pattern
-      if (source.slice(i, i + 7) === 'import(' || source.slice(i, i + 7) === 'import ') {
-        var rest = source.slice(i);
-        var m = rest.match(/^import\s*\(/);
-        if (m) {
+      if (ch === 'i') {
+        var dynamicImportEnd = indexAfterDynamicImport(source, i);
+        if (dynamicImportEnd !== -1) {
           result += '__exactDynamicImport(';
-          i += m[0].length;
+          i = dynamicImportEnd;
           lastCode = i - 1;
           continue;
         }

@@ -7362,6 +7362,26 @@ fs.writeFileSync(__MARKER_PATH__, 'authenticated-cache-route-ok');
     }
 
     #[test]
+    fn dynamic_import_transform_does_not_copy_the_source_suffix_per_character() {
+        let loader_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("src/engine/bootstrap/module-loader.js");
+        let loader = std::fs::read_to_string(loader_path).expect("read module loader");
+        assert!(
+            !loader.contains("var lowered = source.slice(i).match("),
+            "dynamic-import scanning must not materialize the remaining source at every index"
+        );
+        assert!(
+            !loader.contains("var rest = source.slice(i);"),
+            "dynamic-import scanning must not retain the quadratic suffix-copy path"
+        );
+        assert!(
+            loader.contains("indexAfterLoweredDynamicImport")
+                && loader.contains("indexAfterDynamicImport"),
+            "dynamic-import scanning must use the index-based recognizers"
+        );
+    }
+
+    #[test]
     fn dev_served_module_table_is_one_shot_gated_and_falls_back_to_native() {
         let (runner, _) = find_js_runner().expect("JavaScript runner");
         let loader_path =
