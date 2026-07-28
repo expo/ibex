@@ -4167,6 +4167,43 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — reconciled the complete EPYC sweep
+
+- The retained second product-backed package sweep completed all 2,415 tests:
+  2,381 passed, 11 skipped, and 23 failed. The complete log accounted for
+  every failure rather than relying on the earlier truncated terminal output.
+- Sixteen filesystem failures and the process `chdir` failure are Bun
+  cross-file harness contamination: the complete 37-test filesystem file and
+  the nine-test process file pass standalone. The WebSocket loopback failure
+  is the already isolated EPYC host limitation: its Ubuntu libcurl 8.5.0 build
+  advertises neither `ws` nor `wss`.
+- Four failures came from the deliberately partial remote feature mirror:
+  three old exact-catalog assertions did not include the seven fresh-stream
+  rows, and the runtime-environment inventory still carried the pre-change
+  Rust source offsets. The current local exact-catalog suite passes 97/97 with
+  116,716 assertions; the offset inventory was regenerated, validates all 169
+  rows, and is committed at `35f83508`.
+- The formerly unnamed failure identified a real integration drift left by the
+  reviewed `e639a7bad8bfca844d982afa54fac786c65a8856` Hermes source-pin
+  advance: the inherited-intrinsic alias review still bound the preceding
+  evaluator profile. The reviewed identity now includes the new source
+  commit, patch 0014, patch-stack digest, and Windows build/installer
+  authorities. Its profile digest is
+  `sha256-b89474c3235ce8a0ec8bdcfb9b87ab52aa0f7f80795cbae05d4a52d8615074a9`;
+  the derived source-review digest is
+  `sha256-d2066823cb8ebe7dd0331b8e5ec9b23d7c36aae6b877988434cbebfb6d595ff8`.
+  The independent inherited-intrinsic suite passes 29/29 with 148 assertions,
+  including pin, target, profile-set, mapped-image, and source-drift
+  refusals.
+- Hard part: the broad sweep ran against a staged Linux mirror so it could
+  reuse the 751 GB EPYC cache without disturbing worktrees. That made a
+  complete log and local reproduction necessary to separate four mirror-only
+  failures, one real reviewed-identity drift, one host capability gap, and
+  harness-order contamination without weakening any security gate.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
