@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-27 (promotes exactly 24 Promise-returning readable-stream consumers: `every`, `find`, `forEach`, `reduce`, `some`, and `toArray` on `Duplex`, `PassThrough`, `Readable`, and `Transform`; every recipe constructs an already-ended empty stream, awaits the exact returned Promise inside the observation, then requires event-loop quiescence and zero decisions, while the independent validator and Rust executor repeat the closed owner/method/argument/result contract; `wrap`, `compose`, and `pipeline` remain residual because their delegated ownership is not closed by this receipt; Apple accounting is 3,648 fully executable / 3,036 internally verified / 16,900 unresolved and Windows accounting is 3,307 / 3,022 / 16,914)
 **Revised:** 2026-07-27 (promotes exactly 15 post-initialization scalar reads from `cluster`, `http`, and `os`: each capability-bearing module is loaded and quiesced before the export observer opens, so initialization receives no credit, while an independently duplicated descriptor/type allowlist requires the later authenticated cached read to return its exact boolean, number, object, string, or symbol type with zero decisions; generic exports from these three modules remain excluded; Apple accounting is 3,570 fully executable / 3,036 internally verified / 16,977 unresolved and Windows accounting is 3,229 / 3,022 / 16,991)
 **Revised:** 2026-07-27 (promotes exactly 24 locally authored `dns/promises` error-code data reads through an independently duplicated name and descriptor allowlist: inventory may retain the conservative `unknown` static shape only when the source is the exact `node_dns_promises` member assignment and the recipe requires a runtime string; both physical engines returned strings with zero decisions for all 24 while generic unknown-shape reads, 42 DNS promises callables, and three Resolver `_handle` callables remain residual; Apple accounting is 3,555 fully executable / 3,036 internally verified / 16,992 unresolved and Windows accounting is 3,214 / 3,022 / 17,006)
 **Revised:** 2026-07-27 (thirteen exact public loader routes now require a fresh armed runtime, real public `require` traversal, one matching receipt from a loader-private source point, quiescence, engine re-attestation, and zero legacy or typed decisions; a 100-route Apple audit rejected 87 static candidates that bypassed, cached, or entered typed authority, while all retained routes pass physically on Apple and Windows at source `362e21c7` / tree `sha256-7Rdvzwm5tGaDVNqW1U9sUiyp1VabIIhRuCT_iN-uOPI`; Apple catalog `sha256-YwyEGiU906sxfdDbSQreOmeQUuFcp_FzeFgFj-x5qbQ` reports 23,844 required / 3,531 fully executable / 3,134 internally verified / 17,179 unresolved and Windows catalog `sha256-Emt8544W78pVLMizBGhKaQt2tIJuqWE6Se383StPlu8` reports 23,503 / 3,190 / 3,120 / 17,193; the source inventory also excludes preprocessor predicates and Mach-O section metadata from pseudo-function/native-operation discovery; both advertisement sets remain empty)
@@ -2661,6 +2662,16 @@ remain residual even when source discovery finds their registration text.
 Every non-capability recipe requires zero legacy and zero typed authorization
 observations; in particular, ordinary random bytes cannot retain the retired
 always-allowed `crypto:random` legacy check.
+
+Promise-returning public builtin calls require a stronger receipt than a
+synchronous function return. The readable-stream consumer family is executable
+only for an already-ended, empty stream created by the harness, with the exact
+returned Promise awaited inside the same observation and event-loop quiescence
+proved afterward. The recipe author, evidence validator, and Rust executor each
+repeat the closed owner, method, arguments, and settled result type. A Promise
+object returned to a synchronous harness is not completion evidence. Stream
+composition, wrapping, and pipeline operations retain delegated sources or
+pipelines and remain residual until a recipe owns and drains those resources.
 
 Acceptance:
 

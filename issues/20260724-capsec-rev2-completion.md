@@ -3844,6 +3844,66 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — executed settled readable-stream consumers
+
+- Promoted exactly 24 Promise-returning consumers: `every`, `find`, `forEach`,
+  `reduce`, `some`, and `toArray` on each of `Duplex`, `PassThrough`,
+  `Readable`, and `Transform`. Every recipe constructs an already-ended empty
+  stream, invokes the source method, awaits its exact Promise inside the
+  observation, and then requires event-loop quiescence with zero legacy or
+  typed decisions.
+- The recipe author, independent JavaScript evidence validator, and Rust
+  physical executor separately enumerate the four owners, six methods, exact
+  harness-owned arguments, settled result types, and `endedInput: true`.
+  `wrap`, root/prototype `compose`, and `pipeline` remain residual because
+  their delegated source or pipeline ownership is not discharged by this
+  receipt.
+- The implementation checkpoint is
+  `0e930a6f9a0c803ec5a752e1fda8f52281634514`, with tree digest
+  `sha256-3lfCcCm2AKzIn0_jy3H8uKcub2AYCCvbXph7PGUjK_o`. Upstream `main`
+  remained at the already-integrated `e4d96bb0` through both physical replays.
+- Final Apple catalog digest
+  `sha256-A-AIJ84fUcDsctobCTk3yo_Im_YoiXRSUl84pBxRBk0` reports 23,584
+  required / **3,648 fully executable** / 3,036 internally verified / 16,900
+  unresolved. The local M5 strict-provenance, stale-vendored batch passes
+  **1,343/1,343**: 1,164 export probes, 145 captured routes, and 34 isolated
+  imports, against engine digest
+  `sha256-PzMZqlPaba3S9taiDvkd7H-DCuBv2MXbYOmLoVbZP3I`. All 24 settled
+  consumers have the exact result type, quiescent completion, and zero
+  decisions. The raw evidence SHA-256 is
+  `4cc11ad7f712566a220232630b72e337c0abe5b5a41b94e6cbe91719ec8ec8b8`;
+  independent validation accepted exactly 1,343 fixtures and produced
+  execution digest
+  `sha256-2SmtLsOm1SIB2XH70ABbhZ2Q8ZMA0J7rcg-s24Z9X94`.
+- Final Windows catalog digest
+  `sha256-VPTs8eHMntpkZwBIijP1PqS_XECvmxVdZqUt1W1pnUI` reports 23,243
+  required / **3,307 fully executable** / 3,022 internally verified / 16,914
+  unresolved. The NucBox's exact MSVC/reviewed-Hermes batch passes
+  **1,307/1,307**: 1,128 export probes, 145 captured routes, and 34 isolated
+  imports, against engine digest
+  `sha256-4HsCwsHz-UDTGNW8-89DnujWOx9rFegBL0wYbUFHPHE`. All 24 settled
+  consumers again reach quiescence with zero decisions. The raw evidence
+  SHA-256 is
+  `e51e2e0ba22fdd85f367adf0006276889bee635f51c4174c82e53153517b18c0`;
+  independent validation accepted exactly 1,307 fixtures and produced
+  execution digest
+  `sha256-KJtUaIusqsoOKzEC5Poll8jXnfkpOGxV5CMRtSXU8LA`.
+- The focused author/catalog/validator suite passes **178/178** tests with
+  117,177 assertions. The secure Cargo profile compiles, its loaded-engine
+  authored-call harness test passes, all generated-drift gates pass, and
+  `ref-check` validates 41 LLP documents and 2,221 references with zero errors
+  (one stable URL remains unchecked).
+- Hard parts: the shared invocation harness also serves expectation-free
+  output-shape capture, so settlement is selected only by the independently
+  validated proof contract; generic calls do not silently become async. A
+  Promise object is never credited as method completion. Fleet selection also
+  stayed conservative: the M4 mini had only about 4.2 GiB free and the
+  MacBook Air was actively serving other development sessions, so Apple ran
+  on the local M5 and Windows on the platform-appropriate NucBox.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
