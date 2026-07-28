@@ -55533,7 +55533,7 @@
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
         "scripts/install-android-hermes.sh#com.facebook.react:react-android",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
-        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
+        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-9f79a77fc45cb8d2d163928f0f834d35ec121a7cdb4dc553463a77961ed0124f",
         "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
       ],
       "outputKinds": [
@@ -61503,7 +61503,7 @@
         "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
         "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
         "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
-        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
+        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-9f79a77fc45cb8d2d163928f0f834d35ec121a7cdb4dc553463a77961ed0124f",
         "src/engine/hermes_runtime.cc#lockdownJS:eval"
       ],
       "outputKinds": [
@@ -65256,7 +65256,7 @@
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
         "scripts/install-android-hermes.sh#com.facebook.react:react-android",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
-        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
+        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-9f79a77fc45cb8d2d163928f0f834d35ec121a7cdb4dc553463a77961ed0124f",
         "src/engine/hermes_runtime.cc#lockdownJS:Function"
       ],
       "outputKinds": [
@@ -65312,7 +65312,7 @@
         "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
         "scripts/install-android-hermes.sh#com.facebook.react:react-android",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
-        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
+        "src/engine/hermes_runtime.cc#lockdown-taming:sha256-9f79a77fc45cb8d2d163928f0f834d35ec121a7cdb4dc553463a77961ed0124f",
         "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
       ],
       "outputKinds": [
@@ -175008,7 +175008,7 @@
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
           "scripts/install-android-hermes.sh#com.facebook.react:react-android",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-9f79a77fc45cb8d2d163928f0f834d35ec121a7cdb4dc553463a77961ed0124f",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ]
       },
@@ -186094,7 +186094,7 @@
           "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
           "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
           "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-9f79a77fc45cb8d2d163928f0f834d35ec121a7cdb4dc553463a77961ed0124f",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ]
       },
@@ -193167,7 +193167,7 @@
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
           "scripts/install-android-hermes.sh#com.facebook.react:react-android",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-9f79a77fc45cb8d2d163928f0f834d35ec121a7cdb4dc553463a77961ed0124f",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ]
       },
@@ -193243,7 +193243,7 @@
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
           "scripts/install-android-hermes.sh#com.facebook.react:react-android",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-db554fcb6c9c245527ee92fc34988671b3797dfa15676ad75e72a3734ffd6c5c",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-9f79a77fc45cb8d2d163928f0f834d35ec121a7cdb4dc553463a77961ed0124f",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ]
       },

@@ -37,6 +37,8 @@ struct Recipe {
     classification: String,
     scenario: String,
     edge_ids: Vec<String>,
+    implementation_branch_ids: Vec<String>,
+    enforcement_branch_ids: Vec<String>,
     action_ids: Vec<String>,
     terminal_observed_key: String,
     expected_observation: serde_json::Value,
@@ -114,6 +116,14 @@ struct ClosedSourceDescriptor {
     selected_source_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     target_triple: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    argument_shape: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    implementation_branch_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    enforcement_branch_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    enforcement_source_ref: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -224,6 +234,20 @@ enum ClosedOperation {
         #[serde(rename = "expectedError")]
         expected_error: String,
     },
+    ProcessEventClosure {
+        #[serde(rename = "methodName")]
+        method_name: String,
+        #[serde(rename = "argumentShape")]
+        argument_shape: String,
+        #[serde(rename = "eventName")]
+        event_name: Option<String>,
+        #[serde(rename = "expectedErrorCode")]
+        expected_error_code: String,
+        #[serde(rename = "expectedPermission")]
+        expected_permission: String,
+        #[serde(rename = "expectedError")]
+        expected_error: String,
+    },
     FilesystemUnboundMutation {
         #[serde(rename = "targetTriple")]
         target_triple: String,
@@ -231,7 +255,11 @@ enum ClosedOperation {
         surface_form: String,
         #[serde(default, rename = "sourceKey", skip_serializing_if = "Option::is_none")]
         source_key: Option<String>,
-        #[serde(default, rename = "exportName", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            default,
+            rename = "exportName",
+            skip_serializing_if = "Option::is_none"
+        )]
         export_name: Option<String>,
         #[serde(
             default,
@@ -239,7 +267,11 @@ enum ClosedOperation {
             skip_serializing_if = "Option::is_none"
         )]
         module_specifier: Option<String>,
-        #[serde(default, rename = "nativeName", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            default,
+            rename = "nativeName",
+            skip_serializing_if = "Option::is_none"
+        )]
         native_name: Option<String>,
         #[serde(rename = "invocationStyle")]
         invocation_style: String,
@@ -269,6 +301,7 @@ impl ClosedOperation {
             Self::DebuggerAbiDisabled { .. } => "debugger-abi-disabled",
             Self::SharedRuntimeGlobalAbsence { .. } => "shared-runtime-global-absence",
             Self::ArmedNativeGlobalAbsence { .. } => "armed-native-global-absence",
+            Self::ProcessEventClosure { .. } => "process-event-closure",
             Self::FilesystemUnboundMutation { .. } => "filesystem-unbound-mutation",
         }
     }
@@ -287,6 +320,7 @@ impl ClosedOperation {
             | Self::DebuggerAbiDisabled { .. } => None,
             Self::SharedRuntimeGlobalAbsence { .. }
             | Self::ArmedNativeGlobalAbsence { .. }
+            | Self::ProcessEventClosure { .. }
             | Self::FilesystemUnboundMutation { .. } => None,
         }
     }
@@ -3221,6 +3255,332 @@ async fn execute_closed_shared_runtime_global_absence(
     })
 }
 
+fn reviewed_process_event_argument_shape(method_name: &str) -> Option<&'static str> {
+    Some(match method_name {
+        "addListener"
+        | "off"
+        | "on"
+        | "once"
+        | "prependListener"
+        | "prependOnceListener"
+        | "removeListener" => "event-listener",
+        "emit" | "listenerCount" | "listeners" | "rawListeners" | "removeAllListeners" => "event",
+        "emitWarning" => "warning",
+        "eventNames" | "getMaxListeners" | "hasUncaughtExceptionCaptureCallback" => "none",
+        "setMaxListeners" => "listener-limit",
+        "setUncaughtExceptionCaptureCallback" => "null-capture-callback",
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+async fn execute_closed_process_event(
+    engine: &mut AuthenticatedClosedEngine,
+    recipe: &Recipe,
+    probe: &ClosedSurfaceProbe,
+    coverage: &BTreeMap<String, (String, String)>,
+    engine_binary_digest: &str,
+    target_triple: &str,
+) -> serde_json::Value {
+    let invocation = &probe.invocation;
+    let ClosedOperation::ProcessEventClosure {
+        method_name,
+        argument_shape,
+        event_name,
+        expected_error_code,
+        expected_permission,
+        expected_error,
+    } = &invocation.operation
+    else {
+        panic!("process event probe has the wrong operation")
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "closed");
+    assert_eq!(recipe.scenario, "closed");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
+    assert_eq!(invocation.kind, "closed-surface");
+    assert_eq!(invocation.surface_kind, "native-op");
+    assert_eq!(
+        invocation.surface_name,
+        format!("global:process.{method_name}")
+    );
+    assert_eq!(invocation.expected_result, "closed");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert!(invocation.allowed_coverage_edge_ids.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(
+        reviewed_process_event_argument_shape(method_name),
+        Some(argument_shape.as_str())
+    );
+    let expects_event = argument_shape == "event" || argument_shape == "event-listener";
+    assert_eq!(
+        event_name.as_deref(),
+        expects_event.then_some("ibex-capsec-shared-event")
+    );
+    assert_eq!(expected_error_code, "ERR_ACCESS_DENIED");
+    assert_eq!(expected_permission, "ProcessEvents");
+    assert_eq!(
+        expected_error,
+        &format!("process.{method_name} is disabled for this event in an armed runtime")
+    );
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+
+    let descriptor = &invocation.source_descriptor;
+    assert_eq!(descriptor.kind, "closed-process-event-method");
+    assert_eq!(
+        descriptor.surface_observed_key.as_deref(),
+        Some(probe.surface_observed_key.as_str())
+    );
+    assert_eq!(descriptor.global_name.as_deref(), Some("process"));
+    assert_eq!(
+        descriptor.member_name.as_deref(),
+        Some(method_name.as_str())
+    );
+    assert_eq!(
+        descriptor.argument_shape.as_deref(),
+        Some(argument_shape.as_str())
+    );
+    assert_eq!(descriptor.target_triple.as_deref(), Some(target_triple));
+    assert_eq!(
+        descriptor.enforcement_source_ref.as_deref(),
+        Some("src/engine/hermes_runtime.cc#armed-process-event-methods")
+    );
+    assert_eq!(
+        descriptor.implementation_branch_ids.as_ref(),
+        Some(&recipe.implementation_branch_ids)
+    );
+    assert_eq!(
+        descriptor.enforcement_branch_ids.as_ref(),
+        Some(&recipe.enforcement_branch_ids)
+    );
+    assert!(!descriptor.source_refs.is_empty());
+    let metadata = &descriptor.source_metadata;
+    assert_eq!(metadata["surfaceType"], "global-api");
+    assert_eq!(metadata["globalName"], "process");
+    assert_eq!(metadata["memberName"], method_name.as_str());
+    assert_eq!(metadata["exportName"], format!("process.{method_name}"));
+    assert!(
+        metadata["memberKinds"]
+            .as_array()
+            .expect("process event member kinds must be an array")
+            .iter()
+            .any(|kind| kind == "prototype-method"),
+        "process event source must include its shared-runtime prototype method"
+    );
+    let branches = metadata["installationBranches"]
+        .as_array()
+        .expect("process event source must name installation branches");
+    let selected_variants = recipe
+        .implementation_branch_ids
+        .iter()
+        .map(|branch_id| {
+            branch_id
+                .rsplit_once('.')
+                .expect("implementation branch id has no variant")
+                .1
+        })
+        .collect::<Vec<_>>();
+    let selected = branches
+        .iter()
+        .filter(|branch| {
+            branch["id"]
+                .as_str()
+                .is_some_and(|id| selected_variants.contains(&id))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(selected.len(), 1);
+    for source_ref in selected[0]["sourceRefs"]
+        .as_array()
+        .expect("selected process branch source refs must be an array")
+    {
+        assert!(
+            descriptor
+                .source_refs
+                .iter()
+                .any(|candidate| source_ref == candidate),
+            "selected process branch source ref left the bound inventory"
+        );
+    }
+
+    let (surface_kind, surface_name) = coverage
+        .get(&recipe.edge_ids[0])
+        .expect("closed process event recipe names an unknown coverage edge");
+    assert_eq!(surface_kind, &invocation.surface_kind);
+    assert_eq!(surface_name, &invocation.surface_name);
+    let terminal_observed_key = format!("{surface_kind}:{surface_name}");
+    assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
+    assert_eq!(terminal_observed_key, probe.surface_observed_key);
+
+    let method_json = serde_json::to_string(method_name).unwrap();
+    let shape_json = serde_json::to_string(argument_shape).unwrap();
+    let event_json = serde_json::to_string(event_name).unwrap();
+    let script = format!(
+        r#"(function(methodName, argumentShape, eventName) {{
+  var processObject = globalThis.process;
+  var prototype = Object.getPrototypeOf(processObject);
+  function argumentsFor() {{
+    if (argumentShape === 'event-listener') return [eventName, function() {{}}];
+    if (argumentShape === 'event') return [eventName];
+    if (argumentShape === 'warning') return ['ibex-capsec-warning'];
+    if (argumentShape === 'listener-limit') return [17];
+    if (argumentShape === 'null-capture-callback') return [null];
+    return [];
+  }}
+  function refusal(call) {{
+    try {{ call(); return null; }}
+    catch (error) {{
+      return {{
+        name: String(error && error.name || 'Error'),
+        code: error && error.code == null ? null : String(error.code),
+        permission: error && error.permission == null
+          ? null
+          : String(error.permission),
+        message: String(error && error.message || error)
+      }};
+    }}
+  }}
+  var direct = refusal(function() {{
+    return processObject[methodName].apply(processObject, argumentsFor());
+  }});
+  var bypass = refusal(function() {{
+    return prototype[methodName].apply(processObject, argumentsFor());
+  }});
+  var descriptor = Object.getOwnPropertyDescriptor(processObject, methodName);
+  var prototypeDescriptor =
+    Object.getOwnPropertyDescriptor(prototype, methodName);
+  return JSON.stringify({{
+    kind: direct && bypass ? 'throw' : 'return',
+    methodName: methodName,
+    argumentShape: argumentShape,
+    eventName: eventName,
+    direct: direct,
+    prototype: bypass,
+    descriptorPinned: !!descriptor &&
+      descriptor.writable === false &&
+      descriptor.configurable === false,
+    prototypeDescriptorPinned: !!prototypeDescriptor &&
+      prototypeDescriptor.writable === false &&
+      prototypeDescriptor.configurable === false &&
+      prototypeDescriptor.value === descriptor.value,
+    backingStateHidden:
+      !('_events' in processObject) &&
+      !('_maxListeners' in processObject) &&
+      !('_uncaughtCaptureCb' in processObject) &&
+      !('_uncaughtExceptionHooked' in processObject) &&
+      !('_unhandledRejectionHooked' in processObject)
+  }});
+}})({method_json}, {shape_json}, {event_json})"#
+    );
+    let session_id = format!("public-observation:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
+    let encoded = engine
+        .eval_immediate(&script)
+        .await
+        .expect("execute closed process event method")
+        .expect("closed process event method returned no result");
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    let observed: serde_json::Value =
+        serde_json::from_str(&encoded).expect("closed process event result must be JSON");
+    assert_eq!(observed["kind"], "throw");
+    assert_eq!(observed["methodName"], method_name.as_str());
+    assert_eq!(observed["argumentShape"], argument_shape.as_str());
+    assert_eq!(observed["eventName"], serde_json::json!(event_name));
+    for channel in ["direct", "prototype"] {
+        assert_eq!(observed[channel]["name"], "Error");
+        assert_eq!(observed[channel]["code"], expected_error_code.as_str());
+        assert_eq!(
+            observed[channel]["permission"],
+            expected_permission.as_str()
+        );
+        assert_eq!(observed[channel]["message"], expected_error.as_str());
+    }
+    assert_eq!(observed["descriptorPinned"], true);
+    assert_eq!(observed["prototypeDescriptorPinned"], true);
+    assert_eq!(observed["backingStateHidden"], true);
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let result = serde_json::json!({
+        "kind": "closed",
+        "surfaceKind": surface_kind,
+        "surfaceName": surface_name,
+        "mechanism": invocation.operation.kind(),
+        "methodName": method_name,
+        "argumentShape": argument_shape,
+        "eventName": event_name,
+        "errorName": observed["direct"]["name"],
+        "errorCode": observed["direct"]["code"],
+        "errorPermission": observed["direct"]["permission"],
+        "errorMessage": observed["direct"]["message"],
+        "prototypeErrorName": observed["prototype"]["name"],
+        "prototypeErrorCode": observed["prototype"]["code"],
+        "prototypeErrorPermission": observed["prototype"]["permission"],
+        "prototypeErrorMessage": observed["prototype"]["message"],
+        "descriptorPinned": true,
+        "prototypeDescriptorPinned": true,
+        "backingStateHidden": true,
+        "engineExecuted": true,
+        "projectCodeExecuted": true,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": terminal_observed_key,
+            "surfaceKind": surface_kind,
+            "surfaceName": surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": 0,
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected closed observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-closed-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
 fn clap_command_at_path<'a>(root: &'a clap::Command, path: &str) -> &'a clap::Command {
     let mut components = path.split(' ');
     assert_eq!(components.next(), Some(root.get_name()));
@@ -4250,6 +4610,18 @@ async fn capsec_public_closed_recipe_batch() {
             )
         })
         .count();
+    let process_event_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::ProcessEventClosure { .. }
+            )
+        })
+        .count();
     let filesystem_mutation_count = recipe_indexes
         .iter()
         .filter(|index| {
@@ -4276,6 +4648,7 @@ async fn capsec_public_closed_recipe_batch() {
             + debugger_abi_count
             + shared_runtime_global_absence_count
             + armed_native_global_absence_count
+            + process_event_count
             + filesystem_mutation_count,
         "every closed recipe must have an accounted execution family"
     );
@@ -4339,6 +4712,10 @@ async fn capsec_public_closed_recipe_batch() {
     assert_eq!(
         armed_native_global_absence_count, expected_native_absence,
         "expected every target-applicable reviewed armed native global"
+    );
+    assert_eq!(
+        process_event_count, 18,
+        "expected every reviewed closed process event method"
     );
     assert_eq!(
         filesystem_mutation_count, expected_filesystem_mutations,
@@ -4579,6 +4956,54 @@ async fn capsec_public_closed_recipe_batch() {
             .finish()
             .expect("finish authenticated shared-runtime-closure publications");
     }
+    if process_event_count > 0 {
+        let process_event_indexes = recipe_indexes
+            .iter()
+            .copied()
+            .filter(|index| {
+                matches!(
+                    &closed_surface_probe(&catalog.recipes[*index])
+                        .unwrap()
+                        .invocation
+                        .operation,
+                    ClosedOperation::ProcessEventClosure { .. }
+                )
+            })
+            .collect::<Vec<_>>();
+        let (host, snapshot_digest) =
+            build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+            .expect("create exact process event closure engine");
+        engine
+            .load_runtime()
+            .await
+            .expect("load exact process event closure runtime");
+        let mut engine = AuthenticatedClosedEngine {
+            host,
+            engine,
+            publications: AuthenticatedPublicationTracker::default(),
+        };
+        for index in process_event_indexes {
+            let recipe = &catalog.recipes[index];
+            let probe = closed_surface_probe(recipe).unwrap();
+            executions.push(
+                execute_closed_process_event(
+                    &mut engine,
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                    &catalog.target.triple,
+                )
+                .await,
+            );
+        }
+        engine
+            .finish()
+            .expect("finish authenticated process-event-closure publications");
+    }
     if filesystem_mutation_count > 0 {
         let filesystem_indexes = recipe_indexes
             .iter()
@@ -4670,6 +5095,7 @@ async fn capsec_public_closed_recipe_batch() {
                 | ClosedOperation::DebuggerAbiDisabled { .. }
                 | ClosedOperation::SharedRuntimeGlobalAbsence { .. }
                 | ClosedOperation::ArmedNativeGlobalAbsence { .. }
+                | ClosedOperation::ProcessEventClosure { .. }
                 | ClosedOperation::FilesystemUnboundMutation { .. }
         ) {
             continue;
@@ -4729,6 +5155,7 @@ async fn capsec_public_closed_recipe_batch() {
             ClosedOperation::DebuggerAbiDisabled { .. } => unreachable!(),
             ClosedOperation::SharedRuntimeGlobalAbsence { .. } => unreachable!(),
             ClosedOperation::ArmedNativeGlobalAbsence { .. } => unreachable!(),
+            ClosedOperation::ProcessEventClosure { .. } => unreachable!(),
             ClosedOperation::FilesystemUnboundMutation { .. } => unreachable!(),
         });
     }

@@ -5556,11 +5556,61 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open.
 
+### 2026-07-28 — prove armed process-event closure
+
+- Promoted exactly eighteen process-event methods through a dedicated
+  `process-event-closure` public-surface operation: the eleven
+  registration/removal/introspection aliases plus `emit`, `emitWarning`,
+  `eventNames`, `getMaxListeners`,
+  `hasUncaughtExceptionCaptureCallback`, `setMaxListeners`, and
+  `setUncaughtExceptionCaptureCallback`.
+- Each recipe binds one exact target-local implementation/enforcement branch
+  to `src/engine/hermes_runtime.cc#armed-process-event-methods`, supplies its
+  reviewed argument shape, and expects stable `ERR_ACCESS_DENIED` /
+  `ProcessEvents` refusal. The loaded-engine harness calls both the public
+  instance and defining prototype, then proves both descriptors remain pinned,
+  the module-private backing state is unreachable, project code ran, and no
+  legacy or typed decision was emitted.
+- The independent JavaScript validator repeats the exact eighteen-name,
+  argument, branch, source, error, descriptor, and hidden-state contract.
+  Negative tests reject an invented enforcement anchor and a mutable prototype
+  receipt.
+- Adding the final process gate inside the content-addressed armed lockdown
+  script intentionally advances the reviewed lockdown taming digest to
+  `sha256-9f79a77fc45cb8d2d163928f0f834d35ec121a7cdb4dc553463a77961ed0124f`
+  and evaluator identity to
+  `hermes-evaluators.276ad10bd883c9796f65ea3e2fb18fe373ce9cc32545c5437bf87b73ebacfd60`.
+  The independent classifier review and regenerated registry remain at
+  **7,525 edges / 7,826 branches / 15,050 target cells / 13,380 references**.
+- Apple catalog
+  `sha256-r820pPZvW9QxWkASiGvawJtTOhPWWJtV_b99qFjTxlA`: 23,592 required /
+  **3,829 executable** / 3,040 internally verified / 16,723 unresolved.
+  Windows catalog
+  `sha256-7Bt5EeCT0SUiLr_NJgPNvJmMPhaA1Fszsk6b_1H-Sic`: 23,251 /
+  **3,468** / 3,026 / 16,757. Closed-denial residuals fall to 541 and 524.
+- The EPYC closed batch passes 1/1 and emits 750 passing rows, including all
+  eighteen new physical records against loaded engine
+  `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. Independent JavaScript
+  validation accepts all eighteen process-event observations. Raw batch
+  evidence SHA-256:
+  `87798b602f4aa227eeb7e85867ae1a3d3cbaa3f860c254b979208094fc244fe9`.
+- Focused recipe and evidence validation passes **177/177** tests with 117,978
+  assertions; classifier validation passes **143/143** tests; registry,
+  output-disposition, and source-inventory integration passes **149/149**
+  tests with 74,799 assertions. The final clean nine-file source-discovery,
+  registry, recipe, evidence, and output integration suite passes **515/515**
+  tests with 201,701 assertions on the M5 host.
+- Important enforcement mechanisms remain about **99.8% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open, lifecycle `exit` / `beforeExit` branch-selection and no-effect recipes
+  remain residual, and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
-bind the new process-event closure to source-derived public recipes, execute
-the closed default and lifecycle no-effect branches through the real armed
-engine, and regenerate both target catalogs. Do not treat the empty
-advertisement set as criterion 7 completion, and do not convert catalog labels
-or generic failed imports into public execution evidence.
+author source-bound branch-selection and diagnosed no-effect recipes for the
+exact `exit` / `beforeExit` lifecycle cases, execute them through the real
+armed engine, and continue reducing the remaining highest-confidence
+public-surface residuals. Do not treat the empty advertisement set as criterion
+7 completion, and do not convert catalog labels or generic failed imports into
+public execution evidence.

@@ -174,6 +174,29 @@ const EXACT_RUNTIME_CANDIDATE_TRIPLES = new Set([
   "x86_64-pc-windows-msvc",
 ]);
 
+const PROCESS_EVENT_METHOD_ARGUMENT_SHAPES = new Map([
+  ["addListener", "event-listener"],
+  ["emit", "event"],
+  ["emitWarning", "warning"],
+  ["eventNames", "none"],
+  ["getMaxListeners", "none"],
+  ["hasUncaughtExceptionCaptureCallback", "none"],
+  ["listenerCount", "event"],
+  ["listeners", "event"],
+  ["off", "event-listener"],
+  ["on", "event-listener"],
+  ["once", "event-listener"],
+  ["prependListener", "event-listener"],
+  ["prependOnceListener", "event-listener"],
+  ["rawListeners", "event"],
+  ["removeAllListeners", "event"],
+  ["removeListener", "event-listener"],
+  ["setMaxListeners", "listener-limit"],
+  ["setUncaughtExceptionCaptureCallback", "null-capture-callback"],
+]);
+const PROCESS_EVENT_ENFORCEMENT_SOURCE_REF =
+  "src/engine/hermes_runtime.cc#armed-process-event-methods";
+
 const CLOSED_FS_BUILTIN_INVOCATION_SHAPES = new Map([
   ["chmod", ["chmod", "path-mode"]],
   ["chown", ["chown", "path-owner"]],
@@ -1274,6 +1297,104 @@ function sharedRuntimeGlobalAbsenceProbe({
   };
 }
 
+function processEventClosureProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+  target,
+}) {
+  if (
+    !EXACT_RUNTIME_CANDIDATE_TRIPLES.has(target?.triple) ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const prefix = "native-op:global:process.";
+  if (!surfaceObservedKey.startsWith(prefix)) return null;
+  const methodName = surfaceObservedKey.slice(prefix.length);
+  const argumentShape = PROCESS_EVENT_METHOD_ARGUMENT_SHAPES.get(methodName);
+  if (!argumentShape) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  const selectedBranches = metadata?.installationBranches?.filter((branch) =>
+    plan.implementationBranchIds.some((branchId) =>
+      branchId.endsWith(`.${branch.id}`),
+    ),
+  );
+  if (
+    live?.kind !== "native-op" ||
+    live.name !== `global:process.${methodName}` ||
+    metadata?.surfaceType !== "global-api" ||
+    metadata.globalName !== "process" ||
+    metadata.memberName !== methodName ||
+    metadata.exportName !== `process.${methodName}` ||
+    (metadata.valueShape !== "callable" &&
+      !metadata.memberKinds?.includes("prototype-method")) ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length === 0 ||
+    !Array.isArray(selectedBranches) ||
+    selectedBranches.length !== 1 ||
+    selectedBranches[0].sourceRefs.some(
+      (sourceRef) => !live.sourceRefs.includes(sourceRef),
+    ) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    !new Set(["runtime:inspect", "ipc:channel"]).has(edge.cap) ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-process-event-method",
+    surfaceObservedKey,
+    globalName: "process",
+    memberName: methodName,
+    argumentShape,
+    targetTriple: target.triple,
+    implementationBranchIds: structuredClone(plan.implementationBranchIds),
+    enforcementBranchIds: structuredClone(plan.enforcementBranchIds),
+    enforcementSourceRef: PROCESS_EVENT_ENFORCEMENT_SOURCE_REF,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "native-op",
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "process-event-closure",
+        methodName,
+        argumentShape,
+        eventName:
+          argumentShape === "event" || argumentShape === "event-listener"
+            ? "ibex-capsec-shared-event"
+            : null,
+        expectedErrorCode: "ERR_ACCESS_DENIED",
+        expectedPermission: "ProcessEvents",
+        expectedError:
+          `process.${methodName} is disabled for this event in an armed runtime`,
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
 function armedNativeGlobalAbsenceProbe({
   plan,
   route,
@@ -1582,6 +1703,7 @@ export function authoredClosedPublicProbe(options) {
     sqliteCrSqliteEnableProbe(options) ??
     terminalBuiltinImportProbe(options) ??
     debuggerAbiDisabledProbe(options) ??
+    processEventClosureProbe(options) ??
     armedNativeGlobalAbsenceProbe(options) ??
     sharedRuntimeGlobalAbsenceProbe(options) ??
     filesystemMutationProbe(options)

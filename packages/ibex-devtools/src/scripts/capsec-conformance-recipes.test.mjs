@@ -466,11 +466,11 @@ describe("exact-target CapSec executable recipes", () => {
     // residual until it has loaded-engine evidence.
     // Five fresh net terminal calls observe close delivery after proving that
     // their harness-owned receiver never acquired a transport.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_811);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_829);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_040);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_741);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_723);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -655,9 +655,9 @@ describe("exact-target CapSec executable recipes", () => {
     // remains one explicit residual until it has loaded-engine evidence.
     // Five fresh net terminal calls observe close delivery after proving that
     // their harness-owned receiver never acquired a transport.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_450);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_468);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_026);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_775);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_757);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -1058,7 +1058,7 @@ describe("exact-target CapSec executable recipes", () => {
           "capsec_public_closed_recipe_batch",
         ),
       ),
-    ).toHaveLength(711);
+    ).toHaveLength(729);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -4961,6 +4961,83 @@ describe("exact-target CapSec executable recipes", () => {
             kind: "shared-runtime-global-absence",
             globalName: "Exact",
             memberName: "accessibility.prefersReducedMotion",
+          },
+        },
+      },
+    });
+  });
+
+  test("binds every closed process-event method to the final armed gate", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "process-event-closure",
+    );
+    expect(rows).toHaveLength(18);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "closed" &&
+          recipe.scenario === "closed" &&
+          recipe.actionIds.length === 0 &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.targetTriple ===
+            "aarch64-apple-darwin" &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor
+            .enforcementSourceRef ===
+            "src/engine/hermes_runtime.cc#armed-process-event-methods",
+      ),
+    ).toBe(true);
+    expect(
+      rows.find(
+        (recipe) =>
+          recipe.terminalObservedKey === "native-op:global:process.on",
+      ),
+    ).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          sourceDescriptor: {
+            kind: "closed-process-event-method",
+            globalName: "process",
+            memberName: "on",
+            argumentShape: "event-listener",
+            implementationBranchIds: [
+              "surface.native.op.global.process.on.178memv.posix",
+            ],
+          },
+          operation: {
+            kind: "process-event-closure",
+            methodName: "on",
+            argumentShape: "event-listener",
+            eventName: "ibex-capsec-shared-event",
+            expectedErrorCode: "ERR_ACCESS_DENIED",
+            expectedPermission: "ProcessEvents",
+          },
+        },
+      },
+    });
+    const windowsRows = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "process-event-closure",
+    );
+    expect(windowsRows).toHaveLength(18);
+    expect(
+      windowsRows.find(
+        (recipe) =>
+          recipe.terminalObservedKey === "native-op:global:process.on",
+      ),
+    ).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          sourceDescriptor: {
+            targetTriple: "x86_64-pc-windows-msvc",
+            implementationBranchIds: [
+              "surface.native.op.global.process.on.178memv.default",
+            ],
           },
         },
       },

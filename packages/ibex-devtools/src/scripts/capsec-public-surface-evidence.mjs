@@ -4487,6 +4487,118 @@ function validateRuntimeInvocation(observation, recipe) {
         );
       }
     }
+    if (authored.operation?.kind === "process-event-closure") {
+      const reviewedShapes = new Map([
+        ["addListener", "event-listener"],
+        ["emit", "event"],
+        ["emitWarning", "warning"],
+        ["eventNames", "none"],
+        ["getMaxListeners", "none"],
+        ["hasUncaughtExceptionCaptureCallback", "none"],
+        ["listenerCount", "event"],
+        ["listeners", "event"],
+        ["off", "event-listener"],
+        ["on", "event-listener"],
+        ["once", "event-listener"],
+        ["prependListener", "event-listener"],
+        ["prependOnceListener", "event-listener"],
+        ["rawListeners", "event"],
+        ["removeAllListeners", "event"],
+        ["removeListener", "event-listener"],
+        ["setMaxListeners", "listener-limit"],
+        ["setUncaughtExceptionCaptureCallback", "null-capture-callback"],
+      ]);
+      const descriptor = authored.sourceDescriptor;
+      const operation = authored.operation;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "globalName",
+          "memberName",
+          "argumentShape",
+          "targetTriple",
+          "implementationBranchIds",
+          "enforcementBranchIds",
+          "enforcementSourceRef",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed process event source descriptor`,
+      );
+      exactKeys(
+        operation,
+        [
+          "kind",
+          "methodName",
+          "argumentShape",
+          "eventName",
+          "expectedErrorCode",
+          "expectedPermission",
+          "expectedError",
+        ],
+        `${recipe.fixtureId}: closed process event operation`,
+      );
+      const methodName = operation.methodName;
+      const argumentShape = reviewedShapes.get(methodName);
+      const metadata = descriptor.sourceMetadata;
+      const branches = metadata?.installationBranches;
+      const selectedVariants = descriptor.implementationBranchIds?.map(
+        (branchId) => branchId.slice(branchId.lastIndexOf(".") + 1),
+      );
+      const selectedBranches = branches?.filter((branch) =>
+        selectedVariants?.includes(branch.id),
+      );
+      const eventBearing =
+        argumentShape === "event" || argumentShape === "event-listener";
+      const exactTarget = new Set([
+        "aarch64-apple-darwin",
+        "x86_64-pc-windows-msvc",
+      ]).has(descriptor.targetTriple);
+      if (
+        argumentShape === undefined ||
+        authored.surfaceKind !== "native-op" ||
+        authored.surfaceName !== `global:process.${methodName}` ||
+        recipe.terminalObservedKey !==
+          `native-op:global:process.${methodName}` ||
+        descriptor.kind !== "closed-process-event-method" ||
+        descriptor.surfaceObservedKey !== recipe.terminalObservedKey ||
+        descriptor.globalName !== "process" ||
+        descriptor.memberName !== methodName ||
+        descriptor.argumentShape !== argumentShape ||
+        operation.argumentShape !== argumentShape ||
+        operation.eventName !==
+          (eventBearing ? "ibex-capsec-shared-event" : null) ||
+        operation.expectedErrorCode !== "ERR_ACCESS_DENIED" ||
+        operation.expectedPermission !== "ProcessEvents" ||
+        operation.expectedError !==
+          `process.${methodName} is disabled for this event in an armed runtime` ||
+        !exactTarget ||
+        canonicalJson(descriptor.implementationBranchIds) !==
+          canonicalJson(recipe.implementationBranchIds) ||
+        canonicalJson(descriptor.enforcementBranchIds) !==
+          canonicalJson(recipe.enforcementBranchIds) ||
+        descriptor.enforcementSourceRef !==
+          "src/engine/hermes_runtime.cc#armed-process-event-methods" ||
+        !Array.isArray(descriptor.sourceRefs) ||
+        descriptor.sourceRefs.length === 0 ||
+        metadata?.surfaceType !== "global-api" ||
+        metadata.globalName !== "process" ||
+        metadata.memberName !== methodName ||
+        metadata.exportName !== `process.${methodName}` ||
+        !metadata.memberKinds?.includes("prototype-method") ||
+        !Array.isArray(branches) ||
+        selectedBranches?.length !== 1 ||
+        !selectedBranches[0].sourceRefs?.every((sourceRef) =>
+          descriptor.sourceRefs.includes(sourceRef),
+        )
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: process event closure is not bound to its selected source branch and final armed gate`,
+        );
+      }
+    }
     if (authored.operation?.kind === "shared-runtime-global-absence") {
       const reviewedSurfaces = new Set([
         "__exactAllowNativesSyntax",
@@ -6989,6 +7101,8 @@ function validateRuntimeInvocation(observation, recipe) {
   } else if (authored.expectedResult === "closed") {
     const filesystemMutation =
       authored.operation?.kind === "filesystem-unbound-mutation";
+    const processEventClosure =
+      authored.operation?.kind === "process-event-closure";
     exactKeys(
       invocation.result,
       [
@@ -7003,6 +7117,22 @@ function validateRuntimeInvocation(observation, recipe) {
               "callbackCalled",
               "filesystemBeforeDigest",
               "filesystemAfterDigest",
+            ]
+          : []),
+        ...(processEventClosure
+          ? [
+              "methodName",
+              "argumentShape",
+              "eventName",
+              "errorCode",
+              "errorPermission",
+              "prototypeErrorName",
+              "prototypeErrorCode",
+              "prototypeErrorPermission",
+              "prototypeErrorMessage",
+              "descriptorPinned",
+              "prototypeDescriptorPinned",
+              "backingStateHidden",
             ]
           : []),
         "errorMessage",
@@ -7020,11 +7150,13 @@ function validateRuntimeInvocation(observation, recipe) {
       invocation.result.surfaceName !== authored.surfaceName ||
       invocation.result.mechanism !== authored.operation?.kind ||
       invocation.result.errorName !==
-        (filesystemMutation ? "Error" : "ClosedSurface") ||
+        (filesystemMutation || processEventClosure
+          ? "Error"
+          : "ClosedSurface") ||
       typeof invocation.result.errorMessage !== "string" ||
       invocation.result.errorMessage.length === 0 ||
       typeof invocation.result.engineExecuted !== "boolean" ||
-      invocation.result.projectCodeExecuted !== false
+      invocation.result.projectCodeExecuted !== processEventClosure
     ) {
       throw new Error(
         `${recipe.fixtureId}: public closed surface did not fail closed`,
@@ -7187,6 +7319,62 @@ function validateRuntimeInvocation(observation, recipe) {
       throw new Error(
         `${recipe.fixtureId}: debugger ABI did not prove the no-debugger physical result`,
       );
+    }
+    if (authored.operation?.kind === "process-event-closure") {
+      exactKeys(
+        invocation.result,
+        [
+          "kind",
+          "surfaceKind",
+          "surfaceName",
+          "mechanism",
+          "methodName",
+          "argumentShape",
+          "eventName",
+          "errorName",
+          "errorCode",
+          "errorPermission",
+          "errorMessage",
+          "prototypeErrorName",
+          "prototypeErrorCode",
+          "prototypeErrorPermission",
+          "prototypeErrorMessage",
+          "descriptorPinned",
+          "prototypeDescriptorPinned",
+          "backingStateHidden",
+          "engineExecuted",
+          "projectCodeExecuted",
+        ],
+        `${recipe.fixtureId}: closed process event runtime result`,
+      );
+      const operation = authored.operation;
+      if (
+        invocation.result.kind !== "closed" ||
+        invocation.result.surfaceKind !== "native-op" ||
+        invocation.result.surfaceName !== authored.surfaceName ||
+        invocation.result.mechanism !== operation.kind ||
+        invocation.result.methodName !== operation.methodName ||
+        invocation.result.argumentShape !== operation.argumentShape ||
+        invocation.result.eventName !== operation.eventName ||
+        invocation.result.errorName !== "Error" ||
+        invocation.result.errorCode !== operation.expectedErrorCode ||
+        invocation.result.errorPermission !== operation.expectedPermission ||
+        invocation.result.errorMessage !== operation.expectedError ||
+        invocation.result.prototypeErrorName !== "Error" ||
+        invocation.result.prototypeErrorCode !== operation.expectedErrorCode ||
+        invocation.result.prototypeErrorPermission !==
+          operation.expectedPermission ||
+        invocation.result.prototypeErrorMessage !== operation.expectedError ||
+        invocation.result.descriptorPinned !== true ||
+        invocation.result.prototypeDescriptorPinned !== true ||
+        invocation.result.backingStateHidden !== true ||
+        invocation.result.engineExecuted !== true ||
+        invocation.result.projectCodeExecuted !== true
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: armed process event method did not prove direct and prototype closure`,
+        );
+      }
     }
     if (
       authored.operation?.kind === "shared-runtime-global-absence" &&

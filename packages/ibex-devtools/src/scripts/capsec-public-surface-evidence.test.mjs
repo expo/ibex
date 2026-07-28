@@ -2208,6 +2208,76 @@ function completeClosedFilesystemCatalog() {
   return catalog;
 }
 
+function completeClosedProcessEventCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const methodName = "addListener";
+  const branchId =
+    "surface.native.op.global.process.addlistener.1oorvy1.posix";
+  const sourceRefs = [
+    "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process",
+    "packages/ibex-runtime-js/src/node/process.ts#Process.prototype.addListener",
+    "src/engine/bootstrap/exact-global.js#process.addListener",
+    "src/engine/bootstrap/ipc-listener.js#process.addListener",
+    "src/engine/bootstrap/stream-enhance.js#process.addListener",
+  ];
+  const sourceDescriptor = {
+    kind: "closed-process-event-method",
+    surfaceObservedKey: `native-op:global:process.${methodName}`,
+    globalName: "process",
+    memberName: methodName,
+    argumentShape: "event-listener",
+    targetTriple: target.triple,
+    implementationBranchIds: [branchId],
+    enforcementBranchIds: [branchId],
+    enforcementSourceRef:
+      "src/engine/hermes_runtime.cc#armed-process-event-methods",
+    sourceRefs,
+    sourceMetadata: {
+      exportName: `process.${methodName}`,
+      globalName: "process",
+      installationBranches: [
+        {
+          id: "default",
+          sourceRefs: sourceRefs.slice(0, 4),
+        },
+        {
+          id: "posix",
+          sourceRefs: [sourceRefs[4]],
+        },
+      ],
+      memberKinds: ["member-assignment", "prototype-method"],
+      memberName: methodName,
+      surfaceType: "global-api",
+    },
+  };
+  recipe.fixtureId = "fixture.process.add-listener.closed";
+  recipe.implementationBranchIds = [branchId];
+  recipe.enforcementBranchIds = [branchId];
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "native-op",
+    surfaceName: `global:process.${methodName}`,
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "process-event-closure",
+      methodName,
+      argumentShape: "event-listener",
+      eventName: "ibex-capsec-shared-event",
+      expectedErrorCode: "ERR_ACCESS_DENIED",
+      expectedPermission: "ProcessEvents",
+      expectedError: `process.${methodName} is disabled for this event in an armed runtime`,
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
 function completeClosedCliCatalog() {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
@@ -2901,6 +2971,8 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
           ? invocation.operation.expectedError
         : invocation.operation.kind === "armed-native-global-absence"
           ? invocation.operation.expectedError
+        : invocation.operation.kind === "process-event-closure"
+          ? invocation.operation.expectedError
         : invocation.operation.kind === "exact-unendowed-operation"
           ? invocation.operation.expectedError
         : invocation.operation.kind === "filesystem-unbound-mutation"
@@ -2921,7 +2993,8 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
         surfaceName: invocation.surfaceName,
         mechanism: invocation.operation.kind,
         errorName:
-          invocation.operation.kind === "filesystem-unbound-mutation"
+          invocation.operation.kind === "filesystem-unbound-mutation" ||
+          invocation.operation.kind === "process-event-closure"
             ? "Error"
             : "ClosedSurface",
         errorMessage,
@@ -2938,6 +3011,23 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
                 filesystemAfterDigest:
                   "sha256-FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
               }
+            : invocation.operation.kind === "process-event-closure"
+              ? {
+                  methodName: invocation.operation.methodName,
+                  argumentShape: invocation.operation.argumentShape,
+                  eventName: invocation.operation.eventName,
+                  errorCode: invocation.operation.expectedErrorCode,
+                  errorPermission: invocation.operation.expectedPermission,
+                  prototypeErrorName: "Error",
+                  prototypeErrorCode:
+                    invocation.operation.expectedErrorCode,
+                  prototypeErrorPermission:
+                    invocation.operation.expectedPermission,
+                  prototypeErrorMessage: invocation.operation.expectedError,
+                  descriptorPinned: true,
+                  prototypeDescriptorPinned: true,
+                  backingStateHidden: true,
+                }
             : {}),
         engineExecuted:
           invocation.operation.kind === "loader-executable-file" ||
@@ -2947,9 +3037,13 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
           invocation.operation.kind === "debugger-abi-disabled" ||
           invocation.operation.kind === "shared-runtime-global-absence" ||
           invocation.operation.kind === "armed-native-global-absence" ||
+          invocation.operation.kind === "process-event-closure" ||
           invocation.operation.kind === "exact-unendowed-operation" ||
           invocation.operation.kind === "filesystem-unbound-mutation",
-        projectCodeExecuted,
+        projectCodeExecuted:
+          invocation.operation.kind === "process-event-closure"
+            ? true
+            : projectCodeExecuted,
       },
     },
     legacyObservationCount: 0,
@@ -7573,6 +7667,46 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/pre-lookup EPERM closure/);
+  });
+
+  test("accepts process-event closure only with pinned direct and prototype denial", () => {
+    const catalog = completeClosedProcessEventCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const mutablePrototype = closedRuntimeObservation(recipe);
+    mutablePrototype.invocation.result.prototypeDescriptorPinned = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: mutablePrototype,
+        coverage,
+      }),
+    ).toThrow(/direct and prototype closure/);
+
+    const inventedGate = structuredClone(recipe);
+    inventedGate.publicSurfaceProbe.invocation.sourceDescriptor.enforcementSourceRef =
+      "src/engine/hermes_runtime.cc#invented-process-gate";
+    inventedGate.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        inventedGate.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: inventedGate,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(inventedGate),
+        coverage,
+      }),
+    ).toThrow(/selected source branch and final armed gate/);
   });
 
   test("accepts CLI closure only with the authored production rejection", () => {
