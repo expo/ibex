@@ -1329,6 +1329,45 @@ describe("source-bound builtin public probes", () => {
         },
       });
     }
+    for (const ownerExportName of [
+      "BrotliCompress",
+      "BrotliDecompress",
+      "Deflate",
+      "DeflateRaw",
+      "Gunzip",
+      "Gzip",
+      "Inflate",
+      "InflateRaw",
+      "Unzip",
+      "ZstdCompress",
+      "ZstdDecompress",
+    ]) {
+      expect(
+        probeFor({
+          sourceKey: "node_zlib",
+          exportName: `${ownerExportName}.params`,
+          exportIdioms: ["exported-constructor-inherited-prototype"],
+          moduleSpecifiers: ["node:zlib", "zlib"],
+          valueShape: "callable",
+        }),
+      ).toMatchObject({
+        invocation: {
+          arguments: [
+            { kind: "json", value: 1 },
+            { kind: "json", value: 0 },
+            { kind: "zlib-params-callback" },
+          ],
+          setup: {
+            kind: "zlib-params-owner",
+            ownerExportName,
+            level: 1,
+            strategy: 0,
+            cleanupMethod: "destroy",
+          },
+          bodyEntryProof: { resultType: "object" },
+        },
+      });
+    }
     for (const [ownerExportName, bytes, outputContract] of [
       ["BrotliCompress", [105, 98, 101, 120], "nonempty-byte-view"],
       [

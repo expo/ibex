@@ -119,14 +119,14 @@ describe("builtin non-capability/closed output recipes", () => {
   test("accounts for the exact callable/accessor and descriptor residual universe", async () => {
     const rows = await loaded;
     // Bounded HTTP/HTTPS/net/UDP/TLS calls, 19 cancellable timer lifecycles,
-    // and 56 one-shot/lifecycle zlib codecs,
+    // and 67 one-shot/lifecycle zlib codecs,
     // including exact terminal
     // lifecycles and TLS owner retirement, X509Certificate.toString, and the three
     // source-only compatibility helpers and both reviewed Interface lifecycle
     // calls now have exact
     // loaded zero-decision recipes instead of descriptor-only residual
     // accounts.
-    expect(rows).toHaveLength(446);
+    expect(rows).toHaveLength(435);
     expect(
       Object.fromEntries(
         ["non-capability", "closed"].map((classification) => [
@@ -136,19 +136,19 @@ describe("builtin non-capability/closed output recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ "non-capability": 226, closed: 220 });
+    ).toEqual({ "non-capability": 215, closed: 220 });
     expect(
       builtinNoncapClosedOutputRouteManifest(rows.map((row) => row.invocation)),
     ).toMatchObject({
-      total: 446,
+      total: 435,
       operations: {
         call: 205,
         construct: 16,
         "import-refusal": 22,
-        unexercisable: 203,
+        unexercisable: 192,
       },
       residualReasons: {
-        "codec-route-retains-native-or-deferred-stream-state": 35,
+        "codec-route-retains-native-or-deferred-stream-state": 24,
         "crypto-route-needs-authentic-key-cipher-or-callback-fixture": 6,
         "no-bounded-source-owned-receiver": 50,
         "receiver-needs-external-or-network-lifecycle": 51,
@@ -158,7 +158,8 @@ describe("builtin non-capability/closed output recipes", () => {
     // The 24 settled consumers, eight fixed-DH operations, six base Stream
     // lifecycle calls, 11 idle zlib destroys, 18 one-shot zlib codecs, nine
     // terminal zlib end lifecycles, nine bounded process-chunk calls, nine
-    // incremental write lifecycles, 11 bounded flush lifecycles, 19
+    // incremental write lifecycles, 11 bounded flush lifecycles, 11 selected
+    // parameter lifecycles, 19
     // cancellable timer lifecycles,
     // 13 bounded HTTP calls,
     // five fresh net terminal calls, five transport-free TLS socket lifecycle
@@ -166,7 +167,7 @@ describe("builtin non-capability/closed output recipes", () => {
     // Server constructions, three retired idle HTTPS Server constructions,
     // seven fresh UDP socket lifecycle calls, and three source-only compatibility
     // helpers, KeyObject.equals, Interface.close, and Interface.pause now have
-    // bounded public probes. Those 167 descriptor-only rows are
+    // bounded public probes. Those 178 descriptor-only rows are
     // no longer descriptor-only residuals; Duplex
     // `_undestroy` is one representative inherited descriptor.
     expect(

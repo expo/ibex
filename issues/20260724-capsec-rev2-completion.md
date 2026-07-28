@@ -5359,6 +5359,53 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — prove public zlib parameter lifecycles
+
+- Promoted public `params(1, 0, callback)` for the same eleven Apple and nine
+  Windows owners as public flush. Every call fixes compression level 1 and
+  default strategy 0, returns the fresh receiver, delivers its callback exactly
+  once without error, proves `_level === 1` and `_strategy === 0` while the
+  stream remains non-terminal, and then destroys the receiver and closes any
+  native handle before quiescence.
+- Native deflate-family compressors enter the installed parameter bridge.
+  Decoder, Brotli, and no-bridge zstd wrappers prove only their source-defined
+  retained-state control path; this receipt does not claim Brotli or zstd codec
+  execution. The author, JavaScript evidence validator, Rust validator, and
+  loaded-engine boundary independently repeat the exact owner, numeric
+  arguments, callback, selected-state, return, and cleanup contract.
+- The descriptor residual manifest falls from 446 to 435 rows, including the
+  codec-state residual family falling from 35 to 24.
+- The Apple catalog digest
+  `sha256-fdn2N2YrqNN9mkTjhPd_bJS96we90_t3YQ9AIgJKd4Q` reports 23,590
+  required / **3,789 fully executable** / 3,040 internally verified / 16,761
+  unresolved. The Windows digest
+  `sha256-yb0raBrBR1ZpL7S_IWfaRqg-ttYPIgghbQNLoimarm4` reports 23,249
+  required / **3,432 fully executable** / 3,026 internally verified / 16,791
+  unresolved.
+- The EPYC exact-Hermes receipt binds the prior 155 focused rows plus all
+  eleven parameter lifecycles under catalog digest
+  `sha256-defryGrEy42ud49Evieg7xbQZBQKiWW_p3WbPcQVHYY` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 166
+  fixtures pass; all eleven new results report
+  `zlibParamsLifecycleVerified: true`, every completion is quiescent, and no
+  legacy or typed decisions appear. Two replays are byte-identical. The raw
+  evidence SHA-256 is
+  `3a35becf886bdd0d756c0bb2a0df5fae8cf9d8c82bbe9e15f88e2f094be5d577`;
+  independent JavaScript validation accepted all 166 executions and produced
+  diagnostic execution digest
+  `sha256-PYN7iBq52nXNwyMHf3z1rMjpQJTZFrliZ1yCcj8gwaQ` (artifact SHA-256
+  `0cff05e891a09757ab046cdac661421f26a2343eec5dce0925546ee2f9a3d4fa`).
+  The diagnostic source binding is baseline revision
+  `f79d6e8ea7a22a7cb56ad6c27bf591ce1a19a311` / tree digest
+  `sha256-81qJkB82IdRWO6g62T9gC2-xa-RIxPVheog1IobRAY4`.
+- The focused four-file suite passes **214/214** tests with 124,333
+  assertions. The final nine-file source-discovery, registry, and output
+  integration suite passes **510/510** tests with 201,712 assertions on the
+  EPYC host.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

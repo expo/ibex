@@ -641,6 +641,7 @@ const jsonArgument = (value) => ({ kind: "json", value });
 const noopArgument = () => ({ kind: "noop-function" });
 const timerCallbackArgument = () => ({ kind: "timer-callback" });
 const zlibFlushCallbackArgument = () => ({ kind: "zlib-flush-callback" });
+const zlibParamsCallbackArgument = () => ({ kind: "zlib-params-callback" });
 const zlibWriteCallbackArgument = () => ({ kind: "zlib-write-callback" });
 const throwingArgument = () => ({
   kind: "throwing-function",
@@ -2284,12 +2285,28 @@ function zlibPrototypeSpec(exportName) {
       "object",
     );
   }
+  if (methodName === "params" && ZLIB_FLUSH_OWNERS.has(ownerExportName)) {
+    return callSpec(
+      {
+        kind: "zlib-params-owner",
+        ownerExportName,
+        level: 1,
+        strategy: 0,
+        cleanupMethod: "destroy",
+      },
+      [
+        jsonArgument(1),
+        jsonArgument(0),
+        zlibParamsCallbackArgument(),
+      ],
+      "object",
+    );
+  }
   if (
     new Set([
       "_flush",
       "_transform",
       "_writeNative",
-      "params",
     ]).has(methodName)
   ) {
     // These methods enter native codec work. At least BrotliCompress._flush
@@ -2604,6 +2621,7 @@ function callTemplateFor(descriptor) {
         "zlib-end-owner",
         "zlib-flush-owner",
         "zlib-owner",
+        "zlib-params-owner",
         "zlib-process-chunk-owner",
         "zlib-write-owner",
         "stream-owner",

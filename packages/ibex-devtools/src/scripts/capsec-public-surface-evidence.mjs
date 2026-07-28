@@ -385,6 +385,7 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["zlib-end-owner", "prototype-call"],
   ["zlib-flush-owner", "prototype-call"],
   ["zlib-owner", "prototype-call"],
+  ["zlib-params-owner", "prototype-call"],
   ["zlib-process-chunk-owner", "prototype-call"],
   ["zlib-write-owner", "prototype-call"],
 ]);
@@ -5830,6 +5831,11 @@ function validateRuntimeInvocation(observation, recipe) {
       zlibExtra.length === 0 &&
       zlibMethod === "flush" &&
       ZLIB_FLUSH_OWNERS.has(zlibOwner);
+    const zlibParams =
+      authored.sourceDescriptor.sourceKey === "node_zlib" &&
+      zlibExtra.length === 0 &&
+      zlibMethod === "params" &&
+      ZLIB_FLUSH_OWNERS.has(zlibOwner);
     const timerRootContract =
       authored.sourceDescriptor.sourceKey === "node_timers"
         ? TIMER_ROOT_CONTRACTS.get(authored.exportName)
@@ -5994,6 +6000,43 @@ function validateRuntimeInvocation(observation, recipe) {
       );
     }
     if (
+      zlibParams &&
+      (authored.moduleSpecifier !== "node:zlib" ||
+        authored.templateId !== "node-zlib-bounded-v1" ||
+        authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+        authored.bodyEntryProof.resultType !== "object" ||
+        authored.sourceDescriptor.kind !== "builtin-export" ||
+        authored.sourceDescriptor.valueShape !== "callable" ||
+        authored.sourceDescriptor.sourceRef !==
+          `src/builtins/zlib.js#exports:${authored.exportName}` ||
+        canonicalJson(authored.sourceDescriptor.exportIdioms) !==
+          canonicalJson(["exported-constructor-inherited-prototype"]) ||
+        canonicalJson(authored.sourceDescriptor.moduleSpecifiers) !==
+          canonicalJson(["node:zlib", "zlib"]) ||
+        authored.sourceDescriptor.access.kind !==
+          "inherited-prototype-property" ||
+        canonicalJson(authored.sourceDescriptor.access.path) !==
+          canonicalJson([zlibOwner, "prototype", "params"]) ||
+        canonicalJson(authored.setup) !==
+          canonicalJson({
+            kind: "zlib-params-owner",
+            ownerExportName: zlibOwner,
+            level: 1,
+            strategy: 0,
+            cleanupMethod: "destroy",
+          }) ||
+        canonicalJson(authored.arguments) !==
+          canonicalJson([
+            { kind: "json", value: 1 },
+            { kind: "json", value: 0 },
+            { kind: "zlib-params-callback" },
+          ]))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored zlib params lifecycle proof`,
+      );
+    }
+    if (
       timerSetup &&
       (!timerContract ||
         authored.moduleSpecifier !== "node:timers" ||
@@ -6048,6 +6091,7 @@ function validateRuntimeInvocation(observation, recipe) {
       "zlib-end-owner",
       "zlib-flush-owner",
       "zlib-owner",
+      "zlib-params-owner",
       "zlib-process-chunk-owner",
       "zlib-write-owner",
     ]).has(authored.setup.kind);
@@ -6069,6 +6113,8 @@ function validateRuntimeInvocation(observation, recipe) {
       authored.setup.kind === "zlib-write-owner";
     const zlibFlushLifecycleRequired =
       authored.setup.kind === "zlib-flush-owner";
+    const zlibParamsLifecycleRequired =
+      authored.setup.kind === "zlib-params-owner";
     const timerLifecycleRequired = timerSetup;
     exactKeys(
       invocation.result,
@@ -6096,6 +6142,9 @@ function validateRuntimeInvocation(observation, recipe) {
           : []),
         ...(zlibFlushLifecycleRequired
           ? ["zlibFlushLifecycleVerified"]
+          : []),
+        ...(zlibParamsLifecycleRequired
+          ? ["zlibParamsLifecycleVerified"]
           : []),
         ...(timerLifecycleRequired ? ["timerLifecycleVerified"] : []),
         ...(zlibSyncEncoder ? ["zlibSyncEncoderOutputVerified"] : []),
@@ -6135,6 +6184,8 @@ function validateRuntimeInvocation(observation, recipe) {
         invocation.result.zlibWriteLifecycleVerified !== true) ||
       (zlibFlushLifecycleRequired &&
         invocation.result.zlibFlushLifecycleVerified !== true) ||
+      (zlibParamsLifecycleRequired &&
+        invocation.result.zlibParamsLifecycleVerified !== true) ||
       (timerLifecycleRequired &&
         invocation.result.timerLifecycleVerified !== true) ||
       (netLifecycleRequired &&

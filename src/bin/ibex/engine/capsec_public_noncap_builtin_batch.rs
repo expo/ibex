@@ -1253,6 +1253,7 @@ fn validate_authored_argument(argument: &serde_json::Value, allow_setup_value: b
         | "event-emitter"
         | "timer-callback"
         | "zlib-flush-callback"
+        | "zlib-params-callback"
         | "zlib-write-callback" => {
             assert_object_keys(argument, &["kind"], "authored special argument");
         }
@@ -1658,6 +1659,32 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
             assert!(zlib_flush_owner(owner), "zlib flush owner must be reviewed");
             assert_eq!(setup["callbackPosition"], "first-argument");
             assert_eq!(setup["flushKind"], "default-full-flush");
+            assert_eq!(setup["cleanupMethod"], "destroy");
+            assert_eq!(
+                descriptor.access.path.first().map(String::as_str),
+                Some(owner)
+            );
+        }
+        "zlib-params-owner" => {
+            assert_object_keys(
+                &invocation.setup,
+                &[
+                    "cleanupMethod",
+                    "kind",
+                    "level",
+                    "ownerExportName",
+                    "strategy",
+                ],
+                "zlib params owner setup",
+            );
+            assert!(prototype);
+            assert_eq!(descriptor.source_key, "node_zlib");
+            let owner = setup["ownerExportName"]
+                .as_str()
+                .expect("zlib params owner name must be text");
+            assert!(zlib_flush_owner(owner), "zlib params owner must be reviewed");
+            assert_eq!(setup["level"], 1);
+            assert_eq!(setup["strategy"], 0);
             assert_eq!(setup["cleanupMethod"], "destroy");
             assert_eq!(
                 descriptor.access.path.first().map(String::as_str),
@@ -2335,6 +2362,69 @@ fn validate_zlib_flush_contract(
     assert_eq!(
         serde_json::Value::Array(invocation.arguments.clone()),
         serde_json::json!([{"kind": "zlib-flush-callback"}])
+    );
+}
+
+fn validate_zlib_params_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    if descriptor.source_key != "node_zlib" || !descriptor.export_name.ends_with(".params") {
+        return;
+    }
+    let (owner, method) = descriptor
+        .export_name
+        .split_once('.')
+        .expect("zlib params export has owner and method");
+    if !zlib_flush_owner(owner) {
+        return;
+    }
+    assert_eq!(method, "params");
+    assert_eq!(invocation.module_specifier, "node:zlib");
+    assert_eq!(
+        invocation.template_id.as_deref(),
+        Some("node-zlib-bounded-v1")
+    );
+    assert_eq!(descriptor.kind, "builtin-export");
+    assert_eq!(descriptor.value_shape, "callable");
+    assert_eq!(
+        descriptor.source_ref,
+        format!("src/builtins/zlib.js#exports:{}", descriptor.export_name)
+    );
+    assert_eq!(
+        descriptor.export_idioms,
+        ["exported-constructor-inherited-prototype"]
+    );
+    assert_eq!(descriptor.module_specifiers, ["node:zlib", "zlib"]);
+    assert_eq!(descriptor.access.kind, "inherited-prototype-property");
+    assert_eq!(
+        descriptor.access.path,
+        vec![
+            owner.to_owned(),
+            "prototype".to_owned(),
+            "params".to_owned()
+        ]
+    );
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, "object");
+    assert_eq!(
+        invocation.setup,
+        serde_json::json!({
+            "kind": "zlib-params-owner",
+            "ownerExportName": owner,
+            "level": 1,
+            "strategy": 0,
+            "cleanupMethod": "destroy"
+        })
+    );
+    assert_eq!(
+        serde_json::Value::Array(invocation.arguments.clone()),
+        serde_json::json!([
+            {"kind": "json", "value": 1},
+            {"kind": "json", "value": 0},
+            {"kind": "zlib-params-callback"}
+        ])
     );
 }
 
@@ -3396,6 +3486,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         validate_zlib_process_chunk_contract(invocation, &descriptor, proof);
         validate_zlib_write_contract(invocation, &descriptor, proof);
         validate_zlib_flush_contract(invocation, &descriptor, proof);
+        validate_zlib_params_contract(invocation, &descriptor, proof);
         validate_timer_contract(invocation, &descriptor, proof);
         validate_zlib_sync_encoder_contract(invocation, &descriptor, proof);
         validate_zlib_sync_decoder_contract(invocation, &descriptor, proof);
@@ -4062,6 +4153,7 @@ async fn execute_recipe(
                     | "zlib-end-owner"
                     | "zlib-process-chunk-owner"
                     | "zlib-flush-owner"
+                    | "zlib-params-owner"
                     | "zlib-write-owner"
             )
         ) && invocation_result["cleanupPerformed"] != true
@@ -4127,6 +4219,14 @@ async fn execute_recipe(
         {
             return Err(format!(
                 "{}: public zlib flush call did not prove callback, non-terminal state, and cleanup: {invocation_result}",
+                recipe.fixture_id
+            ));
+        }
+        if probe.invocation.setup["kind"] == "zlib-params-owner"
+            && invocation_result["zlibParamsLifecycleVerified"] != true
+        {
+            return Err(format!(
+                "{}: public zlib params call did not prove callback, selected state, and cleanup: {invocation_result}",
                 recipe.fixture_id
             ));
         }

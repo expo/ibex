@@ -5980,6 +5980,101 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/did not prove its exact normal return/);
   });
 
+  test("accepts zlib params only after its exact selected state, callback, and cleanup", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:zlib";
+    invocation.exportName = "Deflate.params";
+    invocation.templateId = "node-zlib-bounded-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_zlib",
+      exportName: "Deflate.params",
+      exportIdioms: ["exported-constructor-inherited-prototype"],
+      moduleSpecifiers: ["node:zlib", "zlib"],
+      sourceRef: "src/builtins/zlib.js#exports:Deflate.params",
+      valueShape: "callable",
+      access: {
+        kind: "inherited-prototype-property",
+        path: ["Deflate", "prototype", "params"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.setup = {
+      kind: "zlib-params-owner",
+      ownerExportName: "Deflate",
+      level: 1,
+      strategy: 0,
+      cleanupMethod: "destroy",
+    };
+    invocation.arguments = [
+      { kind: "json", value: 1 },
+      { kind: "json", value: 0 },
+      { kind: "zlib-params-callback" },
+    ];
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "object",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.result.dispatchKind = "prototype-call";
+    observed.invocation.result.cleanupPerformed = true;
+    observed.invocation.result.zlibParamsLifecycleVerified = true;
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments[0].value = 2;
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments[2].kind =
+          "noop-function";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.strategy = 1;
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.ownerExportName =
+          "DeflateRaw";
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored zlib params lifecycle proof|descriptor drift|not source-descriptor bound/,
+      );
+    }
+
+    const missingLifecycleProof = structuredClone(observed);
+    missingLifecycleProof.invocation.result.zlibParamsLifecycleVerified = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: missingLifecycleProof,
+        coverage,
+      }),
+    ).toThrow(/did not prove its exact normal return/);
+  });
+
   test("accepts only reviewed isolated sync zlib encoders", () => {
     const catalog = completeNoncapBuiltinCallCatalog();
     const recipe = catalog.recipes[0];
