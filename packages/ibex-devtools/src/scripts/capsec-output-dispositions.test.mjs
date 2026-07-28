@@ -470,9 +470,9 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-shape-catalog/2",
     );
     expect(catalog.counts).toEqual({
-      coverageSurfaces: 7_523,
+      coverageSurfaces: 7_525,
       outputBearingSurfaces: 5_816,
-      structuralOnlySurfaces: 1_702,
+      structuralOnlySurfaces: 1_704,
       unresolvedSurfaces: 5,
       catalogRows: 6_517,
       parameterizedBindings: 1,
@@ -492,7 +492,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       }),
     ).toEqual({
       "output-bearing": 5_816,
-      "structural-only": 1_702,
+      "structural-only": 1_704,
       unresolved: 5,
     });
     expect(

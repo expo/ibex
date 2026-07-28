@@ -6256,6 +6256,8 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:javascript:getDebugModuleSourceLimit",
     "function:javascript:idToModuleId",
     "function:javascript:importImpl",
+    "function:javascript:indexAfterDynamicImport",
+    "function:javascript:indexAfterLoweredDynamicImport",
     "function:javascript:invokeModuleBody",
     "function:javascript:isCompleteStaticImportStatement",
     "function:javascript:isSameModule",
@@ -10532,6 +10534,8 @@ function loaderClassification(surface) {
     if (
       new Set([
         "function:javascript:closedgeneratedsingleprincipal",
+        "function:javascript:indexafterdynamicimport",
+        "function:javascript:indexafterlowereddynamicimport",
         "function:javascript:moduleresolutionerror",
         "function:javascript:stablemoduleresolutionerrorcode",
       ]).has(name)

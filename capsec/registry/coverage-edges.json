@@ -161163,6 +161163,26 @@
       }
     },
     {
+      "id": "surface.loader.function.javascript.indexafterdynamicimport.1506yel",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "loader",
+        "name": "function:javascript:indexAfterDynamicImport"
+      },
+      "rationaleId": "pure-in-memory-compute",
+      "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+    },
+    {
+      "id": "surface.loader.function.javascript.indexafterlowereddynamicimport.1h2bxof",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "loader",
+        "name": "function:javascript:indexAfterLoweredDynamicImport"
+      },
+      "rationaleId": "pure-in-memory-compute",
+      "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+    },
+    {
       "id": "surface.loader.function.javascript.invokemodulebody.163ehdp",
       "classification": "non-capability",
       "surface": {

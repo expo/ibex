@@ -140728,6 +140728,68 @@
       ]
     },
     {
+      "edgeId": "surface.loader.function.javascript.indexafterdynamicimport.1506yel",
+      "observedKey": "loader:function:javascript:indexAfterDynamicImport",
+      "branchId": "surface.loader.function.javascript.indexafterdynamicimport.1506yel.main",
+      "enforcementBranchId": "surface.loader.function.javascript.indexafterdynamicimport.1506yel.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:javascript:indexAfterDynamicImport"
+        ],
+        "proofSourceRefs": [
+          "src/engine/bootstrap/module-loader.js#indexAfterDynamicImport"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#indexAfterDynamicImport"
+        ],
+        "terminalObservedKey": "loader:function:javascript:indexAfterDynamicImport"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#indexAfterDynamicImport"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.loader.function.javascript.indexafterdynamicimport.1506yel.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.indexafterlowereddynamicimport.1h2bxof",
+      "observedKey": "loader:function:javascript:indexAfterLoweredDynamicImport",
+      "branchId": "surface.loader.function.javascript.indexafterlowereddynamicimport.1h2bxof.main",
+      "enforcementBranchId": "surface.loader.function.javascript.indexafterlowereddynamicimport.1h2bxof.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:javascript:indexAfterLoweredDynamicImport"
+        ],
+        "proofSourceRefs": [
+          "src/engine/bootstrap/module-loader.js#indexAfterLoweredDynamicImport"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#indexAfterLoweredDynamicImport"
+        ],
+        "terminalObservedKey": "loader:function:javascript:indexAfterLoweredDynamicImport"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#indexAfterLoweredDynamicImport"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.loader.function.javascript.indexafterlowereddynamicimport.1h2bxof.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.loader.function.javascript.invokemodulebody.163ehdp",
       "observedKey": "loader:function:javascript:invokeModuleBody",
       "branchId": "surface.loader.function.javascript.invokemodulebody.163ehdp.main",
@@ -282123,7 +282185,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-XqRiORpLRzgWlzdPCIn5rlDOae81k_39QZeufmbhrWM"
+      "rawContentDigest": "sha256-UduTr0qvcCyi4hiNVO2qlbAEUqoLCV_xPDazkEmgxhY"
     },
     {
       "kind": "output-disposition-dataset",
@@ -282138,44 +282200,44 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-HZjeoWtw76G_7J09jg8IfaaTKhkwGeKnQg7kl2vZO8U"
+      "rawContentDigest": "sha256-7BFCkT3Uolx4SPLXyRxAp5F7DrLvMzZREqfLtsnOBY0"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-OK3dslAs7rBmA8nRjzOQZT77uEbo92h7t4EQu5-N8jc"
+      "rawContentDigest": "sha256-7wXITi9wzdniVqtaJ6bByA1Jupzh2QR-3UZE2ANSaac"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-7TGYPMAf0B7MHFhzMCRxOZ8Mj_ARaebgf8-eEZB_It0"
+      "rawContentDigest": "sha256-hZ08Vkm9EJ_roWIEwJd_aVawRTlLNYDUnC3J054SSAE"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-kVQd5XjJlsYHdH72lk8GQ0EypfpXjt12fe8m8Yo3fkY"
+      "rawContentDigest": "sha256-JKgGNtIyv4GSOWHNLBDw8dAP5xgZX-sMc2xEv8cuPp8"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-MXQzBaF3ltZe1Dsztg6gFvpdf8Hn7o74Ws9Sptuyn_E"
+      "rawContentDigest": "sha256-zgQsUyRCTJVIyIw-JPKr-b67Pgpup1lgyZ3F2duElLE"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-NutB8bz1xDot8rs99gGZcXgViVqV0oteNJ1J0i-Opms"
+      "rawContentDigest": "sha256-43Qo8AygindYsJYwz5cyQ5KMld86pYpBHEcbaCBn4Uo"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-yjA44crX6A-CRXgn8pMLRadJgVbVj2O7dBPuKwvZfS4"
+      "rawContentDigest": "sha256-Tqas01aFjLVa3rf0HtMt3xSf-RvtgU4JTkG10Qx88ns"
     }
   ],
   "counts": {
-    "observedReferences": 13378,
-    "logicalSurfaces": 7523,
-    "enforcementBranches": 7824,
-    "coverageEdges": 7523,
-    "targetCells": 15046
+    "observedReferences": 13380,
+    "logicalSurfaces": 7525,
+    "enforcementBranches": 7826,
+    "coverageEdges": 7525,
+    "targetCells": 15050
   }
 }

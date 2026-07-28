@@ -5493,6 +5493,38 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — integrate main's linear dynamic-import scanner
+
+- Merged moving `origin/main` through `606127f2`, including the index-based
+  dynamic-import scan from `ae13d4a3`, without conflicts or overwriting the
+  concurrent CapSec work. Retargeted its inherited Exact-only performance
+  reference to local LLP 0026.
+- Source discovery finds exactly two new loader functions:
+  `indexAfterDynamicImport` and `indexAfterLoweredDynamicImport`. Both inspect
+  already-held source text and indices only, so they receive exact WP1
+  `pure-in-memory-compute` classifications. Near-miss names still fail closed;
+  neither helper inherits the transform's module-reachability classification
+  or any loader effect.
+- The regenerated registry contains **7,525 coverage edges / 7,826 enforcement
+  branches / 15,050 target cells / 13,380 observed source references**. The two
+  structural rows add two unresolved non-capability obligations per target and
+  no executable credit. Apple catalog
+  `sha256-nEKb_9CF470hyx564E5B_kzYSvy6XC-0IAMoDZfD_Uw` reports 23,592 required /
+  3,811 executable / 3,040 internally verified / 16,741 unresolved. Windows
+  catalog `sha256-5YC94zWdHp5ceY9cEA1sZrC1PICvc2FaDun_hNPXM4w` reports 23,251 /
+  3,450 / 3,026 / 16,775.
+- The upstream Rust regression proving the scanner no longer copies the source
+  suffix per character passes on EPYC. The two affected accounting suites pass
+  **123/123** tests with 119,855 assertions, and the clean nine-file integration
+  suite passes **513/513** tests with 201,585 assertions. Registry, runtime
+  projection, the 169-row runtime environment inventory, CapSec contract,
+  ref-check, syntax, empty-advertisement, and diff-hygiene gates pass;
+  `cargo fmt --all -- --check` continues to report only the known, untouched
+  `src/engine/mod.rs:2168` mismatch.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

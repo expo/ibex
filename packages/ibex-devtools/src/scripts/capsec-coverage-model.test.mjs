@@ -2858,6 +2858,32 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     }
   });
 
+  test("dynamic-import index recognizers are exact pure loader helpers", () => {
+    for (const name of [
+      "function:javascript:indexAfterDynamicImport",
+      "function:javascript:indexAfterLoweredDynamicImport",
+    ]) {
+      expect(reviewedLoaderNames()).toContain(name);
+      expect(
+        classifyObservedSurface(surface("loader", name), context).edge,
+        name,
+      ).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "pure-in-memory-compute",
+      });
+    }
+
+    for (const name of [
+      "function:javascript:indexAfterDynamicImports",
+      "function:javascript:indexAfterLoweredImport",
+    ]) {
+      expect(reviewedLoaderNames()).not.toContain(name);
+      expect(() =>
+        classifyObservedSurface(surface("loader", name), context),
+      ).toThrow(/unclassified observed surface/u);
+    }
+  });
+
   test("classifies late diagnostic resolver selection as an exact control plane", () => {
     for (const name of [
       "function:javascript:currentDiagnosticModuleResolve",

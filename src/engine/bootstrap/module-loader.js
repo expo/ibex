@@ -4725,8 +4725,8 @@
     // evaluated `source.slice(i).match(...)` for nearly every code character;
     // Hermes materializes those suffix strings, making this otherwise-linear
     // pass quadratic for multi-megabyte native startup module tables.
-    // @ref Exact LLP 0128 Phase 6 — warm HBC must improve real startup, not
-    // merely artifact fetch.
+    // @ref LLP 0026#performance-and-platform-gates — warm module loading must
+    // remain inside the accepted loader performance envelope.
     var isIdentifierPartAt = function(text, index) {
       if (index < 0 || index >= text.length) {
         return false;

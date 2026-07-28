@@ -45221,6 +45221,24 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.loader.function.javascript.indexafterdynamicimport.1506yel",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#indexAfterDynamicImport"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.function.javascript.indexafterlowereddynamicimport.1h2bxof",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#indexAfterLoweredDynamicImport"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.loader.function.javascript.invokemodulebody.163ehdp",
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
@@ -85621,9 +85639,9 @@
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
   "catalogKeyDigest": "sha256-WkmfR1LBIGm36oP_pJN32KnRWLjGvrz7fDczaOf6Dn8",
   "counts": {
-    "coverageSurfaces": 7523,
+    "coverageSurfaces": 7525,
     "outputBearingSurfaces": 5816,
-    "structuralOnlySurfaces": 1702,
+    "structuralOnlySurfaces": 1704,
     "unresolvedSurfaces": 5,
     "catalogRows": 6517,
     "parameterizedBindings": 1,
