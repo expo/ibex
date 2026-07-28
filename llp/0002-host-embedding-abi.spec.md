@@ -5,6 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-27 (adds the fail-closed `ex_hermes_create_no_eval` consumer constructor, which completes trusted bootstrap before irreversibly disabling JavaScript dynamic-code compilation)
 **Revised:** 2026-07-25 (LLP 0040 supersedes the WebGPU-specific artifact builder, provider registration, private bridge, and deferred activation sections with the generic authenticated native runtime-extension registry, constructors, authority finalizer, owner executor, and lifecycle)
 **Revised:** 2026-07-25 (historical: separated authenticated GPU-provider registration from WebGPU runtime activation; superseded by LLP 0040)
 **Revised:** 2026-07-24 (reconciles the production WebGPU contract with the implemented exact-size three-callback authority-session API and nine-method construction-private bridge: paired acquire/present capture, same-epoch transient recheck, registry-pinned candidate-commit and handoff-repeat continuations, and atomic pair retirement remain construction-private and fail closed; the checked experimental projection now derives 65 private target cells and 23 typed-positive selectors without adding a public issuer, advertisement, or support claim)
@@ -64,6 +65,13 @@ stable contract. All five are declared in
   bootstrap seals, and frame attribution before returning a handle.
   `ex_hermes_create_diagnostic()` is an explicitly non-production constructor
   for isolated tests and foreground audit.
+  `ex_hermes_create_no_eval()` is the restricted local-consumer constructor:
+  it claims the same unarmed Host context, completes trusted native bootstrap,
+  then irreversibly closes JavaScript `eval` and Function-family string
+  compilation before publishing the handle. Host-selected `ex_hermes_eval`
+  remains available for the consumer's selected bundle. Construction fails
+  closed unless the exact linked Hermes artifact exports the one-way latch;
+  this is not an authenticated Ibex project-execution profile.
 - `void ex_hermes_destroy(ExactHermesRuntime*)` `[observed]`
   (`include/exact_runtime.h:41`; `src/engine/hermes_runtime.cc:1455`).
 - `int ex_hermes_eval(runtime, data, len, source_url, is_bytecode, out_value)`

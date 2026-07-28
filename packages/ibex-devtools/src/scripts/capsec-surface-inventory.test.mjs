@@ -6386,7 +6386,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     expect(first.hostAbi.some((row) => row.name === "ex_host_fs_open")).toBe(
       true,
     );
-    expect(first.hostAbi).toHaveLength(349);
+    expect(first.hostAbi).toHaveLength(350);
     for (const [name, sourceRef] of [
       [
         "evaluation:installGlobals:native-freeze-conformance-observation",
@@ -6461,7 +6461,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .sort(),
       ),
     ).toEqual({
-      "output-bearing": 298,
+      "output-bearing": 299,
       "structural-only": 51,
     });
     expect(
@@ -6494,7 +6494,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .map(([role, channels]) => [role, channels.length])
           .sort(),
       ),
-    ).toEqual({ callback: 59, out: 215, return: 280 });
+    ).toEqual({ callback: 59, out: 215, return: 281 });
     expect(
       Object.fromEntries(
         [
@@ -6509,7 +6509,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual({
       "none:void": 69,
       "value:aggregate": 17,
-      "value:pointer": 49,
+      "value:pointer": 50,
       "value:scalar": 214,
     });
     expect(

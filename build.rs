@@ -2289,6 +2289,23 @@ fn main() {
         println!("cargo:rustc-cfg=exact_frame_attribution");
     }
     println!("cargo:rustc-check-cfg=cfg(exact_frame_attribution)");
+    // Patch 0014 exposes a one-way latch used only after trusted bootstrap.
+    // Require both its declaration and the exact linked artifact's export.
+    // Mixed headers/artifacts and unsupported targets therefore compile the
+    // restricted constructor as a fail-closed NULL result rather than leaving
+    // an undefined symbol or an eval-capable runtime.
+    let dynamic_code_latch_declared =
+        file_contains_all(&hermes_header, &["ex_hermes_vm_disable_eval"]);
+    let dynamic_code_latch_linkable = hermes_frame_attribution_binary
+        .as_deref()
+        .is_some_and(|path| hermes_has_dynamic_code_latch(&target_os, path));
+    if dynamic_code_latch_declared && dynamic_code_latch_linkable {
+        build.define("EXACT_HAVE_HERMES_DYNAMIC_CODE_LATCH", None);
+    } else if dynamic_code_latch_declared {
+        println!(
+            "cargo:warning=Hermes headers declare ex_hermes_vm_disable_eval, but the linked target artifact does not export it; ex_hermes_create_no_eval will fail closed"
+        );
+    }
     // Patches 0003/0008 and 0011 are intentionally probed separately. An
     // engine may carry package attribution while predating the structured
     // async-provenance exports; compiling direct calls from newer headers
@@ -4091,6 +4108,10 @@ fn hermes_exports_exact_symbols(target_os: &str, binary_path: &Path, required: &
 
 fn hermes_has_frame_attribution(target_os: &str, binary_path: &Path) -> bool {
     hermes_exports_exact_symbols(target_os, binary_path, &["ex_hermes_vm_current_package_id"])
+}
+
+fn hermes_has_dynamic_code_latch(target_os: &str, binary_path: &Path) -> bool {
+    hermes_exports_exact_symbols(target_os, binary_path, &["ex_hermes_vm_disable_eval"])
 }
 
 fn hermes_has_structured_async_provenance(target_os: &str, binary_path: &Path) -> bool {

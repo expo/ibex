@@ -1320,6 +1320,14 @@ constexpr uint32_t kFirstPartyRootPrincipalId = 0;
 constexpr uint32_t kRuntimePrincipalId = 0xFFFFFFFFu;
 constexpr uint32_t kNoUserPrincipalId = 0xFFFFFFFEu;
 
+// Patch 0014's one-way dynamic-code latch. RuntimeConfig cannot disable eval at
+// construction because the trusted Ibex bootstrap still uses Function. The
+// restricted constructor applies this after bootstrap and before publication.
+// @ref LLP 0013#embedding-dynamic-code-policy-patch-0014
+#ifdef EXACT_HAVE_HERMES_DYNAMIC_CODE_LATCH
+extern "C" void ex_hermes_vm_disable_eval(void* vm_runtime);
+#endif
+
 // @ref LLP 0013#mechanism-3 — frame-derived capability attribution. The bridge
 // symbols are exported by the carried Hermes patch stack (patches/hermes/0003)
 // and are only referenced when EXACT_HAVE_FRAME_ATTRIBUTION is defined (build.rs

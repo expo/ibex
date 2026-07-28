@@ -7544,7 +7544,8 @@ static ExactHermesRuntime* ex_hermes_create_impl(
     bool armed,
     bool authenticate_extension_registry,
     const char* extension_report_mode,
-    const IbexRuntimeExtensionRegistryV1* extension_registry);
+    const IbexRuntimeExtensionRegistryV1* extension_registry,
+    bool disable_dynamic_code);
 
 static std::string rootGlobalSymbolKey(
     facebook::jsi::Runtime& rt,
@@ -9245,7 +9246,7 @@ extern "C" ExactHermesRuntime* ex_hermes_create_armed(
   if (context == 0) return nullptr;
   auto* runtime =
       ex_hermes_create_impl(
-          context, true, true, "production-armed", nullptr);
+          context, true, true, "production-armed", nullptr, false);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
 }
@@ -9257,12 +9258,22 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   return nullptr;
 }
 
+extern "C" ExactHermesRuntime* ex_hermes_create_no_eval() {
+  uint64_t context = ex_host_claim_diagnostic_context();
+  if (context == 0) return nullptr;
+  auto* runtime =
+      ex_hermes_create_impl(
+          context, false, false, "restricted-no-eval", nullptr, true);
+  if (runtime == nullptr) ex_host_release_context(context);
+  return runtime;
+}
+
 extern "C" ExactHermesRuntime* ex_hermes_create_diagnostic() {
   uint64_t context = ex_host_claim_diagnostic_context();
   if (context == 0) return nullptr;
   auto* runtime =
       ex_hermes_create_impl(
-          context, false, false, "diagnostic", nullptr);
+          context, false, false, "diagnostic", nullptr, false);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
 }
@@ -9289,7 +9300,8 @@ extern "C" ExactHermesRuntime* ibex_runtime_create_armed_v2(
           true,
           true,
           "production-armed",
-          options->extension_registry);
+          options->extension_registry,
+          false);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
 }
@@ -9309,7 +9321,8 @@ extern "C" ExactHermesRuntime* ibex_runtime_create_diagnostic_v2(
           false,
           false,
           "diagnostic",
-          options->extension_registry);
+          options->extension_registry,
+          false);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
 }
@@ -9356,7 +9369,8 @@ ibex_runtime_extension_conformance_create_authenticated_fixture_v1(
           false,
           true,
           "authenticated-conformance-fixture",
-          options->extension_registry);
+          options->extension_registry,
+          false);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
 }
@@ -9439,7 +9453,8 @@ static ExactHermesRuntime* ex_hermes_create_impl(
     bool armed,
     bool authenticate_extension_registry,
     const char* extension_report_mode,
-    const IbexRuntimeExtensionRegistryV1* extension_registry) {
+    const IbexRuntimeExtensionRegistryV1* extension_registry,
+    bool disable_dynamic_code) {
   std::string runtimeExtensionError;
   auto runtimeExtensions =
       ibex::runtime_extension::internal::prepare(
@@ -9787,6 +9802,30 @@ static ExactHermesRuntime* ex_hermes_create_impl(
             .c_str());
     cleanupPartiallyConstructedRuntime(handle);
     return nullptr;
+  }
+
+  if (disable_dynamic_code) {
+#ifdef EXACT_HAVE_HERMES_DYNAMIC_CODE_LATCH
+    // Host evaluateJavaScript remains available for the embedder-selected
+    // bundle; only JavaScript's eval and Function-family string compilers are
+    // latched closed. The Hermes bridge is deliberately one-way.
+    // @ref LLP 0013#embedding-dynamic-code-policy-patch-0014
+    auto* vmRuntime = handle->runtime->getVMRuntimeUnsafe();
+    if (vmRuntime == nullptr) {
+      ex_host_console_log(
+          1, "Restricted runtime refused: Hermes VM latch target unavailable");
+      cleanupPartiallyConstructedRuntime(handle);
+      return nullptr;
+    }
+    ex_hermes_vm_disable_eval(vmRuntime);
+#else
+    // Never return an eval-capable runtime when headers/artifacts do not prove
+    // the carried latch. This also covers unsupported target artifact probes.
+    ex_host_console_log(
+        1, "Restricted runtime refused: Hermes dynamic-code latch unavailable");
+    cleanupPartiallyConstructedRuntime(handle);
+    return nullptr;
+#endif
   }
 
   handle->bootstrap_in_progress = false;

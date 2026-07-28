@@ -5,6 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
+**Revised:** 2026-07-27 (patch 0014 adds the reviewed one-way Hermes dynamic-code latch and closes the cached `Function("return this")` fast path when eval is disabled)
 **Revised:** 2026-07-17 (cross-principal authenticated route-cache hits now carry the resolution kind and revalidate the complete immutable-snapshot edge tuple, preventing a warmed SourceId or leaked loader closure from substituting another subpath or CJS/dynamic-import edge to the same locator; same-principal file routes retain exact SourceId ownership authorization)
 **Revised:** 2026-07-17 (ENG-24933 gives Windows its own source-patched Hermes profile and exact builder/installer receipt identity while retaining independent-build and mapped-image blockers; a loader-reported pathname reopen is not mapped-code attestation)
 **Revised:** 2026-07-15 (ENG-25066 made ordinary ESM use authenticated per-principal native records; the legacy chunk path remains only for unsupported interop during the 0.1 window)
@@ -865,6 +866,25 @@ A cross-cutting rewrite (realm-shaped) is prohibited by this discipline —
 that is the line between "carrying patches" and "maintaining a divergent
 engine."
 
+### Embedding dynamic-code policy (patch 0014)
+
+Some restricted local consumers need the embedder to evaluate one selected
+application bundle while denying handler-visible dynamic source compilation.
+Construction-time `RuntimeConfig::EnableEval=false` cannot express that shape
+because Ibex's trusted bootstrap still uses `Function`. Patch 0014 therefore
+adds a one-way `ex_hermes_vm_disable_eval` bridge: the restricted consumer
+constructor calls it after trusted bootstrap and before runtime registration.
+There is deliberately no inverse operation. Host `evaluateJavaScript` remains
+available, while direct/indirect `eval`, the Function constructor family,
+constructor walks, and Reflect aliases all reach the disabled-eval check.
+
+Hermes's cached `Function("return this")` path historically returned before the
+ordinary eval gate. Patch 0014 guards that one surgical fast path with the same
+runtime flag. Build configuration requires both the declaration and the exact
+linked artifact export; otherwise `ex_hermes_create_no_eval()` returns NULL
+rather than publishing an eval-capable realm. The C patch adds one Class C site,
+keeping the carried surgical-semantic total within the single-digit budget.
+
 ### The pin-bump runbook
 
 1. Update `IBEX_HERMES_SOURCE_REF` to the new stable branch and
@@ -1684,13 +1704,16 @@ The pin plus the ordered `patches/hermes/` series (0001 Domain principal; 0002
 frame attribution + stack collector + exported C bridge; 0003 Runtime
 pending/default id; 0004 native compartment globals; 0005 native-compartment
 refinements; 0006 `eval`/`Function` binding + native deep-freeze; 0007
-fail-closed async/deputy attribution) is the fork; `scripts/apply-hermes-patches.sh`
+fail-closed async/deputy attribution; 0008 schedule-time attribution; 0009-0011
+structured evaluation/provenance; 0012 keyed ArrayBuffer aliases; 0013 native
+job-constrained principals; 0014 one-way dynamic-code latch) is the fork;
+`scripts/apply-hermes-patches.sh`
 applies it after clone in every `build-hermes*.sh` and is exercised by the
 `hermes-patch-canary` workflow. Class breakdown (per `patches/hermes/README.md`):
-every patch is base A/B; the surgical Class C sites total **five** — 0003 (+1,
-the `runBytecode` stamping insertion), 0004 (+3, the interpreter
-`GetGlobalObject`/`this` cases), and 0005 (+1) — still within the single-digit
-Class C budget the patch-shape discipline gates on.
+the surgical Class C sites total **seven** — 0003 (+1, the `runBytecode`
+ stamping insertion), 0004 (+4, the interpreter global-resolution cases), 0005
+ (+1, the fast-path guard), and 0014 (+1, the cached `return this` gate) — still
+ within the single-digit Class C budget the patch-shape discipline gates on.
 
 ## References
 
