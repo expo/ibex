@@ -3733,6 +3733,64 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — executed exact inert prototype values
+
+- Promoted exactly 30 source-reviewed reads from exported prototypes:
+  16 `exact_crypto` `KeyObject`/`X509Certificate` values, two
+  `node_buffer` prototype markers, eight `node_stream` prototype values, and
+  the four `ws` `WebSocket` state constants. Physical execution proves eight
+  `undefined`, seven string, one object, ten boolean, and four number results
+  on each target, all with zero typed decisions.
+- The closed family is repeated independently in the recipe author, its tests,
+  the catalog contract, the Rust physical executor, the evidence validator,
+  and its tests. Generic prototype reads remain unavailable. In particular,
+  throwing `X509Certificate.raw`, resource-bearing filesystem accessors,
+  constructor-instance projections, cross-source projections, and unreviewed
+  unknown-shape values remain residual.
+- The first Apple replay exposed a real path-model defect:
+  `node:stream` publishes its default `Stream` constructor as the module value,
+  not a nested `default` property. The exact reviewed
+  `node_stream:default.destroyed` descriptor now uses
+  `["prototype", "destroyed"]`; generic prototype authoring still cannot infer
+  module aliasing. The implementation commits are `6dbccc24` and
+  `ded8ec7b62234cc5775c41af42bb386470d2349a`, with final tree digest
+  `sha256-DIieQREGK7jeo_XZ8e748jptHca7NQlIfkcKhcCXL-4`. Upstream `main`
+  remained at the already-integrated `e4d96bb0` throughout the final replay.
+- Final Apple catalog digest
+  `sha256-xp88qfKo9xwGW3J9kHkx49BWzQpWy8JQzr7l1uj31eU` reports 23,584
+  required / **3,613 fully executable** / 3,036 internally verified / 16,935
+  unresolved. The local M5 strict-provenance, stale-vendored batch passes
+  **1,308/1,308**: 1,129 export probes, 145 captured routes, and 34 isolated
+  imports. It binds engine digest
+  `sha256-PzMZqlPaba3S9taiDvkd7H-DCuBv2MXbYOmLoVbZP3I`; the raw evidence
+  SHA-256 is
+  `0440622451f4df798614000da7c5fd015953ce7179d0b6a8a5c7fc186155be3d`.
+  Independent validation accepted all 1,308 fixtures and all 30 exact type
+  contracts, producing execution digest
+  `sha256-VwNhgG2lEquOpFYm6K0kY_dZM4bsUtaQ5deBXKhPU9I`.
+- Final Windows catalog digest
+  `sha256-QDfinV2CoQAolv4MYTfE8H1BKjs-FvEtTBpQsiRrS1E` reports 23,243
+  required / **3,272 fully executable** / 3,022 internally verified / 16,949
+  unresolved. The NucBox imported the MSVC development environment and bound
+  the reviewed compiler, headers, import library, DLL, and provenance receipt.
+  Its strict batch passes **1,272/1,272**: 1,093 export probes, 145 captured
+  routes, and 34 isolated imports, against engine digest
+  `sha256-4HsCwsHz-UDTGNW8-89DnujWOx9rFegBL0wYbUFHPHE`; the raw evidence
+  SHA-256 is
+  `64215f04946abfc1daadf3e2b2f7cb400d5f5fd8f4d3cfefdf95521de100421a`.
+  Independent validation accepted all 1,272 fixtures and all 30 exact type
+  contracts, producing execution digest
+  `sha256-T0k2jBud8LzmyJivDdQgJgBIZkFrZTTMPFbAbN4bdvo`.
+- The focused author/catalog/validator suite passes **177/177** tests with
+  116,937 assertions. The exact secure Cargo profile compiles against the
+  reviewed Apple engine; generated registry, runtime-environment inventory,
+  policy, compiled-environment, transform, and Oxc drift gates all pass.
+  `ref-check` validates 41 LLP documents and 2,221 references with zero errors
+  (one stable URL remains unchecked).
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
