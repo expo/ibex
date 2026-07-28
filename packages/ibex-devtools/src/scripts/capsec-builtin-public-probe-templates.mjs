@@ -640,6 +640,7 @@ const REVIEWED_DGRAM_SOCKET_INSTANCE_VALUE_EXPORTS = new Map([
 const jsonArgument = (value) => ({ kind: "json", value });
 const noopArgument = () => ({ kind: "noop-function" });
 const timerCallbackArgument = () => ({ kind: "timer-callback" });
+const zlibFlushCallbackArgument = () => ({ kind: "zlib-flush-callback" });
 const zlibWriteCallbackArgument = () => ({ kind: "zlib-write-callback" });
 const throwingArgument = () => ({
   kind: "throwing-function",
@@ -812,6 +813,11 @@ const ZLIB_WRITE_CONTRACTS = new Map(
     [bytes, outputContract],
   ]),
 );
+const ZLIB_FLUSH_OWNERS = new Set([
+  ...ZLIB_END_CONTRACTS.keys(),
+  "ZstdCompress",
+  "ZstdDecompress",
+]);
 
 const TIMER_ROOT_CALL_SPECS = Object.freeze({
   active: callSpec(
@@ -2265,12 +2271,24 @@ function zlibPrototypeSpec(exportName) {
       "boolean",
     );
   }
+  if (methodName === "flush" && ZLIB_FLUSH_OWNERS.has(ownerExportName)) {
+    return callSpec(
+      {
+        kind: "zlib-flush-owner",
+        ownerExportName,
+        callbackPosition: "first-argument",
+        flushKind: "default-full-flush",
+        cleanupMethod: "destroy",
+      },
+      [zlibFlushCallbackArgument()],
+      "object",
+    );
+  }
   if (
     new Set([
       "_flush",
       "_transform",
       "_writeNative",
-      "flush",
       "params",
     ]).has(methodName)
   ) {
@@ -2584,6 +2602,7 @@ function callTemplateFor(descriptor) {
         "tls-server-construct-target",
         "timer-owner",
         "zlib-end-owner",
+        "zlib-flush-owner",
         "zlib-owner",
         "zlib-process-chunk-owner",
         "zlib-write-owner",

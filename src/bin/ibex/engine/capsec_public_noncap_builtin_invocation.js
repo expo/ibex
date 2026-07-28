@@ -1165,6 +1165,107 @@
     );
   }
 
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // A public flush receipt owns a fresh receiver, delivers exactly one
+  // callback through the default full-flush branch, proves the stream remains
+  // non-terminal, and destroys the retained codec before quiescence.
+  function isReviewedZlibFlushInvocation(invocation) {
+    if (
+      !invocation ||
+      !invocation.sourceDescriptor ||
+      invocation.sourceDescriptor.sourceKey !== "node_zlib"
+    ) {
+      return !(
+        invocation &&
+        invocation.setup &&
+        invocation.setup.kind === "zlib-flush-owner"
+      );
+    }
+    if (
+      typeof invocation.exportName !== "string" ||
+      !invocation.exportName.endsWith(".flush")
+    ) {
+      return !(
+        invocation &&
+        invocation.setup &&
+        invocation.setup.kind === "zlib-flush-owner"
+      );
+    }
+    var owner = invocation.exportName.split(".")[0];
+    if (
+      !{
+        BrotliCompress: true,
+        BrotliDecompress: true,
+        Deflate: true,
+        DeflateRaw: true,
+        Gunzip: true,
+        Gzip: true,
+        Inflate: true,
+        InflateRaw: true,
+        Unzip: true,
+        ZstdCompress: true,
+        ZstdDecompress: true,
+      }[owner]
+    ) {
+      return false;
+    }
+    var descriptor = invocation.sourceDescriptor;
+    var callback = invocation.arguments && invocation.arguments[0];
+    return (
+      invocation.invocationSchema ===
+        "ibex/capsec-builtin-call-invocation/1" &&
+      invocation.kind === "builtin-export-call" &&
+      invocation.moduleSpecifier === "node:zlib" &&
+      invocation.templateId === "node-zlib-bounded-v1" &&
+      exactObjectKeys(descriptor, [
+        "access",
+        "exportIdioms",
+        "exportName",
+        "kind",
+        "moduleSpecifiers",
+        "sourceKey",
+        "sourceRef",
+        "valueShape",
+      ]) &&
+      descriptor.kind === "builtin-export" &&
+      descriptor.exportName === invocation.exportName &&
+      descriptor.valueShape === "callable" &&
+      descriptor.sourceRef ===
+        "src/builtins/zlib.js#exports:" + invocation.exportName &&
+      sameStringArray(descriptor.exportIdioms, [
+        "exported-constructor-inherited-prototype",
+      ]) &&
+      sameStringArray(descriptor.moduleSpecifiers, ["node:zlib", "zlib"]) &&
+      exactObjectKeys(descriptor.access, ["kind", "path"]) &&
+      descriptor.access.kind === "inherited-prototype-property" &&
+      sameStringArray(descriptor.access.path, [
+        owner,
+        "prototype",
+        "flush",
+      ]) &&
+      exactObjectKeys(invocation.setup, [
+        "callbackPosition",
+        "cleanupMethod",
+        "flushKind",
+        "kind",
+        "ownerExportName",
+      ]) &&
+      invocation.setup.kind === "zlib-flush-owner" &&
+      invocation.setup.ownerExportName === owner &&
+      invocation.setup.callbackPosition === "first-argument" &&
+      invocation.setup.flushKind === "default-full-flush" &&
+      invocation.setup.cleanupMethod === "destroy" &&
+      Array.isArray(invocation.arguments) &&
+      invocation.arguments.length === 1 &&
+      exactObjectKeys(callback, ["kind"]) &&
+      callback.kind === "zlib-flush-callback" &&
+      exactObjectKeys(invocation.bodyEntryProof, ["kind", "resultType"]) &&
+      invocation.bodyEntryProof.kind ===
+        "normal-return-from-source-call" &&
+      invocation.bodyEntryProof.resultType === "object"
+    );
+  }
+
   function timerInvocationContract(exportName) {
     var rootContracts = {
       active: ["timer-legacy-root", "active", "record", "undefined"],
@@ -2156,6 +2257,16 @@
         bindings.zlibWriteLifecycleState.finish();
       };
     }
+    if (argument.kind === "zlib-flush-callback") {
+      if (!bindings.zlibFlushLifecycleState) {
+        throw new TypeError("missing authored zlib flush lifecycle state");
+      }
+      return function (error) {
+        bindings.zlibFlushLifecycleState.callbackCalls++;
+        bindings.zlibFlushLifecycleState.callbackError = error || null;
+        bindings.zlibFlushLifecycleState.retire();
+      };
+    }
     if (argument.kind === "throwing-function") {
       return function () {
         throw new Error(argument.errorMessage);
@@ -2279,6 +2390,8 @@
     var zlibEndLifecycleVerified = false;
     var zlibEndLifecyclePromise = null;
     var zlibProcessChunkOutputVerified = false;
+    var zlibFlushLifecycleVerified = false;
+    var zlibFlushLifecyclePromise = null;
     var zlibWriteLifecycleVerified = false;
     var zlibWriteLifecyclePromise = null;
     var timerLifecycleState = null;
@@ -2295,6 +2408,7 @@
       !isReviewedZlibCallbackInvocation(config) ||
       !isReviewedZlibEndInvocation(config) ||
       !isReviewedZlibProcessChunkInvocation(config) ||
+      !isReviewedZlibFlushInvocation(config) ||
       !isReviewedZlibWriteInvocation(config) ||
       !isReviewedTimerInvocation(config) ||
       !isReviewedX509StateInvocation(config) ||
@@ -2820,6 +2934,85 @@
         receiver.on("finish", onFinish);
       });
       dispatchKind = "prototype-call";
+    } else if (setup.kind === "zlib-flush-owner") {
+      var zlibFlushOwner = moduleValue[setup.ownerExportName];
+      if (typeof zlibFlushOwner !== "function") {
+        return failure("setup-mismatch", {
+          setupKind: setup.kind,
+          ownerExportName: setup.ownerExportName,
+        });
+      }
+      receiver = Reflect.construct(zlibFlushOwner, []);
+      if (
+        !receiver ||
+        typeof receiver.on !== "function" ||
+        typeof receiver.removeListener !== "function" ||
+        typeof receiver.destroy !== "function" ||
+        typeof receiver._closeNativeStream !== "function"
+      ) {
+        return failure("setup-mismatch", {
+          setupKind: setup.kind,
+          ownerExportName: setup.ownerExportName,
+        });
+      }
+      var zlibFlushLifecycleState = {
+        callbackCalls: 0,
+        callbackError: null,
+        streamError: null,
+        outputChunks: 0,
+        retireScheduled: false,
+        receiverNonTerminalBeforeCleanup: false,
+        retire: null,
+      };
+      bindings.zlibFlushLifecycleState = zlibFlushLifecycleState;
+      zlibFlushLifecyclePromise = new Promise(function (resolve) {
+        function onData(chunk) {
+          if (!chunk || !ArrayBuffer.isView(chunk)) {
+            zlibFlushLifecycleState.streamError = new TypeError(
+              "zlib flush emitted a non-byte chunk",
+            );
+            return;
+          }
+          zlibFlushLifecycleState.outputChunks++;
+        }
+        function onError(error) {
+          zlibFlushLifecycleState.streamError =
+            error || new Error("zlib flush emitted an unknown error");
+          retire();
+        }
+        function retire() {
+          if (zlibFlushLifecycleState.retireScheduled) return;
+          zlibFlushLifecycleState.retireScheduled = true;
+          zlibFlushLifecycleState.receiverNonTerminalBeforeCleanup =
+            receiver._flushed === false &&
+            receiver.writableEnded === false;
+          receiver.destroy(null, function (destroyError) {
+            setTimeout(function () {
+              receiver.removeListener("data", onData);
+              receiver.removeListener("error", onError);
+              cleanupPerformed =
+                !destroyError &&
+                receiver.destroyed === true &&
+                receiver._handle === null;
+              zlibFlushLifecycleState.receiverDestroyed =
+                receiver.destroyed === true;
+              zlibFlushLifecycleState.nativeHandleClosed =
+                receiver._handle === null;
+              zlibFlushLifecycleVerified =
+                zlibFlushLifecycleState.callbackCalls === 1 &&
+                zlibFlushLifecycleState.callbackError === null &&
+                zlibFlushLifecycleState.streamError === null &&
+                zlibFlushLifecycleState.receiverNonTerminalBeforeCleanup &&
+                cleanupPerformed;
+              resolve(zlibFlushLifecycleVerified);
+            }, 0);
+          });
+        }
+        zlibFlushLifecycleState.retire = retire;
+        receiver.on("data", onData);
+        receiver.on("error", onError);
+      });
+      dispatchKind = "prototype-call";
     } else if (setup.kind === "stream-owner") {
       receiver = createStreamInstance(
         moduleValue,
@@ -3117,6 +3310,11 @@
           capturedSuccess.zlibWriteLifecycleVerified =
             zlibWriteLifecycleVerified;
         }
+        if (setup.kind === "zlib-flush-owner") {
+          capturedSuccess.cleanupPerformed = cleanupPerformed;
+          capturedSuccess.zlibFlushLifecycleVerified =
+            zlibFlushLifecycleVerified;
+        }
         if (
           setup.kind === "readline-interface-owner" ||
           setup.kind === "readline-interface-pause-owner"
@@ -3178,6 +3376,11 @@
         success.cleanupPerformed = cleanupPerformed;
         success.zlibWriteLifecycleVerified =
           zlibWriteLifecycleVerified;
+      }
+      if (setup.kind === "zlib-flush-owner") {
+        success.cleanupPerformed = cleanupPerformed;
+        success.zlibFlushLifecycleVerified =
+          zlibFlushLifecycleVerified;
       }
       if (isZlibSyncEncoderInvocation(config)) {
         success.zlibSyncEncoderOutputVerified =
@@ -3298,6 +3501,33 @@
       });
     }
 
+    if (zlibFlushLifecyclePromise) {
+      return zlibFlushLifecyclePromise.then(function (verified) {
+        if (!verified) {
+          return failure("cleanup-mismatch", {
+            setupKind: setup.kind,
+            ownerExportName: setup.ownerExportName,
+            callbackCalls: zlibFlushLifecycleState.callbackCalls,
+            callbackError:
+              zlibFlushLifecycleState.callbackError === null
+                ? null
+                : String(zlibFlushLifecycleState.callbackError),
+            streamError:
+              zlibFlushLifecycleState.streamError === null
+                ? null
+                : String(zlibFlushLifecycleState.streamError),
+            outputChunks: zlibFlushLifecycleState.outputChunks,
+            receiverNonTerminalBeforeCleanup:
+              zlibFlushLifecycleState.receiverNonTerminalBeforeCleanup,
+            cleanupPerformed: cleanupPerformed,
+            receiverDestroyed: zlibFlushLifecycleState.receiverDestroyed,
+            nativeHandleClosed: zlibFlushLifecycleState.nativeHandleClosed,
+          });
+        }
+        return finishResult(result);
+      });
+    }
+
     if (
       config.bodyEntryProof &&
       config.bodyEntryProof.kind === "settled-return-from-source-call"
@@ -3316,7 +3546,8 @@
   } catch (error) {
     if (
       setup &&
-      setup.kind === "zlib-write-owner" &&
+      (setup.kind === "zlib-write-owner" ||
+        setup.kind === "zlib-flush-owner") &&
       receiver
     ) {
       try {

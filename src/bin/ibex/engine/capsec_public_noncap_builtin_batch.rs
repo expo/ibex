@@ -1116,6 +1116,23 @@ fn zlib_write_contract(value: &str) -> Option<(&'static [u8], &'static str)> {
     zlib_end_contract(value)
 }
 
+fn zlib_flush_owner(value: &str) -> bool {
+    matches!(
+        value,
+        "BrotliCompress"
+            | "BrotliDecompress"
+            | "Deflate"
+            | "DeflateRaw"
+            | "Gunzip"
+            | "Gzip"
+            | "Inflate"
+            | "InflateRaw"
+            | "Unzip"
+            | "ZstdCompress"
+            | "ZstdDecompress"
+    )
+}
+
 fn timer_root_contract(
     export_name: &str,
 ) -> Option<(serde_json::Value, serde_json::Value, &'static str)> {
@@ -1235,6 +1252,7 @@ fn validate_authored_argument(argument: &serde_json::Value, allow_setup_value: b
         "noop-function"
         | "event-emitter"
         | "timer-callback"
+        | "zlib-flush-callback"
         | "zlib-write-callback" => {
             assert_object_keys(argument, &["kind"], "authored special argument");
         }
@@ -1615,6 +1633,32 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
                 zlib_write_contract(owner).expect("zlib write owner must be reviewed");
             assert_eq!(setup["outputContract"].as_str(), Some(output_contract));
             assert_eq!(setup["terminalMethod"], "end");
+            assert_eq!(
+                descriptor.access.path.first().map(String::as_str),
+                Some(owner)
+            );
+        }
+        "zlib-flush-owner" => {
+            assert_object_keys(
+                &invocation.setup,
+                &[
+                    "callbackPosition",
+                    "cleanupMethod",
+                    "flushKind",
+                    "kind",
+                    "ownerExportName",
+                ],
+                "zlib flush owner setup",
+            );
+            assert!(prototype);
+            assert_eq!(descriptor.source_key, "node_zlib");
+            let owner = setup["ownerExportName"]
+                .as_str()
+                .expect("zlib flush owner name must be text");
+            assert!(zlib_flush_owner(owner), "zlib flush owner must be reviewed");
+            assert_eq!(setup["callbackPosition"], "first-argument");
+            assert_eq!(setup["flushKind"], "default-full-flush");
+            assert_eq!(setup["cleanupMethod"], "destroy");
             assert_eq!(
                 descriptor.access.path.first().map(String::as_str),
                 Some(owner)
@@ -2232,6 +2276,65 @@ fn validate_zlib_write_contract(
             {"kind": "buffer", "bytes": input},
             {"kind": "zlib-write-callback"}
         ])
+    );
+}
+
+fn validate_zlib_flush_contract(
+    invocation: &BuiltinInvocation,
+    descriptor: &BuiltinSourceDescriptor,
+    proof: &BodyEntryProof,
+) {
+    if descriptor.source_key != "node_zlib" || !descriptor.export_name.ends_with(".flush") {
+        return;
+    }
+    let (owner, method) = descriptor
+        .export_name
+        .split_once('.')
+        .expect("zlib flush export has owner and method");
+    if !zlib_flush_owner(owner) {
+        return;
+    }
+    assert_eq!(method, "flush");
+    assert_eq!(invocation.module_specifier, "node:zlib");
+    assert_eq!(
+        invocation.template_id.as_deref(),
+        Some("node-zlib-bounded-v1")
+    );
+    assert_eq!(descriptor.kind, "builtin-export");
+    assert_eq!(descriptor.value_shape, "callable");
+    assert_eq!(
+        descriptor.source_ref,
+        format!("src/builtins/zlib.js#exports:{}", descriptor.export_name)
+    );
+    assert_eq!(
+        descriptor.export_idioms,
+        ["exported-constructor-inherited-prototype"]
+    );
+    assert_eq!(descriptor.module_specifiers, ["node:zlib", "zlib"]);
+    assert_eq!(descriptor.access.kind, "inherited-prototype-property");
+    assert_eq!(
+        descriptor.access.path,
+        vec![
+            owner.to_owned(),
+            "prototype".to_owned(),
+            "flush".to_owned()
+        ]
+    );
+    assert_eq!(proof.kind, "normal-return-from-source-call");
+    assert_eq!(proof.result_type, "object");
+    assert_eq!(
+        invocation.setup,
+        serde_json::json!({
+            "kind": "zlib-flush-owner",
+            "ownerExportName": owner,
+            "callbackPosition": "first-argument",
+            "flushKind": "default-full-flush",
+            "cleanupMethod": "destroy"
+        })
+    );
+    assert_eq!(
+        serde_json::Value::Array(invocation.arguments.clone()),
+        serde_json::json!([{"kind": "zlib-flush-callback"}])
     );
 }
 
@@ -3292,6 +3395,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         validate_zlib_end_contract(invocation, &descriptor, proof);
         validate_zlib_process_chunk_contract(invocation, &descriptor, proof);
         validate_zlib_write_contract(invocation, &descriptor, proof);
+        validate_zlib_flush_contract(invocation, &descriptor, proof);
         validate_timer_contract(invocation, &descriptor, proof);
         validate_zlib_sync_encoder_contract(invocation, &descriptor, proof);
         validate_zlib_sync_decoder_contract(invocation, &descriptor, proof);
@@ -3957,6 +4061,7 @@ async fn execute_recipe(
                 "zlib-owner"
                     | "zlib-end-owner"
                     | "zlib-process-chunk-owner"
+                    | "zlib-flush-owner"
                     | "zlib-write-owner"
             )
         ) && invocation_result["cleanupPerformed"] != true
@@ -4014,6 +4119,14 @@ async fn execute_recipe(
         {
             return Err(format!(
                 "{}: public zlib write call did not prove callback, output, and cleanup: {invocation_result}",
+                recipe.fixture_id
+            ));
+        }
+        if probe.invocation.setup["kind"] == "zlib-flush-owner"
+            && invocation_result["zlibFlushLifecycleVerified"] != true
+        {
+            return Err(format!(
+                "{}: public zlib flush call did not prove callback, non-terminal state, and cleanup: {invocation_result}",
                 recipe.fixture_id
             ));
         }

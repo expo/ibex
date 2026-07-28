@@ -5888,6 +5888,98 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/did not prove its exact normal return/);
   });
 
+  test("accepts zlib flush only after its exact callback, non-terminal state, and cleanup", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.moduleSpecifier = "node:zlib";
+    invocation.exportName = "ZstdCompress.flush";
+    invocation.templateId = "node-zlib-bounded-v1";
+    invocation.sourceDescriptor = {
+      kind: "builtin-export",
+      sourceKey: "node_zlib",
+      exportName: "ZstdCompress.flush",
+      exportIdioms: ["exported-constructor-inherited-prototype"],
+      moduleSpecifiers: ["node:zlib", "zlib"],
+      sourceRef: "src/builtins/zlib.js#exports:ZstdCompress.flush",
+      valueShape: "callable",
+      access: {
+        kind: "inherited-prototype-property",
+        path: ["ZstdCompress", "prototype", "flush"],
+      },
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.setup = {
+      kind: "zlib-flush-owner",
+      ownerExportName: "ZstdCompress",
+      callbackPosition: "first-argument",
+      flushKind: "default-full-flush",
+      cleanupMethod: "destroy",
+    };
+    invocation.arguments = [{ kind: "zlib-flush-callback" }];
+    invocation.bodyEntryProof = {
+      kind: "normal-return-from-source-call",
+      resultType: "object",
+    };
+    const observed = noncapBuiltinCallObservation(recipe);
+    observed.invocation.result.dispatchKind = "prototype-call";
+    observed.invocation.result.cleanupPerformed = true;
+    observed.invocation.result.zlibFlushLifecycleVerified = true;
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const mutate of [
+      (value) => {
+        value.publicSurfaceProbe.invocation.arguments[0].kind =
+          "noop-function";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.flushKind = "finish";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.callbackPosition =
+          "second-argument";
+      },
+      (value) => {
+        value.publicSurfaceProbe.invocation.setup.ownerExportName =
+          "ZstdDecompress";
+      },
+    ]) {
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tamperedRecipe);
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: tamperedRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: observed,
+          coverage,
+        }),
+      ).toThrow(
+        /malformed authored zlib flush lifecycle proof|descriptor drift|not source-descriptor bound/,
+      );
+    }
+
+    const missingLifecycleProof = structuredClone(observed);
+    missingLifecycleProof.invocation.result.zlibFlushLifecycleVerified = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: missingLifecycleProof,
+        coverage,
+      }),
+    ).toThrow(/did not prove its exact normal return/);
+  });
+
   test("accepts only reviewed isolated sync zlib encoders", () => {
     const catalog = completeNoncapBuiltinCallCatalog();
     const recipe = catalog.recipes[0];

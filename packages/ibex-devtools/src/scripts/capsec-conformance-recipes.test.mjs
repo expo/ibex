@@ -463,11 +463,11 @@ describe("exact-target CapSec executable recipes", () => {
     // residual until it has loaded-engine evidence.
     // Five fresh net terminal calls observe close delivery after proving that
     // their harness-owned receiver never acquired a transport.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_767);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_778);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_040);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_783);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_772);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -652,9 +652,9 @@ describe("exact-target CapSec executable recipes", () => {
     // remains one explicit residual until it has loaded-engine evidence.
     // Five fresh net terminal calls observe close delivery after proving that
     // their harness-owned receiver never acquired a transport.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_414);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_423);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_026);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_809);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_800);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -5799,6 +5799,31 @@ describe("exact-target CapSec executable recipes", () => {
             "zlib-write-callback" &&
           recipe.publicSurfaceProbe.invocation.bodyEntryProof.resultType ===
             "boolean",
+      ),
+    ).toBe(true);
+    const zlibFlushCalls = publicCalls.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+          "node_zlib" &&
+        recipe.publicSurfaceProbe.invocation.exportName.endsWith(".flush"),
+    );
+    expect(zlibFlushCalls).toHaveLength(11);
+    expect(
+      zlibFlushCalls.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.setup.kind ===
+            "zlib-flush-owner" &&
+          recipe.publicSurfaceProbe.invocation.setup.callbackPosition ===
+            "first-argument" &&
+          recipe.publicSurfaceProbe.invocation.setup.flushKind ===
+            "default-full-flush" &&
+          recipe.publicSurfaceProbe.invocation.setup.cleanupMethod ===
+            "destroy" &&
+          recipe.publicSurfaceProbe.invocation.arguments.length === 1 &&
+          recipe.publicSurfaceProbe.invocation.arguments[0].kind ===
+            "zlib-flush-callback" &&
+          recipe.publicSurfaceProbe.invocation.bodyEntryProof.resultType ===
+            "object",
       ),
     ).toBe(true);
     const timerCalls = publicCalls.filter(

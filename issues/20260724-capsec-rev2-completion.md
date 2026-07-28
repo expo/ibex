@@ -5310,6 +5310,55 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-28 — prove public zlib flush lifecycles
+
+- Promoted public `flush(callback)` for eleven Apple owners and the nine
+  Windows owners available there: the nine established zlib/Brotli owners plus
+  `ZstdCompress` and `ZstdDecompress`. Every call uses the first-argument
+  callback form, fixing the source-defined default `Z_FULL_FLUSH` branch,
+  returns the fresh receiver, invokes its callback exactly once without error,
+  proves the receiver is still non-terminal, and then destroys it and closes
+  any native handle before quiescence.
+- The zstd rows prove only this bounded control write. With no native zstd
+  bridge, their flush marker is a source-defined no-op; the receipt makes no
+  zstd compression/decompression claim. Authoring, JavaScript evidence
+  validation, Rust catalog validation, and the loaded-engine boundary repeat
+  the exact eleven-owner vocabulary, inherited descriptor, callback position,
+  default flush selection, receiver return, non-terminal state, and cleanup
+  requirements.
+- The descriptor residual manifest falls from 457 to 446 rows, including the
+  codec-state residual family falling from 46 to 35.
+- The Apple catalog digest
+  `sha256-7L-QTFXIAgrkR9nGf3Arn-gv-G0ywo3_qmGRUFkH6UA` reports 23,590
+  required / **3,778 fully executable** / 3,040 internally verified / 16,772
+  unresolved. The Windows digest
+  `sha256-HRoyIpMtZX6NNaZ7KLnHxeUNR5zjV2XoUPzi1hMVdck` reports 23,249
+  required / **3,423 fully executable** / 3,026 internally verified / 16,800
+  unresolved.
+- The EPYC exact-Hermes receipt binds the prior 144 focused rows plus all
+  eleven flush lifecycles under catalog digest
+  `sha256-Gzr8zzgmmX8S5qnyHipPhtzI7KeqQgzoA_J05WYGNM4` and loaded engine
+  digest `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All 155
+  fixtures pass; all eleven new results report
+  `zlibFlushLifecycleVerified: true`, every completion is quiescent, and no
+  legacy or typed decisions appear. Two replays are byte-identical. The raw
+  evidence SHA-256 is
+  `eaf750a696a243c95c115cede77d76a9417bbe2aad18f162d919de827cf0bf9d`;
+  independent JavaScript validation accepted all 155 executions and produced
+  diagnostic execution digest
+  `sha256-rg3eRhZtN7zd5P_DLxTeb338gteXqetg98CmLAV0VKs` (artifact SHA-256
+  `0f6ed09b7968642b96b856814ef10805d30deca1c8afdd297e4bf1454ebce1a3`).
+  The diagnostic source binding is baseline revision
+  `b01ef9eac1d5825d37f2010417a55aae216307d2` / tree digest
+  `sha256-inr384QE0esIaMg-sgNpRTkgNbxOnzBznM1kxkiE7T8`.
+- The focused four-file author/evidence/catalog/output-accounting suite passes
+  **213/213** tests with 124,408 assertions. The final nine-file suite,
+  including source discovery and registry/output integration, passes
+  **509/509** tests with 201,787 assertions on the EPYC host.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
