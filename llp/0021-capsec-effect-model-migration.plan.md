@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-27 (promotes exactly eight explicit-parameter `exact_crypto` Diffie-Hellman calls: `DiffieHellman`, `createDiffieHellman`, and `getGenerator`, `getPrime`, `getPrivateKey`, `getPublicKey`, `setPrivateKey`, and `setPublicKey` on a harness-owned instance constructed from fixed prime 23 and generator 5; the author, independent validator, and Rust executor separately repeat the exact setup, arguments, result types, and ordinary-return proof, while `generateKeys` and `computeSecret` remain residual because they enter random or modular work; Apple accounting is 3,656 fully executable / 3,036 internally verified / 16,892 unresolved and Windows accounting is 3,315 / 3,022 / 16,906)
 **Revised:** 2026-07-27 (promotes exactly 24 Promise-returning readable-stream consumers: `every`, `find`, `forEach`, `reduce`, `some`, and `toArray` on `Duplex`, `PassThrough`, `Readable`, and `Transform`; every recipe constructs an already-ended empty stream, awaits the exact returned Promise inside the observation, then requires event-loop quiescence and zero decisions, while the independent validator and Rust executor repeat the closed owner/method/argument/result contract; `wrap`, `compose`, and `pipeline` remain residual because their delegated ownership is not closed by this receipt; Apple accounting is 3,648 fully executable / 3,036 internally verified / 16,900 unresolved and Windows accounting is 3,307 / 3,022 / 16,914)
 **Revised:** 2026-07-27 (promotes exactly 15 post-initialization scalar reads from `cluster`, `http`, and `os`: each capability-bearing module is loaded and quiesced before the export observer opens, so initialization receives no credit, while an independently duplicated descriptor/type allowlist requires the later authenticated cached read to return its exact boolean, number, object, string, or symbol type with zero decisions; generic exports from these three modules remain excluded; Apple accounting is 3,570 fully executable / 3,036 internally verified / 16,977 unresolved and Windows accounting is 3,229 / 3,022 / 16,991)
 **Revised:** 2026-07-27 (promotes exactly 24 locally authored `dns/promises` error-code data reads through an independently duplicated name and descriptor allowlist: inventory may retain the conservative `unknown` static shape only when the source is the exact `node_dns_promises` member assignment and the recipe requires a runtime string; both physical engines returned strings with zero decisions for all 24 while generic unknown-shape reads, 42 DNS promises callables, and three Resolver `_handle` callables remain residual; Apple accounting is 3,555 fully executable / 3,036 internally verified / 16,992 unresolved and Windows accounting is 3,214 / 3,022 / 17,006)
@@ -2672,6 +2673,17 @@ repeat the closed owner, method, arguments, and settled result type. A Promise
 object returned to a synchronous harness is not completion evidence. Stream
 composition, wrapping, and pipeline operations retain delegated sources or
 pipelines and remain residual until a recipe owns and drains those resources.
+
+Explicit-parameter Diffie-Hellman construction and state-only accessors are
+executable only with the independently repeated evidence vector: prime 23 as
+one harness-owned byte, generator 5, and private/public setter input 3.
+Supplying the prime avoids lazy prime generation, and the reviewed getters and
+setters only project or replace bounded in-memory byte arrays. The recipe
+author, evidence validator, and Rust executor separately enumerate the exact
+constructor, factory, four getters, two setters, setup kinds, arguments, and
+result types. `generateKeys` and `computeSecret` remain residual because this
+receipt does not own random-key generation or broaden bounded state evidence
+into modular key-agreement evidence.
 
 Acceptance:
 

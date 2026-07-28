@@ -3904,6 +3904,68 @@ ticket closes.
   overall requested task remains about **96% complete**. Criterion 7 remains
   open and both advertisement sets remain empty.
 
+### 2026-07-27 — executed fixed-parameter Diffie-Hellman state calls
+
+- Promoted exactly eight `exact_crypto` calls: the `DiffieHellman`
+  constructor, `createDiffieHellman`, and `getGenerator`, `getPrime`,
+  `getPrivateKey`, `getPublicKey`, `setPrivateKey`, and `setPublicKey` on a
+  harness-owned `DiffieHellman` instance. Every recipe supplies fixed prime 23
+  and generator 5; setters receive the fixed byte 3. Construction, projection,
+  and replacement therefore stay bounded and in memory.
+- The recipe author, independent JavaScript evidence validator, and Rust
+  physical executor separately enumerate the exact eight names, setup kinds,
+  constructor/call arguments, result types, and ordinary-return proof.
+  `generateKeys` and `computeSecret` remain residual because they enter random
+  or modular cryptographic work that this state-only receipt does not own.
+- The implementation checkpoint is
+  `080aa31f729d6edfd51778dbd9be00aecacb13f6`, with tree digest
+  `sha256-FIKk4MpziQF8EU8UEYEwmFDa9U7bKJMOW7UZzODvBLA`. Upstream `main`
+  remained at the already-integrated `e4d96bb0` immediately before the
+  implementation commit.
+- Final Apple catalog digest
+  `sha256-p4SvBOit_DUhRRZ1AhMPhmJXvgQIz_b9b8AlT2CcB9c` reports 23,584
+  required / **3,656 fully executable** / 3,036 internally verified / 16,892
+  unresolved. The local M5 strict-provenance, stale-vendored batch passes
+  **1,351/1,351**: 1,172 export probes, 145 captured routes, and 34 isolated
+  imports, against engine digest
+  `sha256-PzMZqlPaba3S9taiDvkd7H-DCuBv2MXbYOmLoVbZP3I`. All eight new calls
+  return their exact object or undefined type, reach quiescence, and observe
+  zero decisions. The raw evidence SHA-256 is
+  `c4f3dd390a0736f90f14d971e2fe7630a830d99a76049a032c9808931e588b75`;
+  independent validation accepted exactly 1,351 fixtures and produced
+  execution digest
+  `sha256-00FX1vFsqYY-QDttqFR_-oXuhyuR6DBl73Wmdq0kCmE`.
+- Final Windows catalog digest
+  `sha256-QPutq-psHt7KWMPuu2AzUhgzrxChic0y1bGis9KootY` reports 23,243
+  required / **3,315 fully executable** / 3,022 internally verified / 16,906
+  unresolved. The NucBox's exact MSVC/reviewed-Hermes batch passes
+  **1,315/1,315**: 1,136 export probes, 145 captured routes, and 34 isolated
+  imports, against engine digest
+  `sha256-4HsCwsHz-UDTGNW8-89DnujWOx9rFegBL0wYbUFHPHE`. The raw evidence
+  SHA-256 is
+  `f7b22b192328db7040751eed3390093787bf53f282da39e35f69d43e33e5aad0`;
+  independent validation accepted exactly 1,315 fixtures and produced
+  execution digest
+  `sha256-kjFO_Zg1qsyskq-x_uGXLWVQkBMzDANAPACgjODvJUM`.
+- The focused author/catalog/validator suite passes **179/179** tests with
+  117,237 assertions. The exact secure Cargo profile compiles, all generated
+  registry/runtime/policy/profile/transform/Oxc drift gates pass, and
+  `ref-check` validates 41 LLP documents and 2,221 references with zero errors
+  (one stable URL remains unchecked).
+- Hard parts: using a tiny explicit prime is safe only because the promoted
+  family stops before random key generation or secret computation; the three
+  independent contracts prevent a future generic crypto row from borrowing
+  that proof. The first ad-hoc formatter also exposed that these intentionally
+  dense generated-contract files do not use the latest default Prettier
+  layout; its mechanical churn was removed before testing. Windows then spent
+  6m57s in the known static OpenSSL/MSVC link and emitted non-fatal missing-PDB
+  warnings, so the expensive platform lane stayed on the Nuc instead of
+  loading the control-plane M5. The low-disk M4 and busy MacBook Air were not
+  disturbed.
+- Important enforcement mechanisms remain about **99.7% complete**, and the
+  overall requested task remains about **96% complete**. Criterion 7 remains
+  open and both advertisement sets remain empty.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
