@@ -110,6 +110,46 @@ const REVIEWED_DNS_PROMISE_ERROR_CODES = new Set([
   "SERVFAIL",
   "TIMEOUT",
 ]);
+const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
+  [
+    ["node_cluster", "SCHED_NONE", "data", "number", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
+    ["node_cluster", "SCHED_RR", "data", "number", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
+    ["node_cluster", "isMaster", "data", "boolean", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
+    ["node_cluster", "isPrimary", "data", "boolean", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
+    ["node_cluster", "isWorker", "unknown", "boolean", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
+    ["node_http", "METHODS", "data", "object", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+    ["node_http", "STATUS_CODES", "data", "object", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+    ["node_http", "kConnectionsCheckingInterval", "unknown", "symbol", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+    ["node_http", "kHighWaterMark", "unknown", "symbol", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+    ["node_http", "kTimeout", "unknown", "symbol", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+    ["node_http", "maxHeaderSize", "unknown", "number", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+    ["node_http", "methods", "data", "object", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+    ["node_os", "EOL", "data", "string", ["define-property"], ["node:os", "os"], "os.js"],
+    ["node_os", "constants", "data", "object", ["module-exports-object"], ["node:os", "os"], "os.js"],
+    ["node_os", "devNull", "data", "string", ["module-exports-object"], ["node:os", "os"], "os.js"],
+  ].map(
+    ([
+      sourceKey,
+      exportName,
+      valueShape,
+      expectedValueType,
+      exportIdioms,
+      moduleSpecifiers,
+      sourceFile,
+    ]) => [
+      `${sourceKey}:${exportName}`,
+      {
+        sourceKey,
+        exportName,
+        valueShape,
+        expectedValueType,
+        exportIdioms,
+        moduleSpecifiers,
+        sourceFile,
+      },
+    ],
+  ),
+);
 const EFFECT_BUILTIN_MODULE_IMPORT_ALIASES = new Map(
   [
     ["node:sys", "node_util", true, true, "env:read"],
@@ -653,6 +693,31 @@ function isReviewedDnsPromiseErrorDescriptor(descriptor) {
         valueShape: "unknown",
         access: { kind: "export-property", path: [exportName] },
         expectedValueType: "string",
+      })
+  );
+}
+
+function isReviewedEffectfulModuleScalarDescriptor(descriptor) {
+  const expected = REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS.get(
+    `${descriptor?.sourceKey}:${descriptor?.exportName}`,
+  );
+  return (
+    expected !== undefined &&
+    canonicalJson(descriptor) ===
+      canonicalJson({
+        kind: "builtin-export",
+        sourceKey: expected.sourceKey,
+        exportName: expected.exportName,
+        exportIdioms: expected.exportIdioms,
+        moduleSpecifiers: expected.moduleSpecifiers,
+        sourceRef:
+          `src/builtins/${expected.sourceFile}#exports:${expected.exportName}`,
+        valueShape: expected.valueShape,
+        access: {
+          kind: "export-property",
+          path: [expected.exportName],
+        },
+        expectedValueType: expected.expectedValueType,
       })
   );
 }
@@ -2683,7 +2748,8 @@ function validateRuntimeInvocation(observation, recipe) {
       if (
         (Object.hasOwn(descriptor, "expectedValueType") ||
           descriptor.valueShape === "unknown") &&
-        !isReviewedDnsPromiseErrorDescriptor(descriptor)
+        !isReviewedDnsPromiseErrorDescriptor(descriptor) &&
+        !isReviewedEffectfulModuleScalarDescriptor(descriptor)
       ) {
         throw new Error(
           `${recipe.fixtureId}: builtin read has an unreviewed runtime value-type expectation`,

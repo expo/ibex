@@ -39,6 +39,23 @@ const REVIEWED_DNS_PROMISE_ERROR_CODES = [
   "SERVFAIL",
   "TIMEOUT",
 ];
+const REVIEWED_EFFECTFUL_MODULE_SCALARS = [
+  ["node_cluster", "SCHED_NONE", "data", "number", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
+  ["node_cluster", "SCHED_RR", "data", "number", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
+  ["node_cluster", "isMaster", "data", "boolean", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
+  ["node_cluster", "isPrimary", "data", "boolean", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
+  ["node_cluster", "isWorker", "unknown", "boolean", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
+  ["node_http", "METHODS", "data", "object", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+  ["node_http", "STATUS_CODES", "data", "object", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+  ["node_http", "kConnectionsCheckingInterval", "unknown", "symbol", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+  ["node_http", "kHighWaterMark", "unknown", "symbol", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+  ["node_http", "kTimeout", "unknown", "symbol", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+  ["node_http", "maxHeaderSize", "unknown", "number", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+  ["node_http", "methods", "data", "object", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+  ["node_os", "EOL", "data", "string", ["define-property"], ["node:os", "os"], "os.js"],
+  ["node_os", "constants", "data", "object", ["module-exports-object"], ["node:os", "os"], "os.js"],
+  ["node_os", "devNull", "data", "string", ["module-exports-object"], ["node:os", "os"], "os.js"],
+];
 const REVIEWED_MODULE_IMPORTS = [
   ["buffer", "node_buffer", true, "object"],
   ["bun:sqlite", "exact_sqlite", false, "function"],
@@ -228,6 +245,70 @@ describe("source-bound builtin public probes", () => {
         sourceRefs: ["src/builtins/dns.js#exports:NODATA"],
       }),
     ).toBeNull();
+  });
+
+  test("reads only exact scalars after effectful module initialization", () => {
+    for (const [
+      sourceKey,
+      exportName,
+      valueShape,
+      expectedValueType,
+      exportIdioms,
+      moduleSpecifiers,
+      sourceFile,
+    ] of REVIEWED_EFFECTFUL_MODULE_SCALARS) {
+      expect(
+        probeFor({
+          sourceKey,
+          exportName,
+          exportIdioms,
+          moduleSpecifiers,
+          sourceRefs: [
+            `src/builtins/${sourceFile}#exports:${exportName}`,
+          ],
+          valueShape,
+        }),
+      ).toMatchObject({
+        invocation: {
+          kind: "builtin-export-read",
+          exportName,
+          sourceDescriptor: {
+            sourceKey,
+            exportName,
+            exportIdioms,
+            moduleSpecifiers,
+            sourceRef:
+              `src/builtins/${sourceFile}#exports:${exportName}`,
+            valueShape,
+            access: {
+              kind: "export-property",
+              path: [exportName],
+            },
+            expectedValueType,
+          },
+          expectedResult: "return",
+        },
+      });
+    }
+
+    for (const mutation of [
+      { exportName: "schedulingPolicy" },
+      { valueShape: "callable" },
+      { sourceRefs: ["src/builtins/os.js#exports:SCHED_NONE"] },
+      { moduleSpecifiers: ["node:cluster"] },
+    ]) {
+      expect(
+        probeFor({
+          sourceKey: "node_cluster",
+          exportName: "SCHED_NONE",
+          exportIdioms: ["member-assignment"],
+          moduleSpecifiers: ["cluster", "node:cluster"],
+          sourceRefs: ["src/builtins/cluster.js#exports:SCHED_NONE"],
+          valueShape: "data",
+          ...mutation,
+        }),
+      ).toBeNull();
+    }
   });
 
   test("keeps constructor-instance projections residual even with one source ref", () => {

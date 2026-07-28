@@ -124,6 +124,227 @@ const REVIEWED_DNS_PROMISE_ERROR_CODES = new Set([
   "TIMEOUT",
 ]);
 
+// These scalar exports are read only after their capability-bearing module
+// initialization has completed. Keep the set and runtime types exact so this
+// does not weaken the generic exclusion for cluster, HTTP, or OS exports.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+const REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS = new Map(
+  [
+    [
+      "node_cluster",
+      "SCHED_NONE",
+      "data",
+      "number",
+      ["member-assignment"],
+      ["cluster", "node:cluster"],
+      "cluster.js",
+    ],
+    [
+      "node_cluster",
+      "SCHED_RR",
+      "data",
+      "number",
+      ["member-assignment"],
+      ["cluster", "node:cluster"],
+      "cluster.js",
+    ],
+    [
+      "node_cluster",
+      "isMaster",
+      "data",
+      "boolean",
+      ["member-assignment"],
+      ["cluster", "node:cluster"],
+      "cluster.js",
+    ],
+    [
+      "node_cluster",
+      "isPrimary",
+      "data",
+      "boolean",
+      ["member-assignment"],
+      ["cluster", "node:cluster"],
+      "cluster.js",
+    ],
+    [
+      "node_cluster",
+      "isWorker",
+      "unknown",
+      "boolean",
+      ["member-assignment"],
+      ["cluster", "node:cluster"],
+      "cluster.js",
+    ],
+    [
+      "node_http",
+      "METHODS",
+      "data",
+      "object",
+      ["module-exports-object"],
+      [
+        "_http_agent",
+        "_http_common",
+        "_http_incoming",
+        "_http_outgoing",
+        "_http_server",
+        "http",
+        "node:http",
+      ],
+      "http.js",
+    ],
+    [
+      "node_http",
+      "STATUS_CODES",
+      "data",
+      "object",
+      ["module-exports-object"],
+      [
+        "_http_agent",
+        "_http_common",
+        "_http_incoming",
+        "_http_outgoing",
+        "_http_server",
+        "http",
+        "node:http",
+      ],
+      "http.js",
+    ],
+    [
+      "node_http",
+      "kConnectionsCheckingInterval",
+      "unknown",
+      "symbol",
+      ["module-exports-object"],
+      [
+        "_http_agent",
+        "_http_common",
+        "_http_incoming",
+        "_http_outgoing",
+        "_http_server",
+        "http",
+        "node:http",
+      ],
+      "http.js",
+    ],
+    [
+      "node_http",
+      "kHighWaterMark",
+      "unknown",
+      "symbol",
+      ["module-exports-object"],
+      [
+        "_http_agent",
+        "_http_common",
+        "_http_incoming",
+        "_http_outgoing",
+        "_http_server",
+        "http",
+        "node:http",
+      ],
+      "http.js",
+    ],
+    [
+      "node_http",
+      "kTimeout",
+      "unknown",
+      "symbol",
+      ["module-exports-object"],
+      [
+        "_http_agent",
+        "_http_common",
+        "_http_incoming",
+        "_http_outgoing",
+        "_http_server",
+        "http",
+        "node:http",
+      ],
+      "http.js",
+    ],
+    [
+      "node_http",
+      "maxHeaderSize",
+      "unknown",
+      "number",
+      ["module-exports-object"],
+      [
+        "_http_agent",
+        "_http_common",
+        "_http_incoming",
+        "_http_outgoing",
+        "_http_server",
+        "http",
+        "node:http",
+      ],
+      "http.js",
+    ],
+    [
+      "node_http",
+      "methods",
+      "data",
+      "object",
+      ["module-exports-object"],
+      [
+        "_http_agent",
+        "_http_common",
+        "_http_incoming",
+        "_http_outgoing",
+        "_http_server",
+        "http",
+        "node:http",
+      ],
+      "http.js",
+    ],
+    [
+      "node_os",
+      "EOL",
+      "data",
+      "string",
+      ["define-property"],
+      ["node:os", "os"],
+      "os.js",
+    ],
+    [
+      "node_os",
+      "constants",
+      "data",
+      "object",
+      ["module-exports-object"],
+      ["node:os", "os"],
+      "os.js",
+    ],
+    [
+      "node_os",
+      "devNull",
+      "data",
+      "string",
+      ["module-exports-object"],
+      ["node:os", "os"],
+      "os.js",
+    ],
+  ].map(
+    ([
+      sourceKey,
+      exportName,
+      valueShape,
+      expectedValueType,
+      exportIdioms,
+      moduleSpecifiers,
+      sourceFile,
+    ]) => [
+      `${sourceKey}:${exportName}`,
+      {
+        sourceKey,
+        exportName,
+        valueShape,
+        expectedValueType,
+        exportIdioms,
+        moduleSpecifiers,
+        sourceFile,
+      },
+    ],
+  ),
+);
+
 const jsonArgument = (value) => ({ kind: "json", value });
 const noopArgument = () => ({ kind: "noop-function" });
 const throwingArgument = () => ({
@@ -1692,7 +1913,10 @@ function sourceDescriptor(
   surface,
   target,
   allowedValueShapes,
-  { allowTargetAbsence = false } = {},
+  {
+    allowTargetAbsence = false,
+    allowReviewedEffectfulModuleScalar = false,
+  } = {},
 ) {
   const metadata = surface?.metadata;
   const availability = platformAvailability(metadata);
@@ -1709,7 +1933,8 @@ function sourceDescriptor(
     metadata.constructorInstanceProjection !== undefined ||
     typeof metadata.sourceKey !== "string" ||
     metadata.sourceKey.length === 0 ||
-    NONCAP_GENERIC_EXPORT_EXCLUSIONS.has(metadata.sourceKey) ||
+    (NONCAP_GENERIC_EXPORT_EXCLUSIONS.has(metadata.sourceKey) &&
+      !allowReviewedEffectfulModuleScalar) ||
     !allowedValueShapes.has(metadata.valueShape) ||
     typeof metadata.exportName !== "string" ||
     metadata.exportName.length === 0 ||
@@ -1755,6 +1980,48 @@ function sourceDescriptor(
   };
   if (availability) descriptor.platformAvailability = [...availability];
   return descriptor;
+}
+
+function reviewedEffectfulModuleScalarSourceDescriptor(surface, target) {
+  const metadata = surface?.metadata;
+  const expected =
+    typeof metadata?.sourceKey === "string" &&
+    typeof metadata?.exportName === "string"
+      ? REVIEWED_EFFECTFUL_MODULE_SCALAR_EXPORTS.get(
+          `${metadata.sourceKey}:${metadata.exportName}`,
+        )
+      : null;
+  if (!expected) return null;
+  const descriptor = sourceDescriptor(
+    surface,
+    target,
+    new Set(["data", "unknown"]),
+    { allowReviewedEffectfulModuleScalar: true },
+  );
+  const expectedDescriptor = {
+    kind: "builtin-export",
+    sourceKey: expected.sourceKey,
+    exportName: expected.exportName,
+    exportIdioms: expected.exportIdioms,
+    moduleSpecifiers: expected.moduleSpecifiers,
+    sourceRef:
+      `src/builtins/${expected.sourceFile}#exports:${expected.exportName}`,
+    valueShape: expected.valueShape,
+    access: {
+      kind: "export-property",
+      path: [expected.exportName],
+    },
+  };
+  if (
+    !descriptor ||
+    canonicalJson(descriptor) !== canonicalJson(expectedDescriptor)
+  ) {
+    return null;
+  }
+  return {
+    ...descriptor,
+    expectedValueType: expected.expectedValueType,
+  };
 }
 
 function reviewedDnsPromiseErrorCodeSourceDescriptor(surface, target) {
@@ -1827,6 +2094,7 @@ function authoredNonCapabilityBuiltinInvocationDefinition({
     targetPlatform !== null &&
     !availability.includes(targetPlatform);
   const readDescriptor =
+    reviewedEffectfulModuleScalarSourceDescriptor(surface, target) ??
     reviewedDnsPromiseErrorCodeSourceDescriptor(surface, target) ??
     sourceDescriptor(surface, target, new Set(["accessor", "data"]), {
       allowTargetAbsence: allowTargetAbsence && targetAbsent,

@@ -99,6 +99,23 @@ const NONCAP_MODULE_IMPORT_TEST_ALIASES = [
   expectedRootType,
   edgeId: `edge.noncap-module.${moduleSpecifier}`,
 }));
+const REVIEWED_EFFECTFUL_MODULE_SCALARS = [
+  ["node_cluster", "SCHED_NONE", "data", "number", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
+  ["node_cluster", "SCHED_RR", "data", "number", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
+  ["node_cluster", "isMaster", "data", "boolean", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
+  ["node_cluster", "isPrimary", "data", "boolean", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
+  ["node_cluster", "isWorker", "unknown", "boolean", ["member-assignment"], ["cluster", "node:cluster"], "cluster.js"],
+  ["node_http", "METHODS", "data", "object", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+  ["node_http", "STATUS_CODES", "data", "object", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+  ["node_http", "kConnectionsCheckingInterval", "unknown", "symbol", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+  ["node_http", "kHighWaterMark", "unknown", "symbol", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+  ["node_http", "kTimeout", "unknown", "symbol", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+  ["node_http", "maxHeaderSize", "unknown", "number", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+  ["node_http", "methods", "data", "object", ["module-exports-object"], ["_http_agent", "_http_common", "_http_incoming", "_http_outgoing", "_http_server", "http", "node:http"], "http.js"],
+  ["node_os", "EOL", "data", "string", ["define-property"], ["node:os", "os"], "os.js"],
+  ["node_os", "constants", "data", "object", ["module-exports-object"], ["node:os", "os"], "os.js"],
+  ["node_os", "devNull", "data", "string", ["module-exports-object"], ["node:os", "os"], "os.js"],
+];
 
 const target = {
   triple: "aarch64-apple-darwin",
@@ -1503,6 +1520,51 @@ function dnsPromiseErrorReadObservation(recipe, valueType = "string") {
     legacyObservationCount: 0,
     typedDecisions: [],
   };
+}
+
+function completeEffectfulModuleScalarReadCatalog([
+  sourceKey,
+  exportName,
+  valueShape,
+  expectedValueType,
+  exportIdioms,
+  moduleSpecifiers,
+  sourceFile,
+]) {
+  const catalog = completeDnsPromiseErrorReadCatalog();
+  const recipe = catalog.recipes[0];
+  const surfaceObservedKey = `builtin:export:${sourceKey}:${exportName}`;
+  const sourceDescriptor = {
+    kind: "builtin-export",
+    sourceKey,
+    exportName,
+    exportIdioms,
+    moduleSpecifiers,
+    sourceRef: `src/builtins/${sourceFile}#exports:${exportName}`,
+    valueShape,
+    access: { kind: "export-property", path: [exportName] },
+    expectedValueType,
+  };
+  recipe.fixtureId =
+    `fixture.noncap-builtin.effectful-scalar.${sourceKey}.${exportName}`;
+  recipe.terminalObservedKey = surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [surfaceObservedKey];
+  recipe.route.alternatives = [
+    {
+      terminalObservedKey: surfaceObservedKey,
+      proofPaths: [surfaceObservedKey],
+    },
+  ];
+  recipe.publicSurfaceProbe.surfaceObservedKey = surfaceObservedKey;
+  recipe.publicSurfaceProbe.invocation.moduleSpecifier =
+    moduleSpecifiers.find((specifier) => specifier.startsWith("node:")) ??
+    moduleSpecifiers[0];
+  recipe.publicSurfaceProbe.invocation.exportName = exportName;
+  recipe.publicSurfaceProbe.invocation.sourceDescriptor = sourceDescriptor;
+  recipe.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+    taggedDigest(sourceDescriptor);
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
 }
 
 function completeCapturedNoncapBuiltinCatalog() {
@@ -4698,6 +4760,68 @@ describe("CapSec public-surface promotion evidence", () => {
           recipe: unreviewed,
           engineBinaryDigest: engine.binaryDigest,
           runtimeObservation: dnsPromiseErrorReadObservation(unreviewed),
+          coverage,
+        }),
+      ).toThrow(/unreviewed runtime value-type expectation/);
+    }
+  });
+
+  test("accepts only exact post-initialization scalar reads and runtime types", () => {
+    for (const entry of REVIEWED_EFFECTFUL_MODULE_SCALARS) {
+      const catalog = completeEffectfulModuleScalarReadCatalog(entry);
+      const recipe = catalog.recipes[0];
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: dnsPromiseErrorReadObservation(
+            recipe,
+            entry[3],
+          ),
+          coverage,
+        }),
+      ).not.toThrow();
+    }
+
+    const catalog = completeEffectfulModuleScalarReadCatalog(
+      REVIEWED_EFFECTFUL_MODULE_SCALARS[0],
+    );
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: dnsPromiseErrorReadObservation(recipe, "string"),
+        coverage,
+      }),
+    ).toThrow(/wrong export/);
+
+    for (const mutate of [
+      (descriptor) => {
+        descriptor.expectedValueType = "string";
+      },
+      (descriptor) => {
+        descriptor.sourceRef = "src/builtins/os.js#exports:SCHED_NONE";
+      },
+      (descriptor) => {
+        descriptor.exportIdioms = ["module-exports-object"];
+      },
+    ]) {
+      const unreviewed = structuredClone(recipe);
+      mutate(unreviewed.publicSurfaceProbe.invocation.sourceDescriptor);
+      unreviewed.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+        taggedDigest(
+          unreviewed.publicSurfaceProbe.invocation.sourceDescriptor,
+        );
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: unreviewed,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: dnsPromiseErrorReadObservation(
+            unreviewed,
+            unreviewed.publicSurfaceProbe.invocation.sourceDescriptor
+              .expectedValueType,
+          ),
           coverage,
         }),
       ).toThrow(/unreviewed runtime value-type expectation/);

@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-27 (promotes exactly 15 post-initialization scalar reads from `cluster`, `http`, and `os`: each capability-bearing module is loaded and quiesced before the export observer opens, so initialization receives no credit, while an independently duplicated descriptor/type allowlist requires the later authenticated cached read to return its exact boolean, number, object, string, or symbol type with zero decisions; generic exports from these three modules remain excluded; Apple accounting is 3,570 fully executable / 3,036 internally verified / 16,977 unresolved and Windows accounting is 3,229 / 3,022 / 16,991)
 **Revised:** 2026-07-27 (promotes exactly 24 locally authored `dns/promises` error-code data reads through an independently duplicated name and descriptor allowlist: inventory may retain the conservative `unknown` static shape only when the source is the exact `node_dns_promises` member assignment and the recipe requires a runtime string; both physical engines returned strings with zero decisions for all 24 while generic unknown-shape reads, 42 DNS promises callables, and three Resolver `_handle` callables remain residual; Apple accounting is 3,555 fully executable / 3,036 internally verified / 16,992 unresolved and Windows accounting is 3,214 / 3,022 / 17,006)
 **Revised:** 2026-07-27 (thirteen exact public loader routes now require a fresh armed runtime, real public `require` traversal, one matching receipt from a loader-private source point, quiescence, engine re-attestation, and zero legacy or typed decisions; a 100-route Apple audit rejected 87 static candidates that bypassed, cached, or entered typed authority, while all retained routes pass physically on Apple and Windows at source `362e21c7` / tree `sha256-7Rdvzwm5tGaDVNqW1U9sUiyp1VabIIhRuCT_iN-uOPI`; Apple catalog `sha256-YwyEGiU906sxfdDbSQreOmeQUuFcp_FzeFgFj-x5qbQ` reports 23,844 required / 3,531 fully executable / 3,134 internally verified / 17,179 unresolved and Windows catalog `sha256-Emt8544W78pVLMizBGhKaQt2tIJuqWE6Se383StPlu8` reports 23,503 / 3,190 / 3,120 / 17,193; the source inventory also excludes preprocessor predicates and Mach-O section metadata from pseudo-function/native-operation discovery; both advertisement sets remain empty)
 **Revised:** 2026-07-26 (the artifact-independent armed import boundary now closes the process-wide `node:diagnostics_channel` and legacy `node:domain` registries alongside the previously terminal runtime-inspection and execution builtins, even under an authenticated overbroad snapshot; 31 additional source and alias facets per exact target execute as direct closed-import evidence, bringing the terminal-builtin tranche to 137 without converting imports that still contain supported export operations into module-wide denials)
@@ -2253,6 +2254,18 @@ evidence validator both require the loaded value to be a string. This
 exception does not make generic unknown-shape reads executable and does not
 credit any of the 42 callable projections or three Resolver `_handle`
 callables.
+
+The `node_cluster`, `node_http`, and `node_os` modules remain excluded from
+generic export-read authoring because their initialization can perform
+capability-bearing work. Exactly 15 later scalar reads are separately
+executable: the module is first loaded and driven to quiescence before the
+export observer opens, then the invocation performs an authenticated public
+`require` against that cache and resolves the exact source-derived export.
+This proves only the read; it neither observes nor credits module
+initialization. Independent authoring, physical execution, and evidence
+validation bind each exact source key, export name, source ref, public alias
+set, export idiom, access path, static shape, and expected runtime type. All
+other exports from those modules remain behind the generic exclusion.
 
 `getServers` and `Resolver` remain effect-bearing conditional rows:
 uncached system-server discovery uses the native `network:resolve` gate and may

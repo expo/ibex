@@ -480,6 +480,86 @@ fn is_reviewed_dns_promise_error_descriptor(descriptor: &BuiltinSourceDescriptor
         && descriptor.access.path == [descriptor.export_name.clone()]
 }
 
+fn reviewed_effectful_module_scalar_spec(
+    source_key: &str,
+    export_name: &str,
+) -> Option<(&'static str, &'static str)> {
+    match (source_key, export_name) {
+        ("node_cluster", "SCHED_NONE" | "SCHED_RR") => Some(("data", "number")),
+        ("node_cluster", "isMaster" | "isPrimary") => Some(("data", "boolean")),
+        ("node_cluster", "isWorker") => Some(("unknown", "boolean")),
+        ("node_http", "METHODS" | "STATUS_CODES" | "methods") => Some(("data", "object")),
+        (
+            "node_http",
+            "kConnectionsCheckingInterval" | "kHighWaterMark" | "kTimeout",
+        ) => Some(("unknown", "symbol")),
+        ("node_http", "maxHeaderSize") => Some(("unknown", "number")),
+        ("node_os", "EOL" | "devNull") => Some(("data", "string")),
+        ("node_os", "constants") => Some(("data", "object")),
+        _ => None,
+    }
+}
+
+fn is_reviewed_effectful_module_scalar_descriptor(
+    descriptor: &BuiltinSourceDescriptor,
+) -> bool {
+    let Some((value_shape, expected_value_type)) =
+        reviewed_effectful_module_scalar_spec(&descriptor.source_key, &descriptor.export_name)
+    else {
+        return false;
+    };
+    let source_contract_matches = match descriptor.source_key.as_str() {
+        "node_cluster" => {
+            descriptor.export_idioms == ["member-assignment"]
+                && descriptor.module_specifiers == ["cluster", "node:cluster"]
+                && descriptor.source_ref
+                    == format!(
+                        "src/builtins/cluster.js#exports:{}",
+                        descriptor.export_name
+                    )
+        }
+        "node_http" => {
+            descriptor.export_idioms == ["module-exports-object"]
+                && descriptor.module_specifiers
+                    == [
+                        "_http_agent",
+                        "_http_common",
+                        "_http_incoming",
+                        "_http_outgoing",
+                        "_http_server",
+                        "http",
+                        "node:http",
+                    ]
+                && descriptor.source_ref
+                    == format!(
+                        "src/builtins/http.js#exports:{}",
+                        descriptor.export_name
+                    )
+        }
+        "node_os" => {
+            descriptor.export_idioms
+                == if descriptor.export_name == "EOL" {
+                    ["define-property"]
+                } else {
+                    ["module-exports-object"]
+                }
+                && descriptor.module_specifiers == ["node:os", "os"]
+                && descriptor.source_ref
+                    == format!(
+                        "src/builtins/os.js#exports:{}",
+                        descriptor.export_name
+                    )
+        }
+        _ => false,
+    };
+    source_contract_matches
+        && descriptor.value_shape == value_shape
+        && descriptor.expected_value_type.as_deref() == Some(expected_value_type)
+        && descriptor.platform_availability.is_none()
+        && descriptor.access.kind == "export-property"
+        && descriptor.access.path == [descriptor.export_name.clone()]
+}
+
 fn module_specifier_rank(value: &str) -> u8 {
     if value.starts_with("node:") {
         0
@@ -1017,7 +1097,10 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
             .expect("non-capability builtin source descriptor must be typed");
     assert_eq!(descriptor.kind, "builtin-export");
     assert!(!descriptor.source_key.is_empty());
-    assert_ne!(descriptor.source_key, "node_os");
+    assert!(
+        descriptor.source_key != "node_os"
+            || is_reviewed_effectful_module_scalar_descriptor(&descriptor)
+    );
     assert_eq!(
         invocation.export_name.as_deref(),
         Some(descriptor.export_name.as_str())
@@ -1059,10 +1142,11 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         assert!(invocation.body_entry_proof.is_none());
         assert!(invocation.arguments.is_empty());
         assert_eq!(invocation.setup, serde_json::json!({"kind": "none"}));
-        let reviewed_dns_promise_error =
-            is_reviewed_dns_promise_error_descriptor(&descriptor);
+        let reviewed_runtime_typed_read =
+            is_reviewed_dns_promise_error_descriptor(&descriptor)
+                || is_reviewed_effectful_module_scalar_descriptor(&descriptor);
         assert!(
-            reviewed_dns_promise_error
+            reviewed_runtime_typed_read
                 || (matches!(descriptor.value_shape.as_str(), "accessor" | "data")
                     && descriptor.expected_value_type.is_none())
         );
