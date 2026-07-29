@@ -5859,6 +5859,39 @@ ticket closes.
   remains about **99.8% complete**, and overall completion remains about
   **96%**.
 
+### 2026-07-28 — bind the composed stream-stability marker to physical absence
+
+- Promoted `process.__exactStreamStabilityPatched` on both candidate targets
+  through one exact `shared-runtime-global-absence` receipt. Its source
+  descriptor binds the same default branch to both real installation routes:
+  the legacy compatibility bootstrap and the native evaluated
+  `streamStabilityPatchJS` program.
+- The loaded engine proves descriptor-only absence before project code without
+  evaluating an accessor and emits zero legacy or typed decisions. The marker
+  was already absent at the armed boundary, so this checkpoint closes an
+  evidence gap and requires no runtime hardening change.
+- Authoring, JavaScript evidence validation, and the Rust batch validator all
+  repeat the exact composed route and source-reference pair. Independent
+  JavaScript reconstruction accepts the extracted physical record exactly.
+- Apple catalog
+  `sha256-1EmfZurA_iPo27IUi0BVNFKhEDeNKzhFlV6A4HdZ-cU`: 23,595 required /
+  **3,902 executable** / 3,040 internally verified / 16,653 unresolved.
+  Windows catalog
+  `sha256-bDeRV4H8i9o0mpMzHEoq7yb0_quO5qZsq1rtqAOW7qQ`: 23,254 /
+  **3,540** / 3,026 / 16,688. Closed-denial residuals fall to 468 and 452,
+  and the target-specific closed batches grow to 823 and 801 respectively.
+- The EPYC authenticated Apple closed batch passes 1/1 and emits **823/823**
+  passing records against loaded engine
+  `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. Raw batch evidence
+  SHA-256:
+  `9862df7bddde6607c90562b3b67bc58f620460d8cbf52aa298425de58a96e620`.
+- Focused recipe/evidence validation passes **185/185** tests with 118,463
+  assertions; classifier, recipe, and evidence validation passes **328/328**
+  with 121,054 assertions. Generated drift, root-global freshness, and empty
+  advertisement checks pass. Criterion 7 remains open, important enforcement
+  remains about **99.8% complete**, and overall completion remains about
+  **96%**.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

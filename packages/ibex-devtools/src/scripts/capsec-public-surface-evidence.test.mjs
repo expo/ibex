@@ -2875,6 +2875,7 @@ function completeClosedSharedRuntimeGlobalCatalog({
   route = "legacy-bootstrap",
   routes = ["legacy-bootstrap"],
   sourceKey = "global_module_loader",
+  sourceKeys = undefined,
   sourceRefs = ["src/engine/bootstrap/module-loader.js#CacheStorage.open"],
   surfaceName = "global:CacheStorage.open",
   targetTriple = "aarch64-apple-darwin",
@@ -2908,6 +2909,7 @@ function completeClosedSharedRuntimeGlobalCatalog({
       memberName,
       moduleSpecifiers: [],
       sourceKey,
+      ...(sourceKeys === undefined ? {} : { sourceKeys }),
       surfaceType: "global-api",
     },
   };
@@ -8661,6 +8663,22 @@ describe("CapSec public-surface promotion evidence", () => {
           "src/engine/bootstrap/module-loader.js#process.__exactStreamPinned",
         ],
         surfaceName: "global:process.__exactStreamPinned",
+      },
+      {
+        globalName: "process",
+        memberName: "__exactStreamStabilityPatched",
+        route: "composed:evaluated-native-script+legacy-bootstrap",
+        routes: ["evaluated-native-script", "legacy-bootstrap"],
+        sourceKey: "evaluated_native_script",
+        sourceKeys: [
+          "evaluated_native_script",
+          "global_compat_polyfills",
+        ],
+        sourceRefs: [
+          "src/engine/bootstrap/compat-polyfills.js#process.__exactStreamStabilityPatched",
+          "src/engine/hermes_runtime_process_setup.cc#embedded:streamStabilityPatchJS:process.__exactStreamStabilityPatched",
+        ],
+        surfaceName: "global:process.__exactStreamStabilityPatched",
       },
       {
         globalName: "process",

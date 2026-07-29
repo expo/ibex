@@ -171,6 +171,7 @@ const SHARED_RUNTIME_ABSENT_GLOBALS = new Set([
   "global:process.__exactLateIpcListenerPatch",
   "global:process.__exactProcessIpcBootstrapInstalled",
   "global:process.__exactStreamPinned",
+  "global:process.__exactStreamStabilityPatched",
   "global:process._umask",
   "global:process.domain",
 ]);
@@ -1359,14 +1360,24 @@ function sharedRuntimeGlobalAbsenceProbe({
     branches[0].targetVariant === "default" &&
     canonicalJson(branches[0].routes) ===
       canonicalJson(["legacy-bootstrap", "shared-runtime"]);
+  const reviewedComposedEvaluatedLegacyBranch =
+    metadata?.sourceKey === "evaluated_native_script" &&
+    branches?.[0]?.route ===
+      "composed:evaluated-native-script+legacy-bootstrap" &&
+    branches[0].targetVariant === "default" &&
+    canonicalJson(branches[0].routes) ===
+      canonicalJson(["evaluated-native-script", "legacy-bootstrap"]) &&
+    canonicalJson(metadata.sourceKeys) ===
+      canonicalJson(["evaluated_native_script", "global_compat_polyfills"]);
   const reviewedInstallation =
     Array.isArray(branches) &&
     branches.length === 1 &&
     canonicalJson(branches[0].sourceRefs) === canonicalJson(live?.sourceRefs) &&
     (sharedRuntimeInstallation
       ? reviewedSharedRuntimeBranch || reviewedComposedSharedRuntimeBranch
-      : branches[0].route === "legacy-bootstrap" &&
-        branches[0].targetVariant === "default");
+      : reviewedComposedEvaluatedLegacyBranch ||
+        (branches[0].route === "legacy-bootstrap" &&
+          branches[0].targetVariant === "default"));
   const expectedExportName =
     metadata?.memberName == null
       ? metadata?.globalName

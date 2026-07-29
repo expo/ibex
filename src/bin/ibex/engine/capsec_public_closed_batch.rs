@@ -2996,6 +2996,7 @@ fn reviewed_shared_runtime_absent_surface(surface_name: &str) -> bool {
             | "global:process.__exactLateIpcListenerPatch"
             | "global:process.__exactProcessIpcBootstrapInstalled"
             | "global:process.__exactStreamPinned"
+            | "global:process.__exactStreamStabilityPatched"
             | "global:process._umask"
             | "global:process.domain"
             | "global:MessageChannel"
@@ -3220,11 +3221,18 @@ async fn execute_closed_shared_runtime_global_absence(
             && branches[0]["route"] == "composed:legacy-bootstrap+shared-runtime"
             && branches[0]["targetVariant"] == "default"
             && branches[0]["routes"] == serde_json::json!(["legacy-bootstrap", "shared-runtime"]);
+        let composed_evaluated_legacy = metadata["sourceKey"] == "evaluated_native_script"
+            && branches[0]["route"] == "composed:evaluated-native-script+legacy-bootstrap"
+            && branches[0]["targetVariant"] == "default"
+            && branches[0]["routes"]
+                == serde_json::json!(["evaluated-native-script", "legacy-bootstrap"])
+            && metadata["sourceKeys"]
+                == serde_json::json!(["evaluated_native_script", "global_compat_polyfills"]);
         assert!(
             if metadata["sourceKey"] == "shared_runtime" {
                 shared_runtime || composed_shared_runtime
             } else {
-                legacy_bootstrap
+                legacy_bootstrap || composed_evaluated_legacy
             },
             "shared-runtime absence recipe named an unreviewed installation path"
         );
@@ -6175,12 +6183,12 @@ async fn capsec_public_closed_recipe_batch() {
         expected_filesystem_mutations,
         expected_process_report_members,
     ) = match catalog.target.triple.as_str() {
-        "aarch64-apple-darwin" => (18, 328, 18, 93, 9),
+        "aarch64-apple-darwin" => (18, 329, 18, 93, 9),
         // The Windows-native roots in the reviewed absence vocabulary are
         // either installed by the platform replacement or belong to
         // POSIX-only source branches. Only the eleven worklet/app-runtime
         // roots remain target-applicable here.
-        "x86_64-pc-windows-msvc" => (18, 328, 11, 79, 8),
+        "x86_64-pc-windows-msvc" => (18, 329, 11, 79, 8),
         target => panic!("closed public batch has no reviewed target shape for {target}"),
     };
     assert_eq!(

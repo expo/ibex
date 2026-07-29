@@ -5109,6 +5109,7 @@ function validateRuntimeInvocation(observation, recipe) {
         "global:process.__exactLateIpcListenerPatch",
         "global:process.__exactProcessIpcBootstrapInstalled",
         "global:process.__exactStreamPinned",
+        "global:process.__exactStreamStabilityPatched",
         "global:process._umask",
         "global:process.domain",
       ]);
@@ -5178,6 +5179,18 @@ function validateRuntimeInvocation(observation, recipe) {
         branch.targetVariant === "default" &&
         canonicalJson(branch.routes) ===
           canonicalJson(["legacy-bootstrap", "shared-runtime"]);
+      const reviewedComposedEvaluatedLegacyBranch =
+        metadata?.sourceKey === "evaluated_native_script" &&
+        branch?.route ===
+          "composed:evaluated-native-script+legacy-bootstrap" &&
+        branch.targetVariant === "default" &&
+        canonicalJson(branch.routes) ===
+          canonicalJson(["evaluated-native-script", "legacy-bootstrap"]) &&
+        canonicalJson(metadata.sourceKeys) ===
+          canonicalJson([
+            "evaluated_native_script",
+            "global_compat_polyfills",
+          ]);
       const reviewedLegacySourceKeys = new Set([
         "global_compat_polyfills",
         "global_bootstrap_globals",
@@ -5199,7 +5212,7 @@ function validateRuntimeInvocation(observation, recipe) {
         (sharedRuntimeInstallation
           ? reviewedSharedRuntimeBranch ||
             reviewedComposedSharedRuntimeBranch
-          : reviewedLegacyBranch);
+          : reviewedLegacyBranch || reviewedComposedEvaluatedLegacyBranch);
       if (
         !reviewedSurface ||
         authored.surfaceKind !== "native-op" ||
