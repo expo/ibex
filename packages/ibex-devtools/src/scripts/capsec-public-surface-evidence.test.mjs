@@ -8626,6 +8626,63 @@ describe("CapSec public-surface promotion evidence", () => {
         surfaceName: "global:localStorage",
         targetTriple: "x86_64-pc-windows-msvc",
       },
+      {
+        globalName: "process",
+        memberName: "__exactAsyncIpcListenerPatch",
+        sourceKey: "global_ipc_listener",
+        sourceRefs: [
+          "src/engine/bootstrap/ipc-listener.js#process.__exactAsyncIpcListenerPatch",
+        ],
+        surfaceName: "global:process.__exactAsyncIpcListenerPatch",
+      },
+      {
+        globalName: "process",
+        memberName: "__exactLateIpcListenerPatch",
+        sourceKey: "global_ipc_listener",
+        sourceRefs: [
+          "src/engine/bootstrap/ipc-listener.js#process.__exactLateIpcListenerPatch",
+        ],
+        surfaceName: "global:process.__exactLateIpcListenerPatch",
+      },
+      {
+        globalName: "process",
+        memberName: "__exactProcessIpcBootstrapInstalled",
+        sourceKey: "global_compat_polyfills",
+        sourceRefs: [
+          "src/engine/bootstrap/compat-polyfills.js#process.__exactProcessIpcBootstrapInstalled",
+        ],
+        surfaceName: "global:process.__exactProcessIpcBootstrapInstalled",
+      },
+      {
+        globalName: "process",
+        memberName: "__exactStreamPinned",
+        sourceKey: "global_module_loader",
+        sourceRefs: [
+          "src/engine/bootstrap/module-loader.js#process.__exactStreamPinned",
+        ],
+        surfaceName: "global:process.__exactStreamPinned",
+      },
+      {
+        globalName: "process",
+        memberName: "_umask",
+        route: "shared-runtime",
+        routes: ["shared-runtime"],
+        sourceKey: "shared_runtime",
+        sourceRefs: [
+          "packages/ibex-runtime-js/src/node/process.ts#Process.prototype._umask",
+        ],
+        surfaceName: "global:process._umask",
+        targetVariant: "all",
+      },
+      {
+        globalName: "process",
+        memberName: "domain",
+        sourceKey: "global_bootstrap_globals",
+        sourceRefs: [
+          "src/engine/bootstrap/bootstrap-globals.js#process.domain",
+        ],
+        surfaceName: "global:process.domain",
+      },
     ]) {
       const reviewed = completeClosedSharedRuntimeGlobalCatalog(options)
         .recipes[0];

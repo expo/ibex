@@ -5105,6 +5105,12 @@ function validateRuntimeInvocation(observation, recipe) {
         "global:Exact.accessibility.prefersReducedMotion",
         "global:Exact.accessibility.prefersReducedTransparency",
         "global:Exact.gc",
+        "global:process.__exactAsyncIpcListenerPatch",
+        "global:process.__exactLateIpcListenerPatch",
+        "global:process.__exactProcessIpcBootstrapInstalled",
+        "global:process.__exactStreamPinned",
+        "global:process._umask",
+        "global:process.domain",
       ]);
       const reviewedRoots = new Set([
         "BroadcastChannel",
@@ -5174,6 +5180,7 @@ function validateRuntimeInvocation(observation, recipe) {
           canonicalJson(["legacy-bootstrap", "shared-runtime"]);
       const reviewedLegacySourceKeys = new Set([
         "global_compat_polyfills",
+        "global_bootstrap_globals",
         "global_exact_global",
         "global_ipc_listener",
         "global_module_loader",

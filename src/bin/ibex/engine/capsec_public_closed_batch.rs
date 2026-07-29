@@ -2992,6 +2992,12 @@ fn reviewed_shared_runtime_absent_surface(surface_name: &str) -> bool {
             | "global:Exact.accessibility.prefersReducedMotion"
             | "global:Exact.accessibility.prefersReducedTransparency"
             | "global:Exact.gc"
+            | "global:process.__exactAsyncIpcListenerPatch"
+            | "global:process.__exactLateIpcListenerPatch"
+            | "global:process.__exactProcessIpcBootstrapInstalled"
+            | "global:process.__exactStreamPinned"
+            | "global:process._umask"
+            | "global:process.domain"
             | "global:MessageChannel"
             | "global:MessageChannel.[[Symbol.toStringTag]]"
             | "global:MessageChannel.port1"
@@ -6169,12 +6175,12 @@ async fn capsec_public_closed_recipe_batch() {
         expected_filesystem_mutations,
         expected_process_report_members,
     ) = match catalog.target.triple.as_str() {
-        "aarch64-apple-darwin" => (18, 322, 18, 93, 9),
+        "aarch64-apple-darwin" => (18, 328, 18, 93, 9),
         // The Windows-native roots in the reviewed absence vocabulary are
         // either installed by the platform replacement or belong to
         // POSIX-only source branches. Only the eleven worklet/app-runtime
         // roots remain target-applicable here.
-        "x86_64-pc-windows-msvc" => (18, 322, 11, 79, 8),
+        "x86_64-pc-windows-msvc" => (18, 328, 11, 79, 8),
         target => panic!("closed public batch has no reviewed target shape for {target}"),
     };
     assert_eq!(

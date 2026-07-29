@@ -472,11 +472,11 @@ describe("exact-target CapSec executable recipes", () => {
     // and replacement closure without entering the authority evaluator.
     // Nine nested process.report rows prove their exact public spelling is
     // stopped at the pinned parent accessor before nested state is reachable.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_895);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_901);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_040);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_660);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_654);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -666,9 +666,9 @@ describe("exact-target CapSec executable recipes", () => {
     // The same twelve shared-state closures and eight target-applicable nested
     // process.report closures bind Windows' selected source variants to the
     // final armed runtime gate.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_533);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_539);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_026);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_695);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_689);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -1065,14 +1065,15 @@ describe("exact-target CapSec executable recipes", () => {
     ).toBe(true);
     // The closed batch includes the 44 exact process lifecycle no-effect
     // receipts, one pinned process.umask receipt, twelve pinned process
-    // shared-state receipts, and eight nested process.report receipts.
+    // shared-state receipts, eight nested process.report receipts, and six
+    // absent process-private compatibility cells.
     expect(
       windowsRecipes.recipes.filter((recipe) =>
         recipe.publicSurfaceProbe?.command?.includes(
           "capsec_public_closed_recipe_batch",
         ),
       ),
-    ).toHaveLength(794);
+    ).toHaveLength(800);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -1086,7 +1087,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
           "shared-runtime-global-absence",
       ),
-    ).toHaveLength(322);
+    ).toHaveLength(328);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -4815,7 +4816,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "shared-runtime-global-absence",
     );
-    expect(rows).toHaveLength(322);
+    expect(rows).toHaveLength(328);
     expect(
       rows.every(
         (recipe) =>
@@ -4979,6 +4980,22 @@ describe("exact-target CapSec executable recipes", () => {
         },
       },
     });
+    expect(
+      rows
+        .filter((recipe) =>
+          recipe.terminalObservedKey.startsWith(
+            "native-op:global:process.",
+          ),
+        )
+        .map((recipe) => recipe.terminalObservedKey),
+    ).toEqual([
+      "native-op:global:process.domain",
+      "native-op:global:process.__exactAsyncIpcListenerPatch",
+      "native-op:global:process.__exactLateIpcListenerPatch",
+      "native-op:global:process.__exactProcessIpcBootstrapInstalled",
+      "native-op:global:process.__exactStreamPinned",
+      "native-op:global:process._umask",
+    ]);
   });
 
   test("binds every closed process-event method to the final armed gate", () => {

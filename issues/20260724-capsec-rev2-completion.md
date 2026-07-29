@@ -5823,6 +5823,42 @@ ticket closes.
   enforcement remains about **99.8% complete**, and overall completion remains
   about **96%**.
 
+### 2026-07-28 — prove private process compatibility cells absent
+
+- Promoted six source-inventoried private process cells on both candidate
+  targets through exact `shared-runtime-global-absence` receipts:
+  `process.domain`, `process.__exactAsyncIpcListenerPatch`,
+  `process.__exactLateIpcListenerPatch`,
+  `process.__exactProcessIpcBootstrapInstalled`,
+  `process.__exactStreamPinned`, and `process._umask`.
+- Each recipe binds one exact source descriptor and selected target branch to
+  descriptor-only traversal of the armed shared runtime. The physical harness
+  proves the cell is absent without evaluating accessors or entering project
+  code, while the loaded engine executes and emits zero legacy or typed
+  decisions.
+- The authoring, independent JavaScript evidence validator, and Rust batch
+  validator repeat the same six-name vocabulary. The independent validator
+  reconstructed all six extracted physical records exactly.
+- Apple catalog
+  `sha256-_MSXwq8gQdFTpbfx9PgdE-YJM6QOZAda5GXC8AR2-1w`: 23,595 required /
+  **3,901 executable** / 3,040 internally verified / 16,654 unresolved.
+  Windows catalog
+  `sha256-PYjbeP4gVXEBqxsRi88aonzXKxFl0Df02dWHPSyBMbc`: 23,254 /
+  **3,539** / 3,026 / 16,689. Closed-denial residuals fall to 469 and 453,
+  and the target-specific closed batches grow to 822 and 800 respectively.
+- The EPYC authenticated Apple closed batch passes 1/1 and emits **822/822**
+  passing records, including all six new receipts, against loaded engine
+  `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. Raw batch evidence
+  SHA-256:
+  `f62f4b62215b6b9bf2927b4841eb32327fdc4c6ffcb3469e4a75b399d634130a`.
+- Focused recipe/evidence validation passes **185/185** tests with 118,456
+  assertions; classifier, recipe, and evidence validation passes **328/328**
+  with 121,047 assertions. Source inventory, output disposition,
+  root-global freshness, full generated drift, `ref-check`, and empty
+  advertisement checks pass. Criterion 7 remains open, important enforcement
+  remains about **99.8% complete**, and overall completion remains about
+  **96%**.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

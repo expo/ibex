@@ -167,6 +167,12 @@ const SHARED_RUNTIME_ABSENT_GLOBALS = new Set([
   "global:CacheStorage.match",
   "global:CacheStorage.open",
   "global:Exact.gc",
+  "global:process.__exactAsyncIpcListenerPatch",
+  "global:process.__exactLateIpcListenerPatch",
+  "global:process.__exactProcessIpcBootstrapInstalled",
+  "global:process.__exactStreamPinned",
+  "global:process._umask",
+  "global:process.domain",
 ]);
 
 const EXACT_RUNTIME_CANDIDATE_TRIPLES = new Set([
