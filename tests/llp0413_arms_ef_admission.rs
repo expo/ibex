@@ -29,8 +29,8 @@ use ibex_runtime::module_loader::artifact::{
     digest_bytes, ArtifactAdmissionV1, ModuleArtifactV1, ProducerIdentityV1,
 };
 use ibex_runtime::module_loader::carrier::{
-    AdmittedPreparedCarrierV2, PreparedCarrierAdmissionV2, PreparedModuleCarrierV2,
-    PREPARED_CARRIER_BYTES_DOMAIN_V1,
+    AdmittedPreparedCarrierV2, PreparedCarrierAdmissionV2, PreparedCarrierEncodingV2,
+    PreparedModuleCarrierV2, PREPARED_CARRIER_BYTES_DOMAIN_V1,
 };
 use ibex_runtime::module_loader::identity::SourceId;
 
@@ -200,15 +200,35 @@ impl LoadedPublication {
         Ok(principals)
     }
 
-    fn admission_for(&self, principal: Principal) -> Result<PreparedCarrierAdmissionV2> {
+    /// Admission expectations for one carrier. For `hermes-bytecode`
+    /// carriers the expected engine binding and bytecode version are taken
+    /// from the carrier manifest itself: in production/committed admission
+    /// these come from the LOADED engine identity, so this harness does not
+    /// prove engine-identity pinning — it proves the header inspection
+    /// (magic, version, declared length vs actual bytes), digest, and
+    /// version-consistency checks against real emitted bytecode.
+    fn admission_for(
+        &self,
+        principal: Principal,
+        manifest_bytes: &[u8],
+    ) -> Result<PreparedCarrierAdmissionV2> {
+        let manifest: PreparedModuleCarrierV2 = serde_json::from_slice(manifest_bytes)
+            .context("carrier manifest does not decode for admission expectations")?;
+        let (expected_engine_binding, expected_bytecode_version) = match &manifest.encoding {
+            PreparedCarrierEncodingV2::JavascriptFactoryTable => (None, None),
+            PreparedCarrierEncodingV2::HermesBytecode {
+                engine_binding,
+                bytecode_version,
+            } => (Some(engine_binding.clone()), Some(*bytecode_version)),
+        };
         Ok(PreparedCarrierAdmissionV2 {
             expected_principal: principal,
             expected_producer_id: self.expected_producer_id()?,
             producer_binary_digest: self.producer_binary_digest.clone(),
             deployment_graph_digest: self.deployment_graph_digest.clone(),
             authorized_semantic_digests: self.authorized_semantic_digests(),
-            expected_engine_binding: None,
-            expected_bytecode_version: None,
+            expected_engine_binding,
+            expected_bytecode_version,
         })
     }
 }
@@ -223,7 +243,7 @@ fn admit_publication(publication: &LoadedPublication) -> Result<()> {
             .get(&carrier_index)
             .ok_or_else(|| anyhow!("carrier {carrier_index} has no referencing record"))?
             .clone();
-        let admission = publication.admission_for(principal)?;
+        let admission = publication.admission_for(principal, manifest_bytes)?;
         admitted.push(
             AdmittedPreparedCarrierV2::decode_and_admit(manifest_bytes, carrier_bytes, &admission)
                 .with_context(|| format!("carrier {carrier_index} refused admission"))?,
@@ -293,7 +313,7 @@ fn assert_tamper_refusals(publication: &LoadedPublication) -> Result<()> {
         .get(&0)
         .ok_or_else(|| anyhow!("carrier 0 has no principal"))?
         .clone();
-    let admission = publication.admission_for(principal)?;
+    let admission = publication.admission_for(principal, manifest_bytes)?;
 
     // One flipped byte in the carrier payload refuses before any factory is
     // reachable.
@@ -353,7 +373,8 @@ fn assert_multi_principal_refusal(publication: &LoadedPublication) -> Result<()>
     spliced.carrier_digest = digest_bytes(PREPARED_CARRIER_BYTES_DOMAIN_V1, bytes)?;
     let spliced_manifest_bytes = spliced.encode_canonical()?;
 
-    let admission = publication.admission_for(spliced.defining_principal.clone())?;
+    let admission =
+        publication.admission_for(spliced.defining_principal.clone(), &spliced_manifest_bytes)?;
     match AdmittedPreparedCarrierV2::decode_and_admit(&spliced_manifest_bytes, bytes, &admission) {
         Ok(_) => bail!("multi-principal carrier was admitted"),
         Err(error) => {
