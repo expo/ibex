@@ -5,6 +5,7 @@
 **Systems:** Module Loader, CapSec, Arming, Security, Host Embedding
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-28
+**Revised:** 2026-07-29
 **Related:** LLP 0026 (module runner; Phase 4 writable-cache honesty
 paragraph); LLP 0027 (ModuleArtifact wire, prepared graph v2, carrier v2);
 LLP 0036 (target advertisement completion); LLP 0038 (unadvertised dev
@@ -381,3 +382,15 @@ missing" (expected, source mode) from "commitment mismatch" (alarm).
 6. **Retention.** When a commitment is superseded (new deployment, dev
    generation advance), who garbage-collects the now-unadmittable
    publication directories (Exact LLP 0413 §16 Q10 overlaps)?
+
+## Direction approval (2026-07-29)
+
+Charlie approved the direction on 2026-07-29: the external-receipt shape
+(one publication-root digest, carried by the armed snapshot in production
+and a session-scoped, structurally non-production credential in
+development) and the refuse-then-cold-rebuild failure rule. Open question 1
+(development credential transport for cross-process warm start) remains
+explicitly open and is expected to be answered with evidence by the Exact
+LLP 0413 Phase 1 tournament's §15 posture decision. Implementation work
+against the production-shaped commitment (fixtures first) is unblocked;
+the document remains Draft pending the review loop.
