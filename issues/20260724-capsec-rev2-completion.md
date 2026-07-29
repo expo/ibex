@@ -5923,8 +5923,10 @@ ticket closes.
 - The isolated EPYC authenticated Apple batch passes **832/832** with zero
   failures and all nine new receipts against loaded engine
   `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. Raw evidence SHA-256:
-  `15a8c5f3f2f2fbc5f85c2fed9e3b80a1cee39241f1e055a51a75d00e2177530f`.
-  Independent JavaScript reconstructs all nine records exactly.
+  `fa95898dac1fc0e7a1fca3af585da720b558485b22749ef29391f0e609ba08f5`.
+  This branch-head rerun includes upstream compat-loader commit `1f5e90a3`;
+  its focused loader suite passes **51/51**. Independent JavaScript
+  reconstructs all nine integrated-tree records exactly.
 - Focused recipe/evidence validation passes **185/185** tests with 118,527
   assertions; classifier, recipe, and evidence validation passes **328/328**
   with 121,118 assertions. Root-global generation, full generated drift,
