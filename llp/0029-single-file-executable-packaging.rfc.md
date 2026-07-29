@@ -5,6 +5,12 @@
 **Systems:** Build, Module Loader, Runtime, Security
 **Author:** Charlie Cheever / Claude Fable
 **Date:** 2026-07-17
+**Revised:** 2026-07-29 (register item 4 re-resolved: v1 ships fail-closed
+with empty CapSec advertisements — production arming keeps refusing every
+unadvertised target — and the first verified advertisement moves to a v1.1
+milestone scoped to a single tuple working the prioritized target-applicable
+subset of the residual catalog rows; supersedes the 2026-07-18 "holds release
+until both exact tuples have verified CapSec advertisements" posture)
 **Revised:** 2026-07-18 (the compiled environment profile classifies the Win32
 process-block flag lookup as typed internal dispatch, keeping Rust and the
 Hermes DLL on one pre-construction runtime configuration value)
@@ -929,8 +935,17 @@ cannot both be "the versioned change."
 **Author-decision register:** (1) stdio/cwd implicit vs
 policy-explicit (blocks `Accepted`); (2) the initial env allowlist
 contents (blocks `Accepted`); (3) factory-table as release encoding
-vs diagnostic-only (blocks phase-7 exit); (4) **resolved 2026-07-18:** v1
-waits for verified CapSec advertisements on both LLP 0031 tuples; (5)
+vs diagnostic-only (blocks phase-7 exit); (4) **re-resolved 2026-07-29** (supersedes the
+2026-07-18 resolution "v1 waits for verified CapSec advertisements on both
+LLP 0031 tuples"): v1 ships fail-closed with empty advertisements —
+production arming keeps refusing every unadvertised target, so secure mode
+makes no conformance claim rather than an unverified one — and the first
+verified advertisement is re-sequenced to a v1.1 milestone scoped to a
+single tuple (leading candidate on current verified-row volume:
+`aarch64-apple-darwin`; final tuple choice is an author call at v1.1
+scoping) working the prioritized target-applicable subset of the residual
+catalog rows tracked in
+issues/20260728-capsec-public-surface-evidence-backlog.md; (5)
 **resolved 2026-07-18:** Snapback does not pull Windows or macOS x64 ahead of
 the v1 catalog order; LLP 0031 keeps them deferred pending exact artifacts and
 evidence; (6) lean-vs-full

@@ -34,6 +34,14 @@ hardening stay behind those rows unless a concrete exploitable flaw is found.
 Do not promote labels, generic failed imports, or one target's evidence as
 another target's proof.
 
+**Sequencing (2026-07-29, LLP 0029 §7 register item 4):** v1 ships
+fail-closed with empty advertisements; this backlog now converges toward a
+**single-tuple v1.1 advertisement** (leading candidate on current
+verified-row volume: `aarch64-apple-darwin`). Prioritize that tuple's
+target-applicable rows until its report passes complete; the other
+candidate target's catalog completion follows in a later milestone rather
+than being worked in parallel.
+
 ## Done when
 
 - each shipped target's required public-surface rows have source-bound physical
