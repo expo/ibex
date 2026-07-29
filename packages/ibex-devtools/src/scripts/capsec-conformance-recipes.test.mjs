@@ -470,11 +470,13 @@ describe("exact-target CapSec executable recipes", () => {
     // both their branch-selection and no-effect obligations.
     // Twelve process shared-state receipts prove direct, prototype, accessor,
     // and replacement closure without entering the authority evaluator.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_886);
+    // Nine nested process.report rows prove their exact public spelling is
+    // stopped at the pinned parent accessor before nested state is reachable.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_895);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_040);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_669);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_660);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -661,11 +663,12 @@ describe("exact-target CapSec executable recipes", () => {
     // their harness-owned receiver never acquired a transport.
     // The same source-defined lifecycle branches are target-applicable on
     // Windows and execute against its selected installation branch.
-    // The same twelve shared-state closures bind Windows' selected source
-    // variants to the final armed runtime gate.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_525);
+    // The same twelve shared-state closures and eight target-applicable nested
+    // process.report closures bind Windows' selected source variants to the
+    // final armed runtime gate.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_533);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_026);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_703);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_695);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -1061,15 +1064,15 @@ describe("exact-target CapSec executable recipes", () => {
       ),
     ).toBe(true);
     // The closed batch includes the 44 exact process lifecycle no-effect
-    // receipts, one pinned process.umask receipt, and twelve pinned process
-    // shared-state receipts added after the prior Windows snapshot.
+    // receipts, one pinned process.umask receipt, twelve pinned process
+    // shared-state receipts, and eight nested process.report receipts.
     expect(
       windowsRecipes.recipes.filter((recipe) =>
         recipe.publicSurfaceProbe?.command?.includes(
           "capsec_public_closed_recipe_batch",
         ),
       ),
-    ).toHaveLength(786);
+    ).toHaveLength(794);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -5228,6 +5231,106 @@ describe("exact-target CapSec executable recipes", () => {
                 "replacement-read",
               ],
               expectedPermission: "ProcessTitle",
+            },
+          },
+        },
+      });
+    }
+  });
+
+  test("binds nested process report rows to the pinned parent refusal", () => {
+    const expectedAppleMembers = [
+      "compact",
+      "directory",
+      "filename",
+      "getReport",
+      "reportOnFatalError",
+      "reportOnSignal",
+      "reportOnUncaughtException",
+      "signal",
+      "writeReport",
+    ];
+    const expectedWindowsMembers = expectedAppleMembers.slice(1);
+    for (const [catalog, expectedMembers] of [
+      [recipes, expectedAppleMembers],
+      [windowsRecipes, expectedWindowsMembers],
+    ]) {
+      const rows = catalog.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+          "process-report-member-closure",
+      );
+      expect(rows, catalog.target.triple).toHaveLength(expectedMembers.length);
+      expect(
+        rows.map(
+          (recipe) =>
+            recipe.publicSurfaceProbe.invocation.operation.memberName,
+        ),
+      ).toEqual(expectedMembers);
+      expect(
+        rows.every((recipe) => {
+          const invocation = recipe.publicSurfaceProbe.invocation;
+          const descriptor = invocation.sourceDescriptor;
+          const operation = invocation.operation;
+          const expectedForm = new Set(["getReport", "writeReport"]).has(
+            operation.memberName,
+          )
+            ? "callable"
+            : "data";
+          return (
+            recipe.status === "fully-executable" &&
+            recipe.classification === "closed" &&
+            recipe.scenario === "closed" &&
+            recipe.actionIds.length === 0 &&
+            recipe.residualReasons.length === 0 &&
+            invocation.expectedResult === "closed" &&
+            invocation.expectedTypedDecisionCount === 0 &&
+            descriptor.kind === "closed-process-report-member" &&
+            descriptor.targetTriple === catalog.target.triple &&
+            descriptor.enforcementSourceRef ===
+              "src/engine/hermes_runtime.cc#armed-process-shared-state-members" &&
+            descriptor.memberName === operation.memberName &&
+            descriptor.memberForm === expectedForm &&
+            descriptor.blockedAtMember === "report" &&
+            JSON.stringify(descriptor.memberPath) ===
+              JSON.stringify(["report", operation.memberName]) &&
+            operation.memberForm === expectedForm &&
+            operation.blockedAtMember === "report" &&
+            operation.expectedErrorCode === "ERR_ACCESS_DENIED" &&
+            operation.expectedPermission === "ProcessReport" &&
+            operation.expectedError ===
+              "process.report is disabled in an armed runtime"
+          );
+        }),
+      ).toBe(true);
+      expect(
+        rows.find(
+          (recipe) =>
+            recipe.publicSurfaceProbe.invocation.operation.memberName ===
+            "getReport",
+        ),
+      ).toMatchObject({
+        publicSurfaceProbe: {
+          invocation: {
+            operation: {
+              memberForm: "callable",
+              accessCases: ["read", "call", "replacement-read"],
+            },
+          },
+        },
+      });
+      expect(
+        rows.find(
+          (recipe) =>
+            recipe.publicSurfaceProbe.invocation.operation.memberName ===
+            "filename",
+        ),
+      ).toMatchObject({
+        publicSurfaceProbe: {
+          invocation: {
+            operation: {
+              memberForm: "data",
+              accessCases: ["read", "write", "replacement-read"],
             },
           },
         },

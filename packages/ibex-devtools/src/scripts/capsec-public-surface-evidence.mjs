@@ -4808,6 +4808,121 @@ function validateRuntimeInvocation(observation, recipe) {
         );
       }
     }
+    if (authored.operation?.kind === "process-report-member-closure") {
+      const reviewedMembers = new Map([
+        ["compact", "data"],
+        ["directory", "data"],
+        ["filename", "data"],
+        ["getReport", "callable"],
+        ["reportOnFatalError", "data"],
+        ["reportOnSignal", "data"],
+        ["reportOnUncaughtException", "data"],
+        ["signal", "data"],
+        ["writeReport", "callable"],
+      ]);
+      const descriptor = authored.sourceDescriptor;
+      const operation = authored.operation;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "globalName",
+          "memberName",
+          "memberPath",
+          "memberForm",
+          "blockedAtMember",
+          "targetTriple",
+          "implementationBranchIds",
+          "enforcementBranchIds",
+          "enforcementSourceRef",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed process report member source descriptor`,
+      );
+      exactKeys(
+        operation,
+        [
+          "kind",
+          "memberName",
+          "memberPath",
+          "memberForm",
+          "blockedAtMember",
+          "accessCases",
+          "expectedErrorCode",
+          "expectedPermission",
+          "expectedError",
+        ],
+        `${recipe.fixtureId}: closed process report member operation`,
+      );
+      const memberName = operation.memberName;
+      const reviewedForm = reviewedMembers.get(memberName);
+      const metadata = descriptor.sourceMetadata;
+      const branches = metadata?.installationBranches;
+      const selectedVariants = descriptor.implementationBranchIds?.map(
+        (branchId) => branchId.slice(branchId.lastIndexOf(".") + 1),
+      );
+      const selectedBranches = branches?.filter((branch) =>
+        selectedVariants?.includes(branch.id),
+      );
+      const expectedPath = ["report", memberName];
+      const expectedAccessCases =
+        reviewedForm === "callable"
+          ? ["read", "call", "replacement-read"]
+          : ["read", "write", "replacement-read"];
+      if (
+        reviewedForm === undefined ||
+        authored.surfaceKind !== "native-op" ||
+        authored.surfaceName !== `global:process.report.${memberName}` ||
+        recipe.terminalObservedKey !==
+          `native-op:global:process.report.${memberName}` ||
+        descriptor.kind !== "closed-process-report-member" ||
+        descriptor.surfaceObservedKey !== recipe.terminalObservedKey ||
+        descriptor.globalName !== "process" ||
+        descriptor.memberName !== memberName ||
+        canonicalJson(descriptor.memberPath) !== canonicalJson(expectedPath) ||
+        descriptor.memberForm !== reviewedForm ||
+        descriptor.blockedAtMember !== "report" ||
+        operation.memberForm !== reviewedForm ||
+        operation.blockedAtMember !== "report" ||
+        canonicalJson(operation.memberPath) !== canonicalJson(expectedPath) ||
+        canonicalJson(operation.accessCases) !==
+          canonicalJson(expectedAccessCases) ||
+        operation.expectedErrorCode !== "ERR_ACCESS_DENIED" ||
+        operation.expectedPermission !== "ProcessReport" ||
+        operation.expectedError !==
+          "process.report is disabled in an armed runtime" ||
+        !new Set([
+          "aarch64-apple-darwin",
+          "x86_64-pc-windows-msvc",
+        ]).has(descriptor.targetTriple) ||
+        canonicalJson(descriptor.implementationBranchIds) !==
+          canonicalJson(recipe.implementationBranchIds) ||
+        canonicalJson(descriptor.enforcementBranchIds) !==
+          canonicalJson(recipe.enforcementBranchIds) ||
+        descriptor.enforcementSourceRef !==
+          "src/engine/hermes_runtime.cc#armed-process-shared-state-members" ||
+        !Array.isArray(descriptor.sourceRefs) ||
+        descriptor.sourceRefs.length === 0 ||
+        metadata?.surfaceType !== "global-api" ||
+        metadata.globalName !== "process" ||
+        metadata.memberName !== `report.${memberName}` ||
+        metadata.exportName !== `process.report.${memberName}` ||
+        metadata.valueShape !== reviewedForm ||
+        canonicalJson(metadata.memberKinds) !==
+          canonicalJson(["source-derived-member"]) ||
+        !Array.isArray(branches) ||
+        selectedBranches?.length !== 1 ||
+        !selectedBranches[0].sourceRefs?.every((sourceRef) =>
+          descriptor.sourceRefs.includes(sourceRef),
+        )
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: process report member closure is not bound to its exact source row and parent armed gate`,
+        );
+      }
+    }
     if (
       authored.operation?.kind === "process-event-lifecycle-no-effect"
     ) {
@@ -7495,6 +7610,8 @@ function validateRuntimeInvocation(observation, recipe) {
       authored.operation?.kind === "process-umask-closure";
     const processSharedStateClosure =
       authored.operation?.kind === "process-shared-state-closure";
+    const processReportMemberClosure =
+      authored.operation?.kind === "process-report-member-closure";
     exactKeys(
       invocation.result,
       [
@@ -7548,6 +7665,21 @@ function validateRuntimeInvocation(observation, recipe) {
               "replacementDenied",
             ]
           : []),
+        ...(processReportMemberClosure
+          ? [
+              "memberName",
+              "memberPath",
+              "memberForm",
+              "blockedAtMember",
+              "accessCases",
+              "errorCode",
+              "errorPermission",
+              "descriptorPinned",
+              "prototypeMemberAbsent",
+              "backingStateHidden",
+              "replacementDenied",
+            ]
+          : []),
         "errorMessage",
         ...(authored.operation?.kind === "loader-executable-file"
           ? ["errorCode"]
@@ -7566,7 +7698,8 @@ function validateRuntimeInvocation(observation, recipe) {
         (filesystemMutation ||
         processEventClosure ||
         processUmaskClosure ||
-        processSharedStateClosure
+        processSharedStateClosure ||
+        processReportMemberClosure
           ? "Error"
           : "ClosedSurface") ||
       typeof invocation.result.errorMessage !== "string" ||
@@ -7575,7 +7708,8 @@ function validateRuntimeInvocation(observation, recipe) {
       invocation.result.projectCodeExecuted !==
         (processEventClosure ||
           processUmaskClosure ||
-          processSharedStateClosure)
+          processSharedStateClosure ||
+          processReportMemberClosure)
     ) {
       throw new Error(
         `${recipe.fixtureId}: public closed surface did not fail closed`,
@@ -7897,6 +8031,68 @@ function validateRuntimeInvocation(observation, recipe) {
       ) {
         throw new Error(
           `${recipe.fixtureId}: armed process shared-state member did not prove pinned direct, prototype, and replacement closure`,
+        );
+      }
+    }
+    if (authored.operation?.kind === "process-report-member-closure") {
+      exactKeys(
+        invocation.result,
+        [
+          "kind",
+          "surfaceKind",
+          "surfaceName",
+          "mechanism",
+          "memberName",
+          "memberPath",
+          "memberForm",
+          "blockedAtMember",
+          "accessCases",
+          "errorName",
+          "errorCode",
+          "errorPermission",
+          "errorMessage",
+          "descriptorPinned",
+          "prototypeMemberAbsent",
+          "backingStateHidden",
+          "replacementDenied",
+          "engineExecuted",
+          "projectCodeExecuted",
+        ],
+        `${recipe.fixtureId}: closed process report member runtime result`,
+      );
+      const operation = authored.operation;
+      const expectedCases = operation.accessCases.map((id) => ({
+        id,
+        errorName: "Error",
+        errorCode: operation.expectedErrorCode,
+        errorPermission: operation.expectedPermission,
+        errorMessage: operation.expectedError,
+      }));
+      if (
+        invocation.result.kind !== "closed" ||
+        invocation.result.surfaceKind !== "native-op" ||
+        invocation.result.surfaceName !== authored.surfaceName ||
+        invocation.result.mechanism !== operation.kind ||
+        invocation.result.memberName !== operation.memberName ||
+        canonicalJson(invocation.result.memberPath) !==
+          canonicalJson(operation.memberPath) ||
+        invocation.result.memberForm !== operation.memberForm ||
+        invocation.result.blockedAtMember !== operation.blockedAtMember ||
+        canonicalJson(invocation.result.accessCases) !==
+          canonicalJson(expectedCases) ||
+        invocation.result.errorName !== "Error" ||
+        invocation.result.errorCode !== operation.expectedErrorCode ||
+        invocation.result.errorPermission !== operation.expectedPermission ||
+        invocation.result.errorMessage !== operation.expectedError ||
+        invocation.result.descriptorPinned !== true ||
+        invocation.result.prototypeMemberAbsent !== true ||
+        invocation.result.backingStateHidden !== true ||
+        invocation.result.replacementDenied !== true ||
+        invocation.result.engineExecuted !== true ||
+        invocation.result.projectCodeExecuted !== true
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: armed process report member did not prove exact nested access closure at the pinned parent`,
         );
       }
     }

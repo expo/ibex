@@ -2457,6 +2457,79 @@ function completeProcessSharedStateCatalog() {
   return catalog;
 }
 
+function completeProcessReportMemberCatalog() {
+  const catalog = completeClosedProcessEventCatalog();
+  const recipe = catalog.recipes[0];
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  const memberName = "getReport";
+  const branchId =
+    "surface.native.op.global.process.report.getReport.reviewed.posix";
+  const sourceRefs = [
+    "src/engine/bootstrap/process-compat-fix.js#process.report.getReport",
+    "src/engine/bootstrap/stream-enhance.js#process.report.getReport",
+  ];
+  recipe.fixtureId =
+    "surface.native.op.global.process.report.getReport.reviewed.posix.closed";
+  recipe.implementationBranchIds = [branchId];
+  recipe.enforcementBranchIds = [branchId];
+  recipe.terminalObservedKey =
+    `native-op:global:process.report.${memberName}`;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  invocation.surfaceName = `global:process.report.${memberName}`;
+  invocation.sourceDescriptor = {
+    kind: "closed-process-report-member",
+    surfaceObservedKey: recipe.terminalObservedKey,
+    globalName: "process",
+    memberName,
+    memberPath: ["report", memberName],
+    memberForm: "callable",
+    blockedAtMember: "report",
+    targetTriple: target.triple,
+    implementationBranchIds: [branchId],
+    enforcementBranchIds: [branchId],
+    enforcementSourceRef:
+      "src/engine/hermes_runtime.cc#armed-process-shared-state-members",
+    sourceRefs,
+    sourceMetadata: {
+      exportName: `process.report.${memberName}`,
+      globalName: "process",
+      installationBranches: [
+        {
+          id: "default",
+          sourceRefs: sourceRefs.slice(0, 1),
+        },
+        {
+          id: "posix",
+          sourceRefs: sourceRefs.slice(1),
+        },
+      ],
+      memberKinds: ["source-derived-member"],
+      memberName: `report.${memberName}`,
+      surfaceType: "global-api",
+      valueShape: "callable",
+    },
+  };
+  invocation.sourceDescriptorDigest = taggedDigest(
+    invocation.sourceDescriptor,
+  );
+  invocation.operation = {
+    kind: "process-report-member-closure",
+    memberName,
+    memberPath: ["report", memberName],
+    memberForm: "callable",
+    blockedAtMember: "report",
+    accessCases: ["read", "call", "replacement-read"],
+    expectedErrorCode: "ERR_ACCESS_DENIED",
+    expectedPermission: "ProcessReport",
+    expectedError: "process.report is disabled in an armed runtime",
+  };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
 function completeClosedCliCatalog() {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
@@ -3340,6 +3413,51 @@ function processSharedStateObservation(recipe) {
         errorMessage: operation.expectedError,
         descriptorPinned: true,
         prototypeDescriptorPinned: true,
+        backingStateHidden: true,
+        replacementDenied: true,
+        engineExecuted: true,
+        projectCodeExecuted: true,
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
+}
+
+function processReportMemberObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  const operation = invocation.operation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      surfaceKind: invocation.surfaceKind,
+      surfaceName: invocation.surfaceName,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      result: {
+        kind: "closed",
+        surfaceKind: invocation.surfaceKind,
+        surfaceName: invocation.surfaceName,
+        mechanism: operation.kind,
+        memberName: operation.memberName,
+        memberPath: operation.memberPath,
+        memberForm: operation.memberForm,
+        blockedAtMember: operation.blockedAtMember,
+        accessCases: operation.accessCases.map((id) => ({
+          id,
+          errorName: "Error",
+          errorCode: operation.expectedErrorCode,
+          errorPermission: operation.expectedPermission,
+          errorMessage: operation.expectedError,
+        })),
+        errorName: "Error",
+        errorCode: operation.expectedErrorCode,
+        errorPermission: operation.expectedPermission,
+        errorMessage: operation.expectedError,
+        descriptorPinned: true,
+        prototypeMemberAbsent: true,
         backingStateHidden: true,
         replacementDenied: true,
         engineExecuted: true,
@@ -8119,6 +8237,47 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/direct, prototype, and replacement closure/);
+  });
+
+  test("accepts nested process report closure only at the pinned parent", () => {
+    const catalog = completeProcessReportMemberCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: processReportMemberObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const replacedParent = processReportMemberObservation(recipe);
+    replacedParent.invocation.result.replacementDenied = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: replacedParent,
+        coverage,
+      }),
+    ).toThrow(/exact nested access closure at the pinned parent/);
+
+    const inventedNestedGate = structuredClone(recipe);
+    inventedNestedGate.publicSurfaceProbe.invocation.sourceDescriptor
+      .blockedAtMember = "getReport";
+    inventedNestedGate.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        inventedNestedGate.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: inventedNestedGate,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation:
+          processReportMemberObservation(inventedNestedGate),
+        coverage,
+      }),
+    ).toThrow(/exact source row and parent armed gate/);
   });
 
   test("accepts CLI closure only with the authored production rejection", () => {

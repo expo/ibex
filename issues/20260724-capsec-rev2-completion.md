@@ -5785,6 +5785,44 @@ ticket closes.
   enforcement remains about **99.8% complete**, and overall completion remains
   about **96%**.
 
+### 2026-07-28 — prove nested process report closure at the parent gate
+
+- Promoted nine Apple and eight Windows source-derived
+  `process.report.<member>` rows through a dedicated
+  `process-report-member-closure` receipt. Apple covers `compact`, `directory`,
+  `filename`, `getReport`, `reportOnFatalError`, `reportOnSignal`,
+  `reportOnUncaughtException`, `signal`, and `writeReport`; Windows correctly
+  leaves the POSIX-only `compact` row residual.
+- Each recipe binds the exact nested inventory row and selected target branch
+  to the final `hermes_runtime.cc` armed gate, while the runtime receipt proves
+  the public nested read is stopped at the immutable parent `process.report`
+  accessor. Callable rows additionally attempt invocation; data rows attempt
+  assignment; every row retries after attempted parent replacement.
+- Every physical case returns exact `ERR_ACCESS_DENIED` / `ProcessReport` with
+  `process.report is disabled in an armed runtime`, proves the parent accessor
+  is non-configurable, proves no defining-prototype `report` member exists,
+  preserves hidden process backing state, executes project code, and emits
+  zero legacy or typed decisions. The receipt deliberately does not claim the
+  unreachable nested implementation ran.
+- Apple catalog
+  `sha256-8oHM6nTtzAtjZqWHsmwa_iy1bVASKD-pBty1BMzcQ-c`: 23,595 required /
+  **3,895 executable** / 3,040 internally verified / 16,660 unresolved.
+  Windows catalog
+  `sha256-ZHS7enZp8pQtgJdSWorrUgMKbI1ilPghq0-K4Hl2kYs`: 23,254 /
+  **3,533** / 3,026 / 16,695. Closed-denial residuals fall to 475 and 459.
+- The EPYC authenticated Apple closed batch passes 1/1 and emits **816/816**
+  passing records, including all nine new receipts, against loaded engine
+  `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. Raw batch evidence
+  SHA-256:
+  `59d897dc427d31b8a30b2e7b93bce7e3a2f332e72a56a3faab19b6a21664ac9e`;
+  the independent JavaScript validator reconstructs all nine records exactly.
+- Focused recipe/evidence validation passes **185/185** tests; classifier,
+  recipe, and evidence validation passes **328/328** with 121,004 assertions.
+  Root-global freshness, full generated drift, and `ref-check` pass.
+  Advertisements remain empty, criterion 7 remains open, important
+  enforcement remains about **99.8% complete**, and overall completion remains
+  about **96%**.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

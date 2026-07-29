@@ -198,6 +198,17 @@ const PROCESS_EVENT_ENFORCEMENT_SOURCE_REF =
   "src/engine/hermes_runtime.cc#armed-process-event-methods";
 const PROCESS_SHARED_STATE_ENFORCEMENT_SOURCE_REF =
   "src/engine/hermes_runtime.cc#armed-process-shared-state-members";
+const CLOSED_PROCESS_REPORT_MEMBERS = new Map([
+  ["compact", "data"],
+  ["directory", "data"],
+  ["filename", "data"],
+  ["getReport", "callable"],
+  ["reportOnFatalError", "data"],
+  ["reportOnSignal", "data"],
+  ["reportOnUncaughtException", "data"],
+  ["signal", "data"],
+  ["writeReport", "callable"],
+]);
 const CLOSED_PROCESS_SHARED_STATE_MEMBERS = new Map([
   [
     "_getActiveHandles",
@@ -1712,6 +1723,108 @@ function processSharedStateClosureProbe({
   };
 }
 
+function processReportMemberClosureProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+  target,
+}) {
+  if (
+    !EXACT_RUNTIME_CANDIDATE_TRIPLES.has(target?.triple) ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const prefix = "native-op:global:process.report.";
+  if (!surfaceObservedKey.startsWith(prefix)) return null;
+  const reportMemberName = surfaceObservedKey.slice(prefix.length);
+  const memberForm = CLOSED_PROCESS_REPORT_MEMBERS.get(reportMemberName);
+  if (!memberForm) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  const selectedBranches = metadata?.installationBranches?.filter((branch) =>
+    plan.implementationBranchIds.some((branchId) =>
+      branchId.endsWith(`.${branch.id}`),
+    ),
+  );
+  if (
+    live?.kind !== "native-op" ||
+    live.name !== `global:process.report.${reportMemberName}` ||
+    metadata?.surfaceType !== "global-api" ||
+    metadata.globalName !== "process" ||
+    metadata.memberName !== `report.${reportMemberName}` ||
+    metadata.exportName !== `process.report.${reportMemberName}` ||
+    canonicalJson(metadata.memberKinds) !==
+      canonicalJson(["source-derived-member"]) ||
+    metadata.valueShape !== memberForm ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length === 0 ||
+    !Array.isArray(selectedBranches) ||
+    selectedBranches.length !== 1 ||
+    selectedBranches[0].sourceRefs.some(
+      (sourceRef) => !live.sourceRefs.includes(sourceRef),
+    ) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    edge.cap !== "runtime:inspect" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-process-report-member",
+    surfaceObservedKey,
+    globalName: "process",
+    memberName: reportMemberName,
+    memberPath: ["report", reportMemberName],
+    memberForm,
+    blockedAtMember: "report",
+    targetTriple: target.triple,
+    implementationBranchIds: structuredClone(plan.implementationBranchIds),
+    enforcementBranchIds: structuredClone(plan.enforcementBranchIds),
+    enforcementSourceRef: PROCESS_SHARED_STATE_ENFORCEMENT_SOURCE_REF,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "native-op",
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "process-report-member-closure",
+        memberName: reportMemberName,
+        memberPath: ["report", reportMemberName],
+        memberForm,
+        blockedAtMember: "report",
+        accessCases:
+          memberForm === "callable"
+            ? ["read", "call", "replacement-read"]
+            : ["read", "write", "replacement-read"],
+        expectedErrorCode: "ERR_ACCESS_DENIED",
+        expectedPermission: "ProcessReport",
+        expectedError: "process.report is disabled in an armed runtime",
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
 function armedNativeGlobalAbsenceProbe({
   plan,
   route,
@@ -2141,6 +2254,7 @@ export function authoredClosedPublicProbe(options) {
     processUmaskClosureProbe(options) ??
     processEventClosureProbe(options) ??
     processSharedStateClosureProbe(options) ??
+    processReportMemberClosureProbe(options) ??
     armedNativeGlobalAbsenceProbe(options) ??
     sharedRuntimeGlobalAbsenceProbe(options) ??
     filesystemMutationProbe(options)
