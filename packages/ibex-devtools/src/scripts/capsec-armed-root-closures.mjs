@@ -10,6 +10,7 @@
  */
 
 export const ARMED_SHARED_RUNTIME_SEALED_ROOTS = Object.freeze([
+  "__exactMemoryDebug",
   "BroadcastChannel",
   "caches",
   "IDBCursor",
@@ -57,15 +58,24 @@ function isPathOrDescendant(surfaceName, prefix) {
 }
 
 export function reviewedArmedSharedRuntimeSealedSurface(surfaceName) {
-  if (typeof surfaceName !== "string" || !surfaceName.startsWith("global:")) {
+  if (typeof surfaceName !== "string") {
     return false;
   }
-  const root = surfaceName.slice("global:".length).split(".", 1)[0];
+  // A root with both a shared-runtime installation and a native-operation
+  // classification is projected into the disposition manifest under its
+  // canonical native spelling. Accept that exact spelling as well as the
+  // ordinary `global:` inventory name so the live-root seal cannot be lost
+  // during dual-role reconciliation.
+  const qualifiedName = surfaceName.startsWith("global:")
+    ? surfaceName.slice("global:".length)
+    : surfaceName;
+  const root = qualifiedName.split(".", 1)[0];
   return (
     armedSharedRuntimeSealedRoots.has(root) ||
-    ARMED_SHARED_RUNTIME_SEALED_PATH_PREFIXES.some((prefix) =>
-      isPathOrDescendant(surfaceName, prefix),
-    )
+    (surfaceName.startsWith("global:") &&
+      ARMED_SHARED_RUNTIME_SEALED_PATH_PREFIXES.some((prefix) =>
+        isPathOrDescendant(surfaceName, prefix),
+      ))
   );
 }
 

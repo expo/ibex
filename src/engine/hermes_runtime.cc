@@ -6515,6 +6515,20 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     defineProp(g, 'eval', { value: tamedEval, writable: false, configurable: false });
   } catch (e) { if (failClosed) throw e; }
 
+  // The compatibility bootstrap installs a deliberate memory-diagnostics
+  // facade for unarmed tooling. It exposes process-wide heap, source-cache,
+  // timer, and sample state, so armed package code must not retain the private
+  // root after trusted bootstrap has finished consuming it.
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+  if (failClosed) {
+    try {
+      delete g.__exactMemoryDebug;
+      if ('__exactMemoryDebug' in g) {
+        throw new TypeError('__exactMemoryDebug could not be sealed');
+      }
+    } catch (e) { throw e; }
+  }
+
   // `process:umask` is deny-only in the armed profile. The shared runtime
   // installs a compatibility implementation before lockdown, so seal the
   // actual public invocation here rather than relying on a catalog label. A

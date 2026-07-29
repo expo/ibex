@@ -8628,6 +8628,42 @@ describe("CapSec public-surface promotion evidence", () => {
         surfaceName: "global:localStorage",
         targetTriple: "x86_64-pc-windows-msvc",
       },
+      ...[
+        null,
+        "clearModuleDebugSources",
+        "formatBytes",
+        "samples",
+        "snapshot",
+        "start",
+        "state",
+        "stop",
+        "summary",
+      ].map((memberName) => {
+        const surfaceName =
+          memberName === null
+            ? "__exactMemoryDebug"
+            : `__exactMemoryDebug.${memberName}`;
+        return {
+          globalName: "__exactMemoryDebug",
+          memberName,
+          route: "composed:legacy-bootstrap+shared-runtime",
+          routes: ["legacy-bootstrap", "shared-runtime"],
+          sourceKey: "shared_runtime",
+          sourceRefs:
+            memberName === null
+              ? [
+                  "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebug",
+                  "src/engine/bootstrap/exact-global.js#__exactMemoryDebug",
+                  "src/engine/hermes_runtime.cc#__exactMemoryDebug",
+                ]
+              : [
+                  `packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.${memberName}`,
+                  "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebug",
+                  `src/engine/bootstrap/exact-global.js#__exactMemoryDebug.${memberName}`,
+                ],
+          surfaceName,
+        };
+      }),
       {
         globalName: "process",
         memberName: "__exactAsyncIpcListenerPatch",

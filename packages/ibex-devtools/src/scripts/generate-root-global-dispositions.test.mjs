@@ -80,7 +80,7 @@ describe("generated root-global disposition artifacts", () => {
         row.observedKey.replace(/^native-op:/u, ""),
       ),
     );
-    expect(reviewedRows).toHaveLength(297);
+    expect(reviewedRows).toHaveLength(306);
     expect(
       reviewedRows.every(
         (row) =>
@@ -105,9 +105,9 @@ describe("generated root-global disposition artifacts", () => {
       ).toBe(true);
     }
     expect(manifest.counts).toMatchObject({
-      installBranches: 2_807,
-      sealedOrPrivate: 351,
-      permittedReachable: 2_456,
+      installBranches: 2_810,
+      sealedOrPrivate: 360,
+      permittedReachable: 2_450,
     });
   }, 30_000);
 

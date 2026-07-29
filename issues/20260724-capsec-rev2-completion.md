@@ -5892,6 +5892,46 @@ ticket closes.
   remains about **99.8% complete**, and overall completion remains about
   **96%**.
 
+### 2026-07-28 — seal armed memory diagnostics and prove exact absence
+
+- Promoted `__exactMemoryDebug` plus `clearModuleDebugSources`, `formatBytes`,
+  `samples`, `snapshot`, `start`, `state`, `stop`, and `summary` through nine
+  exact `shared-runtime-global-absence` receipts on both candidate targets.
+- The first EPYC physical batch failed closed because the armed realm still
+  exposed the private diagnostic facade. Final lockdown now deletes the root
+  and verifies it is absent before project code can run; unarmed diagnostic
+  runtimes retain the compatibility API.
+- The first hardening rerun exposed a second real gap: dual-role reconciliation
+  projected the shared-runtime global under its canonical native-operation
+  spelling, so the generated root disposition still expected the deleted root
+  reachable. The reviewed closure matcher now accepts that exact spelling, and
+  all nine generated rows are sealed/absent. The descriptor sweep contains
+  2,810 install branches, 360 sealed/private rows, and 2,450 permitted reachable
+  rows.
+- The content-addressed lockdown program now has digest
+  `sha256-154d9ce9cd21785f2ec4c20f3f439d6070ce583db5a7bb7b0ac08f1e3acfcf1d`
+  and evaluator identity
+  `hermes-evaluators.b4106e7d147ac12fb8357cfff2aa90e1f7d2768f9a98971b27ed104af36bb50d`.
+  The reachable evaluator vocabulary and taming behavior are unchanged.
+- Apple catalog
+  `sha256-hQCUY7PAXXC9ZH9kIxR66SR_n2iXA_dRZii3oj35kYo`: 23,595 required /
+  **3,911 executable** / 3,040 internally verified / 16,644 unresolved.
+  Windows catalog
+  `sha256-QhN-pTt-_OuYCsF1HqTjBudSOe39yBqfAfE9wIbeSxg`: 23,254 /
+  **3,549** / 3,026 / 16,679. Closed-denial residuals fall to 459 and 443,
+  and the target-specific closed batches grow to 832 and 810.
+- The isolated EPYC authenticated Apple batch passes **832/832** with zero
+  failures and all nine new receipts against loaded engine
+  `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. Raw evidence SHA-256:
+  `15a8c5f3f2f2fbc5f85c2fed9e3b80a1cee39241f1e055a51a75d00e2177530f`.
+  Independent JavaScript reconstructs all nine records exactly.
+- Focused recipe/evidence validation passes **185/185** tests with 118,527
+  assertions; classifier, recipe, and evidence validation passes **328/328**
+  with 121,118 assertions. Root-global generation, full generated drift,
+  `ref-check`, diff hygiene, and empty-advertisement gates pass. Criterion 7
+  remains open; important enforcement remains about **99.8% complete** and
+  overall completion remains about **96%**.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

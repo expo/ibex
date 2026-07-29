@@ -280,6 +280,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactLstat",
   "__exactLutimes",
   "__exactLutimesSync",
+  "__exactMemoryDebug",
   "__exactMkdir",
   "__exactMkdtemp",
   "__exactMotionRatedPublish",
@@ -3020,9 +3021,9 @@ const REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES = Object.freeze([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.9bf29919e44ebbb3ce3ab599f2eabbe58f1171b5b46aa5d0139ca0475f40d0f6";
+  "hermes-evaluators.b4106e7d147ac12fb8357cfff2aa90e1f7d2768f9a98971b27ed104af36bb50d";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
-  "sha256-2d639dfcb7460411a28ab4a1f84e1a9712765a1853562950584415a13fc2fa5f";
+  "sha256-154d9ce9cd21785f2ec4c20f3f439d6070ce583db5a7bb7b0ac08f1e3acfcf1d";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
   "android-maven",
   "source-patched",
@@ -4743,7 +4744,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   __exactLocaleChanged: [""],
   __exactLocaleSnapshot: ["tag", "tags", "uses24Hour"],
   __exactMemoryDebug: [
-    "",
     "clearModuleDebugSources",
     "formatBytes",
     "samples",
@@ -14096,6 +14096,13 @@ function classifyConcreteSurface(surface) {
     }
     if (surface.name === "__exactCompatModes") {
       return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
+    }
+    if (surface.name === "__exactMemoryDebug") {
+      return closedSpec(
+        "runtime:inspect",
+        "WP7",
+        "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state.",
+      );
     }
     if (
       surface.name === "__exactProcessIpcBootstrap" ||
