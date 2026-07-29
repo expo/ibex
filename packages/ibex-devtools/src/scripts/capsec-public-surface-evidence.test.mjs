@@ -8658,6 +8658,28 @@ describe("CapSec public-surface promotion evidence", () => {
         surfaceName: "global:Exact.inspect",
       },
       ...[
+        ["Bun", "gcAggressionLevel"],
+        ["Bun", "segfault"],
+        ["Exact", "gcAggressionLevel"],
+        ["Exact", "segfault"],
+      ].map(([globalName, member]) => ({
+        globalName,
+        memberName: `unsafe.${member}`,
+        route: "shared-runtime",
+        routes: ["shared-runtime"],
+        sourceKey: "shared_runtime",
+        sourceRefs: [
+          ...(globalName === "Bun"
+            ? [
+                "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:Bun",
+              ]
+            : []),
+          `packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:Exact.unsafe.${member}`,
+        ],
+        surfaceName: `global:${globalName}.unsafe.${member}`,
+        targetVariant: "all",
+      })),
+      ...[
         null,
         "clearModuleDebugSources",
         "formatBytes",

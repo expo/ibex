@@ -2946,6 +2946,8 @@ fn reviewed_shared_runtime_absent_surface(surface_name: &str) -> bool {
             | "__exactSyncTrackedIpcListenersAfterDispatch"
             | "global:Bun.gc"
             | "global:Bun.inspect"
+            | "global:Bun.unsafe.gcAggressionLevel"
+            | "global:Bun.unsafe.segfault"
             | "global:BroadcastChannel"
             | "global:BroadcastChannel.[[Symbol.toStringTag]]"
             | "global:BroadcastChannel._deliverMessage"
@@ -3003,6 +3005,8 @@ fn reviewed_shared_runtime_absent_surface(surface_name: &str) -> bool {
             | "global:Exact.accessibility.prefersReducedTransparency"
             | "global:Exact.gc"
             | "global:Exact.inspect"
+            | "global:Exact.unsafe.gcAggressionLevel"
+            | "global:Exact.unsafe.segfault"
             | "global:process.__exactAsyncIpcListenerPatch"
             | "global:process.__exactLateIpcListenerPatch"
             | "global:process.__exactProcessIpcBootstrapInstalled"
@@ -6212,12 +6216,12 @@ async fn capsec_public_closed_recipe_batch() {
         expected_filesystem_mutations,
         expected_process_report_members,
     ) = match catalog.target.triple.as_str() {
-        "aarch64-apple-darwin" => (18, 342, 18, 93, 9),
+        "aarch64-apple-darwin" => (18, 346, 18, 93, 9),
         // The Windows-native roots in the reviewed absence vocabulary are
         // either installed by the platform replacement or belong to
         // POSIX-only source branches. Only the eleven worklet/app-runtime
         // roots remain target-applicable here.
-        "x86_64-pc-windows-msvc" => (18, 340, 11, 79, 8),
+        "x86_64-pc-windows-msvc" => (18, 344, 11, 79, 8),
         target => panic!("closed public batch has no reviewed target shape for {target}"),
     };
     assert_eq!(

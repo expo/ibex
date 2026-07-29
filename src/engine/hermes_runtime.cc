@@ -6529,10 +6529,11 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     } catch (e) { throw e; }
   }
 
-  // Pretty-printing can traverse arbitrary object graphs, and the legacy
-  // rejection handler cells can re-enter the shared process event registry.
-  // Diagnostic runtimes retain both compatibility surfaces; armed package
-  // code gets neither the Exact/Bun inspector nor the private process slots.
+  // Pretty-printing can traverse arbitrary object graphs, unsafe GC/crash
+  // controls can mutate or terminate the runtime, and the legacy rejection
+  // handler cells can re-enter the shared process event registry. Diagnostic
+  // runtimes retain these compatibility surfaces; armed package code gets
+  // none of them. The pure unsafe.arrayBufferToString helper remains available.
   // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
   if (failClosed) {
     try {
@@ -6547,6 +6548,24 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           delete diagnosticFacade.inspect;
           if ('inspect' in diagnosticFacade) {
             throw new TypeError('armed diagnostic inspector could not be sealed');
+          }
+          var unsafeFacade = diagnosticFacade.unsafe;
+          if (unsafeFacade &&
+              (typeof unsafeFacade === 'object' ||
+               typeof unsafeFacade === 'function')) {
+            var unsafeMembers = ['gcAggressionLevel', 'segfault'];
+            for (var unsafeIndex = 0;
+                 unsafeIndex < unsafeMembers.length;
+                 unsafeIndex++) {
+              var unsafeMember = unsafeMembers[unsafeIndex];
+              delete unsafeFacade[unsafeMember];
+              if (unsafeMember in unsafeFacade) {
+                throw new TypeError(
+                  'armed unsafe runtime control could not be sealed: ' +
+                  unsafeMember
+                );
+              }
+            }
           }
         }
       }

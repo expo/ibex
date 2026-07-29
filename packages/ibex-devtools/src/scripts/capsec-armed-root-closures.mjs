@@ -32,8 +32,12 @@ export const ARMED_SHARED_RUNTIME_SEALED_ROOTS = Object.freeze([
 export const ARMED_SHARED_RUNTIME_SEALED_PATH_PREFIXES = Object.freeze([
   "global:Bun.accessibility",
   "global:Bun.inspect",
+  "global:Bun.unsafe.gcAggressionLevel",
+  "global:Bun.unsafe.segfault",
   "global:Exact.accessibility",
   "global:Exact.inspect",
+  "global:Exact.unsafe.gcAggressionLevel",
+  "global:Exact.unsafe.segfault",
   "global:process._uncaughtExceptionHandler",
   "global:process._unhandledRejectionHandler",
 ]);

@@ -5975,6 +5975,40 @@ ticket closes.
   remains open; important enforcement remains about **99.8% complete** and
   overall completion remains about **96%**.
 
+### 2026-07-28 — seal dangerous unsafe-namespace members
+
+- Armed lockdown now removes `gcAggressionLevel` and `segfault` from both
+  `Bun.unsafe` and `Exact.unsafe`, then verifies all four paths absent before
+  project code. It deliberately preserves the compatibility namespace and its
+  reviewed pure `arrayBufferToString` helper; unarmed diagnostic behavior is
+  unchanged.
+- The first EPYC physical batch exposed the real enforcement gap at startup:
+  the generated seal refused to arm because
+  `Exact.unsafe.gcAggressionLevel` remained reachable. After the narrow member
+  deletion, the same sweep passes with 368 sealed/private rows and 2,442
+  permitted reachable rows across 2,810 install branches.
+- The content-addressed lockdown program is
+  `sha256-17da17dbe9239bda0640545bfc0fd669f4127b920148c66076bec63d1c8d0ec1`;
+  evaluator identity is
+  `hermes-evaluators.9eb62c380d7cf28c16a42808ca30fc984b0368f88f9a453f441bb38c352e3f99`.
+- Apple catalog
+  `sha256-JF9k4eov8f5c6zDrYFMD9h-Yet2wKlgjNUHyOx7Vx68`: 23,595 required /
+  **3,919 executable** / 3,040 internally verified / 16,636 unresolved.
+  Windows catalog
+  `sha256-9bOXZs5uruLhxISbPsJhv1PFvF1OfK7t_5qNlywlYr8`: 23,254 /
+  **3,555** / 3,026 / 16,673. Closed-denial residuals fall to 451 and 437,
+  and the target-specific closed batches grow to 840 and 816.
+- The isolated EPYC authenticated Apple batch passes **840/840** against loaded
+  engine
+  `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All four new records are
+  present and independently reconstructed exactly. Raw evidence SHA-256:
+  `51a0f117aae84422c87e5b956c0f5d87a4d8b5e14ec64bfc392ca5586a44314b`.
+- The combined classifier, recipe, evidence, and root suite passes **332/332**
+  with 121,224 assertions. Full generated drift, root freshness, targeted Rust
+  formatting, `ref-check`, diff hygiene, and empty-advertisement gates pass.
+  Criterion 7 remains open; important enforcement remains about **99.8%**
+  complete and overall completion remains about **96%**.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:
