@@ -81712,6 +81712,39 @@
       ]
     },
     {
+      "surfaceId": "surface.native.op.ibexcompatloaderstats.1igm078",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#__ibexCompatLoaderStats"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.ibexcompatloaderstats.dynamicfunctioncompilecount.1a4n1dz",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#__ibexCompatLoaderStats.dynamicFunctionCompileCount"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
+      "surfaceId": "surface.native.op.ibexcompatloaderstats.sourcetransformcount.0omt7mc",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-public-output",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#__ibexCompatLoaderStats.sourceTransformCount"
+      ],
+      "outputKinds": [
+        "public-property-read"
+      ]
+    },
+    {
       "surfaceId": "surface.native.op.ibexendowraw.004oyaj",
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
@@ -85637,15 +85670,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-WkmfR1LBIGm36oP_pJN32KnRWLjGvrz7fDczaOf6Dn8",
+  "catalogKeyDigest": "sha256-gRT0c7XrbQwvkKtfqvK7SwxDY2OGX8vZME0OT_V0Hso",
   "counts": {
-    "coverageSurfaces": 7525,
-    "outputBearingSurfaces": 5816,
+    "coverageSurfaces": 7528,
+    "outputBearingSurfaces": 5819,
     "structuralOnlySurfaces": 1704,
     "unresolvedSurfaces": 5,
-    "catalogRows": 6517,
+    "catalogRows": 6520,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6110,
+    "sourceInventoryRows": 6113,
     "structuredRows": 407
   },
   "rows": [
@@ -223292,6 +223325,69 @@
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#__ibexCompartmentRegistryReady",
           "src/engine/hermes_runtime.cc#embedded:kCompartmentRegistryJS:__ibexCompartmentRegistryReady"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.ibexcompatloaderstats.1igm078",
+        "output": "[[value]]",
+        "alias": "__ibexCompatLoaderStats",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:__ibexCompatLoaderStats"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#__ibexCompatLoaderStats"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.ibexcompatloaderstats.dynamicfunctioncompilecount.1a4n1dz",
+        "output": "[[value]]",
+        "alias": "__ibexCompatLoaderStats.dynamicFunctionCompileCount",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:__ibexCompatLoaderStats.dynamicFunctionCompileCount"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#__ibexCompatLoaderStats.dynamicFunctionCompileCount"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.ibexcompatloaderstats.sourcetransformcount.0omt7mc",
+        "output": "[[value]]",
+        "alias": "__ibexCompatLoaderStats.sourceTransformCount",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "native-op:__ibexCompatLoaderStats.sourceTransformCount"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#__ibexCompatLoaderStats.sourceTransformCount"
         ]
       },
       "requiredValueProof": "live-value-observation"

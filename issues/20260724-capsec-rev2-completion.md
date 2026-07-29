@@ -5706,6 +5706,43 @@ ticket closes.
   verified / 16,678 unresolved; Windows remains 23,251 / 3,513 / 3,026 /
   16,712. Both advertisement sets remain empty and criterion 7 remains open.
 
+### 2026-07-28 — integrate loader-lane proof without project forgery
+
+- Integrated upstream `160badf9` (`Count compat-loader source transforms and
+  dynamic compiles`) after the process-mutator checkpoint. The only textual
+  conflict was the dynamic-import scanner rationale; the merged source keeps
+  both the local LLP 0026 performance reference and the upstream Exact LLP
+  0128 rationale.
+- The fail-closed registry correctly rejected the new mutable
+  `__ibexCompatLoaderStats` root. Hardened its armed form before approving it:
+  mutable source-transform and dynamic-compile counters now stay
+  loader-private, while project code receives a frozen two-getter view through
+  a non-writable/non-configurable root. Unarmed diagnostics retain the
+  upstream accumulating compatibility object.
+- A VM regression proves the view updates from private state and rejects root
+  or member replacement; the adjacent loader identity suite passes **11/11**.
+  A real armed-Hermes EPYC regression passes 1/1 (633 filtered) and proves the
+  live numeric view, exact immutable descriptors, failed forgery, project-code
+  execution, and zero typed decisions.
+- Reviewed the exact root and two member rows as authority-free WP7 bootstrap
+  state and the three new output rows as `non-path`. The registry is now
+  **7,528 edges / 7,829 branches / 15,056 target cells / 13,383 references**;
+  the output catalog has 6,520 rows, including 6,192 explicit `non-path`
+  decisions, at
+  `sha256-gRT0c7XrbQwvkKtfqvK7SwxDY2OGX8vZME0OT_V0Hso`.
+- Apple recipe catalog
+  `sha256-_wKX9IpSPHT9AoNA6bKphtpwy9ef3zzMUrT0_-HvXoE`: 23,595 required /
+  3,874 executable / 3,040 internally verified / 16,681 unresolved. Windows
+  `sha256-pSs50CkbrUoSAh3yQ3VCWT7YcjBYlqxYD2DugKBLNbw`: 23,254 / 3,513 /
+  3,026 / 16,715. The three readable proof rows deliberately add no executable
+  credit; both advertisement sets remain empty and criterion 7 remains open.
+- Source inventory/classifier validation passes **255/255** tests; output
+  disposition, registry generation, root-global disposition, and recipe
+  validation pass **148/148** tests. Root-manifest freshness, full generated
+  drift, and `ref-check` pass (41 LLP documents / 2,262 references / 0 errors /
+  1 unchecked). `cargo fmt --all -- --check` still reports only the known
+  untouched `src/engine/mod.rs:2168` wrap.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

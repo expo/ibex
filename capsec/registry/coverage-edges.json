@@ -262680,6 +262680,36 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.native.op.ibexcompatloaderstats.1igm078",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__ibexCompatLoaderStats"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.native.op.ibexcompatloaderstats.dynamicfunctioncompilecount.1a4n1dz",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__ibexCompatLoaderStats.dynamicFunctionCompileCount"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.native.op.ibexcompatloaderstats.sourcetransformcount.0omt7mc",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__ibexCompatLoaderStats.sourceTransformCount"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.native.op.ibexendowraw.004oyaj",
       "classification": "non-capability",
       "surface": {

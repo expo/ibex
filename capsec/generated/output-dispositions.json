@@ -1,7 +1,7 @@
 {
   "outputDispositionDatasetSchema": "ibex/capsec-output-dispositions/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-WkmfR1LBIGm36oP_pJN32KnRWLjGvrz7fDczaOf6Dn8",
+  "catalogKeyDigest": "sha256-gRT0c7XrbQwvkKtfqvK7SwxDY2OGX8vZME0OT_V0Hso",
   "evidence": {
     "status": "unpromotable",
     "reason": "The output corpus remains unpromotable: thirteen native surface accounts lack output contracts (one module marker, one prepared-startup carrier, and eleven conformance-only runtime-extension fixture globals or operations); three inherited-intrinsic alias surface accounts lack exact native reachability contracts; and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes these account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations."
@@ -109689,6 +109689,57 @@
     },
     {
       "key": {
+        "surfaceId": "surface.native.op.ibexcompatloaderstats.1igm078",
+        "output": "[[value]]",
+        "alias": "__ibexCompatLoaderStats",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.ibexcompatloaderstats.dynamicfunctioncompilecount.1a4n1dz",
+        "output": "[[value]]",
+        "alias": "__ibexCompatLoaderStats.dynamicFunctionCompileCount",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.ibexcompatloaderstats.sourcetransformcount.0omt7mc",
+        "output": "[[value]]",
+        "alias": "__ibexCompatLoaderStats.sourceTransformCount",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "non-path"
+      },
+      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+    },
+    {
+      "key": {
         "surfaceId": "surface.native.op.ibexendowraw.004oyaj",
         "output": "[[value]]",
         "alias": "__ibexEndowRaw",
@@ -110811,12 +110862,12 @@
     }
   ],
   "counts": {
-    "catalogRows": 6517,
-    "dispositionRows": 6517,
+    "catalogRows": 6520,
+    "dispositionRows": 6520,
     "byDisposition": {
       "absent": 152,
       "closed": 28,
-      "non-path": 6189,
+      "non-path": 6192,
       "private-native-path": 5,
       "refused": 12,
       "reserved-constant": 1,

@@ -262782,6 +262782,99 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.ibexcompatloaderstats.1igm078",
+      "observedKey": "native-op:__ibexCompatLoaderStats",
+      "branchId": "surface.native.op.ibexcompatloaderstats.1igm078.default",
+      "enforcementBranchId": "surface.native.op.ibexcompatloaderstats.1igm078.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__ibexCompatLoaderStats"
+        ],
+        "proofSourceRefs": [
+          "src/engine/bootstrap/module-loader.js#__ibexCompatLoaderStats"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#__ibexCompatLoaderStats"
+        ],
+        "terminalObservedKey": "native-op:__ibexCompatLoaderStats"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#__ibexCompatLoaderStats"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.ibexcompatloaderstats.1igm078.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.ibexcompatloaderstats.dynamicfunctioncompilecount.1a4n1dz",
+      "observedKey": "native-op:__ibexCompatLoaderStats.dynamicFunctionCompileCount",
+      "branchId": "surface.native.op.ibexcompatloaderstats.dynamicfunctioncompilecount.1a4n1dz.default",
+      "enforcementBranchId": "surface.native.op.ibexcompatloaderstats.dynamicfunctioncompilecount.1a4n1dz.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__ibexCompatLoaderStats.dynamicFunctionCompileCount"
+        ],
+        "proofSourceRefs": [
+          "src/engine/bootstrap/module-loader.js#__ibexCompatLoaderStats.dynamicFunctionCompileCount"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#__ibexCompatLoaderStats.dynamicFunctionCompileCount"
+        ],
+        "terminalObservedKey": "native-op:__ibexCompatLoaderStats.dynamicFunctionCompileCount"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#__ibexCompatLoaderStats.dynamicFunctionCompileCount"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.ibexcompatloaderstats.dynamicfunctioncompilecount.1a4n1dz.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.ibexcompatloaderstats.sourcetransformcount.0omt7mc",
+      "observedKey": "native-op:__ibexCompatLoaderStats.sourceTransformCount",
+      "branchId": "surface.native.op.ibexcompatloaderstats.sourcetransformcount.0omt7mc.default",
+      "enforcementBranchId": "surface.native.op.ibexcompatloaderstats.sourcetransformcount.0omt7mc.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__ibexCompatLoaderStats.sourceTransformCount"
+        ],
+        "proofSourceRefs": [
+          "src/engine/bootstrap/module-loader.js#__ibexCompatLoaderStats.sourceTransformCount"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#__ibexCompatLoaderStats.sourceTransformCount"
+        ],
+        "terminalObservedKey": "native-op:__ibexCompatLoaderStats.sourceTransformCount"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#__ibexCompatLoaderStats.sourceTransformCount"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.ibexcompatloaderstats.sourcetransformcount.0omt7mc.default.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.ibexendowraw.004oyaj",
       "observedKey": "native-op:__ibexEndowRaw",
       "branchId": "surface.native.op.ibexendowraw.004oyaj.default",
@@ -282185,59 +282278,59 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-UduTr0qvcCyi4hiNVO2qlbAEUqoLCV_xPDazkEmgxhY"
+      "rawContentDigest": "sha256-cAY_3pWIpGB0UacFJxdaAy1pwMnKWiCLl7yTGNo865k"
     },
     {
       "kind": "output-disposition-dataset",
       "path": "capsec/generated/output-dispositions.json",
-      "rawContentDigest": "sha256-Sk6duhoKwo2fxMaUPWb_XAFcjDyyFQ5QK8Ry3ZFD2Q4"
+      "rawContentDigest": "sha256-V4KgEBD-m_0lvmGszBqDibMf1VBe1WceISF1vbV6XBk"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/output-dispositions.md",
-      "rawContentDigest": "sha256-_vMZUHegh4j9tTR28gxcymqjIYvHxFHmCPakrLLKQs4"
+      "rawContentDigest": "sha256-dsJ_Cdv7zF4D1rgIM3OKGWR16LC0Y_Rd4v9-DR4qjes"
     },
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-sfHWgdEWaPsG7cBKII-rRmaGoRSqVxToqZeF26wtQP4"
+      "rawContentDigest": "sha256-kmot8UUPdgvhQfDmznbNg0GCeIJ_hmNrzMeWs0P_Nlg"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-yRgw4gGYtr7yen6qYNtnzb-JHbG8YDXqyHa7vYwIMTY"
+      "rawContentDigest": "sha256-1Ih5aObCvtppwDrW_RI2iyPQEzJKI_DYU6gIyJBXmjo"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-hZ08Vkm9EJ_roWIEwJd_aVawRTlLNYDUnC3J054SSAE"
+      "rawContentDigest": "sha256-XpCj2Ve6Ymwi6LFlzTzcO8gX6yZJ_Lgu6lM_i2sjWc4"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-JKgGNtIyv4GSOWHNLBDw8dAP5xgZX-sMc2xEv8cuPp8"
+      "rawContentDigest": "sha256-8IdxlRYu02T0pR1AX2yAeTEZLystenWmvSFD2oExdAs"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-zgQsUyRCTJVIyIw-JPKr-b67Pgpup1lgyZ3F2duElLE"
+      "rawContentDigest": "sha256-CiQsRWFeyZuENJZdpeb9KOib6S7pzkA-LnI83mNHd3M"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-43Qo8AygindYsJYwz5cyQ5KMld86pYpBHEcbaCBn4Uo"
+      "rawContentDigest": "sha256-FVQ77JXze4LgDPAm39FkXy-yXvBx3TNjaC9SlWTk-gs"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-Tqas01aFjLVa3rf0HtMt3xSf-RvtgU4JTkG10Qx88ns"
+      "rawContentDigest": "sha256-DMxoEbeABOf6w7mnD81yUmzz81QrMbU6aYrgUofPRLg"
     }
   ],
   "counts": {
-    "observedReferences": 13380,
-    "logicalSurfaces": 7525,
-    "enforcementBranches": 7826,
-    "coverageEdges": 7525,
-    "targetCells": 15050
+    "observedReferences": 13383,
+    "logicalSurfaces": 7528,
+    "enforcementBranches": 7829,
+    "coverageEdges": 7528,
+    "targetCells": 15056
   }
 }

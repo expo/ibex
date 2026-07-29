@@ -6,7 +6,7 @@ Evidence status: **unpromotable**.
 
 Reason: The output corpus remains unpromotable: thirteen native surface accounts lack output contracts (one module marker, one prepared-startup carrier, and eleven conformance-only runtime-extension fixture globals or operations); three inherited-intrinsic alias surface accounts lack exact native reachability contracts; and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes these account families; compiled registrar coverage proves only surface-account provenance and cannot supply the missing output or reachability observations.
 
-The machine dataset contains 6517 canonical rows; 6189 are explicit `non-path` decisions pinned by catalog digest `sha256-WkmfR1LBIGm36oP_pJN32KnRWLjGvrz7fDczaOf6Dn8`.
+The machine dataset contains 6520 canonical rows; 6192 are explicit `non-path` decisions pinned by catalog digest `sha256-gRT0c7XrbQwvkKtfqvK7SwxDY2OGX8vZME0OT_V0Hso`.
 
 The table below projects every material (non-`non-path`) decision. The JSON artifact is normative and total.
 

@@ -422,7 +422,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_592);
+    expect(recipes.summary.requiredFixtures).toBe(23_595);
     // The linear dynamic-import scanner's two exact index recognizers are
     // independently inventoried pure-compute rows and therefore add two
     // unresolved non-capability obligations without executable credit.
@@ -472,7 +472,7 @@ describe("exact-target CapSec executable recipes", () => {
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_040);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_678);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_681);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -607,7 +607,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_251);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_254);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch. The
@@ -661,7 +661,7 @@ describe("exact-target CapSec executable recipes", () => {
     // Windows and execute against its selected installation branch.
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_513);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_026);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_712);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_715);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(

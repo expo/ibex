@@ -4785,6 +4785,11 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   __exactWindowNotifyMediaChange: [""],
   __exactWindowNotifyResize: [""],
   __filename: [""],
+  __ibexCompatLoaderStats: [
+    "",
+    "dynamicFunctionCompileCount",
+    "sourceTransformCount",
+  ],
   addEventListener: [""],
   atob: [""],
   badly: [""],
@@ -11879,6 +11884,9 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
       "WP7",
       "The inherited diagnostic child-process socket, serialization mode, and identity-bound close hook are private, one-shot bootstrap inputs; armed and project-visible IPC remain closed.",
     );
+  }
+  if (authoredGlobalName === "__ibexCompatLoaderStats") {
+    return nonCapabilitySpec("runtime-bootstrap-state", "WP7");
   }
   const globalName = authoredGlobalName.toLowerCase();
   const member = authoredMember.toLowerCase();

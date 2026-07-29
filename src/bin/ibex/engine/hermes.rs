@@ -9305,6 +9305,100 @@ module.exports = JSON.stringify({
         );
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_loader_proof_counters_are_live_and_unforgeable() {
+        use capsec_semantics::model::{LogicalPath, LogicalRoot};
+        use ibex_runtime::engine::evaluation::SubmissionSequence;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (host, digest) =
+            build_armed_test_host_custom(None, false, false, false, vec![], None, |_| {});
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let session = host.mint_armed_session_token().unwrap();
+        let mut sequence = SubmissionSequence::new(session.clone()).unwrap();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+
+        let request = sequence
+            .mint_repl(LogicalPath {
+                root: LogicalRoot::Project,
+                components: Vec::new(),
+                host_bound: None,
+            })
+            .unwrap()
+            .authorize_inline()
+            .bind_bytes(
+                br#"(function () {
+                  var stats = globalThis.__ibexCompatLoaderStats;
+                  var rootDescriptor = Object.getOwnPropertyDescriptor(
+                    globalThis, '__ibexCompatLoaderStats');
+                  var sourceDescriptor = Object.getOwnPropertyDescriptor(
+                    stats, 'sourceTransformCount');
+                  var compileDescriptor = Object.getOwnPropertyDescriptor(
+                    stats, 'dynamicFunctionCompileCount');
+                  if (!stats || !rootDescriptor ||
+                      rootDescriptor.value !== stats ||
+                      rootDescriptor.writable !== false ||
+                      rootDescriptor.configurable !== false ||
+                      !Object.isFrozen(stats) ||
+                      !sourceDescriptor || !compileDescriptor ||
+                      typeof sourceDescriptor.get !== 'function' ||
+                      typeof compileDescriptor.get !== 'function' ||
+                      sourceDescriptor.set !== undefined ||
+                      compileDescriptor.set !== undefined ||
+                      sourceDescriptor.configurable !== false ||
+                      compileDescriptor.configurable !== false ||
+                      !Number.isSafeInteger(stats.sourceTransformCount) ||
+                      !Number.isSafeInteger(stats.dynamicFunctionCompileCount) ||
+                      stats.sourceTransformCount < 0 ||
+                      stats.dynamicFunctionCompileCount < 0) {
+                    return false;
+                  }
+                  var sourceCount = stats.sourceTransformCount;
+                  var compileCount = stats.dynamicFunctionCompileCount;
+                  try { stats.sourceTransformCount = 999; } catch (_) {}
+                  try {
+                    Object.defineProperty(
+                      stats, 'dynamicFunctionCompileCount', { value: 999 });
+                  } catch (_) {}
+                  try {
+                    globalThis.__ibexCompatLoaderStats = {
+                      sourceTransformCount: 999,
+                      dynamicFunctionCompileCount: 999
+                    };
+                  } catch (_) {}
+                  return globalThis.__ibexCompatLoaderStats === stats &&
+                    stats.sourceTransformCount === sourceCount &&
+                    stats.dynamicFunctionCompileCount === compileCount;
+                })()"#
+                    .to_vec(),
+            )
+            .into_request()
+            .unwrap();
+
+        let typed_before = host.typed_decision_count();
+        let AuthenticatedEvaluation::Value { display, receipt } = engine
+            .evaluate_authenticated(&session, request)
+            .await
+            .expect("armed loader proof counter probe must evaluate")
+        else {
+            panic!("armed loader proof counter probe did not return its boolean verdict")
+        };
+        assert_eq!(display.kind, AuthenticatedDisplayKind::Boolean);
+        assert_eq!(display.text, "true");
+        engine
+            .release_undisplayed_value(receipt.expect("probe value must retain a receipt"))
+            .await
+            .unwrap();
+        assert_eq!(
+            host.typed_decision_count(),
+            typed_before,
+            "loader proof counters are authority-free bootstrap state"
+        );
+    }
+
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     #[cfg(not(feature = "insecure"))]
