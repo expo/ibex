@@ -7071,16 +7071,60 @@
         ? record.sourceLabel
         : null;
       var sourceUrl = authenticatedSourceLabel || filename;
-      compatLoaderStats.sourceTransformCount++;
-      const transformedSource = transformDynamicImport(
-        transformImportMeta(
-          applyRolldownCjsDirnameBindings(
-            fixForOfScoping(fixEsmCjsInterop(source || "")),
-            filename
-          ),
-          authenticatedSourceLabel
-        )
-      );
+      // Exact LLP 0413 §10 Phase 1 diagnostic startup lanes (arms B/C).
+      // A dev-served record may declare that the dev server already lowered
+      // its source to plain CommonJS (record.prelowered, §7.B) or that an
+      // executable factory compiled into the outer startup program serves
+      // this id (record.factory via globalThis.__exactPrecompiledFactories,
+      // §7.C). Both skip the scanner pipeline below; the factory path also
+      // skips dynamic Function compilation. Development diagnostics only:
+      // they are refused under the armed resolver (armed dev-served capture
+      // already quarantines records carrying extra keys) and never apply to
+      // authenticated entries or builtins.
+      var diagnosticLaneRecord = !__armedResolverCapture &&
+        !authenticatedDirectEntry && kind === "cjs";
+      var preloweredRecord = diagnosticLaneRecord && record.prelowered === true;
+      var precompiledFactory = null;
+      if (diagnosticLaneRecord && record.factory === true) {
+        var factoryRegistry = g.__exactPrecompiledFactories;
+        var factoryCandidate = factoryRegistry ? factoryRegistry[legacyId] : null;
+        if (typeof factoryCandidate !== "function") {
+          throw new Error('Precompiled startup factory missing for "' + legacyId +
+            '" (factory-table lane, Exact LLP 0413 §7.C)');
+        }
+        precompiledFactory = factoryCandidate;
+      }
+      // The server-side lowering already produced exactly what this pipeline
+      // would (ESM->CJS, import.meta, dynamic import, interop repairs), so a
+      // prelowered/factory body compiles or runs as-is and the transform
+      // counters honestly stay untouched for it (LLP 0413 §5.1 counters).
+      var markDiagnosticLaneExports = function() {
+        var laneExports = module.exports;
+        if (laneExports &&
+            (typeof laneExports === "object" || typeof laneExports === "function")) {
+          try {
+            // Same marker the transformed-ESM fallback sets: the require()
+            // interop collapse must not re-wrap a body whose importers
+            // already carry their own (esbuild-generated) interop.
+            __privObjectDefineProperty(laneExports, '__esmShimmed', { value: true });
+          } catch (laneMarkError) {}
+        }
+      };
+      var transformedSource;
+      if (preloweredRecord || precompiledFactory) {
+        transformedSource = source || "";
+      } else {
+        compatLoaderStats.sourceTransformCount++;
+        transformedSource = transformDynamicImport(
+          transformImportMeta(
+            applyRolldownCjsDirnameBindings(
+              fixForOfScoping(fixEsmCjsInterop(source || "")),
+              filename
+            ),
+            authenticatedSourceLabel
+          )
+        );
+      }
       const directSource =
         injectEvalShimPreamble(transformedSource) +
         "\n//# sourceURL=" + sourceUrl;
@@ -7161,7 +7205,16 @@
           Object.defineProperty(module.exports, '__esmShimmed', { value: true });
         }
       };
-      if (kind === "esm" && looksLikeModuleSyntax(transformedSource)) {
+      if (precompiledFactory) {
+        // Factory-table lane (Exact LLP 0413 §7.C): the body was compiled by
+        // hermesc into the outer startup program; no runtime source transform
+        // and no dynamic Function compilation happen for this module.
+        pushDebugModuleSource({ id: id, filename: filename, source: "", factory: true });
+        g.__filename = filename;
+        g.__dirname = dir;
+        invokeModuleBody(precompiledFactory);
+        markDiagnosticLaneExports();
+      } else if (kind === "esm" && looksLikeModuleSyntax(transformedSource)) {
         runFallbackModule("esm-syntax");
       } else {
         pushDebugModuleSource({ id: id, filename: filename, source: directSource.slice(0, 2000) });
@@ -7202,6 +7255,9 @@
           g.__dirname = dir;
           try {
             invokeModuleBody(directFn);
+            if (preloweredRecord) {
+              markDiagnosticLaneExports();
+            }
           } catch (err) {
             if (authenticatedDirectEntry || !isOwnBodyAwaitReferenceError(err)) {
               throw err;
