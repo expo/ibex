@@ -6041,6 +6041,36 @@ ticket closes.
   criterion 7 remains open, important enforcement remains about **99.8%**
   complete, and overall completion remains about **96%**.
 
+### 2026-07-28 — execute the global WebCrypto CSPRNG aliases
+
+- Retired the stale armed-runtime crash exclusion for exactly four
+  source-inventoried global callables: `Crypto.getRandomValues`,
+  `crypto.getRandomValues`, `Crypto.randomUUID`, and `crypto.randomUUID`.
+  Both random-value routes fill a harness-owned four-byte `Uint8Array`; both
+  UUID routes return a string. Every route binds its exact global/prototype
+  descriptor, reaches quiescence, performs owned cleanup, executes project
+  code, and emits zero legacy or typed decisions.
+- The prior exclusion was based on a real physical `SIGSEGV`, so promotion was
+  gated on a fresh process-level safety run rather than inferred from the later
+  `exact_crypto` repair. The EPYC authenticated armed Apple batch now passes
+  **579/579** global-callable receipts against loaded engine
+  `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`; independent JavaScript
+  reconstructs all four new records exactly. Raw evidence SHA-256:
+  `8ca3e1c5806995efa12624f411d08672ccd8cb48fea2c6fe75d535ff67de25e1`.
+- Apple catalog
+  `sha256-h-aEuY5hwrzFjpPHiwFduM-g8AZggxy2rg7QLAiwrtM`: 23,595 required /
+  **3,924 executable** / 3,040 internally verified / 16,631 unresolved.
+  Windows catalog
+  `sha256-FQOQTr_HtWdl9UXnHquLaEp--6knN2qhgflw1PnH6GY`: 23,254 /
+  **3,560** / 3,026 / 16,668. The target-specific callable batches grow to
+  579 and 565 respectively.
+- Focused recipe/template validation passes **121/121** with 118,152
+  assertions; the combined classifier, recipe, template, evidence, root, and
+  Android contract suite passes **356/356** with 121,448 assertions. Generated
+  drift and `ref-check` pass. Advertisements remain empty; criterion 7 remains
+  open, important enforcement remains about **99.8%** complete, and overall
+  completion remains about **96%**.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

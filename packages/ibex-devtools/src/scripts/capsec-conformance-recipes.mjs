@@ -3994,11 +3994,6 @@ function nativePublicProbeForPlan({
   };
 }
 
-const GLOBAL_CALLABLE_ARMED_RUNTIME_EXCLUSIONS = new Set([
-  "native-op:global:crypto.getrandomvalues",
-  "native-op:global:crypto.randomuuid",
-]);
-
 function globalCallablePublicProbeForPlan({
   plan,
   scenario,
@@ -4025,15 +4020,12 @@ function globalCallablePublicProbeForPlan({
   // source and must remain unresolved.
   const unavailableOnArmedRuntime =
     surfaceObservedKey.startsWith("native-op:global:Bun.");
-  // Physical armed execution proves that the CSPRNG bindings currently
-  // terminate the process with SIGSEGV and that the returned-stream route
-  // fails before reaching its selected member. Windows also omits the
-  // WebSocket receiver used by its source-derived member routes. Keep those
-  // discoveries unresolved until their runtime routes can yield authenticated
-  // completion.
+  // Physical armed execution proves that returned-stream routes fail before
+  // reaching their selected member. Windows also omits the WebSocket receiver
+  // used by its source-derived member routes. Keep those discoveries unresolved
+  // until their runtime routes can yield authenticated completion.
   const normalizedObservedKey = surfaceObservedKey.toLowerCase();
   const excludedOnArmedRuntime =
-    GLOBAL_CALLABLE_ARMED_RUNTIME_EXCLUSIONS.has(normalizedObservedKey) ||
     normalizedObservedKey.includes(".[[return]].") ||
     (target.triple === "x86_64-pc-windows-msvc" &&
       normalizedObservedKey.startsWith("native-op:global:websocket."));

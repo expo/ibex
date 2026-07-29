@@ -33,8 +33,8 @@ fn global_callable_recipes(
 
 fn expected_recipe_count(target: &str) -> usize {
     match target {
-        "aarch64-apple-darwin" => 575,
-        "x86_64-pc-windows-msvc" => 561,
+        "aarch64-apple-darwin" => 579,
+        "x86_64-pc-windows-msvc" => 565,
         target => {
             panic!("global callable public batch has no reviewed target shape for {target}")
         }
@@ -447,8 +447,8 @@ async fn execute_recipe(
 
 #[test]
 fn capsec_public_global_callable_recipe_counts_are_target_specific() {
-    assert_eq!(expected_recipe_count("aarch64-apple-darwin"), 575);
-    assert_eq!(expected_recipe_count("x86_64-pc-windows-msvc"), 561);
+    assert_eq!(expected_recipe_count("aarch64-apple-darwin"), 579);
+    assert_eq!(expected_recipe_count("x86_64-pc-windows-msvc"), 565);
 }
 
 #[tokio::test(flavor = "current_thread")]

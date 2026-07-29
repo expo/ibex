@@ -472,11 +472,11 @@ describe("exact-target CapSec executable recipes", () => {
     // and replacement closure without entering the authority evaluator.
     // Nine nested process.report rows prove their exact public spelling is
     // stopped at the pinned parent accessor before nested state is reachable.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_920);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_924);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_040);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_635);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_631);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -666,9 +666,9 @@ describe("exact-target CapSec executable recipes", () => {
     // The same twelve shared-state closures and eight target-applicable nested
     // process.report closures bind Windows' selected source variants to the
     // final armed runtime gate.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_556);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_560);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_026);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_672);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_668);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -6965,10 +6965,6 @@ describe("exact-target CapSec executable recipes", () => {
   });
 
   test("promotes only authority-free source-bound global callable routes", () => {
-    const unsafeArmedRuntimeRoutes = new Set([
-      "native-op:global:crypto.getrandomvalues",
-      "native-op:global:crypto.randomuuid",
-    ]);
     for (const candidate of [recipes, windowsRecipes]) {
       const callableRecipes = candidate.recipes.filter(
         (recipe) =>
@@ -6976,7 +6972,7 @@ describe("exact-target CapSec executable recipes", () => {
           "ibex/capsec-global-callable-invocation/1",
       );
       expect(callableRecipes).toHaveLength(
-        candidate.target.triple === "x86_64-pc-windows-msvc" ? 561 : 575,
+        candidate.target.triple === "x86_64-pc-windows-msvc" ? 565 : 579,
       );
       expect(
         callableRecipes.every((recipe) => {
@@ -7021,7 +7017,6 @@ describe("exact-target CapSec executable recipes", () => {
             invocation.sourceDescriptor.kind ===
               "global-api-callable" &&
             invocation.sourceDescriptor.sourceRefs.length > 0 &&
-            !unsafeArmedRuntimeRoutes.has(normalizedObservedKey) &&
             !normalizedObservedKey.includes(".[[return]].") &&
             !(
               candidate.target.triple === "x86_64-pc-windows-msvc" &&
@@ -7032,6 +7027,40 @@ describe("exact-target CapSec executable recipes", () => {
           );
         }),
       ).toBe(true);
+    }
+    const csprngSurfaces = [
+      "native-op:global:Crypto.getRandomValues",
+      "native-op:global:crypto.getRandomValues",
+      "native-op:global:Crypto.randomUUID",
+      "native-op:global:crypto.randomUUID",
+    ];
+    for (const candidate of [recipes, windowsRecipes]) {
+      const csprngRecipes = candidate.recipes.filter((recipe) =>
+        csprngSurfaces.includes(recipe.publicSurfaceProbe?.surfaceObservedKey),
+      );
+      expect(
+        csprngRecipes.map(
+          (recipe) => recipe.publicSurfaceProbe.surfaceObservedKey,
+        ),
+      ).toEqual(csprngSurfaces);
+      expect(
+        csprngRecipes.every(
+          (recipe) =>
+            recipe.status === "fully-executable" &&
+            recipe.publicSurfaceProbe.invocation.route.operation === "call" &&
+            recipe.publicSurfaceProbe.invocation.route.receiver.kind ===
+              "existing-global" &&
+            recipe.publicSurfaceProbe.invocation.route.receiver.globalName ===
+              "crypto",
+        ),
+      ).toBe(true);
+      expect(
+        csprngRecipes.map(
+          (recipe) =>
+            recipe.publicSurfaceProbe.invocation.route.arguments[0]?.kind ??
+            null,
+        ),
+      ).toEqual(["uint8-array", "uint8-array", null, null]);
     }
     const compatibilityEnvironmentRoutes = new Set([
       ...[
