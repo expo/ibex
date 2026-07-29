@@ -4685,6 +4685,129 @@ function validateRuntimeInvocation(observation, recipe) {
         );
       }
     }
+    if (authored.operation?.kind === "process-shared-state-closure") {
+      const reviewedMembers = new Map([
+        ["_getActiveHandles", ["method", "ProcessInspection"]],
+        ["_getActiveRequests", ["method", "ProcessInspection"]],
+        ["_kill", ["method", "ProcessSignals"]],
+        ["abort", ["method", "ProcessLifecycle"]],
+        ["binding", ["method", "ProcessBinding"]],
+        ["kill", ["method", "ProcessSignals"]],
+        ["setegid", ["method", "ProcessCredentials"]],
+        ["seteuid", ["method", "ProcessCredentials"]],
+        ["setgid", ["method", "ProcessCredentials"]],
+        ["setuid", ["method", "ProcessCredentials"]],
+        ["title", ["property", "ProcessTitle"]],
+        ["report", ["property", "ProcessReport"]],
+      ]);
+      const descriptor = authored.sourceDescriptor;
+      const operation = authored.operation;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "globalName",
+          "memberName",
+          "memberForm",
+          "targetTriple",
+          "implementationBranchIds",
+          "enforcementBranchIds",
+          "enforcementSourceRef",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed process shared-state source descriptor`,
+      );
+      exactKeys(
+        operation,
+        [
+          "kind",
+          "memberName",
+          "memberForm",
+          "accessCases",
+          "expectedErrorCode",
+          "expectedPermission",
+          "expectedError",
+        ],
+        `${recipe.fixtureId}: closed process shared-state operation`,
+      );
+      const memberName = operation.memberName;
+      const reviewed = reviewedMembers.get(memberName);
+      const metadata = descriptor.sourceMetadata;
+      const branches = metadata?.installationBranches;
+      const selectedVariants = descriptor.implementationBranchIds?.map(
+        (branchId) => branchId.slice(branchId.lastIndexOf(".") + 1),
+      );
+      const selectedBranches = branches?.filter((branch) =>
+        selectedVariants?.includes(branch.id),
+      );
+      const sourceShapeMatches =
+        reviewed?.[0] === "method"
+          ? metadata?.valueShape === "callable" &&
+            metadata.memberKinds?.includes("prototype-method")
+          : memberName === "title"
+            ? metadata?.memberKinds?.includes("prototype-accessor")
+            : canonicalJson(metadata?.memberKinds) ===
+              canonicalJson(["instance-property", "member-assignment"]);
+      const expectedAccessCases =
+        reviewed?.[0] === "method"
+          ? ["direct", "prototype", "replacement"]
+          : memberName === "title"
+            ? [
+                "read",
+                "write",
+                "prototype-read",
+                "prototype-write",
+                "replacement-read",
+              ]
+            : ["read", "write", "replacement-read"];
+      if (
+        reviewed === undefined ||
+        authored.surfaceKind !== "native-op" ||
+        authored.surfaceName !== `global:process.${memberName}` ||
+        recipe.terminalObservedKey !==
+          `native-op:global:process.${memberName}` ||
+        descriptor.kind !== "closed-process-shared-state-member" ||
+        descriptor.surfaceObservedKey !== recipe.terminalObservedKey ||
+        descriptor.globalName !== "process" ||
+        descriptor.memberName !== memberName ||
+        descriptor.memberForm !== reviewed[0] ||
+        operation.memberForm !== reviewed[0] ||
+        canonicalJson(operation.accessCases) !==
+          canonicalJson(expectedAccessCases) ||
+        operation.expectedErrorCode !== "ERR_ACCESS_DENIED" ||
+        operation.expectedPermission !== reviewed[1] ||
+        operation.expectedError !==
+          `process.${memberName} is disabled in an armed runtime` ||
+        !new Set([
+          "aarch64-apple-darwin",
+          "x86_64-pc-windows-msvc",
+        ]).has(descriptor.targetTriple) ||
+        canonicalJson(descriptor.implementationBranchIds) !==
+          canonicalJson(recipe.implementationBranchIds) ||
+        canonicalJson(descriptor.enforcementBranchIds) !==
+          canonicalJson(recipe.enforcementBranchIds) ||
+        descriptor.enforcementSourceRef !==
+          "src/engine/hermes_runtime.cc#armed-process-shared-state-members" ||
+        !Array.isArray(descriptor.sourceRefs) ||
+        descriptor.sourceRefs.length === 0 ||
+        metadata?.surfaceType !== "global-api" ||
+        metadata.globalName !== "process" ||
+        metadata.memberName !== memberName ||
+        metadata.exportName !== `process.${memberName}` ||
+        !sourceShapeMatches ||
+        !Array.isArray(branches) ||
+        selectedBranches?.length !== 1 ||
+        !selectedBranches[0].sourceRefs?.every((sourceRef) =>
+          descriptor.sourceRefs.includes(sourceRef),
+        )
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: process shared-state closure is not bound to its selected source branch and final armed gate`,
+        );
+      }
+    }
     if (
       authored.operation?.kind === "process-event-lifecycle-no-effect"
     ) {
@@ -7370,6 +7493,8 @@ function validateRuntimeInvocation(observation, recipe) {
       authored.operation?.kind === "process-event-closure";
     const processUmaskClosure =
       authored.operation?.kind === "process-umask-closure";
+    const processSharedStateClosure =
+      authored.operation?.kind === "process-shared-state-closure";
     exactKeys(
       invocation.result,
       [
@@ -7410,6 +7535,19 @@ function validateRuntimeInvocation(observation, recipe) {
               "replacementDenied",
             ]
           : []),
+        ...(processSharedStateClosure
+          ? [
+              "memberName",
+              "memberForm",
+              "accessCases",
+              "errorCode",
+              "errorPermission",
+              "descriptorPinned",
+              "prototypeDescriptorPinned",
+              "backingStateHidden",
+              "replacementDenied",
+            ]
+          : []),
         "errorMessage",
         ...(authored.operation?.kind === "loader-executable-file"
           ? ["errorCode"]
@@ -7425,14 +7563,19 @@ function validateRuntimeInvocation(observation, recipe) {
       invocation.result.surfaceName !== authored.surfaceName ||
       invocation.result.mechanism !== authored.operation?.kind ||
       invocation.result.errorName !==
-        (filesystemMutation || processEventClosure || processUmaskClosure
+        (filesystemMutation ||
+        processEventClosure ||
+        processUmaskClosure ||
+        processSharedStateClosure
           ? "Error"
           : "ClosedSurface") ||
       typeof invocation.result.errorMessage !== "string" ||
       invocation.result.errorMessage.length === 0 ||
       typeof invocation.result.engineExecuted !== "boolean" ||
       invocation.result.projectCodeExecuted !==
-        (processEventClosure || processUmaskClosure)
+        (processEventClosure ||
+          processUmaskClosure ||
+          processSharedStateClosure)
     ) {
       throw new Error(
         `${recipe.fixtureId}: public closed surface did not fail closed`,
@@ -7697,6 +7840,63 @@ function validateRuntimeInvocation(observation, recipe) {
       ) {
         throw new Error(
           `${recipe.fixtureId}: armed process umask did not prove pinned read and write closure`,
+        );
+      }
+    }
+    if (authored.operation?.kind === "process-shared-state-closure") {
+      exactKeys(
+        invocation.result,
+        [
+          "kind",
+          "surfaceKind",
+          "surfaceName",
+          "mechanism",
+          "memberName",
+          "memberForm",
+          "accessCases",
+          "errorName",
+          "errorCode",
+          "errorPermission",
+          "errorMessage",
+          "descriptorPinned",
+          "prototypeDescriptorPinned",
+          "backingStateHidden",
+          "replacementDenied",
+          "engineExecuted",
+          "projectCodeExecuted",
+        ],
+        `${recipe.fixtureId}: closed process shared-state runtime result`,
+      );
+      const operation = authored.operation;
+      const expectedCases = operation.accessCases.map((id) => ({
+        id,
+        errorName: "Error",
+        errorCode: operation.expectedErrorCode,
+        errorPermission: operation.expectedPermission,
+        errorMessage: operation.expectedError,
+      }));
+      if (
+        invocation.result.kind !== "closed" ||
+        invocation.result.surfaceKind !== "native-op" ||
+        invocation.result.surfaceName !== authored.surfaceName ||
+        invocation.result.mechanism !== operation.kind ||
+        invocation.result.memberName !== operation.memberName ||
+        invocation.result.memberForm !== operation.memberForm ||
+        canonicalJson(invocation.result.accessCases) !==
+          canonicalJson(expectedCases) ||
+        invocation.result.errorName !== "Error" ||
+        invocation.result.errorCode !== operation.expectedErrorCode ||
+        invocation.result.errorPermission !== operation.expectedPermission ||
+        invocation.result.errorMessage !== operation.expectedError ||
+        invocation.result.descriptorPinned !== true ||
+        invocation.result.prototypeDescriptorPinned !== true ||
+        invocation.result.backingStateHidden !== true ||
+        invocation.result.replacementDenied !== true ||
+        invocation.result.engineExecuted !== true ||
+        invocation.result.projectCodeExecuted !== true
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: armed process shared-state member did not prove pinned direct, prototype, and replacement closure`,
         );
       }
     }

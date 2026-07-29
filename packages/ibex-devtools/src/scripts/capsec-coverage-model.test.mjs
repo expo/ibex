@@ -48,7 +48,7 @@ const rules = JSON.parse(
 );
 const context = { definitions, rules };
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
-  "sha256-7c1fd40d57c3f85e29440af225521d3f517b4ef3fa81eccbffe78f10ebec7e0c";
+  "sha256-2d639dfcb7460411a28ab4a1f84e1a9712765a1853562950584415a13fc2fa5f";
 const REVIEWED_DNS_PROMISE_EXPORT_SHAPE_REVIEW_ID =
   "sha256-161c4e4bf9027d0d3e4f9427954c18529f7ef0bd727be9064fc8f79270a75c75";
 

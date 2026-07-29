@@ -6674,33 +6674,32 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           closedProcessMethods[closedProcessMethodIndex][1]);
       }
 
-      function processPropertyDenied(name, permission) {
-        var error = new Error(
-          'process.' + name + ' is disabled in an armed runtime');
-        error.code = 'ERR_ACCESS_DENIED';
-        error.permission = permission;
-        throw error;
+      function pinClosedProcessProperty(name, permission) {
+        function closedProcessProperty() {
+          var error = new Error(
+            'process.' + name + ' is disabled in an armed runtime');
+          error.code = 'ERR_ACCESS_DENIED';
+          error.permission = permission;
+          throw error;
+        }
+        defineProp(processObject, name, {
+          get: closedProcessProperty,
+          set: closedProcessProperty,
+          enumerable: true,
+          configurable: false
+        });
+        if (processPrototype && hasOwn.call(processPrototype, name)) {
+          var prototypeProperty = getOwnPropDesc(processPrototype, name);
+          defineProp(processPrototype, name, {
+            get: closedProcessProperty,
+            set: closedProcessProperty,
+            enumerable: !!prototypeProperty.enumerable,
+            configurable: false
+          });
+        }
       }
-      defineProp(processObject, 'title', {
-        get: function() {
-          return processPropertyDenied('title', 'ProcessTitle');
-        },
-        set: function() {
-          return processPropertyDenied('title', 'ProcessTitle');
-        },
-        enumerable: true,
-        configurable: false
-      });
-      defineProp(processObject, 'report', {
-        get: function() {
-          return processPropertyDenied('report', 'ProcessReport');
-        },
-        set: function() {
-          return processPropertyDenied('report', 'ProcessReport');
-        },
-        enumerable: true,
-        configurable: false
-      });
+      pinClosedProcessProperty('title', 'ProcessTitle');
+      pinClosedProcessProperty('report', 'ProcessReport');
     } catch (e) { throw e; }
   }
 

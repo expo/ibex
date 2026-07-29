@@ -89,6 +89,8 @@ struct ClosedSourceDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     member_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    member_form: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     access_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     engine_identity_review_id: Option<String>,
@@ -260,6 +262,20 @@ enum ClosedOperation {
         #[serde(rename = "expectedError")]
         expected_error: String,
     },
+    ProcessSharedStateClosure {
+        #[serde(rename = "memberName")]
+        member_name: String,
+        #[serde(rename = "memberForm")]
+        member_form: String,
+        #[serde(rename = "accessCases")]
+        access_cases: Vec<String>,
+        #[serde(rename = "expectedErrorCode")]
+        expected_error_code: String,
+        #[serde(rename = "expectedPermission")]
+        expected_permission: String,
+        #[serde(rename = "expectedError")]
+        expected_error: String,
+    },
     ProcessEventLifecycleNoEffect {
         scenario: String,
         #[serde(rename = "methodName")]
@@ -328,6 +344,7 @@ impl ClosedOperation {
             Self::ArmedNativeGlobalAbsence { .. } => "armed-native-global-absence",
             Self::ProcessEventClosure { .. } => "process-event-closure",
             Self::ProcessUmaskClosure { .. } => "process-umask-closure",
+            Self::ProcessSharedStateClosure { .. } => "process-shared-state-closure",
             Self::ProcessEventLifecycleNoEffect { .. } => "process-event-lifecycle-no-effect",
             Self::FilesystemUnboundMutation { .. } => "filesystem-unbound-mutation",
         }
@@ -349,6 +366,7 @@ impl ClosedOperation {
             | Self::ArmedNativeGlobalAbsence { .. }
             | Self::ProcessEventClosure { .. }
             | Self::ProcessUmaskClosure { .. }
+            | Self::ProcessSharedStateClosure { .. }
             | Self::ProcessEventLifecycleNoEffect { .. }
             | Self::FilesystemUnboundMutation { .. } => None,
         }
@@ -3305,6 +3323,19 @@ fn reviewed_process_event_argument_shape(method_name: &str) -> Option<&'static s
     })
 }
 
+fn reviewed_process_shared_state_member(member_name: &str) -> Option<(&'static str, &'static str)> {
+    Some(match member_name {
+        "_getActiveHandles" | "_getActiveRequests" => ("method", "ProcessInspection"),
+        "_kill" | "kill" => ("method", "ProcessSignals"),
+        "abort" => ("method", "ProcessLifecycle"),
+        "binding" => ("method", "ProcessBinding"),
+        "setegid" | "seteuid" | "setgid" | "setuid" => ("method", "ProcessCredentials"),
+        "title" => ("property", "ProcessTitle"),
+        "report" => ("property", "ProcessReport"),
+        _ => return None,
+    })
+}
+
 fn reviewed_process_lifecycle_return_kind(method_name: &str) -> Option<&'static str> {
     Some(match method_name {
         "addListener"
@@ -3866,6 +3897,384 @@ async fn execute_closed_process_umask(
     observation
         .as_object_mut()
         .expect("expected process umask observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-closed-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
+#[cfg(test)]
+async fn execute_closed_process_shared_state(
+    engine: &mut AuthenticatedClosedEngine,
+    recipe: &Recipe,
+    probe: &ClosedSurfaceProbe,
+    coverage: &BTreeMap<String, (String, String)>,
+    engine_binary_digest: &str,
+    target_triple: &str,
+) -> serde_json::Value {
+    let invocation = &probe.invocation;
+    let ClosedOperation::ProcessSharedStateClosure {
+        member_name,
+        member_form,
+        access_cases,
+        expected_error_code,
+        expected_permission,
+        expected_error,
+    } = &invocation.operation
+    else {
+        panic!("process shared-state probe has the wrong operation")
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "closed");
+    assert_eq!(recipe.scenario, "closed");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(
+        reviewed_process_shared_state_member(member_name),
+        Some((member_form.as_str(), expected_permission.as_str()))
+    );
+    let expected_access_cases = if member_form == "method" {
+        vec!["direct", "prototype", "replacement"]
+    } else if member_name == "title" {
+        vec![
+            "read",
+            "write",
+            "prototype-read",
+            "prototype-write",
+            "replacement-read",
+        ]
+    } else {
+        vec!["read", "write", "replacement-read"]
+    };
+    assert!(
+        access_cases
+            .iter()
+            .map(String::as_str)
+            .eq(expected_access_cases),
+        "process shared-state probe has the wrong access cases"
+    );
+    assert_eq!(expected_error_code, "ERR_ACCESS_DENIED");
+    assert_eq!(
+        expected_error,
+        &format!("process.{member_name} is disabled in an armed runtime")
+    );
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
+    assert_eq!(invocation.kind, "closed-surface");
+    assert_eq!(invocation.surface_kind, "native-op");
+    assert_eq!(
+        invocation.surface_name,
+        format!("global:process.{member_name}")
+    );
+    assert_eq!(invocation.expected_result, "closed");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert!(invocation.allowed_coverage_edge_ids.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+
+    let descriptor = &invocation.source_descriptor;
+    assert_eq!(descriptor.kind, "closed-process-shared-state-member");
+    assert_eq!(
+        descriptor.surface_observed_key.as_deref(),
+        Some(probe.surface_observed_key.as_str())
+    );
+    assert_eq!(descriptor.global_name.as_deref(), Some("process"));
+    assert_eq!(
+        descriptor.member_name.as_deref(),
+        Some(member_name.as_str())
+    );
+    assert_eq!(
+        descriptor.member_form.as_deref(),
+        Some(member_form.as_str())
+    );
+    assert_eq!(descriptor.target_triple.as_deref(), Some(target_triple));
+    assert_eq!(
+        descriptor.enforcement_source_ref.as_deref(),
+        Some("src/engine/hermes_runtime.cc#armed-process-shared-state-members")
+    );
+    assert_eq!(
+        descriptor.implementation_branch_ids.as_ref(),
+        Some(&recipe.implementation_branch_ids)
+    );
+    assert_eq!(
+        descriptor.enforcement_branch_ids.as_ref(),
+        Some(&recipe.enforcement_branch_ids)
+    );
+    assert!(!descriptor.source_refs.is_empty());
+    let metadata = &descriptor.source_metadata;
+    assert_eq!(metadata["surfaceType"], "global-api");
+    assert_eq!(metadata["globalName"], "process");
+    assert_eq!(metadata["memberName"], member_name.as_str());
+    assert_eq!(metadata["exportName"], format!("process.{member_name}"));
+    let member_kinds = metadata["memberKinds"]
+        .as_array()
+        .expect("process shared-state member kinds must be an array");
+    if member_form == "method" {
+        assert_eq!(metadata["valueShape"], "callable");
+        assert!(member_kinds.iter().any(|kind| kind == "prototype-method"));
+    } else if member_name == "title" {
+        assert!(member_kinds.iter().any(|kind| kind == "prototype-accessor"));
+    } else {
+        assert_eq!(
+            metadata["memberKinds"],
+            serde_json::json!(["instance-property", "member-assignment"])
+        );
+    }
+    let branches = metadata["installationBranches"]
+        .as_array()
+        .expect("process shared-state source must name installation branches");
+    let selected_variants = recipe
+        .implementation_branch_ids
+        .iter()
+        .map(|branch_id| {
+            branch_id
+                .rsplit_once('.')
+                .expect("implementation branch id has no variant")
+                .1
+        })
+        .collect::<Vec<_>>();
+    let selected = branches
+        .iter()
+        .filter(|branch| {
+            branch["id"]
+                .as_str()
+                .is_some_and(|id| selected_variants.contains(&id))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(selected.len(), 1);
+    for source_ref in selected[0]["sourceRefs"]
+        .as_array()
+        .expect("selected process shared-state source refs must be an array")
+    {
+        assert!(
+            descriptor
+                .source_refs
+                .iter()
+                .any(|candidate| source_ref == candidate),
+            "selected process shared-state source ref left the bound inventory"
+        );
+    }
+
+    let (surface_kind, surface_name) = coverage
+        .get(&recipe.edge_ids[0])
+        .expect("process shared-state recipe names an unknown coverage edge");
+    assert_eq!(surface_kind, &invocation.surface_kind);
+    assert_eq!(surface_name, &invocation.surface_name);
+    let terminal_observed_key = format!("{surface_kind}:{surface_name}");
+    assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
+    assert_eq!(terminal_observed_key, probe.surface_observed_key);
+
+    let member_json = serde_json::to_string(member_name).unwrap();
+    let form_json = serde_json::to_string(member_form).unwrap();
+    let expected_access_cases_json = serde_json::to_string(access_cases).unwrap();
+    let script = format!(
+        r#"(function(memberName, memberForm, expectedAccessCases) {{
+  var processObject = globalThis.process;
+  var prototype = Object.getPrototypeOf(processObject);
+  function refusal(id, call) {{
+    try {{
+      call();
+      return {{ id: id, returned: true }};
+    }} catch (error) {{
+      return {{
+        id: id,
+        errorName: String(error && error.name || 'Error'),
+        errorCode: error && error.code == null ? null : String(error.code),
+        errorPermission: error && error.permission == null
+          ? null
+          : String(error.permission),
+        errorMessage: String(error && error.message || error)
+      }};
+    }}
+  }}
+  var descriptor = Object.getOwnPropertyDescriptor(processObject, memberName);
+  var prototypeDescriptor =
+    Object.getOwnPropertyDescriptor(prototype, memberName);
+  var accessCases = [];
+  var descriptorPinned = false;
+  var prototypeDescriptorPinned = false;
+  var replacementDenied = false;
+  if (memberForm === 'method') {{
+    accessCases.push(refusal('direct', function() {{
+      return processObject[memberName].apply(processObject, []);
+    }}));
+    accessCases.push(refusal('prototype', function() {{
+      return prototype[memberName].apply(processObject, []);
+    }}));
+    try {{ processObject[memberName] = function() {{ return 'replaced'; }}; }}
+    catch (_) {{}}
+    accessCases.push(refusal('replacement', function() {{
+      return processObject[memberName].apply(processObject, []);
+    }}));
+    descriptorPinned = !!descriptor &&
+      descriptor.writable === false &&
+      descriptor.configurable === false;
+    prototypeDescriptorPinned = !!prototypeDescriptor &&
+      prototypeDescriptor.writable === false &&
+      prototypeDescriptor.configurable === false &&
+      prototypeDescriptor.value === descriptor.value;
+    replacementDenied =
+      processObject[memberName] === descriptor.value;
+  }} else {{
+    accessCases.push(refusal('read', function() {{
+      return processObject[memberName];
+    }}));
+    accessCases.push(refusal('write', function() {{
+      processObject[memberName] = 'ibex-capsec-replacement';
+    }}));
+    if (prototypeDescriptor) {{
+      accessCases.push(refusal('prototype-read', function() {{
+        return prototypeDescriptor.get.call(processObject);
+      }}));
+      accessCases.push(refusal('prototype-write', function() {{
+        return prototypeDescriptor.set.call(
+          processObject,
+          'ibex-capsec-prototype-replacement');
+      }}));
+    }}
+    try {{ processObject[memberName] = 'ibex-capsec-replacement'; }}
+    catch (_) {{}}
+    accessCases.push(refusal('replacement-read', function() {{
+      return processObject[memberName];
+    }}));
+    descriptorPinned = !!descriptor &&
+      typeof descriptor.get === 'function' &&
+      typeof descriptor.set === 'function' &&
+      descriptor.configurable === false;
+    prototypeDescriptorPinned = prototypeDescriptor
+      ? prototypeDescriptor.configurable === false &&
+        prototypeDescriptor.get === descriptor.get &&
+        prototypeDescriptor.set === descriptor.set
+      : memberName === 'report';
+    replacementDenied =
+      Object.getOwnPropertyDescriptor(processObject, memberName).get ===
+        descriptor.get;
+  }}
+  return JSON.stringify({{
+    kind: 'closed',
+    memberName: memberName,
+    memberForm: memberForm,
+    expectedAccessCases: expectedAccessCases,
+    accessCases: accessCases,
+    descriptorPinned: descriptorPinned,
+    prototypeDescriptorPinned: prototypeDescriptorPinned,
+    backingStateHidden:
+      !('_uid' in processObject) &&
+      !('_gid' in processObject) &&
+      !('_euid' in processObject) &&
+      !('_egid' in processObject) &&
+      !('_title' in processObject),
+    replacementDenied: replacementDenied
+  }});
+}})({member_json}, {form_json}, {expected_access_cases_json})"#
+    );
+    let session_id = format!("public-observation:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
+    let encoded = engine
+        .eval_immediate(&script)
+        .await
+        .expect("execute closed process shared-state member")
+        .expect("closed process shared-state member returned no result");
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    let observed: serde_json::Value =
+        serde_json::from_str(&encoded).expect("closed process shared-state result must be JSON");
+    assert_eq!(observed["kind"], "closed");
+    assert_eq!(observed["memberName"], member_name.as_str());
+    assert_eq!(observed["memberForm"], member_form.as_str());
+    assert_eq!(
+        observed["expectedAccessCases"],
+        serde_json::json!(access_cases)
+    );
+    let observed_cases = observed["accessCases"]
+        .as_array()
+        .expect("closed process shared-state access cases must be an array");
+    assert_eq!(observed_cases.len(), access_cases.len());
+    for (observed_case, expected_id) in observed_cases.iter().zip(access_cases) {
+        assert_eq!(observed_case["id"], expected_id.as_str());
+        assert_eq!(observed_case["errorName"], "Error");
+        assert_eq!(observed_case["errorCode"], expected_error_code.as_str());
+        assert_eq!(
+            observed_case["errorPermission"],
+            expected_permission.as_str()
+        );
+        assert_eq!(observed_case["errorMessage"], expected_error.as_str());
+    }
+    assert_eq!(observed["descriptorPinned"], true);
+    assert_eq!(observed["prototypeDescriptorPinned"], true);
+    assert_eq!(observed["backingStateHidden"], true);
+    assert_eq!(observed["replacementDenied"], true);
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let result = serde_json::json!({
+        "kind": "closed",
+        "surfaceKind": surface_kind,
+        "surfaceName": surface_name,
+        "mechanism": invocation.operation.kind(),
+        "memberName": member_name,
+        "memberForm": member_form,
+        "accessCases": observed["accessCases"],
+        "errorName": observed_cases[0]["errorName"],
+        "errorCode": observed_cases[0]["errorCode"],
+        "errorPermission": observed_cases[0]["errorPermission"],
+        "errorMessage": observed_cases[0]["errorMessage"],
+        "descriptorPinned": true,
+        "prototypeDescriptorPinned": true,
+        "backingStateHidden": true,
+        "replacementDenied": true,
+        "engineExecuted": true,
+        "projectCodeExecuted": true,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": terminal_observed_key,
+            "surfaceKind": surface_kind,
+            "surfaceName": surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": 0,
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected process shared-state observation must be an object")
         .insert("result".into(), serde_json::Value::String("passed".into()));
     let mut evidence = serde_json::json!({
         "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
@@ -5265,6 +5674,18 @@ async fn capsec_public_closed_recipe_batch() {
             )
         })
         .count();
+    let process_shared_state_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::ProcessSharedStateClosure { .. }
+            )
+        })
+        .count();
     let process_lifecycle_no_effect_count = recipe_indexes
         .iter()
         .filter(|index| {
@@ -5305,6 +5726,7 @@ async fn capsec_public_closed_recipe_batch() {
             + armed_native_global_absence_count
             + process_event_count
             + process_umask_count
+            + process_shared_state_count
             + process_lifecycle_no_effect_count
             + filesystem_mutation_count,
         "every closed recipe must have an accounted execution family"
@@ -5377,6 +5799,10 @@ async fn capsec_public_closed_recipe_batch() {
     assert_eq!(
         process_umask_count, 1,
         "expected the exact public process umask closure"
+    );
+    assert_eq!(
+        process_shared_state_count, 12,
+        "expected every reviewed process shared-state member closure"
     );
     assert_eq!(
         process_lifecycle_no_effect_count, 44,
@@ -5710,6 +6136,54 @@ async fn capsec_public_closed_recipe_batch() {
             .finish()
             .expect("finish authenticated process-umask publications");
     }
+    if process_shared_state_count > 0 {
+        let process_shared_state_indexes = recipe_indexes
+            .iter()
+            .copied()
+            .filter(|index| {
+                matches!(
+                    &closed_surface_probe(&catalog.recipes[*index])
+                        .unwrap()
+                        .invocation
+                        .operation,
+                    ClosedOperation::ProcessSharedStateClosure { .. }
+                )
+            })
+            .collect::<Vec<_>>();
+        let (host, snapshot_digest) =
+            build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+            .expect("create exact process shared-state closure engine");
+        engine
+            .load_runtime()
+            .await
+            .expect("load exact process shared-state closure runtime");
+        let mut engine = AuthenticatedClosedEngine {
+            host,
+            engine,
+            publications: AuthenticatedPublicationTracker::default(),
+        };
+        for index in process_shared_state_indexes {
+            let recipe = &catalog.recipes[index];
+            let probe = closed_surface_probe(recipe).unwrap();
+            executions.push(
+                execute_closed_process_shared_state(
+                    &mut engine,
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                    &catalog.target.triple,
+                )
+                .await,
+            );
+        }
+        engine
+            .finish()
+            .expect("finish authenticated process-shared-state publications");
+    }
     if process_lifecycle_no_effect_count > 0 {
         let process_lifecycle_indexes = recipe_indexes
             .iter()
@@ -5851,6 +6325,7 @@ async fn capsec_public_closed_recipe_batch() {
                 | ClosedOperation::ArmedNativeGlobalAbsence { .. }
                 | ClosedOperation::ProcessEventClosure { .. }
                 | ClosedOperation::ProcessUmaskClosure { .. }
+                | ClosedOperation::ProcessSharedStateClosure { .. }
                 | ClosedOperation::ProcessEventLifecycleNoEffect { .. }
                 | ClosedOperation::FilesystemUnboundMutation { .. }
         ) {
@@ -5913,6 +6388,7 @@ async fn capsec_public_closed_recipe_batch() {
             ClosedOperation::ArmedNativeGlobalAbsence { .. } => unreachable!(),
             ClosedOperation::ProcessEventClosure { .. } => unreachable!(),
             ClosedOperation::ProcessUmaskClosure { .. } => unreachable!(),
+            ClosedOperation::ProcessSharedStateClosure { .. } => unreachable!(),
             ClosedOperation::ProcessEventLifecycleNoEffect { .. } => unreachable!(),
             ClosedOperation::FilesystemUnboundMutation { .. } => unreachable!(),
         });

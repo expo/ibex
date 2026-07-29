@@ -2382,6 +2382,81 @@ function completeProcessUmaskCatalog() {
   return catalog;
 }
 
+function completeProcessSharedStateCatalog() {
+  const catalog = completeClosedProcessEventCatalog();
+  const recipe = catalog.recipes[0];
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  const memberName = "title";
+  const branchId =
+    "surface.native.op.global.process.title.1h2aqxk.posix";
+  const sourceRefs = [
+    "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process",
+    "packages/ibex-runtime-js/src/node/process.ts#Process.prototype.title",
+    "src/engine/hermes_runtime_process_setup.cc#jsi-global:process.title",
+  ];
+  recipe.fixtureId =
+    "surface.native.op.global.process.title.1h2aqxk.posix.closed";
+  recipe.implementationBranchIds = [branchId];
+  recipe.enforcementBranchIds = [branchId];
+  recipe.terminalObservedKey = `native-op:global:process.${memberName}`;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  invocation.surfaceName = `global:process.${memberName}`;
+  invocation.sourceDescriptor = {
+    kind: "closed-process-shared-state-member",
+    surfaceObservedKey: recipe.terminalObservedKey,
+    globalName: "process",
+    memberName,
+    memberForm: "property",
+    targetTriple: target.triple,
+    implementationBranchIds: [branchId],
+    enforcementBranchIds: [branchId],
+    enforcementSourceRef:
+      "src/engine/hermes_runtime.cc#armed-process-shared-state-members",
+    sourceRefs,
+    sourceMetadata: {
+      exportName: `process.${memberName}`,
+      globalName: "process",
+      installationBranches: [
+        {
+          id: "default",
+          sourceRefs: sourceRefs.slice(0, 2),
+        },
+        {
+          id: "posix",
+          sourceRefs,
+        },
+      ],
+      memberKinds: ["native-object-member", "prototype-accessor"],
+      memberName,
+      surfaceType: "global-api",
+    },
+  };
+  invocation.sourceDescriptorDigest = taggedDigest(
+    invocation.sourceDescriptor,
+  );
+  invocation.operation = {
+    kind: "process-shared-state-closure",
+    memberName,
+    memberForm: "property",
+    accessCases: [
+      "read",
+      "write",
+      "prototype-read",
+      "prototype-write",
+      "replacement-read",
+    ],
+    expectedErrorCode: "ERR_ACCESS_DENIED",
+    expectedPermission: "ProcessTitle",
+    expectedError:
+      "process.title is disabled in an armed runtime",
+  };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
 function completeClosedCliCatalog() {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
@@ -3222,6 +3297,49 @@ function processUmaskObservation(recipe) {
         errorName: "Error",
         errorMessage: operation.expectedError,
         descriptorPinned: true,
+        backingStateHidden: true,
+        replacementDenied: true,
+        engineExecuted: true,
+        projectCodeExecuted: true,
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
+}
+
+function processSharedStateObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  const operation = invocation.operation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      surfaceKind: invocation.surfaceKind,
+      surfaceName: invocation.surfaceName,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      result: {
+        kind: "closed",
+        surfaceKind: invocation.surfaceKind,
+        surfaceName: invocation.surfaceName,
+        mechanism: operation.kind,
+        memberName: operation.memberName,
+        memberForm: operation.memberForm,
+        accessCases: operation.accessCases.map((id) => ({
+          id,
+          errorName: "Error",
+          errorCode: operation.expectedErrorCode,
+          errorPermission: operation.expectedPermission,
+          errorMessage: operation.expectedError,
+        })),
+        errorName: "Error",
+        errorCode: operation.expectedErrorCode,
+        errorPermission: operation.expectedPermission,
+        errorMessage: operation.expectedError,
+        descriptorPinned: true,
+        prototypeDescriptorPinned: true,
         backingStateHidden: true,
         replacementDenied: true,
         engineExecuted: true,
@@ -7966,6 +8084,41 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/pinned read and write closure/);
+  });
+
+  test("accepts process shared-state closure only with pinned accessor denial", () => {
+    const catalog = completeProcessSharedStateCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: processSharedStateObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const bypassedPrototype = processSharedStateObservation(recipe);
+    bypassedPrototype.invocation.result.prototypeDescriptorPinned = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: bypassedPrototype,
+        coverage,
+      }),
+    ).toThrow(/direct, prototype, and replacement closure/);
+
+    const missingPrototypeWrite = processSharedStateObservation(recipe);
+    missingPrototypeWrite.invocation.result.accessCases.splice(3, 1);
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: missingPrototypeWrite,
+        coverage,
+      }),
+    ).toThrow(/direct, prototype, and replacement closure/);
   });
 
   test("accepts CLI closure only with the authored production rejection", () => {

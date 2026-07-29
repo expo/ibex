@@ -9247,8 +9247,8 @@ module.exports = JSON.stringify({
                     }
                   }
                   var properties = [
-                    ['title', 'ProcessTitle', 'ibex'],
-                    ['report', 'ProcessReport', {}]
+                    ['title', 'ProcessTitle', 'ibex', true],
+                    ['report', 'ProcessReport', {}, false]
                   ];
                   for (var j = 0; j < properties.length; j++) {
                     var property = properties[j];
@@ -9256,16 +9256,36 @@ module.exports = JSON.stringify({
                     var propertyPermission = property[1];
                     var propertyDescriptor =
                       Object.getOwnPropertyDescriptor(process, propertyName);
+                    var prototypePropertyDescriptor =
+                      Object.getOwnPropertyDescriptor(proto, propertyName);
                     if (!propertyDescriptor ||
                         typeof propertyDescriptor.get !== 'function' ||
                         typeof propertyDescriptor.set !== 'function' ||
                         propertyDescriptor.configurable !== false ||
+                        (!!prototypePropertyDescriptor !== property[3]) ||
+                        (prototypePropertyDescriptor &&
+                          (prototypePropertyDescriptor.get !==
+                              propertyDescriptor.get ||
+                            prototypePropertyDescriptor.set !==
+                              propertyDescriptor.set ||
+                            prototypePropertyDescriptor.configurable !==
+                              false)) ||
                         !denied(function () {
                           return process[propertyName];
                         }, propertyPermission) ||
                         !denied(function () {
                           process[propertyName] = property[2];
-                        }, propertyPermission)) {
+                        }, propertyPermission) ||
+                        (prototypePropertyDescriptor &&
+                          (!denied(function () {
+                            return prototypePropertyDescriptor.get.call(
+                              process);
+                          }, propertyPermission) ||
+                            !denied(function () {
+                              return prototypePropertyDescriptor.set.call(
+                                process,
+                                property[2]);
+                            }, propertyPermission)))) {
                       return false;
                     }
                   }

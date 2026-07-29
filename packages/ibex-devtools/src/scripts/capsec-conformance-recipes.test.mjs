@@ -468,11 +468,13 @@ describe("exact-target CapSec executable recipes", () => {
     // their harness-owned receiver never acquired a transport.
     // Forty-four process lifecycle receipts bind exit and beforeExit across
     // both their branch-selection and no-effect obligations.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_874);
+    // Twelve process shared-state receipts prove direct, prototype, accessor,
+    // and replacement closure without entering the authority evaluator.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_886);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_040);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_681);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_669);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -659,9 +661,11 @@ describe("exact-target CapSec executable recipes", () => {
     // their harness-owned receiver never acquired a transport.
     // The same source-defined lifecycle branches are target-applicable on
     // Windows and execute against its selected installation branch.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_513);
+    // The same twelve shared-state closures bind Windows' selected source
+    // variants to the final armed runtime gate.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_525);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_026);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_715);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_703);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -1057,15 +1061,15 @@ describe("exact-target CapSec executable recipes", () => {
       ),
     ).toBe(true);
     // The closed batch includes the 44 exact process lifecycle no-effect
-    // receipts and one pinned process.umask receipt added after the prior
-    // Windows accounting snapshot.
+    // receipts, one pinned process.umask receipt, and twelve pinned process
+    // shared-state receipts added after the prior Windows snapshot.
     expect(
       windowsRecipes.recipes.filter((recipe) =>
         recipe.publicSurfaceProbe?.command?.includes(
           "capsec_public_closed_recipe_batch",
         ),
       ),
-    ).toHaveLength(774);
+    ).toHaveLength(786);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -5138,6 +5142,92 @@ describe("exact-target CapSec executable recipes", () => {
               expectedPermission: "ProcessUmask",
               expectedError:
                 "process.umask is disabled in an armed runtime",
+            },
+          },
+        },
+      });
+    }
+  });
+
+  test("binds process shared-state members to pinned armed refusals", () => {
+    for (const catalog of [recipes, windowsRecipes]) {
+      const rows = catalog.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+          "process-shared-state-closure",
+      );
+      expect(rows, catalog.target.triple).toHaveLength(12);
+      expect(
+        rows.every((recipe) => {
+          const invocation = recipe.publicSurfaceProbe.invocation;
+          const descriptor = invocation.sourceDescriptor;
+          const operation = invocation.operation;
+          return (
+            recipe.status === "fully-executable" &&
+            recipe.classification === "closed" &&
+            recipe.scenario === "closed" &&
+            recipe.actionIds.length === 0 &&
+            recipe.residualReasons.length === 0 &&
+            invocation.expectedResult === "closed" &&
+            invocation.expectedTypedDecisionCount === 0 &&
+            descriptor.targetTriple === catalog.target.triple &&
+            descriptor.enforcementSourceRef ===
+              "src/engine/hermes_runtime.cc#armed-process-shared-state-members" &&
+            descriptor.memberName === operation.memberName &&
+            descriptor.memberForm === operation.memberForm &&
+            operation.expectedErrorCode === "ERR_ACCESS_DENIED" &&
+            operation.expectedError ===
+              `process.${operation.memberName} is disabled in an armed runtime`
+          );
+        }),
+      ).toBe(true);
+      expect(
+        rows.find(
+          (recipe) =>
+            recipe.terminalObservedKey ===
+            "native-op:global:process._getActiveHandles",
+        ),
+      ).toMatchObject({
+        publicSurfaceProbe: {
+          invocation: {
+            sourceDescriptor: {
+              kind: "closed-process-shared-state-member",
+              memberName: "_getActiveHandles",
+              memberForm: "method",
+            },
+            operation: {
+              memberName: "_getActiveHandles",
+              memberForm: "method",
+              accessCases: ["direct", "prototype", "replacement"],
+              expectedPermission: "ProcessInspection",
+            },
+          },
+        },
+      });
+      expect(
+        rows.find(
+          (recipe) =>
+            recipe.terminalObservedKey ===
+            "native-op:global:process.title",
+        ),
+      ).toMatchObject({
+        publicSurfaceProbe: {
+          invocation: {
+            sourceDescriptor: {
+              memberName: "title",
+              memberForm: "property",
+            },
+            operation: {
+              memberName: "title",
+              memberForm: "property",
+              accessCases: [
+                "read",
+                "write",
+                "prototype-read",
+                "prototype-write",
+                "replacement-read",
+              ],
+              expectedPermission: "ProcessTitle",
             },
           },
         },

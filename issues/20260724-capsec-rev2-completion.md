@@ -5743,6 +5743,48 @@ ticket closes.
   1 unchecked). `cargo fmt --all -- --check` still reports only the known
   untouched `src/engine/mod.rs:2168` wrap.
 
+### 2026-07-28 — prove armed process shared-state closure
+
+- Promoted the ten newly closed process methods plus `title` and `report`
+  through twelve exact `process-shared-state-closure` receipts on both
+  candidate targets. Every recipe binds its selected source branch to the
+  final armed lockdown gate and repeats the exact permission family.
+- Method receipts prove direct invocation, defining-prototype invocation, and
+  post-replacement invocation all return the same stable
+  `ERR_ACCESS_DENIED`. Property receipts prove read, write, and replacement
+  closure; the `title` receipt also calls its defining prototype getter and
+  setter directly.
+- That prototype case exposed a real gap: the own `process.title` accessor was
+  closed, but package code could still call the original
+  `Process.prototype.title` getter or setter with `process` as the receiver.
+  The final gate now pins the own and defining-prototype accessors to the same
+  immutable refusal. The focused armed regression and the public batch both
+  prove the bypass is closed, public credential/title backing cells are
+  absent, and no legacy or typed decision is emitted.
+- The content-addressed lockdown program now has reviewed digest
+  `sha256-2d639dfcb7460411a28ab4a1f84e1a9712765a1853562950584415a13fc2fa5f`
+  and evaluator identity
+  `hermes-evaluators.9bf29919e44ebbb3ce3ab599f2eabbe58f1171b5b46aa5d0139ca0475f40d0f6`.
+  The four reachable evaluator names and their taming kinds are unchanged.
+- Apple catalog
+  `sha256-CqIzkbSPRjF3YGImjTgYrsCbiN50tnfVCVDQqRnTq6c`: 23,595 required /
+  **3,886 executable** / 3,040 internally verified / 16,669 unresolved.
+  Windows catalog
+  `sha256-ownbT67hUSjxbA6E_oFeFGulBGp5Hs-n_3kyvO5ybm4`: 23,254 /
+  **3,525** / 3,026 / 16,703. Closed-denial residuals fall to 484 and 467.
+- The EPYC authenticated Apple closed batch passes 1/1 and emits **807/807**
+  passing records, including all twelve new physical receipts, against loaded
+  engine
+  `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. Raw batch evidence
+  SHA-256:
+  `2c35290c559e8bb4703b18a3b5985f748b5c5fca3917faac43b3c04c2284035b`.
+- Focused JavaScript recipe/evidence validation passes **183/183** tests; the
+  classifier, recipe, and evidence suite passes **326/326** with 120,940
+  assertions. Root-global freshness and full generated drift pass.
+  Advertisements remain empty, criterion 7 remains open, important
+  enforcement remains about **99.8% complete**, and overall completion remains
+  about **96%**.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

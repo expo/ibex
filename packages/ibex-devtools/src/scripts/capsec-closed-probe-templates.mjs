@@ -196,6 +196,106 @@ const PROCESS_EVENT_METHOD_ARGUMENT_SHAPES = new Map([
 ]);
 const PROCESS_EVENT_ENFORCEMENT_SOURCE_REF =
   "src/engine/hermes_runtime.cc#armed-process-event-methods";
+const PROCESS_SHARED_STATE_ENFORCEMENT_SOURCE_REF =
+  "src/engine/hermes_runtime.cc#armed-process-shared-state-members";
+const CLOSED_PROCESS_SHARED_STATE_MEMBERS = new Map([
+  [
+    "_getActiveHandles",
+    {
+      memberForm: "method",
+      permission: "ProcessInspection",
+      cap: "runtime:inspect",
+    },
+  ],
+  [
+    "_getActiveRequests",
+    {
+      memberForm: "method",
+      permission: "ProcessInspection",
+      cap: "runtime:inspect",
+    },
+  ],
+  [
+    "_kill",
+    {
+      memberForm: "method",
+      permission: "ProcessSignals",
+      cap: "process:signal",
+    },
+  ],
+  [
+    "abort",
+    {
+      memberForm: "method",
+      permission: "ProcessLifecycle",
+      cap: "process:signal",
+    },
+  ],
+  [
+    "binding",
+    {
+      memberForm: "method",
+      permission: "ProcessBinding",
+      cap: "ffi:load",
+    },
+  ],
+  [
+    "kill",
+    {
+      memberForm: "method",
+      permission: "ProcessSignals",
+      cap: "process:signal",
+    },
+  ],
+  [
+    "setegid",
+    {
+      memberForm: "method",
+      permission: "ProcessCredentials",
+      cap: "process:identity",
+    },
+  ],
+  [
+    "seteuid",
+    {
+      memberForm: "method",
+      permission: "ProcessCredentials",
+      cap: "process:identity",
+    },
+  ],
+  [
+    "setgid",
+    {
+      memberForm: "method",
+      permission: "ProcessCredentials",
+      cap: "process:identity",
+    },
+  ],
+  [
+    "setuid",
+    {
+      memberForm: "method",
+      permission: "ProcessCredentials",
+      cap: "process:identity",
+    },
+  ],
+  [
+    "title",
+    {
+      memberForm: "property",
+      permission: "ProcessTitle",
+      cap: "runtime:inspect",
+    },
+  ],
+  [
+    "report",
+    {
+      memberForm: "property",
+      permission: "ProcessReport",
+      cap: "runtime:inspect",
+    },
+  ],
+]);
 const PROCESS_LIFECYCLE_RESULT_KINDS = new Map([
   ["addListener", "process"],
   ["listenerCount", "zero"],
@@ -1499,6 +1599,119 @@ function processUmaskClosureProbe({
   };
 }
 
+function processSharedStateClosureProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+  target,
+}) {
+  if (
+    !EXACT_RUNTIME_CANDIDATE_TRIPLES.has(target?.triple) ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const prefix = "native-op:global:process.";
+  if (!surfaceObservedKey.startsWith(prefix)) return null;
+  const memberName = surfaceObservedKey.slice(prefix.length);
+  const reviewed = CLOSED_PROCESS_SHARED_STATE_MEMBERS.get(memberName);
+  if (!reviewed) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  const selectedBranches = metadata?.installationBranches?.filter((branch) =>
+    plan.implementationBranchIds.some((branchId) =>
+      branchId.endsWith(`.${branch.id}`),
+    ),
+  );
+  const sourceShapeMatches =
+    reviewed.memberForm === "method"
+      ? metadata?.valueShape === "callable" &&
+        metadata.memberKinds?.includes("prototype-method")
+      : memberName === "title"
+        ? metadata?.memberKinds?.includes("prototype-accessor")
+        : canonicalJson(metadata?.memberKinds) ===
+          canonicalJson(["instance-property", "member-assignment"]);
+  if (
+    live?.kind !== "native-op" ||
+    live.name !== `global:process.${memberName}` ||
+    metadata?.surfaceType !== "global-api" ||
+    metadata.globalName !== "process" ||
+    metadata.memberName !== memberName ||
+    metadata.exportName !== `process.${memberName}` ||
+    !sourceShapeMatches ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length === 0 ||
+    !Array.isArray(selectedBranches) ||
+    selectedBranches.length !== 1 ||
+    selectedBranches[0].sourceRefs.some(
+      (sourceRef) => !live.sourceRefs.includes(sourceRef),
+    ) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    edge.cap !== reviewed.cap ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-process-shared-state-member",
+    surfaceObservedKey,
+    globalName: "process",
+    memberName,
+    memberForm: reviewed.memberForm,
+    targetTriple: target.triple,
+    implementationBranchIds: structuredClone(plan.implementationBranchIds),
+    enforcementBranchIds: structuredClone(plan.enforcementBranchIds),
+    enforcementSourceRef: PROCESS_SHARED_STATE_ENFORCEMENT_SOURCE_REF,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "native-op",
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "process-shared-state-closure",
+        memberName,
+        memberForm: reviewed.memberForm,
+        accessCases:
+          reviewed.memberForm === "method"
+            ? ["direct", "prototype", "replacement"]
+            : memberName === "title"
+              ? [
+                  "read",
+                  "write",
+                  "prototype-read",
+                  "prototype-write",
+                  "replacement-read",
+                ]
+              : ["read", "write", "replacement-read"],
+        expectedErrorCode: "ERR_ACCESS_DENIED",
+        expectedPermission: reviewed.permission,
+        expectedError:
+          `process.${memberName} is disabled in an armed runtime`,
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
 function armedNativeGlobalAbsenceProbe({
   plan,
   route,
@@ -1927,6 +2140,7 @@ export function authoredClosedPublicProbe(options) {
     debuggerAbiDisabledProbe(options) ??
     processUmaskClosureProbe(options) ??
     processEventClosureProbe(options) ??
+    processSharedStateClosureProbe(options) ??
     armedNativeGlobalAbsenceProbe(options) ??
     sharedRuntimeGlobalAbsenceProbe(options) ??
     filesystemMutationProbe(options)
