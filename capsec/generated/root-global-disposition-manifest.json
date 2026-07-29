@@ -2,7 +2,7 @@
   "rootGlobalDispositionManifestSchema": "ibex/root-global-disposition-manifest/1",
   "profile": "ibex/capsec/1",
   "status": "enforced-by-armed-live-sweep",
-  "sourceDigest": "sha256-GeoNHSK_K9MLn_hrhqL6gn3hGbwXkOj1J_JKnJZiwe0",
+  "sourceDigest": "sha256-wHr6JEpqNhqCpBFY4dmeq5L7f357swpGmVSmDgovMCw",
   "sweep": {
     "roots": [
       "globalThis"
@@ -3230,48 +3230,13 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.asyncfunction.28d49b33dbd4429a",
-      "observedKey": "native-op:global:AsyncFunction",
-      "registryEdgeId": "surface.native.op.global.asyncfunction.12527a5",
-      "branch": {
-        "id": "windows",
-        "routes": [
-          "hermes-intrinsic-windows-source-patched-d410277b8227-154d9ce9cd21"
-        ],
-        "sourceRefs": [
-          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d410277b82273013ebbd6c3e1951a4db541a41a2403ddda0694ac9625eca367c",
-          "scripts/install-windows-hermes.ps1#hermes-windows-",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-154d9ce9cd21785f2ec4c20f3f439d6070ce583db5a7bb7b0ac08f1e3acfcf1d",
-          "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
-        ],
-        "targetVariant": "windows",
-        "activation": "intrinsic-reference-only"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "AsyncFunction"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "source-derived",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.asyncfunction.29434cd8624ddbb3",
+      "installId": "root-global.asyncfunction.86c78f4fb3f8b29f",
       "observedKey": "native-op:global:AsyncFunction",
       "registryEdgeId": "surface.native.op.global.asyncfunction.12527a5",
       "branch": {
         "id": "default",
         "routes": [
-          "hermes-intrinsic-source-patched-5143371b783b-154d9ce9cd21"
+          "hermes-intrinsic-source-patched-5143371b783b-2d4051daed93"
         ],
         "sourceRefs": [
           "patches/hermes/0001-domain-package-principal.patch#patch-content",
@@ -3296,7 +3261,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#evaluator-identity:sha256-5143371b783b11c00d21f7deecc227b41fff0c64bb2ea10c06c6904470f9d8d8",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-154d9ce9cd21785f2ec4c20f3f439d6070ce583db5a7bb7b0ac08f1e3acfcf1d",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-2d4051daed930d036f233781d19e9a23bcf40e46a94a0eae3b175983ae6641c4",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
         "targetVariant": "default",
@@ -3319,13 +3284,48 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.asyncfunction.cf28c294e8a18111",
+      "installId": "root-global.asyncfunction.9e5a2183db9bea6c",
+      "observedKey": "native-op:global:AsyncFunction",
+      "registryEdgeId": "surface.native.op.global.asyncfunction.12527a5",
+      "branch": {
+        "id": "windows",
+        "routes": [
+          "hermes-intrinsic-windows-source-patched-d410277b8227-2d4051daed93"
+        ],
+        "sourceRefs": [
+          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d410277b82273013ebbd6c3e1951a4db541a41a2403ddda0694ac9625eca367c",
+          "scripts/install-windows-hermes.ps1#hermes-windows-",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-2d4051daed930d036f233781d19e9a23bcf40e46a94a0eae3b175983ae6641c4",
+          "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
+        ],
+        "targetVariant": "windows",
+        "activation": "intrinsic-reference-only"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "AsyncFunction"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "source-derived",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.asyncfunction.ac370853ff8e1d4a",
       "observedKey": "native-op:global:AsyncFunction",
       "registryEdgeId": "surface.native.op.global.asyncfunction.12527a5",
       "branch": {
         "id": "android",
         "routes": [
-          "hermes-intrinsic-android-maven-a633ad80de5c-154d9ce9cd21"
+          "hermes-intrinsic-android-maven-a633ad80de5c-2d4051daed93"
         ],
         "sourceRefs": [
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
@@ -3336,7 +3336,7 @@
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
           "scripts/install-android-hermes.sh#com.facebook.react:react-android",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-154d9ce9cd21785f2ec4c20f3f439d6070ce583db5a7bb7b0ac08f1e3acfcf1d",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-2d4051daed930d036f233781d19e9a23bcf40e46a94a0eae3b175983ae6641c4",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
         "targetVariant": "android",
@@ -11024,9 +11024,9 @@
       "aliases": [],
       "installPhase": "shared-runtime",
       "privateConsumer": null,
-      "disposition": "converted",
+      "disposition": "sealed",
       "traversal": "descend",
-      "liveExpectation": "reachable",
+      "liveExpectation": "absent",
       "resolution": "static",
       "nativeImplementation": false
     },
@@ -21932,60 +21932,13 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.eval.13d2bdf9d4252b63",
-      "observedKey": "native-op:global:eval",
-      "registryEdgeId": "surface.native.op.global.eval.018ogi5",
-      "branch": {
-        "id": "android",
-        "routes": [
-          "hermes-intrinsic-android-maven-a633ad80de5c-154d9ce9cd21",
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
-          "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
-          "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
-          "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
-          "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
-          "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
-          "scripts/install-android-hermes.sh#com.facebook.react:react-android",
-          "src/engine/bootstrap/compat-polyfills.js#eval",
-          "src/engine/bootstrap/process-compat-fix.js#eval",
-          "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyCompatPolyfills:sha256-85e5f64997c896a0b0fed5d1fdbb4903a17334b0e9a0bbe32c412ee13316e1ea",
-          "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
-          "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
-          "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-154d9ce9cd21785f2ec4c20f3f439d6070ce583db5a7bb7b0ac08f1e3acfcf1d",
-          "src/engine/hermes_runtime.cc#lockdownJS:eval"
-        ],
-        "targetVariant": "android",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "eval"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.eval.91920a2ac654bf3d",
+      "installId": "root-global.eval.49e32316487665cc",
       "observedKey": "native-op:global:eval",
       "registryEdgeId": "surface.native.op.global.eval.018ogi5",
       "branch": {
         "id": "default",
         "routes": [
-          "hermes-intrinsic-source-patched-5143371b783b-154d9ce9cd21",
+          "hermes-intrinsic-source-patched-5143371b783b-2d4051daed93",
           "legacy-bootstrap"
         ],
         "sourceRefs": [
@@ -22017,7 +21970,7 @@
           "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
           "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
           "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-154d9ce9cd21785f2ec4c20f3f439d6070ce583db5a7bb7b0ac08f1e3acfcf1d",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-2d4051daed930d036f233781d19e9a23bcf40e46a94a0eae3b175983ae6641c4",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
         "targetVariant": "default",
@@ -22040,19 +21993,66 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.eval.9b4dd8159d470528",
+      "installId": "root-global.eval.b3ec83c7b2760017",
+      "observedKey": "native-op:global:eval",
+      "registryEdgeId": "surface.native.op.global.eval.018ogi5",
+      "branch": {
+        "id": "android",
+        "routes": [
+          "hermes-intrinsic-android-maven-a633ad80de5c-2d4051daed93",
+          "legacy-bootstrap"
+        ],
+        "sourceRefs": [
+          "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
+          "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
+          "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
+          "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+          "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
+          "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
+          "scripts/install-android-hermes.sh#com.facebook.react:react-android",
+          "src/engine/bootstrap/compat-polyfills.js#eval",
+          "src/engine/bootstrap/process-compat-fix.js#eval",
+          "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyCompatPolyfills:sha256-85e5f64997c896a0b0fed5d1fdbb4903a17334b0e9a0bbe32c412ee13316e1ea",
+          "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
+          "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
+          "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-2d4051daed930d036f233781d19e9a23bcf40e46a94a0eae3b175983ae6641c4",
+          "src/engine/hermes_runtime.cc#lockdownJS:eval"
+        ],
+        "targetVariant": "android",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "eval"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "bootstrap-script",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.eval.bdcfa9021c0a804a",
       "observedKey": "native-op:global:eval",
       "registryEdgeId": "surface.native.op.global.eval.018ogi5",
       "branch": {
         "id": "windows",
         "routes": [
-          "hermes-intrinsic-windows-source-patched-d410277b8227-154d9ce9cd21"
+          "hermes-intrinsic-windows-source-patched-d410277b8227-2d4051daed93"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d410277b82273013ebbd6c3e1951a4db541a41a2403ddda0694ac9625eca367c",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-154d9ce9cd21785f2ec4c20f3f439d6070ce583db5a7bb7b0ac08f1e3acfcf1d",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-2d4051daed930d036f233781d19e9a23bcf40e46a94a0eae3b175983ae6641c4",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
         "targetVariant": "windows",
@@ -26394,9 +26394,9 @@
       "aliases": [],
       "installPhase": "shared-runtime",
       "privateConsumer": null,
-      "disposition": "converted",
+      "disposition": "sealed",
       "traversal": "descend",
-      "liveExpectation": "reachable",
+      "liveExpectation": "absent",
       "resolution": "static",
       "nativeImplementation": false
     },
@@ -49156,13 +49156,13 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.function.67091127d2e7d24d",
+      "installId": "root-global.function.4801b5f996e18690",
       "observedKey": "native-op:global:Function",
       "registryEdgeId": "surface.native.op.global.function.132ixh3",
       "branch": {
         "id": "android",
         "routes": [
-          "hermes-intrinsic-android-maven-a633ad80de5c-154d9ce9cd21"
+          "hermes-intrinsic-android-maven-a633ad80de5c-2d4051daed93"
         ],
         "sourceRefs": [
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
@@ -49173,7 +49173,7 @@
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
           "scripts/install-android-hermes.sh#com.facebook.react:react-android",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-154d9ce9cd21785f2ec4c20f3f439d6070ce583db5a7bb7b0ac08f1e3acfcf1d",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-2d4051daed930d036f233781d19e9a23bcf40e46a94a0eae3b175983ae6641c4",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
         "targetVariant": "android",
@@ -49196,13 +49196,13 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.function.958b06db750f493c",
+      "installId": "root-global.function.61316759bedb432a",
       "observedKey": "native-op:global:Function",
       "registryEdgeId": "surface.native.op.global.function.132ixh3",
       "branch": {
         "id": "default",
         "routes": [
-          "hermes-intrinsic-source-patched-5143371b783b-154d9ce9cd21"
+          "hermes-intrinsic-source-patched-5143371b783b-2d4051daed93"
         ],
         "sourceRefs": [
           "patches/hermes/0001-domain-package-principal.patch#patch-content",
@@ -49227,7 +49227,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#evaluator-identity:sha256-5143371b783b11c00d21f7deecc227b41fff0c64bb2ea10c06c6904470f9d8d8",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-154d9ce9cd21785f2ec4c20f3f439d6070ce583db5a7bb7b0ac08f1e3acfcf1d",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-2d4051daed930d036f233781d19e9a23bcf40e46a94a0eae3b175983ae6641c4",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
         "targetVariant": "default",
@@ -49250,19 +49250,19 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.function.a975162f263e93a7",
+      "installId": "root-global.function.a4e46761a91d6052",
       "observedKey": "native-op:global:Function",
       "registryEdgeId": "surface.native.op.global.function.132ixh3",
       "branch": {
         "id": "windows",
         "routes": [
-          "hermes-intrinsic-windows-source-patched-d410277b8227-154d9ce9cd21"
+          "hermes-intrinsic-windows-source-patched-d410277b8227-2d4051daed93"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d410277b82273013ebbd6c3e1951a4db541a41a2403ddda0694ac9625eca367c",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-154d9ce9cd21785f2ec4c20f3f439d6070ce583db5a7bb7b0ac08f1e3acfcf1d",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-2d4051daed930d036f233781d19e9a23bcf40e46a94a0eae3b175983ae6641c4",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
         "targetVariant": "windows",
@@ -49316,27 +49316,22 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.generatorfunction.0650a0b81245d8f2",
+      "installId": "root-global.generatorfunction.0997c1e9d893a048",
       "observedKey": "native-op:global:GeneratorFunction",
       "registryEdgeId": "surface.native.op.global.generatorfunction.05wtx3w",
       "branch": {
-        "id": "android",
+        "id": "windows",
         "routes": [
-          "hermes-intrinsic-android-maven-a633ad80de5c-154d9ce9cd21"
+          "hermes-intrinsic-windows-source-patched-d410277b8227-2d4051daed93"
         ],
         "sourceRefs": [
-          "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
-          "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
-          "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
-          "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
-          "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
-          "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
-          "scripts/install-android-hermes.sh#com.facebook.react:react-android",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-154d9ce9cd21785f2ec4c20f3f439d6070ce583db5a7bb7b0ac08f1e3acfcf1d",
+          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d410277b82273013ebbd6c3e1951a4db541a41a2403ddda0694ac9625eca367c",
+          "scripts/install-windows-hermes.ps1#hermes-windows-",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-2d4051daed930d036f233781d19e9a23bcf40e46a94a0eae3b175983ae6641c4",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
-        "targetVariant": "android",
+        "targetVariant": "windows",
         "activation": "intrinsic-reference-only"
       },
       "property": {
@@ -49356,13 +49351,13 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.generatorfunction.7d3e54dc7717e6fc",
+      "installId": "root-global.generatorfunction.7a86b87a1b08463d",
       "observedKey": "native-op:global:GeneratorFunction",
       "registryEdgeId": "surface.native.op.global.generatorfunction.05wtx3w",
       "branch": {
         "id": "default",
         "routes": [
-          "hermes-intrinsic-source-patched-5143371b783b-154d9ce9cd21"
+          "hermes-intrinsic-source-patched-5143371b783b-2d4051daed93"
         ],
         "sourceRefs": [
           "patches/hermes/0001-domain-package-principal.patch#patch-content",
@@ -49387,7 +49382,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#evaluator-identity:sha256-5143371b783b11c00d21f7deecc227b41fff0c64bb2ea10c06c6904470f9d8d8",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-154d9ce9cd21785f2ec4c20f3f439d6070ce583db5a7bb7b0ac08f1e3acfcf1d",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-2d4051daed930d036f233781d19e9a23bcf40e46a94a0eae3b175983ae6641c4",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
         "targetVariant": "default",
@@ -49410,22 +49405,27 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.generatorfunction.d548c6778b1e6132",
+      "installId": "root-global.generatorfunction.e43ca6c274a9ee0b",
       "observedKey": "native-op:global:GeneratorFunction",
       "registryEdgeId": "surface.native.op.global.generatorfunction.05wtx3w",
       "branch": {
-        "id": "windows",
+        "id": "android",
         "routes": [
-          "hermes-intrinsic-windows-source-patched-d410277b8227-154d9ce9cd21"
+          "hermes-intrinsic-android-maven-a633ad80de5c-2d4051daed93"
         ],
         "sourceRefs": [
-          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d410277b82273013ebbd6c3e1951a4db541a41a2403ddda0694ac9625eca367c",
-          "scripts/install-windows-hermes.ps1#hermes-windows-",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-154d9ce9cd21785f2ec4c20f3f439d6070ce583db5a7bb7b0ac08f1e3acfcf1d",
+          "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
+          "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
+          "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
+          "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+          "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
+          "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
+          "scripts/install-android-hermes.sh#com.facebook.react:react-android",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-2d4051daed930d036f233781d19e9a23bcf40e46a94a0eae3b175983ae6641c4",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
-        "targetVariant": "windows",
+        "targetVariant": "android",
         "activation": "intrinsic-reference-only"
       },
       "property": {
@@ -81285,9 +81285,9 @@
       "aliases": [],
       "installPhase": "bootstrap-script",
       "privateConsumer": null,
-      "disposition": "converted",
+      "disposition": "sealed",
       "traversal": "descend",
-      "liveExpectation": "reachable",
+      "liveExpectation": "absent",
       "resolution": "static",
       "nativeImplementation": false
     },
@@ -81321,9 +81321,9 @@
       "aliases": [],
       "installPhase": "bootstrap-script",
       "privateConsumer": null,
-      "disposition": "converted",
+      "disposition": "sealed",
       "traversal": "descend",
-      "liveExpectation": "reachable",
+      "liveExpectation": "absent",
       "resolution": "static",
       "nativeImplementation": false
     },
@@ -105559,7 +105559,7 @@
     "installBranches": 2810,
     "logicalGlobals": 2581,
     "registryEdges": 2581,
-    "sealedOrPrivate": 360,
-    "permittedReachable": 2450
+    "sealedOrPrivate": 364,
+    "permittedReachable": 2446
   }
 }

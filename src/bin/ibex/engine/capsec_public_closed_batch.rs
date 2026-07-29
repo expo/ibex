@@ -2945,6 +2945,7 @@ fn reviewed_shared_runtime_absent_surface(surface_name: &str) -> bool {
             | "__exactStreamWrapState"
             | "__exactSyncTrackedIpcListenersAfterDispatch"
             | "global:Bun.gc"
+            | "global:Bun.inspect"
             | "global:BroadcastChannel"
             | "global:BroadcastChannel.[[Symbol.toStringTag]]"
             | "global:BroadcastChannel._deliverMessage"
@@ -3001,11 +3002,14 @@ fn reviewed_shared_runtime_absent_surface(surface_name: &str) -> bool {
             | "global:Exact.accessibility.prefersReducedMotion"
             | "global:Exact.accessibility.prefersReducedTransparency"
             | "global:Exact.gc"
+            | "global:Exact.inspect"
             | "global:process.__exactAsyncIpcListenerPatch"
             | "global:process.__exactLateIpcListenerPatch"
             | "global:process.__exactProcessIpcBootstrapInstalled"
             | "global:process.__exactStreamPinned"
             | "global:process.__exactStreamStabilityPatched"
+            | "global:process._uncaughtExceptionHandler"
+            | "global:process._unhandledRejectionHandler"
             | "global:process._umask"
             | "global:process.domain"
             | "global:MessageChannel"
@@ -3237,11 +3241,27 @@ async fn execute_closed_shared_runtime_global_absence(
                 == serde_json::json!(["evaluated-native-script", "legacy-bootstrap"])
             && metadata["sourceKeys"]
                 == serde_json::json!(["evaluated_native_script", "global_compat_polyfills"]);
+        let posix_process_handler_source_ref = match invocation.surface_name.as_str() {
+            "global:process._uncaughtExceptionHandler" => {
+                Some("src/engine/bootstrap/stream-enhance.js#process._uncaughtExceptionHandler")
+            }
+            "global:process._unhandledRejectionHandler" => {
+                Some("src/engine/bootstrap/stream-enhance.js#process._unhandledRejectionHandler")
+            }
+            _ => None,
+        };
+        let posix_process_handler = catalog_target_triple == "aarch64-apple-darwin"
+            && metadata["sourceKey"] == "global_stream_enhance"
+            && branches[0]["route"] == "legacy-bootstrap"
+            && branches[0]["targetVariant"] == "posix"
+            && branches[0]["routes"] == serde_json::json!(["legacy-bootstrap"])
+            && posix_process_handler_source_ref
+                .is_some_and(|source_ref| descriptor.source_refs == [source_ref.to_owned()]);
         assert!(
             if metadata["sourceKey"] == "shared_runtime" {
                 shared_runtime || composed_shared_runtime
             } else {
-                legacy_bootstrap || composed_evaluated_legacy
+                legacy_bootstrap || composed_evaluated_legacy || posix_process_handler
             },
             "shared-runtime absence recipe named an unreviewed installation path"
         );
@@ -6192,12 +6212,12 @@ async fn capsec_public_closed_recipe_batch() {
         expected_filesystem_mutations,
         expected_process_report_members,
     ) = match catalog.target.triple.as_str() {
-        "aarch64-apple-darwin" => (18, 338, 18, 93, 9),
+        "aarch64-apple-darwin" => (18, 342, 18, 93, 9),
         // The Windows-native roots in the reviewed absence vocabulary are
         // either installed by the platform replacement or belong to
         // POSIX-only source branches. Only the eleven worklet/app-runtime
         // roots remain target-applicable here.
-        "x86_64-pc-windows-msvc" => (18, 338, 11, 79, 8),
+        "x86_64-pc-windows-msvc" => (18, 340, 11, 79, 8),
         target => panic!("closed public batch has no reviewed target shape for {target}"),
     };
     assert_eq!(

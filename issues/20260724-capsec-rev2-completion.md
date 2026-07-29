@@ -5934,6 +5934,47 @@ ticket closes.
   remains open; important enforcement remains about **99.8% complete** and
   overall completion remains about **96%**.
 
+### 2026-07-28 — seal inspector and rejection-handler compatibility aliases
+
+- Armed lockdown now deletes and verifies absence of `Bun.inspect`,
+  `Exact.inspect`, `process._uncaughtExceptionHandler`, and
+  `process._unhandledRejectionHandler` before project code. Unarmed diagnostic
+  runtimes retain all four compatibility surfaces.
+- The two inspector aliases receive exact `shared-runtime-global-absence`
+  receipts on Apple and Windows. The process aliases are POSIX-only inventory
+  branches, so Apple authoring and both independent validators admit them only
+  when surface name, `global_stream_enhance` ownership, `legacy-bootstrap`
+  route, `posix` variant, target triple, and `stream-enhance.js` source
+  reference all match. Windows correctly receives no invented handler route.
+- The first EPYC physical run reached the loaded engine but failed closed
+  because the Rust executor still accepted only default legacy-bootstrap
+  branches. Mirroring the exact finite POSIX exception in Rust made the warm
+  rerun pass without broadening any other global.
+- Root disposition remains 2,810 install branches and advances to 364
+  sealed/private rows plus 2,446 permitted reachable rows. The content-addressed
+  lockdown program is
+  `sha256-2d4051daed930d036f233781d19e9a23bcf40e46a94a0eae3b175983ae6641c4`;
+  evaluator identity is
+  `hermes-evaluators.879af494f194ff54a22db7cffc2cf359d37e935e1a262e6b6322ee0331ea729f`.
+- Apple catalog
+  `sha256-hLTMCr30pcFO9cJUq5nrhV6KRrTrD2hf3rptNKL16JM`: 23,595 required /
+  **3,915 executable** / 3,040 internally verified / 16,640 unresolved.
+  Windows catalog
+  `sha256-1s5hJyUumk_KtK51EdbRK75KqUR3XoGJNpZCWb0HuPc`: 23,254 /
+  **3,551** / 3,026 / 16,677. Closed-denial residuals fall to 455 and 441,
+  and the target-specific closed batches grow to 836 and 812.
+- The isolated EPYC authenticated Apple batch passes **836/836** against loaded
+  engine
+  `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`. All four new records are
+  present and independently reconstructed exactly. Raw evidence SHA-256:
+  `d93567ed1100d4c0b0dd241cc81202b384d4b5e6a2d448cead56163365928cce`.
+- Recipe validation passes **102/102**; the combined classifier, recipe,
+  evidence, and root suite passes **332/332** with 121,191 assertions.
+  Root-global generation, full generated drift, targeted Rust formatting,
+  `ref-check`, diff hygiene, and empty advertisement checks pass. Criterion 7
+  remains open; important enforcement remains about **99.8% complete** and
+  overall completion remains about **96%**.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

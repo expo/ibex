@@ -6529,6 +6529,49 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     } catch (e) { throw e; }
   }
 
+  // Pretty-printing can traverse arbitrary object graphs, and the legacy
+  // rejection handler cells can re-enter the shared process event registry.
+  // Diagnostic runtimes retain both compatibility surfaces; armed package
+  // code gets neither the Exact/Bun inspector nor the private process slots.
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+  if (failClosed) {
+    try {
+      var diagnosticFacades = [g.Exact, g.Bun];
+      for (var diagnosticIndex = 0;
+           diagnosticIndex < diagnosticFacades.length;
+           diagnosticIndex++) {
+        var diagnosticFacade = diagnosticFacades[diagnosticIndex];
+        if (diagnosticFacade &&
+            (typeof diagnosticFacade === 'object' ||
+             typeof diagnosticFacade === 'function')) {
+          delete diagnosticFacade.inspect;
+          if ('inspect' in diagnosticFacade) {
+            throw new TypeError('armed diagnostic inspector could not be sealed');
+          }
+        }
+      }
+      if (g.process &&
+          (typeof g.process === 'object' || typeof g.process === 'function')) {
+        var rejectionCells = [
+          '_uncaughtExceptionHandler',
+          '_unhandledRejectionHandler'
+        ];
+        for (var rejectionIndex = 0;
+             rejectionIndex < rejectionCells.length;
+             rejectionIndex++) {
+          var rejectionCell = rejectionCells[rejectionIndex];
+          delete g.process[rejectionCell];
+          if (rejectionCell in g.process) {
+            throw new TypeError(
+              'armed process rejection handler could not be sealed: ' +
+              rejectionCell
+            );
+          }
+        }
+      }
+    } catch (e) { throw e; }
+  }
+
   // `process:umask` is deny-only in the armed profile. The shared runtime
   // installs a compatibility implementation before lockdown, so seal the
   // actual public invocation here rather than relying on a catalog label. A

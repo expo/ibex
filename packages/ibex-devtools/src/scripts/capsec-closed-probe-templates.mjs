@@ -175,14 +175,23 @@ const SHARED_RUNTIME_ABSENT_GLOBALS = new Set([
   "global:CacheStorage.keys",
   "global:CacheStorage.match",
   "global:CacheStorage.open",
+  "global:Bun.inspect",
   "global:Exact.gc",
+  "global:Exact.inspect",
   "global:process.__exactAsyncIpcListenerPatch",
   "global:process.__exactLateIpcListenerPatch",
   "global:process.__exactProcessIpcBootstrapInstalled",
   "global:process.__exactStreamPinned",
   "global:process.__exactStreamStabilityPatched",
+  "global:process._uncaughtExceptionHandler",
+  "global:process._unhandledRejectionHandler",
   "global:process._umask",
   "global:process.domain",
+]);
+
+const REVIEWED_POSIX_PROCESS_HANDLER_ALIASES = new Set([
+  "global:process._uncaughtExceptionHandler",
+  "global:process._unhandledRejectionHandler",
 ]);
 
 const EXACT_RUNTIME_CANDIDATE_TRIPLES = new Set([
@@ -1378,6 +1387,13 @@ function sharedRuntimeGlobalAbsenceProbe({
       canonicalJson(["evaluated-native-script", "legacy-bootstrap"]) &&
     canonicalJson(metadata.sourceKeys) ===
       canonicalJson(["evaluated_native_script", "global_compat_polyfills"]);
+  const reviewedPosixProcessHandlerBranch =
+    REVIEWED_POSIX_PROCESS_HANDLER_ALIASES.has(surfaceName) &&
+    target.triple === "aarch64-apple-darwin" &&
+    metadata?.sourceKey === "global_stream_enhance" &&
+    branches?.[0]?.route === "legacy-bootstrap" &&
+    branches[0].targetVariant === "posix" &&
+    canonicalJson(branches[0].routes) === canonicalJson(["legacy-bootstrap"]);
   const reviewedInstallation =
     Array.isArray(branches) &&
     branches.length === 1 &&
@@ -1385,6 +1401,7 @@ function sharedRuntimeGlobalAbsenceProbe({
     (sharedRuntimeInstallation
       ? reviewedSharedRuntimeBranch || reviewedComposedSharedRuntimeBranch
       : reviewedComposedEvaluatedLegacyBranch ||
+        reviewedPosixProcessHandlerBranch ||
         (branches[0].route === "legacy-bootstrap" &&
           branches[0].targetVariant === "default"));
   const expectedExportName =

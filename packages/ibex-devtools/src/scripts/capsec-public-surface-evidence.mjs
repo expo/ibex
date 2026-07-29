@@ -5085,6 +5085,7 @@ function validateRuntimeInvocation(observation, recipe) {
         "global:CacheStorage.keys",
         "global:CacheStorage.match",
         "global:CacheStorage.open",
+        "global:Bun.inspect",
         "global:Bun.accessibility",
         "global:Bun.accessibility.addEventListener",
         "global:Bun.accessibility.announce",
@@ -5114,11 +5115,14 @@ function validateRuntimeInvocation(observation, recipe) {
         "global:Exact.accessibility.prefersReducedMotion",
         "global:Exact.accessibility.prefersReducedTransparency",
         "global:Exact.gc",
+        "global:Exact.inspect",
         "global:process.__exactAsyncIpcListenerPatch",
         "global:process.__exactLateIpcListenerPatch",
         "global:process.__exactProcessIpcBootstrapInstalled",
         "global:process.__exactStreamPinned",
         "global:process.__exactStreamStabilityPatched",
+        "global:process._uncaughtExceptionHandler",
+        "global:process._unhandledRejectionHandler",
         "global:process._umask",
         "global:process.domain",
       ]);
@@ -5214,6 +5218,16 @@ function validateRuntimeInvocation(observation, recipe) {
         branch?.route === "legacy-bootstrap" &&
         branch.targetVariant === "default" &&
         canonicalJson(branch.routes) === canonicalJson(["legacy-bootstrap"]);
+      const reviewedPosixProcessHandlerBranch =
+        new Set([
+          "global:process._uncaughtExceptionHandler",
+          "global:process._unhandledRejectionHandler",
+        ]).has(authored.surfaceName) &&
+        descriptor.targetTriple === "aarch64-apple-darwin" &&
+        metadata?.sourceKey === "global_stream_enhance" &&
+        branch?.route === "legacy-bootstrap" &&
+        branch.targetVariant === "posix" &&
+        canonicalJson(branch.routes) === canonicalJson(["legacy-bootstrap"]);
       const reviewedInstallation =
         Array.isArray(branches) &&
         branches.length === 1 &&
@@ -5221,7 +5235,9 @@ function validateRuntimeInvocation(observation, recipe) {
         (sharedRuntimeInstallation
           ? reviewedSharedRuntimeBranch ||
             reviewedComposedSharedRuntimeBranch
-          : reviewedLegacyBranch || reviewedComposedEvaluatedLegacyBranch);
+          : reviewedLegacyBranch ||
+            reviewedComposedEvaluatedLegacyBranch ||
+            reviewedPosixProcessHandlerBranch);
       if (
         !reviewedSurface ||
         authored.surfaceKind !== "native-op" ||
