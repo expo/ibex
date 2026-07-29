@@ -5045,6 +5045,7 @@ function validateRuntimeInvocation(observation, recipe) {
     if (authored.operation?.kind === "shared-runtime-global-absence") {
       const reviewedSurfaces = new Set([
         "__exactAllowNativesSyntax",
+        "__exactAndroidDispatchPlatformEvent",
         "__exactCompatEval",
         "__exactDebugModuleSource",
         "__exactDebugModuleSources",

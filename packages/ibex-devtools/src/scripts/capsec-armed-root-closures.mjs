@@ -10,6 +10,7 @@
  */
 
 export const ARMED_SHARED_RUNTIME_SEALED_ROOTS = Object.freeze([
+  "__exactAndroidDispatchPlatformEvent",
   "__exactMemoryDebug",
   "BroadcastChannel",
   "caches",

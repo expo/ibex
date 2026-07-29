@@ -621,6 +621,13 @@ struct ExactHermesRuntime {
   std::unique_ptr<facebook::jsi::Function> root_global_object_is_frozen;
   std::unique_ptr<facebook::jsi::Function> root_global_reflect_delete_property;
   std::vector<std::string> root_global_baseline_keys;
+  // Android framework events enter on the native callback queue after trusted
+  // bootstrap. Armed runtimes retain the completed shared-runtime consumer
+  // here so its forgeable root-global rendezvous can be removed before project
+  // execution; compatibility runtimes continue to use the public global.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  std::unique_ptr<facebook::jsi::Function>
+      android_platform_event_handler;
   // Armed user execution opens only after the descriptor-only sweep has run
   // against the final authenticated embedder capability projection. A
   // transaction begun after ordinary bootstrap invalidates the earlier base

@@ -50773,6 +50773,7 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "packages/ibex-runtime-js/src/window/index.ts#<module>:globals:__exactAndroidDispatchPlatformEvent",
+        "src/engine/hermes_runtime.cc#__exactAndroidDispatchPlatformEvent",
         "src/engine/hermes_runtime_android.cc#__exactAndroidDispatchPlatformEvent"
       ],
       "outputKinds": [
@@ -161834,6 +161835,7 @@
         ],
         "sourceRefs": [
           "packages/ibex-runtime-js/src/window/index.ts#<module>:globals:__exactAndroidDispatchPlatformEvent",
+          "src/engine/hermes_runtime.cc#__exactAndroidDispatchPlatformEvent",
           "src/engine/hermes_runtime_android.cc#__exactAndroidDispatchPlatformEvent"
         ]
       },

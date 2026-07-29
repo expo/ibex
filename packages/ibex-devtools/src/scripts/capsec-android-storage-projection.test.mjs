@@ -13,6 +13,7 @@ function readSource(sourcePath) {
 
 const androidSource = readSource("src/engine/hermes_runtime_android.cc");
 const runtimeSource = readSource("src/engine/hermes_runtime.cc");
+const runtimeHeaderSource = readSource("src/engine/hermes_runtime_internal.h");
 const bootstrapSource = readSource(
   "packages/ibex-runtime-js/src/bootstrap.ts",
 );
@@ -168,5 +169,50 @@ describe("armed Android storage-path projection", () => {
       indexedDbPath.indexOf("ensureIndexedDbDirectory(directory)"),
     );
     expect(indexedDbPath).toContain("'NotAllowedError'");
+  });
+});
+
+describe("armed Android platform-event delivery", () => {
+  test("retains the trusted consumer and removes its forgeable global", () => {
+    const capture = sourceBetween(
+      runtimeSource,
+      "static bool capturePrivateBridgeConsumers(",
+      "static bool sealRootGlobalSessionBridges(",
+    );
+    const seal = sourceBetween(
+      runtimeSource,
+      "static bool sealRootGlobalSessionBridges(",
+      "static bool injectRootGlobalDispositionTestAccessor(",
+    );
+    const dispatch = sourceBetween(
+      androidSource,
+      "bool dispatchAndroidPlatformEvents(",
+      "void registerAndroidRuntime(",
+    );
+
+    expect(runtimeHeaderSource).toContain(
+      "android_platform_event_handler;",
+    );
+    expect(capture).toContain(
+      'ownDataFunction("__exactAndroidDispatchPlatformEvent")',
+    );
+    expect(seal).toContain('"__exactAndroidDispatchPlatformEvent"');
+    expect(dispatch).toContain(
+      "auto* handler = handle->android_platform_event_handler.get()",
+    );
+    expect(dispatch).toContain(
+      "if (handle->armed && !handle->armed_bootstrap_eval_open)",
+    );
+    expect(dispatch).toContain("if (handler == nullptr) { return false;");
+    expect(dispatch).toContain("} else if (handler == nullptr) {");
+    expect(dispatch).toContain(
+      'rt.global().getProperty(rt, "__exactAndroidDispatchPlatformEvent")',
+    );
+    expect(dispatch.indexOf("if (handle->armed)")).toBeLessThan(
+      dispatch.indexOf(
+        'rt.global().getProperty(rt, "__exactAndroidDispatchPlatformEvent")',
+      ),
+    );
+    expect(dispatch).toContain("handler->call(");
   });
 });

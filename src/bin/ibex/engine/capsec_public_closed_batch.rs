@@ -2919,6 +2919,7 @@ fn reviewed_shared_runtime_absent_surface(surface_name: &str) -> bool {
     matches!(
         surface_name,
         "__exactAllowNativesSyntax"
+            | "__exactAndroidDispatchPlatformEvent"
             | "__exactCompatEval"
             | "__exactDebugModuleSource"
             | "__exactDebugModuleSources"
@@ -6216,12 +6217,12 @@ async fn capsec_public_closed_recipe_batch() {
         expected_filesystem_mutations,
         expected_process_report_members,
     ) = match catalog.target.triple.as_str() {
-        "aarch64-apple-darwin" => (18, 346, 18, 93, 9),
+        "aarch64-apple-darwin" => (18, 347, 18, 93, 9),
         // The Windows-native roots in the reviewed absence vocabulary are
         // either installed by the platform replacement or belong to
         // POSIX-only source branches. Only the eleven worklet/app-runtime
         // roots remain target-applicable here.
-        "x86_64-pc-windows-msvc" => (18, 344, 11, 79, 8),
+        "x86_64-pc-windows-msvc" => (18, 345, 11, 79, 8),
         target => panic!("closed public batch has no reviewed target shape for {target}"),
     };
     assert_eq!(

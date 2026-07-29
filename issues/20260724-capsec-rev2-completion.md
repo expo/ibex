@@ -6009,6 +6009,38 @@ ticket closes.
   Criterion 7 remains open; important enforcement remains about **99.8%**
   complete and overall completion remains about **96%**.
 
+### 2026-07-28 — seal the Android platform-event rendezvous
+
+- Armed bootstrap now captures the completed shared-runtime
+  `__exactAndroidDispatchPlatformEvent` function in a runtime-owned JSI root,
+  deletes the public rendezvous, and requires descriptor-only absence before
+  project code. After project admission, native Android delivery invokes only
+  that retained owner-thread function and fails closed if it is missing. The
+  initial trusted shared-runtime drain and unarmed compatibility runtimes keep
+  the historical global lookup.
+- The first EPYC physical batch proved the enforcement gap by refusing startup
+  with `sealed roots remain reachable: __exactAndroidDispatchPlatformEvent`.
+  The hardened rerun passes **841/841** against loaded engine
+  `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`; the new absence record
+  independently reconstructs exactly. Raw evidence SHA-256:
+  `5c5a9b52a33b31086b0b34d90a5c312b3bcd241386ad4a68e9d7627ae81b4eb2`.
+- Android-defined `clang++ -fsyntax-only` succeeds for the production
+  translation unit, and the source contract checks retained capture, armed
+  no-fallback dispatch, deletion, and invocation. Root disposition advances to
+  369 sealed/private rows and 2,441 permitted reachable rows across 2,810
+  install branches.
+- Apple catalog
+  `sha256-O-gOrYFifBB1UOiBdeaaRgvh9lcT4TII-bOGrHKK3bE`: 23,595 required /
+  **3,920 executable** / 3,040 internally verified / 16,635 unresolved.
+  Windows catalog
+  `sha256-OC3SQg1at67QVQt-uxJKuGIuvB-fTgQ8GfxLRZa5maM`: 23,254 /
+  **3,556** / 3,026 / 16,672. Closed-denial residuals fall to 450 and 436,
+  and the target-specific closed batches grow to 841 and 817.
+- The combined classifier, recipe, evidence, root, and Android contract suite
+  passes **337/337** with 121,301 assertions. Advertisements remain empty;
+  criterion 7 remains open, important enforcement remains about **99.8%**
+  complete, and overall completion remains about **96%**.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

@@ -162743,10 +162743,12 @@
         ],
         "proofSourceRefs": [
           "packages/ibex-runtime-js/src/window/index.ts#<module>:globals:__exactAndroidDispatchPlatformEvent",
+          "src/engine/hermes_runtime.cc#__exactAndroidDispatchPlatformEvent",
           "src/engine/hermes_runtime_android.cc#__exactAndroidDispatchPlatformEvent"
         ],
         "sourceRefs": [
           "packages/ibex-runtime-js/src/window/index.ts#<module>:globals:__exactAndroidDispatchPlatformEvent",
+          "src/engine/hermes_runtime.cc#__exactAndroidDispatchPlatformEvent",
           "src/engine/hermes_runtime_android.cc#__exactAndroidDispatchPlatformEvent"
         ],
         "terminalObservedKey": "native-op:__exactAndroidDispatchPlatformEvent"
@@ -162758,6 +162760,7 @@
       },
       "sourceRefs": [
         "packages/ibex-runtime-js/src/window/index.ts#<module>:globals:__exactAndroidDispatchPlatformEvent",
+        "src/engine/hermes_runtime.cc#__exactAndroidDispatchPlatformEvent",
         "src/engine/hermes_runtime_android.cc#__exactAndroidDispatchPlatformEvent"
       ],
       "implementationOwner": "WP7",
@@ -282296,12 +282299,12 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-QMpzj4sn4KmJT0KDmaYdP-QA8klk3JUuQqkpMIme5zg"
+      "rawContentDigest": "sha256-2Bvl82bFgorEtucL48bJzkzdDOs6oyd2f7tzpX5yR1U"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-OJ0RPV1uOE-I-EbhOafRwITXvNwUbxyQRcdPSaBRbVw"
+      "rawContentDigest": "sha256-Oubit8jBng7yn-Xy9SWe5-oMH4lMKx-UsA5uuRYJhSU"
     },
     {
       "kind": "registry",
@@ -282330,7 +282333,7 @@
     }
   ],
   "counts": {
-    "observedReferences": 13384,
+    "observedReferences": 13385,
     "logicalSurfaces": 7528,
     "enforcementBranches": 7829,
     "coverageEdges": 7528,

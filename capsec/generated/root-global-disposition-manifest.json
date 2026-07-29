@@ -30543,9 +30543,9 @@
       "aliases": [],
       "installPhase": "shared-runtime",
       "privateConsumer": null,
-      "disposition": "converted",
+      "disposition": "sealed",
       "traversal": "descend",
-      "liveExpectation": "reachable",
+      "liveExpectation": "absent",
       "resolution": "static",
       "nativeImplementation": false
     },
@@ -105559,7 +105559,7 @@
     "installBranches": 2810,
     "logicalGlobals": 2581,
     "registryEdges": 2581,
-    "sealedOrPrivate": 368,
-    "permittedReachable": 2442
+    "sealedOrPrivate": 369,
+    "permittedReachable": 2441
   }
 }

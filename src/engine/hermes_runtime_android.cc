@@ -779,13 +779,33 @@ bool dispatchAndroidPlatformEvents(ExactHermesRuntime* handle) {
     return false;
   }
   auto& rt = *handle->runtime;
-  auto handler_value = rt.global().getProperty(rt, "__exactAndroidDispatchPlatformEvent");
-  if (!handler_value.isObject()) {
-    return false;
-  }
-  auto handler_object = handler_value.asObject(rt);
-  if (!handler_object.isFunction(rt)) {
-    return false;
+  auto* handler = handle->android_platform_event_handler.get();
+  std::unique_ptr<facebook::jsi::Function> compatibility_handler;
+  if (handle->armed && !handle->armed_bootstrap_eval_open) {
+    // Once project execution is possible, armed delivery must never fall back
+    // to a mutable project-visible spelling. The trusted bootstrap consumer is
+    // captured before the root disposition sweep and invoked only on the
+    // runtime owner thread.
+    // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+    if (handler == nullptr) {
+      return false;
+    }
+  } else if (handler == nullptr) {
+    // The shared-runtime bundle drains its initial Android event queue before
+    // bootstrap finalization captures this function. That trusted phase and
+    // unarmed compatibility runtimes may still resolve the rendezvous.
+    auto handler_value =
+        rt.global().getProperty(rt, "__exactAndroidDispatchPlatformEvent");
+    if (!handler_value.isObject()) {
+      return false;
+    }
+    auto handler_object = handler_value.asObject(rt);
+    if (!handler_object.isFunction(rt)) {
+      return false;
+    }
+    compatibility_handler = std::make_unique<facebook::jsi::Function>(
+        handler_object.asFunction(rt));
+    handler = compatibility_handler.get();
   }
 
   char* joined_events = nullptr;
@@ -799,10 +819,9 @@ bool dispatchAndroidPlatformEvents(ExactHermesRuntime* handle) {
     return true;
   }
 
-  auto handler = handler_object.asFunction(rt);
   for (const auto& event_json : splitLines(events)) {
     auto state = makeAndroidPlatformState(rt, handle->armed);
-    handler.call(
+    handler->call(
         rt,
         facebook::jsi::String::createFromUtf8(rt, event_json),
         std::move(state));

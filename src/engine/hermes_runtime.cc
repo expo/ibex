@@ -8933,6 +8933,9 @@ static bool capturePrivateBridgeConsumers(ExactHermesRuntime* handle) {
     (void)ownDataFunction("__exactFsMutationGuard");
     (void)ownDataFunction("__exactGetCwd");
     (void)ownDataFunction("__exactSetCwd");
+    handle->android_platform_event_handler =
+        std::make_unique<facebook::jsi::Function>(
+            ownDataFunction("__exactAndroidDispatchPlatformEvent"));
     if (!handle->structured_session_import_materializer) {
       throw std::runtime_error(
           "private bootstrap facade materializer is unavailable");
@@ -8976,6 +8979,11 @@ static bool sealRootGlobalSessionBridges(ExactHermesRuntime* handle) {
              // temporary process/bootstrap wires before this final sweep.
              "__exactCompatModes",
              "__exactCaptureDevServedModuleTableLifecycle",
+             // Native Android delivery retains this completed shared-runtime
+             // consumer before its forgeable project-visible rendezvous is
+             // removed. Compatibility runtimes never enter this armed seal.
+             // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+             "__exactAndroidDispatchPlatformEvent",
              "__exactQuarantineDevServedModuleTable",
              "__exactFsMutationGuard",
              "__exactGetCwd",
