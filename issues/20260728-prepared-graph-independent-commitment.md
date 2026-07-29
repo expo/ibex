@@ -45,3 +45,38 @@ Design and implement the commitment LLP 0026 already names:
   (distinct schema/marking; visible in diagnostics).
 
 **LLP:** design drafted as `llp/0042-prepared-graph-independent-commitment.rfc.md` (Draft, 2026-07-28); this ticket now tracks implementation once the design is reviewed.
+
+## Progress 2026-07-29 (Exact LLP 0413 Phase 1 arms E/F, M4)
+
+The Exact tournament built the PRODUCTION-SHAPED fixture layer against the
+approved direction:
+
+- The Exact producer emits `ibex/prepared-graph-commitment/1` records for
+  its adapter-1 publications (`scripts/emit-prepared-graph-commitment.mjs`
+  in the Exact repo): one publication-root digest over the canonical
+  `index.json` bytes (`ibex:prepared-publication-root:1`) plus the facet
+  fields, written OUTSIDE the publication directory. No dev credential was
+  invented (open question 1 stays open); fixture placeholders (`target`,
+  `policyDigest`) are labeled as such. Derived-facet conventions used
+  pending the LLP 0042 wire freeze: `semanticInventoryDigest` digests the
+  JCS array of sorted-unique record semantic digests
+  (`ibex:prepared-semantic-inventory:1`); `principalSetDigest` digests the
+  JCS array of the publication's defining principals sorted by
+  `canonical_order_key` (`ibex:prepared-principal-set:1`), principals
+  derived from record SourceIds with builtin -> root.
+- `tests/llp0413_prepared_commitment_fixture.rs` (env-gated, skips in CI)
+  proves the adversarial gate at fixture level with the REAL strict-JSON /
+  JCS / digest code: 12 genuine publications accept (facets recomputed
+  independently in Rust byte-match the TS emitter), and **36/36
+  substitutions of fully self-consistent sibling publications** (same
+  lane, same producer, same deployment-graph digest, every cache-local
+  digest correct) **refuse at the root check, classified as
+  commitment-mismatch** — distinct from corruption (truncation classifies
+  as corrupt).
+
+**Gap, explicitly:** `load_prepared_graph_committed_v1` (committed
+admission — steps 1-7, the fallback-to-cold rule, and the `preparedGraphs`
+armed-snapshot section) remains UNIMPLEMENTED; the fixture proves the
+receipt catches the swap, not that a warm path admits by commitment with
+zero source parsing. That acceptance line still requires the ibex
+implementation this ticket tracks.
