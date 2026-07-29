@@ -121,6 +121,7 @@
   var __privJsonParse = JSON.parse;
   var __privJsonStringify = JSON.stringify;
   var __privString = String;
+  var __privError = Error;
   var __privPromiseResolve = Promise.resolve.bind(Promise);
   var __privPromiseThen = Function.prototype.call.bind(Promise.prototype.then);
   var __privArrayIsArray = Array.isArray;
@@ -6024,6 +6025,98 @@
     __builtinCanonicalByAlias[id] = canonical;
     return canonical;
   }
+  // Mixed builtins remain importable when most of their exports are useful,
+  // but armed package code must not inherit process-wide crypto controls or
+  // runtime diagnostics merely by importing `crypto`. Apply this only after
+  // the authenticated exact_crypto body has completed and only for its exact
+  // generated SourceId. The cached namespace is then the one sealed instance
+  // shared by every public alias.
+  //
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+  // @ref LLP 0024#79-module-cache
+  function sealArmedBuiltinControls(record, module) {
+    if (!__armedResolverCapture ||
+        !record || record.kind !== 'builtin' ||
+        record.sourceId !==
+          'ibex-source-id-v1:eyJrZXkiOiJleGFjdF9jcnlwdG8iLCJraW5kIjoiYnVpbHRpbiIsInNvdXJjZUlkU2NoZW1hIjoiaWJleC5zb3VyY2UtaWQudjEifQ') {
+      return;
+    }
+    var exportsObject = module && module.exports;
+    if (!exportsObject ||
+        (typeof exportsObject !== 'object' &&
+         typeof exportsObject !== 'function')) {
+      throw new TypeError('Authenticated exact_crypto exports are malformed');
+    }
+    var controls = [
+      { name: 'fips', form: 'accessor' },
+      { name: 'secureHeapUsed', form: 'callable' },
+      { name: 'setEngine', form: 'callable' },
+      { name: 'setFips', form: 'callable' }
+    ];
+    var descriptors = [];
+    for (var index = 0; index < controls.length; index++) {
+      var control = controls[index];
+      var descriptor =
+        __privObjectGetOwnPropertyDescriptor(exportsObject, control.name);
+      var valid = descriptor && descriptor.configurable === true &&
+        (control.form === 'accessor'
+          ? typeof descriptor.get === 'function' &&
+            typeof descriptor.set === 'function'
+          : typeof descriptor.value === 'function');
+      if (!valid) {
+        throw new TypeError(
+          'Authenticated exact_crypto control is malformed: ' + control.name);
+      }
+      descriptors.push(descriptor);
+    }
+    var denialFor = function(exportName) {
+      return function denyArmedCryptoControl() {
+        var error = new __privError(
+          'Access to crypto control has been restricted: ' + exportName);
+        __privObjectDefineProperty(error, 'code', {
+          value: 'ERR_ACCESS_DENIED',
+          writable: true,
+          configurable: true,
+          enumerable: true
+        });
+        __privObjectDefineProperty(error, 'permission', {
+          value: 'CryptoControl',
+          writable: true,
+          configurable: true,
+          enumerable: true
+        });
+        __privObjectDefineProperty(error, 'resource', {
+          value: exportName,
+          writable: true,
+          configurable: true,
+          enumerable: true
+        });
+        throw error;
+      };
+    };
+    for (var controlIndex = 0;
+         controlIndex < controls.length;
+         controlIndex++) {
+      var reviewedControl = controls[controlIndex];
+      var reviewedDescriptor = descriptors[controlIndex];
+      var denial = denialFor(reviewedControl.name);
+      if (reviewedControl.form === 'accessor') {
+        __privObjectDefineProperty(exportsObject, reviewedControl.name, {
+          get: denial,
+          set: denial,
+          enumerable: reviewedDescriptor.enumerable,
+          configurable: false
+        });
+      } else {
+        __privObjectDefineProperty(exportsObject, reviewedControl.name, {
+          value: denial,
+          writable: false,
+          enumerable: reviewedDescriptor.enumerable,
+          configurable: false
+        });
+      }
+    }
+  }
   // The `node:module` builtin receives this factory through its private module
   // wrapper, then captures it in `Module.createRequire`. A caller supplies only
   // virtual syntax; native reconstructs and revalidates the backing referrer
@@ -7375,6 +7468,14 @@
     }
     if (module.__exactCreateRequire === createRequireFromVirtual) {
       try { delete module.__exactCreateRequire; } catch (_createRequireCleanupError) {}
+    }
+    try {
+      sealArmedBuiltinControls(record, module);
+    } catch (builtinControlSealError) {
+      if (!authenticatedDirectEntry) {
+        delete cache[cacheKey];
+      }
+      throw builtinControlSealError;
     }
     module.loaded = true;
     // A conformance build may arm a one-shot native receipt for an exact

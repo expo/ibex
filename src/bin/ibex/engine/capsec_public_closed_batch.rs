@@ -97,6 +97,8 @@ struct ClosedSourceDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     access_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    access_form: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     engine_identity_review_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     lockdown_taming_digest: Option<String>,
@@ -191,6 +193,23 @@ enum ClosedOperation {
         module_specifiers: Vec<String>,
         #[serde(rename = "expectedRejectionFragment")]
         expected_rejection_fragment: String,
+    },
+    CryptoControlClosure {
+        #[serde(rename = "exportName")]
+        export_name: String,
+        #[serde(rename = "accessForm")]
+        access_form: String,
+        #[serde(rename = "accessCases")]
+        access_cases: Vec<String>,
+        arguments: Vec<serde_json::Value>,
+        #[serde(rename = "moduleSpecifiers")]
+        module_specifiers: Vec<String>,
+        #[serde(rename = "expectedErrorCode")]
+        expected_error_code: String,
+        #[serde(rename = "expectedPermission")]
+        expected_permission: String,
+        #[serde(rename = "expectedErrorFragment")]
+        expected_error_fragment: String,
     },
     SqliteExtensionLoad {
         #[serde(rename = "constructorExportName")]
@@ -359,6 +378,7 @@ impl ClosedOperation {
             Self::ExactUnendowedOperation { .. } => "exact-unendowed-operation",
             Self::ModuleRunnerNamespace { .. } => "module-runner-namespace",
             Self::TerminalBuiltinImport { .. } => "terminal-builtin-import",
+            Self::CryptoControlClosure { .. } => "crypto-control-closure",
             Self::SqliteExtensionLoad { .. } => "sqlite-extension-load",
             Self::SqliteCrSqliteEnable { .. } => "sqlite-cr-sqlite-enable",
             Self::DebuggerAbiDisabled { .. } => "debugger-abi-disabled",
@@ -382,6 +402,7 @@ impl ClosedOperation {
             | Self::ExactUnendowedOperation { .. }
             | Self::ModuleRunnerNamespace { .. }
             | Self::TerminalBuiltinImport { .. }
+            | Self::CryptoControlClosure { .. }
             | Self::SqliteExtensionLoad { .. }
             | Self::SqliteCrSqliteEnable { .. }
             | Self::DebuggerAbiDisabled { .. } => None,
@@ -2254,6 +2275,345 @@ async fn execute_closed_terminal_builtin_import(
     observation
         .as_object_mut()
         .expect("expected closed observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-closed-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
+#[cfg(test)]
+async fn execute_closed_crypto_control(
+    engine: &mut AuthenticatedClosedEngine,
+    recipe: &Recipe,
+    probe: &ClosedSurfaceProbe,
+    coverage: &BTreeMap<String, (String, String)>,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    let invocation = &probe.invocation;
+    let ClosedOperation::CryptoControlClosure {
+        export_name,
+        access_form,
+        access_cases,
+        arguments,
+        module_specifiers,
+        expected_error_code,
+        expected_permission,
+        expected_error_fragment,
+    } = &invocation.operation
+    else {
+        panic!("crypto control probe has the wrong operation")
+    };
+    let (reviewed_form, reviewed_cases, reviewed_arguments) = match export_name.as_str() {
+        "fips" => (
+            "accessor",
+            &["get", "set"][..],
+            serde_json::json!([true]),
+        ),
+        "secureHeapUsed" => ("callable", &["call"][..], serde_json::json!([])),
+        "setEngine" => (
+            "callable",
+            &["call"][..],
+            serde_json::json!(["ibex-capsec-closed-engine"]),
+        ),
+        "setFips" => (
+            "callable",
+            &["call"][..],
+            serde_json::json!([true]),
+        ),
+        other => panic!("unreviewed closed crypto control {other}"),
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "closed");
+    assert_eq!(recipe.scenario, "closed");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
+    assert_eq!(invocation.kind, "closed-surface");
+    assert_eq!(invocation.surface_kind, "builtin");
+    assert_eq!(invocation.expected_result, "closed");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert!(invocation.allowed_coverage_edge_ids.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(access_form, reviewed_form);
+    assert_eq!(
+        access_cases,
+        &reviewed_cases
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(serde_json::json!(arguments), reviewed_arguments);
+    assert_eq!(module_specifiers, &["crypto", "exact:crypto", "node:crypto"]);
+    assert_eq!(expected_error_code, "ERR_ACCESS_DENIED");
+    assert_eq!(expected_permission, "CryptoControl");
+    assert_eq!(
+        expected_error_fragment,
+        "Access to crypto control has been restricted"
+    );
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+
+    let descriptor = &invocation.source_descriptor;
+    assert_eq!(descriptor.kind, "closed-crypto-control");
+    assert_eq!(
+        descriptor.surface_observed_key.as_deref(),
+        Some(probe.surface_observed_key.as_str())
+    );
+    assert_eq!(descriptor.source_key.as_deref(), Some("exact_crypto"));
+    assert_eq!(
+        descriptor.export_name.as_deref(),
+        Some(export_name.as_str())
+    );
+    assert_eq!(
+        descriptor.access_form.as_deref(),
+        Some(access_form.as_str())
+    );
+    assert_eq!(
+        descriptor.module_specifiers.as_ref(),
+        Some(module_specifiers)
+    );
+    assert_eq!(
+        descriptor.enforcement_source_ref.as_deref(),
+        Some(
+            "src/engine/bootstrap/module-loader.js#sealArmedBuiltinControls:exact_crypto"
+        )
+    );
+    assert_eq!(
+        descriptor.source_refs,
+        [format!("src/builtins/crypto.js#exports:{export_name}")]
+    );
+    assert_eq!(descriptor.source_metadata["sourceKey"], "exact_crypto");
+    assert_eq!(descriptor.source_metadata["surfaceType"], "export");
+    assert_eq!(
+        descriptor.source_metadata["exportName"],
+        export_name.as_str()
+    );
+    assert_eq!(
+        descriptor.source_metadata["valueShape"],
+        access_form.as_str()
+    );
+    assert_eq!(descriptor.source_metadata["importReachability"], "public");
+    assert_eq!(
+        descriptor.source_metadata["moduleSpecifiers"],
+        serde_json::json!(module_specifiers)
+    );
+    assert_eq!(
+        descriptor.source_metadata["publicModuleSpecifiers"],
+        serde_json::json!(module_specifiers)
+    );
+    assert_eq!(
+        invocation.surface_name,
+        format!("export:exact_crypto:{export_name}")
+    );
+    let (surface_kind, surface_name) = coverage
+        .get(&recipe.edge_ids[0])
+        .expect("closed crypto control recipe names an unknown coverage edge");
+    assert_eq!(surface_kind, &invocation.surface_kind);
+    assert_eq!(surface_name, &invocation.surface_name);
+    let terminal_observed_key = format!("{surface_kind}:{surface_name}");
+    assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
+    assert_eq!(terminal_observed_key, probe.surface_observed_key);
+
+    // Materialize the authenticated builtin before opening the operation
+    // observation. Its reviewed initialization reads optional debug
+    // environment names; those import-time effects are independently covered
+    // and must not be conflated with the zero-decision armed refusal itself.
+    let preload_script = format!(
+        r#"JSON.stringify((function(specifiers) {{
+  var first = require(specifiers[0]);
+  for (var index = 1; index < specifiers.length; index++) {{
+    if (require(specifiers[index]) !== first) return false;
+  }}
+  return true;
+}})({}))"#,
+        serde_json::to_string(module_specifiers).unwrap(),
+    );
+    let preload_encoded = engine
+        .eval_immediate(&preload_script)
+        .await
+        .expect("preload authenticated crypto aliases")
+        .expect("authenticated crypto alias preload returned no result");
+    assert_eq!(
+        serde_json::from_str::<bool>(&preload_encoded)
+            .expect("authenticated crypto alias preload must return JSON"),
+        true
+    );
+
+    let session_id = format!("public-observation:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
+    let script = format!(
+        r#"JSON.stringify((function(specifiers, exportName, accessForm, accessCases, args) {{
+  var firstNamespace = null;
+  return specifiers.map(function(specifier) {{
+    var namespace = require(specifier);
+    var sameIdentity = firstNamespace === null || namespace === firstNamespace;
+    if (firstNamespace === null) firstNamespace = namespace;
+    var descriptor = Object.getOwnPropertyDescriptor(namespace, exportName);
+    var descriptorPinned = !!descriptor && descriptor.configurable === false &&
+      (accessForm === 'callable'
+        ? descriptor.writable === false && typeof descriptor.value === 'function'
+        : typeof descriptor.get === 'function' && typeof descriptor.set === 'function');
+    var fipsBefore = typeof namespace.getFips === 'function'
+      ? namespace.getFips()
+      : null;
+    var errors = [];
+    for (var index = 0; index < accessCases.length; index++) {{
+      var accessCase = accessCases[index];
+      var errorName = null;
+      var errorCode = null;
+      var errorPermission = null;
+      var errorResource = null;
+      var errorMessage = null;
+      try {{
+        if (accessCase === 'call') namespace[exportName].apply(namespace, args);
+        else if (accessCase === 'get') Reflect.get(namespace, exportName);
+        else if (accessCase === 'set') Reflect.set(namespace, exportName, args[0]);
+        else throw new Error('unknown crypto control access case '+accessCase);
+      }} catch (error) {{
+        errorName = String(error && error.name || 'Error');
+        errorCode = error && typeof error.code === 'string' ? error.code : null;
+        errorPermission = error && typeof error.permission === 'string' ? error.permission : null;
+        errorResource = error && typeof error.resource === 'string' ? error.resource : null;
+        errorMessage = String(error && error.message || error);
+      }}
+      errors.push({{
+        accessCase: accessCase,
+        errorName: errorName,
+        errorCode: errorCode,
+        errorPermission: errorPermission,
+        errorResource: errorResource,
+        errorMessage: errorMessage
+      }});
+    }}
+    var fipsAfter = typeof namespace.getFips === 'function'
+      ? namespace.getFips()
+      : null;
+    return {{
+      specifier: specifier,
+      sameIdentity: sameIdentity,
+      descriptorPinned: descriptorPinned,
+      fipsStable: fipsBefore === 0 && fipsAfter === 0,
+      errors: errors
+    }};
+  }});
+}})({}, {}, {}, {}, {}))"#,
+        serde_json::to_string(module_specifiers).unwrap(),
+        serde_json::to_string(export_name).unwrap(),
+        serde_json::to_string(access_form).unwrap(),
+        serde_json::to_string(access_cases).unwrap(),
+        serde_json::to_string(arguments).unwrap(),
+    );
+    let encoded = engine
+        .eval_immediate(&script)
+        .await
+        .expect("execute closed crypto control calls")
+        .expect("closed crypto control calls returned no result");
+    let observed: Vec<serde_json::Value> =
+        serde_json::from_str(&encoded).expect("closed crypto control result must be JSON");
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert_eq!(observed.len(), module_specifiers.len());
+    let mut errors = Vec::with_capacity(observed.len() * access_cases.len());
+    for (row, specifier) in observed.iter().zip(module_specifiers) {
+        assert_eq!(row["specifier"].as_str(), Some(specifier.as_str()));
+        assert_eq!(row["sameIdentity"], true);
+        assert_eq!(
+            row["descriptorPinned"],
+            true,
+            "armed crypto control descriptor was not pinned: {row}"
+        );
+        assert_eq!(row["fipsStable"], true);
+        let row_errors = row["errors"]
+            .as_array()
+            .expect("closed crypto control errors must be an array");
+        assert_eq!(row_errors.len(), access_cases.len());
+        for (error, access_case) in row_errors.iter().zip(access_cases) {
+            assert_eq!(error["accessCase"].as_str(), Some(access_case.as_str()));
+            assert_eq!(error["errorName"], "Error");
+            assert_eq!(error["errorCode"], expected_error_code.as_str());
+            assert_eq!(error["errorPermission"], expected_permission.as_str());
+            assert_eq!(error["errorResource"], export_name.as_str());
+            let message = error["errorMessage"]
+                .as_str()
+                .expect("closed crypto control unexpectedly succeeded");
+            assert!(
+                message.contains(expected_error_fragment) && message.contains(export_name),
+                "crypto control returned the wrong refusal for {specifier}/{access_case}: {message}"
+            );
+            errors.push(format!("{specifier}/{access_case}: {message}"));
+        }
+    }
+    assert!(legacy.is_empty());
+    assert!(
+        typed.is_empty(),
+        "armed crypto control emitted unexpected typed decisions: {typed:?}"
+    );
+
+    let result = serde_json::json!({
+        "kind": "closed",
+        "surfaceKind": surface_kind,
+        "surfaceName": surface_name,
+        "mechanism": invocation.operation.kind(),
+        "errorName": "Error",
+        "errorCode": expected_error_code,
+        "errorPermission": expected_permission,
+        "errorResource": export_name,
+        "errorMessage": errors.join("\n"),
+        "descriptorPinned": true,
+        "aliasIdentityShared": true,
+        "fipsStateStable": true,
+        "engineExecuted": true,
+        "projectCodeExecuted": true,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": terminal_observed_key,
+            "surfaceKind": surface_kind,
+            "surfaceName": surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": 0,
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected closed crypto observation must be an object")
         .insert("result".into(), serde_json::Value::String("passed".into()));
     let mut evidence = serde_json::json!({
         "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
@@ -6021,6 +6381,18 @@ async fn capsec_public_closed_recipe_batch() {
             )
         })
         .count();
+    let crypto_control_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::CryptoControlClosure { .. }
+            )
+        })
+        .count();
     let sqlite_extension_load_count = recipe_indexes
         .iter()
         .filter(|index| {
@@ -6162,6 +6534,7 @@ async fn capsec_public_closed_recipe_batch() {
             + exact_unendowed_count
             + module_runner_namespace_count
             + terminal_builtin_count
+            + crypto_control_count
             + sqlite_extension_load_count
             + sqlite_crsqlite_enable_count
             + debugger_abi_count
@@ -6201,6 +6574,10 @@ async fn capsec_public_closed_recipe_batch() {
     assert_eq!(
         terminal_builtin_count, 137,
         "expected every source facet of the seven terminal builtin modules"
+    );
+    assert_eq!(
+        crypto_control_count, 4,
+        "expected every reviewed armed crypto control closure"
     );
     assert_eq!(
         sqlite_extension_load_count, 2,
@@ -6340,6 +6717,56 @@ async fn capsec_public_closed_recipe_batch() {
         engine
             .finish()
             .expect("finish authenticated closed-builtin publications");
+    }
+    if crypto_control_count > 0 {
+        let crypto_indexes = recipe_indexes
+            .iter()
+            .copied()
+            .filter(|index| {
+                matches!(
+                    &closed_surface_probe(&catalog.recipes[*index])
+                        .unwrap()
+                        .invocation
+                        .operation,
+                    ClosedOperation::CryptoControlClosure { .. }
+                )
+            })
+            .collect::<Vec<_>>();
+        let (host, snapshot_digest) =
+            build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |snapshot| {
+                snapshot["principals"][0]["imports"]["builtins"] =
+                    serde_json::json!(["crypto", "exact:crypto", "node:crypto"]);
+            });
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+            .expect("create exact closed crypto control engine");
+        engine
+            .load_runtime()
+            .await
+            .expect("load exact closed crypto control runtime");
+        let mut engine = AuthenticatedClosedEngine {
+            host,
+            engine,
+            publications: AuthenticatedPublicationTracker::default(),
+        };
+        for index in crypto_indexes {
+            let recipe = &catalog.recipes[index];
+            let probe = closed_surface_probe(recipe).unwrap();
+            executions.push(
+                execute_closed_crypto_control(
+                    &mut engine,
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                )
+                .await,
+            );
+        }
+        engine
+            .finish()
+            .expect("finish authenticated closed-crypto publications");
     }
     if sqlite_extension_load_count + sqlite_crsqlite_enable_count > 0 {
         let sqlite_indexes = recipe_indexes
@@ -6815,6 +7242,7 @@ async fn capsec_public_closed_recipe_batch() {
         if matches!(
             &probe.invocation.operation,
             ClosedOperation::TerminalBuiltinImport { .. }
+                | ClosedOperation::CryptoControlClosure { .. }
                 | ClosedOperation::SqliteExtensionLoad { .. }
                 | ClosedOperation::SqliteCrSqliteEnable { .. }
                 | ClosedOperation::DebuggerAbiDisabled { .. }
@@ -6879,6 +7307,7 @@ async fn capsec_public_closed_recipe_batch() {
                 .await
             }
             ClosedOperation::TerminalBuiltinImport { .. } => unreachable!(),
+            ClosedOperation::CryptoControlClosure { .. } => unreachable!(),
             ClosedOperation::SqliteExtensionLoad { .. } => unreachable!(),
             ClosedOperation::SqliteCrSqliteEnable { .. } => unreachable!(),
             ClosedOperation::DebuggerAbiDisabled { .. } => unreachable!(),

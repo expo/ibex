@@ -422,7 +422,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_595);
+    expect(recipes.summary.requiredFixtures).toBe(23_598);
     // The linear dynamic-import scanner's two exact index recognizers are
     // independently inventoried pure-compute rows and therefore add two
     // unresolved non-capability obligations without executable credit.
@@ -472,11 +472,11 @@ describe("exact-target CapSec executable recipes", () => {
     // and replacement closure without entering the authority evaluator.
     // Nine nested process.report rows prove their exact public spelling is
     // stopped at the pinned parent accessor before nested state is reachable.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_924);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_928);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
-    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_040);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_631);
+    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_042);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_628);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -611,7 +611,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_254);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_257);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch. The
@@ -666,9 +666,9 @@ describe("exact-target CapSec executable recipes", () => {
     // The same twelve shared-state closures and eight target-applicable nested
     // process.report closures bind Windows' selected source variants to the
     // final armed runtime gate.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_560);
-    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_026);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_668);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_564);
+    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_028);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_665);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -684,7 +684,7 @@ describe("exact-target CapSec executable recipes", () => {
       windowsCryptoRecipes.filter(
         (recipe) => recipe.status === "fully-executable",
       ),
-    ).toHaveLength(126);
+    ).toHaveLength(130);
     const unavailableWindowsNativeRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -1074,7 +1074,7 @@ describe("exact-target CapSec executable recipes", () => {
           "capsec_public_closed_recipe_batch",
         ),
       ),
-    ).toHaveLength(817);
+    ).toHaveLength(821);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -1929,7 +1929,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(3_040);
+    expect(rationaleOnly).toHaveLength(3_042);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -1942,8 +1942,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 511,
       "principal-restore": 511,
       "snapshot-mismatch-deny": 511,
-      "cannot-widen-authority": 498,
-      "post-lockdown-invariant": 498,
+      "cannot-widen-authority": 499,
+      "post-lockdown-invariant": 499,
     });
     // These are internal callback-security invariant scenarios: attested by
     // internal Rust proofs, not public-surface probes, so they carry the
@@ -4424,6 +4424,108 @@ describe("exact-target CapSec executable recipes", () => {
         ],
       });
     }
+  });
+
+  test("closes authenticated crypto controls without changing diagnostic modules", () => {
+    const expected = new Map([
+      ["fips", ["accessor", ["get", "set"], [true]]],
+      ["secureHeapUsed", ["callable", ["call"], []]],
+      [
+        "setEngine",
+        ["callable", ["call"], ["ibex-capsec-closed-engine"]],
+      ],
+      ["setFips", ["callable", ["call"], [true]]],
+    ]);
+    for (const candidate of [recipes, windowsRecipes]) {
+      const rows = candidate.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+          "crypto-control-closure",
+      );
+      expect(
+        rows.map(
+          (recipe) =>
+            recipe.publicSurfaceProbe.invocation.operation.exportName,
+        ),
+      ).toEqual([...expected.keys()]);
+      expect(
+        rows.every((recipe) => {
+          const probe = recipe.publicSurfaceProbe;
+          const invocation = probe.invocation;
+          const operation = invocation.operation;
+          const [accessForm, accessCases, args] = expected.get(
+            operation.exportName,
+          );
+          return (
+            recipe.classification === "closed" &&
+            recipe.scenario === "closed" &&
+            recipe.status === "fully-executable" &&
+            recipe.residualReasons.length === 0 &&
+            recipe.route.alternatives.length === 0 &&
+            probe.surfaceObservedKey === recipe.terminalObservedKey &&
+            invocation.sourceDescriptor.kind ===
+              "closed-crypto-control" &&
+            invocation.sourceDescriptor.sourceKey === "exact_crypto" &&
+            invocation.sourceDescriptor.exportName ===
+              operation.exportName &&
+            invocation.sourceDescriptor.accessForm === accessForm &&
+            invocation.sourceDescriptor.enforcementSourceRef ===
+              "src/engine/bootstrap/module-loader.js#sealArmedBuiltinControls:exact_crypto" &&
+            operation.accessForm === accessForm &&
+            operation.accessCases.join() === accessCases.join() &&
+            JSON.stringify(operation.arguments) === JSON.stringify(args) &&
+            operation.moduleSpecifiers.join() ===
+              ["crypto", "exact:crypto", "node:crypto"].join() &&
+            operation.expectedErrorCode === "ERR_ACCESS_DENIED" &&
+            operation.expectedPermission === "CryptoControl" &&
+            invocation.expectedTypedDecisionCount === 0
+          );
+        }),
+      ).toBe(true);
+    }
+    const loaderSource = fs.readFileSync(
+      path.join(repoRoot, "src/engine/bootstrap/module-loader.js"),
+      "utf8",
+    );
+    const sealDefinition = loaderSource.indexOf(
+      "function sealArmedBuiltinControls(record, module)",
+    );
+    const sealInvocation = loaderSource.indexOf(
+      "sealArmedBuiltinControls(record, module);",
+      sealDefinition + 1,
+    );
+    const loadedAfterSeal = loaderSource.indexOf(
+      "module.loaded = true;",
+      sealInvocation,
+    );
+    expect(sealDefinition).toBeGreaterThan(-1);
+    expect(sealInvocation).toBeGreaterThan(sealDefinition);
+    expect(loadedAfterSeal).toBeGreaterThan(sealInvocation);
+    expect(loaderSource.slice(sealDefinition, sealInvocation)).toContain(
+      "if (!__armedResolverCapture ||",
+    );
+    expect(loaderSource.slice(sealDefinition, sealInvocation)).toContain(
+      "ibex-source-id-v1:eyJrZXkiOiJleGFjdF9jcnlwdG8iLCJraW5kIjoiYnVpbHRpbiIsInNvdXJjZUlkU2NoZW1hIjoiaWJleC5zb3VyY2UtaWQudjEifQ",
+    );
+    expect(loaderSource.slice(sealDefinition, sealInvocation)).toContain(
+      "configurable: false",
+    );
+    expect(loaderSource.slice(sealInvocation, loadedAfterSeal)).toContain(
+      "delete cache[cacheKey]",
+    );
+    const cryptoSource = fs.readFileSync(
+      path.join(repoRoot, "src/builtins/crypto.js"),
+      "utf8",
+    );
+    expect(cryptoSource).toContain(
+      "secureHeapUsed: secureHeapUsed",
+    );
+    expect(cryptoSource).toContain(
+      "setEngine: setEngine",
+    );
+    expect(cryptoSource).toContain(
+      "set fips(val) { _fips = !!val; }",
+    );
   });
 
   test("binds every terminal builtin source facet to the authenticated import denial", () => {

@@ -6290,6 +6290,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:javascript:restoreModuleId",
     "function:javascript:runFallbackModule",
     "function:javascript:runtimeExtensionModuleRegistrar",
+    "function:javascript:sealArmedBuiltinControls",
     "function:javascript:splitInlineModuleStatements",
     "function:javascript:stableModuleResolutionErrorCode",
     "function:javascript:stripModuleStatementComments",
@@ -10585,6 +10586,9 @@ function loaderClassification(surface) {
       ]).has(name)
     ) {
       return nonCapabilitySpec("authority-control-plane", "WP8");
+    }
+    if (name === "function:javascript:sealarmedbuiltincontrols") {
+      return nonCapabilitySpec("authority-control-plane", "WP7");
     }
     if (
       new Set([

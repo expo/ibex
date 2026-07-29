@@ -45500,6 +45500,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.loader.function.javascript.sealarmedbuiltincontrols.1yvwgo4",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#sealArmedBuiltinControls"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.loader.function.javascript.sessionstaticimport.038w34i",
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
@@ -85674,9 +85683,9 @@
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
   "catalogKeyDigest": "sha256-gRT0c7XrbQwvkKtfqvK7SwxDY2OGX8vZME0OT_V0Hso",
   "counts": {
-    "coverageSurfaces": 7528,
+    "coverageSurfaces": 7529,
     "outputBearingSurfaces": 5819,
-    "structuralOnlySurfaces": 1704,
+    "structuralOnlySurfaces": 1705,
     "unresolvedSurfaces": 5,
     "catalogRows": 6520,
     "parameterizedBindings": 1,

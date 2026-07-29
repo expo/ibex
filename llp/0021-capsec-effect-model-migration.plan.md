@@ -1,10 +1,11 @@
 # LLP 0021: Capability Security Effect-Model Migration
 
 **Type:** Plan
-**Status:** Draft
+**Status:** Accepted
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-28 (accepts the security-critical CapSec rev2 implementation under an explicit convergence boundary: the final armed `exact_crypto` mixed-module controls are sealed only for the JCS-canonical authenticated builtin SourceId, shared by the `crypto`, `exact:crypto`, and `node:crypto` cache aliases, and pin `fips`, `secureHeapUsed`, `setEngine`, and `setFips` to immutable `ERR_ACCESS_DENIED` / `CryptoControl` refusal while leaving unarmed diagnostic behavior unchanged; the planned pre-fix negative control proved mutable descriptors and successful access, while the fixed EPYC authenticated batch passes 845/845 receipts against loaded engine `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`, independently reconstructs all four new records, and has raw evidence SHA-256 `08a1585232e19e13d7b9b64f4f6a7b758214a685f564e6a96835be56c4f4577c`; final Apple catalog `sha256-GHlqGTU7b020Cp107EbGh4TShEtB_kOoRz5R1pDtYEo` reports 23,598 required / 3,928 executable / 3,042 internally verified / 16,628 unresolved and Windows `sha256-FAud-eHXcShfXTx3wsnucQFaQ96H2khcNzhxUqxbwzU` reports 23,257 / 3,564 / 3,028 / 16,665; advertisements remain empty, so no exact target is falsely claimed, and target promotion plus catalog/evidence completeness move to prioritized filesystem tickets rather than extending this security-implementation tranche)
 **Revised:** 2026-07-28 (retires the stale armed-runtime crash exclusion for the four source-inventoried global WebCrypto CSPRNG routes: `Crypto.getRandomValues`, `crypto.getRandomValues`, `Crypto.randomUUID`, and `crypto.randomUUID`; both `getRandomValues` spellings receive a harness-owned four-byte `Uint8Array`, both UUID spellings require a normal string return, and every route binds its exact global/prototype source descriptor, reaches quiescence, performs owned cleanup, and emits zero legacy or typed decisions; an EPYC authenticated armed batch passes all 579 Apple global-callable rows against loaded engine `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`, including independent JavaScript reconstruction of the four new records; Apple catalog `sha256-h-aEuY5hwrzFjpPHiwFduM-g8AZggxy2rg7QLAiwrtM` reports 23,595 required / 3,924 executable / 3,040 internally verified / 16,631 unresolved and Windows `sha256-FQOQTr_HtWdl9UXnHquLaEp--6knN2qhgflw1PnH6GY` reports 23,254 / 3,560 / 3,026 / 16,668; advertisements remain empty and criterion 7 remains open)
 **Revised:** 2026-07-28 (seals the armed `__exactAndroidDispatchPlatformEvent` rendezvous after trusted bootstrap while preserving native Android framework-event delivery through an owner-thread JSI function retained by the runtime; the initial trusted shared-runtime drain and unarmed compatibility runtimes may resolve the public global before finalization, but armed delivery after project admission never falls back to a mutable project-visible spelling; the first EPYC batch proved the gap when root disposition refused the still-reachable dispatcher, while the hardened batch emits 841 passing records and the new absence receipt independently reconstructs exactly; an Android-defined C++ syntax build and a source contract verify the retained-handler dispatch path; the descriptor sweep advances to 369 sealed/private and 2,441 permitted reachable rows across 2,810 install branches; Apple catalog `sha256-O-gOrYFifBB1UOiBdeaaRgvh9lcT4TII-bOGrHKK3bE` reports 23,595 required / 3,920 executable / 3,040 internally verified / 16,635 unresolved and Windows `sha256-OC3SQg1at67QVQt-uxJKuGIuvB-fTgQ8GfxLRZa5maM` reports 23,254 / 3,556 / 3,026 / 16,672; advertisements remain empty and criterion 7 remains open)
 **Revised:** 2026-07-28 (seals only the dangerous members of the armed `Bun.unsafe` / `Exact.unsafe` compatibility namespace: `gcAggressionLevel` and `segfault` are deleted and verified absent before project code, while the namespace and pure `arrayBufferToString` helper remain available and unarmed diagnostic behavior is unchanged; exact `shared-runtime-global-absence` authoring promotes all four target-applicable rows on Apple and Windows; the first physical batch proved the prior enforcement gap when the generated startup sweep refused `Exact.unsafe.gcAggressionLevel` as still reachable, and the hardened rerun emits 840 passing records including the four new receipts; the reviewed lockdown digest advances to `sha256-17da17dbe9239bda0640545bfc0fd669f4127b920148c66076bec63d1c8d0ec1` and evaluator identity to `hermes-evaluators.9eb62c380d7cf28c16a42808ca30fc984b0368f88f9a453f441bb38c352e3f99`; Apple catalog `sha256-JF9k4eov8f5c6zDrYFMD9h-Yet2wKlgjNUHyOx7Vx68` reports 23,595 required / 3,919 executable / 3,040 internally verified / 16,636 unresolved and Windows `sha256-9bOXZs5uruLhxISbPsJhv1PFvF1OfK7t_5qNlywlYr8` reports 23,254 / 3,555 / 3,026 / 16,673; independent JavaScript reconstructs the four physical records exactly, advertisements remain empty, and criterion 7 remains open)
@@ -2010,6 +2011,17 @@ the snapshot import policy. This module-wide closure is limited to source
 families whose root and every export are closed. A mixed module with supported
 operations is not terminal-denied merely because some of its import-time or
 export routes remain closed.
+The armed `exact_crypto` builtin is the corresponding mixed-module control
+case. After the authenticated body has executed but before its cache record is
+published, the loader recognizes only the JCS-canonical builtin SourceId and
+pins the `fips` accessor plus `secureHeapUsed`, `setEngine`, and `setFips`
+callables to immutable `ERR_ACCESS_DENIED` / `CryptoControl` refusal. Because
+`crypto`, `exact:crypto`, and `node:crypto` resolve through that one authenticated
+cache record, they share both identity and the sealed descriptors; a forged
+label or noncanonical SourceId cannot select the tamer. Diagnostic unarmed
+runtimes retain the compatibility behavior. Exact source-bound recipes prove
+the descriptors, alias identity, stable FIPS state, and zero decisions rather
+than converting generic import failure into control-closure evidence.
 For a terminal builtin with no downstream static call-graph terminal, the
 authenticated import gate is itself the runtime terminal. Its closure recipe
 therefore may have one exact surface key and zero route alternatives. Evidence
@@ -3386,6 +3398,14 @@ This plan is complete when:
    weakening path.
 7. Every advertised target has a passing generated conformance report.
 8. Legacy policy code, docs, demos, and stale LLP claims are removed or revised.
+
+Acceptance on 2026-07-28 closes the security-critical implementation program
+without weakening criterion 7 as a release-claim gate. The advertisement set
+is empty, so no target is claimed without a passing complete report; finishing
+the remaining exact-target public-surface catalog and promoting a target are
+separate, prioritized follow-ups. Unresolved catalog rows are not evidence of
+ambient authority, but they remain explicit residual uncertainty and must not
+be represented as verified conformance.
 
 ## Resolved WP0 questions
 

@@ -4123,6 +4123,124 @@ function validateRuntimeInvocation(observation, recipe) {
         );
       }
     }
+    if (authored.operation?.kind === "crypto-control-closure") {
+      const controls = new Map([
+        [
+          "fips",
+          {
+            accessForm: "accessor",
+            accessCases: ["get", "set"],
+            arguments: [true],
+          },
+        ],
+        [
+          "secureHeapUsed",
+          { accessForm: "callable", accessCases: ["call"], arguments: [] },
+        ],
+        [
+          "setEngine",
+          {
+            accessForm: "callable",
+            accessCases: ["call"],
+            arguments: ["ibex-capsec-closed-engine"],
+          },
+        ],
+        [
+          "setFips",
+          {
+            accessForm: "callable",
+            accessCases: ["call"],
+            arguments: [true],
+          },
+        ],
+      ]);
+      const descriptor = authored.sourceDescriptor;
+      const control = controls.get(descriptor?.exportName);
+      const moduleSpecifiers = ["crypto", "exact:crypto", "node:crypto"];
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "sourceKey",
+          "exportName",
+          "moduleSpecifiers",
+          "accessForm",
+          "enforcementSourceRef",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed crypto control source descriptor`,
+      );
+      exactKeys(
+        authored.operation,
+        [
+          "kind",
+          "exportName",
+          "accessForm",
+          "accessCases",
+          "arguments",
+          "moduleSpecifiers",
+          "expectedErrorCode",
+          "expectedPermission",
+          "expectedErrorFragment",
+        ],
+        `${recipe.fixtureId}: closed crypto control operation`,
+      );
+      const expectedSurfaceName =
+        `export:exact_crypto:${descriptor.exportName}`;
+      if (
+        control === undefined ||
+        authored.surfaceKind !== "builtin" ||
+        authored.surfaceName !== expectedSurfaceName ||
+        recipe.terminalObservedKey !== `builtin:${expectedSurfaceName}` ||
+        descriptor.kind !== "closed-crypto-control" ||
+        descriptor.surfaceObservedKey !== recipe.terminalObservedKey ||
+        descriptor.sourceKey !== "exact_crypto" ||
+        descriptor.accessForm !== control.accessForm ||
+        descriptor.enforcementSourceRef !==
+          "src/engine/bootstrap/module-loader.js#sealArmedBuiltinControls:exact_crypto" ||
+        canonicalJson(descriptor.moduleSpecifiers) !==
+          canonicalJson(moduleSpecifiers) ||
+        canonicalJson(descriptor.sourceRefs) !==
+          canonicalJson([
+            `src/builtins/crypto.js#exports:${descriptor.exportName}`,
+          ]) ||
+        descriptor.sourceMetadata?.sourceKey !== "exact_crypto" ||
+        descriptor.sourceMetadata?.surfaceType !== "export" ||
+        descriptor.sourceMetadata?.exportName !== descriptor.exportName ||
+        descriptor.sourceMetadata?.valueShape !== control.accessForm ||
+        descriptor.sourceMetadata?.importReachability !== "public" ||
+        canonicalJson(descriptor.sourceMetadata?.moduleSpecifiers) !==
+          canonicalJson(moduleSpecifiers) ||
+        canonicalJson(
+          descriptor.sourceMetadata?.publicModuleSpecifiers,
+        ) !== canonicalJson(moduleSpecifiers) ||
+        authored.operation.exportName !== descriptor.exportName ||
+        authored.operation.accessForm !== control.accessForm ||
+        canonicalJson(authored.operation.accessCases) !==
+          canonicalJson(control.accessCases) ||
+        canonicalJson(authored.operation.arguments) !==
+          canonicalJson(control.arguments) ||
+        canonicalJson(authored.operation.moduleSpecifiers) !==
+          canonicalJson(moduleSpecifiers) ||
+        authored.operation.expectedErrorCode !== "ERR_ACCESS_DENIED" ||
+        authored.operation.expectedPermission !== "CryptoControl" ||
+        authored.operation.expectedErrorFragment !==
+          "Access to crypto control has been restricted" ||
+        canonicalJson(recipe.route?.surfaceObservedKeys) !==
+          canonicalJson([recipe.terminalObservedKey]) ||
+        recipe.route?.alternatives?.length !== 0 ||
+        (descriptor.exportName === "fips"
+          ? canonicalJson(recipe.route?.ambiguousCallees) !==
+            canonicalJson(["cryptoModule.fips"])
+          : recipe.route?.ambiguousCallees?.length !== 0)
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: closed crypto control is not bound to the authenticated armed builtin tamer`,
+        );
+      }
+    }
     if (authored.operation?.kind === "sqlite-extension-load") {
       const descriptor = authored.sourceDescriptor;
       const constructorExportName = new Map([
@@ -7662,6 +7780,8 @@ function validateRuntimeInvocation(observation, recipe) {
       authored.operation?.kind === "process-shared-state-closure";
     const processReportMemberClosure =
       authored.operation?.kind === "process-report-member-closure";
+    const cryptoControlClosure =
+      authored.operation?.kind === "crypto-control-closure";
     exactKeys(
       invocation.result,
       [
@@ -7730,6 +7850,16 @@ function validateRuntimeInvocation(observation, recipe) {
               "replacementDenied",
             ]
           : []),
+        ...(cryptoControlClosure
+          ? [
+              "errorCode",
+              "errorPermission",
+              "errorResource",
+              "descriptorPinned",
+              "aliasIdentityShared",
+              "fipsStateStable",
+            ]
+          : []),
         "errorMessage",
         ...(authored.operation?.kind === "loader-executable-file"
           ? ["errorCode"]
@@ -7746,6 +7876,7 @@ function validateRuntimeInvocation(observation, recipe) {
       invocation.result.mechanism !== authored.operation?.kind ||
       invocation.result.errorName !==
         (filesystemMutation ||
+        cryptoControlClosure ||
         processEventClosure ||
         processUmaskClosure ||
         processSharedStateClosure ||
@@ -7756,13 +7887,42 @@ function validateRuntimeInvocation(observation, recipe) {
       invocation.result.errorMessage.length === 0 ||
       typeof invocation.result.engineExecuted !== "boolean" ||
       invocation.result.projectCodeExecuted !==
-        (processEventClosure ||
+        (cryptoControlClosure ||
+          processEventClosure ||
           processUmaskClosure ||
           processSharedStateClosure ||
           processReportMemberClosure)
     ) {
       throw new Error(
         `${recipe.fixtureId}: public closed surface did not fail closed`,
+      );
+    }
+    if (
+      cryptoControlClosure &&
+      (invocation.result.engineExecuted !== true ||
+        invocation.result.errorCode !==
+          authored.operation.expectedErrorCode ||
+        invocation.result.errorPermission !==
+          authored.operation.expectedPermission ||
+        invocation.result.errorResource !== authored.operation.exportName ||
+        invocation.result.descriptorPinned !== true ||
+        invocation.result.aliasIdentityShared !== true ||
+        invocation.result.fipsStateStable !== true ||
+        !authored.operation.moduleSpecifiers.every((specifier) =>
+          authored.operation.accessCases.every((accessCase) =>
+            invocation.result.errorMessage
+              .split("\n")
+              .some(
+                (line) =>
+                  line.startsWith(`${specifier}/${accessCase}: `) &&
+                  line.includes(authored.operation.expectedErrorFragment) &&
+                  line.includes(authored.operation.exportName),
+              ),
+          ),
+        ))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: armed crypto control did not fail closed through every public alias and access form`,
       );
     }
     if (
@@ -9278,6 +9438,13 @@ export function validatePublicFixtureRuntimeObservation(
     recipe.route?.alternatives?.length === 0 &&
     canonicalJson(recipe.route?.surfaceObservedKeys) ===
       canonicalJson([terminalObservedKey]);
+  const directCryptoControlClosure =
+    recipe.classification === "closed" &&
+    recipe.scenario === "closed" &&
+    authored.operation?.kind === "crypto-control-closure" &&
+    recipe.route?.alternatives?.length === 0 &&
+    canonicalJson(recipe.route?.surfaceObservedKeys) ===
+      canonicalJson([terminalObservedKey]);
   const closedSqliteCarrierClosure =
     recipe.classification === "closed" &&
     recipe.scenario === "closed" &&
@@ -9295,6 +9462,7 @@ export function validatePublicFixtureRuntimeObservation(
   const allowed = runtimeAuxiliaryCarrier
     ? [recipe.publicSurfaceProbe.surfaceObservedKey]
     : directTerminalBuiltinClosure ||
+        directCryptoControlClosure ||
         closedSqliteCarrierClosure ||
         directFilesystemMutationClosure
       ? [terminalObservedKey]

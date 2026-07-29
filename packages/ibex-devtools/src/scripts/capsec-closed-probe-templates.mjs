@@ -100,6 +100,44 @@ const TERMINAL_BUILTIN_SPECIFIERS = new Map([
   ["node_worker_threads", ["node:worker_threads", "worker_threads"]],
 ]);
 
+const CLOSED_CRYPTO_CONTROLS = new Map([
+  [
+    "fips",
+    {
+      accessForm: "accessor",
+      accessCases: ["get", "set"],
+      arguments: [true],
+    },
+  ],
+  [
+    "secureHeapUsed",
+    { accessForm: "callable", accessCases: ["call"], arguments: [] },
+  ],
+  [
+    "setEngine",
+    {
+      accessForm: "callable",
+      accessCases: ["call"],
+      arguments: ["ibex-capsec-closed-engine"],
+    },
+  ],
+  [
+    "setFips",
+    {
+      accessForm: "callable",
+      accessCases: ["call"],
+      arguments: [true],
+    },
+  ],
+]);
+const CLOSED_CRYPTO_MODULE_SPECIFIERS = Object.freeze([
+  "crypto",
+  "exact:crypto",
+  "node:crypto",
+]);
+const CLOSED_CRYPTO_ENFORCEMENT_SOURCE_REF =
+  "src/engine/bootstrap/module-loader.js#sealArmedBuiltinControls:exact_crypto";
+
 const CLOSED_SQLITE_EXTENSION_EXPORTS = new Map([
   ["Database.loadExtension", "Database"],
   ["default.loadExtension", "default"],
@@ -1054,6 +1092,92 @@ function terminalBuiltinImportProbe({
         terminalBuiltinRoot,
         moduleSpecifiers: [...moduleSpecifiers],
         expectedRejectionFragment: "Import denied:",
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
+function cryptoControlClosureProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+}) {
+  if (
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  const exportName = metadata?.exportName;
+  const control = CLOSED_CRYPTO_CONTROLS.get(exportName);
+  if (
+    !control ||
+    live.kind !== "builtin" ||
+    live.name !== `export:exact_crypto:${exportName}` ||
+    live.observedKey !== `builtin:${live.name}` ||
+    metadata.sourceKey !== "exact_crypto" ||
+    metadata.surfaceType !== "export" ||
+    metadata.importReachability !== "public" ||
+    metadata.valueShape !== control.accessForm ||
+    canonicalJson(metadata.moduleSpecifiers) !==
+      canonicalJson(CLOSED_CRYPTO_MODULE_SPECIFIERS) ||
+    canonicalJson(metadata.publicModuleSpecifiers) !==
+      canonicalJson(CLOSED_CRYPTO_MODULE_SPECIFIERS) ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length !== 1 ||
+    live.sourceRefs[0] !== `src/builtins/crypto.js#exports:${exportName}` ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    (exportName === "fips"
+      ? canonicalJson(route.ambiguousCallees) !==
+        canonicalJson(["cryptoModule.fips"])
+      : route.ambiguousCallees.length !== 0)
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-crypto-control",
+    surfaceObservedKey,
+    sourceKey: "exact_crypto",
+    exportName,
+    moduleSpecifiers: [...CLOSED_CRYPTO_MODULE_SPECIFIERS],
+    accessForm: control.accessForm,
+    enforcementSourceRef: CLOSED_CRYPTO_ENFORCEMENT_SOURCE_REF,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "builtin",
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "crypto-control-closure",
+        exportName,
+        accessForm: control.accessForm,
+        accessCases: [...control.accessCases],
+        arguments: structuredClone(control.arguments),
+        moduleSpecifiers: [...CLOSED_CRYPTO_MODULE_SPECIFIERS],
+        expectedErrorCode: "ERR_ACCESS_DENIED",
+        expectedPermission: "CryptoControl",
+        expectedErrorFragment:
+          "Access to crypto control has been restricted",
       },
       expectedResult: "closed",
       expectedTypedDecisionCount: 0,
@@ -2294,6 +2418,7 @@ export function authoredClosedPublicProbe(options) {
     tamedEvaluatorProbe(options) ??
     moduleRunnerNamespaceProbe(options) ??
     loaderExecutableKindProbe(options) ??
+    cryptoControlClosureProbe(options) ??
     sqliteExtensionLoadProbe(options) ??
     sqliteCrSqliteEnableProbe(options) ??
     terminalBuiltinImportProbe(options) ??

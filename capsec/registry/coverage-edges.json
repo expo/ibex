@@ -163458,6 +163458,16 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.loader.function.javascript.sealarmedbuiltincontrols.1yvwgo4",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "loader",
+        "name": "function:javascript:sealArmedBuiltinControls"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.loader.function.javascript.sessionstaticimport.038w34i",
       "classification": "effects",
       "surface": {

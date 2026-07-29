@@ -3940,6 +3940,16 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       });
     }
 
+    const cryptoControlSeal = classifyObservedSurface(
+      surface("loader", "function:javascript:sealArmedBuiltinControls"),
+      context,
+    );
+    expect(cryptoControlSeal.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "authority-control-plane",
+    });
+    expect(cryptoControlSeal.specification.implementationOwner).toBe("WP7");
+
     expect(
       classifyObservedSurface(
         surface("loader", "function:rust:strip_file_module_decorations"),

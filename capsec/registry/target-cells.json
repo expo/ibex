@@ -137139,6 +137139,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.loader.function.javascript.sealarmedbuiltincontrols.1yvwgo4",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.javascript.sealarmedbuiltincontrols.1yvwgo4.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.function.javascript.sealarmedbuiltincontrols.1yvwgo4",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.javascript.sealarmedbuiltincontrols.1yvwgo4.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.loader.function.javascript.sessionstaticimport.038w34i",
       "target": {
         "triple": "aarch64-apple-darwin",

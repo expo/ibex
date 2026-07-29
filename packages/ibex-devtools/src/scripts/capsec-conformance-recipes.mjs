@@ -4411,6 +4411,7 @@ function residualReasons({
     publicSurfaceProbe?.invocation?.invocationSchema ===
       "ibex/capsec-closed-surface-invocation/1" &&
     new Set([
+      "crypto-control-closure",
       "filesystem-unbound-mutation",
       "terminal-builtin-import",
     ]).has(publicSurfaceProbe?.invocation?.operation?.kind);

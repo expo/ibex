@@ -2655,6 +2655,61 @@ function completeClosedTerminalBuiltinCatalog() {
   return catalog;
 }
 
+function completeClosedCryptoControlCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const exportName = "setFips";
+  const moduleSpecifiers = ["crypto", "exact:crypto", "node:crypto"];
+  const sourceDescriptor = {
+    kind: "closed-crypto-control",
+    surfaceObservedKey: `builtin:export:exact_crypto:${exportName}`,
+    sourceKey: "exact_crypto",
+    exportName,
+    moduleSpecifiers,
+    accessForm: "callable",
+    enforcementSourceRef:
+      "src/engine/bootstrap/module-loader.js#sealArmedBuiltinControls:exact_crypto",
+    sourceRefs: [`src/builtins/crypto.js#exports:${exportName}`],
+    sourceMetadata: {
+      sourceKey: "exact_crypto",
+      surfaceType: "export",
+      exportName,
+      valueShape: "callable",
+      importReachability: "public",
+      moduleSpecifiers,
+      publicModuleSpecifiers: moduleSpecifiers,
+    },
+  };
+  recipe.fixtureId = "fixture.builtin.crypto.set-fips.closed";
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route = {
+    surfaceObservedKeys: [recipe.terminalObservedKey],
+    alternatives: [],
+    ambiguousCallees: [],
+  };
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "builtin",
+    surfaceName: `export:exact_crypto:${exportName}`,
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "crypto-control-closure",
+      exportName,
+      accessForm: "callable",
+      accessCases: ["call"],
+      arguments: [true],
+      moduleSpecifiers,
+      expectedErrorCode: "ERR_ACCESS_DENIED",
+      expectedPermission: "CryptoControl",
+      expectedErrorFragment:
+        "Access to crypto control has been restricted",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
 function completeClosedSqliteExtensionCatalog() {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
@@ -3205,6 +3260,15 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
                   `${specifier}: ${invocation.operation.expectedRejectionFragment} '${specifier}'`,
               )
               .join("\n")
+        : invocation.operation.kind === "crypto-control-closure"
+          ? invocation.operation.moduleSpecifiers
+              .flatMap((specifier) =>
+                invocation.operation.accessCases.map(
+                  (accessCase) =>
+                    `${specifier}/${accessCase}: ${invocation.operation.expectedErrorFragment}: ${invocation.operation.exportName}`,
+                ),
+              )
+              .join("\n")
         : invocation.operation.kind === "sqlite-extension-load"
           ? invocation.operation.moduleSpecifiers
               .map(
@@ -3248,7 +3312,8 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
         mechanism: invocation.operation.kind,
         errorName:
           invocation.operation.kind === "filesystem-unbound-mutation" ||
-          invocation.operation.kind === "process-event-closure"
+          invocation.operation.kind === "process-event-closure" ||
+          invocation.operation.kind === "crypto-control-closure"
             ? "Error"
             : "ClosedSurface",
         errorMessage,
@@ -3282,10 +3347,20 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
                   prototypeDescriptorPinned: true,
                   backingStateHidden: true,
                 }
+            : invocation.operation.kind === "crypto-control-closure"
+              ? {
+                  errorCode: invocation.operation.expectedErrorCode,
+                  errorPermission: invocation.operation.expectedPermission,
+                  errorResource: invocation.operation.exportName,
+                  descriptorPinned: true,
+                  aliasIdentityShared: true,
+                  fipsStateStable: true,
+                }
             : {}),
         engineExecuted:
           invocation.operation.kind === "loader-executable-file" ||
           invocation.operation.kind === "terminal-builtin-import" ||
+          invocation.operation.kind === "crypto-control-closure" ||
           invocation.operation.kind === "sqlite-extension-load" ||
           invocation.operation.kind === "sqlite-cr-sqlite-enable" ||
           invocation.operation.kind === "debugger-abi-disabled" ||
@@ -3295,7 +3370,8 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
           invocation.operation.kind === "exact-unendowed-operation" ||
           invocation.operation.kind === "filesystem-unbound-mutation",
         projectCodeExecuted:
-          invocation.operation.kind === "process-event-closure"
+          invocation.operation.kind === "process-event-closure" ||
+          invocation.operation.kind === "crypto-control-closure"
             ? true
             : projectCodeExecuted,
       },
@@ -8378,6 +8454,53 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/authenticated import gate/);
+  });
+
+  test("accepts crypto control closure only when every alias is pinned and denied", () => {
+    const catalog = completeClosedCryptoControlCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const unpinned = closedRuntimeObservation(recipe);
+    unpinned.invocation.result.descriptorPinned = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: unpinned,
+        coverage,
+      }),
+    ).toThrow(/every public alias and access form/);
+
+    const missingAlias = closedRuntimeObservation(recipe);
+    missingAlias.invocation.result.errorMessage =
+      "crypto/call: Access to crypto control has been restricted: setFips";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: missingAlias,
+        coverage,
+      }),
+    ).toThrow(/every public alias and access form/);
+
+    const drifted = structuredClone(recipe);
+    drifted.publicSurfaceProbe.invocation.operation.arguments = [false];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: drifted,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(drifted),
+        coverage,
+      }),
+    ).toThrow(/authenticated armed builtin tamer/);
   });
 
   test("accepts SQLite extension closure only through both public aliases", () => {
