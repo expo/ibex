@@ -43,3 +43,5 @@ Design and implement the commitment LLP 0026 already names:
 - The authority-substitution fixture refuses before effects.
 - The development commitment cannot be confused with production authority
   (distinct schema/marking; visible in diagnostics).
+
+**LLP:** design drafted as `llp/0042-prepared-graph-independent-commitment.rfc.md` (Draft, 2026-07-28); this ticket now tracks implementation once the design is reviewed.
