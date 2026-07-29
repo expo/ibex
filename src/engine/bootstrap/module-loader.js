@@ -616,12 +616,30 @@
     }
     return id;
   }
+  // Parse-free observability (Exact LLP 0413 §5.1): count compatibility-loader
+  // source-transform pipeline runs and dynamic function compilations so hosts
+  // can prove which startup lane actually ran. The legacy source-table lane
+  // reports nonzero counts; a prepared bytecode lane requires both to stay 0.
+  // Published on globalThis so the host bootstrap can read it after entry
+  // evaluation; reuse an existing object so multiple loader instances
+  // accumulate instead of clobbering.
+  var compatLoaderStats = globalThis.__ibexCompatLoaderStats;
+  if (!compatLoaderStats || typeof compatLoaderStats !== "object") {
+    compatLoaderStats = {
+      sourceTransformCount: 0,
+      dynamicFunctionCompileCount: 0
+    };
+    try {
+      globalThis.__ibexCompatLoaderStats = compatLoaderStats;
+    } catch (statsPublishError) {}
+  }
   // Compile a module body, labelling the fresh Domain it creates with the
   // owning package's principal so frame-derived attribution is accurate even
   // for callbacks that run long after evaluation returns. One-shot: the pending
   // id is consumed by the engine when it creates the Domain.
   // @ref LLP 0013#mechanism-3
   function compileModuleBody(packagePrincipal, compartment, source) {
+    compatLoaderStats.dynamicFunctionCompileCount++;
     if (__privSetPendingPackageId) {
       __privSetPendingPackageId(packagePrincipal || 0);
     }
@@ -4704,8 +4722,8 @@
     // evaluated `source.slice(i).match(...)` for nearly every code character;
     // Hermes materializes those suffix strings, making this otherwise-linear
     // pass quadratic for multi-megabyte native startup module tables.
-    // @ref Exact LLP 0128 Phase 6 — warm HBC must improve real startup, not
-    // merely artifact fetch.
+    // Rationale (Exact LLP 0128 Phase 6): warm HBC must improve real
+    // startup, not merely artifact fetch.
     var isIdentifierPartAt = function(text, index) {
       if (index < 0 || index >= text.length) {
         return false;
@@ -7053,6 +7071,7 @@
         ? record.sourceLabel
         : null;
       var sourceUrl = authenticatedSourceLabel || filename;
+      compatLoaderStats.sourceTransformCount++;
       const transformedSource = transformDynamicImport(
         transformImportMeta(
           applyRolldownCjsDirnameBindings(
@@ -7066,6 +7085,7 @@
         injectEvalShimPreamble(transformedSource) +
         "\n//# sourceURL=" + sourceUrl;
       const runFallbackModule = function(reason) {
+        compatLoaderStats.sourceTransformCount++;
         let runtimeSource = transformDynamicImport(
           transformImportMeta(
             applyRolldownCjsDirnameBindings(
