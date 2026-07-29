@@ -1056,13 +1056,16 @@ describe("exact-target CapSec executable recipes", () => {
           ),
       ),
     ).toBe(true);
+    // The closed batch includes the 44 exact process lifecycle no-effect
+    // receipts and one pinned process.umask receipt added after the prior
+    // Windows accounting snapshot.
     expect(
       windowsRecipes.recipes.filter((recipe) =>
         recipe.publicSurfaceProbe?.command?.includes(
           "capsec_public_closed_recipe_batch",
         ),
       ),
-    ).toHaveLength(729);
+    ).toHaveLength(774);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>

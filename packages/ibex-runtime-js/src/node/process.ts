@@ -1536,6 +1536,11 @@ type ProcessEventState = {
   uncaughtCaptureCallback: ((err: Error) => void) | null;
   uncaughtExceptionHooked: boolean;
   unhandledRejectionHooked: boolean;
+  title: string;
+  uid: number;
+  gid: number;
+  euid: number;
+  egid: number;
 };
 
 // Event state is deliberately module-private rather than a TypeScript
@@ -1578,6 +1583,8 @@ function emitProcessEvent(
 
 class Process {
   constructor() {
+    const uid = readNativeProcessId(_nativeGetuid, 0);
+    const gid = readNativeProcessId(_nativeGetgid, 0);
     processEventStates.set(this, {
       events: new Map(),
       lifecycleListenerNoEffectDiagnosed: false,
@@ -1585,6 +1592,11 @@ class Process {
       uncaughtCaptureCallback: null,
       uncaughtExceptionHooked: false,
       unhandledRejectionHooked: false,
+      title: 'ibex',
+      uid,
+      gid,
+      euid: readNativeProcessId(_nativeGeteuid, uid),
+      egid: readNativeProcessId(_nativeGetegid, gid),
     });
   }
   /**
@@ -1654,10 +1666,8 @@ class Process {
    * Writable like Node's: a getter-only property made strict-mode ESM code
    * throw on the common `process.title = ...` assignment. (ENG-23140)
    */
-  private _title = 'ibex';
-
   get title(): string {
-    return this._title;
+    return processEventState(this).title;
   }
 
   set title(value: string) {
@@ -1668,7 +1678,7 @@ class Process {
       err.code = 'ERR_INVALID_ARG_TYPE';
       throw err;
     }
-    this._title = value;
+    processEventState(this).title = value;
   }
 
   /**
@@ -1846,11 +1856,6 @@ class Process {
    * Node.js accepts number, string-convertible-to-number, null (resets to undefined), or undefined.
    */
   private _exitCode: number | undefined = undefined;
-  private _uid = readNativeProcessId(_nativeGetuid, 0);
-  private _gid = readNativeProcessId(_nativeGetgid, 0);
-  private _euid = readNativeProcessId(_nativeGeteuid, this._uid);
-  private _egid = readNativeProcessId(_nativeGetegid, this._gid);
-
   get exitCode(): number | undefined {
     return this._exitCode;
   }
@@ -1915,28 +1920,28 @@ class Process {
    * Get the user ID of the process.
    */
   getuid(): number {
-    return this._uid;
+    return processEventState(this).uid;
   }
 
   /**
    * Get the group ID of the process.
    */
   getgid(): number {
-    return this._gid;
+    return processEventState(this).gid;
   }
 
   /**
    * Get the effective user ID of the process.
    */
   geteuid(): number {
-    return this._euid;
+    return processEventState(this).euid;
   }
 
   /**
    * Get the effective group ID of the process.
    */
   getegid(): number {
-    return this._egid;
+    return processEventState(this).egid;
   }
 
   /**
@@ -1944,11 +1949,12 @@ class Process {
    */
   setuid(id: number | string): void {
     const resolved = resolveCredentialId(id, 'user');
-    if (this._uid !== 0 && this._euid !== 0) {
+    const state = processEventState(this);
+    if (state.uid !== 0 && state.euid !== 0) {
       throw makeCredentialPermissionError();
     }
-    this._uid = resolved;
-    this._euid = resolved;
+    state.uid = resolved;
+    state.euid = resolved;
   }
 
   /**
@@ -1956,11 +1962,12 @@ class Process {
    */
   setgid(id: number | string): void {
     const resolved = resolveCredentialId(id, 'group');
-    if (this._uid !== 0 && this._euid !== 0) {
+    const state = processEventState(this);
+    if (state.uid !== 0 && state.euid !== 0) {
       throw makeCredentialPermissionError();
     }
-    this._gid = resolved;
-    this._egid = resolved;
+    state.gid = resolved;
+    state.egid = resolved;
   }
 
   /**
@@ -1968,10 +1975,11 @@ class Process {
    */
   seteuid(id: number | string): void {
     const resolved = resolveCredentialId(id, 'user');
-    if (this._uid !== 0 && this._euid !== 0) {
+    const state = processEventState(this);
+    if (state.uid !== 0 && state.euid !== 0) {
       throw makeCredentialPermissionError();
     }
-    this._euid = resolved;
+    state.euid = resolved;
   }
 
   /**
@@ -1979,17 +1987,18 @@ class Process {
    */
   setegid(id: number | string): void {
     const resolved = resolveCredentialId(id, 'group');
-    if (this._uid !== 0 && this._euid !== 0) {
+    const state = processEventState(this);
+    if (state.uid !== 0 && state.euid !== 0) {
       throw makeCredentialPermissionError();
     }
-    this._egid = resolved;
+    state.egid = resolved;
   }
 
   /**
    * Get supplementary group IDs.
    */
   getgroups(): number[] {
-    return [this._gid];
+    return [processEventState(this).gid];
   }
 
   /**

@@ -6621,6 +6621,86 @@ void installGlobals(struct ExactHermesRuntime* handle) {
            closedProcessEventIndex++) {
         pinProcessMethod(closedProcessEventMethods[closedProcessEventIndex], false);
       }
+
+      // Close process-wide mutation and inspection shims which are useful to
+      // the trusted bootstrap but are not package authority. Their backing
+      // credential/title state lives in the shared runtime's private WeakMap;
+      // pinning both spellings prevents a prototype-call or replacement
+      // bypass after bootstrap.
+      // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+      function pinClosedProcessMethod(name, permission) {
+        if (typeof processObject[name] !== 'function') {
+          throw new TypeError('armed process method is unavailable: ' + name);
+        }
+        function closedProcessMethod() {
+          var error = new Error(
+            'process.' + name + ' is disabled in an armed runtime');
+          error.code = 'ERR_ACCESS_DENIED';
+          error.permission = permission;
+          throw error;
+        }
+        defineProp(processObject, name, {
+          value: closedProcessMethod,
+          writable: false,
+          enumerable: false,
+          configurable: false
+        });
+        if (processPrototype && hasOwn.call(processPrototype, name)) {
+          defineProp(processPrototype, name, {
+            value: closedProcessMethod,
+            writable: false,
+            enumerable: false,
+            configurable: false
+          });
+        }
+      }
+      var closedProcessMethods = [
+        ['_getActiveHandles', 'ProcessInspection'],
+        ['_getActiveRequests', 'ProcessInspection'],
+        ['_kill', 'ProcessSignals'],
+        ['abort', 'ProcessLifecycle'],
+        ['binding', 'ProcessBinding'],
+        ['kill', 'ProcessSignals'],
+        ['setegid', 'ProcessCredentials'],
+        ['seteuid', 'ProcessCredentials'],
+        ['setgid', 'ProcessCredentials'],
+        ['setuid', 'ProcessCredentials']
+      ];
+      for (var closedProcessMethodIndex = 0;
+           closedProcessMethodIndex < closedProcessMethods.length;
+           closedProcessMethodIndex++) {
+        pinClosedProcessMethod(
+          closedProcessMethods[closedProcessMethodIndex][0],
+          closedProcessMethods[closedProcessMethodIndex][1]);
+      }
+
+      function processPropertyDenied(name, permission) {
+        var error = new Error(
+          'process.' + name + ' is disabled in an armed runtime');
+        error.code = 'ERR_ACCESS_DENIED';
+        error.permission = permission;
+        throw error;
+      }
+      defineProp(processObject, 'title', {
+        get: function() {
+          return processPropertyDenied('title', 'ProcessTitle');
+        },
+        set: function() {
+          return processPropertyDenied('title', 'ProcessTitle');
+        },
+        enumerable: true,
+        configurable: false
+      });
+      defineProp(processObject, 'report', {
+        get: function() {
+          return processPropertyDenied('report', 'ProcessReport');
+        },
+        set: function() {
+          return processPropertyDenied('report', 'ProcessReport');
+        },
+        enumerable: true,
+        configurable: false
+      });
     } catch (e) { throw e; }
   }
 

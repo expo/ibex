@@ -5672,6 +5672,40 @@ ticket closes.
 - Focused recipe and evidence validation passes **181/181** tests.
   Advertisements remain empty and criterion 7 remains open.
 
+### 2026-07-28 — close residual armed process compatibility mutators
+
+- Closed ten replaceable process-wide compatibility methods at the armed
+  lockdown boundary: `_getActiveHandles`, `_getActiveRequests`, `_kill`,
+  `abort`, `binding`, `kill`, `setegid`, `seteuid`, `setgid`, and `setuid`.
+  The gate preserves their reviewed permission families and pins both the
+  process instance and defining prototype against replacement or prototype
+  invocation bypass.
+- Closed `process.title` and `process.report` as immutable armed accessors.
+  Moved title and captured uid/gid/euid/egid state into the existing
+  module-private process `WeakMap`; numeric credential reads remain available,
+  while erased TypeScript backing fields are no longer reachable.
+- A real armed-Hermes regression on the EPYC builder passes and proves every
+  direct/prototype/replacement refusal, the exact permission family,
+  accessor closure, usable credential reads, absent public backing cells,
+  project-code execution, and zero typed decisions. The three focused
+  JavaScript process suites pass **54/54** tests with 284 assertions.
+- The content-addressed source guard rejected the changed lockdown program
+  until review. Its exact digest is now
+  `sha256-7c1fd40d57c3f85e29440af225521d3f517b4ef3fa81eccbffe78f10ebec7e0c`
+  and evaluator identity is
+  `hermes-evaluators.7caaeab4c8213d44ea2db42d6039b2a20ac470b1857f46c1b76adc201fdd7afb`;
+  all four reachable evaluator names and taming kinds remain unchanged.
+- Regenerated the runtime bundle, source inventories, registry artifacts,
+  runtime projection, contract, four example policies, and vendored-source
+  fingerprint. The full generated-drift check and `ref-check` pass (41 LLP
+  documents / 2,260 references / 0 errors / 1 unchecked);
+  `cargo fmt --all -- --check` continues to report only the known untouched
+  `src/engine/mod.rs:2168` wrap.
+- This checkpoint closes enforcement but does not yet claim catalog credit.
+  Apple remains 23,592 required / 3,874 executable / 3,040 internally
+  verified / 16,678 unresolved; Windows remains 23,251 / 3,513 / 3,026 /
+  16,712. Both advertisement sets remain empty and criterion 7 remains open.
+
 ## Next milestone
 
 Continue the exact-target report program without advertising either target:

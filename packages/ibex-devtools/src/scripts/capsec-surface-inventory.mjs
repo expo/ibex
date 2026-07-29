@@ -13162,7 +13162,7 @@ const REVIEWED_REACHABLE_HERMES_EVALUATORS = [
   "eval",
 ];
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
-  "sha256-9f79a77fc45cb8d2d163928f0f834d35ec121a7cdb4dc553463a77961ed0124f";
+  "sha256-7c1fd40d57c3f85e29440af225521d3f517b4ef3fa81eccbffe78f10ebec7e0c";
 
 // These are reviewed reachability claims for exact checked-in artifact
 // identities, not a floating statement about Hermes releases. Source discovery

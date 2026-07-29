@@ -9171,6 +9171,140 @@ module.exports = JSON.stringify({
         );
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_process_shared_state_methods_are_pinned_closed() {
+        use capsec_semantics::model::{LogicalPath, LogicalRoot};
+        use ibex_runtime::engine::evaluation::SubmissionSequence;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (host, digest) =
+            build_armed_test_host_custom(None, false, false, false, vec![], None, |_| {});
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let session = host.mint_armed_session_token().unwrap();
+        let mut sequence = SubmissionSequence::new(session.clone()).unwrap();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+
+        let request = sequence
+            .mint_repl(LogicalPath {
+                root: LogicalRoot::Project,
+                components: Vec::new(),
+                host_bound: None,
+            })
+            .unwrap()
+            .authorize_inline()
+            .bind_bytes(
+                br#"(function () {
+                  var proto = Object.getPrototypeOf(process);
+                  var methods = [
+                    ['_getActiveHandles', 'ProcessInspection', []],
+                    ['_getActiveRequests', 'ProcessInspection', []],
+                    ['_kill', 'ProcessSignals', [process.pid, 0]],
+                    ['abort', 'ProcessLifecycle', []],
+                    ['binding', 'ProcessBinding', ['util']],
+                    ['kill', 'ProcessSignals', [process.pid, 0]],
+                    ['setegid', 'ProcessCredentials', [0]],
+                    ['seteuid', 'ProcessCredentials', [0]],
+                    ['setgid', 'ProcessCredentials', [0]],
+                    ['setuid', 'ProcessCredentials', [0]]
+                  ];
+                  function denied(fn, permission) {
+                    try { fn(); return false; }
+                    catch (error) {
+                      return error && error.code === 'ERR_ACCESS_DENIED' &&
+                        error.permission === permission;
+                    }
+                  }
+                  for (var i = 0; i < methods.length; i++) {
+                    var name = methods[i][0];
+                    var permission = methods[i][1];
+                    var args = methods[i][2];
+                    var descriptor =
+                      Object.getOwnPropertyDescriptor(process, name);
+                    var prototypeDescriptor =
+                      Object.getOwnPropertyDescriptor(proto, name);
+                    if (!descriptor || descriptor.writable !== false ||
+                        descriptor.configurable !== false ||
+                        !prototypeDescriptor ||
+                        prototypeDescriptor.writable !== false ||
+                        prototypeDescriptor.configurable !== false ||
+                        descriptor.value !== prototypeDescriptor.value ||
+                        !denied(function () {
+                          return process[name].apply(process, args);
+                        }, permission) ||
+                        !denied(function () {
+                          return proto[name].apply(process, args);
+                        }, permission)) {
+                      return false;
+                    }
+                    try { process[name] = function () {}; } catch (_) {}
+                    if (!denied(function () {
+                      return process[name].apply(process, args);
+                    }, permission)) {
+                      return false;
+                    }
+                  }
+                  var properties = [
+                    ['title', 'ProcessTitle', 'ibex'],
+                    ['report', 'ProcessReport', {}]
+                  ];
+                  for (var j = 0; j < properties.length; j++) {
+                    var property = properties[j];
+                    var propertyName = property[0];
+                    var propertyPermission = property[1];
+                    var propertyDescriptor =
+                      Object.getOwnPropertyDescriptor(process, propertyName);
+                    if (!propertyDescriptor ||
+                        typeof propertyDescriptor.get !== 'function' ||
+                        typeof propertyDescriptor.set !== 'function' ||
+                        propertyDescriptor.configurable !== false ||
+                        !denied(function () {
+                          return process[propertyName];
+                        }, propertyPermission) ||
+                        !denied(function () {
+                          process[propertyName] = property[2];
+                        }, propertyPermission)) {
+                      return false;
+                    }
+                  }
+                  return typeof process.getuid() === 'number' &&
+                    typeof process.getgid() === 'number' &&
+                    typeof process.geteuid() === 'number' &&
+                    typeof process.getegid() === 'number' &&
+                    !('_uid' in process) &&
+                    !('_gid' in process) &&
+                    !('_euid' in process) &&
+                    !('_egid' in process) &&
+                    !('_title' in process);
+                })()"#
+                    .to_vec(),
+            )
+            .into_request()
+            .unwrap();
+
+        let typed_before = host.typed_decision_count();
+        let AuthenticatedEvaluation::Value { display, receipt } = engine
+            .evaluate_authenticated(&session, request)
+            .await
+            .expect("armed process shared-state closure probe must evaluate")
+        else {
+            panic!("armed process shared-state closure probe did not return its boolean verdict")
+        };
+        assert_eq!(display.kind, AuthenticatedDisplayKind::Boolean);
+        assert_eq!(display.text, "true");
+        engine
+            .release_undisplayed_value(receipt.expect("probe value must retain a receipt"))
+            .await
+            .unwrap();
+        assert_eq!(
+            host.typed_decision_count(),
+            typed_before,
+            "closed process shared-state surfaces must not enter the typed evaluator"
+        );
+    }
+
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     #[cfg(not(feature = "insecure"))]

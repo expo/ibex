@@ -3020,9 +3020,9 @@ const REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES = Object.freeze([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.276ad10bd883c9796f65ea3e2fb18fe373ce9cc32545c5437bf87b73ebacfd60";
+  "hermes-evaluators.7caaeab4c8213d44ea2db42d6039b2a20ac470b1857f46c1b76adc201fdd7afb";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
-  "sha256-9f79a77fc45cb8d2d163928f0f834d35ec121a7cdb4dc553463a77961ed0124f";
+  "sha256-7c1fd40d57c3f85e29440af225521d3f517b4ef3fa81eccbffe78f10ebec7e0c";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
   "android-maven",
   "source-patched",
