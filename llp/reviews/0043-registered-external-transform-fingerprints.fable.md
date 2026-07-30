@@ -322,3 +322,20 @@ overrun, not hidden.
 Fundamental-redesign feedback: none from either family in any round; both
 families endorse the architecture (closed assignment, domain separation,
 committed-only marking, naming-not-blessing trust model).
+
+---
+
+## Administrative note — 2026-07-30 (concurrent-draft supersession)
+
+While this loop ran, a parallel session independently authored and pushed
+its own LLP 0043 draft from the same ticket (commit `5b8a9371`, 01:20 —
+unreviewed, no artifacts; a registered-set dispatch design without wire
+changes, structurally similar to this loop's round-1 model whose central
+mechanisms both families rejected as MATERIAL). Per the author's direction
+the reviewed document supersedes that draft at this path; the draft
+remains in git history. Its unique content was folded into the reviewed
+document as a further **unreviewed** revision `e6e0a1d71ec8`: the for-of
+repair-pass stage dimension, the preimage derivation-recompute rule, the
+D2-harness and Exact-producer migration specifics, and the JS-hosted
+producer-identity and split-producer open questions. Verdict bindings are
+unchanged (last reviewed revision `b4b3ad472da4`).

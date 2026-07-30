@@ -178,3 +178,11 @@ identically here. This family's final verdict is its round-3 review above:
 **NOT READY** on `b4b3ad472da4` (2 MATERIAL, both IN-DELTA, both
 dispositioned in the unreviewed close-out revision; no PRE-EXISTING
 MATERIAL in rounds 2–3).
+
+---
+
+## Administrative note — 2026-07-30 (concurrent-draft supersession)
+
+Recorded in the Fable-family artifact; applies identically here. Last
+reviewed revision remains `b4b3ad472da4`; the superseding merge revision
+`e6e0a1d71ec8` is unreviewed.

@@ -15,7 +15,11 @@ operative in every lane; goal-typed registrations; D2 cited as recommendation);
 enforcement boundary for the dev committed-only check; LLP 0026/0029 join the
 sibling-revision set incl. the `StubContractV1` carrier-pin migration;
 registration identity domain pinned; production multi-entry scoping;
-fixture sequencing note)
+fixture sequencing note); 2026-07-30 (**unreviewed**: folded in the unique
+content of the concurrently authored draft `5b8a9371` that this document
+supersedes — for-of repair-pass dimension, preimage derivation-recompute
+rule, D2-harness and Exact-producer migration specifics, JS-hosted
+producer identity and split-producer open questions)
 **Systems:** Module Loader, Transforms, CapSec, Arming, Security
 **Related:** LLP 0027 (ModuleArtifact wire, transform-fingerprint composition,
 carrier v2); LLP 0028 (Oxc-only transform authority, canonical
@@ -24,7 +28,8 @@ commitment — the authority surface this contract rides); LLP 0026 (module
 runner); LLP 0039 (secure and insecure modes); Exact LLP 0413 §9.5 (one
 transform truth — external, Exact repo); Exact LLP 0416 §D2 (adapter
 tournament resolution — external, Exact repo);
-issues/20260729-transform-fingerprint-registry-contract.md
+issues/20260729-transform-fingerprint-registry-contract.md;
+issues/20260729-prepared-graph-development-session-commitment.md
 
 ## Summary
 
@@ -255,6 +260,13 @@ ExternalTransformStageV1 {
     name, version,
     optionsDigest
   }
+  forOfRepairPass? {         // present iff the producer applied a for-of
+    id, contentDigest        // scoping repair (Exact's vendored
+  }                          // fixForOfScoping) — identified by content
+                             // digest, not version string, and pinned
+                             // against ibex's canonical LLP 0019 tier-1
+                             // pass so drift between the two copies is a
+                             // fingerprint change, never silent divergence
   sourcemapPolicy            // e.g. "v3-original-source"
 }
 ```
@@ -266,10 +278,13 @@ digests over canonical renderings the external producer must be able to
 re-emit for audit. Every field is output-affecting; nothing advisory rides
 in the stage. The digests are producer-conformance obligations under the
 naming-not-blessing trust model — admission verifies digest equality, not
-that the preimage honestly enumerates the configuration; the
-implementation must pin each digest's canonical preimage recipe and
-domain so registrations are auditable, which is where the obligation is
-enforced.
+that the preimage honestly enumerates the configuration. Each digest's
+canonical preimage recipe and domain is versioned and published with this
+schema (the `ibex:external-stage-preimage/…/1` family), so a registration
+is auditable by recomputation, and wherever a validator holds the open
+preimage (registration tooling, CI, the producing session) it MUST
+recompute the claimed digest and refuse a mismatch — declared dimensions
+cannot be decorative.
 
 ## Registration and authority assignment
 
@@ -554,16 +569,35 @@ Landing this contract revises five governing documents in the same change
 - With no external sections present, admission behavior is equivalent to
   today's: one expected identity per goal, LLP 0042 fallback unchanged.
 - The adapter-1 integration lands consumer-side in Exact against this
-  contract; nothing in ibex depends on Exact's timeline.
+  contract; nothing in ibex depends on Exact's timeline. What the Exact
+  producer starts emitting alongside each publication: a registration
+  with real values — tool identities read from the lockfile/package
+  metadata rather than hard-coded strings, the lane's actual define table
+  as Vite resolved it, the actual JSX runtime mode, the resolver's
+  condition set and platform-suffix order for the target, the
+  `@exact/contract` compiler identity when any `.contract` module is in
+  the graph, and the content identity of the vendored for-of repair pass.
+- The D2 harnesses (Exact LLP 0416 M2/M4) drove admission with
+  harness-supplied expectations and deliberately skipped fingerprint
+  currency; they migrate to constructing an explicit test-only
+  registration + assignment set from the publication's declared
+  fingerprint — the same bytes flowing through the v2 verifier, so the
+  bypass becomes a typed test authority and the currency check runs in CI
+  instead of being skipped.
 
 ## Open questions
 
 1. **Pipeline-tools digest granularity.** Is one locked-set digest over
    the whole Vite/plugin closure the right audit unit, or should the
    optimizer be named separately (the Contract compiler already is), so
-   rotation diagnostics can say which tool moved? Current answer: one
-   digest plus explicit Contract identity; revisit when the first real
-   registration is authored.
+   rotation diagnostics can say which tool moved? Every added dimension
+   buys refusal precision and costs re-registration churn. Relatedly:
+   the Contract compiler identity — version or content digest? The
+   compiler changes without version bumps (arguing content digest), but a
+   source-tree digest churns per commit and makes registrations
+   short-lived. Current answer: one digest plus explicit Contract
+   identity; the version-vs-digest choice is decision-blocking for the
+   field's definition and lands with the first real registration.
 2. **`common-js` external goal.** Adapter 1's root principal is ESM-goal;
    D2's dependency-principal end-state is adapter 2 (ibex-produced), so v1
    refuses external `common-js`. If a real lane needs externally
@@ -582,6 +616,23 @@ Landing this contract revises five governing documents in the same change
    shape is implementation-phase.
 5. **Dev reproduce-on-refusal mechanics.** The development disposition
    (request a fresh publication from the live producing session) rides the
-   unresolved LLP 0042 open question 1 transport; whether refusal triggers
-   an automatic republish or surfaces to the developer is that design's
-   call.
+   unresolved LLP 0042 open question 1 transport
+   (issues/20260729-prepared-graph-development-session-commitment.md);
+   whether refusal triggers an automatic republish or surfaces to the
+   developer is that design's call.
+6. **Publication-preparer identity for a JS-hosted producer.** The LLP
+   0042 commitment binds `producer.binaryDigest`, but adapter-1
+   publications are prepared by Exact tooling — TypeScript executed by a
+   dev server — for which "binary digest" has no single honest referent
+   (host runtime binary? producer bundle? source closure?). The
+   derivation needs a decision before production commitments for external
+   publications exist; the dev lane can start with the session credential
+   carrying the burden. Decision-blocking for production; belongs to LLP
+   0042 but surfaced by this contract.
+7. **Split-producer publications.** The D2 end-state (external root/app
+   principal, ibex-produced dependency principals) implies one
+   publication whose carriers come from two preparers, while the LLP 0042
+   commitment carries one `producer`. Per-cell authority dispatch works
+   either way, but the commitment side must choose: per-carrier producer
+   attribution, or two publications. Needed before the split lands;
+   interacts with LLP 0042 open question 3 (multi-entry).
