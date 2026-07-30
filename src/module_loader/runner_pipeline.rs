@@ -5749,10 +5749,14 @@ pub mod dev_committed_embedder {
                     let text = std::str::from_utf8(component.bytes()).map_err(|_| {
                         anyhow!("dev committed record path component is not UTF-8")
                     })?;
+                    // '?' stays displayable: Vite query-bearing module ids
+                    // (`x.contract?import`, `y.wasm?url`) are distinct
+                    // modules whose identity includes the query (LLP 0413
+                    // Phase 2 M3 blog finding).
                     if text.is_empty()
                         || text
                             .chars()
-                            .any(|ch| ch.is_control() || matches!(ch, '%' | '#' | '?' | '\\'))
+                            .any(|ch| ch.is_control() || matches!(ch, '%' | '#' | '\\'))
                         || text.contains(char::is_whitespace)
                     {
                         bail!(
