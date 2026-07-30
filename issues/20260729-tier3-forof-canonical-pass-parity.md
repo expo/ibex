@@ -35,3 +35,31 @@ AOT scoping divergence.
 - The D2 driver publishes 100% of the hello/dynamic-import/mixed-semantics
   first-party module sets (TLA fallback excepted).
 - Engine-truth tests cover the previously quarantined shapes.
+
+## Evidence (2026-07-30, ibex 281c25d51)
+
+The 100%-publication acceptance bullet is now evidenced at this pin.
+Re-ran `tests/llp0413_d2_adapter2_producer.rs` against fresh Exact
+target-graph exports (`scripts/llp0413-d2-export-target-graph.mjs` at the
+Exact LLP 0413 Phase 2 M1 tree, agent-off dev server, same three fixture
+lanes), serially (`--test-threads 1`; the fingerprint test reads the
+producer test's output, so parallel default order races):
+
+- `produces_adapter2_publications_from_authenticated_originals` — ok:
+  hello 115/108 modules produced (**0 refusals**, 0 TLA, 12 closure
+  originals); dynamic-import 117/110 (**0 refusals**); mixed-semantics
+  122/116 (**0 refusals**, 1 TLA published natively). 4 carriers per lane.
+  The D2-measurement baseline was 29/103 hello first-party refusals
+  (`IBEX_LEGACY_TIER3_FOR_OF ... pending canonical-pass parity`); the
+  quarantine no longer refuses any module in these lanes.
+- `adapter2_publications_satisfy_current_transform_fingerprint` — ok:
+  fingerprint currency holds for 354 records across 3 publications.
+- The unchanged `llp0413_arms_ef_admission` harness admits all three
+  adapter-2 publications (decode-and-admit + tamper + §14 item 16 splice
+  refusals).
+
+Remaining before close: confirm the second acceptance bullet's
+engine-truth coverage for the previously quarantined shapes is the
+regression harness of record (the canonical-pass parity change that
+closed the gap landed before/at 281c25d51). Orchestrator closes at
+landing per the Exact Phase 2 integration wave.
