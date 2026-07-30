@@ -249,6 +249,20 @@ openssl-sys = { version = "0.9", features = ["vendored"], optional = true }
 # @ref LLP 0004#the-tls-builtin — scoped identity decoding, not wire TLS/trust.
 openssl = { version = "0.10.81", features = ["vendored"], optional = true }
 
+# Hardware SHA-256 on aarch64 (Apple Silicon, aarch64 Linux/Android). The
+# default sha2 build uses the portable software backend, measured at
+# ~0.5 GB/s against ~3 GB/s for the ARMv8 crypto extensions on the same
+# machine; committed-publication admission hashes ~20 MB per blog-scale
+# startup and this one feature took that admission from 155 ms to 104 ms
+# (issues/20260730-committed-admission-cost-profile.md). Feature
+# unification applies it to every workspace crate's sha2 (arming/JCS
+# digests included). Digest OUTPUTS are identical by construction — only
+# the compression-function implementation changes. Gated off Windows:
+# sha2-asm does not support the MSVC toolchain, so Windows keeps the
+# portable backend.
+[target.'cfg(all(target_arch = "aarch64", not(target_os = "windows")))'.dependencies]
+sha2 = { version = "0.10", features = ["asm"] }
+
 [target.'cfg(windows)'.dependencies]
 # Windows does not ship a C zlib development package. Build zlib from source so
 # the native deflate/inflate host functions can be registered deterministically.
