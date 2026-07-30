@@ -4128,6 +4128,13 @@ pub fn artifact_edge_attributes(
     }
 }
 
+// Measurement-only committed-admission cost profile (Exact LLP 0413 Phase 3:
+// admission is the dominant prepared-startup phase at blog scale). Test-only;
+// no production semantics live there.
+#[cfg(test)]
+#[path = "admission_cost_profile.rs"]
+mod admission_cost_profile;
+
 #[cfg(test)]
 mod tests {
     use super::*;
