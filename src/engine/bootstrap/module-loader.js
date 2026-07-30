@@ -728,6 +728,25 @@
   }
   const cache = Object.create(null);
   var mainModule = null;
+  // Spec top-level-await semantics for the unarmed compat lane (Exact
+  // LLP 0413 §14 item 4; R5 resolution in Exact LLP 0416): exports object ->
+  // async-evaluation completion promise for modules whose fallback
+  // evaluation was async-wrapped with tracking. Consumers: importImpl
+  // (dynamic import() settles only after the evaluation completes, and
+  // re-rejects with its evaluation error) and the synchronous-edge refusal
+  // in load(). Armed resolver capture never populates this map — armed
+  // evaluation behavior is deliberately unchanged.
+  var __asyncModuleEvaluations =
+    typeof WeakMap === "function" ? new WeakMap() : null;
+  function asyncModuleSyncEdgeRefusal(module, resolutionKind) {
+    var edge = resolutionKind === 1 ? "statically import" : "require";
+    return new Error(
+      'Cannot ' + edge + ' module "' + (module.id || module.filename || "") +
+      '" synchronously: it uses top-level await, so its evaluation is ' +
+      "asynchronous and its exports are incomplete on a synchronous edge. " +
+      "Load it with dynamic import() instead. (Exact LLP 0413 §14 item 4)"
+    );
+  }
 
   function closedGeneratedSinglePrincipal(principal) {
     var rootPrincipal = principal && principal.kind === 'root' &&
@@ -6784,6 +6803,17 @@
     var moduleId = idToModuleId(cacheKey);
     if (cache[cacheKey]) {
       if (!authenticatedDirectEntry) {
+        // Spec top-level-await refusal on cache hits (Exact LLP 0413 §14
+        // item 4): a tracked async module — whether still in flight or long
+        // completed — never satisfies a synchronous module-to-module edge
+        // (matching Node's ERR_REQUIRE_ASYNC_MODULE, which keys on the
+        // module using top-level await, not on timing). The parentless host
+        // entry edge is exempt: the host drains the event loop, so entry
+        // top-level await keeps its existing fire-and-forget behavior.
+        if (cache[cacheKey].__exactAsyncEvaluation && parent &&
+            typedResolutionKind !== 2 && typedResolutionKind !== 1) {
+          throw asyncModuleSyncEdgeRefusal(cache[cacheKey], typedResolutionKind);
+        }
         return cache[cacheKey].exports;
       }
       if (cache[cacheKey] !== structuredDirectEntry.module ||
@@ -6958,6 +6988,17 @@
       );
     };
     const wrapAsyncModule = function(text) {
+      // Unarmed compat/diagnostic lanes capture the async IIFE's completion
+      // promise on the module record so the loader can implement spec
+      // top-level-await semantics (Exact LLP 0413 §14 item 4): dynamic
+      // import() settles after the evaluation completes, and synchronous
+      // module-to-module edges refuse instead of returning partial exports.
+      // Armed resolver capture keeps the untracked wrap — armed evaluation
+      // behavior is deliberately unchanged here.
+      if (!__armedResolverCapture) {
+        return "module.__exactAsyncEvaluation = (async function() {\n" +
+          String(text || "") + "\n})();";
+      }
       return "(async function() {\n" + String(text || "") + "\n})();";
     };
     const isOwnBodyAwaitReferenceError = function(err) {
@@ -7368,6 +7409,21 @@
           module.exports = {};
           invokeFallbackSource(compileFallbackSource(runtimeSource));
         }
+        if (wrappedRuntimeForAwait) {
+          // The tracked wrap stored the async IIFE's completion promise on
+          // the module record. Index it by the (final) exports object so
+          // importImpl can settle dynamic import() only after the evaluation
+          // completes. Armed capture uses the untracked wrap, so this is a
+          // no-op there.
+          var asyncEvaluation = module.__exactAsyncEvaluation;
+          if (__asyncModuleEvaluations && asyncEvaluation &&
+              typeof asyncEvaluation.then === "function" &&
+              module.exports &&
+              (typeof module.exports === "object" ||
+                typeof module.exports === "function")) {
+            __asyncModuleEvaluations.set(module.exports, asyncEvaluation);
+          }
+        }
         pushDebugModuleSource({
           id: id,
           filename: filename,
@@ -7511,6 +7567,20 @@
         legacyId,
         'ibex-capsec-authenticated-builtin-source-complete-v1'
       );
+    }
+    // Spec top-level-await refusal (Exact LLP 0413 §14 item 4; R5 resolution
+    // in Exact LLP 0416): a module whose evaluation is actually asynchronous
+    // has no complete exports to hand to a synchronous module-to-module
+    // require edge. Refuse loudly instead of returning partial exports;
+    // dynamic import() (resolution kind 2) is the sanctioned path and settles
+    // after the evaluation promise. The refusal deliberately leaves the
+    // in-flight module cached so a later dynamic import adopts the same
+    // instance, and the parentless host entry edge stays exempt (the host
+    // drains the event loop, preserving entry top-level-await behavior).
+    // Armed capture never sets the marker, so armed behavior is unchanged.
+    if (module.__exactAsyncEvaluation && parent &&
+        typedResolutionKind !== 2 && typedResolutionKind !== 1) {
+      throw asyncModuleSyncEdgeRefusal(module, typedResolutionKind);
     }
     return module.exports;
   }
@@ -8502,6 +8572,21 @@
         authenticatedCacheAuthorization,
         2
       );
+      // Spec import() timing for top-level-await modules (Exact LLP 0413 §14
+      // item 4): settle after the module's async evaluation completes — and
+      // re-reject with its evaluation error — instead of resolving with
+      // whatever exports existed at the first await. Settled evaluations
+      // chain through in one microtask, so completed modules see no
+      // observable ordering change beyond that turn.
+      var pendingAsyncEvaluation = __asyncModuleEvaluations && module &&
+        (typeof module === "object" || typeof module === "function")
+        ? __asyncModuleEvaluations.get(module)
+        : undefined;
+      if (pendingAsyncEvaluation !== undefined) {
+        return __privPromiseThen(pendingAsyncEvaluation, function() {
+          return wrapDynamicImportValue(module);
+        });
+      }
       return wrapDynamicImportValue(module);
     });
   };
