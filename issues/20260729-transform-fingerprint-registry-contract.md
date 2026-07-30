@@ -34,3 +34,5 @@ does not let arbitrary producers claim ibex's own fingerprint.
   against a registered external-producer fingerprint.
 - A publication claiming an unregistered or mismatched fingerprint
   refuses.
+
+**LLP:** design drafted as `llp/0043-registered-external-transform-fingerprints.rfc.md` (Draft, 2026-07-30); this ticket tracks implementation once the design is reviewed.
