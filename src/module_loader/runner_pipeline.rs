@@ -5496,6 +5496,7 @@ pub mod dev_committed_embedder {
         pub carrier_count: usize,
         pub record_count: usize,
         pub principal_count: usize,
+        pub attribution: &'static str,
         pub commitment_parse_us: u128,
         pub carrier_admission_us: u128,
         pub graph_link_us: u128,
@@ -5577,24 +5578,6 @@ pub mod dev_committed_embedder {
         let record_count = records.len();
         let principal_count = principals.len();
 
-        // Local principal numbering (root = 0, packages in canonical order):
-        // the u32 ids are runtime-local execution bookkeeping, not authority.
-        // An unarmed embedding has no armed import table to project them
-        // from; frame attribution still keys on the compartment identity
-        // derived from each Principal itself.
-        let mut principal_ids = BTreeMap::new();
-        let mut next_id: u32 = 1;
-        for principal in &principals {
-            let id = if principal.is_root() {
-                0
-            } else {
-                let id = next_id;
-                next_id += 1;
-                id
-            };
-            principal_ids.insert(principal.clone(), id);
-        }
-
         const DEV_GRAPH_GENERATION: u64 = 1;
         let plan = SynchronousGraphPlan::new_typed_with_private_commonjs_edges(
             records
@@ -5625,26 +5608,17 @@ pub mod dev_committed_embedder {
 
         let mut configs = BTreeMap::new();
         for source_id in records.keys() {
-            let principal = match source_id.defining_principal().cloned() {
-                Some(principal) => principal,
-                None if matches!(source_id, SourceId::Builtin { .. }) => principals
-                    .iter()
-                    .find(|principal| principal.is_root())
-                    .cloned()
-                    .ok_or_else(|| {
-                        pre_evaluation(anyhow!("builtin graph record has no root runtime owner"))
-                    })?,
-                None => {
-                    return Err(pre_evaluation(anyhow!(
-                        "source graph record has no defining principal"
-                    )))
-                }
-            };
-            let principal_id = *principal_ids.get(&principal).ok_or_else(|| {
-                pre_evaluation(anyhow!("source graph principal has no runtime projection"))
-            })?;
-            let compartment_identity =
-                module_runner_compartment_identity(&principal).map_err(pre_evaluation)?;
+            // EXECUTION attribution collapses to the root principal on this
+            // lane, exactly like every module the diagnostic runtime's
+            // legacy compat lanes evaluate today: the unarmed runtime
+            // installs no compartment registry (that seal is an armed /
+            // IBEX_COMPARTMENTS posture), so package compartments cannot
+            // bind. Carrier ADMISSION above remains fully per-principal
+            // (grouping, splice refusal, digest binding); the collapse is
+            // named in the receipt (`attribution`) and retires with the
+            // armed-Debug durable posture (Exact LLP 0416 D3).
+            let principal_id: u32 = 0;
+            let compartment_identity: Option<String> = None;
             // Native execution requires `/project/`-rooted authenticated
             // virtual labels (`with_authenticated_virtual_path`); the
             // committed records carry the rejoin-oriented `/app/modules/…`
@@ -5738,6 +5712,7 @@ pub mod dev_committed_embedder {
             carrier_count,
             record_count,
             principal_count,
+            attribution: "collapsed-to-root (dev-unarmed; no compartment registry)",
             commitment_parse_us,
             carrier_admission_us,
             graph_link_us,

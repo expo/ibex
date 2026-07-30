@@ -2194,7 +2194,10 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
       ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
     }
 #endif
-    pendingError = "prepared module factory load threw";
+    // Keep the engine-side reason: the generic label hid real load faults
+    // (e.g. the unattributed-build compartment refusal) behind an
+    // application-shaped message (LLP 0413 Phase 2 integration finding).
+    pendingError = "prepared module factory load threw: " + error.getMessage();
   } catch (const std::exception& error) {
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
     if (runtime->attribution_runtime != nullptr) {
@@ -2641,7 +2644,10 @@ extern "C" int32_t ex_hermes_commonjs_record_evaluate(
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
     pendingErrorToken = exactRetainStructuredModuleGraphError(runtime, error);
-    pendingError = "CommonJS record evaluation threw";
+    // Keep the engine-side reason (LLP 0413 Phase 2 integration finding):
+    // the retained token names the structured value, but embedders reading
+    // only the error string got an application-shaped generic label.
+    pendingError = "CommonJS record evaluation threw: " + error.getMessage();
   } catch (const std::exception& error) {
     pendingError = error.what();
   } catch (...) {

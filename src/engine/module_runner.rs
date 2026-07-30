@@ -3863,14 +3863,25 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         }
         let outcome = (|| {
             for source_id in &self.evaluation_order {
+                // Name the failing record in the STICKY error's detail: the
+                // typed NativeModuleExecutionError survives sticky
+                // re-publication, so an anyhow context layer would be
+                // dropped on every later read (LLP 0413 Phase 2 diagnostics
+                // finding — a graph-eval failure without the record identity
+                // is undebuggable from an embedder banner).
+                let annotate = |error: anyhow::Error| -> anyhow::Error {
+                    let mut sticky = sticky_module_error(&error);
+                    sticky.detail = format!("{} (evaluating {source_id:?})", sticky.detail);
+                    anyhow::Error::new(sticky)
+                };
                 let kind = match self
                     .records
                     .get_mut(source_id)
                     .expect("linked graph retains every reachable record")
                 {
-                    NativeLinkedRecord::Esm(record) => record.run_execute()?,
+                    NativeLinkedRecord::Esm(record) => record.run_execute().map_err(annotate)?,
                     NativeLinkedRecord::CommonJs { record, .. } => {
-                        record.evaluate()?;
+                        record.evaluate().map_err(annotate)?;
                         ModuleExecutionKind::Synchronous
                     }
                 };
