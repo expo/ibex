@@ -1791,6 +1791,17 @@ unsafe fn optional_utf8_path<'a>(
     Ok(Some(std::path::Path::new(text)))
 }
 
+/// REAL installed-host arming state for the dev-unarmed committed embedder's
+/// construction-time exclusion (runner_pipeline::dev_committed_embedder).
+/// Unlike `ex_host_is_armed`, this never takes the `insecure` presentation
+/// branch: an armed Host must exclude the dev admission even in builds that
+/// present themselves as unarmed.
+/// @ref LLP 0042#visible-non-production — armed contexts never reach dev admission
+#[cfg(feature = "dev-committed-embedder")]
+pub(crate) fn installed_host_is_armed_for_dev_exclusion() -> bool {
+    with_host(|host| host.armed_snapshot().is_some(), false)
+}
+
 fn with_host<T>(f: impl FnOnce(&Host) -> T, default: T) -> T {
     let active = ACTIVE_HOST_CONTEXT.with(Cell::get);
     if active != 0 {

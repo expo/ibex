@@ -743,7 +743,11 @@ facebook::jsi::Value evaluateCommonJsRecord(
                 targetRecordId);
             return facebook::jsi::Value(rt, promise);
           } catch (const facebook::jsi::JSError& error) {
-            return rejectedPromise(rt, "CommonJS dynamic import failed");
+            // Keep the engine-side reason: a swallowed generic label made
+            // real linkage faults (e.g. a missing adapter record) look like
+            // application bugs (LLP 0413 Phase 2 integration finding).
+            return rejectedPromise(
+                rt, "CommonJS dynamic import failed: " + error.getMessage());
           } catch (const std::exception& error) {
             return rejectedPromise(rt, error.what());
           } catch (...) {
@@ -1520,6 +1524,97 @@ facebook::jsi::Object dynamicEvaluationPromise(
   if (targetRecord == runtime->module_records.end() ||
       targetRecord->second.graph_generation != graphGeneration) {
     throw facebook::jsi::JSError(rt, "stale dynamic import target");
+  }
+  // A link-time dynamic-import binding may target the ESM adapter of a
+  // CommonJS record that has never evaluated (a dynamic-only member of a
+  // fully-linked prepared graph — the LLP 0413 Phase 2 committed shape).
+  // The adapter sits in Instantiated state until finalizeCommonJsAdapter
+  // runs, so the ESM state machine below cannot drive it. Mirror the
+  // require()-of-ESM-closure path: evaluate the backing CommonJS record
+  // lazily through a chained promise step (ordered after the current job),
+  // which finalizes the adapter to Evaluated for the namespace step.
+  if (targetRecord->second.state == NativeModuleRecordState::Instantiated) {
+    auto backing = std::find_if(
+        runtime->commonjs_records.begin(),
+        runtime->commonjs_records.end(),
+        [targetRecordId](const auto& entry) {
+          return entry.second.adapter_record_id == targetRecordId;
+        });
+    if (backing != runtime->commonjs_records.end()) {
+      if (backing->second.graph_generation != graphGeneration) {
+        throw facebook::jsi::JSError(
+            rt, "stale CommonJS dynamic import adapter");
+      }
+      if (backing->second.state == NativeCommonJsRecordState::Evaluating) {
+        throw facebook::jsi::JSError(
+            rt,
+            "ERR_ASYNC_MODULE_CYCLE: dynamic import re-enters an evaluating "
+            "CommonJS module");
+      }
+      const uint64_t backingRecordId = backing->first;
+      const auto callbackTarget = exactRuntimeCallbackTarget(runtime);
+      auto initialValue = resolve.callWithThis(
+          rt, promiseConstructor, facebook::jsi::Value::undefined());
+      if (!initialValue.isObject()) {
+        throw facebook::jsi::JSError(
+            rt, "Promise operation did not return an object");
+      }
+      auto evaluateStep = facebook::jsi::Function::createFromHostFunction(
+          rt,
+          facebook::jsi::PropNameID::forAscii(
+              rt, "dynamicCommonJsAdapterEvaluation"),
+          0,
+          [callbackTarget, graphGeneration, backingRecordId](
+              facebook::jsi::Runtime& rt,
+              const facebook::jsi::Value&,
+              const facebook::jsi::Value*,
+              size_t) -> facebook::jsi::Value {
+            if (!runtimeIsAlive(callbackTarget) ||
+                callbackTarget.runtime->runtime_thread !=
+                    std::this_thread::get_id()) {
+              throw facebook::jsi::JSError(
+                  rt, "stale CommonJS dynamic import evaluation");
+            }
+            auto current = callbackTarget.runtime->commonjs_records.find(
+                backingRecordId);
+            if (current == callbackTarget.runtime->commonjs_records.end() ||
+                current->second.graph_generation != graphGeneration) {
+              throw facebook::jsi::JSError(
+                  rt, "stale CommonJS dynamic import evaluation owner");
+            }
+            if (current->second.state ==
+                NativeCommonJsRecordState::Evaluating) {
+              throw facebook::jsi::JSError(
+                  rt,
+                  "ERR_ASYNC_MODULE_CYCLE: dynamic import re-enters an "
+                  "evaluating CommonJS module");
+            }
+            evaluateCommonJsRecord(rt, callbackTarget.runtime, backingRecordId);
+            return facebook::jsi::Value::undefined();
+          });
+      auto chained = appendPromiseThen(
+          rt, initialValue.asObject(rt), std::move(evaluateStep));
+      auto namespaceStep = facebook::jsi::Function::createFromHostFunction(
+          rt,
+          facebook::jsi::PropNameID::forAscii(
+              rt, "dynamicCommonJsAdapterNamespace"),
+          0,
+          [callbackTarget, graphGeneration, targetRecordId](
+              facebook::jsi::Runtime& rt,
+              const facebook::jsi::Value&,
+              const facebook::jsi::Value*,
+              size_t) -> facebook::jsi::Value {
+            auto* record = callbackRecordFor(
+                callbackTarget, graphGeneration, targetRecordId);
+            if (record == nullptr || !record->namespace_object ||
+                record->state != NativeModuleRecordState::Evaluated) {
+              throw facebook::jsi::JSError(
+                  rt, "dynamic import target did not evaluate");
+            }
+            return facebook::jsi::Value(rt, *record->namespace_object);
+          });
+      return appendPromiseThen(rt, std::move(chained), std::move(namespaceStep));
+    }
   }
   facebook::jsi::Value initial;
   bool needsEvaluation = false;

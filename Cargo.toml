@@ -206,6 +206,13 @@ module-runner = []
 # Phase-0 LLP 0029 development stub. This exposes an explicitly diagnostic
 # Hermes constructor and must never be used as the release compiled profile.
 sfe-dev-spike = ["module-runner"]
+# LLP 0042 development-posture committed admission for UNARMED embedders
+# (Exact LLP 0413 Phase 2): compiles the dev-unarmed committed prepared
+# startup entry (`ibex_dev_unarmed_committed_prepared_startup_v1`) and the
+# prepared graph linker it drives. The entry refuses armed Host contexts at
+# construction time and names its non-production authority in every receipt;
+# armed Debug remains the durable development posture (Exact LLP 0416 D3).
+dev-committed-embedder = ["module-runner"]
 # Compiles the hyper-based localhost HTTP server backing `exact:http` and the
 # agent endpoints (the `ex_host_http_*` C symbols). App hosts and the full
 # `ibex` CLI profile enable this; without it build.rs compiles no-op stubs

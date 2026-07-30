@@ -3248,6 +3248,40 @@ fn committed_publication_files(index: &PreparedGraphIndexV2) -> Result<BTreeSet<
     Ok(files)
 }
 
+/// Transform-fingerprint currency posture for committed admission (LLP 0042
+/// algorithm step 6).
+///
+/// `CurrentIbexToolchain` is the production posture: every record's
+/// fingerprint must equal ibex's own configured toolchain fingerprint for
+/// its goal. `DevVouchedIndexExternalProducer` is the deliberately-typed
+/// interim for the UNARMED development embedder consuming an external
+/// producer's publication (Exact's Vite adapter-1): the per-record
+/// fingerprint DIGEST is still bound by `DigestBoundPrepared` admission
+/// against the vouched index, but no currency check against ibex's own
+/// toolchain runs — external transform authorities are LLP 0043 work, and
+/// until it lands this posture must be named in every receipt that admits
+/// under it. It is only constructible by the dev-unarmed embedder entry.
+/// @ref LLP 0043#validation-and-admission — the registry replaces this posture
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommittedFingerprintPosture {
+    CurrentIbexToolchain,
+    DevVouchedIndexExternalProducer,
+}
+
+/// One committed publication admitted against an independent commitment,
+/// before any Host/armed-snapshot projection: the snapshot-free core of
+/// `load_prepared_graph_committed_v1`, shared with the dev-unarmed embedder
+/// entry (`dev_committed_embedder`). Everything here has passed the LLP 0042
+/// steps 1-5 (+ step 6 per the posture): retained canonical index bytes,
+/// root-digest independence gate, facet cross-checks, exact file inventory,
+/// and real carrier/artifact admission.
+pub(crate) struct CommittedPublicationAdmissionV1 {
+    pub(crate) entry: SourceId,
+    pub(crate) records: BTreeMap<SourceId, SourceGraphRecordV1>,
+    pub(crate) principals: Vec<Principal>,
+    pub(crate) carrier_count: usize,
+}
+
 /// Admit a prepared publication directly against an independent production
 /// commitment authenticated by this Host's armed snapshot. No source file is
 /// opened, hashed, transformed, or parsed on this path.
@@ -3278,6 +3312,66 @@ pub fn load_prepared_graph_committed_v1(
         bail!("IBEX_PREPARED_COMMITMENT_AUTHORITY caller commitment is not the armed commitment");
     }
 
+    let admitted = admit_committed_publication_v1(
+        cache_dir,
+        commitment,
+        project_root,
+        CommittedFingerprintPosture::CurrentIbexToolchain,
+    )?;
+    let CommittedPublicationAdmissionV1 {
+        entry,
+        records,
+        principals,
+        carrier_count,
+    } = admitted;
+
+    let principal_ids = principals
+        .into_iter()
+        .map(|principal| {
+            Ok((
+                principal.clone(),
+                host.module_runner_principal_id(&principal)?,
+            ))
+        })
+        .collect::<Result<BTreeMap<_, _>>>()?;
+    let graph = SourceModuleGraphV1 {
+        entry,
+        entry_vfs_source_id: Some(entry_vfs_source_id),
+        snapshot,
+        principal_ids,
+        producer_binary_digest: commitment.producer.binary_digest.clone(),
+        records,
+        activation_host: None,
+        project_root: project_root.to_path_buf(),
+        candidate_declarations: BTreeMap::new(),
+        matched_candidate_declarations: BTreeSet::new(),
+        prepared_activation_cache_locator: None,
+        _source_access_receipts: Vec::new(),
+        _prepared_access_receipts: Vec::new(),
+        _activation_receipts: Vec::new(),
+    };
+    graph.plan()?;
+    eprintln!(
+        "ibex prepared admission authority=production-armed entry={} root={} carriers={} duration_us={}",
+        commitment.entry_source_id,
+        &commitment.publication_root_digest.as_str()[..24],
+        carrier_count,
+        started.elapsed().as_micros(),
+    );
+    Ok(graph)
+}
+
+/// The snapshot-free LLP 0042 admission core: steps 1-5 of the committed
+/// admission algorithm plus the posture-selected step 6. Callers own the
+/// authority question — the production wrapper has already required the
+/// armed snapshot to carry this exact commitment; the dev-unarmed embedder
+/// entry types its non-production authority explicitly.
+pub(crate) fn admit_committed_publication_v1(
+    cache_dir: &Path,
+    commitment: &PreparedGraphCommitmentV1,
+    project_root: &Path,
+    fingerprint_posture: CommittedFingerprintPosture,
+) -> Result<CommittedPublicationAdmissionV1> {
     // The index is the first cache byte discovered. Strict parsing and the
     // independent root check happen before any index facet authorizes a file.
     let index_bytes = read_bounded_prepared_file(
@@ -3425,7 +3519,16 @@ pub fn load_prepared_graph_committed_v1(
         if indexed.artifact.semantics.source_id.0 != indexed.source_id {
             bail!("IBEX_PREPARED_COMMITMENT_CORRUPT record identity differs from artifact");
         }
-        verify_current_transform_fingerprint_v1(&indexed.artifact.semantics)?;
+        // LLP 0042 step 6, posture-selected (see CommittedFingerprintPosture):
+        // production requires ibex-toolchain currency; the dev-unarmed
+        // embedder posture relies on the DigestBoundPrepared fingerprint
+        // binding below until LLP 0043's registered external authorities.
+        match fingerprint_posture {
+            CommittedFingerprintPosture::CurrentIbexToolchain => {
+                verify_current_transform_fingerprint_v1(&indexed.artifact.semantics)?;
+            }
+            CommittedFingerprintPosture::DevVouchedIndexExternalProducer => {}
+        }
         let mut bindings = BTreeMap::new();
         for binding in indexed.bindings {
             if bindings
@@ -3510,40 +3613,12 @@ pub fn load_prepared_graph_committed_v1(
         }
     }
 
-    let principal_ids = principals
-        .into_iter()
-        .map(|principal| {
-            Ok((
-                principal.clone(),
-                host.module_runner_principal_id(&principal)?,
-            ))
-        })
-        .collect::<Result<BTreeMap<_, _>>>()?;
-    let graph = SourceModuleGraphV1 {
+    Ok(CommittedPublicationAdmissionV1 {
         entry: index.entry,
-        entry_vfs_source_id: Some(entry_vfs_source_id),
-        snapshot,
-        principal_ids,
-        producer_binary_digest: commitment.producer.binary_digest.clone(),
         records,
-        activation_host: None,
-        project_root: project_root.to_path_buf(),
-        candidate_declarations: BTreeMap::new(),
-        matched_candidate_declarations: BTreeSet::new(),
-        prepared_activation_cache_locator: None,
-        _source_access_receipts: Vec::new(),
-        _prepared_access_receipts: Vec::new(),
-        _activation_receipts: Vec::new(),
-    };
-    graph.plan()?;
-    eprintln!(
-        "ibex prepared admission authority=production-armed entry={} root={} carriers={} duration_us={}",
-        commitment.entry_source_id,
-        &commitment.publication_root_digest.as_str()[..24],
-        carriers.len(),
-        started.elapsed().as_micros(),
-    );
-    Ok(graph)
+        principals,
+        carrier_count: carriers.len(),
+    })
 }
 
 /// Consume the authenticated entry join before discovering any prepared-cache
@@ -5362,5 +5437,494 @@ mod tests {
         assert!(error
             .to_string()
             .contains("artifact/resolver graph disagreement"));
+    }
+}
+
+/// LLP 0413 §10 Phase 2 / LLP 0042 development posture: UNARMED development
+/// embedder admission + evaluation of a committed prepared publication.
+///
+/// This module is the deliberately-typed dev interim the Exact LLP 0416 D3
+/// decision names: armed Debug remains the durable posture; this entry
+/// exists so the Exact macOS Debug DIAGNOSTIC runtime (an unarmed embedding)
+/// can run prepared JS factory-table carriers through the REAL committed
+/// admission core and the REAL native module runner today. Its authority is
+/// the production-SHAPED `ibex/prepared-graph-commitment/1` record delivered
+/// over the same authenticated dev channel as the publication (the
+/// `dev-served` trust seam); no `ibex/prepared-graph-commitment-dev/1`
+/// session credential is minted here — that work stays gated on the open
+/// transport question in
+/// `issues/20260729-prepared-graph-development-session-commitment.md`.
+///
+/// Structural non-production guarantees:
+/// - only compiled under the `dev-committed-embedder` cargo feature;
+/// - refuses at construction time when the installed Host is armed (an
+///   armed context can never reach this admission);
+/// - every receipt and banner names `authority=dev-unarmed-dev-served
+///   (non-production)` and the LLP 0043-pending fingerprint posture;
+/// - never advertises prepared production startup.
+/// @ref LLP 0042#development-commitment — dev-served channel is the dev trust seam
+/// @ref LLP 0042#visible-non-production — receipts name the authority class
+#[cfg(feature = "dev-committed-embedder")]
+pub mod dev_committed_embedder {
+    use std::ffi::{c_char, c_void, CStr, CString};
+    use std::ptr::NonNull;
+
+    use super::*;
+    use crate::engine::module_runner::{
+        GraphEvaluationContext, NativeModuleRecordConfig, NativeModuleRuntime,
+        NativeSynchronousGraph,
+    };
+
+    const DEV_UNARMED_AUTHORITY: &str = "dev-unarmed-dev-served (non-production)";
+    const DEV_FINGERPRINT_POSTURE: &str =
+        "dev-vouched-index-external-producer (LLP 0043 pending)";
+    const DEV_PREPARED_GRAPH_COMMITMENT_SCHEMA_V1: &str = "ibex/prepared-graph-commitment/1";
+
+    /// Admission + evaluation receipt for one dev-unarmed committed startup.
+    /// Serialized to JSON for the embedding host's startup report/banner
+    /// (Exact LLP 0413 §13 phase vocabulary).
+    #[derive(Debug, serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct DevUnarmedCommittedStartupReportV1 {
+        pub schema: &'static str,
+        pub authority: &'static str,
+        pub posture: &'static str,
+        pub non_production: bool,
+        pub fingerprint_posture: &'static str,
+        pub entry_source_id: String,
+        pub publication_root_prefix: String,
+        pub carrier_count: usize,
+        pub record_count: usize,
+        pub principal_count: usize,
+        pub commitment_parse_us: u128,
+        pub carrier_admission_us: u128,
+        pub graph_link_us: u128,
+        pub entry_execute_us: u128,
+    }
+
+    /// Failure phase classification for the §5.4 fallback boundary: a
+    /// pre-evaluation refusal may select the development fallback lane; once
+    /// evaluation has begun the generation fails and no encoding switch is
+    /// permitted.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum DevCommittedStartupFailurePhase {
+        BeforeEvaluation,
+        DuringEvaluation,
+    }
+
+    pub struct DevCommittedStartupError {
+        pub phase: DevCommittedStartupFailurePhase,
+        pub error: anyhow::Error,
+    }
+
+    fn pre_evaluation(error: anyhow::Error) -> DevCommittedStartupError {
+        DevCommittedStartupError {
+            phase: DevCommittedStartupFailurePhase::BeforeEvaluation,
+            error,
+        }
+    }
+
+    /// Admit the publication at `publication_dir` against `commitment_text`
+    /// (canonical JCS bytes of a production-shaped commitment delivered over
+    /// the dev channel), then link and evaluate the prepared graph on the
+    /// embedder's OWN unarmed runtime.
+    ///
+    /// The linked native graph is intentionally retained (leaked) on
+    /// success: the evaluated application owns the process from here —
+    /// records back the app's live module namespaces and dynamic-import
+    /// bindings for the remaining process lifetime (exactly one retention
+    /// per startup); dropping the graph would release the engine-side
+    /// records out from under the running app.
+    pub fn run_prepared_graph_committed_dev_unarmed_v1(
+        runtime: NonNull<c_void>,
+        runtime_nonce: u64,
+        publication_dir: &Path,
+        commitment_text: &str,
+        expected_target: &str,
+        project_root: &Path,
+    ) -> Result<DevUnarmedCommittedStartupReportV1, DevCommittedStartupError> {
+        // Construction-time armed exclusion: this admission is structurally
+        // unreachable from an armed Host context. The check reads the REAL
+        // installed-host arming state (never the `insecure` presentation).
+        if crate::host::abi::installed_host_is_armed_for_dev_exclusion() {
+            return Err(pre_evaluation(anyhow!(
+                "IBEX_DEV_COMMITTED_ARMED_CONTEXT dev-unarmed committed admission refused: \
+                 an armed Host is installed in this process"
+            )));
+        }
+
+        let parse_started = std::time::Instant::now();
+        let commitment = parse_dev_served_commitment(commitment_text, expected_target)
+            .map_err(pre_evaluation)?;
+        let commitment_parse_us = parse_started.elapsed().as_micros();
+
+        let admission_started = std::time::Instant::now();
+        let admitted = admit_committed_publication_v1(
+            publication_dir,
+            &commitment,
+            project_root,
+            CommittedFingerprintPosture::DevVouchedIndexExternalProducer,
+        )
+        .map_err(pre_evaluation)?;
+        let carrier_admission_us = admission_started.elapsed().as_micros();
+
+        let CommittedPublicationAdmissionV1 {
+            entry,
+            records,
+            principals,
+            carrier_count,
+        } = admitted;
+        let record_count = records.len();
+        let principal_count = principals.len();
+
+        // Local principal numbering (root = 0, packages in canonical order):
+        // the u32 ids are runtime-local execution bookkeeping, not authority.
+        // An unarmed embedding has no armed import table to project them
+        // from; frame attribution still keys on the compartment identity
+        // derived from each Principal itself.
+        let mut principal_ids = BTreeMap::new();
+        let mut next_id: u32 = 1;
+        for principal in &principals {
+            let id = if principal.is_root() {
+                0
+            } else {
+                let id = next_id;
+                next_id += 1;
+                id
+            };
+            principal_ids.insert(principal.clone(), id);
+        }
+
+        const DEV_GRAPH_GENERATION: u64 = 1;
+        let plan = SynchronousGraphPlan::new_typed_with_private_commonjs_edges(
+            records
+                .iter()
+                .map(|(_, record)| {
+                    Ok((
+                        verify_record(record, &commitment.producer.binary_digest)?,
+                        record.bindings.clone(),
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()
+                .map_err(pre_evaluation)?,
+            computed_candidate_site_map(&records).map_err(pre_evaluation)?,
+            BTreeSet::new(),
+            BTreeSet::new(),
+            records
+                .iter()
+                .filter(|(_, record)| !record.bootstrap_internal_commonjs_requires.is_empty())
+                .map(|(source_id, record)| {
+                    (
+                        source_id.clone(),
+                        record.bootstrap_internal_commonjs_requires.clone(),
+                    )
+                })
+                .collect(),
+        )
+        .map_err(|error| pre_evaluation(anyhow::Error::from(error)))?;
+
+        let mut configs = BTreeMap::new();
+        for source_id in records.keys() {
+            let principal = match source_id.defining_principal().cloned() {
+                Some(principal) => principal,
+                None if matches!(source_id, SourceId::Builtin { .. }) => principals
+                    .iter()
+                    .find(|principal| principal.is_root())
+                    .cloned()
+                    .ok_or_else(|| {
+                        pre_evaluation(anyhow!("builtin graph record has no root runtime owner"))
+                    })?,
+                None => {
+                    return Err(pre_evaluation(anyhow!(
+                        "source graph record has no defining principal"
+                    )))
+                }
+            };
+            let principal_id = *principal_ids.get(&principal).ok_or_else(|| {
+                pre_evaluation(anyhow!("source graph principal has no runtime projection"))
+            })?;
+            let compartment_identity =
+                module_runner_compartment_identity(&principal).map_err(pre_evaluation)?;
+            // Native execution requires `/project/`-rooted authenticated
+            // virtual labels (`with_authenticated_virtual_path`); the
+            // committed records carry the rejoin-oriented `/app/modules/…`
+            // portable display, so derive the execution labels from the
+            // SourceId's authenticated path components here. Purely a
+            // display/observable identity (import.meta, __filename) — never
+            // a resolver path or authority.
+            let (source_label, virtual_path) =
+                dev_execution_display(source_id).map_err(pre_evaluation)?;
+            let mut config = NativeModuleRecordConfig::new(
+                principal_id,
+                compartment_identity,
+                GraphEvaluationContext::new(
+                    source_id.clone(),
+                    principal_id,
+                    principal_id,
+                    [principal_id],
+                    DEV_GRAPH_GENERATION,
+                )
+                .map_err(pre_evaluation)?,
+                source_label.clone(),
+                source_label,
+            )
+            .map_err(pre_evaluation)?;
+            if let Some(virtual_path) = virtual_path {
+                config = config
+                    .with_authenticated_virtual_path(virtual_path)
+                    .map_err(pre_evaluation)?;
+            }
+            configs.insert(source_id.clone(), config);
+        }
+
+        let mut prepared_entries = BTreeMap::new();
+        for (source_id, record) in &records {
+            let prepared = record.prepared.as_ref().ok_or_else(|| {
+                pre_evaluation(anyhow!(
+                    "committed publication record has no prepared carrier entry"
+                ))
+            })?;
+            prepared_entries.insert(
+                source_id.clone(),
+                prepared
+                    .carrier
+                    .entry(prepared.entry_id.as_str())
+                    .map_err(pre_evaluation)?,
+            );
+        }
+
+        let link_started = std::time::Instant::now();
+        // SAFETY: the embedder passes the live runtime pointer plus the nonce
+        // read from `ex_hermes_runtime_nonce` on the runtime's owner thread
+        // (the C-ABI contract of `ibex_dev_unarmed_committed_prepared_startup_v1`).
+        let native_runtime = Box::leak(Box::new(
+            unsafe { NativeModuleRuntime::from_raw(runtime, runtime_nonce) }
+                .map_err(pre_evaluation)?,
+        ));
+        let mut linked = NativeSynchronousGraph::link_prepared(
+            native_runtime,
+            &plan,
+            &entry,
+            configs,
+            &prepared_entries,
+        )
+        .map_err(pre_evaluation)?;
+        let graph_link_us = link_started.elapsed().as_micros();
+
+        // §5.4 boundary: application factories begin evaluating here. Any
+        // failure past this point fails the generation — the caller must not
+        // restart the same graph through another encoding.
+        let evaluate_started = std::time::Instant::now();
+        let evaluation = linked.evaluate();
+        let entry_execute_us = evaluate_started.elapsed().as_micros();
+        // Records back the running application from here (see doc comment).
+        std::mem::forget(linked);
+        drop(plan);
+        if let Err(error) = evaluation {
+            return Err(DevCommittedStartupError {
+                phase: DevCommittedStartupFailurePhase::DuringEvaluation,
+                error,
+            });
+        }
+
+        let report = DevUnarmedCommittedStartupReportV1 {
+            schema: "ibex/dev-unarmed-committed-startup-report/1",
+            authority: DEV_UNARMED_AUTHORITY,
+            posture: "dev-unarmed",
+            non_production: true,
+            fingerprint_posture: DEV_FINGERPRINT_POSTURE,
+            entry_source_id: commitment.entry_source_id.as_str().to_owned(),
+            publication_root_prefix: commitment.publication_root_digest.as_str()[..24].to_owned(),
+            carrier_count,
+            record_count,
+            principal_count,
+            commitment_parse_us,
+            carrier_admission_us,
+            graph_link_us,
+            entry_execute_us,
+        };
+        eprintln!(
+            "ibex prepared admission authority={} entry={} root={} carriers={} records={} admission_us={} link_us={} evaluate_us={}",
+            DEV_UNARMED_AUTHORITY,
+            report.entry_source_id,
+            report.publication_root_prefix,
+            carrier_count,
+            record_count,
+            carrier_admission_us,
+            graph_link_us,
+            entry_execute_us,
+        );
+        Ok(report)
+    }
+
+    /// Authenticated execution display labels for a dev-committed record,
+    /// derived only from the SourceId's own path components: root files map
+    /// to `/project/<components>`, package files to
+    /// `/project/node_modules/<package>/<components>`, builtins to their
+    /// builtin label with no virtual path.
+    fn dev_execution_display(source_id: &SourceId) -> Result<(String, Option<String>)> {
+        match source_id {
+            SourceId::Builtin { domain, source_key } => Ok((
+                format!("builtin:{}:{}", domain.as_str(), source_key.as_str()),
+                None,
+            )),
+            SourceId::File { principal, path } => {
+                let mut components = Vec::with_capacity(path.len());
+                for component in path {
+                    let text = std::str::from_utf8(component.bytes()).map_err(|_| {
+                        anyhow!("dev committed record path component is not UTF-8")
+                    })?;
+                    if text.is_empty()
+                        || text
+                            .chars()
+                            .any(|ch| ch.is_control() || matches!(ch, '%' | '#' | '?' | '\\'))
+                        || text.contains(char::is_whitespace)
+                    {
+                        bail!(
+                            "dev committed record path component is not displayable: {text:?}"
+                        );
+                    }
+                    components.push(text.to_owned());
+                }
+                let joined = components.join("/");
+                let virtual_path = match principal {
+                    Principal::Package { name, .. } => {
+                        format!("/project/node_modules/{}/{joined}", name.as_str())
+                    }
+                    _ => format!("/project/{joined}"),
+                };
+                let source_label = format!("file://{virtual_path}");
+                Ok((source_label, Some(virtual_path)))
+            }
+            SourceId::Synthetic { .. } => {
+                bail!("synthetic prepared records are unsupported on the dev committed lane")
+            }
+        }
+    }
+
+    /// Parse and precheck the dev-served commitment record: retained exact
+    /// bytes must be strict JSON, canonical JCS, carry the production
+    /// commitment schema (the production-SHAPED record — the dev posture
+    /// lives in this entry's type and receipts, never in a relaxed record),
+    /// and name the embedder's expected target byte-for-byte.
+    fn parse_dev_served_commitment(
+        commitment_text: &str,
+        expected_target: &str,
+    ) -> Result<capsec_semantics::arming::PreparedGraphCommitmentV1> {
+        let value = capsec_semantics::strict_json::parse_strict(commitment_text)
+            .map_err(|error| anyhow!("IBEX_DEV_COMMITTED_CORRUPT commitment: {error}"))?;
+        let canonical = capsec_semantics::canonical::to_jcs_bytes(&value)?;
+        if canonical != commitment_text.trim_end_matches('\n').as_bytes() {
+            bail!("IBEX_DEV_COMMITTED_CORRUPT commitment is not canonical JCS");
+        }
+        let commitment: capsec_semantics::arming::PreparedGraphCommitmentV1 =
+            serde_json::from_value(value)
+                .map_err(|error| anyhow!("IBEX_DEV_COMMITTED_CORRUPT commitment shape: {error}"))?;
+        if commitment.schema != DEV_PREPARED_GRAPH_COMMITMENT_SCHEMA_V1 {
+            bail!("IBEX_DEV_COMMITTED_SCHEMA unsupported prepared-graph commitment schema");
+        }
+        if commitment.workflow != "production" {
+            bail!(
+                "IBEX_DEV_COMMITTED_SCHEMA dev-served commitment must be the production-shaped \
+                 record (workflow=production); a distinct dev credential class is LLP 0042 open work"
+            );
+        }
+        if commitment.target != expected_target {
+            bail!(
+                "IBEX_DEV_COMMITTED_TARGET commitment target {:?} differs from the embedder \
+                 expectation {:?}",
+                commitment.target,
+                expected_target
+            );
+        }
+        Ok(commitment)
+    }
+
+    fn write_out_string(slot: *mut *mut c_char, value: &str) {
+        if slot.is_null() {
+            return;
+        }
+        let owned = CString::new(value.replace('\0', "\u{fffd}"))
+            .unwrap_or_else(|_| CString::new("invalid diagnostic").expect("static"));
+        unsafe { *slot = owned.into_raw() };
+    }
+
+    unsafe fn required_utf8<'a>(pointer: *const c_char, role: &str) -> Result<&'a str> {
+        if pointer.is_null() {
+            bail!("dev committed startup received a null {role}");
+        }
+        unsafe { CStr::from_ptr(pointer) }
+            .to_str()
+            .map_err(|_| anyhow!("dev committed startup received a non-UTF-8 {role}"))
+    }
+
+    /// C ABI for the Exact Debug diagnostic host (see `exact_runtime.h`).
+    /// Returns 0 on success, 1 on a pre-evaluation refusal (the §5.4
+    /// development fallback lane may be selected), 2 once evaluation has
+    /// begun (the generation is failed; no encoding switch). Out strings are
+    /// freed with `ex_host_free_string`. Must be called on the runtime's
+    /// owner thread with a live runtime nonce.
+    #[no_mangle]
+    pub unsafe extern "C" fn ibex_dev_unarmed_committed_prepared_startup_v1(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        publication_dir: *const c_char,
+        commitment_json: *const c_char,
+        expected_target: *const c_char,
+        project_root: *const c_char,
+        out_report_json: *mut *mut c_char,
+        out_error: *mut *mut c_char,
+    ) -> i32 {
+        if !out_report_json.is_null() {
+            unsafe { *out_report_json = std::ptr::null_mut() };
+        }
+        if !out_error.is_null() {
+            unsafe { *out_error = std::ptr::null_mut() };
+        }
+        let outcome = (|| -> Result<DevUnarmedCommittedStartupReportV1, DevCommittedStartupError> {
+            let runtime = NonNull::new(runtime).ok_or_else(|| {
+                pre_evaluation(anyhow!("dev committed startup received a null runtime"))
+            })?;
+            let publication_dir = unsafe { required_utf8(publication_dir, "publication dir") }
+                .map_err(pre_evaluation)?;
+            let commitment_json = unsafe { required_utf8(commitment_json, "commitment") }
+                .map_err(pre_evaluation)?;
+            let expected_target = unsafe { required_utf8(expected_target, "expected target") }
+                .map_err(pre_evaluation)?;
+            let project_root = unsafe { required_utf8(project_root, "project root") }
+                .map_err(pre_evaluation)?;
+            run_prepared_graph_committed_dev_unarmed_v1(
+                runtime,
+                runtime_nonce,
+                Path::new(publication_dir),
+                commitment_json,
+                expected_target,
+                Path::new(project_root),
+            )
+        })();
+        match outcome {
+            Ok(report) => {
+                match serde_json::to_string(&report) {
+                    Ok(json) => write_out_string(out_report_json, &json),
+                    Err(error) => {
+                        // Reporting must never convert a successful startup
+                        // into a failure; surface the serialization problem
+                        // through the error slot alongside success.
+                        write_out_string(
+                            out_error,
+                            &format!("dev committed startup report serialization failed: {error}"),
+                        );
+                    }
+                }
+                0
+            }
+            Err(failure) => {
+                write_out_string(out_error, &format!("{:#}", failure.error));
+                match failure.phase {
+                    DevCommittedStartupFailurePhase::BeforeEvaluation => 1,
+                    DevCommittedStartupFailurePhase::DuringEvaluation => 2,
+                }
+            }
+        }
     }
 }

@@ -271,6 +271,35 @@ int32_t ex_hermes_run_prepared_app_v1(
 int32_t ex_hermes_verify_prepared_native_startup_absent_v1(
     ExactHermesRuntime* runtime);
 
+/// DEV-UNARMED committed prepared startup (LLP 0042 development posture;
+/// Exact LLP 0413 Phase 2). Present only when the ibex-runtime crate is
+/// built with the `dev-committed-embedder` feature. Admits the prepared
+/// publication directory at `publication_dir` against the canonical-JCS
+/// `ibex/prepared-graph-commitment/1` bytes in `commitment_json` (the
+/// production-SHAPED record delivered over the authenticated dev channel;
+/// `expected_target` is byte-compared with the commitment's target facet),
+/// then links and evaluates the prepared JS factory-table graph on
+/// `runtime`'s native module runner. Refuses armed Host contexts at
+/// construction time; every receipt names the non-production authority
+/// (`dev-unarmed-dev-served`). Must be called on the runtime's owner thread
+/// with the live `runtime_nonce`.
+///
+/// Returns 0 on success (out_report_json carries the admission/evaluation
+/// receipt), 1 on a pre-evaluation refusal (the embedder MAY select its
+/// explicit development fallback lane), 2 once application evaluation has
+/// begun (the generation is failed; the embedder MUST NOT restart the same
+/// graph through another encoding). Out strings are freed with
+/// ex_host_free_string.
+int32_t ibex_dev_unarmed_committed_prepared_startup_v1(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    const char* publication_dir,
+    const char* commitment_json,
+    const char* expected_target,
+    const char* project_root,
+    char** out_report_json,
+    char** out_error);
+
 /// Run the reviewed shared-runtime ambient/global closure program for an armed
 /// runtime. This is an owner-thread, non-reentrant, trusted-bootstrap-only
 /// transition; diagnostic runtimes and provisional/failed embedder capability

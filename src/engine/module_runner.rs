@@ -480,6 +480,14 @@ impl DiagnosticModuleRuntime {
         unsafe { NativeModuleRuntime::from_raw(self.raw, nonce) }
     }
 
+    /// Raw runtime pointer + live nonce for driving embedder C entries in
+    /// diagnostic harnesses (the dev-unarmed committed embedder tests). The
+    /// caller must not destroy the runtime while using them.
+    pub fn raw_parts(&self) -> (NonNull<c_void>, u64) {
+        let nonce = unsafe { ex_hermes_runtime_nonce(self.raw.as_ptr()) };
+        (self.raw, nonce)
+    }
+
     /// Install the process identity visible to a compiled application before
     /// any authenticated module record is linked. There is no CLI parser in
     /// this path: every argument after the invoked name remains application
@@ -559,7 +567,9 @@ impl DiagnosticModuleRuntime {
         Ok(value.trim().parse::<i32>().unwrap_or(0))
     }
 
-    fn eval_text(&mut self, source: &str, source_label: &str) -> Result<String> {
+    /// Diagnostic-only text evaluation, exposed so embedder integration
+    /// harnesses can read probe globals after a prepared-graph evaluation.
+    pub fn eval_text(&mut self, source: &str, source_label: &str) -> Result<String> {
         let source_url = std::ffi::CString::new(source_label)?;
         let mut output = std::ptr::null_mut();
         let status = unsafe {
@@ -3353,7 +3363,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         )
     }
 
-    #[cfg(any(test, feature = "sfe-dev-spike"))]
+    #[cfg(any(test, feature = "sfe-dev-spike", feature = "dev-committed-embedder"))]
     pub fn link_prepared(
         runtime: &'runtime NativeModuleRuntime<'runtime>,
         plan: &SynchronousGraphPlan<'_>,
@@ -3376,7 +3386,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         )
     }
 
-    #[cfg(any(test, feature = "sfe-dev-spike"))]
+    #[cfg(any(test, feature = "sfe-dev-spike", feature = "dev-committed-embedder"))]
     pub fn link_prepared_with_computed_candidates(
         runtime: &'runtime NativeModuleRuntime<'runtime>,
         plan: &SynchronousGraphPlan<'_>,
