@@ -7321,13 +7321,33 @@
           // recoverable here because the module body has not run yet.
           fallbackFn = compileFallbackSource(runtimeSource);
         } catch (fallbackErr) {
-          if (wrappedRuntimeForAwait || !isAwaitSyntaxFailure(fallbackErr)) {
+          // Construction-time top-level-await failures are recoverable via the
+          // async wrap, but engines disagree on how they report them:
+          // isAwaitSyntaxFailure covers Hermes' (and V8's) await-naming
+          // messages, while JSC names the token AFTER the sloppy-identifier
+          // `await` ("Unexpected identifier 'Promise'"), which no message
+          // pattern can predict exhaustively. So for any construction-time
+          // SyntaxError, let the wrap itself be the detector: async-wrapping
+          // adds exactly the async-function await grammar and nothing else, so
+          // a body that only parses wrapped genuinely needed top-level await.
+          // If the wrapped compile fails too, rethrow the ORIGINAL error so
+          // real syntax errors keep their first, unwrapped diagnostics.
+          var retryWrapped = !wrappedRuntimeForAwait && fallbackErr &&
+            (fallbackErr.name === "SyntaxError" ||
+              isAwaitSyntaxFailure(fallbackErr));
+          if (!retryWrapped) {
             throw fallbackErr;
           }
-          runtimeSource = wrapAsyncModule(runtimeSource);
+          var wrappedRuntimeSource = wrapAsyncModule(runtimeSource);
+          try {
+            g.__exactDebugModuleSource = wrappedRuntimeSource;
+            fallbackFn = compileFallbackSource(wrappedRuntimeSource);
+          } catch (wrappedCompileErr) {
+            g.__exactDebugModuleSource = runtimeSource;
+            throw fallbackErr;
+          }
+          runtimeSource = wrappedRuntimeSource;
           wrappedRuntimeForAwait = true;
-          g.__exactDebugModuleSource = runtimeSource;
-          fallbackFn = compileFallbackSource(runtimeSource);
         }
         try {
           invokeFallbackSource(fallbackFn);
