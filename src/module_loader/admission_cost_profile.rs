@@ -831,6 +831,195 @@ fn admission_cost_profile_fixture_admits_and_refuses_tamper() {
     }
 }
 
+/// Decode the published index, apply a "lying producer" mutation, republish
+/// it canonically, and return a commitment recomputed over the mutated
+/// index (root digest + facets), so admission proceeds past the
+/// commitment-root check and the deeper carrier/record checks are the ones
+/// under test.
+fn republish_mutated_index(
+    dir: &Path,
+    base: &PreparedGraphCommitmentV1,
+    mutate: impl FnOnce(&mut PreparedGraphIndexV2),
+) -> PreparedGraphCommitmentV1 {
+    let bytes = std::fs::read(dir.join("index.json")).unwrap();
+    let mut index: PreparedGraphIndexV2 =
+        serde_json::from_value(serde_json::from_slice(&bytes).unwrap()).unwrap();
+    mutate(&mut index);
+    let value = serde_json::to_value(&index).unwrap();
+    let index_bytes = capsec_semantics::canonical::to_jcs_bytes(&value).unwrap();
+    std::fs::write(dir.join("index.json"), &index_bytes).unwrap();
+    let (semantic_inventory, principal_set, _, _) = prepared_commitment_facets(&index).unwrap();
+    let mut commitment = base.clone();
+    commitment.publication_root_digest =
+        digest_bytes(PREPARED_PUBLICATION_ROOT_DOMAIN_V1, &index_bytes).unwrap();
+    commitment.semantic_inventory_digest = semantic_inventory;
+    commitment.principal_set_digest = principal_set;
+    commitment
+}
+
+/// M2 item 2 REQUIRED adversarial fixtures: a publication whose index
+/// records and carrier-manifest entries disagree about a module's
+/// semantics/digest must refuse exactly as before the semantic-hint
+/// recompute-skip landed, with the same diagnostics.
+#[test]
+fn admission_refuses_mismatched_duplicate_semantics() {
+    let shape = Shape {
+        name: "mismatched-duplicates",
+        carriers: 3,
+        records: 12,
+        mapping_bytes: 256,
+        factory_bytes: 256,
+        hbc: false,
+    };
+
+    // (a) Two index records SWAP their declared semantic digests: every
+    // digest stays in the authorized set and every carrier entry stays
+    // self-consistent, so admission reaches the per-record artifact check —
+    // the carrier-entry hint pair has equal semantics but a different
+    // digest, must NOT skip, and the full recompute refuses.
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let project_root = tempfile::tempdir().unwrap();
+        let built = build_publication(dir.path(), &shape);
+        let commitment = republish_mutated_index(dir.path(), &built.commitment, |index| {
+            let first = index.records[1].artifact.semantic_digest.clone();
+            let second = index.records[2].artifact.semantic_digest.clone();
+            index.records[1].artifact.semantic_digest = second;
+            index.records[2].artifact.semantic_digest = first;
+        });
+        let refused = admit_committed_publication_v1(
+            dir.path(),
+            &commitment,
+            project_root.path(),
+            CommittedFingerprintPosture::DevVouchedIndexExternalProducer,
+            None,
+        );
+        let Err(error) = refused else {
+            panic!("swapped semantic digests must refuse admission");
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("ModuleArtifact semantic digest is stale or tampered"),
+            "unexpected refusal: {error:#}"
+        );
+    }
+
+    // (b) One index record's semantics diverge from its carrier entry with
+    // a SELF-CONSISTENT recomputed digest: the carrier entry's digest is no
+    // longer in the deployment set and carrier admission refuses before any
+    // record-level hint exists.
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let project_root = tempfile::tempdir().unwrap();
+        let built = build_publication(dir.path(), &shape);
+        let commitment = republish_mutated_index(dir.path(), &built.commitment, |index| {
+            let record = &mut index.records[1].artifact;
+            record.semantics.source_map.mappings.push('A');
+            record.semantic_digest = semantics_digest(&record.semantics).unwrap();
+        });
+        let refused = admit_committed_publication_v1(
+            dir.path(),
+            &commitment,
+            project_root.path(),
+            CommittedFingerprintPosture::DevVouchedIndexExternalProducer,
+            None,
+        );
+        let Err(error) = refused else {
+            panic!("index/manifest semantics divergence must refuse admission");
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("prepared carrier contains a module absent from the deployment graph"),
+            "unexpected refusal: {error:#}"
+        );
+    }
+}
+
+/// Direct negatives for the hint API itself: a hint pair only skips the
+/// recompute when BOTH the semantics and the declared digest match; every
+/// mismatch recomputes and refuses a tampered artifact exactly like the
+/// hintless path.
+#[test]
+fn semantic_hint_never_bypasses_a_tampered_digest() {
+    let owner = Principal::Root {
+        identity: non_empty("blog-profile-app"),
+    };
+    let source_id = SourceId::file(
+        owner.clone(),
+        vec![
+            PathComponent::utf8("src").unwrap(),
+            PathComponent::utf8("hint.js").unwrap(),
+        ],
+    )
+    .unwrap();
+    let semantics = record_semantics(&source_id, "function(){}", 64);
+    let other_source_id = SourceId::file(
+        owner,
+        vec![
+            PathComponent::utf8("src").unwrap(),
+            PathComponent::utf8("other.js").unwrap(),
+        ],
+    )
+    .unwrap();
+    let other_semantics = record_semantics(&other_source_id, "function(){}", 64);
+
+    let carrier_digest = digest("carrier-bytes");
+    let mut artifact = ModuleArtifactV1::new_carrier(
+        semantics.clone(),
+        carrier_digest.clone(),
+        non_empty("e0000"),
+        ProducerIdentityV1::Prepared {
+            producer_id: non_empty(PROFILE_PRODUCER_ID),
+            producer_binary_digest: digest("producer-binary"),
+            deployment_graph_digest: digest("deployment-graph"),
+        },
+    )
+    .unwrap();
+    // Tamper the declared digest to a different well-formed digest.
+    let tampered_digest = digest("not-the-semantic-digest");
+    artifact.semantic_digest = tampered_digest.clone();
+    let admission = ArtifactAdmissionV1::DigestBoundPrepared {
+        expected_source_id: artifact.semantics.source_id.0.clone(),
+        expected_source_integrity: artifact.semantics.source_integrity.clone(),
+        expected_producer_id: non_empty(PROFILE_PRODUCER_ID),
+        producer_binary_digest: digest("producer-binary"),
+        deployment_graph_digest: digest("deployment-graph"),
+        expected_carrier_digest: carrier_digest,
+        expected_entry_id: non_empty("e0000"),
+        authorized_semantic_digests: Arc::new(BTreeSet::from([tampered_digest.clone()])),
+        transform_fingerprint_digest: artifact.semantics.transform_fingerprint.digest().unwrap(),
+    };
+
+    let correct_digest = semantics_digest(&semantics).unwrap();
+    for (hint_semantics, hint_digest) in [
+        // Equal semantics, correct (non-declared) digest: digest mismatch.
+        (&semantics, &correct_digest),
+        // Different semantics, declared digest: semantics mismatch.
+        (&other_semantics, &tampered_digest),
+    ] {
+        let refused = artifact
+            .verify_for_admission_with_semantic_hint(&admission, Some((hint_semantics, hint_digest)));
+        assert!(
+            refused.is_err()
+                && refused
+                    .err()
+                    .unwrap()
+                    .to_string()
+                    .contains("semantic digest is stale or tampered"),
+            "hint must not bypass the tampered-digest refusal"
+        );
+    }
+    // And the hintless path refuses identically.
+    assert!(artifact
+        .verify_for_admission(&admission)
+        .err()
+        .unwrap()
+        .to_string()
+        .contains("semantic digest is stale or tampered"));
+}
+
 /// The M1 measurement matrix. Ignored: run explicitly with
 /// `cargo test --release admission_cost_profile -- --ignored --nocapture`.
 #[test]

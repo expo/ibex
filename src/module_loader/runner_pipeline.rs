@@ -3652,7 +3652,15 @@ pub(crate) fn admit_committed_publication_v1(
             transform_fingerprint_digest: fingerprint_digests
                 .digest_for(&indexed.artifact.semantics.transform_fingerprint)?,
         };
-        indexed.artifact.verify_for_admission(&admission)?;
+        // The carrier entry's (semantics, digest) pair was recomputed and
+        // matched during carrier admission; when it equals this record's
+        // pair, verify skips one redundant JCS+sha256 recompute. Pure
+        // recompute-skip: outcomes are identical either way, and the
+        // mandatory `carrier.entry(...)?` refusal below keeps its position.
+        let verified_semantics = carrier.verified_entry_semantics(indexed.entry_id.as_str());
+        indexed
+            .artifact
+            .verify_for_admission_with_semantic_hint(&admission, verified_semantics)?;
         carrier.entry(indexed.entry_id.as_str())?;
         let (source_label, virtual_path) = portable_record_display(&indexed.source_id)?;
         let path = match &indexed.source_id {
@@ -4000,7 +4008,13 @@ pub fn load_prepared_source_graph_v1(
             transform_fingerprint_digest: fingerprint_digests
                 .digest_for(&trusted_record.artifact.semantics.transform_fingerprint)?,
         };
-        indexed.artifact.verify_for_admission(&admission)?;
+        // Same recompute-skip as the committed loop: the carrier entry's
+        // pair was verified at carrier admission; equality forces the
+        // skipped recompute's success, everything else recomputes.
+        let verified_semantics = carrier.verified_entry_semantics(indexed.entry_id.as_str());
+        indexed
+            .artifact
+            .verify_for_admission_with_semantic_hint(&admission, verified_semantics)?;
         carrier.entry(indexed.entry_id.as_str())?;
         let record_candidate_tables = candidate_tables
             .iter()

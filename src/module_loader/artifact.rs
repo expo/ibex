@@ -474,7 +474,27 @@ impl ModuleArtifactV1 {
         &self,
         admission: &ArtifactAdmissionV1,
     ) -> Result<VerifiedModuleArtifactV1<'_>> {
-        self.validate_structure()?;
+        self.verify_for_admission_with_semantic_hint(admission, None)
+    }
+
+    /// [`Self::verify_for_admission`] with an optional already-verified
+    /// semantics/digest pair from the same publication (a prepared-carrier
+    /// entry whose `H(semantics) == declared digest` was proven during
+    /// carrier admission). The hint is ONLY a recompute-skip: it applies
+    /// when the hint semantics structurally equal this artifact's semantics
+    /// AND the hint digest equals this artifact's declared semantic digest —
+    /// in which case the skipped recompute would have succeeded by
+    /// substitution. Every other input takes the full recompute path, so
+    /// accept/refuse outcomes and diagnostics are byte-identical with or
+    /// without a hint. Callers must never pass a digest that was not
+    /// recomputed-and-matched against the hint semantics.
+    /// issues/20260730-committed-admission-cost-profile.md (M2 item 2)
+    pub(crate) fn verify_for_admission_with_semantic_hint(
+        &self,
+        admission: &ArtifactAdmissionV1,
+        verified_semantics: Option<(&ModuleSemanticsV1, &Digest)>,
+    ) -> Result<VerifiedModuleArtifactV1<'_>> {
+        self.validate_structure_with_semantic_hint(verified_semantics)?;
         let (expected_source_id, expected_source_integrity, expected_fingerprint) = match admission
         {
             ArtifactAdmissionV1::TrustedInProcess {
@@ -554,13 +574,29 @@ impl ModuleArtifactV1 {
     }
 
     fn validate_structure(&self) -> Result<()> {
+        self.validate_structure_with_semantic_hint(None)
+    }
+
+    fn validate_structure_with_semantic_hint(
+        &self,
+        verified_semantics: Option<(&ModuleSemanticsV1, &Digest)>,
+    ) -> Result<()> {
         if self.schema != MODULE_ARTIFACT_SCHEMA_V1 {
             bail!("unsupported ModuleArtifact schema {:?}", self.schema);
         }
         validate_semantics(&self.semantics)?;
-        let expected_semantic_digest = semantics_digest(&self.semantics)?;
-        if self.semantic_digest != expected_semantic_digest {
-            bail!("ModuleArtifact semantic digest is stale or tampered");
+        // Skip the semantic-digest recompute only when an already-verified
+        // (semantics, digest) pair matches BOTH this artifact's semantics
+        // (structural equality) and its declared digest — the recompute
+        // result is then forced by substitution. Anything else recomputes.
+        let hint_matches = verified_semantics.is_some_and(|(semantics, digest)| {
+            semantics == &self.semantics && digest == &self.semantic_digest
+        });
+        if !hint_matches {
+            let expected_semantic_digest = semantics_digest(&self.semantics)?;
+            if self.semantic_digest != expected_semantic_digest {
+                bail!("ModuleArtifact semantic digest is stale or tampered");
+            }
         }
         match &self.payload {
             ModulePayloadV1::Inline { factory_source, .. } => {

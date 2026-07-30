@@ -354,6 +354,24 @@ impl AdmittedPreparedCarrierV2 {
             bytes: &self.bytes,
         })
     }
+
+    /// Already-verified `(semantics, declared semantic digest)` pair for
+    /// `entry_id`, if the carrier has that entry. `decode_and_admit` proved
+    /// `H(semantics) == digest` for every entry, so callers may pass the
+    /// pair to `verify_for_admission_with_semantic_hint` as a pure
+    /// recompute-skip. Non-failing on purpose: absence is not a refusal
+    /// here — the caller's own `entry()` check owns that refusal and its
+    /// position in the admission order.
+    /// issues/20260730-committed-admission-cost-profile.md (M2 item 2)
+    pub(crate) fn verified_entry_semantics(
+        &self,
+        entry_id: &str,
+    ) -> Option<(&ModuleSemanticsV1, &Digest)> {
+        self.manifest
+            .entry(entry_id)
+            .ok()
+            .map(|entry| (&entry.semantics, &entry.semantic_digest))
+    }
 }
 
 impl VerifiedPreparedCarrierEntryV2<'_> {
