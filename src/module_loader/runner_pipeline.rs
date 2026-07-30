@@ -24,7 +24,7 @@ use crate::engine::module_runner::{
 
 use super::artifact::{
     digest_bytes, source_integrity, ArtifactAdmissionV1, DynamicEdgeV1, ModuleArtifactV1,
-    StaticEdgeV1, VerifiedModuleArtifactV1,
+    StaticEdgeV1, TransformFingerprintV1, VerifiedModuleArtifactV1,
 };
 use super::carrier::{
     AdmittedPreparedCarrierV2, PreparedCarrierAdmissionV2, PreparedCarrierEncodingV2,
@@ -3386,6 +3386,29 @@ pub fn load_prepared_graph_committed_v1(
     Ok(graph)
 }
 
+/// Publication-scoped memo for `TransformFingerprintV1::digest()`. A
+/// prepared publication typically carries ONE distinct fingerprint across
+/// all of its records (one producer toolchain), but the per-record loops
+/// recomputed the JCS + sha256 digest for every record. Keyed by full
+/// struct equality — never by producer name or any digest-shaped shortcut —
+/// so a publication mixing fingerprints computes one digest per DISTINCT
+/// fingerprint and admission outcomes are byte-identical to the unmemoized
+/// path (the digest is a pure function of the compared struct).
+/// issues/20260730-committed-admission-cost-profile.md (M2 item 5)
+#[derive(Default)]
+struct FingerprintDigestMemoV1(Vec<(TransformFingerprintV1, Digest)>);
+
+impl FingerprintDigestMemoV1 {
+    fn digest_for(&mut self, fingerprint: &TransformFingerprintV1) -> Result<Digest> {
+        if let Some((_, digest)) = self.0.iter().find(|(known, _)| known == fingerprint) {
+            return Ok(digest.clone());
+        }
+        let digest = fingerprint.digest()?;
+        self.0.push((fingerprint.clone(), digest.clone()));
+        Ok(digest)
+    }
+}
+
 /// The snapshot-free LLP 0042 admission core: steps 1-5 of the committed
 /// admission algorithm plus the posture-selected step 6. Callers own the
 /// authority question — the production wrapper has already required the
@@ -3586,6 +3609,7 @@ pub(crate) fn admit_committed_publication_v1(
     }
 
     let mut records = BTreeMap::new();
+    let mut fingerprint_digests = FingerprintDigestMemoV1::default();
     for indexed in index.records {
         if indexed.artifact.semantics.source_id.0 != indexed.source_id {
             bail!("IBEX_PREPARED_COMMITMENT_CORRUPT record identity differs from artifact");
@@ -3625,11 +3649,8 @@ pub(crate) fn admit_committed_publication_v1(
             expected_carrier_digest: carrier.manifest().carrier_digest.clone(),
             expected_entry_id: indexed.entry_id.clone(),
             authorized_semantic_digests: authorized_semantic_digests.clone(),
-            transform_fingerprint_digest: indexed
-                .artifact
-                .semantics
-                .transform_fingerprint
-                .digest()?,
+            transform_fingerprint_digest: fingerprint_digests
+                .digest_for(&indexed.artifact.semantics.transform_fingerprint)?,
         };
         indexed.artifact.verify_for_admission(&admission)?;
         carrier.entry(indexed.entry_id.as_str())?;
@@ -3924,6 +3945,7 @@ pub fn load_prepared_source_graph_v1(
     }
 
     let mut records = BTreeMap::new();
+    let mut fingerprint_digests = FingerprintDigestMemoV1::default();
     for indexed in index.records {
         if records.contains_key(&indexed.source_id) {
             bail!("prepared graph repeats a SourceId");
@@ -3975,11 +3997,8 @@ pub fn load_prepared_source_graph_v1(
             expected_carrier_digest: carrier_manifest.carrier_digest.clone(),
             expected_entry_id: indexed.entry_id.clone(),
             authorized_semantic_digests: authorized_semantic_digests.clone(),
-            transform_fingerprint_digest: trusted_record
-                .artifact
-                .semantics
-                .transform_fingerprint
-                .digest()?,
+            transform_fingerprint_digest: fingerprint_digests
+                .digest_for(&trusted_record.artifact.semantics.transform_fingerprint)?,
         };
         indexed.artifact.verify_for_admission(&admission)?;
         carrier.entry(indexed.entry_id.as_str())?;
