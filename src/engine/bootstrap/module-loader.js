@@ -6811,7 +6811,7 @@
         // entry edge is exempt: the host drains the event loop, so entry
         // top-level await keeps its existing fire-and-forget behavior.
         if (cache[cacheKey].__exactAsyncEvaluation && parent &&
-            typedResolutionKind !== 2 && typedResolutionKind !== 1) {
+            typedResolutionKind !== 2) {
           throw asyncModuleSyncEdgeRefusal(cache[cacheKey], typedResolutionKind);
         }
         return cache[cacheKey].exports;
@@ -7571,15 +7571,21 @@
     // Spec top-level-await refusal (Exact LLP 0413 §14 item 4; R5 resolution
     // in Exact LLP 0416): a module whose evaluation is actually asynchronous
     // has no complete exports to hand to a synchronous module-to-module
-    // require edge. Refuse loudly instead of returning partial exports;
-    // dynamic import() (resolution kind 2) is the sanctioned path and settles
-    // after the evaluation promise. The refusal deliberately leaves the
-    // in-flight module cached so a later dynamic import adopts the same
-    // instance, and the parentless host entry edge stays exempt (the host
-    // drains the event loop, preserving entry top-level-await behavior).
-    // Armed capture never sets the marker, so armed behavior is unchanged.
+    // edge. Refuse loudly instead of returning partial exports; dynamic
+    // import() (resolution kind 2) is the sanctioned path and settles after
+    // the evaluation promise. Static imports (kind 1) refuse too — this
+    // loader lowers `import` declarations to synchronous __exactStaticImport
+    // calls inside an already-running importer body, so "await the dependency
+    // before the importer body" is unimplementable without an async module
+    // graph (a loader redesign); a loud refusal naming dynamic import() is
+    // the honest spec-side behavior, replacing the old silently-undefined
+    // bindings. The refusal deliberately leaves the in-flight module cached
+    // so a later dynamic import adopts the same instance, and the parentless
+    // host entry edge stays exempt (the host drains the event loop,
+    // preserving entry top-level-await behavior). Armed capture never sets
+    // the marker, so armed behavior is unchanged.
     if (module.__exactAsyncEvaluation && parent &&
-        typedResolutionKind !== 2 && typedResolutionKind !== 1) {
+        typedResolutionKind !== 2) {
       throw asyncModuleSyncEdgeRefusal(module, typedResolutionKind);
     }
     return module.exports;
