@@ -167,11 +167,13 @@ impl LoadedPublication {
             .ok_or_else(|| anyhow!("publication has no root principal"))
     }
 
-    fn authorized_semantic_digests(&self) -> BTreeSet<Digest> {
-        self.records
-            .iter()
-            .map(|record| record.artifact.semantic_digest.clone())
-            .collect()
+    fn authorized_semantic_digests(&self) -> std::sync::Arc<BTreeSet<Digest>> {
+        std::sync::Arc::new(
+            self.records
+                .iter()
+                .map(|record| record.artifact.semantic_digest.clone())
+                .collect(),
+        )
     }
 
     /// Expected defining principal per carrier, derived from the index

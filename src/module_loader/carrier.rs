@@ -7,6 +7,7 @@
 //! @ref LLP 0026#9-production-artifacts-and-bytecode
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
 use capsec_semantics::model::{Digest, NonEmptyString, Principal};
@@ -107,7 +108,11 @@ pub struct PreparedCarrierAdmissionV2 {
     pub expected_producer_id: NonEmptyString,
     pub producer_binary_digest: Digest,
     pub deployment_graph_digest: Digest,
-    pub authorized_semantic_digests: BTreeSet<Digest>,
+    /// Shared, not owned: blog-scale admission builds one admission
+    /// expectation per carrier and per record over the same ~545-digest
+    /// deployment set; a by-value `BTreeSet` cloned ~325k `Digest` strings
+    /// per admission (issues/20260730-committed-admission-cost-profile.md).
+    pub authorized_semantic_digests: Arc<BTreeSet<Digest>>,
     pub expected_engine_binding: Option<PreparedCarrierEngineBindingV2>,
     pub expected_bytecode_version: Option<u32>,
 }
@@ -513,11 +518,13 @@ mod tests {
             expected_producer_id: NonEmptyString::new("prepared-producer").unwrap(),
             producer_binary_digest: digest("prepared-producer"),
             deployment_graph_digest: digest("deployment-graph"),
-            authorized_semantic_digests: manifest
-                .entries
-                .iter()
-                .map(|entry| entry.semantic_digest.clone())
-                .collect(),
+            authorized_semantic_digests: Arc::new(
+                manifest
+                    .entries
+                    .iter()
+                    .map(|entry| entry.semantic_digest.clone())
+                    .collect(),
+            ),
             expected_engine_binding: None,
             expected_bytecode_version: None,
         }

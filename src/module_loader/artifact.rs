@@ -13,6 +13,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest as _, Sha256};
 use std::collections::BTreeSet;
 use std::io::Read;
+use std::sync::Arc;
 
 use super::identity::{ImportAttributes, SourceId};
 
@@ -300,7 +301,9 @@ pub enum ArtifactAdmissionV1 {
         deployment_graph_digest: Digest,
         expected_carrier_digest: Digest,
         expected_entry_id: NonEmptyString,
-        authorized_semantic_digests: BTreeSet<Digest>,
+        /// Shared with every other admission expectation of the same
+        /// publication — see `PreparedCarrierAdmissionV2`.
+        authorized_semantic_digests: Arc<BTreeSet<Digest>>,
         transform_fingerprint_digest: Digest,
     },
 }
@@ -940,9 +943,9 @@ mod tests {
                 deployment_graph_digest: digest("graph"),
                 expected_carrier_digest: digest("carrier"),
                 expected_entry_id: NonEmptyString::new("entry-0").unwrap(),
-                authorized_semantic_digests: [carrier.semantic_digest.clone()]
-                    .into_iter()
-                    .collect(),
+                authorized_semantic_digests: Arc::new(
+                    [carrier.semantic_digest.clone()].into_iter().collect(),
+                ),
                 transform_fingerprint_digest: fingerprint().digest().unwrap(),
             })
             .unwrap();

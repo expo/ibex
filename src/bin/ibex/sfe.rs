@@ -563,11 +563,13 @@ fn admit_inner_contracts(
 ) -> Result<InnerAdmissionSummary> {
     let graph_bytes = section_bytes(envelope, SectionKindV1::EmbeddedModuleGraph)?;
     let preliminary_graph = EmbeddedModuleGraphV1::decode_canonical(graph_bytes)?;
-    let authorized_semantic_digests = preliminary_graph
-        .records
-        .iter()
-        .map(|record| record.semantic_digest.clone())
-        .collect::<BTreeSet<_>>();
+    let authorized_semantic_digests = std::sync::Arc::new(
+        preliminary_graph
+            .records
+            .iter()
+            .map(|record| record.semantic_digest.clone())
+            .collect::<BTreeSet<_>>(),
+    );
     let mut carrier_facts = BTreeMap::new();
     let mut carrier_encodings = BTreeSet::new();
     for manifest_section in envelope

@@ -2894,7 +2894,8 @@ pub fn load_prepared_activation_records_v1(
         if manifest_bytes != expected_manifest_bytes || payload != expected_payload {
             bail!("prepared activation carrier differs from authenticated source");
         }
-        let authorized_semantic_digests = BTreeSet::from([record.artifact.semantic_digest.clone()]);
+        let authorized_semantic_digests =
+            Arc::new(BTreeSet::from([record.artifact.semantic_digest.clone()]));
         let prepared_artifact = expected_manifest.prepared_artifact(entry_id.as_str())?;
         let admission = PreparedCarrierAdmissionV2 {
             expected_principal: principal,
@@ -3435,6 +3436,9 @@ pub(crate) fn admit_committed_publication_v1(
     }
     let (semantic_inventory, principal_set, authorized_semantic_digests, principals) =
         prepared_commitment_facets(&index)?;
+    // One shared set for all per-carrier and per-record admission
+    // expectations (blog scale: 596 expectations over ~545 digests).
+    let authorized_semantic_digests = Arc::new(authorized_semantic_digests);
     if semantic_inventory != commitment.semantic_inventory_digest {
         bail!("IBEX_PREPARED_COMMITMENT_SEMANTICS semantic inventory differs from commitment");
     }
@@ -3822,11 +3826,13 @@ pub fn load_prepared_source_graph_v1(
     if observed_candidate_digests != expected_candidate_digests {
         bail!("prepared candidate tables differ from the authenticated source graph");
     }
-    let authorized_semantic_digests = authenticated_source_graph
-        .records
-        .values()
-        .map(|record| record.artifact.semantic_digest.clone())
-        .collect::<BTreeSet<_>>();
+    let authorized_semantic_digests = Arc::new(
+        authenticated_source_graph
+            .records
+            .values()
+            .map(|record| record.artifact.semantic_digest.clone())
+            .collect::<BTreeSet<_>>(),
+    );
     let producer_id =
         NonEmptyString::new(PREPARED_GRAPH_PRODUCER_ID).map_err(anyhow::Error::msg)?;
     let authorizer = ModuleGraphAuthorizer::new(authenticated_source_graph.snapshot.as_ref());

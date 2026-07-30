@@ -5152,11 +5152,13 @@ export const result = JSON.stringify({
             expected_producer_id: NonEmptyString::new("prepared-test").unwrap(),
             producer_binary_digest: digest("prepared-producer"),
             deployment_graph_digest: digest("prepared-graph"),
-            authorized_semantic_digests: manifest
-                .entries
-                .iter()
-                .map(|entry| entry.semantic_digest.clone())
-                .collect(),
+            authorized_semantic_digests: std::sync::Arc::new(
+                manifest
+                    .entries
+                    .iter()
+                    .map(|entry| entry.semantic_digest.clone())
+                    .collect(),
+            ),
             expected_engine_binding: None,
             expected_bytecode_version: None,
         }
@@ -5175,7 +5177,9 @@ export const result = JSON.stringify({
                 deployment_graph_digest: digest("prepared-graph"),
                 expected_carrier_digest: manifest.carrier_digest.clone(),
                 expected_entry_id: NonEmptyString::new("entry").unwrap(),
-                authorized_semantic_digests: [artifact.semantic_digest.clone()].into(),
+                authorized_semantic_digests: std::sync::Arc::new(
+                    [artifact.semantic_digest.clone()].into(),
+                ),
                 transform_fingerprint_digest: artifact
                     .semantics
                     .transform_fingerprint

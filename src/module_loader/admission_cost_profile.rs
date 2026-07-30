@@ -432,6 +432,7 @@ fn measure_breakdown(
 
     let t = Instant::now();
     let (_, _, authorized, _) = prepared_commitment_facets(&index).unwrap();
+    let authorized = Arc::new(authorized);
     b.commitment_facets = t.elapsed();
 
     let t = Instant::now();
@@ -529,11 +530,12 @@ fn measure_breakdown(
         b.carrier_bytes_copy += t.elapsed();
         std::hint::black_box(&copied);
 
-        // Per-carrier admission clones one full authorized set.
+        // Per-carrier admission shares the authorized set (Arc bump since
+        // M2 item 6; previously a full BTreeSet clone of every digest).
         let t = Instant::now();
-        let cloned = authorized.clone();
+        let cloned = Arc::clone(&authorized);
         b.authorized_set_clones += t.elapsed();
-        digest_clones += cloned.len();
+        digest_clones += 1;
         std::hint::black_box(&cloned);
     }
 
@@ -551,11 +553,11 @@ fn measure_breakdown(
         b.record_fingerprint_digest_admission += t.elapsed();
         sha256_calls += 1;
 
-        // Per-record admission clones the authorized set again.
+        // Per-record admission shares the authorized set (Arc bump).
         let t = Instant::now();
-        let cloned = authorized.clone();
+        let cloned = Arc::clone(&authorized);
         b.authorized_set_clones += t.elapsed();
-        digest_clones += cloned.len();
+        digest_clones += 1;
 
         let admission = ArtifactAdmissionV1::DigestBoundPrepared {
             expected_source_id: indexed.source_id.clone(),
@@ -772,7 +774,7 @@ fn run_cell(shape: &Shape) {
         100.0 * component_sum / ms(end_to_end)
     );
     eprintln!(
-        "counts: sha256 over {:.2}MB in {} calls; JCS-encoded {:.2}MB; authorized-set Digest clones {}",
+        "counts: sha256 over {:.2}MB in {} calls; JCS-encoded {:.2}MB; authorized-set shares {}",
         counts.sha256_bytes as f64 / 1e6,
         counts.sha256_calls,
         counts.jcs_bytes as f64 / 1e6,
