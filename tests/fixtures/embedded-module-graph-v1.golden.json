@@ -2,11 +2,11 @@
   "schema": "ibex/embedded-module-graph-golden/1",
   "graph": {
     "schema": "ibex/embedded-module-graph/1",
-    "graphIdentity": "sha256-rDU5WRFq-SxtlVJgtM0mTHl69fcxMA49-5Mc78IPnUk",
+    "graphIdentity": "sha256-wtOo674zsl4WUmuIfRrIpoMd2iTkZgkz1z0X-KKsr08",
     "entry": "ibex-source-id-v1:eyJraW5kIjoiZmlsZSIsInBhdGgiOlt7ImVuY29kaW5nIjoidXRmOCIsInZhbHVlIjoiZW50cnkubWpzIn1dLCJwcmluY2lwYWwiOnsiaWRlbnRpdHkiOiJwb3J0YWJsZS1wcm9qZWN0Iiwia2luZCI6InJvb3QifX0",
     "records": [
       {
-        "sourceId": "ibex-source-id-v1:eyJkb21haW4iOiJpYmV4LXJ1bnRpbWUiLCJraW5kIjoiYnVpbHRpbiIsInNvdXJjZV9rZXkiOiJleGFjdDpmcyJ9",
+        "sourceId": "ibex-source-id-v1:eyJkb21haW4iOiJpYmV4LXJ1bnRpbWUiLCJraW5kIjoiYnVpbHRpbiIsInNvdXJjZUtleSI6ImV4YWN0OmZzIn0",
         "sourceIntegrity": "sha256-ldtn0U5Z7zSYwmNcHzbTOwH7Pyr5BehMmVYFbAWk5kA",
         "semanticDigest": "sha256-ryolDR7BconHm6p_f5URafiTvRnCLfVbGw6_MrQR1pA",
         "carrier": { "pairId": "module-00", "entryId": "entry-00" },
@@ -56,7 +56,7 @@
         }
       },
       {
-        "sourceId": "ibex-source-id-v1:eyJraW5kIjoic3ludGhldGljIiwic2Vzc2lvbl9pZGVudGl0eSI6ImZpeHR1cmUtc2Vzc2lvbiIsInNvdXJjZV9pZGVudGl0eSI6ImliZXg6c3RkaW4ifQ",
+        "sourceId": "ibex-source-id-v1:eyJraW5kIjoic3ludGhldGljIiwic2Vzc2lvbklkZW50aXR5IjoiZml4dHVyZS1zZXNzaW9uIiwic291cmNlSWRlbnRpdHkiOiJpYmV4OnN0ZGluIn0",
         "sourceIntegrity": "sha256-pdKxi1UCqRpp_IEqzW_D8KusxQ1cE9ZCuD2OprlCOEo",
         "semanticDigest": "sha256-jDsW9OMbn89j58l9ygWGa0qLf_d_XbH1mlPwpqMyE2M",
         "carrier": { "pairId": "module-03", "entryId": "entry-03" },

@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
-use capsec_semantics::arming::ArmedSnapshot;
+use capsec_semantics::arming::{ArmedSnapshot, PreparedGraphCommitmentV1};
 use capsec_semantics::model::{
     Digest, NonEmptyString, PackageLocator, PathComponent, Principal, StableId, Stage,
 };
@@ -170,6 +170,13 @@ impl SourceGraphHost for crate::host::Host {
 
 const PREPARED_GRAPH_INDEX_SCHEMA_V2: &str = "ibex/prepared-module-graph/2";
 const PREPARED_GRAPH_PRODUCER_ID: &str = "ibex-rolldown-module-preparer";
+const PREPARED_PUBLICATION_ROOT_DOMAIN_V1: &str = "ibex:prepared-publication-root:1";
+const PREPARED_SEMANTIC_INVENTORY_DOMAIN_V1: &str = "ibex:prepared-semantic-inventory:1";
+const PREPARED_PRINCIPAL_SET_DOMAIN_V1: &str = "ibex:prepared-principal-set:1";
+const MAX_PREPARED_INDEX_BYTES_V1: u64 = 64 * 1024 * 1024;
+const MAX_PREPARED_MANIFEST_BYTES_V1: u64 = 16 * 1024 * 1024;
+const MAX_PREPARED_CARRIER_BYTES_V1: u64 = 512 * 1024 * 1024;
+const MAX_PREPARED_CANDIDATE_BYTES_V1: u64 = 64 * 1024 * 1024;
 const PREPARED_ACTIVATION_CACHE_KEY_DOMAIN_V1: &str =
     "ibex/prepared-activation-carrier-cache-key/1";
 const EMBEDDED_GRAPH_PRODUCER_ID: &str = "ibex-sfe-graph-preparer";
@@ -3003,6 +3010,41 @@ pub fn publish_prepared_source_graph_v1(
     }
 }
 
+/// Derive the production commitment facets from the exact deterministic
+/// publication bytes. Deployment tooling carries the returned record into the
+/// armed snapshot; it must never write it inside the writable cache.
+/// @ref LLP 0042#binding-surface
+pub fn prepared_graph_commitment_v1(
+    graph: &SourceModuleGraphV1,
+    deployment_graph_digest: Digest,
+    target: String,
+    policy_digest: Digest,
+) -> Result<PreparedGraphCommitmentV1> {
+    let publication = render_prepared_source_graph_v2(graph, &deployment_graph_digest)?;
+    let value: serde_json::Value = serde_json::from_slice(&publication.index_bytes)?;
+    let index: PreparedGraphIndexV2 = serde_json::from_value(value)?;
+    let (semantic_inventory_digest, principal_set_digest, _, _) =
+        prepared_commitment_facets(&index)?;
+    Ok(PreparedGraphCommitmentV1 {
+        schema: capsec_semantics::arming::PREPARED_GRAPH_COMMITMENT_SCHEMA_V1.into(),
+        workflow: "production".into(),
+        target,
+        entry_source_id: NonEmptyString::new(index.entry.encode()?).map_err(anyhow::Error::msg)?,
+        deployment_graph_digest,
+        publication_root_digest: digest_bytes(
+            PREPARED_PUBLICATION_ROOT_DOMAIN_V1,
+            &publication.index_bytes,
+        )?,
+        producer: capsec_semantics::arming::PreparedGraphProducerV1 {
+            id: NonEmptyString::new(PREPARED_GRAPH_PRODUCER_ID).map_err(anyhow::Error::msg)?,
+            binary_digest: graph.producer_binary_digest.clone(),
+        },
+        semantic_inventory_digest,
+        principal_set_digest,
+        policy_digest,
+    })
+}
+
 fn read_authenticated_prepared_file(path: &Path, expected: &[u8], role: &str) -> Result<Vec<u8>> {
     use std::io::Read as _;
 
@@ -3076,6 +3118,432 @@ fn read_authenticated_prepared_file(path: &Path, expected: &[u8], role: &str) ->
         );
     }
     Ok(bytes)
+}
+
+/// Retain one cache file without following links and without allocating from
+/// an attacker-controlled length. Content authentication is performed by the
+/// caller against the independently armed publication root.
+fn read_bounded_prepared_file(path: &Path, maximum_len: u64, role: &str) -> Result<Vec<u8>> {
+    use std::io::Read as _;
+
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|error| anyhow!("cannot open prepared {role} {}: {error}", path.display()))?;
+    let before = file.metadata()?;
+    if !before.is_file() || before.len() > maximum_len {
+        bail!(
+            "IBEX_PREPARED_COMMITMENT_CORRUPT prepared {role} is not a bounded regular file: {}",
+            path.display()
+        );
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+        if before.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            bail!(
+                "IBEX_PREPARED_COMMITMENT_CORRUPT prepared {role} is a reparse point: {}",
+                path.display()
+            );
+        }
+    }
+    let capacity = usize::try_from(before.len())
+        .map_err(|_| anyhow!("prepared {role} length is unsupported"))?;
+    let mut bytes = Vec::with_capacity(capacity);
+    file.by_ref()
+        .take(maximum_len + 1)
+        .read_to_end(&mut bytes)?;
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > maximum_len {
+        bail!("IBEX_PREPARED_COMMITMENT_CORRUPT prepared {role} exceeds its hard limit");
+    }
+    let after = file.metadata()?;
+    if !after.is_file() || before.len() != after.len() || bytes.len() as u64 != after.len() {
+        bail!(
+            "IBEX_PREPARED_COMMITMENT_CORRUPT prepared {role} changed while retained: {}",
+            path.display()
+        );
+    }
+    Ok(bytes)
+}
+
+fn prepared_commitment_facets(
+    index: &PreparedGraphIndexV2,
+) -> Result<(Digest, Digest, BTreeSet<Digest>, Vec<Principal>)> {
+    let semantic_digests = index
+        .records
+        .iter()
+        .map(|record| record.artifact.semantic_digest.clone())
+        .collect::<BTreeSet<_>>();
+    let semantic_value = serde_json::Value::Array(
+        semantic_digests
+            .iter()
+            .map(|digest| serde_json::Value::String(digest.as_str().to_owned()))
+            .collect(),
+    );
+    let semantic_bytes = capsec_semantics::canonical::to_jcs_bytes(&semantic_value)?;
+    let semantic_inventory = digest_bytes(PREPARED_SEMANTIC_INVENTORY_DOMAIN_V1, &semantic_bytes)?;
+
+    let root_principal = index
+        .records
+        .iter()
+        .filter_map(|record| record.source_id.defining_principal())
+        .find(|principal| principal.is_root())
+        .cloned()
+        .ok_or_else(|| anyhow!("prepared publication has no root principal"))?;
+    let mut principals_by_key = BTreeMap::new();
+    for record in &index.records {
+        let principal = record
+            .source_id
+            .defining_principal()
+            .cloned()
+            .unwrap_or_else(|| root_principal.clone());
+        principals_by_key.insert(principal.canonical_order_key()?, principal);
+    }
+    let principals = principals_by_key.into_values().collect::<Vec<_>>();
+    let principal_bytes =
+        capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(&principals)?)?;
+    let principal_set = digest_bytes(PREPARED_PRINCIPAL_SET_DOMAIN_V1, &principal_bytes)?;
+    Ok((
+        semantic_inventory,
+        principal_set,
+        semantic_digests,
+        principals,
+    ))
+}
+
+fn committed_publication_files(index: &PreparedGraphIndexV2) -> Result<BTreeSet<String>> {
+    let mut files = BTreeSet::from(["index.json".to_owned()]);
+    let mut insert = |name: &str, role: &str| -> Result<()> {
+        if name.is_empty()
+            || name.contains(['/', '\\'])
+            || name == "."
+            || name == ".."
+            || !files.insert(name.to_owned())
+        {
+            bail!(
+                "IBEX_PREPARED_COMMITMENT_CORRUPT prepared {role} filename is unsafe or repeated"
+            );
+        }
+        Ok(())
+    };
+    for carrier in &index.carriers {
+        insert(&carrier.manifest_file, "carrier manifest")?;
+        insert(&carrier.bytes_file, "carrier bytes")?;
+    }
+    for candidate in &index.candidate_tables {
+        insert(&candidate.file, "candidate table")?;
+    }
+    Ok(files)
+}
+
+/// Admit a prepared publication directly against an independent production
+/// commitment authenticated by this Host's armed snapshot. No source file is
+/// opened, hashed, transformed, or parsed on this path.
+///
+/// A refusal is intentionally terminal for this publication. The caller may
+/// cold-build from authenticated source before evaluation, but must never
+/// rejoin and accept the refused cache generation.
+/// @ref LLP 0042#committed-admission-algorithm
+/// @ref LLP 0042#migration-and-coexistence
+pub fn load_prepared_graph_committed_v1(
+    cache_dir: &Path,
+    host: &crate::host::Host,
+    commitment: &PreparedGraphCommitmentV1,
+    entry_vfs_source_id: crate::vfs::SourceId,
+    project_root: &Path,
+) -> Result<SourceModuleGraphV1> {
+    let started = std::time::Instant::now();
+    let snapshot = host
+        .armed_snapshot()
+        .cloned()
+        .ok_or_else(|| anyhow!("committed prepared admission requires an armed Host"))?;
+    let armed = snapshot
+        .prepared_graph_commitment(commitment.entry_source_id.as_str())
+        .ok_or_else(|| {
+            anyhow!("IBEX_PREPARED_COMMITMENT_MISSING snapshot has no entry commitment")
+        })?;
+    if armed != commitment {
+        bail!("IBEX_PREPARED_COMMITMENT_AUTHORITY caller commitment is not the armed commitment");
+    }
+
+    // The index is the first cache byte discovered. Strict parsing and the
+    // independent root check happen before any index facet authorizes a file.
+    let index_bytes = read_bounded_prepared_file(
+        &cache_dir.join("index.json"),
+        MAX_PREPARED_INDEX_BYTES_V1,
+        "graph index",
+    )?;
+    let text = std::str::from_utf8(&index_bytes)
+        .context("IBEX_PREPARED_COMMITMENT_CORRUPT graph index is not UTF-8")?;
+    let value = capsec_semantics::strict_json::parse_strict(text)
+        .map_err(|error| anyhow!("IBEX_PREPARED_COMMITMENT_CORRUPT graph index: {error}"))?;
+    let canonical = capsec_semantics::canonical::to_jcs_bytes(&value)?;
+    if canonical != index_bytes {
+        bail!("IBEX_PREPARED_COMMITMENT_CORRUPT graph index is not canonical JCS");
+    }
+    let observed_root = digest_bytes(PREPARED_PUBLICATION_ROOT_DOMAIN_V1, &index_bytes)?;
+    if observed_root != commitment.publication_root_digest {
+        bail!("IBEX_PREPARED_COMMITMENT_MISMATCH publication root differs from armed commitment");
+    }
+    let index: PreparedGraphIndexV2 = serde_json::from_value(value)
+        .context("IBEX_PREPARED_COMMITMENT_CORRUPT graph index shape")?;
+    if index.schema != PREPARED_GRAPH_INDEX_SCHEMA_V2 {
+        bail!("IBEX_PREPARED_COMMITMENT_SCHEMA unsupported prepared graph index");
+    }
+    if index.records.is_empty() || index.carriers.is_empty() {
+        bail!("IBEX_PREPARED_COMMITMENT_CORRUPT prepared graph is empty");
+    }
+    if index.entry.encode()? != commitment.entry_source_id.as_str() {
+        bail!("IBEX_PREPARED_COMMITMENT_ENTRY prepared entry differs from commitment");
+    }
+    if index.deployment_graph_digest != commitment.deployment_graph_digest {
+        bail!("IBEX_PREPARED_COMMITMENT_DEPLOYMENT deployment graph differs from commitment");
+    }
+    if index.producer_binary_digest != commitment.producer.binary_digest {
+        bail!("IBEX_PREPARED_COMMITMENT_PRODUCER producer binary differs from commitment");
+    }
+    let (semantic_inventory, principal_set, authorized_semantic_digests, principals) =
+        prepared_commitment_facets(&index)?;
+    if semantic_inventory != commitment.semantic_inventory_digest {
+        bail!("IBEX_PREPARED_COMMITMENT_SEMANTICS semantic inventory differs from commitment");
+    }
+    if principal_set != commitment.principal_set_digest {
+        bail!("IBEX_PREPARED_COMMITMENT_PRINCIPALS principal set differs from commitment");
+    }
+
+    let expected_files = committed_publication_files(&index)?;
+    let mut actual_files = BTreeSet::new();
+    for entry in std::fs::read_dir(cache_dir)? {
+        let entry = entry?;
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| anyhow!("prepared cache contains a non-UTF-8 filename"))?;
+        if name == "activation" {
+            let kind = entry.file_type()?;
+            if !kind.is_dir() || kind.is_symlink() {
+                bail!("IBEX_PREPARED_COMMITMENT_CORRUPT activation root is not a real directory");
+            }
+            continue;
+        }
+        actual_files.insert(name);
+    }
+    if actual_files != expected_files {
+        bail!("IBEX_PREPARED_COMMITMENT_INVENTORY publication file inventory differs from index");
+    }
+
+    let mut candidate_tables = Vec::with_capacity(index.candidate_tables.len());
+    let mut candidate_digests = BTreeSet::new();
+    for candidate in &index.candidate_tables {
+        if !candidate_digests.insert(candidate.digest.clone()) {
+            bail!("IBEX_PREPARED_COMMITMENT_CORRUPT duplicate candidate-table digest");
+        }
+        let bytes = read_bounded_prepared_file(
+            &cache_dir.join(&candidate.file),
+            MAX_PREPARED_CANDIDATE_BYTES_V1,
+            "computed-candidate table",
+        )?;
+        let table = ComputedCandidateTableV1::decode_canonical(&bytes)?;
+        if table.digest()? != candidate.digest {
+            bail!("IBEX_PREPARED_COMMITMENT_CORRUPT candidate-table digest differs from index");
+        }
+        candidate_tables.push(table);
+    }
+
+    let root_principal = principals
+        .iter()
+        .find(|principal| principal.is_root())
+        .cloned()
+        .ok_or_else(|| anyhow!("prepared commitment has no root principal"))?;
+    let mut carrier_principals: BTreeMap<usize, Principal> = BTreeMap::new();
+    for record in &index.records {
+        if record.carrier_index >= index.carriers.len() {
+            bail!("IBEX_PREPARED_COMMITMENT_CORRUPT record names an absent carrier");
+        }
+        let principal = record
+            .source_id
+            .defining_principal()
+            .cloned()
+            .unwrap_or_else(|| root_principal.clone());
+        if carrier_principals
+            .insert(record.carrier_index, principal.clone())
+            .is_some_and(|prior| prior != principal)
+        {
+            bail!("IBEX_PREPARED_COMMITMENT_PRINCIPALS carrier crosses defining principals");
+        }
+    }
+    if carrier_principals.len() != index.carriers.len() {
+        bail!("IBEX_PREPARED_COMMITMENT_CORRUPT publication contains an unreferenced carrier");
+    }
+
+    let producer_id = commitment.producer.id.clone();
+    let mut carriers = Vec::with_capacity(index.carriers.len());
+    for (carrier_index, carrier) in index.carriers.iter().enumerate() {
+        let manifest_bytes = read_bounded_prepared_file(
+            &cache_dir.join(&carrier.manifest_file),
+            MAX_PREPARED_MANIFEST_BYTES_V1,
+            "carrier manifest",
+        )?;
+        let carrier_bytes = read_bounded_prepared_file(
+            &cache_dir.join(&carrier.bytes_file),
+            MAX_PREPARED_CARRIER_BYTES_V1,
+            "carrier bytes",
+        )?;
+        let admission = PreparedCarrierAdmissionV2 {
+            expected_principal: carrier_principals
+                .get(&carrier_index)
+                .cloned()
+                .expect("complete carrier-principal map"),
+            expected_producer_id: producer_id.clone(),
+            producer_binary_digest: commitment.producer.binary_digest.clone(),
+            deployment_graph_digest: commitment.deployment_graph_digest.clone(),
+            authorized_semantic_digests: authorized_semantic_digests.clone(),
+            expected_engine_binding: None,
+            expected_bytecode_version: None,
+        };
+        carriers.push(Arc::new(AdmittedPreparedCarrierV2::decode_and_admit(
+            &manifest_bytes,
+            &carrier_bytes,
+            &admission,
+        )?));
+    }
+
+    let mut records = BTreeMap::new();
+    for indexed in index.records {
+        if indexed.artifact.semantics.source_id.0 != indexed.source_id {
+            bail!("IBEX_PREPARED_COMMITMENT_CORRUPT record identity differs from artifact");
+        }
+        verify_current_transform_fingerprint_v1(&indexed.artifact.semantics)?;
+        let mut bindings = BTreeMap::new();
+        for binding in indexed.bindings {
+            if bindings
+                .insert(
+                    GraphEdgeKey::new(binding.specifier, binding.resolution_kind),
+                    binding.target,
+                )
+                .is_some()
+            {
+                bail!("IBEX_PREPARED_COMMITMENT_CORRUPT record repeats a typed binding");
+            }
+        }
+        let carrier = carriers
+            .get(indexed.carrier_index)
+            .cloned()
+            .ok_or_else(|| anyhow!("prepared record names an absent carrier"))?;
+        let admission = ArtifactAdmissionV1::DigestBoundPrepared {
+            expected_source_id: indexed.source_id.clone(),
+            expected_source_integrity: indexed.artifact.semantics.source_integrity.clone(),
+            expected_producer_id: producer_id.clone(),
+            producer_binary_digest: commitment.producer.binary_digest.clone(),
+            deployment_graph_digest: commitment.deployment_graph_digest.clone(),
+            expected_carrier_digest: carrier.manifest().carrier_digest.clone(),
+            expected_entry_id: indexed.entry_id.clone(),
+            authorized_semantic_digests: authorized_semantic_digests.clone(),
+            transform_fingerprint_digest: indexed
+                .artifact
+                .semantics
+                .transform_fingerprint
+                .digest()?,
+        };
+        indexed.artifact.verify_for_admission(&admission)?;
+        carrier.entry(indexed.entry_id.as_str())?;
+        let (source_label, virtual_path) = portable_record_display(&indexed.source_id)?;
+        let path = match &indexed.source_id {
+            SourceId::File { path, .. } => {
+                path.iter()
+                    .fold(project_root.to_path_buf(), |path, component| {
+                        path.join(std::ffi::OsString::from(
+                            String::from_utf8_lossy(component.bytes()).into_owned(),
+                        ))
+                    })
+            }
+            SourceId::Builtin { source_key, .. } => {
+                PathBuf::from(format!("builtin:{}.js", source_key.as_str()))
+            }
+            SourceId::Synthetic { .. } => {
+                bail!("IBEX_PREPARED_COMMITMENT_SCHEMA synthetic prepared records are unsupported")
+            }
+        };
+        let record_candidate_tables = candidate_tables
+            .iter()
+            .filter(|table| table.requester.0 == indexed.source_id)
+            .cloned()
+            .collect();
+        let bootstrap_internal_commonjs_requires =
+            bootstrap_internal_commonjs_require_specifiers(&indexed.artifact);
+        let source_id = indexed.source_id.clone();
+        if records
+            .insert(
+                source_id,
+                SourceGraphRecordV1 {
+                    path,
+                    source_label,
+                    virtual_path,
+                    artifact: indexed.artifact,
+                    bindings,
+                    candidate_tables: record_candidate_tables,
+                    deferred_dynamic: DeferredSourceDynamicBindingsV1::default(),
+                    deferred_commonjs_requires: BTreeSet::new(),
+                    bootstrap_internal_commonjs_requires,
+                    prepared: Some(PreparedRecordV1 {
+                        carrier,
+                        entry_id: indexed.entry_id,
+                        admission,
+                    }),
+                },
+            )
+            .is_some()
+        {
+            bail!("IBEX_PREPARED_COMMITMENT_CORRUPT publication repeats a SourceId");
+        }
+    }
+
+    let principal_ids = principals
+        .into_iter()
+        .map(|principal| {
+            Ok((
+                principal.clone(),
+                host.module_runner_principal_id(&principal)?,
+            ))
+        })
+        .collect::<Result<BTreeMap<_, _>>>()?;
+    let graph = SourceModuleGraphV1 {
+        entry: index.entry,
+        entry_vfs_source_id: Some(entry_vfs_source_id),
+        snapshot,
+        principal_ids,
+        producer_binary_digest: commitment.producer.binary_digest.clone(),
+        records,
+        activation_host: None,
+        project_root: project_root.to_path_buf(),
+        candidate_declarations: BTreeMap::new(),
+        matched_candidate_declarations: BTreeSet::new(),
+        prepared_activation_cache_locator: None,
+        _source_access_receipts: Vec::new(),
+        _prepared_access_receipts: Vec::new(),
+        _activation_receipts: Vec::new(),
+    };
+    graph.plan()?;
+    eprintln!(
+        "ibex prepared admission authority=production-armed entry={} root={} carriers={} duration_us={}",
+        commitment.entry_source_id,
+        &commitment.publication_root_digest.as_str()[..24],
+        carriers.len(),
+        started.elapsed().as_micros(),
+    );
+    Ok(graph)
 }
 
 /// Consume the authenticated entry join before discovering any prepared-cache
@@ -3536,6 +4004,14 @@ mod tests {
 
     #[cfg(unix)]
     fn armed_file_host(project_root: &Path) -> crate::host::Host {
+        armed_file_host_with_prepared(project_root, Vec::new())
+    }
+
+    #[cfg(unix)]
+    fn armed_file_host_with_prepared(
+        project_root: &Path,
+        prepared_graphs: Vec<PreparedGraphCommitmentV1>,
+    ) -> crate::host::Host {
         use capsec_semantics::arming::{
             ArmedEntry, ArmedEntryKind, ArmedExecutionMode, ArmedRootBinding, ArmedSnapshot,
             ExpectedArmingIdentity, ExpectedProtectedArtifact, ProtectedArtifactRole,
@@ -3573,6 +4049,7 @@ mod tests {
             mode: ArmedExecutionMode::Program,
         })
         .unwrap();
+        value["preparedGraphs"] = serde_json::to_value(prepared_graphs).unwrap();
 
         let project_path = serde_json::to_value(absolute_path(&project_root)).unwrap();
         let package_path = serde_json::to_value(absolute_path(&package_root)).unwrap();
@@ -3776,6 +4253,106 @@ mod tests {
             .unwrap();
         vfs.close();
         request
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn committed_prepared_graph_admits_without_source_and_refuses_substitution() {
+        let project = tempfile::tempdir().unwrap();
+        let entry = project.path().join("entry.mjs");
+        std::fs::write(&entry, "export const value = 1;\n").unwrap();
+        let entry = std::fs::canonicalize(&entry).unwrap();
+        let producer = Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let deployment = Digest::new("sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA").unwrap();
+        let bootstrap_host = armed_file_host(project.path());
+        let graph_a = match build_authenticated_source_graph_v1_for_host(
+            &bootstrap_host,
+            &entry,
+            producer.clone(),
+            "hermes-test",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!("fixture unexpectedly required legacy: {requirement}")
+            }
+        };
+        let publication_a = tempfile::tempdir().unwrap();
+        let cache_a =
+            publish_prepared_source_graph_v1(&graph_a, publication_a.path(), deployment.clone())
+                .unwrap();
+        let commitment_a = prepared_graph_commitment_v1(
+            &graph_a,
+            deployment.clone(),
+            bootstrap_host
+                .armed_snapshot()
+                .unwrap()
+                .engine_target()
+                .unwrap(),
+            bootstrap_host
+                .armed_snapshot()
+                .unwrap()
+                .semantic_identity()
+                .unwrap()
+                .policy_digest,
+        )
+        .unwrap();
+
+        // A genuine sibling publication is fully self-consistent. It differs
+        // only in source behavior, so its own local digests cannot help it
+        // satisfy publication A's independent root.
+        std::fs::write(&entry, "export const value = 2;\n").unwrap();
+        let graph_b = match build_authenticated_source_graph_v1_for_host(
+            &bootstrap_host,
+            &entry,
+            producer,
+            "hermes-test",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!("fixture unexpectedly required legacy: {requirement}")
+            }
+        };
+        let publication_b = tempfile::tempdir().unwrap();
+        let cache_b =
+            publish_prepared_source_graph_v1(&graph_b, publication_b.path(), deployment).unwrap();
+
+        let committed_host =
+            armed_file_host_with_prepared(project.path(), vec![commitment_a.clone()]);
+        let request = authenticated_file_request(&committed_host);
+        let entry_vfs_source_id = request.source_id().cloned().unwrap();
+        std::fs::remove_file(&entry).unwrap();
+
+        let admitted = load_prepared_graph_committed_v1(
+            &cache_a,
+            &committed_host,
+            &commitment_a,
+            entry_vfs_source_id.clone(),
+            project.path(),
+        )
+        .expect("committed admission must not reacquire application source");
+        assert!(admitted.prepared_entries().unwrap().is_some());
+        assert_eq!(admitted.source_access_receipt_count(), 0);
+
+        let error = match load_prepared_graph_committed_v1(
+            &cache_b,
+            &committed_host,
+            &commitment_a,
+            entry_vfs_source_id,
+            project.path(),
+        ) {
+            Ok(_) => panic!("self-consistent sibling publication was admitted"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("IBEX_PREPARED_COMMITMENT_MISMATCH"),
+            "substitution refused for the wrong reason: {error:#}"
+        );
     }
 
     #[cfg(unix)]

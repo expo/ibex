@@ -5,7 +5,9 @@
 **Systems:** Module Loader, CapSec, Arming, Security, Host Embedding
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-28
-**Revised:** 2026-07-29
+**Revised:** 2026-07-29 (production committed admission implemented:
+snapshot-bound `preparedGraphs`, bounded no-follow root admission, facet and
+carrier validation, source-free loader witness, and refuse-then-cold-rebuild)
 **Related:** LLP 0026 (module runner; Phase 4 writable-cache honesty
 paragraph); LLP 0027 (ModuleArtifact wire, prepared graph v2, carrier v2);
 LLP 0036 (target advertisement completion); LLP 0038 (unadvertised dev
@@ -364,10 +366,10 @@ missing" (expected, source mode) from "commitment mismatch" (alarm).
    need an OS-level session store? The MAC design supports either, but the
    handoff for a *newly launched* consumer process needs a concrete channel
    (Exact LLP 0413 §16 Q14 — decision-blocking for the Exact integration).
-2. **Snapshot schema evolution.** Does adding `preparedGraphs` require an
-   armed-snapshot schema-version bump, and what do existing armed
-   deployments (none yet in production, per LLP 0036/0039) require for
-   rollout?
+2. **Resolved 2026-07-29 — snapshot schema evolution.** `preparedGraphs` is
+   an additive optional section under `ibex/capsec-armed/1`; absence selects
+   source/rejoin behavior. There are no promoted production deployments
+   requiring a dual-version rollout.
 3. **Multi-entry and profile splits.** One commitment per entry is assumed;
    should route/profile split graphs (Exact LLP 0128 diet) share one
    commitment with multiple entries, or one commitment each?
@@ -376,9 +378,10 @@ missing" (expected, source mode) from "commitment mismatch" (alarm).
    record the skipped `source_integrity` set in the admission receipt so a
    post-hoc audit can compare against served source, or is that receipt
    noise?
-5. **Bounded index read.** Step 1 needs a hard size bound before digesting
-   an unauthenticated file; what is it, and is it commitment-carried
-   (explicit `publicationRootLength`) or a fixed policy constant?
+5. **Resolved 2026-07-29 — bounded reads.** V1 uses fixed implementation
+   limits: 64 MiB for index/candidate tables, 16 MiB for manifests, and
+   512 MiB for carrier bytes. A later version may carry reviewed lengths if
+   real publications approach those limits.
 6. **Retention.** When a commitment is superseded (new deployment, dev
    generation advance), who garbage-collects the now-unadmittable
    publication directories (Exact LLP 0413 §16 Q10 overlaps)?
@@ -394,3 +397,34 @@ explicitly open and is expected to be answered with evidence by the Exact
 LLP 0413 Phase 1 tournament's §15 posture decision. Implementation work
 against the production-shaped commitment (fixtures first) is unblocked;
 the document remains Draft pending the review loop.
+
+## Production implementation checkpoint (2026-07-29)
+
+The approved production lane is implemented:
+
+- `ArmedSnapshot::load` accepts the additive optional `preparedGraphs`
+  section, authenticates it through the existing snapshot digest, and
+  validates production schema/workflow, target, policy, sorting, and
+  uniqueness. It structurally refuses the development schema.
+- `prepared_graph_commitment_v1` derives the publication root and explicit
+  semantic/principal facets from the exact deterministic publication bytes.
+- `load_prepared_graph_committed_v1` retains bounded regular files without
+  following final links/reparse points, checks strict canonical index bytes
+  against the independent root before using index assertions, cross-checks
+  all commitment facets and exact inventory, admits per-principal carriers
+  and artifacts, and constructs the graph without source acquisition,
+  transform, or parse.
+- Runtime selection attempts committed admission before source-graph
+  construction. A missing or refused committed publication cold-builds from
+  authenticated source and does not rejoin-accept that cache generation.
+- The direct loader witness deletes the entry source before admission and
+  retains zero source receipts. The sibling-publication test refuses at
+  `IBEX_PREPARED_COMMITMENT_MISMATCH`; the imported external fixture retains
+  the broader 36/36 self-consistent substitution matrix.
+
+Open question 2 is resolved as an additive optional section under
+`ibex/capsec-armed/1`; absence preserves source/rejoin behavior. Open question
+5 is resolved with fixed implementation limits (64 MiB index/candidate table,
+16 MiB manifest, 512 MiB carrier). Development-session credential transport
+and admission remain separate follow-up work and cannot enter the production
+snapshot section.

@@ -941,7 +941,7 @@
             }
           ],
           "hasTopLevelAwait": false,
-          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nlet joined;\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nconst callbacks = [];\nfor (var item of [\"a\", \"b\"]) {\n(function (item) {\n\n\tcallbacks.push(() => item);\n\n})(item);\n}\njoined = callbacks.map((callback) => callback()).join(\",\");\n__ibex_export$0(\"joined\", joined);\nprint(joined);\n}\n};\n}\n",
+          "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nlet joined;\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nconst callbacks = [];\n{ const __exactForOfIterator0 = ([\"a\", \"b\"])[Symbol.iterator](); const __exactForOfBody0 = (__exactForOfValue0) => { const item = __exactForOfValue0;\n\n\tcallbacks.push(() => item);\n }; for (;;) { const __exactForOfStep0 = __exactForOfIterator0.next(); if (__exactForOfStep0.done) break; try { __exactForOfBody0(__exactForOfStep0.value); } catch (__exactForOfError0) { const __exactForOfReturn0 = __exactForOfIterator0.return; if (typeof __exactForOfReturn0 === 'function') { try { __exactForOfReturn0.call(__exactForOfIterator0); } catch (__exactForOfIgnore0) {} } throw __exactForOfError0; } } }\njoined = callbacks.map((callback) => callback()).join(\",\");\n__ibex_export$0(\"joined\", joined);\nprint(joined);\n}\n};\n}\n",
           "sourceMap": {
             "version": 3,
             "file": "entry.js.factory.js",
@@ -952,12 +952,12 @@
             "sourcesContent": [
               "const callbacks = [];\nfor (const item of [\"a\", \"b\"]) {\n  callbacks.push(() => item);\n}\nexport const joined = callbacks.map((callback) => callback()).join(\",\");\nprint(joined);\n"
             ],
-            "mappings": ";;;;;;;;AAAA;AACA;AACA;AACA;AAAA;AAAA;AAAA;AAAA;AACA;AAAA;AACA",
+            "mappings": ";;;;;;;;AAAA;AACA;AACA;AACA;AAAA;AACA;AAAA;AACA",
             "x_ibex_composed": true,
-            "x_ibex_factory_lines": 22
+            "x_ibex_factory_lines": 19
           },
           "hermesCompatPasses": [
-            "llp0019-for-of-block-capture-v1"
+            "llp0019-for-of-canonical-v2"
           ]
         }
       ]

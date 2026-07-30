@@ -230,7 +230,12 @@ pub struct ModuleSemanticsV1 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum ModulePayloadV1 {
     Inline {
         encoding: InlineEncodingV1,
@@ -250,7 +255,12 @@ pub enum InlineEncodingV1 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum ProducerIdentityV1 {
     InProcess {
         producer_id: NonEmptyString,
@@ -1114,6 +1124,70 @@ mod tests {
             MODULE_ARTIFACT_SCHEMA_V1
         );
         assert_eq!(schema["additionalProperties"], false);
+    }
+
+    #[test]
+    fn checked_in_schema_field_casing_matches_the_decoder() {
+        let schema: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../schemas/module-artifact-v1.schema.json"
+        ))
+        .unwrap();
+        let carrier_required = schema["$defs"]["payload"]["oneOf"][1]["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|field| field.as_str().unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+        let prepared_required = schema["$defs"]["producer"]["oneOf"][1]["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|field| field.as_str().unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(carrier_required.contains("carrierDigest"));
+        assert!(carrier_required.contains("entryId"));
+        assert!(carrier_required.contains("entryFactoryDigest"));
+        assert!(prepared_required.contains("producerId"));
+        assert!(prepared_required.contains("producerBinaryDigest"));
+        assert!(prepared_required.contains("deploymentGraphDigest"));
+
+        let inline = artifact();
+        let carrier = ModuleArtifactV1::new_carrier(
+            inline.semantics.clone(),
+            digest("carrier"),
+            NonEmptyString::new("entry-0").unwrap(),
+            ProducerIdentityV1::Prepared {
+                producer_id: NonEmptyString::new("ibex-builder").unwrap(),
+                producer_binary_digest: digest("prepared-producer"),
+                deployment_graph_digest: digest("graph"),
+            },
+        )
+        .unwrap();
+        let value = serde_json::to_value(&carrier).unwrap();
+        let payload = value["payload"].as_object().unwrap();
+        let producer = value["producer"].as_object().unwrap();
+        for field in ["carrierDigest", "entryId", "entryFactoryDigest"] {
+            assert!(
+                payload.contains_key(field),
+                "decoder omitted schema field {field}"
+            );
+        }
+        for field in [
+            "producerId",
+            "producerBinaryDigest",
+            "deploymentGraphDigest",
+        ] {
+            assert!(
+                producer.contains_key(field),
+                "decoder omitted schema field {field}"
+            );
+        }
+        assert!(!payload.keys().any(|field| field.contains('_')));
+        assert!(!producer.keys().any(|field| field.contains('_')));
+        assert_eq!(
+            ModuleArtifactV1::decode_canonical(&carrier.encode_canonical().unwrap()).unwrap(),
+            carrier
+        );
     }
 
     #[test]

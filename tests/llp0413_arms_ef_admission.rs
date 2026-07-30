@@ -236,8 +236,7 @@ impl LoadedPublication {
 fn admit_publication(publication: &LoadedPublication) -> Result<()> {
     let principals = publication.expected_carrier_principals()?;
     let mut admitted = Vec::with_capacity(publication.carriers.len());
-    for (carrier_index, (manifest_bytes, carrier_bytes)) in
-        publication.carriers.iter().enumerate()
+    for (carrier_index, (manifest_bytes, carrier_bytes)) in publication.carriers.iter().enumerate()
     {
         let principal = principals
             .get(&carrier_index)
@@ -345,7 +344,9 @@ fn assert_tamper_refusals(publication: &LoadedPublication) -> Result<()> {
 fn assert_multi_principal_refusal(publication: &LoadedPublication) -> Result<()> {
     let mut manifests = Vec::new();
     for (manifest_bytes, _) in &publication.carriers {
-        manifests.push(serde_json::from_slice::<PreparedModuleCarrierV2>(manifest_bytes)?);
+        manifests.push(serde_json::from_slice::<PreparedModuleCarrierV2>(
+            manifest_bytes,
+        )?);
     }
     let (host_index, donor_index) = {
         let mut pair = None;
@@ -384,7 +385,10 @@ fn assert_multi_principal_refusal(publication: &LoadedPublication) -> Result<()>
             }
         }
     }
-    println!("§14 item 16 multi-principal refusal holds for {}", publication.label);
+    println!(
+        "§14 item 16 multi-principal refusal holds for {}",
+        publication.label
+    );
     Ok(())
 }
 

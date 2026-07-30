@@ -1,6 +1,12 @@
 # Independent prepared-graph commitment (armed + session-bound dev)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The production Phase 2 blocker landed on 2026-07-29:
+`preparedGraphs` is snapshot-authenticated, committed admission is source-free
+and root-first, and runtime refusal goes to cold rebuild without rejoin
+acceptance. The direct source-deleted/substitution test and the 36/36 external
+substitution fixture are green. Development-session credential transport is
+split to `issues/20260729-prepared-graph-development-session-commitment.md`.
 **Systems:** Module loader, CapSec, Arming, Host embedding
 **Author:** Claude Fable 5 (Claude Code)
 **Date:** 2026-07-28
@@ -74,9 +80,16 @@ approved direction:
   commitment-mismatch** — distinct from corruption (truncation classifies
   as corrupt).
 
-**Gap, explicitly:** `load_prepared_graph_committed_v1` (committed
-admission — steps 1-7, the fallback-to-cold rule, and the `preparedGraphs`
-armed-snapshot section) remains UNIMPLEMENTED; the fixture proves the
-receipt catches the swap, not that a warm path admits by commitment with
-zero source parsing. That acceptance line still requires the ibex
-implementation this ticket tracks.
+## Resolution evidence 2026-07-29
+
+- `load_prepared_graph_committed_v1` authenticates canonical `index.json`
+  against an armed publication root before consuming any cache-local claim,
+  then validates facets, inventory, candidate tables, per-principal carriers,
+  artifacts, and transform fingerprints.
+- `ArmedSnapshot::load` validates the optional, digest-bound
+  `preparedGraphs` section and refuses development-schema class confusion.
+- The runtime selects committed mode before graph construction and, after
+  any committed refusal, cold-builds without invoking rejoin admission.
+- The focused witness removes application source before committed load,
+  observes zero source receipts, admits the genuine publication, and refuses
+  a genuine self-consistent sibling at the independent-root check.

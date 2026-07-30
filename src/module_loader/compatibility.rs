@@ -12,8 +12,11 @@ use serde::Serialize;
 pub const LEGACY_REQUIRED_TELEMETRY_PREFIX: &str = "IBEX_LEGACY_REQUIRED_EVENT ";
 pub const LEGACY_REQUIRED_TELEMETRY_SCHEMA_V1: &str = "ibex/legacy-required-telemetry-event/1";
 
-/// Tier-3 `for...of` shapes that the current Rust/Oxc mirror cannot lower
-/// without risking divergence from the canonical LLP 0019 pass.
+/// Stable Tier-3 `for...of` compatibility categories.
+///
+/// `AwaitLoop` remains active. The other values preserve telemetry/API
+/// vocabulary issued by the bounded pre-parity producer and must not be
+/// renumbered or silently repurposed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tier3ForOfQuarantineReason {
     AwaitLoop,

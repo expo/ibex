@@ -55,7 +55,9 @@ fn root_check(index_bytes: &[u8], expected_root_digest: &str) -> Result<RootChec
     let canonical = capsec_semantics::canonical::to_jcs_bytes(&value)
         .map_err(|error| anyhow!("cannot canonicalize index: {error}"))?;
     if canonical != index_bytes {
-        return Ok(RootCheck::Corrupt("index bytes are not canonical JCS".into()));
+        return Ok(RootCheck::Corrupt(
+            "index bytes are not canonical JCS".into(),
+        ));
     }
     let observed = digest_bytes(PUBLICATION_ROOT_DOMAIN, index_bytes)?;
     if observed.as_str() != expected_root_digest {
@@ -91,7 +93,10 @@ fn discover_fixtures(root: &Path) -> Result<Vec<CommitmentFixture>> {
             if commitment["schema"] != "ibex/prepared-graph-commitment/1"
                 || commitment["workflow"] != "production"
             {
-                bail!("{} is not a production-shaped commitment", commitment_file.display());
+                bail!(
+                    "{} is not a production-shaped commitment",
+                    commitment_file.display()
+                );
             }
             fixtures.push(CommitmentFixture {
                 label: arm.display().to_string(),
@@ -149,8 +154,9 @@ fn recompute_facets(index_bytes: &[u8]) -> Result<(String, String, String, Strin
             .collect(),
     );
     let inventory_bytes = capsec_semantics::canonical::to_jcs_bytes(&inventory_value)?;
-    let semantic_inventory_digest =
-        digest_bytes(SEMANTIC_INVENTORY_DOMAIN, &inventory_bytes)?.as_str().to_owned();
+    let semantic_inventory_digest = digest_bytes(SEMANTIC_INVENTORY_DOMAIN, &inventory_bytes)?
+        .as_str()
+        .to_owned();
 
     // The set is ordered by each principal's canonical JCS encoding
     // (Principal::canonical_order_key); the digested value is the JCS array
@@ -167,14 +173,17 @@ fn recompute_facets(index_bytes: &[u8]) -> Result<(String, String, String, Strin
         joined.push(b']');
         joined
     };
-    let principal_set_digest =
-        digest_bytes(PRINCIPAL_SET_DOMAIN, &principals_joined)?.as_str().to_owned();
+    let principal_set_digest = digest_bytes(PRINCIPAL_SET_DOMAIN, &principals_joined)?
+        .as_str()
+        .to_owned();
 
     let entry_source_id: SourceId = serde_json::from_value(index["entry"].clone())?;
     Ok((
         semantic_inventory_digest,
         principal_set_digest,
-        entry_source_id.encode().map_err(|error| anyhow!("{error}"))?,
+        entry_source_id
+            .encode()
+            .map_err(|error| anyhow!("{error}"))?,
         index["deploymentGraphDigest"]
             .as_str()
             .ok_or_else(|| anyhow!("index has no deploymentGraphDigest"))?
@@ -207,7 +216,11 @@ fn commitment_root_refuses_self_consistent_substitution() -> Result<()> {
         // cross-check, recomputed here with ibex's real JCS/digest code.
         let genuine = root_check(&fixture.index_bytes, expected_root)?;
         if genuine != RootCheck::Accepted {
-            bail!("genuine publication failed its own commitment: {:?} ({})", genuine, fixture.label);
+            bail!(
+                "genuine publication failed its own commitment: {:?} ({})",
+                genuine,
+                fixture.label
+            );
         }
         let (inventory, principal_set, entry, deployment, producer_binary) =
             recompute_facets(&fixture.index_bytes)?;
@@ -217,7 +230,10 @@ fn commitment_root_refuses_self_consistent_substitution() -> Result<()> {
             || fixture.commitment["deploymentGraphDigest"] != *deployment
             || fixture.commitment["producer"]["binaryDigest"] != *producer_binary
         {
-            bail!("commitment facets disagree with the index recompute ({})", fixture.label);
+            bail!(
+                "commitment facets disagree with the index recompute ({})",
+                fixture.label
+            );
         }
 
         // 2. Corruption is diagnosed as corruption, not commitment mismatch.

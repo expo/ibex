@@ -3081,6 +3081,33 @@ impl AuthenticatedFileIngress {
         let (_, source_entry) = self.authenticated_source_entry(request)?;
         phase.mark("graph_source_entry");
 
+        // A production commitment changes admission mode before graph work:
+        // attempt the parse-free publication first. Any refusal goes directly
+        // to a cold authenticated source build; this startup must not rejoin
+        // and accept the cache generation the independent authority refused.
+        // @ref LLP 0042#migration-and-coexistence
+        let commitment = self.prepared_commitment_for_entry(&source_entry)?;
+        let committed_attempted = commitment.is_some();
+        if let Some(commitment) = commitment {
+            match self.load_committed_prepared_module_graph(&source_entry, request, &commitment) {
+                Ok(Some(graph)) => {
+                    phase.mark("graph_committed_select");
+                    return Ok(AuthenticatedModuleGraphPreparation::Native(graph));
+                }
+                Ok(None) => {
+                    eprintln!(
+                        "ibex prepared admission: committed publication missing; rebuilding cold"
+                    );
+                }
+                Err(error) => {
+                    eprintln!(
+                        "ibex prepared admission refused; rebuilding cold before evaluation: {error:#}"
+                    );
+                }
+            }
+            phase.mark("graph_committed_refuse");
+        }
+
         // The Host constructs this complete source graph only after the exact
         // entry request has been admitted and its virtual identity has been
         // re-derived above. Prepared bytes are an optional source-mode
@@ -3129,14 +3156,140 @@ impl AuthenticatedFileIngress {
         );
         phase.mark("graph_validate");
 
-        if let Some(prepared) =
-            self.load_authenticated_prepared_module_graph(&source_entry, &graph, &entry_join)?
-        {
-            phase.mark("graph_cache_select");
-            return Ok(AuthenticatedModuleGraphPreparation::Native(prepared));
+        if !committed_attempted {
+            if let Some(prepared) =
+                self.load_authenticated_prepared_module_graph(&source_entry, &graph, &entry_join)?
+            {
+                phase.mark("graph_cache_select");
+                return Ok(AuthenticatedModuleGraphPreparation::Native(prepared));
+            }
         }
         phase.mark("graph_cache_select");
         Ok(AuthenticatedModuleGraphPreparation::Native(graph))
+    }
+
+    #[cfg(feature = "module-runner")]
+    fn prepared_commitment_for_entry(
+        &self,
+        source_entry: &Path,
+    ) -> Result<Option<capsec_semantics::arming::PreparedGraphCommitmentV1>> {
+        use ibex_runtime::module_loader::identity::SourceId;
+
+        let relative = source_entry
+            .strip_prefix(&self.project_root)
+            .context("authenticated module entry escapes the project root")?;
+        let expected_components = relative
+            .components()
+            .map(|component| component.as_os_str().as_encoded_bytes())
+            .collect::<Vec<_>>();
+        let snapshot = self
+            .host
+            .armed_snapshot()
+            .context("committed admission requires an armed snapshot")?;
+        for commitment in snapshot.prepared_graphs() {
+            let source_id = SourceId::decode(commitment.entry_source_id.as_str())?;
+            let SourceId::File { principal, path } = source_id else {
+                continue;
+            };
+            if !principal.is_root() || path.len() != expected_components.len() {
+                continue;
+            }
+            if path
+                .iter()
+                .zip(&expected_components)
+                .all(|(component, expected)| component.bytes() == *expected)
+            {
+                return Ok(Some(commitment.clone()));
+            }
+        }
+        Ok(None)
+    }
+
+    #[cfg(feature = "module-runner")]
+    fn load_committed_prepared_module_graph(
+        &self,
+        source_entry: &Path,
+        request: &ibex_runtime::engine::evaluation::SourceRequest,
+        commitment: &capsec_semantics::arming::PreparedGraphCommitmentV1,
+    ) -> Result<Option<ibex_runtime::module_loader::runner_pipeline::SourceModuleGraphV1>> {
+        use ibex_runtime::module_loader::artifact::digest_bytes;
+        use ibex_runtime::module_loader::runner_pipeline::{
+            load_prepared_graph_committed_v1, prepared_graph_cache_dir,
+        };
+
+        let entry_vfs_source_id = request
+            .source_id()
+            .cloned()
+            .context("authenticated module entry has no VFS SourceId")?;
+        let checked_cache = ibex_runtime::cache_topology::authenticate_internal_cache_root(
+            &self.runtime_cache_root,
+            std::slice::from_ref(&self.project_root),
+        )?;
+        anyhow::ensure!(checked_cache == self.runtime_cache_root);
+        let bundles_root = self.runtime_cache_root.join("bundles");
+        let metadata = match std::fs::symlink_metadata(&bundles_root) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Ok(None);
+        }
+        let canonical_bundles_root = std::fs::canonicalize(&bundles_root)?;
+        anyhow::ensure!(
+            canonical_bundles_root.parent() == Some(self.runtime_cache_root.as_path()),
+            "prepared bundle root escaped the authenticated runtime cache"
+        );
+        let mut formats = vec![self.bundle_format];
+        if self.bundle_format == BundleFormat::Cjs {
+            formats.push(BundleFormat::Esm);
+        }
+        for format in formats {
+            let cache_key = bundle_cache_key(source_entry, format)?;
+            let artifact_root = bundle_artifact_root(&canonical_bundles_root, &cache_key);
+            let mut candidates = match std::fs::read_dir(&artifact_root) {
+                Ok(entries) => entries
+                    .filter_map(std::result::Result::ok)
+                    .filter_map(|entry| {
+                        entry
+                            .file_type()
+                            .ok()
+                            .filter(|kind| kind.is_dir() && !kind.is_symlink())
+                            .filter(|_| !entry.file_name().to_string_lossy().starts_with('.'))
+                            .map(|_| entry.path())
+                    })
+                    .collect::<Vec<_>>(),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
+            candidates.sort();
+            for artifact_dir in candidates {
+                let output = bundle_entry_path(&artifact_dir, format);
+                let Ok(manifest) = read_bundle_manifest_once(&output) else {
+                    continue;
+                };
+                if !matches!(manifest.version, 3 | 4) || !valid_sha256(&manifest.graph_digest) {
+                    continue;
+                }
+                let deployment_digest = digest_bytes(
+                    "ibex/rolldown-deployment-graph/1",
+                    manifest.graph_digest.as_bytes(),
+                )?;
+                if deployment_digest != commitment.deployment_graph_digest {
+                    continue;
+                }
+                let cache_dir = prepared_graph_cache_dir(&artifact_dir, &deployment_digest);
+                return load_prepared_graph_committed_v1(
+                    &cache_dir,
+                    &self.host,
+                    commitment,
+                    entry_vfs_source_id,
+                    &self.project_root,
+                )
+                .map(Some);
+            }
+        }
+        Ok(None)
     }
 
     /// Select only an already-published prepared graph while the admitted

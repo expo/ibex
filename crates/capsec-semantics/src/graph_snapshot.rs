@@ -71,7 +71,12 @@ pub struct GraphCandidateSetV1 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 enum PortableSourceIdV1 {
     File {
         principal: Principal,
@@ -435,7 +440,7 @@ mod tests {
         let builtin = source(serde_json::json!({
             "kind":"builtin",
             "domain":"ibex-runtime",
-            "source_key":"exact:fs"
+            "sourceKey":"exact:fs"
         }));
         let mut nodes = vec![entry.clone(), dependency.clone(), builtin]
             .into_iter()
@@ -512,8 +517,8 @@ mod tests {
         let mut alien_edge = fixture();
         alien_edge.edges[0].target = source(serde_json::json!({
             "kind":"synthetic",
-            "session_identity":"session",
-            "source_identity":"ibex:stdin"
+            "sessionIdentity":"session",
+            "sourceIdentity":"ibex:stdin"
         }));
         assert!(alien_edge.validate().is_err());
 

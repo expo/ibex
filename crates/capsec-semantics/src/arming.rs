@@ -36,6 +36,34 @@ use crate::model::StableId;
 
 pub const ARMED_SNAPSHOT_SCHEMA: &str = "ibex/capsec-armed/1";
 pub const ARMING_ABI: &str = "ibex-capsec-arming-2-root-ceiling-embedded-ranges-bootstrap-seal";
+pub const PREPARED_GRAPH_COMMITMENT_SCHEMA_V1: &str = "ibex/prepared-graph-commitment/1";
+
+/// Independently authenticated authority for one prepared publication.
+///
+/// This record is useful only after it has been decoded from an armed
+/// snapshot. A caller-provided lookalike is not production authority.
+/// @ref LLP 0042#production-commitment
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreparedGraphCommitmentV1 {
+    pub schema: String,
+    pub workflow: String,
+    pub target: String,
+    pub entry_source_id: NonEmptyString,
+    pub deployment_graph_digest: Digest,
+    pub publication_root_digest: Digest,
+    pub producer: PreparedGraphProducerV1,
+    pub semantic_inventory_digest: Digest,
+    pub principal_set_digest: Digest,
+    pub policy_digest: Digest,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreparedGraphProducerV1 {
+    pub id: NonEmptyString,
+    pub binary_digest: Digest,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -308,6 +336,7 @@ pub struct ArmedSnapshot {
     embedded_protected_artifacts: Arc<[ExpectedEmbeddedProtectedArtifact]>,
     runtime_extension_authority: Option<Arc<RuntimeExtensionAuthorityCapsule>>,
     bootstrap_compatibility_modes: Arc<[String]>,
+    prepared_graphs: Arc<[PreparedGraphCommitmentV1]>,
     armed_snapshot_digest: Digest,
     generations: SnapshotGenerations,
 }
@@ -416,6 +445,18 @@ impl ArmedSnapshot {
         {
             return refused("fixture:bun requires fixture compatibility mode");
         }
+        let prepared_graphs: Vec<PreparedGraphCommitmentV1> = document
+            .get("preparedGraphs")
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|error| invalid(format!("invalid preparedGraphs section: {error}")))?
+            .unwrap_or_default();
+        validate_prepared_graph_commitments(
+            &prepared_graphs,
+            &expected.target,
+            &expected.policy_digest,
+        )?;
         let claimed = Digest::new(required_str(&document, "armedSnapshotDigest")?)
             .map_err(Error::InvalidModel)?;
         if claimed != expected.armed_snapshot_digest {
@@ -473,6 +514,7 @@ impl ArmedSnapshot {
             embedded_protected_artifacts: expected.embedded_protected_artifacts.clone().into(),
             runtime_extension_authority: runtime_extension_authority.map(Arc::new),
             bootstrap_compatibility_modes: bootstrap_compatibility_modes.into(),
+            prepared_graphs: prepared_graphs.into(),
             armed_snapshot_digest: claimed,
             generations,
         })
@@ -494,6 +536,21 @@ impl ArmedSnapshot {
     /// bootstrap. They are never projected into the principal environment.
     pub fn bootstrap_compatibility_modes(&self) -> &[String] {
         &self.bootstrap_compatibility_modes
+    }
+
+    /// Production commitments authenticated as part of this exact snapshot.
+    /// @ref LLP 0042#binding-surface
+    pub fn prepared_graphs(&self) -> &[PreparedGraphCommitmentV1] {
+        &self.prepared_graphs
+    }
+
+    pub fn prepared_graph_commitment(
+        &self,
+        entry_source_id: &str,
+    ) -> Option<&PreparedGraphCommitmentV1> {
+        self.prepared_graphs
+            .iter()
+            .find(|commitment| commitment.entry_source_id.as_str() == entry_source_id)
     }
 
     pub fn entry(&self) -> &ArmedEntry {
@@ -1046,6 +1103,34 @@ enum SnapshotResolutionKind {
     EsmStatic,
     DynamicImport,
     CommonJsRequire,
+}
+
+fn validate_prepared_graph_commitments(
+    commitments: &[PreparedGraphCommitmentV1],
+    expected_target: &str,
+    expected_policy_digest: &Digest,
+) -> Result<()> {
+    let mut prior_entry: Option<&str> = None;
+    for commitment in commitments {
+        if commitment.schema != PREPARED_GRAPH_COMMITMENT_SCHEMA_V1 {
+            return refused("preparedGraphs accepts only production prepared-graph commitments");
+        }
+        if commitment.workflow != "production" {
+            return refused("preparedGraphs commitment workflow must be production");
+        }
+        if commitment.target != expected_target {
+            return refused("preparedGraphs commitment target differs from engine.target");
+        }
+        if commitment.policy_digest != *expected_policy_digest {
+            return refused("preparedGraphs commitment policy differs from policyDigest");
+        }
+        let entry = commitment.entry_source_id.as_str();
+        if prior_entry.is_some_and(|prior| prior >= entry) {
+            return refused("preparedGraphs must be sorted and unique by entrySourceId");
+        }
+        prior_entry = Some(entry);
+    }
+    Ok(())
 }
 
 impl SnapshotResolutionKind {
@@ -2647,6 +2732,75 @@ mod tests {
                 .to_string()
                 .contains("environmentBase must be an array")
         );
+    }
+
+    #[test]
+    fn prepared_graphs_are_production_only_snapshot_bound_and_sorted() {
+        let (bytes, mut expected) = fixture();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        let target = expected.target.clone();
+        let policy_digest = expected.policy_digest.clone();
+        let commitment = |entry: &str| {
+            serde_json::json!({
+                "schema": PREPARED_GRAPH_COMMITMENT_SCHEMA_V1,
+                "workflow": "production",
+                "target": target,
+                "entrySourceId": entry,
+                "deploymentGraphDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                "publicationRootDigest": "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA",
+                "producer": {
+                    "id": "ibex-rolldown-module-preparer",
+                    "binaryDigest": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA"
+                },
+                "semanticInventoryDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                "principalSetDigest": "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA",
+                "policyDigest": policy_digest,
+            })
+        };
+        value["preparedGraphs"] = serde_json::json!([
+            commitment("ibex-source-id-v1:A"),
+            commitment("ibex-source-id-v1:B"),
+        ]);
+        let admitted_bytes = redigest(&mut value);
+        expected.armed_snapshot_digest =
+            Digest::new(value["armedSnapshotDigest"].as_str().unwrap()).unwrap();
+        let armed = ArmedSnapshot::load(&admitted_bytes, &expected).unwrap();
+        assert_eq!(armed.prepared_graphs().len(), 2);
+        assert_eq!(
+            armed
+                .prepared_graph_commitment("ibex-source-id-v1:B")
+                .unwrap()
+                .workflow,
+            "production"
+        );
+
+        for mut refused_value in [
+            {
+                let mut changed = value.clone();
+                changed["preparedGraphs"][0]["schema"] =
+                    serde_json::json!("ibex/prepared-graph-commitment-dev/1");
+                changed
+            },
+            {
+                let mut changed = value.clone();
+                changed["preparedGraphs"][0]["target"] = serde_json::json!("other-target");
+                changed
+            },
+            {
+                let mut changed = value.clone();
+                changed["preparedGraphs"] = serde_json::json!([
+                    commitment("ibex-source-id-v1:B"),
+                    commitment("ibex-source-id-v1:A"),
+                ]);
+                changed
+            },
+        ] {
+            let refused_bytes = redigest(&mut refused_value);
+            let mut refused_expected = expected.clone();
+            refused_expected.armed_snapshot_digest =
+                Digest::new(refused_value["armedSnapshotDigest"].as_str().unwrap()).unwrap();
+            assert!(ArmedSnapshot::load(&refused_bytes, &refused_expected).is_err());
+        }
     }
 
     #[test]

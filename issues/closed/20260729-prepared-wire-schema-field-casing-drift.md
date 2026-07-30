@@ -1,6 +1,10 @@
 # Prepared-graph wire schemas disagree with the Rust decoders on tagged-enum field casing
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Chose the uniform schema spelling. Tagged `SourceId`,
+`ModulePayloadV1`, and `ProducerIdentityV1` variants now apply
+`rename_all_fields = "camelCase"`, and schema/codec parity tests cover the
+previous drift. LLP 0027 records the regenerable-cache migration rule.
 **Systems:** Module Loader, Schemas
 **Author:** Claude Fable 5 (Claude Code)
 **Date:** 2026-07-29
@@ -62,3 +66,12 @@ for a wire migration. Note the Exact adapter-1 producer and its schema
 validation currently emit/patch to the DECODER spelling
 (`scripts/produce-prepared-graph-publication.mjs` documents the patch); if
 option 2 is ever chosen, that producer must move in lockstep.
+
+## Resolution evidence 2026-07-29
+
+Option 2 was selected because the checked-in schemas are the external
+producer contract and every other object field is already camelCase.
+Canonical round trips and a checked schema-to-codec field test prove the
+schema-shaped spelling. Old snake_case prepared cache material is disposable:
+it refuses and cold-rebuilds rather than creating a permanent second v1 wire
+dialect.

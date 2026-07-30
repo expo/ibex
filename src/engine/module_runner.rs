@@ -4,7 +4,6 @@
 //! raw/deserialized artifacts cannot reach the C++ compiler through this API.
 //! @ref LLP 0027#canonical-encoding-and-validation
 
-#[cfg(any(test, feature = "module-runner"))]
 use std::collections::{BTreeMap, BTreeSet};
 #[cfg(test)]
 use std::ffi::CString;
@@ -2350,7 +2349,6 @@ impl<'runtime> NativeLinkedRecord<'runtime> {
     }
 }
 
-#[cfg(any(test, feature = "module-runner"))]
 #[derive(Clone, Copy)]
 enum PublishedNativeRecord {
     Esm {
@@ -2360,6 +2358,21 @@ enum PublishedNativeRecord {
         record: NativeModuleHandle,
         adapter: NativeModuleHandle,
     },
+}
+
+impl PublishedNativeRecord {
+    fn publication_handle(self) -> NativeModuleHandle {
+        match self {
+            Self::Esm { record } | Self::CommonJs { record, .. } => record,
+        }
+    }
+
+    fn commonjs_require_kind(self) -> u32 {
+        match self {
+            Self::CommonJs { .. } => 0,
+            Self::Esm { .. } => 1,
+        }
+    }
 }
 
 #[cfg(any(test, feature = "module-runner"))]
@@ -2376,30 +2389,16 @@ impl PublishedNativeRecord {
         })
     }
 
-    fn publication_handle(self) -> NativeModuleHandle {
-        match self {
-            Self::Esm { record } | Self::CommonJs { record, .. } => record,
-        }
-    }
-
     fn esm_link_handle(self) -> NativeModuleHandle {
         match self {
             Self::Esm { record } => record,
             Self::CommonJs { adapter, .. } => adapter,
         }
     }
-
-    fn commonjs_require_kind(self) -> u32 {
-        match self {
-            Self::CommonJs { .. } => 0,
-            Self::Esm { .. } => 1,
-        }
-    }
 }
 
 /// Opaque native target returned by a successful synchronous CommonJS
 /// activation. Only the internal provider bridge can project its handle.
-#[cfg(any(test, feature = "module-runner"))]
 pub struct NativeCommonJsRequireActivationTarget(PublishedNativeRecord);
 
 /// Runtime-independent index over records retained by a pinned native graph
@@ -4666,6 +4665,113 @@ mod tests {
                 ModuleExecutionKind::Synchronous
             );
             assert_eq!(record.namespace_json().unwrap(), r#"{"answer":42}"#);
+            drop(record);
+            drop(factory);
+            drop(context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    /// Exercise the Rust/Oxc LLP 0019 mirror on the loaded Hermes engine, not
+    /// merely through producer-shape assertions. The fixture combines the
+    /// canonical rewrite, recursive rewrite, and leave-raw branches.
+    /// @ref LLP 0019#tier-3-the-rustoxc-module-artifact-producer
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn tier3_for_of_canonical_parity_executes_on_loaded_hermes() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        let source_id = SourceId::synthetic("tier3-for-of-parity", "entry.mjs").unwrap();
+        let producer_digest = digest("tier3-for-of-parity-producer");
+        let source = r#"
+const captures = [];
+for (const { value } of [{ value: "a" }, { value: "b" }]) {
+  for (const suffix of ["!"]) captures.push(() => value + suffix);
+}
+class Counter {
+  constructor() { this.total = 0; }
+  add(values) {
+    for (const value of values) this.total += value;
+    return this.total;
+  }
+}
+let assigned = 0;
+for (assigned of [4, 5]) {}
+const varCaptures = [];
+for (var shared of ["x", "y"]) varCaptures.push(() => shared);
+const control = [];
+for (const value of [-1, 1, 2, 9]) {
+  if (value < 0) continue;
+  if (value > 3) break;
+  control.push(value);
+}
+let closed = false;
+function* values() {
+  try { yield 1; }
+  finally { closed = true; }
+}
+try {
+  for (const value of values()) { throw new Error(String(value)); }
+} catch (_) {}
+export const result = JSON.stringify({
+  captures: captures.map((read) => read()),
+  total: new Counter().add([1, 2, 3]),
+  assigned,
+  vars: varCaptures.map((read) => read()),
+  control,
+  closed,
+});
+"#;
+        let artifact = produce_module_artifact_v1(
+            source_id.clone(),
+            "entry.mjs",
+            std::path::Path::new("entry.mjs"),
+            source,
+            producer_digest.clone(),
+        )
+        .unwrap();
+        let verified = artifact
+            .verify_for_admission(&ArtifactAdmissionV1::TrustedInProcess {
+                expected_source_id: source_id.clone(),
+                expected_source_integrity: artifact.semantics.source_integrity.clone(),
+                expected_producer_id: NonEmptyString::new("ibex-runtime-oxc").unwrap(),
+                producer_binary_digest: producer_digest,
+                transform_fingerprint_digest: artifact
+                    .semantics
+                    .transform_fingerprint
+                    .digest()
+                    .unwrap(),
+            })
+            .unwrap();
+
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(source_id.clone(), 0, 0, [0], 1).unwrap(),
+                )
+                .unwrap();
+            let factory = runtime
+                .compile_verified_factory(verified, 0, None, 1, "entry.mjs")
+                .unwrap();
+            let mut record = factory.create_record(&context, &source_id).unwrap();
+            record.declare_export("result").unwrap();
+            record
+                .instantiate("synthetic:tier3-for-of-parity/entry.mjs", true)
+                .unwrap();
+            record.run_declare().unwrap();
+            assert_eq!(
+                record.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            assert_eq!(
+                record.namespace_json().unwrap(),
+                r#"{"result":"{\"captures\":[\"a!\",\"b!\"],\"total\":6,\"assigned\":5,\"vars\":[\"y\",\"y\"],\"control\":[1,2],\"closed\":true}"}"#
+            );
             drop(record);
             drop(factory);
             drop(context);

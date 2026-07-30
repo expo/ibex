@@ -62,7 +62,10 @@ function nodeOracle(source) {
 
 function runFixture(root, fixture, profile) {
   const project = path.join(root, `${fixture.namespace}-${fixture.id}-${profile}`);
-  const home = path.join(project, '.home');
+  // The authenticated cache root must be disjoint from every JavaScript-
+  // mounted project root. Keep fixture homes as siblings, never descendants.
+  const home = path.join(root, '.homes', `${fixture.namespace}-${fixture.id}-${profile}`);
+  fs.mkdirSync(project, { recursive: true });
   fs.mkdirSync(home, { recursive: true });
   // `--project-root` is the authenticated launcher input. Keeping this
   // package-less avoids asking the resolver to stamp npm package metadata on
@@ -128,7 +131,12 @@ function runFixture(root, fixture, profile) {
     0,
     `${fixture.id}/${profile} failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
   );
-  const expected = fixture.expectedOutput ?? nodeOracle(fixture.source);
+  const expected =
+    fixture.expectedOutput ??
+    (fixture.hermesMatchesOracle === false
+      ? fixture.rawHermesCaptureLast
+      : nodeOracle(fixture.source));
+  assert.ok(expected, `${fixture.id} has no engine-truth oracle`);
   assert.ok(
     result.stdout.split(/\r?\n/u).includes(expected),
     `${fixture.id}/${profile} did not match the oracle ${expected}:\n${result.stdout}`,

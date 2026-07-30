@@ -5,7 +5,10 @@
 **Systems:** Module Loader, Build, Runtime
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-06
-**Revised:** 2026-07-17 (the native source/prepared real-binary gate and
+**Revised:** 2026-07-29 (Tier 3 now mirrors the canonical explicit-iterator
+pass, including recursive/destructured/non-block/assignment/`var` shapes,
+lexical arrow semantics, IteratorClose, and the canonical leave-raw hazard
+set; only `for await` retains the typed for-of quarantine); 2026-07-17 (the native source/prepared real-binary gate and
 exhaustive Hermes target matrix pin every Tier 3 for-of corpus row to a pass
 or stable typed quarantine; unsupported Hermes syntax and BigInt/source-map
 expectations join the same executable contract); 2026-07-17 (LLP 0028 Phase 0
@@ -64,7 +67,8 @@ the bounded 0.1 compatibility path for unsupported interop shapes and retires
 with that path. Any non-zero divergence requires an explicit revision here
 rather than an expected result hidden in the runner.
 
-**Dated compatibility disposition (2026-07-17).** The first Tier 3 `for...of` mirror used
+**Historical compatibility disposition (2026-07-17, superseded
+2026-07-29).** The first Tier 3 `for...of` mirror used
 an ordinary-function IIFE without the canonical pass's control-flow, lexical
 `this`/`arguments`, hoisting, redeclaration, or nested-loop analysis. Until a
 complete Oxc pass lands, every unproven row is classified by an AST-derived
@@ -74,15 +78,15 @@ native only when none of those hazards is present. Deleting the fallback does
 not resolve a row: each quarantine must become a proven pass or a stable,
 documented unsupported diagnostic before the window closes.
 
-The Phase-0 gate closes the unclassified part of that exception.
-`config/llp0019-native-tier3-corpus.json` covers all 31 shared-corpus rows:
-four proven for-of rows execute natively; every other row has an exact typed
-code and reason. The broader `config/llp0019-hermes-target-matrix.json` pins
-the native contract for for-of, async generators, `for await`, explicit
-resource management, BigInt, decorators, and source maps. A quarantine still
-uses Tier 2 during the bounded window, but it can no longer disappear by
-accident: window close must preserve its stable unsupported diagnostic or
-land a proven pass.
+The 2026-07-29 canonical parity pass closes that temporary for-of exception.
+All 15 for-of rows in `config/llp0019-native-tier3-corpus.json` now execute
+natively. Rewritable shapes use the canonical explicit iterator protocol,
+fresh arrow-scoped per-iteration bindings, recursive child rewrites, and
+IteratorClose-on-throw. Control-flow, await/yield, and hoisting/redeclaration
+hazards follow the canonical pass by leaving the outer loop raw while still
+visiting nested rewritable loops. The separate `for await` target-matrix row
+remains a typed `IBEX_LEGACY_TIER3_FOR_OF: await-loop` quarantine; async
+generators retain their Hermes-syntax quarantine.
 
 ## Why multiple implementations exist during migration
 

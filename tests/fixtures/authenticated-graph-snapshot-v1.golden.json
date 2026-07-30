@@ -1,6 +1,6 @@
 {
   "schema": "ibex/authenticated-graph-snapshot-golden/1",
-  "expectedIdentity": "sha256-PbZuXZz8z51yS2mwFCQr9LkAUlko8VfgPP0JHnDAHdk",
+  "expectedIdentity": "sha256-Iw1Mu1QeafhIEjDuGK7PqlZqzphpmpfKwh4KKAoxeRA",
   "snapshot": {
     "schema": "ibex/authenticated-graph-snapshot/1",
     "entry": {
@@ -9,7 +9,7 @@
     },
     "nodes": [
       {
-        "sourceId": "ibex-source-id-v1:eyJkb21haW4iOiJpYmV4LXJ1bnRpbWUiLCJraW5kIjoiYnVpbHRpbiIsInNvdXJjZV9rZXkiOiJleGFjdDpmcyJ9",
+        "sourceId": "ibex-source-id-v1:eyJkb21haW4iOiJpYmV4LXJ1bnRpbWUiLCJraW5kIjoiYnVpbHRpbiIsInNvdXJjZUtleSI6ImV4YWN0OmZzIn0",
         "sourceIntegrity": "sha256-HmGgjeTTsuixWmj0ykyLvalGjXqnBIpDCiUE1rO522Q"
       },
       {

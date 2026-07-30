@@ -139,6 +139,12 @@ pub enum SecurityMode {
 pub struct HostConfig {
     /// Security mode
     pub mode: SecurityMode,
+    /// Compatibility-host capability grants. This field remains available to
+    /// embedders such as the Windows host while they migrate to armed typed
+    /// snapshots. Armed hosts reject every non-empty legacy grant set.
+    // @ref LLP 0021#wp11--reconcile-the-corpus-and-remove-the-legacy-plane —
+    // grants survive only on the explicitly unarmed compatibility constructor.
+    pub allow: Vec<String>,
     /// Host-boundary fence for filesystem access: when set, EVERY `fs:*`
     /// capability value (module loading included) must name a path inside this
     /// root or it is denied. The fence is enforced in every `SecurityMode` —
@@ -165,6 +171,7 @@ impl Default for HostConfig {
     fn default() -> Self {
         Self {
             mode: SecurityMode::Enforce,
+            allow: Vec::new(),
             root_dir: None,
             allowed_hosts: None,
             session_lifecycle: None,
@@ -590,6 +597,9 @@ impl Host {
         // never consulted (fail-open for embedders that relied on them).
         // (ENG-23876) @ref LLP 0002#host-boundary-constraints
         manager.set_host_boundary(config.root_dir.as_deref(), config.allowed_hosts.as_deref());
+        for capability in &config.allow {
+            manager.grant("*", capability, None);
+        }
         let manager = Arc::new(manager);
         let loader = Arc::new(ModuleLoader::new());
 
@@ -781,6 +791,11 @@ impl Host {
         if config.mode != SecurityMode::Enforce {
             return Err(capsec_semantics::Error::ArmRefused(
                 "an armed host requires enforce mode".into(),
+            ));
+        }
+        if !config.allow.is_empty() {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "legacy allow overrides are forbidden on an armed host".into(),
             ));
         }
         if config.root_dir.is_some() || config.allowed_hosts.is_some() {
@@ -11528,7 +11543,7 @@ mod tests {
             serde_json::from_slice(&std::fs::read(&index_path).unwrap()).unwrap();
         for record in index["records"].as_array_mut().unwrap() {
             if record["carrierIndex"] == 0 {
-                record["artifact"]["payload"]["carrier_digest"] =
+                record["artifact"]["payload"]["carrierDigest"] =
                     serde_json::json!(forged_digest.as_str());
             }
         }

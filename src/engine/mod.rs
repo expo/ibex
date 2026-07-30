@@ -2168,8 +2168,7 @@ mod tests {
         unsafe {
             let runtime = ex_hermes_create_no_eval();
             assert!(!runtime.is_null());
-            let (status, value) =
-                eval(runtime, "Promise.reject('detached'); 'scheduled'");
+            let (status, value) = eval(runtime, "Promise.reject('detached'); 'scheduled'");
             assert_eq!(status, 0, "rejection scheduling failed: {value:?}");
 
             let mut event = StructuredAsyncFailureEvent {

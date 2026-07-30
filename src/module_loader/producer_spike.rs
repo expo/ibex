@@ -331,6 +331,7 @@ struct NestedRewriteVisitor {
     dynamic_edges: Vec<SpikeDynamicEdge>,
     dynamic_option_error: Option<String>,
     function_depth: usize,
+    for_of_rewrite_counter: usize,
     hermes_compat_passes: BTreeSet<String>,
     tier3_for_of_quarantine: Option<(u32, Tier3ForOfQuarantineReason)>,
 }
@@ -379,83 +380,44 @@ impl<'a> Visit<'a> for HermesSyntaxVisitor {
     }
 }
 
-// @ref LLP 0019#tier-3-the-rustoxc-module-artifact-producer — Tier 3 may
-// execute only corpus-proven shapes; every other row takes a typed quarantine
-// instead of silently diverging from the canonical pass.
-struct ForOfHazardVisitor<'n> {
-    loop_binding: &'n str,
-    function_depth: usize,
+// @ref LLP 0019#tier-3-the-rustoxc-module-artifact-producer — Tier 3 mirrors
+// the canonical rewrite/leave-raw decision. This visitor identifies the
+// canonical leave-raw hazards; only separately unsupported for-await syntax
+// becomes a typed producer quarantine.
+struct ForOfHazardVisitor {
     quarantine: Option<Tier3ForOfQuarantineReason>,
 }
 
-impl ForOfHazardVisitor<'_> {
+impl ForOfHazardVisitor {
     fn quarantine(&mut self, reason: Tier3ForOfQuarantineReason) {
         self.quarantine.get_or_insert(reason);
     }
 }
 
-impl<'a> Visit<'a> for ForOfHazardVisitor<'_> {
-    fn visit_this_expression(&mut self, _expression: &oxc_ast::ast::ThisExpression) {
-        // Arrow functions retain lexical `this`, so this remains hazardous at
-        // every arrow depth. Ordinary functions are deliberately not walked.
-        self.quarantine(Tier3ForOfQuarantineReason::ThisExpression);
-    }
-
-    fn visit_identifier_reference(&mut self, identifier: &IdentifierReference<'a>) {
-        if identifier.name == "arguments" {
-            self.quarantine(Tier3ForOfQuarantineReason::ArgumentsReference);
-        }
-        walk::walk_identifier_reference(self, identifier);
-    }
-
+impl<'a> Visit<'a> for ForOfHazardVisitor {
     fn visit_break_statement(&mut self, _statement: &oxc_ast::ast::BreakStatement<'a>) {
-        if self.function_depth == 0 {
-            self.quarantine(Tier3ForOfQuarantineReason::BreakStatement);
-        }
+        self.quarantine(Tier3ForOfQuarantineReason::BreakStatement);
     }
 
     fn visit_continue_statement(&mut self, _statement: &oxc_ast::ast::ContinueStatement<'a>) {
-        if self.function_depth == 0 {
-            self.quarantine(Tier3ForOfQuarantineReason::ContinueStatement);
-        }
+        self.quarantine(Tier3ForOfQuarantineReason::ContinueStatement);
     }
 
     fn visit_return_statement(&mut self, _statement: &oxc_ast::ast::ReturnStatement<'a>) {
-        if self.function_depth == 0 {
-            self.quarantine(Tier3ForOfQuarantineReason::ReturnStatement);
-        }
+        self.quarantine(Tier3ForOfQuarantineReason::ReturnStatement);
     }
 
-    fn visit_await_expression(&mut self, expression: &oxc_ast::ast::AwaitExpression<'a>) {
-        if self.function_depth == 0 {
-            self.quarantine(Tier3ForOfQuarantineReason::AwaitExpression);
-        } else {
-            walk::walk_await_expression(self, expression);
-        }
+    fn visit_await_expression(&mut self, _expression: &oxc_ast::ast::AwaitExpression<'a>) {
+        self.quarantine(Tier3ForOfQuarantineReason::AwaitExpression);
     }
 
-    fn visit_yield_expression(&mut self, expression: &oxc_ast::ast::YieldExpression<'a>) {
-        if self.function_depth == 0 {
-            self.quarantine(Tier3ForOfQuarantineReason::YieldExpression);
-        } else {
-            walk::walk_yield_expression(self, expression);
-        }
+    fn visit_yield_expression(&mut self, _expression: &oxc_ast::ast::YieldExpression<'a>) {
+        self.quarantine(Tier3ForOfQuarantineReason::YieldExpression);
     }
 
     fn visit_variable_declaration(&mut self, declaration: &oxc_ast::ast::VariableDeclaration<'a>) {
-        if self.function_depth == 0 {
-            if declaration.kind == VariableDeclarationKind::Var {
-                self.quarantine(Tier3ForOfQuarantineReason::VarDeclaration);
-            }
-            if declaration.declarations.iter().any(|declarator| {
-                declarator
-                    .id
-                    .get_binding_identifiers()
-                    .into_iter()
-                    .any(|identifier| identifier.name == self.loop_binding)
-            }) {
-                self.quarantine(Tier3ForOfQuarantineReason::LoopBindingRedeclaration);
-            }
+        if declaration.kind == VariableDeclarationKind::Var {
+            self.quarantine(Tier3ForOfQuarantineReason::VarDeclaration);
         }
         walk::walk_variable_declaration(self, declaration);
     }
@@ -465,47 +427,52 @@ impl<'a> Visit<'a> for ForOfHazardVisitor<'_> {
         function: &oxc_ast::ast::Function<'a>,
         _flags: oxc_semantic::ScopeFlags,
     ) {
-        if self.function_depth == 0
-            && function.r#type == oxc_ast::ast::FunctionType::FunctionDeclaration
-        {
+        if function.r#type == oxc_ast::ast::FunctionType::FunctionDeclaration {
             self.quarantine(Tier3ForOfQuarantineReason::FunctionDeclaration);
         }
-        // A non-arrow function owns `this`, `arguments`, control flow, and
-        // declarations, so hazards in its body do not belong to the loop body.
+        // Function and class boundaries own control flow and declarations.
     }
 
     fn visit_arrow_function_expression(
         &mut self,
-        expression: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        _expression: &oxc_ast::ast::ArrowFunctionExpression<'a>,
     ) {
-        self.function_depth += 1;
-        walk::walk_arrow_function_expression(self, expression);
-        self.function_depth -= 1;
     }
 
-    fn visit_for_of_statement(&mut self, _statement: &ForOfStatement<'a>) {
-        self.quarantine(Tier3ForOfQuarantineReason::NestedForOf);
-    }
+    fn visit_class(&mut self, _class: &oxc_ast::ast::Class<'a>) {}
 
-    fn visit_call_expression(&mut self, expression: &CallExpression<'a>) {
-        if self.function_depth == 0
-            && matches!(&expression.callee, Expression::Identifier(identifier) if identifier.name == "eval")
-        {
-            self.quarantine(Tier3ForOfQuarantineReason::DirectEval);
+    fn visit_for_of_statement(&mut self, statement: &ForOfStatement<'a>) {
+        if statement.r#await {
+            self.quarantine(Tier3ForOfQuarantineReason::AwaitLoop);
         }
-        walk::walk_call_expression(self, expression);
+        walk::walk_for_of_statement(self, statement);
     }
+}
 
-    fn visit_super(&mut self, _super_reference: &oxc_ast::ast::Super) {
-        self.quarantine(Tier3ForOfQuarantineReason::SuperReference);
-    }
-
-    fn visit_meta_property(&mut self, property: &MetaProperty<'a>) {
-        if property.meta.name == "new" && property.property.name == "target" {
-            self.quarantine(Tier3ForOfQuarantineReason::NewTarget);
+fn body_redeclares_for_of_bindings(body: &Statement<'_>, bound_names: &BTreeSet<String>) -> bool {
+    let Statement::BlockStatement(body) = body else {
+        return false;
+    };
+    body.body.iter().any(|statement| match statement {
+        Statement::VariableDeclaration(declaration) => {
+            declaration.declarations.iter().any(|declarator| {
+                declarator
+                    .id
+                    .get_binding_identifiers()
+                    .into_iter()
+                    .any(|identifier| bound_names.contains(identifier.name.as_str()))
+            })
         }
-        walk::walk_meta_property(self, property);
-    }
+        Statement::FunctionDeclaration(function) => function
+            .id
+            .as_ref()
+            .is_some_and(|identifier| bound_names.contains(identifier.name.as_str())),
+        Statement::ClassDeclaration(class) => class
+            .id
+            .as_ref()
+            .is_some_and(|identifier| bound_names.contains(identifier.name.as_str())),
+        _ => false,
+    })
 }
 
 #[derive(Debug)]
@@ -865,88 +832,117 @@ impl<'a> Visit<'a> for NestedRewriteVisitor {
     }
 
     fn visit_for_of_statement(&mut self, statement: &ForOfStatement<'a>) {
-        let quarantine = if statement.r#await {
-            Some(Tier3ForOfQuarantineReason::AwaitLoop)
-        } else {
-            match &statement.left {
-                oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) => {
-                    if declaration.kind == VariableDeclarationKind::Var {
-                        Some(Tier3ForOfQuarantineReason::VarLoopBinding)
-                    } else if declaration.declarations.len() != 1
-                        || declaration.declarations[0]
-                            .id
-                            .get_identifier_name()
-                            .is_none()
-                    {
-                        Some(Tier3ForOfQuarantineReason::DestructuredLoopBinding)
-                    } else if !matches!(&statement.body, Statement::BlockStatement(_)) {
-                        Some(Tier3ForOfQuarantineReason::NonBlockBody)
-                    } else {
-                        let loop_binding = declaration.declarations[0]
-                            .id
-                            .get_identifier_name()
-                            .expect("guarded identifier")
-                            .to_string();
-                        let mut hazards = ForOfHazardVisitor {
-                            loop_binding: loop_binding.as_str(),
-                            function_depth: 0,
-                            quarantine: None,
-                        };
-                        hazards.visit_statement(&statement.body);
-                        hazards.quarantine
-                    }
-                }
-                _ => Some(Tier3ForOfQuarantineReason::AssignmentLoopBinding),
-            }
-        };
-        if let Some(reason) = quarantine {
+        if statement.r#await {
             self.tier3_for_of_quarantine
-                .get_or_insert((statement.span.start, reason));
+                .get_or_insert((statement.span.start, Tier3ForOfQuarantineReason::AwaitLoop));
+            walk::walk_for_of_statement(self, statement);
             return;
         }
 
-        if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) = &statement.left {
-            if matches!(
-                declaration.kind,
-                VariableDeclarationKind::Const | VariableDeclarationKind::Let
-            ) && declaration.declarations.len() == 1
-                && declaration.declarations[0]
-                    .id
-                    .get_identifier_name()
-                    .is_some()
-                && matches!(&statement.body, Statement::BlockStatement(_))
+        let (left_source_span, declaration_kind, bound_names) = match &statement.left {
+            oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration)
+                if declaration.declarations.len() == 1 =>
             {
-                let name = declaration.declarations[0]
-                    .id
-                    .get_identifier_name()
-                    .expect("guarded identifier")
-                    .to_string();
-                let right = statement.right.span();
-                let body = statement.body.span();
-                self.replacements.push(Replacement {
-                    span: statement.span,
-                    text: format!(
-                        "for (var {name} of __IBEX_FOR_RIGHT__) {{\n(function ({name}) {{\n__IBEX_FOR_BODY__\n}})({name});\n}}"
-                    ),
-                });
-                // Encode the two child spans in a deterministic marker. They
-                // are expanded from the original source by `materialize_replacement`.
-                let replacement = self.replacements.last_mut().expect("just pushed");
-                replacement.text = replacement
-                    .text
-                    .replace(
-                        "__IBEX_FOR_RIGHT__",
-                        &format!("__IBEX_SPAN_{}_{}__", right.start, right.end),
-                    )
-                    .replace(
-                        "__IBEX_FOR_BODY__",
-                        &format!("__IBEX_BODY_SPAN_{}_{}__", body.start + 1, body.end - 1),
-                    );
-                self.hermes_compat_passes
-                    .insert("llp0019-for-of-block-capture-v1".to_string());
+                let declarator = &declaration.declarations[0];
+                (
+                    declarator.id.span(),
+                    Some(declaration.kind),
+                    declarator
+                        .id
+                        .get_binding_identifiers()
+                        .into_iter()
+                        .map(|identifier| identifier.name.to_string())
+                        .collect::<BTreeSet<_>>(),
+                )
+            }
+            oxc_ast::ast::ForStatementLeft::VariableDeclaration(_) => {
+                walk::walk_for_of_statement(self, statement);
                 return;
             }
+            _ => (statement.left.span(), None, BTreeSet::new()),
+        };
+        let needs_per_iteration_binding = matches!(
+            declaration_kind,
+            Some(VariableDeclarationKind::Const | VariableDeclarationKind::Let)
+        );
+
+        let mut hazards = ForOfHazardVisitor { quarantine: None };
+        hazards.visit_statement(&statement.body);
+        let must_leave_raw = hazards.quarantine.is_some()
+            || (needs_per_iteration_binding
+                && body_redeclares_for_of_bindings(&statement.body, &bound_names));
+        if must_leave_raw {
+            // The canonical LLP 0019 pass leaves these loops intact. Hermes'
+            // native loop is safe for the quarantined concern, while rewriting
+            // would change control flow or declaration scope.
+            walk::walk_for_of_statement(self, statement);
+            return;
         }
+
+        let index = self.for_of_rewrite_counter;
+        self.for_of_rewrite_counter += 1;
+        let iterator = format!("__exactForOfIterator{index}");
+        let step = format!("__exactForOfStep{index}");
+        let value = format!("__exactForOfValue{index}");
+        let body_fn = format!("__exactForOfBody{index}");
+        let error = format!("__exactForOfError{index}");
+        let return_fn = format!("__exactForOfReturn{index}");
+        let ignore = format!("__exactForOfIgnore{index}");
+        let right = statement.right.span();
+        let body = statement.body.span();
+        let body_inner = if matches!(&statement.body, Statement::BlockStatement(_)) {
+            Span::new(body.start + 1, body.end - 1)
+        } else {
+            body
+        };
+        let right_marker = format!("__IBEX_REWRITE_SPAN_{}_{}__", right.start, right.end);
+        let body_marker = format!(
+            "__IBEX_REWRITE_SPAN_{}_{}__",
+            body_inner.start, body_inner.end
+        );
+        let left_marker = format!(
+            "__IBEX_SPAN_{}_{}__",
+            left_source_span.start, left_source_span.end
+        );
+        let close_on_throw = format!(
+            "catch ({error}) {{ const {return_fn} = {iterator}.return; if (typeof {return_fn} === 'function') {{ try {{ {return_fn}.call({iterator}); }} catch ({ignore}) {{}} }} throw {error}; }}"
+        );
+        let text = if needs_per_iteration_binding {
+            let kind = match declaration_kind.expect("per-iteration declaration") {
+                VariableDeclarationKind::Const => "const",
+                VariableDeclarationKind::Let => "let",
+                _ => unreachable!("guarded declaration kind"),
+            };
+            format!(
+                "{{ const {iterator} = ({right_marker})[Symbol.iterator](); const {body_fn} = ({value}) => {{ {kind} {left_marker} = {value};\n{body_marker} }}; for (;;) {{ const {step} = {iterator}.next(); if ({step}.done) break; try {{ {body_fn}({step}.value); }} {close_on_throw} }} }}"
+            )
+        } else {
+            let setup = if let Some(kind) = declaration_kind {
+                let kind = match kind {
+                    VariableDeclarationKind::Var => "var",
+                    VariableDeclarationKind::Const => "const",
+                    VariableDeclarationKind::Let => "let",
+                    VariableDeclarationKind::Using => "using",
+                    VariableDeclarationKind::AwaitUsing => "await using",
+                };
+                format!("{kind} {left_marker} = {step}.value;\n")
+            } else if statement.left.as_assignment_target_pattern().is_some() {
+                format!("({left_marker} = {step}.value);\n")
+            } else {
+                format!("{left_marker} = {step}.value;\n")
+            };
+            format!(
+                "{{ const {iterator} = ({right_marker})[Symbol.iterator](); for (;;) {{ const {step} = {iterator}.next(); if ({step}.done) break; try {{ {setup}{body_marker} }} {close_on_throw} }} }}"
+            )
+        };
+        self.replacements.push(Replacement {
+            span: statement.span,
+            text,
+        });
+        self.hermes_compat_passes
+            .insert("llp0019-for-of-canonical-v2".to_string());
+        // Child rewrites are collected and expanded through the recursive span
+        // markers in the parent replacement.
         walk::walk_for_of_statement(self, statement);
     }
 
@@ -2410,6 +2406,21 @@ fn materialize_replacement(
         };
         text = text.replace("__IBEX_REQUIRE_ARGUMENTS__", &arguments);
     }
+    while let Some(start) = text.find("__IBEX_REWRITE_SPAN_") {
+        let suffix = &text[start + "__IBEX_REWRITE_SPAN_".len()..];
+        let Some(end) = suffix.find("__") else { break };
+        let bounds = &suffix[..end];
+        let Some((from, to)) = bounds.split_once('_') else {
+            break;
+        };
+        let from = from.parse::<u32>().expect("encoded rewrite span start");
+        let to = to.parse::<u32>().expect("encoded rewrite span end");
+        let rewritten = apply_replacements(source, Span::new(from, to), &nested)?;
+        text.replace_range(
+            start..start + "__IBEX_REWRITE_SPAN_".len() + end + 2,
+            &rewritten,
+        );
+    }
     while let Some(start) = text.find("__IBEX_SPAN_") {
         let suffix = &text[start + "__IBEX_SPAN_".len()..];
         let Some(end) = suffix.find("__") else { break };
@@ -2888,39 +2899,30 @@ mod tests {
     }
 
     #[test]
-    fn tier3_for_of_hazards_return_typed_legacy_requirements() {
-        let cases = [
-            (
-                Tier3ForOfQuarantineReason::ReturnStatement,
-                "export function first(xs) { for (const value of xs) { return value; } }",
-            ),
-            (
-                Tier3ForOfQuarantineReason::ThisExpression,
-                "export function log(xs) { for (const value of xs) { console.log(this, value); } }",
-            ),
-            (
-                Tier3ForOfQuarantineReason::BreakStatement,
-                "for (const value of [1, 2]) { if (value) break; }",
-            ),
-            (
-                Tier3ForOfQuarantineReason::AwaitExpression,
-                "export async function visit(xs) { for (const value of xs) { await value; } }",
-            ),
-            (
-                Tier3ForOfQuarantineReason::VarDeclaration,
-                "for (const value of [1, 2]) { var observed = value; console.log(observed); }",
-            ),
-            (
-                Tier3ForOfQuarantineReason::DestructuredLoopBinding,
-                "for (const { value } of [{ value: 1 }]) { console.log(value); }",
-            ),
-            (
-                Tier3ForOfQuarantineReason::NonBlockBody,
-                "for (const value of [1, 2]) console.log(value);",
-            ),
-        ];
+    fn tier3_for_of_retains_only_the_for_await_typed_quarantine() {
+        for source in [
+            "for (const value of [1, 2]) { if (value) break; }",
+            "for (const { value } of [{ value: 1 }]) { console.log(value); }",
+            "for (const value of [1, 2]) console.log(value);",
+            "for (var value of [1, 2]) { console.log(value); }",
+            "for (value of [1, 2]) { console.log(value); }",
+            "export function log(xs) { for (const value of xs) { console.log(this, arguments, value); } }",
+        ] {
+            produce_module_artifact_v1(
+                SourceId::synthetic("fixture", "canonical-for-of").unwrap(),
+                "entry.mjs",
+                Path::new("entry.mjs"),
+                source,
+                source_integrity(b"producer-binary").unwrap(),
+            )
+            .unwrap_or_else(|error| panic!("canonical for-of shape refused: {error:#}"));
+        }
 
-        for (expected, source) in cases {
+        let expected = Tier3ForOfQuarantineReason::AwaitLoop;
+        for source in [
+            "export async function visit(xs) { for await (const value of xs) { console.log(value); } }",
+            "export async function visit(xss) { for (const xs of xss) { for await (const value of xs) { console.log(value); } } }",
+        ] {
             let error = produce_module_artifact_v1(
                 SourceId::synthetic("fixture", expected.as_str()).unwrap(),
                 "entry.mjs",
@@ -2955,7 +2957,8 @@ mod tests {
         let ModulePayloadV1::Inline { factory_source, .. } = artifact.payload else {
             unreachable!()
         };
-        assert!(factory_source.contains("(function (value)"));
+        assert!(factory_source.contains("const __exactForOfBody0 = (__exactForOfValue0) =>"));
+        assert!(factory_source.contains("const value = __exactForOfValue0"));
     }
 
     #[test]

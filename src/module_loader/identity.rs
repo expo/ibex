@@ -20,7 +20,12 @@ const SOURCE_ID_PREFIX: &str = "ibex-source-id-v1:";
 /// Generated/chunked/HBC forms intentionally have no separate variant: they
 /// retain the file/builtin/synthetic SourceId of the source they carry.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum SourceId {
     File {
         principal: Principal,
@@ -319,6 +324,23 @@ mod tests {
         assert_eq!(SourceId::decode(&encoded).unwrap(), source);
         assert_eq!(source.defining_principal(), Some(&package_principal()));
         assert!(!encoded.contains("/host/"));
+    }
+
+    #[test]
+    fn source_id_tagged_fields_use_the_schema_camel_case() {
+        let builtin = SourceId::builtin("node", "fs").unwrap();
+        let synthetic = SourceId::synthetic("session", "entry").unwrap();
+        let builtin_value = serde_json::to_value(&builtin).unwrap();
+        let synthetic_value = serde_json::to_value(&synthetic).unwrap();
+        assert_eq!(builtin_value["sourceKey"], "fs");
+        assert!(builtin_value.get("source_key").is_none());
+        assert_eq!(synthetic_value["sessionIdentity"], "session");
+        assert_eq!(synthetic_value["sourceIdentity"], "entry");
+        assert!(synthetic_value.get("session_identity").is_none());
+        assert_eq!(
+            SourceId::decode(&builtin.encode().unwrap()).unwrap(),
+            builtin
+        );
     }
 
     #[test]

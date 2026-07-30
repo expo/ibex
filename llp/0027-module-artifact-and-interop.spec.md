@@ -5,6 +5,10 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
+**Revised:** 2026-07-29 (the v1 tagged-enum field spelling is uniformly
+camelCase, matching the checked-in schemas; Rust codecs use
+`rename_all_fields`, schema-shaped values decode directly, and stale
+snake_case writable-cache publications refuse and rebuild)
 **Revised:** 2026-07-27 (call-time edges whose targets do not resolve — a literal dynamic import or CommonJS `require` of a missing module, and a generated builtin's bootstrap-internal fan-out such as `fs`'s optional `internal/test/binding` — are left **unbound** rather than failing graph preparation: the engine rejects the import promise / throws a catchable require error only if the site actually runs, preserving Node error timing; unbound edges contribute no linkage, mint no authority decision, and admit no bytes, and graph plan validation tolerates exactly missing call-time bindings, never extra, renamed, or missing link-time ones)
 **Revised:** 2026-07-25 (Windows inline-producer admission authenticates the mapped image from a producer code address, retains and hashes its no-reparse file object under restrictive sharing, and revalidates loader/path/object identity before accepting the producer digest)
 **Revised:** 2026-07-20 (native graph planning keeps literal CommonJS `require` targets in the authenticated materialization closure but outside eager evaluation/SCC/TLA traversal; computed-import authority retains exact `(site, spelling, runtime attributes, target)` identity through sidecar admission, policy authorization, and native linking)
@@ -90,6 +94,16 @@ reject at least unknown fields, duplicate keys, unknown enum/tag values, non-can
 ordering or encoding, malformed `SourceId`s, unsupported schema or ABI
 versions, inconsistent source-kind fields, reserved policy attributes,
 non-canonical digests, and payload bindings that do not verify.
+
+All v1 object fields, including fields carried by tagged enum variants, use
+the schema's camelCase spelling (`sourceKey`, `factorySource`,
+`carrierDigest`, `entryId`, `entryFactoryDigest`, `producerId`,
+`producerBinaryDigest`, and `deploymentGraphDigest`). The 2026-07-29
+correction changed the Rust tagged-enum codec from its accidental snake_case
+spelling to this reviewed schema spelling. Prepared publications are
+regenerable writable-cache material: an old snake_case publication is not
+silently accepted under a second dialect; it refuses canonical decoding and
+is cold-rebuilt under the current producer.
 
 Prepared artifacts are admitted only when their semantic digest is bound into
 the authenticated deployment graph and both the graph digest and prepared
