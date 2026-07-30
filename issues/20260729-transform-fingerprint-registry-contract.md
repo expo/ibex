@@ -22,6 +22,12 @@ is blocked until an external producer can register a verifiable
 fingerprint. New dimensions needed: define-table, JSX-runtime mode,
 condition sets (per the D2 measurement).
 
+**Update 2026-07-30:** the contract design is drafted as
+[LLP 0043](../llp/0043-registered-external-transform-fingerprints.rfc.md)
+(Status: Review; super-refine loop run, author decision owed — see
+`llp/reviews/0043-*` close-outs). This ticket stays open for the
+implementation and its acceptance fixtures.
+
 Design the contract by which an external, host-authorized producer (the
 Exact dev server / build) declares its transform pipeline as a fingerprint
 ibex admission can verify — without weakening the one-transform-authority
