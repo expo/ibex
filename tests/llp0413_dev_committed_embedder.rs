@@ -211,3 +211,131 @@ fn dev_unarmed_committed_startup_evaluates_compat_abi_factories() {
         .unwrap()
         .contains("IBEX_DEV_COMMITTED_TARGET"));
 }
+
+/// Exact LLP 0413 §10 Phase 3: hermes-bytecode carriers through the same
+/// dev-unarmed committed entry. Requires the `hbc/` sub-fixture emitted by
+/// Exact's `scripts/produce-dev-committed-fixture.mjs --hbc` with an
+/// `--engine-binary` matching the hermesvm THIS test binary loads (the
+/// admission expectation is the loaded engine identity, so a mismatched
+/// fixture refuses exactly like the wrong-engine cell).
+#[test]
+fn dev_unarmed_committed_startup_evaluates_hbc_carriers() {
+    let Some(root) = fixture_dir() else {
+        eprintln!("llp0413_dev_committed_embedder(hbc): skipped (fixture dir unset)");
+        return;
+    };
+    let hbc_root = root.join("hbc");
+    if !hbc_root.join("publication").join("index.json").is_file() {
+        eprintln!(
+            "llp0413_dev_committed_embedder(hbc): skipped (no hbc/ sub-fixture; produce with \
+             Exact scripts/produce-dev-committed-fixture.mjs --hbc)"
+        );
+        return;
+    }
+    let commitment = |name: &str| std::fs::read_to_string(hbc_root.join(name)).unwrap();
+
+    ibex_runtime::host::abi::install_host(ibex_runtime::host::Host::strict());
+    let mut runtime = DiagnosticModuleRuntime::new().unwrap();
+
+    // Genuine HBC publication: admits against the LOADED engine identity and
+    // evaluates through the native module runner — no factory source text is
+    // compiled from the publication.
+    let outcome = run_startup(
+        &runtime,
+        &hbc_root.join("publication"),
+        &commitment("commitment.json"),
+        "exact-dev:test",
+    );
+    assert_eq!(
+        outcome.status, 0,
+        "dev committed HBC startup failed: {:?}",
+        outcome.error
+    );
+    let report = outcome.report.expect("success carries a report");
+    assert_eq!(report["posture"], "dev-unarmed");
+    assert!(
+        report["hbcCarrierCount"].as_u64().unwrap() >= 1,
+        "report must name admitted HBC carriers: {report}"
+    );
+    assert_eq!(
+        report["javascriptCarrierCount"], 0,
+        "hbc fixture must be pure hermes-bytecode: {report}"
+    );
+    assert!(
+        report["engineBindingDigestPrefix"].is_string(),
+        "report must name the loaded engine binding: {report}"
+    );
+
+    let probe = runtime
+        .eval_text(
+            "JSON.stringify(globalThis.__devCommittedProbe || null)",
+            "llp0413-hbc-probe",
+        )
+        .unwrap();
+    let probe: serde_json::Value = serde_json::from_str(probe.trim()).unwrap();
+    assert_eq!(probe["sum"], 5, "static import result: {probe}");
+    let mut probe = serde_json::Value::Null;
+    for _ in 0..5 {
+        runtime.drive_compiled_event_loop_to_quiescence().unwrap();
+        let text = runtime
+            .eval_text(
+                "JSON.stringify(globalThis.__devCommittedProbe || null)",
+                "llp0413-hbc-probe-2",
+            )
+            .unwrap();
+        probe = serde_json::from_str(text.trim()).unwrap();
+        if probe["lazy"] == 7 || !probe["lazyError"].is_null() {
+            break;
+        }
+    }
+    assert_eq!(probe["lazy"], 7, "dynamic import result: {probe}");
+
+    // Refusal cells: each is a fully self-consistent publication + its own
+    // commitment (so admission reaches the ENGINE check, not the commitment
+    // root check), refused pre-evaluation (status 1, never 2) on a fresh
+    // runtime.
+    let refusal_runtime = DiagnosticModuleRuntime::new().unwrap();
+
+    // Wrong engine binding (LLP 0413 §14 item 12 stale/wrong engine).
+    let outcome = run_startup(
+        &refusal_runtime,
+        &hbc_root.join("wrong-engine").join("publication"),
+        &commitment("wrong-engine/commitment.json"),
+        "exact-dev:test",
+    );
+    assert_eq!(outcome.status, 1, "wrong-engine must refuse pre-evaluation");
+    let error = outcome.error.unwrap();
+    assert!(
+        error.contains("different engine"),
+        "wrong-engine refusal must name the engine mismatch, got: {error}"
+    );
+
+    // Wrong bytecode version (header-patched, self-consistent digests).
+    let outcome = run_startup(
+        &refusal_runtime,
+        &hbc_root.join("wrong-version").join("publication"),
+        &commitment("wrong-version/commitment.json"),
+        "exact-dev:test",
+    );
+    assert_eq!(outcome.status, 1, "wrong-version must refuse pre-evaluation");
+    let error = outcome.error.unwrap();
+    assert!(
+        error.contains("different engine"),
+        "wrong-version refusal must name the engine mismatch, got: {error}"
+    );
+
+    // Tampered HBC bytes under an unchanged manifest (§5.4 loud refusal).
+    let outcome = run_startup(
+        &refusal_runtime,
+        &hbc_root.join("tampered").join("publication"),
+        &commitment("tampered/commitment.json"),
+        "exact-dev:test",
+    );
+    assert_eq!(outcome.status, 1, "tampered HBC must refuse pre-evaluation");
+    let error = outcome.error.unwrap();
+    assert!(
+        error.contains("do not match the manifest digest")
+            || error.contains("bytecode header length disagrees"),
+        "tampered refusal must name the byte-level disagreement, got: {error}"
+    );
+}

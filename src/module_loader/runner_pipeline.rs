@@ -27,8 +27,8 @@ use super::artifact::{
     StaticEdgeV1, VerifiedModuleArtifactV1,
 };
 use super::carrier::{
-    AdmittedPreparedCarrierV2, PreparedCarrierAdmissionV2, PreparedModuleCarrierV2,
-    VerifiedPreparedCarrierEntryV2,
+    AdmittedPreparedCarrierV2, PreparedCarrierAdmissionV2, PreparedCarrierEncodingV2,
+    PreparedCarrierEngineBindingV2, PreparedModuleCarrierV2, VerifiedPreparedCarrierEntryV2,
 };
 use super::compatibility::LegacyModuleRunnerRequirement;
 use super::computed_candidates::{
@@ -3280,6 +3280,24 @@ pub(crate) struct CommittedPublicationAdmissionV1 {
     pub(crate) records: BTreeMap<SourceId, SourceGraphRecordV1>,
     pub(crate) principals: Vec<Principal>,
     pub(crate) carrier_count: usize,
+    /// Carriers admitted under carrier v2's `hermes-bytecode` encoding
+    /// (Exact LLP 0413 §10 Phase 3). Receipts name the encoding split so a
+    /// "parse-free" claim is checkable against what was actually admitted.
+    pub(crate) hbc_carrier_count: usize,
+    /// Carriers admitted under `javascript-factory-table`.
+    pub(crate) javascript_carrier_count: usize,
+}
+
+/// The loaded-engine identity a committed-admission caller is willing to
+/// execute `hermes-bytecode` carriers against (Exact LLP 0413 §12: the
+/// engine binding and HBC version are admission expectations owned by the
+/// HOST, never trusted from the publication). `None` at the call site means
+/// the caller cannot execute prepared bytecode; any `hermes-bytecode`
+/// carrier then refuses pre-evaluation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CommittedHbcEngineExpectationV1 {
+    pub engine_binding: PreparedCarrierEngineBindingV2,
+    pub bytecode_version: u32,
 }
 
 /// Admit a prepared publication directly against an independent production
@@ -3317,12 +3335,18 @@ pub fn load_prepared_graph_committed_v1(
         commitment,
         project_root,
         CommittedFingerprintPosture::CurrentIbexToolchain,
+        // Production committed admission remains source-carrier-only until
+        // its armed HBC engine plumbing lands: any hermes-bytecode carrier
+        // refuses pre-evaluation (Exact LLP 0413 §10 Phase 6 work).
+        None,
     )?;
     let CommittedPublicationAdmissionV1 {
         entry,
         records,
         principals,
         carrier_count,
+        hbc_carrier_count: _,
+        javascript_carrier_count: _,
     } = admitted;
 
     let principal_ids = principals
@@ -3371,6 +3395,7 @@ pub(crate) fn admit_committed_publication_v1(
     commitment: &PreparedGraphCommitmentV1,
     project_root: &Path,
     fingerprint_posture: CommittedFingerprintPosture,
+    hbc_engine: Option<&CommittedHbcEngineExpectationV1>,
 ) -> Result<CommittedPublicationAdmissionV1> {
     // The index is the first cache byte discovered. Strict parsing and the
     // independent root check happen before any index facet authorizes a file.
@@ -3484,6 +3509,8 @@ pub(crate) fn admit_committed_publication_v1(
 
     let producer_id = commitment.producer.id.clone();
     let mut carriers = Vec::with_capacity(index.carriers.len());
+    let mut hbc_carrier_count = 0usize;
+    let mut javascript_carrier_count = 0usize;
     for (carrier_index, carrier) in index.carriers.iter().enumerate() {
         let manifest_bytes = read_bounded_prepared_file(
             &cache_dir.join(&carrier.manifest_file),
@@ -3495,6 +3522,41 @@ pub(crate) fn admit_committed_publication_v1(
             MAX_PREPARED_CARRIER_BYTES_V1,
             "carrier bytes",
         )?;
+        // Select the admission expectation from the manifest's DECLARED
+        // encoding kind. This peek only chooses which host expectation
+        // applies; `decode_and_admit` still performs every strict check
+        // (canonical JCS, digests, principal, producer, encoding/bytes
+        // agreement), and the carrier digest the index commits to binds the
+        // declared encoding transitively — a swapped declaration changes the
+        // manifest and carrier bytes and refuses downstream. The engine
+        // identity itself always comes from the CALLER (the loaded engine),
+        // never from the publication (Exact LLP 0413 §14 item 12).
+        let declares_hermes_bytecode = serde_json::from_slice::<serde_json::Value>(
+            &manifest_bytes,
+        )
+        .ok()
+        .and_then(|value| {
+            value
+                .get("encoding")
+                .and_then(|encoding| encoding.get("kind"))
+                .and_then(serde_json::Value::as_str)
+                .map(|kind| kind == "hermes-bytecode")
+        })
+        .unwrap_or(false);
+        let (expected_engine_binding, expected_bytecode_version) = if declares_hermes_bytecode {
+            let engine = hbc_engine.ok_or_else(|| {
+                anyhow!(
+                    "IBEX_PREPARED_ENGINE_UNAVAILABLE publication carries a hermes-bytecode \
+                     carrier but this admission context declared no loaded-engine identity"
+                )
+            })?;
+            (
+                Some(engine.engine_binding.clone()),
+                Some(engine.bytecode_version),
+            )
+        } else {
+            (None, None)
+        };
         let admission = PreparedCarrierAdmissionV2 {
             expected_principal: carrier_principals
                 .get(&carrier_index)
@@ -3504,14 +3566,19 @@ pub(crate) fn admit_committed_publication_v1(
             producer_binary_digest: commitment.producer.binary_digest.clone(),
             deployment_graph_digest: commitment.deployment_graph_digest.clone(),
             authorized_semantic_digests: authorized_semantic_digests.clone(),
-            expected_engine_binding: None,
-            expected_bytecode_version: None,
+            expected_engine_binding,
+            expected_bytecode_version,
         };
-        carriers.push(Arc::new(AdmittedPreparedCarrierV2::decode_and_admit(
+        let admitted_carrier = Arc::new(AdmittedPreparedCarrierV2::decode_and_admit(
             &manifest_bytes,
             &carrier_bytes,
             &admission,
-        )?));
+        )?);
+        match admitted_carrier.manifest().encoding {
+            PreparedCarrierEncodingV2::HermesBytecode { .. } => hbc_carrier_count += 1,
+            PreparedCarrierEncodingV2::JavascriptFactoryTable => javascript_carrier_count += 1,
+        }
+        carriers.push(admitted_carrier);
     }
 
     let mut records = BTreeMap::new();
@@ -3618,6 +3685,8 @@ pub(crate) fn admit_committed_publication_v1(
         records,
         principals,
         carrier_count: carriers.len(),
+        hbc_carrier_count,
+        javascript_carrier_count,
     })
 }
 
@@ -5501,6 +5570,17 @@ pub mod dev_committed_embedder {
         pub carrier_admission_us: u128,
         pub graph_link_us: u128,
         pub entry_execute_us: u128,
+        /// Carrier v2 encoding split (Exact LLP 0413 §10 Phase 3): how many
+        /// admitted carriers were `hermes-bytecode` vs
+        /// `javascript-factory-table`. Hosts surface this in the startup
+        /// report so a parse-free claim names the encoding that actually ran.
+        pub hbc_carrier_count: usize,
+        pub javascript_carrier_count: usize,
+        /// The loaded-engine binding this admission was willing to execute
+        /// bytecode against (digest prefix only; receipts are logs, not
+        /// admission inputs). `None` when the engine identity was
+        /// unavailable — hermes-bytecode carriers refuse in that state.
+        pub engine_binding_digest_prefix: Option<String>,
     }
 
     /// Failure phase classification for the §5.4 fallback boundary: a
@@ -5559,12 +5639,50 @@ pub mod dev_committed_embedder {
             .map_err(pre_evaluation)?;
         let commitment_parse_us = parse_started.elapsed().as_micros();
 
+        // Loaded-engine identity for hermes-bytecode carriers (Exact
+        // LLP 0413 §10 Phase 3). Best-effort: a runtime that cannot report
+        // its engine identity still admits javascript-factory-table
+        // publications; HBC carriers then refuse pre-evaluation with the
+        // typed engine-unavailable diagnostic.
+        let hbc_engine = match (
+            crate::engine::loaded_engine_binary_digest(),
+            crate::engine::loaded_engine_bytecode_version(),
+        ) {
+            (Ok(digest), Ok(version)) => match capsec_semantics::model::Digest::new(digest) {
+                Ok(binary_digest) => Some(CommittedHbcEngineExpectationV1 {
+                    engine_binding: PreparedCarrierEngineBindingV2::LoadedFile { binary_digest },
+                    bytecode_version: version,
+                }),
+                Err(error) => {
+                    eprintln!(
+                        "ibex dev committed admission: loaded engine digest is not canonical: {error}"
+                    );
+                    None
+                }
+            },
+            (Err(error), _) | (_, Err(error)) => {
+                eprintln!(
+                    "ibex dev committed admission: loaded engine identity unavailable: {error}"
+                );
+                None
+            }
+        };
+        let engine_binding_digest_prefix = hbc_engine.as_ref().map(|engine| {
+            let PreparedCarrierEngineBindingV2::LoadedFile { binary_digest } =
+                &engine.engine_binding
+            else {
+                unreachable!("dev embedder binds loaded-file engine identities only");
+            };
+            binary_digest.as_str().chars().take(24).collect::<String>()
+        });
+
         let admission_started = std::time::Instant::now();
         let admitted = admit_committed_publication_v1(
             publication_dir,
             &commitment,
             project_root,
             CommittedFingerprintPosture::DevVouchedIndexExternalProducer,
+            hbc_engine.as_ref(),
         )
         .map_err(pre_evaluation)?;
         let carrier_admission_us = admission_started.elapsed().as_micros();
@@ -5574,9 +5692,36 @@ pub mod dev_committed_embedder {
             records,
             principals,
             carrier_count,
+            hbc_carrier_count,
+            javascript_carrier_count,
         } = admitted;
         let record_count = records.len();
         let principal_count = principals.len();
+
+        // Eager engine-level preflight of every admitted hermes-bytecode
+        // carrier through the exact linked Hermes decoder, BEFORE any record
+        // is created: an engine-specific structural rejection refuses
+        // pre-evaluation here instead of surfacing mid-link.
+        if hbc_carrier_count > 0 {
+            let mut preflighted: BTreeSet<&str> = BTreeSet::new();
+            for record in records.values() {
+                let Some(prepared) = record.prepared.as_ref() else {
+                    continue;
+                };
+                let manifest = prepared.carrier.manifest();
+                if !matches!(
+                    manifest.encoding,
+                    PreparedCarrierEncodingV2::HermesBytecode { .. }
+                ) {
+                    continue;
+                }
+                if !preflighted.insert(manifest.carrier_digest.as_str()) {
+                    continue;
+                }
+                crate::engine::module_runner::preflight_hermes_bytecode(prepared.carrier.bytes())
+                    .map_err(pre_evaluation)?;
+            }
+        }
 
         const DEV_GRAPH_GENERATION: u64 = 1;
         let plan = SynchronousGraphPlan::new_typed_with_private_commonjs_edges(
@@ -5717,13 +5862,18 @@ pub mod dev_committed_embedder {
             carrier_admission_us,
             graph_link_us,
             entry_execute_us,
+            hbc_carrier_count,
+            javascript_carrier_count,
+            engine_binding_digest_prefix,
         };
         eprintln!(
-            "ibex prepared admission authority={} entry={} root={} carriers={} records={} admission_us={} link_us={} evaluate_us={}",
+            "ibex prepared admission authority={} entry={} root={} carriers={} (hbc={} js={}) records={} admission_us={} link_us={} evaluate_us={}",
             DEV_UNARMED_AUTHORITY,
             report.entry_source_id,
             report.publication_root_prefix,
             carrier_count,
+            hbc_carrier_count,
+            javascript_carrier_count,
             record_count,
             carrier_admission_us,
             graph_link_us,
