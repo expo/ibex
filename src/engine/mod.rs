@@ -29,6 +29,15 @@ use std::sync::OnceLock;
 extern "C" {
     fn ex_hermes_bytecode_version() -> u32;
     fn ex_hermes_engine_binary_path(out: *mut std::ffi::c_char, out_len: usize) -> i32;
+    #[cfg(all(
+        target_os = "ios",
+        not(feature = "capsec-simulator-performance-observer")
+    ))]
+    fn ibex_private_hermes_ios_verify_mapped_file_v1(
+        fd: std::os::fd::RawFd,
+        error: *mut std::ffi::c_char,
+        error_len: usize,
+    ) -> i32;
     #[cfg(any(unix, windows))]
     fn ex_open_pinned_self_image(error: *mut std::ffi::c_char, error_len: usize) -> isize;
     #[cfg(any(
@@ -163,6 +172,7 @@ fn loaded_engine_artifact_path() -> Result<std::path::PathBuf, String> {
 fn capture_engine_artifact_identity(
     candidate_path: &std::path::Path,
     verify_mapping: impl FnOnce(
+        &std::fs::File,
         &std::fs::Metadata,
         &capsec_semantics::model::ObjectIdentity,
     ) -> Result<(), String>,
@@ -201,7 +211,7 @@ fn capture_engine_artifact_identity(
         return Err("loaded Hermes artifact is not a regular file".into());
     }
     let object = engine_object_identity(&file, &metadata)?;
-    verify_mapping(&metadata, &object)?;
+    verify_mapping(&file, &metadata, &object)?;
     let hash = hash_open_file_sha256(&mut file, metadata.len())?;
     let after = file
         .metadata()
@@ -314,6 +324,7 @@ fn engine_object_identity(
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn verify_loaded_mapping_object(
+    _file: &std::fs::File,
     metadata: &std::fs::Metadata,
     _object: &capsec_semantics::model::ObjectIdentity,
 ) -> Result<(), String> {
@@ -332,6 +343,7 @@ fn verify_loaded_mapping_object(
 
 #[cfg(target_os = "macos")]
 fn verify_loaded_mapping_object(
+    _file: &std::fs::File,
     metadata: &std::fs::Metadata,
     _object: &capsec_semantics::model::ObjectIdentity,
 ) -> Result<(), String> {
@@ -352,6 +364,7 @@ fn verify_loaded_mapping_object(
 
 #[cfg(all(target_os = "ios", feature = "capsec-simulator-performance-observer"))]
 fn verify_loaded_mapping_object(
+    _file: &std::fs::File,
     metadata: &std::fs::Metadata,
     _object: &capsec_semantics::model::ObjectIdentity,
 ) -> Result<(), String> {
@@ -373,6 +386,7 @@ fn verify_loaded_mapping_object(
 
 #[cfg(windows)]
 fn verify_loaded_mapping_object(
+    _file: &std::fs::File,
     _metadata: &std::fs::Metadata,
     object: &capsec_semantics::model::ObjectIdentity,
 ) -> Result<(), String> {
@@ -397,14 +411,47 @@ fn verify_loaded_mapping_object(
     Ok(())
 }
 
+#[cfg(all(
+    target_os = "ios",
+    not(feature = "capsec-simulator-performance-observer")
+))]
+fn verify_loaded_mapping_object(
+    file: &std::fs::File,
+    _metadata: &std::fs::Metadata,
+    _object: &capsec_semantics::model::ObjectIdentity,
+) -> Result<(), String> {
+    use std::os::fd::AsRawFd as _;
+
+    let mut error = [0i8; 1024];
+    let status = unsafe {
+        ibex_private_hermes_ios_verify_mapped_file_v1(
+            file.as_raw_fd(),
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    if status == 1 {
+        return Ok(());
+    }
+    let message = unsafe { std::ffi::CStr::from_ptr(error.as_ptr()) }
+        .to_string_lossy()
+        .into_owned();
+    Err(if message.is_empty() {
+        "failed to bind the pinned Hermes file to its mapped iOS executable bytes".into()
+    } else {
+        format!("failed to attest mapped iOS Hermes executable bytes: {message}")
+    })
+}
+
 #[cfg(not(any(
     target_os = "linux",
     target_os = "android",
     target_os = "macos",
-    all(target_os = "ios", feature = "capsec-simulator-performance-observer"),
+    target_os = "ios",
     windows
 )))]
 fn verify_loaded_mapping_object(
+    _file: &std::fs::File,
     _metadata: &std::fs::Metadata,
     _object: &capsec_semantics::model::ObjectIdentity,
 ) -> Result<(), String> {
@@ -487,7 +534,7 @@ pub fn loaded_engine_binary_identity_insecure() -> Result<LoadedEngineBinaryIden
         return Err("loaded Hermes artifact is not a regular file".into());
     }
     let object = engine_object_identity(&file, &metadata)?;
-    verify_loaded_mapping_object(&metadata, &object)?;
+    verify_loaded_mapping_object(&file, &metadata, &object)?;
 
     Ok(LoadedEngineBinaryIdentity {
         engine_artifact_path: path,
@@ -834,11 +881,12 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let artifact = directory.path().join("libhermesvm-test.so");
         std::fs::write(&artifact, b"before-probe").unwrap();
-        let expected = super::capture_engine_artifact_identity(&artifact, |_, _| Ok(())).unwrap();
+        let expected =
+            super::capture_engine_artifact_identity(&artifact, |_, _, _| Ok(())).unwrap();
 
         assert_eq!(
             super::verify_engine_binary_identity_with(&expected, || {
-                super::capture_engine_artifact_identity(&artifact, |_, _| Ok(()))
+                super::capture_engine_artifact_identity(&artifact, |_, _, _| Ok(()))
             })
             .unwrap(),
             expected
@@ -848,11 +896,11 @@ mod tests {
         // cached path, digest, or pre-probe Metadata snapshot would accept it;
         // a required post-probe recheck must reopen and hash it again.
         std::fs::write(&artifact, b"after--probe").unwrap();
-        let changed = super::capture_engine_artifact_identity(&artifact, |_, _| Ok(())).unwrap();
+        let changed = super::capture_engine_artifact_identity(&artifact, |_, _, _| Ok(())).unwrap();
         assert_eq!(changed.object, expected.object);
         assert_ne!(changed.binary_digest, expected.binary_digest);
         assert!(super::verify_engine_binary_identity_with(&expected, || {
-            super::capture_engine_artifact_identity(&artifact, |_, _| Ok(()))
+            super::capture_engine_artifact_identity(&artifact, |_, _, _| Ok(()))
         })
         .is_err());
 
@@ -863,11 +911,12 @@ mod tests {
         let replacement = directory.path().join("replacement.so");
         std::fs::write(&replacement, b"before-probe").unwrap();
         std::fs::rename(&replacement, &artifact).unwrap();
-        let replaced = super::capture_engine_artifact_identity(&artifact, |_, _| Ok(())).unwrap();
+        let replaced =
+            super::capture_engine_artifact_identity(&artifact, |_, _, _| Ok(())).unwrap();
         assert_eq!(replaced.binary_digest, expected.binary_digest);
         assert_ne!(replaced.object, expected.object);
         assert!(super::verify_engine_binary_identity_with(&expected, || {
-            super::capture_engine_artifact_identity(&artifact, |_, _| Ok(()))
+            super::capture_engine_artifact_identity(&artifact, |_, _, _| Ok(()))
         })
         .is_err());
     }

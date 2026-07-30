@@ -1227,6 +1227,8 @@ fn main() {
 
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
+    println!("cargo:rerun-if-changed=src/engine/macho_mapping_proof.cc");
+    println!("cargo:rerun-if-changed=src/engine/macho_mapping_proof.h");
     println!("cargo:rerun-if-changed=src/engine/hermes_module_runner.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_extension.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_extension_internal.h");
@@ -2010,6 +2012,13 @@ fn main() {
     if std::env::var_os("CARGO_FEATURE_RUNTIME_EXTENSION_CONFORMANCE").is_some() {
         build.define("IBEX_RUNTIME_EXTENSION_CONFORMANCE", None);
         build.file("tests/native/hermes_runtime_extension_conformance.cc");
+    }
+    if target_os == "ios" {
+        // iOS has no public libproc mapped-vnode query. The helper parses the
+        // exact O_NOFOLLOW descriptor and compares its selected Mach-O slice
+        // to the mapped r-x segments containing the Hermes factory.
+        // @ref LLP 0035#platform-mapping-requirements
+        build.file("src/engine/macho_mapping_proof.cc");
     }
     if capsec_simulator_performance_observer_enabled {
         build.define("IBEX_CAPSEC_SIMULATOR_PERFORMANCE_OBSERVER", None);

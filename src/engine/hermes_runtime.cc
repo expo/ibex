@@ -60,6 +60,7 @@
 // consumes generated stable IDs only; WP2's neutral Rust core remains the
 // single decision implementation.
 #include "capsec_registry_generated.h"
+#include "macho_mapping_proof.h"
 #include "root_global_disposition.generated.h"
 #include <unordered_set>
 #include <optional>
@@ -7494,6 +7495,42 @@ extern "C" int32_t ex_hermes_engine_binary_path(char* out, size_t out_len) {
   return static_cast<int32_t>(length);
 #endif
 }
+
+#if defined(__APPLE__) && TARGET_OS_IOS
+// Private Rust/C++ bridge for iOS' descriptor-to-mapped-code proof. iOS does
+// not expose macOS libproc mapped-vnode observations, so the decisive join is
+// a byte comparison between the exact O_NOFOLLOW descriptor Rust hashes and
+// every file-backed r-x segment in the image that supplies makeHermesRuntime.
+// UUID/path/header agreement only selects the slice; it never authenticates
+// executing code by itself.
+// @ref LLP 0035#platform-mapping-requirements
+#if defined(__GNUC__)
+__attribute__((visibility("hidden")))
+#endif
+extern "C" int32_t
+ibex_private_hermes_ios_verify_mapped_file_v1(int fd, char *error,
+                                              size_t error_len) {
+  if (error != nullptr && error_len != 0)
+    error[0] = '\0';
+  using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
+      const ::hermes::vm::RuntimeConfig &);
+  auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
+  Dl_info info = {};
+  if (dladdr(reinterpret_cast<void *>(factory), &info) == 0 ||
+      info.dli_fbase == nullptr) {
+    if (error != nullptr && error_len != 0) {
+      std::snprintf(error, error_len, "%s",
+                    "dladdr could not identify the mapped iOS Hermes image");
+    }
+    return -1;
+  }
+  return ibex::engine::verify_mapped_macho_file(
+             fd, info.dli_fbase, reinterpret_cast<void *>(factory), error,
+             error_len)
+             ? 1
+             : -1;
+}
+#endif
 
 // Private Rust/C++ bridge for the schema-exact macOS mapped-instance proof.
 // Keep this outside the public embedding ABI: the versioned JSON identity is

@@ -13,6 +13,13 @@ GPU-authority/bridge output-shape residual routes together with the
 WebGPU-specific builder and Hermes patch name. Their removal refreshes the
 generated catalogs but does not itself advertise a target or replace any
 remaining physical promotion evidence.)
+**Revised:** 2026-07-27 (adds the iOS mapped-instance proof: the exact
+no-follow descriptor used for whole-file hashing is joined to the
+`makeHermesRuntime` dyld image by bounded thin/FAT Mach-O validation and
+byte-for-byte comparison of every file-backed executable segment. Writable
+executable mappings and encrypted-on-disk images fail closed. This is a
+point-in-time proof under the existing trusted-OS threat model; it neither
+widens portable target admission nor advertises iOS.)
 **Revised:** 2026-07-23 (public flip: the repository transferred to
 `expo/ibex` and became public. Every repository-identity pin moved to
 `expo/ibex`/owner `12504344`/visibility `public`, and artifact attestation
@@ -1466,6 +1473,39 @@ the target architecture records which slice the process executes. The v1
 macOS profile MUST declare no non-system loadable dependency other than that
 runtime component. A package that adds one is unpromotable until every such
 Mach-O image receives the same mapped-file join.
+
+### iOS
+
+iOS exposes no public equivalent of macOS
+`PROC_PIDREGIONPATHINFO` that joins a mapped address to a vnode identity. Its
+mapped-instance proof therefore starts with `dladdr(makeHermesRuntime)` only
+to locate the dyld image header, then authenticates that mapping against the
+exact no-follow file descriptor that Rust subsequently hashes. A bounded
+parser accepts a native 64-bit thin image or one unique exact CPU
+type/subtype slice from FAT32/FAT64, including swapped-endian envelopes. It
+requires the selected file header and complete load-command bytes to equal
+the mapped image, exactly one `LC_UUID`, coherent non-overlapping segment
+geometry, and `cryptid == 0`.
+
+Every source-declared executable segment must be readable and executable but
+non-writable in both its initial and maximum protections. Every file-backed
+executable byte is compared to the mapped address derived from the unique
+file-offset-zero header segment, and the Hermes factory must fall inside one
+of those compared bytes. Rust then hashes the complete pinned file and
+rechecks its object, size, and change timestamps. FAT slice selection is
+therefore structural; UUID or pathname agreement never substitutes for the
+executable-byte join.
+
+This is a point-in-time proof under the RFC's trusted-dyld, trusted-kernel,
+immutable-app-bundle, and no-malicious-same-user assumptions. It does not
+independently enumerate current Mach VM protections or compare relocatable
+non-executable data. An image with `cryptid != 0` fails closed because mapped
+plaintext cannot be byte-compared to encrypted file bytes. The bounded parser
+and real thin/FAT development artifacts have physical test coverage, while a
+fresh dyld-loaded iOS app launch remains required evidence before claiming
+that a particular final app consumed the proof. This implementation changes
+no portable-artifact admitted target, conformance authority, target cell, or
+advertisement.
 
 ### Linux
 
