@@ -1,0 +1,10 @@
+{
+ "boundEngine": "checked-in patched hermesvm (primary checkout, aarch64-apple-darwin)",
+ "command": "IBEX_CAPSEC_RECIPE_CATALOG=<catalog sha256-XcvN...> IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT=<out> cargo test --bin ibex --features capsec-conformance-observer,openssl-crypto capsec_public_noncap_builtin_recipe_batch -- --test-threads=1 --nocapture",
+ "companion": "llp/evidence/0044-scope-measurement-09e6aeceb938aa0a945f5f94c2901dfcc84c66ed509d986f32d05f284dfaea18.json",
+ "date": "2026-07-31",
+ "durationSeconds": 16.24,
+ "interpretation": "batch execution wall-clock is seconds per family batch, not hours; the cost floor is authoring iteration (template -> run -> fix named failures), and the run itself demonstrated that loop by surfacing live contract drift",
+ "measurement": "llp-0044-s5-representative-batch-duration",
+ "result": "FAILED \u2014 1 probe: surface.builtin.export.exact.crypto.sign.end.016nd0t.main.non-capability, contract-mismatch {node:crypto, Sign.end}; the batch fails loudly and names the fixture by design"
+}

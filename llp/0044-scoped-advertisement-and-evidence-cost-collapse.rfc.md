@@ -5,6 +5,17 @@
 **Systems:** Security, Conformance, CI
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-07-31
+**Revised:** 2026-07-31d (§5 day-one measurement addendum, §9 — this
+revision is UNREVIEWED beyond the dual-READY revision `e41717a8b82b`; it
+adds measured data and changes no design content. Headline: the cost
+hypothesis is falsified as originally stated — only 378 of the seed
+scope's 9,806 fixtures are already executable, and 39% of seed-pure cells
+are poisoned by Lane B/C rows, 64% of network cells — but a surviving
+fs+env+process scope is 89% certifiable at 3,256 authorable rows across
+424 surfaces in 64 template classes; representative batch runs in 16.24 s
+on the bound engine, so authoring iteration, not execution, is the cost
+floor. Evidence: llp/evidence/0044-scope-measurement-09e6aece….json and
+0044-batch-timing-501504f6….json)
 **Revised:** 2026-07-31c (round-3 revision — Fable r3 READY with four
 MINORs, Codex r3 NOT READY with two IN-DELTA MATERIALs, all addressed:
 every broad "fail-closed" characterization of the remainder is deleted
@@ -521,3 +532,66 @@ Decisions this RFC surfaces for the owner; each blocks the step noted:
 - Windows/second-tuple sequencing stays as LLP 0029 register item 4 set
   it: v1.1 is single-tuple; the second tuple follows in a later milestone
   (its scope congruence is register item 7).
+
+## 9. Day-one measurement results (2026-07-31 addendum — unreviewed)
+
+The §5 measurement ran on 2026-07-31 against the §1 catalog
+(`sha256-XcvN5FFF…`, retained with the analysis in
+`llp/evidence/0044-scope-measurement-09e6aeceb938aa0a945f5f94c2901dfcc84c66ed509d986f32d05f284dfaea18.json`;
+batch timing in `llp/evidence/0044-batch-timing-501504f66a809003ed6b187bfbeda4d22d405b5438941cf7d4ad902b73ac4abf.json`).
+Cells are `edgeIds`; a cell is *poisoned* when any of its unresolved rows
+carries a Lane B (`no-static-enforcement-terminal`), Lane C
+(`native-public-source-invocation-unavailable`), or Lane D
+(`builtin-export-resolves-to-bootstrap-internal`) residual reason —
+rows authoring cannot clear without audit outcomes or new source
+provenance. *Template classes* are (surface-kind × exact action set)
+groups; they bound template count, not labor — each member surface still
+needs arguments, setup, and a pinned observed sequence.
+
+| scope variant | cells | certifiable | fixtures (already executable) | rows to author | surfaces | template classes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| seed-pure fs+network+process+env | 1,093 | 664 (61%) | 5,563 (378) | 5,185 | 625 | 83 |
+| family-closure (adds path, stdio, sys) | 1,591 | 828 (52%) | — | 6,727 | 740 | — |
+| **fs+env+process (no network)** | **513** | **457 (89%)** | **3,624 (368)** | **3,256** | **424** | **64** |
+
+Per-family poison rates among seed-pure cells: network **64%**, fs 12%,
+env 5%, process 0%. Representative batch execution
+(`capsec_public_noncap_builtin_recipe_batch`, bound engine): **16.24 s**
+— and it failed loudly on one live contract-mismatch
+(`node:crypto` `Sign.end`; filed as
+issues/20260731-noncap-crypto-sign-end-probe-contract-mismatch.md),
+demonstrating the authoring loop the estimate must price.
+
+**What the measurement establishes:**
+
+- **The §5 hypothesis is falsified as stated.** The already-executable
+  mass is not in the seed families (378 of 9,806 fixtures, 3.9%), so
+  essentially all in-scope evidence must be newly authored; and clean
+  whole-family certification of `network` is unreachable without Lane B
+  terminal-provenance engineering — 64% of its cells are poisoned.
+- **A surviving cheap scope exists: fs+env+process.** 89% of its cells
+  are certifiable today; the poisoned 56 drop out only if the scope
+  grammar can express a principled, generated exclusion (see below) or
+  after audits. The authoring program is 64 template classes covering
+  3,256 rows on 424 surfaces, with batch execution in seconds per
+  family — the schedule is authoring iteration and review, heavily
+  agent-parallelizable.
+- **New register-relevant fact for items 4 and 2:** certifying any
+  seed family *as a family* requires handling its poisoned cells. The
+  measured options: (a) scope v1.1 to fs+env+process and defer network
+  to a Lane B program; (b) extend the closed selector grammar with a
+  generated criterion — "cells whose enforcement routes have
+  source-proven terminals" — which is intensional and generated, but
+  interacts with the anti-cherry-picking constraint the review settled
+  and therefore needs its own review if chosen; (c) fund the Lane B
+  terminal-provenance engineering first. This addendum recommends (a)
+  and records (b) as needing review, deciding neither.
+
+**Revised cost estimate on the measured numbers (fs+env+process, option
+a):** 64 template-class campaigns at roughly half a day to a day and a
+half each including batch iteration and LLP 0037-pattern review, heavily
+parallelizable across agents and machines; roughly 2–4 weeks wall-clock
+with 4–8 parallel streams and low-single-digit thousands of dollars in
+tokens, plus the gate/amendment work §5's table already priced. The
+6-week tail applies if option (b)/(c) is chosen or template classes
+surface new attribution patterns that stop for LLP 0037 review.

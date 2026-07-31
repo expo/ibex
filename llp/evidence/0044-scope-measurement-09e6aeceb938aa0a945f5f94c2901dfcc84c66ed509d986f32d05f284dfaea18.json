@@ -1,0 +1,256 @@
+{
+ "catalogDigest": "sha256-XcvN5FFF9meYMuBBgdMjEy8mmG8QiBrhNf9Z3w_ZISg",
+ "catalogSummaryRetained": {
+  "adapterExecutableFixtures": 11650,
+  "byScenario": {
+   "absent": 112,
+   "allow": 2330,
+   "attribution-missing-deny": 511,
+   "branch-selection": 2271,
+   "cannot-widen-authority": 499,
+   "closed": 1232,
+   "deny": 2330,
+   "generation-recheck": 511,
+   "malformed": 2330,
+   "missing-attribution": 2330,
+   "no-effect": 659,
+   "non-capability": 4631,
+   "post-lockdown-invariant": 499,
+   "principal-restore": 511,
+   "snapshot-mismatch-deny": 511,
+   "wrong-principal": 2330
+  },
+  "fullyExecutableFixtures": 3928,
+  "internallyVerifiedFixtures": 3042,
+  "requiredFixtures": 23597,
+  "residualReasons": {
+   "ambiguous-static-enforcement-route": 6755,
+   "argument-selected-terminal-alternatives-not-authored": 1691,
+   "builtin-export-resolves-to-bootstrap-internal": 36,
+   "callback-invariant-attribution-missing-deny-probe-not-authored": 511,
+   "callback-invariant-cannot-widen-authority-probe-not-authored": 499,
+   "callback-invariant-generation-recheck-probe-not-authored": 511,
+   "callback-invariant-post-lockdown-invariant-probe-not-authored": 499,
+   "callback-invariant-principal-restore-probe-not-authored": 511,
+   "callback-invariant-snapshot-mismatch-deny-probe-not-authored": 511,
+   "closed-surface-denial-probe-not-authored": 446,
+   "conditional-branch-selection-probe-not-authored": 2187,
+   "conditional-no-effect-probe-not-authored": 622,
+   "native-public-allow-scenario-not-authored": 12,
+   "native-public-arguments-not-authored": 632,
+   "native-public-attribution-missing-deny-scenario-not-authored": 40,
+   "native-public-cannot-widen-authority-scenario-not-authored": 21,
+   "native-public-deny-scenario-not-authored": 25,
+   "native-public-generation-recheck-scenario-not-authored": 40,
+   "native-public-malformed-scenario-not-authored": 13,
+   "native-public-missing-attribution-scenario-not-authored": 13,
+   "native-public-post-lockdown-invariant-scenario-not-authored": 21,
+   "native-public-principal-restore-scenario-not-authored": 40,
+   "native-public-snapshot-mismatch-deny-scenario-not-authored": 40,
+   "native-public-source-descriptor-drift": 1,
+   "native-public-source-invocation-unavailable": 4261,
+   "native-public-wrong-principal-scenario-not-authored": 13,
+   "no-static-enforcement-terminal": 5508,
+   "non-capability-no-decision-probe-not-authored": 1417,
+   "public-surface-invocation-not-authored": 19669
+  },
+  "unresolvedFixtures": 16627
+ },
+ "command": "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target aarch64-apple-darwin --output <path>; analysis script retained in llp/evidence README section of this file",
+ "date": "2026-07-31",
+ "headline": {
+  "hypothesisFalsifiedBecause": [
+   "only 378 of 9,806 seed-scope fixtures are already executable (3.9%) \u2014 the executable mass is outside the seed families, as revision 2f6c27649e45 warned",
+   "39% of seed-pure cells are poisoned by Lane B/C rows authoring cannot clear; network carries 64% poison (fs 12%, env 5%, process 0%)"
+  ],
+  "survivingCheapScope": "fs+env+process: 457/513 cells certifiable (89%), 3,256 authorable rows across 424 surfaces in 64 (kind x exact-action-set) template classes; network defers to a Lane B terminal-provenance program",
+  "templateClassCaveat": "template classes bound template count, not labor: each class member still needs per-surface arguments, setup, and a pinned observed sequence (LLP 0036 measured caution)"
+ },
+ "measurement": "llp-0044-s5-day-one-scope-measurement",
+ "perSeedFamilyPoison": {
+  "env": {
+   "cells": 110,
+   "poisoned": 6
+  },
+  "fs": {
+   "cells": 469,
+   "poisoned": 54
+  },
+  "network": {
+   "cells": 580,
+   "poisoned": 373
+  },
+  "process": {
+   "cells": 8,
+   "poisoned": 0
+  }
+ },
+ "poisonDefinition": [
+  "builtin-export-resolves-to-bootstrap-internal",
+  "native-public-source-invocation-unavailable",
+  "no-static-enforcement-terminal"
+ ],
+ "representativeBatchDuration": "PENDING \u2014 noncap builtin recipe batch launched 2026-07-31; recorded in a separate evidence file when complete",
+ "sourceCommit": "9cb94cbb4cb75abf3ff37acd490aaf618b746e95",
+ "variants": {
+  "A_seedPure_fs_network_process_env": {
+   "authorable_rows": 5185,
+   "cells": 1093,
+   "certifiable_authorable_rows": 5185,
+   "certifiable_cells": 664,
+   "certifiable_fixtures": 5563,
+   "certifiable_unresolved_surfaces": 625,
+   "fixtures": 9806,
+   "kinds": {
+    "surface.builtin.export": 615,
+    "surface.builtin.node": 3,
+    "surface.builtin.sys": 1,
+    "surface.builtin.util": 2,
+    "surface.host.abi": 69,
+    "surface.loader.commonjs": 1,
+    "surface.loader.dynamic": 1,
+    "surface.loader.entry": 2,
+    "surface.loader.esm": 1,
+    "surface.loader.function": 32,
+    "surface.loader.json": 1,
+    "surface.loader.native": 1,
+    "surface.loader.operation": 50,
+    "surface.loader.oxc": 1,
+    "surface.loader.private": 1,
+    "surface.loader.require": 1,
+    "surface.loader.route": 109,
+    "surface.native.op": 142,
+    "surface.startup.env": 50,
+    "surface.startup.supervisor": 10
+   },
+   "lanes": {
+    "B": 382,
+    "C": 47
+   },
+   "poisoned_by": {
+    "B": 382,
+    "C": 47
+   },
+   "poisoned_cells": 429,
+   "reasons": {
+    "ambiguous-static-enforcement-route": 5319,
+    "argument-selected-terminal-alternatives-not-authored": 1564,
+    "closed-surface-denial-probe-not-authored": 17,
+    "conditional-branch-selection-probe-not-authored": 1515,
+    "conditional-no-effect-probe-not-authored": 453,
+    "native-public-arguments-not-authored": 476,
+    "native-public-deny-scenario-not-authored": 13,
+    "native-public-source-descriptor-drift": 1,
+    "native-public-source-invocation-unavailable": 266,
+    "no-static-enforcement-terminal": 3977,
+    "public-surface-invocation-not-authored": 9428
+   },
+   "status": {
+    "fully-executable": 378,
+    "unresolved": 9428
+   }
+  },
+  "B_familiesAddedByClosure": [
+   "path",
+   "stdio",
+   "sys"
+  ],
+  "B_familyClosure": {
+   "authorable_rows": 6727,
+   "cells": 1591,
+   "certifiable_authorable_rows": 6727,
+   "certifiable_cells": 828,
+   "certifiable_fixtures": 7338,
+   "certifiable_unresolved_surfaces": 740,
+   "fixtures": 14516,
+   "kinds": {
+    "surface.builtin.bun": 2,
+    "surface.builtin.constants": 1,
+    "surface.builtin.export": 732,
+    "surface.builtin.fs": 2,
+    "surface.builtin.internal": 1,
+    "surface.builtin.node": 7,
+    "surface.builtin.os": 1,
+    "surface.builtin.sys": 1,
+    "surface.builtin.util": 2,
+    "surface.host.abi": 76,
+    "surface.loader.commonjs": 1,
+    "surface.loader.dynamic": 1,
+    "surface.loader.entry": 11,
+    "surface.loader.esm": 1,
+    "surface.loader.function": 47,
+    "surface.loader.json": 1,
+    "surface.loader.native": 1,
+    "surface.loader.operation": 61,
+    "surface.loader.oxc": 1,
+    "surface.loader.private": 1,
+    "surface.loader.require": 1,
+    "surface.loader.route": 131,
+    "surface.native.op": 432,
+    "surface.startup.env": 66,
+    "surface.startup.supervisor": 10
+   },
+   "lanes": {
+    "B": 475,
+    "C": 288
+   },
+   "poisoned_by": {
+    "B": 475,
+    "C": 288
+   },
+   "poisoned_cells": 763,
+   "reasons": {
+    "ambiguous-static-enforcement-route": 6608,
+    "argument-selected-terminal-alternatives-not-authored": 1684,
+    "closed-surface-denial-probe-not-authored": 17,
+    "conditional-branch-selection-probe-not-authored": 2185,
+    "conditional-no-effect-probe-not-authored": 622,
+    "native-public-allow-scenario-not-authored": 12,
+    "native-public-arguments-not-authored": 583,
+    "native-public-deny-scenario-not-authored": 25,
+    "native-public-malformed-scenario-not-authored": 13,
+    "native-public-missing-attribution-scenario-not-authored": 13,
+    "native-public-source-descriptor-drift": 1,
+    "native-public-source-invocation-unavailable": 1856,
+    "native-public-wrong-principal-scenario-not-authored": 13,
+    "no-static-enforcement-terminal": 5322,
+    "public-surface-invocation-not-authored": 13905
+   },
+   "status": {
+    "fully-executable": 611,
+    "unresolved": 13905
+   }
+  },
+  "C_fs_env_process": {
+   "alreadyExecutableInCertifiable": 368,
+   "cells": 513,
+   "certifiableCells": 457,
+   "certifiableFixtures": 3624,
+   "poisonedCellsExcluded": 56,
+   "rowsToAuthor": 3256,
+   "seed": [
+    "env",
+    "fs",
+    "process"
+   ],
+   "surfacesToAuthor": 424,
+   "templateClasses": 64
+  },
+  "D_full_seed_certifiable": {
+   "alreadyExecutableInCertifiable": 378,
+   "cells": 1093,
+   "certifiableCells": 664,
+   "certifiableFixtures": 5563,
+   "poisonedCellsExcluded": 429,
+   "rowsToAuthor": 5185,
+   "seed": [
+    "env",
+    "fs",
+    "network",
+    "process"
+   ],
+   "surfacesToAuthor": 625,
+   "templateClasses": 83
+  }
+ }
+}

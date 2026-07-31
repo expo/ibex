@@ -38,6 +38,12 @@ hardening stay behind those rows unless a concrete exploitable flaw is found.
 Do not promote labels, generic failed imports, or one target's evidence as
 another target's proof.
 
+**Measured 2026-07-31 (LLP 0044 §9):** the day-one scope measurement
+found the certifiable cheap scope is **fs+env+process** (457/513 cells
+clean, 3,256 authorable rows across 424 surfaces in 64 template classes);
+`network` is 64% poisoned by no-terminal rows and needs its own program.
+If LLP 0044 is accepted, prioritize the fs+env+process rows first.
+
 **Sequencing (2026-07-29, LLP 0029 §7 register item 4):** v1 ships
 fail-closed with empty advertisements; this backlog now converges toward a
 **single-tuple v1.1 advertisement** (leading candidate on current
