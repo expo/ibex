@@ -339,3 +339,84 @@ fn dev_unarmed_committed_startup_evaluates_hbc_carriers() {
         "tampered refusal must name the byte-level disagreement, got: {error}"
     );
 }
+
+/// Exact LLP 0413 Phase 4 hybrid (hot-edit mixed encoding): one committed
+/// publication whose carriers MIX `hermes-bytecode` and
+/// `javascript-factory-table` admits and evaluates through the same
+/// dev-unarmed committed entry — the expectation is selected PER CARRIER
+/// from each manifest's declared encoding (LLP 0027; admission stays
+/// publication-atomic). The fixture is the hot-edit shape Exact's dev
+/// server publishes after an edit: the ENTRY module's carrier rides js
+/// (the invalidated principal) beside untouched HBC carriers. Requires the
+/// `hbc/hybrid/` sub-fixture from Exact's
+/// `scripts/produce-dev-committed-fixture.mjs --hbc`.
+#[test]
+fn dev_unarmed_committed_startup_evaluates_mixed_encoding_carriers() {
+    let Some(root) = fixture_dir() else {
+        eprintln!("llp0413_dev_committed_embedder(hybrid): skipped (fixture dir unset)");
+        return;
+    };
+    let hybrid_root = root.join("hbc").join("hybrid");
+    if !hybrid_root.join("publication").join("index.json").is_file() {
+        eprintln!(
+            "llp0413_dev_committed_embedder(hybrid): skipped (no hbc/hybrid/ sub-fixture; \
+             produce with Exact scripts/produce-dev-committed-fixture.mjs --hbc)"
+        );
+        return;
+    }
+    let commitment_text = std::fs::read_to_string(hybrid_root.join("commitment.json")).unwrap();
+
+    ibex_runtime::host::abi::install_host(ibex_runtime::host::Host::strict());
+    let mut runtime = DiagnosticModuleRuntime::new().unwrap();
+
+    let outcome = run_startup(
+        &runtime,
+        &hybrid_root.join("publication"),
+        &commitment_text,
+        "exact-dev:test",
+    );
+    assert_eq!(
+        outcome.status, 0,
+        "dev committed mixed-encoding startup failed: {:?}",
+        outcome.error
+    );
+    let report = outcome.report.expect("success carries a report");
+    assert_eq!(report["posture"], "dev-unarmed");
+    assert!(
+        report["hbcCarrierCount"].as_u64().unwrap() >= 1,
+        "mixed publication must admit HBC carriers: {report}"
+    );
+    assert!(
+        report["javascriptCarrierCount"].as_u64().unwrap() >= 1,
+        "mixed publication must admit javascript-factory-table carriers: {report}"
+    );
+
+    // The js-encoded ENTRY carrier executes and calls into an HBC-carrier
+    // dependency (static require edge across encodings).
+    let probe = runtime
+        .eval_text(
+            "JSON.stringify(globalThis.__devCommittedProbe || null)",
+            "llp0413-hybrid-probe",
+        )
+        .unwrap();
+    let probe: serde_json::Value = serde_json::from_str(probe.trim()).unwrap();
+    assert_eq!(probe["sum"], 5, "static import across encodings: {probe}");
+
+    // Literal dynamic import from the js entry resolves into an HBC carrier
+    // and settles on the event loop.
+    let mut probe = serde_json::Value::Null;
+    for _ in 0..5 {
+        runtime.drive_compiled_event_loop_to_quiescence().unwrap();
+        let text = runtime
+            .eval_text(
+                "JSON.stringify(globalThis.__devCommittedProbe || null)",
+                "llp0413-hybrid-probe-2",
+            )
+            .unwrap();
+        probe = serde_json::from_str(text.trim()).unwrap();
+        if probe["lazy"] == 7 || !probe["lazyError"].is_null() {
+            break;
+        }
+    }
+    assert_eq!(probe["lazy"], 7, "dynamic import across encodings: {probe}");
+}
