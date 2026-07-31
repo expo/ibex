@@ -321,6 +321,32 @@ function Test-InstallComplete {
   return Test-ArtifactDirectoryComplete $targetRoot
 }
 
+# An installed-but-unusable GitHub CLI (unauthenticated, misconfigured, or
+# broken) is an unavailable artifact transport, never a fatal installer error:
+# the HTTPS and -Source fallbacks must still run. Probing under
+# $ErrorActionPreference = "Stop" is a trap on Windows PowerShell 5 — a
+# redirected native stderr line (gh auth status 2>$null) surfaces as a
+# terminating NativeCommandError before the exit code can be inspected — so
+# the probe relaxes the preference and treats any thrown probe failure as
+# "unusable".
+function Test-GitHubCliUsable {
+  if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+    return $false
+  }
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    & gh auth status *> $null
+    return $LASTEXITCODE -eq 0
+  }
+  catch {
+    return $false
+  }
+  finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+}
+
 function Invoke-SourceBuild {
   Write-Host "Building the pinned patched Windows Hermes artifact from source."
   & $builder -Arch $Arch
@@ -330,13 +356,8 @@ function Invoke-SourceBuild {
 function Test-ReviewedBuildProvenance {
   param([string]$Archive)
 
-  if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
-    Write-Warning "GitHub CLI is unavailable; refusing an unattested prebuilt Windows Hermes bundle."
-    return $false
-  }
-  gh auth status 2>$null
-  if ($LASTEXITCODE -ne 0) {
-    Write-Warning "Authenticated GitHub CLI is required to verify Windows Hermes build provenance."
+  if (-not (Test-GitHubCliUsable)) {
+    Write-Warning "An authenticated GitHub CLI is required to verify Windows Hermes build provenance; refusing an unattested prebuilt Windows Hermes bundle."
     return $false
   }
   gh attestation verify $Archive `
@@ -377,13 +398,10 @@ try {
   $archive = Join-Path $tempRoot $asset
   $checksum = "$archive.sha256"
   $downloaded = $false
-  if (Get-Command gh -ErrorAction SilentlyContinue) {
-    gh auth status 2>$null
-    if ($LASTEXITCODE -eq 0) {
-      gh release download $tag --repo $artifactRepo --dir $tempRoot `
-        --pattern $asset --pattern "$asset.sha256"
-      $downloaded = $LASTEXITCODE -eq 0
-    }
+  if (Test-GitHubCliUsable) {
+    gh release download $tag --repo $artifactRepo --dir $tempRoot `
+      --pattern $asset --pattern "$asset.sha256"
+    $downloaded = $LASTEXITCODE -eq 0
   }
   if (-not $downloaded) {
     $base = "https://github.com/$artifactRepo/releases/download/$tag"

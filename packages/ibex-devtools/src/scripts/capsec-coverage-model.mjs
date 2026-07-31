@@ -3021,7 +3021,12 @@ const REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES = Object.freeze([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.9eb62c380d7cf28c16a42808ca30fc984b0368f88f9a453f441bb38c352e3f99";
+  // Restamped 2026-07-31: the windows-source-patched profile's
+  // sourceInstallerAuthorityDigest moved when install-windows-hermes.ps1
+  // made an unusable GitHub CLI degrade to the HTTPS/-Source fallbacks
+  // (issues/20260727-windows-hermes-installer-unauthenticated-gh-fallback.md);
+  // attestation, digest, and provenance requirements are unchanged.
+  "hermes-evaluators.273ffdb5de99340412f69e79f5fc788ec2ebbcbf946f3566abbf64f8c292bcff";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-17da17dbe9239bda0640545bfc0fd669f4127b920148c66076bec63d1c8d0ec1";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
