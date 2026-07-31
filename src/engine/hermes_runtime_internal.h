@@ -370,14 +370,24 @@ struct RuntimeCallbackTarget {
   }
 };
 
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+// Typed observer knobs, set through the ibex_test_* ABI (hermes_runtime.cc).
+// Deliberately process-global atomics rather than environment variables:
+// getenv-based injection rode a channel that unrelated tests capture,
+// restore, and clear (silently dropping another test's hold mid-flight),
+// and the reads happened on producer threads racing set_var/remove_var.
+// Deliberately NOT per-runtime state: producers consult the delay BEFORE
+// validating their RuntimeCallbackTarget, so they hold no runtime handle
+// that is safe to dereference at that point.
+extern std::atomic<uint64_t> gIbexTestRuntimeCallbackDelayMs;
+extern std::atomic<uint64_t> gIbexTestRuntimeProducerHoldMs;
+#endif
+
 inline void exactTestDelayRuntimeProducer() {
 #if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
-  const char* value = std::getenv("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS");
-  if (!value || !*value) return;
-  char* end = nullptr;
-  auto milliseconds = std::strtoull(value, &end, 10);
-  if (end == value || *end != '\0') return;
-  milliseconds = std::min<unsigned long long>(milliseconds, 2000);
+  const auto milliseconds = std::min<uint64_t>(
+      gIbexTestRuntimeCallbackDelayMs.load(std::memory_order_seq_cst), 2000);
+  if (milliseconds == 0) return;
   std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
 #endif
 }
@@ -388,12 +398,9 @@ inline void exactTestDelayRuntimeProducer() {
 // exactTestDelayRuntimeProducer, which delays before target acquisition.
 inline void exactTestHoldRuntimeProducerAfterEnqueue() {
 #if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
-  const char* value = std::getenv("IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS");
-  if (!value || !*value) return;
-  char* end = nullptr;
-  auto milliseconds = std::strtoull(value, &end, 10);
-  if (end == value || *end != '\0') return;
-  milliseconds = std::min<unsigned long long>(milliseconds, 2000);
+  const auto milliseconds = std::min<uint64_t>(
+      gIbexTestRuntimeProducerHoldMs.load(std::memory_order_seq_cst), 2000);
+  if (milliseconds == 0) return;
   std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
 #endif
 }

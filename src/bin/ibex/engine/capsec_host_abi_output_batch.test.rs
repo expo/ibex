@@ -692,9 +692,8 @@ extern "C" {
         runtime: *mut HermesRuntimeOpaque,
         out_error: *mut *mut std::os::raw::c_char,
     ) -> i32;
-    fn ex_hermes_verify_prepared_native_startup_absent_v1(
-        runtime: *mut HermesRuntimeOpaque,
-    ) -> i32;
+    fn ex_hermes_verify_prepared_native_startup_absent_v1(runtime: *mut HermesRuntimeOpaque)
+        -> i32;
     fn ex_hermes_finalize_embedder_capabilities_v1(runtime: *mut HermesRuntimeOpaque) -> i32;
     fn ex_hermes_runtime_is_quarantined_v1(runtime: *const HermesRuntimeOpaque) -> u32;
     fn ex_hermes_evaluation_result_init(result: *mut NativeEvaluationResult);
@@ -2144,10 +2143,7 @@ fn install_bounded_compiled_environment_profile() -> Result<(), String> {
             .map_err(|error| format!("construct bounded compiled PATH key: {error}"))?;
             let profile = crate::host::process::CompiledEnvironmentBase::new(vec![
                 (fixture_key, BOUNDED_COMPILED_ENVIRONMENT_VALUE.to_vec()),
-                (
-                    path_key,
-                    BOUNDED_COMPILED_ENVIRONMENT_PATH_VALUE.to_vec(),
-                ),
+                (path_key, BOUNDED_COMPILED_ENVIRONMENT_PATH_VALUE.to_vec()),
             ])
             .map_err(|error| format!("construct bounded compiled environment profile: {error}"))?;
             crate::host::process::install_compiled_environment_base(profile)
@@ -3041,7 +3037,7 @@ fn fresh_legacy_host() {
     );
 }
 
- fn execute_basic(function_name: &str) -> Result<Value, String> {
+fn execute_basic(function_name: &str) -> Result<Value, String> {
     let _host_lock = ambient_host_registry_lock();
     fresh_legacy_host();
     let capability = CString::new("fs:read:/project/output.js").unwrap();
@@ -5308,11 +5304,9 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
             }
             returned_number(unsafe { ex_hermes_finalize_embedder_capabilities_v1(runtime.raw) })
         }
-        "ex_hermes_cancel_structured_work_target" => {
-            returned_number(unsafe {
-                ex_hermes_cancel_structured_work_target(runtime.raw, runtime.nonce, 0)
-            })
-        }
+        "ex_hermes_cancel_structured_work_target" => returned_number(unsafe {
+            ex_hermes_cancel_structured_work_target(runtime.raw, runtime.nonce, 0)
+        }),
         "ex_hermes_create_diagnostic" => returned_object(),
         "ex_hermes_debugger_enable" => {
             returned_number(unsafe { ex_hermes_debugger_enable(runtime.raw) })
@@ -5387,9 +5381,9 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
         "ex_hermes_finish_bootstrap" => {
             returned_number(unsafe { ex_hermes_finish_bootstrap(runtime.raw) })
         }
-        "ex_hermes_seal_armed_shared_runtime_globals_v1" => returned_number(unsafe {
-            ex_hermes_seal_armed_shared_runtime_globals_v1(runtime.raw)
-        }),
+        "ex_hermes_seal_armed_shared_runtime_globals_v1" => {
+            returned_number(unsafe { ex_hermes_seal_armed_shared_runtime_globals_v1(runtime.raw) })
+        }
         "ex_hermes_gc" => {
             unsafe { ex_hermes_gc(runtime.raw) };
             returned_undefined()
@@ -5586,11 +5580,9 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
             unsafe { ex_hermes_set_keep_alive_on_async_error(runtime.raw, 1) };
             returned_undefined()
         }
-        "ex_hermes_structured_active_work_target" => {
-            returned_number(unsafe {
-                ex_hermes_structured_active_work_target(runtime.raw, runtime.nonce)
-            })
-        }
+        "ex_hermes_structured_active_work_target" => returned_number(unsafe {
+            ex_hermes_structured_active_work_target(runtime.raw, runtime.nonce)
+        }),
         "ex_hermes_take_async_failure_event" => {
             let mut event = NativeAsyncFailureEvent::current();
             let status = unsafe { ex_hermes_take_async_failure_event(runtime.raw, &mut event) };
@@ -5620,9 +5612,8 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
         }
         "ex_hermes_take_work_unit_event" => {
             let mut event = NativeWorkUnitEvent::current();
-            let status = unsafe {
-                ex_hermes_take_work_unit_event(runtime.raw, runtime.nonce, &mut event)
-            };
+            let status =
+                unsafe { ex_hermes_take_work_unit_event(runtime.raw, runtime.nonce, &mut event) };
             match selector {
                 "out:event.kind" => returned_number(event.kind),
                 "out:event.phase" => returned_number(event.phase),
@@ -6489,11 +6480,9 @@ fn validate_row(row: &Value) -> Result<ValidatedRow, String> {
             "{function_name}: selected output contract binding drift"
         ));
     }
-    let contract_output_is_u64 = output_contracts
-        .first()
-        .is_some_and(|contract| {
-            contract_selected_output_is_u64(contract, selected_output, selector)
-        });
+    let contract_output_is_u64 = output_contracts.first().is_some_and(|contract| {
+        contract_selected_output_is_u64(contract, selected_output, selector)
+    });
     if output_contracts.iter().any(|contract| {
         contract_selected_output_is_u64(contract, selected_output, selector)
             != contract_output_is_u64
@@ -6502,8 +6491,8 @@ fn validate_row(row: &Value) -> Result<ValidatedRow, String> {
             "{function_name}: selected output integer-width drift"
         ));
     }
-    let selected_output_is_u64 = contract_output_is_u64
-        || nested_selected_output_is_u64(function_name, selector);
+    let selected_output_is_u64 =
+        contract_output_is_u64 || nested_selected_output_is_u64(function_name, selector);
     for (definition, contract) in selected_definitions.iter().zip(output_contracts) {
         let base_drift = contract["schema"] != OUTPUT_CONTRACT_SCHEMA
             || contract["functionName"] != function_name
@@ -6611,10 +6600,7 @@ fn return_record_result(row: &Value, raw: Value) -> Value {
     })
 }
 
-fn validate_bounded_observation(
-    validated: &ValidatedRow,
-    mut raw: Value,
-) -> Result<Value, String> {
+fn validate_bounded_observation(validated: &ValidatedRow, mut raw: Value) -> Result<Value, String> {
     if validated.selected_output_is_u64 {
         let value = raw["value"]
             .as_u64()
@@ -6627,11 +6613,11 @@ fn validate_bounded_observation(
                 })
             })
             .ok_or_else(|| {
-            format!(
-                "{}: exact uint64_t output was not observed as an unsigned integer",
-                validated.function_name
-            )
-        })?;
+                format!(
+                    "{}: exact uint64_t output was not observed as an unsigned integer",
+                    validated.function_name
+                )
+            })?;
         raw = returned_u64(value);
     }
     if validated.operation == "rust-host-legacy-path-output" {
@@ -7557,8 +7543,9 @@ fn merged_host_abi_output_routes_execute_bounded_calls() {
             .unwrap_or_else(|error| panic!("{function_name}: {error}"));
         assert_eq!(observation, returned_number(expected));
     }
-    let quarantined = execute_hermes_diagnostic("ex_hermes_runtime_is_quarantined_v1", "[[return]]")
-        .expect("execute quarantine inspection on a fresh runtime");
+    let quarantined =
+        execute_hermes_diagnostic("ex_hermes_runtime_is_quarantined_v1", "[[return]]")
+            .expect("execute quarantine inspection on a fresh runtime");
     assert_eq!(quarantined, returned_number(0));
 
     for (function_name, expected) in [

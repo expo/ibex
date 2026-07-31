@@ -4459,11 +4459,11 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ).toThrow(/unclassified observed surface/u);
     }
 
-    const callbackDelayHarness = classifyObservedSurface(
-      surface("startup", "env:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS"),
+    const httpIdleDelayHarness = classifyObservedSurface(
+      surface("startup", "env:IBEX_TEST_HTTP_WAIT_IDLE_DELAY_MS"),
       context,
     );
-    expect(callbackDelayHarness.edge).toMatchObject({
+    expect(httpIdleDelayHarness.edge).toMatchObject({
       classification: "non-capability",
       rationaleId: "runtime-bootstrap-state",
     });

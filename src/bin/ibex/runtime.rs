@@ -12464,6 +12464,33 @@ pub(crate) mod tests {
         );
     }
 
+    /// Scoped typed delay injection for cross-thread runtime-callback
+    /// producers (the lib crate's extern is private, so the bin declares the
+    /// same C symbol; it only exists in observer builds).
+    #[cfg(feature = "capsec-conformance-observer")]
+    struct RuntimeCallbackDelayGuard;
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    impl RuntimeCallbackDelayGuard {
+        fn new(milliseconds: u64) -> Self {
+            extern "C" {
+                fn ibex_test_set_runtime_callback_delay_ms(milliseconds: u64);
+            }
+            unsafe { ibex_test_set_runtime_callback_delay_ms(milliseconds) };
+            Self
+        }
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    impl Drop for RuntimeCallbackDelayGuard {
+        fn drop(&mut self) {
+            extern "C" {
+                fn ibex_test_set_runtime_callback_delay_ms(milliseconds: u64);
+            }
+            unsafe { ibex_test_set_runtime_callback_delay_ms(0) };
+        }
+    }
+
     struct ProductionEnvGuard(Vec<(&'static str, Option<std::ffi::OsString>)>);
 
     impl ProductionEnvGuard {
@@ -12478,7 +12505,6 @@ pub(crate) mod tests {
                     "IBEX_REPO_ROOT",
                     "EXACT_REPO_ROOT",
                     "EXACT_COMPAT_TEST",
-                    "IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS",
                     "NODE_ENV",
                 ]
                 .into_iter()
@@ -13363,7 +13389,12 @@ pub(crate) mod tests {
         std::env::set_var("EXACT_COMPAT_TEST", "1");
         // Hold the worker completion long enough to force the graph through
         // its callback-only park. The module itself schedules no timer.
-        std::env::set_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS", "100");
+        // Typed observer knob, not an env var (see
+        // issues/closed/20260727-test-delay-injection-is-a-global-env-var.md);
+        // effective only in observer builds, exactly like the env-var read
+        // it replaces, which was observer-gated in C++.
+        #[cfg(feature = "capsec-conformance-observer")]
+        let _delay_guard = RuntimeCallbackDelayGuard::new(100);
         let directory = tempdir().unwrap();
         std::fs::write(
             directory.path().join("package.json"),

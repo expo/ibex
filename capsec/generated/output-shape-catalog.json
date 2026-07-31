@@ -84061,24 +84061,6 @@
       "outputKinds": []
     },
     {
-      "surfaceId": "surface.startup.env.ibex.test.runtime.callback.delay.ms.0y5w9bi",
-      "status": "structural-only",
-      "reasonCode": "startup-structural-route",
-      "sourceRefs": [
-        "src/engine/hermes_runtime_internal.h#getenv:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS:read"
-      ],
-      "outputKinds": []
-    },
-    {
-      "surfaceId": "surface.startup.env.ibex.test.runtime.producer.hold.ms.11ehh7l",
-      "status": "structural-only",
-      "reasonCode": "startup-structural-route",
-      "sourceRefs": [
-        "src/engine/hermes_runtime_internal.h#getenv:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS:read"
-      ],
-      "outputKinds": []
-    },
-    {
       "surfaceId": "surface.startup.env.ibex.test.transpile.input.barrier.07svevo",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -85692,9 +85674,9 @@
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
   "catalogKeyDigest": "sha256-gRT0c7XrbQwvkKtfqvK7SwxDY2OGX8vZME0OT_V0Hso",
   "counts": {
-    "coverageSurfaces": 7530,
+    "coverageSurfaces": 7528,
     "outputBearingSurfaces": 5819,
-    "structuralOnlySurfaces": 1706,
+    "structuralOnlySurfaces": 1704,
     "unresolvedSurfaces": 5,
     "catalogRows": 6520,
     "parameterizedBindings": 1,

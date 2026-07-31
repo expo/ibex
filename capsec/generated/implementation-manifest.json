@@ -272213,68 +272213,6 @@
       ]
     },
     {
-      "edgeId": "surface.startup.env.ibex.test.runtime.callback.delay.ms.0y5w9bi",
-      "observedKey": "startup:env:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS",
-      "branchId": "surface.startup.env.ibex.test.runtime.callback.delay.ms.0y5w9bi.main",
-      "enforcementBranchId": "surface.startup.env.ibex.test.runtime.callback.delay.ms.0y5w9bi.main",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "startup:env:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime_internal.h#getenv:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS:read"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_internal.h#getenv:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS:read"
-        ],
-        "terminalObservedKey": "startup:env:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime_internal.h#getenv:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS:read"
-      ],
-      "implementationOwner": "WP9",
-      "fixtureObligations": [
-        "surface.startup.env.ibex.test.runtime.callback.delay.ms.0y5w9bi.main.non-capability"
-      ]
-    },
-    {
-      "edgeId": "surface.startup.env.ibex.test.runtime.producer.hold.ms.11ehh7l",
-      "observedKey": "startup:env:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS",
-      "branchId": "surface.startup.env.ibex.test.runtime.producer.hold.ms.11ehh7l.main",
-      "enforcementBranchId": "surface.startup.env.ibex.test.runtime.producer.hold.ms.11ehh7l.main",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "startup:env:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime_internal.h#getenv:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS:read"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_internal.h#getenv:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS:read"
-        ],
-        "terminalObservedKey": "startup:env:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime_internal.h#getenv:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS:read"
-      ],
-      "implementationOwner": "WP9",
-      "fixtureObligations": [
-        "surface.startup.env.ibex.test.runtime.producer.hold.ms.11ehh7l.main.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.startup.env.ibex.test.transpile.input.barrier.07svevo",
       "observedKey": "startup:env:IBEX_TEST_TRANSPILE_INPUT_BARRIER",
       "branchId": "surface.startup.env.ibex.test.transpile.input.barrier.07svevo.main",
@@ -282348,7 +282286,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-NpsNsLutv_3ddKTZI98e7kwjvr8cO_BJOxl2bYzHxjA"
+      "rawContentDigest": "sha256-BXqw-gkB1mbfpT0FaF0_6g76B7QCBl0UJWk8XVyADS4"
     },
     {
       "kind": "output-disposition-dataset",
@@ -282363,44 +282301,44 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-8GA_uJ0TfEdiLwBx6-WW8n9cY52_a6zwbNclXrtJCEQ"
+      "rawContentDigest": "sha256-U5df_H_qQ-L_80ffoo1f0XEziHknrwCkECuNHRN3b8w"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-Zm1HR_kht5fP-WP-licVqlJ58CNA_L6xQdkyouvwC6A"
+      "rawContentDigest": "sha256-2MvjFyCWFA4iOm4dVo6ZK1ixLw_iSY2-hXKT_0Now4M"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-SFjtvEXtYmaQIXfrjfyHPRuDEXQOVTxHf0z5-F_JW_c"
+      "rawContentDigest": "sha256-JIEsMMioT_55ncK4UvWdADm4LmmNcnxIsy-GY0q60MQ"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-K75_oEnTnYL6UOSQxPzMap2hqu2UWsR5LH1kj2WIjVs"
+      "rawContentDigest": "sha256-ryEqdclrm3NkRldAdnKBuTWQgLoYwK9tswHXe0NgbNM"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-uDPV1rgxEWY5etcX265r2ZD9XjUQ1_-zmwpl_nifbXI"
+      "rawContentDigest": "sha256--tF16cFVvEipViRnPyH0PmmcCaj3LaHT93PqlWShR5U"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-cpHojP4HyfUFAe73wPirTgknNmGqyy4X9ShZL2dvgJE"
+      "rawContentDigest": "sha256-GS0QYdEoWKmYrElua2cmv-pi0wnf55cmwpMbtarPfwg"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-cJeo31lZGSEA-qfsHRyGjrv8wazhbG9QjO1WdG8P9Sw"
+      "rawContentDigest": "sha256-nlveHoUmRiOcXvO3dz_aCTc-hqOgAZz8wc39rAgAhZ0"
     }
   ],
   "counts": {
-    "observedReferences": 13387,
-    "logicalSurfaces": 7530,
-    "enforcementBranches": 7831,
-    "coverageEdges": 7530,
-    "targetCells": 15060
+    "observedReferences": 13385,
+    "logicalSurfaces": 7528,
+    "enforcementBranches": 7829,
+    "coverageEdges": 7528,
+    "targetCells": 15056
   }
 }

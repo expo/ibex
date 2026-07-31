@@ -47,7 +47,7 @@
             "summary": "The process-environment enumeration helper is called only by __exactGetAllEnv after its armed branch has returned the current principal overlay without consulting ambient host state."
           },
           "scope": "populateDiagnosticProcessEnvironment",
-          "sourceOffset": 175795,
+          "sourceOffset": 176294,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#::environ:dynamic:read",
           "stage": "post-arm-host-read"
@@ -94,7 +94,7 @@
             "summary": "The process-environment enumeration helper is called only by __exactGetAllEnv after its armed branch has returned the current principal overlay without consulting ambient host state."
           },
           "scope": "populateDiagnosticProcessEnvironment",
-          "sourceOffset": 174433,
+          "sourceOffset": 174932,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#GetEnvironmentStringsW:dynamic:read",
           "stage": "post-arm-host-read"
@@ -168,7 +168,7 @@
             "summary": "The process-environment enumeration helper is called only by __exactGetAllEnv after its armed branch has returned the current principal overlay without consulting ambient host state."
           },
           "scope": "populateDiagnosticProcessEnvironment",
-          "sourceOffset": 175754,
+          "sourceOffset": 176253,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#_NSGetEnviron:dynamic:read",
           "stage": "post-arm-host-read"
@@ -4271,7 +4271,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "installGlobals",
-          "sourceOffset": 177173,
+          "sourceOffset": 177672,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:EX_SKIP_STARTUP_HOST_FUNCTIONS:read",
           "stage": "armed-bootstrap-host-read"
@@ -4653,7 +4653,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "ex_hermes_create_impl",
-          "sourceOffset": 407113,
+          "sourceOffset": 407612,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:EX_WEB_STREAMS_POLYFILL:read",
           "stage": "armed-bootstrap-host-read"
@@ -4668,7 +4668,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "rootGlobalActivationApplies",
-          "sourceOffset": 330127,
+          "sourceOffset": 330626,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:EX_WEB_STREAMS_POLYFILL:read",
           "stage": "armed-bootstrap-host-read"
@@ -5471,7 +5471,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "installCompartmentRegistry",
-          "sourceOffset": 144664,
+          "sourceOffset": 145163,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:IBEX_COMPARTMENTS:read",
           "stage": "armed-bootstrap-host-read"
@@ -5707,7 +5707,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "installCompartmentRegistry",
-          "sourceOffset": 144619,
+          "sourceOffset": 145118,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:IBEX_LOCKDOWN:read",
           "stage": "armed-bootstrap-host-read"
@@ -6278,74 +6278,6 @@
           "sourceOffset": 3546,
           "sourcePath": "src/engine/hermes_runtime_http.cc",
           "sourceRef": "src/engine/hermes_runtime_http.cc#getenv:IBEX_TEST_HTTP_WAIT_IDLE_DELAY_MS:read",
-          "stage": "post-arm-host-read"
-        }
-      ]
-    },
-    {
-      "surfaceName": "env:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS",
-      "dynamic": false,
-      "dynamicKey": null,
-      "authoredNames": [
-        "IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS"
-      ],
-      "allowedStages": [
-        "post-arm-host-read"
-      ],
-      "occurrences": [
-        {
-          "accessor": "getenv",
-          "context": "startup-input",
-          "direction": "read",
-          "hostEnvironment": true,
-          "language": "cpp",
-          "occurrenceIndex": 0,
-          "postArmDisposition": "test-only-effect-hook",
-          "postArmEvidence": {
-            "sourceRefs": [
-              "src/engine/hermes_runtime_internal.h#IBEX_CAPSEC_CONFORMANCE_OBSERVER",
-              "src/engine/hermes_runtime_internal.h#exactTestDelayRuntimeProducer"
-            ],
-            "summary": "The runtime-producer delay hook is compiled only into the explicit CapSec conformance-observer artifact."
-          },
-          "scope": "exactTestDelayRuntimeProducer",
-          "sourceOffset": 11523,
-          "sourcePath": "src/engine/hermes_runtime_internal.h",
-          "sourceRef": "src/engine/hermes_runtime_internal.h#getenv:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS:read",
-          "stage": "post-arm-host-read"
-        }
-      ]
-    },
-    {
-      "surfaceName": "env:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS",
-      "dynamic": false,
-      "dynamicKey": null,
-      "authoredNames": [
-        "IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS"
-      ],
-      "allowedStages": [
-        "post-arm-host-read"
-      ],
-      "occurrences": [
-        {
-          "accessor": "getenv",
-          "context": "startup-input",
-          "direction": "read",
-          "hostEnvironment": true,
-          "language": "cpp",
-          "occurrenceIndex": 0,
-          "postArmDisposition": "test-only-effect-hook",
-          "postArmEvidence": {
-            "sourceRefs": [
-              "src/engine/hermes_runtime_internal.h#IBEX_CAPSEC_CONFORMANCE_OBSERVER",
-              "src/engine/hermes_runtime_internal.h#exactTestHoldRuntimeProducerAfterEnqueue"
-            ],
-            "summary": "The post-enqueue producer hold hook is compiled only into the explicit CapSec conformance-observer artifact."
-          },
-          "scope": "exactTestHoldRuntimeProducerAfterEnqueue",
-          "sourceOffset": 12306,
-          "sourcePath": "src/engine/hermes_runtime_internal.h",
-          "sourceRef": "src/engine/hermes_runtime_internal.h#getenv:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS:read",
           "stage": "post-arm-host-read"
         }
       ]

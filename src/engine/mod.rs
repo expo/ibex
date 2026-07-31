@@ -654,6 +654,51 @@ mod tests {
     use std::ffi::{c_void, CStr, CString};
     use std::os::raw::c_char;
 
+    /// Scoped delay injection for cross-thread runtime-callback producers.
+    /// Typed in-process state, not an environment variable: env-var
+    /// injection rode a process-global channel that unrelated tests capture,
+    /// restore, and clear, silently dropping another test's delay while its
+    /// producer thread was between publish and read (see
+    /// issues/closed/20260727-test-delay-injection-is-a-global-env-var.md).
+    #[cfg(feature = "capsec-conformance-observer")]
+    struct RuntimeCallbackDelayGuard;
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    impl RuntimeCallbackDelayGuard {
+        fn new(milliseconds: u64) -> Self {
+            unsafe { ibex_test_set_runtime_callback_delay_ms(milliseconds) };
+            Self
+        }
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    impl Drop for RuntimeCallbackDelayGuard {
+        fn drop(&mut self) {
+            unsafe { ibex_test_set_runtime_callback_delay_ms(0) };
+        }
+    }
+
+    /// Scoped producer-hold injection; counterpart of
+    /// [`RuntimeCallbackDelayGuard`], parking a foreign producer inside
+    /// `pushRuntimeCallback` after publish+notify.
+    #[cfg(feature = "capsec-conformance-observer")]
+    struct RuntimeProducerHoldGuard;
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    impl RuntimeProducerHoldGuard {
+        fn new(milliseconds: u64) -> Self {
+            unsafe { ibex_test_set_runtime_producer_hold_ms(milliseconds) };
+            Self
+        }
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    impl Drop for RuntimeProducerHoldGuard {
+        fn drop(&mut self) {
+            unsafe { ibex_test_set_runtime_producer_hold_ms(0) };
+        }
+    }
+
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     #[test]
     fn apple_open_file_sha256_matches_portable_digest() {
@@ -1159,6 +1204,10 @@ mod tests {
         ) -> u32;
         #[cfg(feature = "capsec-conformance-observer")]
         fn ex_hermes_current_runtime_nonce() -> u64;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_set_runtime_callback_delay_ms(milliseconds: u64);
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_set_runtime_producer_hold_ms(milliseconds: u64);
         #[cfg(feature = "capsec-conformance-observer")]
         fn ibex_test_reset_jsi_owner_release_observer();
         #[cfg(feature = "capsec-conformance-observer")]
@@ -4245,7 +4294,7 @@ function collect() {
         host.capabilities()
             .grant("*", "network:resolve:localhost", None);
         crate::host::abi::install_host(host);
-        std::env::set_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS", "100");
+        let _delay_guard = RuntimeCallbackDelayGuard::new(100);
 
         unsafe {
             let first = ex_hermes_create_diagnostic();
@@ -4292,8 +4341,6 @@ function collect() {
             );
             ex_hermes_destroy(third);
         }
-
-        std::env::remove_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS");
         let _ = std::fs::remove_file(temp);
     }
 
@@ -4326,7 +4373,7 @@ function collect() {
         host.capabilities()
             .grant("*", "network:fetch:127.0.0.1", None);
         crate::host::abi::install_host(host);
-        std::env::set_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS", "150");
+        let _delay_guard = RuntimeCallbackDelayGuard::new(150);
 
         unsafe {
             let first = ex_hermes_create_diagnostic();
@@ -4352,7 +4399,6 @@ function collect() {
         }
 
         server.join().expect("fetch lifetime server thread");
-        std::env::remove_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS");
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
@@ -4398,7 +4444,7 @@ function collect() {
         host.capabilities()
             .grant("*", "network:fetch:127.0.0.1", None);
         crate::host::abi::install_host(host);
-        std::env::set_var("IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS", "1500");
+        let _hold_guard = RuntimeProducerHoldGuard::new(1500);
 
         unsafe {
             ibex_test_reset_jsi_owner_release_observer();
@@ -4449,7 +4495,6 @@ function collect() {
         }
 
         server.join().expect("fetch owner server thread");
-        std::env::remove_var("IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS");
     }
 
     /// Sibling coverage for ex_hermes_resolve_host_call: an any-thread
@@ -4462,7 +4507,7 @@ function collect() {
         let _host_guard = crate::host::abi::host_test_lock();
         let host = crate::host::Host::strict();
         crate::host::abi::install_host(host);
-        std::env::set_var("IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS", "1500");
+        let _hold_guard = RuntimeProducerHoldGuard::new(1500);
 
         unsafe {
             ibex_test_reset_jsi_owner_release_observer();
@@ -4517,7 +4562,6 @@ function collect() {
             assert_eq!(ibex_test_jsi_owner_final_releases_off_owner_thread(), 0);
             ex_hermes_destroy(runtime);
         }
-        std::env::remove_var("IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS");
     }
 
     /// Stress the real NSURLSession completion path: many concurrent fetch
@@ -4535,8 +4579,6 @@ function collect() {
         const TOTAL_FETCHES: usize = 48;
 
         let _host_guard = crate::host::abi::host_test_lock();
-        std::env::remove_var("IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS");
-
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind fetch stress server");
         let port = listener.local_addr().unwrap().port();
         listener
@@ -4630,7 +4672,7 @@ function collect() {
         host.capabilities()
             .grant("*", "network:listen:127.0.0.1:0", None);
         crate::host::abi::install_host(host);
-        std::env::set_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS", "100");
+        let _delay_guard = RuntimeCallbackDelayGuard::new(100);
 
         unsafe {
             let first = ex_hermes_create_diagnostic();
@@ -4655,7 +4697,6 @@ function collect() {
             );
             ex_hermes_destroy(second);
         }
-        std::env::remove_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS");
     }
 
     #[cfg(target_os = "windows")]

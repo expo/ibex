@@ -6441,14 +6441,14 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       expect(first[category].length).toBeGreaterThan(0);
     }
     expect(first).toEqual(second);
-    const callbackDelayEnvironment = first.startup.find(
-      (row) => row.name === "env:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS",
+    const httpIdleDelayEnvironment = first.startup.find(
+      (row) => row.name === "env:IBEX_TEST_HTTP_WAIT_IDLE_DELAY_MS",
     );
-    expect(callbackDelayEnvironment).toBeDefined();
+    expect(httpIdleDelayEnvironment).toBeDefined();
     expect(
-      callbackDelayEnvironment.metadata.occurrences.some(
+      httpIdleDelayEnvironment.metadata.occurrences.some(
         (occurrence) =>
-          occurrence.sourcePath === "src/engine/hermes_runtime_internal.h",
+          occurrence.sourcePath === "src/engine/hermes_runtime_http.cc",
       ),
     ).toBe(true);
     expect(first.surfaces.map((row) => row.observedKey)).toEqual(

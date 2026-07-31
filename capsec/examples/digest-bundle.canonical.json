@@ -271126,26 +271126,6 @@
             "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
           },
           {
-            "id": "surface.startup.env.ibex.test.runtime.callback.delay.ms.0y5w9bi",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "startup",
-              "name": "env:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS"
-            },
-            "rationaleId": "runtime-bootstrap-state",
-            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-          },
-          {
-            "id": "surface.startup.env.ibex.test.runtime.producer.hold.ms.11ehh7l",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "startup",
-              "name": "env:IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS"
-            },
-            "rationaleId": "runtime-bootstrap-state",
-            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-          },
-          {
             "id": "surface.startup.env.ibex.test.transpile.input.barrier.07svevo",
             "classification": "non-capability",
             "surface": {

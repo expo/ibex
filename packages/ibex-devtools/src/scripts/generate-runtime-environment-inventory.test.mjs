@@ -358,10 +358,10 @@ describe("runtime environment stage inventory", () => {
         postArmDisposition: "test-only-effect-hook",
       }),
     ]);
-    expect(row("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS").occurrences).toEqual([
+    expect(row("IBEX_TEST_HTTP_WAIT_IDLE_DELAY_MS").occurrences).toEqual([
       expect.objectContaining({
-        scope: "exactTestDelayRuntimeProducer",
-        sourcePath: "src/engine/hermes_runtime_internal.h",
+        scope: "exactTestDelayHttpWaitWorkerIdle",
+        sourcePath: "src/engine/hermes_runtime_http.cc",
         stage: "post-arm-host-read",
         postArmDisposition: "test-only-effect-hook",
       }),

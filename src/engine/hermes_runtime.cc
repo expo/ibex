@@ -354,6 +354,19 @@ ibex_test_take_destroyed_structured_value_handle_count(
   return count;
 }
 
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+std::atomic<uint64_t> gIbexTestRuntimeCallbackDelayMs{0};
+std::atomic<uint64_t> gIbexTestRuntimeProducerHoldMs{0};
+
+extern "C" void ibex_test_set_runtime_callback_delay_ms(uint64_t milliseconds) {
+  gIbexTestRuntimeCallbackDelayMs.store(milliseconds, std::memory_order_seq_cst);
+}
+
+extern "C" void ibex_test_set_runtime_producer_hold_ms(uint64_t milliseconds) {
+  gIbexTestRuntimeProducerHoldMs.store(milliseconds, std::memory_order_seq_cst);
+}
+#endif
+
 extern "C" void ibex_test_reset_jsi_owner_release_observer() {
   g_trackedJsiOwnerFinalReleasesOnOwnerThread.store(0, std::memory_order_seq_cst);
   g_trackedJsiOwnerFinalReleasesOffOwnerThread.store(0, std::memory_order_seq_cst);

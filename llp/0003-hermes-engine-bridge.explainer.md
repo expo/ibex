@@ -288,10 +288,13 @@ owner's release path drains the JSI-bearing state on the runtime thread first.
 Observer builds enforce the rule end to end: fetch and host-call promise
 closures are allocated through a deleter that records which thread ran the
 final release, and regression tests park the producer after enqueue
-(`IBEX_TEST_RUNTIME_PRODUCER_HOLD_MS`) to force the drain-before-return
-ordering `[observed]` (`src/engine/hermes_runtime_fetch.cc`;
-`src/engine/hermes_runtime.cc`; `src/engine/hermes_runtime_internal.h`;
-`issues/20260726-native-fetch-jsi-last-owner-race.md`).
+(the typed `ibex_test_set_runtime_producer_hold_ms` observer knob — an
+in-process atomic, not an environment variable, so no other test's
+env capture/restore can silently drop a hold mid-flight) to force the
+drain-before-return ordering `[observed]`
+(`src/engine/hermes_runtime_fetch.cc`; `src/engine/hermes_runtime.cc`;
+`src/engine/hermes_runtime_internal.h`;
+`issues/closed/20260726-native-fetch-jsi-last-owner-race.md`).
 
 Cross-thread callback identity is the pair `(ExactHermesRuntime*,
 runtime_nonce)`, never the address alone. Destruction changes the registry row
