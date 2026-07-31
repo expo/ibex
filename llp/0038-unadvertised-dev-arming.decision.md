@@ -52,9 +52,23 @@ ceiling is raised to:
 | capability | resource | why |
 |---|---|---|
 | `fs:list`, `fs:read`, `fs:watch`, `fs:write` | `path-tree` rooted at `project` | file I/O within the project |
+| `lifecycle:exit` | `session-lifecycle` disposition `exit-request` | **cooperative exit must work** — see below |
 | `path:cwd-observe` | `session-state` `cwd` | **required for relative paths** |
 
 Ambient root then authorizes reads and writes inside the project.
+
+`lifecycle:exit` (`exit-request` disposition only) authorizes the cooperative
+exit request: the operator's Ctrl-D at an empty prompt, `.exit`, and a
+root-attributed `process.exit(n)`. LLP 0025 §8 pins orderly shutdown and
+root-attributed cooperative exit as *the* authorized lifecycle routes — only
+non-root attribution receives the typed denial. Without this row the step-6
+ceiling gate denied the operator's own EOF, and the secure-dev REPL published
+a prompt it could never exit cleanly (`exit 1`, "operator exit was denied by
+the typed lifecycle route"). The `exit-code-get`/`exit-code-set` dispositions
+are distinct resource identities (LLP 0025 §10) and stay **outside** the
+ceiling: `process.exitCode` reads and writes deny loudly under dev arming, so
+orderly shutdown consistently exits 0. Widen this only if dev workflows turn
+out to need root-scripted exit codes.
 
 `path:cwd-observe` is not optional in practice. Resolving a relative path such
 as `README.md` observes the session cwd *before* any `fs` effect is evaluated,
@@ -89,8 +103,8 @@ authorize them:
   `ERR_IBEX_OUTSIDE_MOUNT` — the ceiling covers the project subtree only.
 - **Other effects stay closed.** Network, environment, process spawn, and every
   other capability remain outside the ceiling and are still denied
-  (`process.env.HOME` reads as `undefined`). The only non-`fs` grant is
-  observing the cwd.
+  (`process.env.HOME` reads as `undefined`). The only non-`fs` grants are
+  observing the cwd and requesting the cooperative exit.
 - **Traversal does not escape.** `../../../etc/passwd` resolves to
   `ERR_IBEX_OUTSIDE_MOUNT`, same as an absolute outside path.
 - **Authored policies are never widened.** The ceiling is raised only on the

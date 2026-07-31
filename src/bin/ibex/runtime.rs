@@ -5217,11 +5217,26 @@ fn build_default_armed_host(
             "path": {"root": "project", "components": []},
         });
         let session_cwd = serde_json::json!({"kind": "session-state", "name": "cwd"});
+        // `lifecycle:exit`/`exit-request` authorizes the *cooperative exit
+        // request* — the operator Ctrl-D/`.exit` route and root-attributed
+        // `process.exit()`. Without it the step-6 ceiling gate denies the
+        // operator's own EOF and the secure-dev REPL cannot be exited
+        // cleanly (exit 1, "operator exit was denied by the typed lifecycle
+        // route"). The exit-code get/set dispositions are distinct resources
+        // and are NOT granted here, so orderly shutdown consistently exits 0.
+        // @ref LLP 0025#8-exit-and-lifecycle — orderly shutdown (Ctrl+D at an
+        // empty prompt, `.exit`) and root-attributed cooperative exit must
+        // succeed; only non-root attribution receives the typed denial.
+        let lifecycle_exit_request = serde_json::json!({
+            "kind": "session-lifecycle",
+            "disposition": "exit-request",
+        });
         policy["rootCeiling"] = serde_json::json!([
             ("fs:list", &project_tree),
             ("fs:read", &project_tree),
             ("fs:watch", &project_tree),
             ("fs:write", &project_tree),
+            ("lifecycle:exit", &lifecycle_exit_request),
             // `path:cwd-mutate` (process.chdir) is deliberately omitted: the
             // registry restricts it to `path-exact`, so it could only ever name
             // one exact directory rather than the project subtree.
