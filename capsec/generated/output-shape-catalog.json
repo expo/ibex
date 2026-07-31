@@ -45041,6 +45041,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.loader.function.javascript.asyncmodulesyncedgerefusal.0j4subf",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#asyncModuleSyncEdgeRefusal"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.loader.function.javascript.builtincachekeyfor.06poq58",
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
@@ -85683,9 +85692,9 @@
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
   "catalogKeyDigest": "sha256-gRT0c7XrbQwvkKtfqvK7SwxDY2OGX8vZME0OT_V0Hso",
   "counts": {
-    "coverageSurfaces": 7529,
+    "coverageSurfaces": 7530,
     "outputBearingSurfaces": 5819,
-    "structuralOnlySurfaces": 1705,
+    "structuralOnlySurfaces": 1706,
     "unresolvedSurfaces": 5,
     "catalogRows": 6520,
     "parameterizedBindings": 1,

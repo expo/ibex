@@ -272,7 +272,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 995,
+          "line": 999,
           "column": 36,
           "source": "result = entry.execute_function->call(rt);"
         }
@@ -294,7 +294,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 809,
+          "line": 813,
           "column": 33,
           "source": "auto result = record.factory->call("
         }
@@ -309,7 +309,7 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 2580,
+          "line": 2681,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) {"
         }
@@ -324,7 +324,7 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 2524,
+          "line": 2622,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) {"
         }
@@ -339,35 +339,35 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 1743,
+          "line": 1838,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) {"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 1821,
+          "line": 1916,
           "column": 75,
           "source": "auto trampolineConstructorValue = runtime->module_function_constructor->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 1829,
+          "line": 1924,
           "column": 63,
           "source": "trampolineConstructorValue.asObject(rt).asFunction(rt).call(rt);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 1836,
+          "line": 1931,
           "column": 41,
           "source": "runtime->module_compartment_binder->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 1843,
+          "line": 1938,
           "column": 35,
           "source": "auto factoryValue = trampoline.call("
         }
@@ -382,42 +382,42 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 3345,
+          "line": 3446,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime) || request_id == 0 ||"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 3432,
+          "line": 3533,
           "column": 13,
           "source": "reject->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 3446,
+          "line": 3547,
           "column": 14,
           "source": "resolve->call(rt, facebook::jsi::Value(rt, chain));"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 3466,
+          "line": 3567,
           "column": 13,
           "source": "reject->call(*runtime->runtime, completionError.value());"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 3471,
+          "line": 3572,
           "column": 13,
           "source": "reject->call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 3480,
+          "line": 3581,
           "column": 13,
           "source": "reject->call("
         }
@@ -432,21 +432,21 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 1946,
+          "line": 2041,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) {"
         },
         {
           "kind": "engine-eval-or-prepare",
           "operation": "evaluateJavaScript",
-          "line": 2044,
+          "line": 2139,
           "column": 27,
           "source": "auto tableValue = rt.evaluateJavaScript(buffer, label);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 2070,
+          "line": 2165,
           "column": 41,
           "source": "runtime->module_compartment_binder->call("
         }
@@ -461,35 +461,35 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 3513,
+          "line": 3614,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) {"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 3555,
+          "line": 3656,
           "column": 33,
           "source": "auto namespaceValue = create.call(rt, facebook::jsi::Value::null());"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 3587,
+          "line": 3688,
           "column": 21,
           "source": "defineProperty.call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 3593,
+          "line": 3694,
           "column": 22,
           "source": "preventExtensions.call(rt, namespaceObject);"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 3833,
+          "line": 3934,
           "column": 40,
           "source": "auto instanceValue = entry->factory->call(rt, exportFunction, context);"
         }
@@ -504,7 +504,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 4073,
+          "line": 4174,
           "column": 27,
           "source": "auto value = stringify.call(rt, *entry->namespace_object);"
         }
@@ -519,14 +519,14 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 3886,
+          "line": 3987,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) {"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 3908,
+          "line": 4009,
           "column": 28,
           "source": "entry->declare_function->call(*runtime->runtime);"
         }
@@ -541,7 +541,7 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 3947,
+          "line": 4048,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) {"
         }
@@ -585,7 +585,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 1501,
+          "line": 1505,
           "column": 25,
           "source": "promiseConstructor.callAsConstructor(rt, executor);"
         }

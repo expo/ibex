@@ -6246,6 +6246,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:javascript:_loadNamedStreamInternal",
     "function:javascript:_resolveAbortError",
     "function:javascript:addResolved",
+    "function:javascript:asyncModuleSyncEdgeRefusal",
     "function:javascript:builtinCacheKeyFor",
     "function:javascript:captureDevServedModuleTable",
     "function:javascript:checkImportGate",
@@ -10539,6 +10540,7 @@ function loaderClassification(surface) {
     }
     if (
       new Set([
+        "function:javascript:asyncmodulesyncedgerefusal",
         "function:javascript:closedgeneratedsingleprincipal",
         "function:javascript:indexafterdynamicimport",
         "function:javascript:indexafterlowereddynamicimport",

@@ -160292,6 +160292,16 @@
             "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
           },
           {
+            "id": "surface.loader.function.javascript.asyncmodulesyncedgerefusal.0j4subf",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "function:javascript:asyncModuleSyncEdgeRefusal"
+            },
+            "rationaleId": "pure-in-memory-compute",
+            "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+          },
+          {
             "id": "surface.loader.function.javascript.builtincachekeyfor.06poq58",
             "classification": "non-capability",
             "surface": {

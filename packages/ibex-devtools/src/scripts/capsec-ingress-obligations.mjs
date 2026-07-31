@@ -750,7 +750,10 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-file-ingress",
       "impl AuthenticatedFileIngress {",
       "fn expected_identity_from_snapshot(",
-      "sha256-CFLFhkyRPRa2_Eu2bZJMb3O57Ulo8LeD7fTM5Inc2ZA",
+      // Restamped 2026-07-31: 1a9e8234 added the LLP 0042 committed-admission
+      // gate (parse-free publication attempted first; any refusal rebuilds
+      // cold and never rejoins the refused cache generation).
+      "sha256-Xy6O5FqO6aNU32dKQAk6y9IxVPrbf0m52BxEEip_358",
     ),
     freezeReviewedRange(
       "runtime-file-execution",

@@ -140058,6 +140058,37 @@
       ]
     },
     {
+      "edgeId": "surface.loader.function.javascript.asyncmodulesyncedgerefusal.0j4subf",
+      "observedKey": "loader:function:javascript:asyncModuleSyncEdgeRefusal",
+      "branchId": "surface.loader.function.javascript.asyncmodulesyncedgerefusal.0j4subf.main",
+      "enforcementBranchId": "surface.loader.function.javascript.asyncmodulesyncedgerefusal.0j4subf.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:javascript:asyncModuleSyncEdgeRefusal"
+        ],
+        "proofSourceRefs": [
+          "src/engine/bootstrap/module-loader.js#asyncModuleSyncEdgeRefusal"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#asyncModuleSyncEdgeRefusal"
+        ],
+        "terminalObservedKey": "loader:function:javascript:asyncModuleSyncEdgeRefusal"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#asyncModuleSyncEdgeRefusal"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.loader.function.javascript.asyncmodulesyncedgerefusal.0j4subf.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.loader.function.javascript.builtincachekeyfor.06poq58",
       "observedKey": "loader:function:javascript:builtinCacheKeyFor",
       "branchId": "surface.loader.function.javascript.builtincachekeyfor.06poq58.main",
@@ -282317,7 +282348,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-yuF9zuCcWPPkkYuNc_22BrFHStzFJacv11fK8zGRbyY"
+      "rawContentDigest": "sha256-NpsNsLutv_3ddKTZI98e7kwjvr8cO_BJOxl2bYzHxjA"
     },
     {
       "kind": "output-disposition-dataset",
@@ -282332,44 +282363,44 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-l4NXTn_nvBXqpqcmBNocmTYnMelR76WbrVoY50uBr3E"
+      "rawContentDigest": "sha256-LLcFIIyValWFsQEExtm__4D76mLWGT90lPrdq5rZqb0"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-D6BGpmjli1v5X-6YjvRmOw26yx1yW3ijwpC72MG_Ho4"
+      "rawContentDigest": "sha256-D5yanWN4VqGYOZYW9h-LYJQriEM9Y6Tk0pxbeCClWBw"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-Y21H2Mq4VkRYS_7SnMMRC-bPV_z88P2qePxjCmc9qJc"
+      "rawContentDigest": "sha256-SFjtvEXtYmaQIXfrjfyHPRuDEXQOVTxHf0z5-F_JW_c"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-nKir5ZBRqm4NWRj58uDHTMKjxjbef_mYyU8VR-IIUnQ"
+      "rawContentDigest": "sha256-K75_oEnTnYL6UOSQxPzMap2hqu2UWsR5LH1kj2WIjVs"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-zrJzoSvzR2pWvchrDBf20CICXZnyhaooQTUHgNEt0gM"
+      "rawContentDigest": "sha256-uDPV1rgxEWY5etcX265r2ZD9XjUQ1_-zmwpl_nifbXI"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-_eOsas8xb__NnGrNdfR54ooW6zvstSSAa_u5ohDt5Zk"
+      "rawContentDigest": "sha256-cpHojP4HyfUFAe73wPirTgknNmGqyy4X9ShZL2dvgJE"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-yNe0G4jUqmKTLpgQZfamHAVcvvMWN94saPHmg1ucdmM"
+      "rawContentDigest": "sha256-cJeo31lZGSEA-qfsHRyGjrv8wazhbG9QjO1WdG8P9Sw"
     }
   ],
   "counts": {
-    "observedReferences": 13386,
-    "logicalSurfaces": 7529,
-    "enforcementBranches": 7830,
-    "coverageEdges": 7529,
-    "targetCells": 15058
+    "observedReferences": 13387,
+    "logicalSurfaces": 7530,
+    "enforcementBranches": 7831,
+    "coverageEdges": 7530,
+    "targetCells": 15060
   }
 }
