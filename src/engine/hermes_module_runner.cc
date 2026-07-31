@@ -595,6 +595,17 @@ facebook::jsi::Value evaluateCommonJsRecord(
           }
           if (binding->second.kind ==
               NativeCommonJsRequireTargetKind::Esm) {
+            // Refuse an async-tainted target closure BEFORE any member body
+            // runs. The prelinked eligibility bit is the host's TLA
+            // classification for this exact edge; evaluating first and
+            // detecting the returned promise afterwards would execute the
+            // target as a side effect of a refusal.
+            // @ref LLP 0026#7-commonjs-interop
+            if (!binding->second.esm_synchronous_eligible) {
+              throw facebook::jsi::JSError(
+                  rt,
+                  "ERR_REQUIRE_ASYNC_MODULE: require() target graph contains top-level await");
+            }
             evaluateSynchronousRequiredEsm(
                 rt,
                 target.runtime,

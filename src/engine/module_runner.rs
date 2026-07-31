@@ -2775,6 +2775,11 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         authorizer: &ModuleGraphAuthorizer<'_, P>,
         authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
     ) -> Result<Self> {
+        // Authored call-time edges must be refused at this eager linker
+        // boundary before any authorization or TLA classification runs; the
+        // deferred entry points below are the only sanctioned path for them.
+        // @ref LLP 0024#3-source-goal
+        plan.ensure_native_call_time_edges_supported()?;
         let evaluation_order = plan.synchronous_evaluation_order(entry)?;
         let mut receipts =
             plan.authorize_reachable_operations(entry, authorizer, authority_contexts)?;
@@ -2805,6 +2810,10 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
         prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>,
     ) -> Result<Self> {
+        // @ref LLP 0024#3-source-goal — same eager-boundary refusal as
+        // `link_authorized`; a prepared graph cannot reintroduce eager
+        // authorization of call-time edges.
+        plan.ensure_native_call_time_edges_supported()?;
         let evaluation_order = plan.synchronous_evaluation_order(entry)?;
         let mut receipts =
             plan.authorize_reachable_operations(entry, authorizer, authority_contexts)?;
@@ -3952,6 +3961,10 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
         authorizer: &ModuleGraphAuthorizer<'_, P>,
         authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
     ) -> Result<Self> {
+        // @ref LLP 0024#3-source-goal — eager-boundary refusal of authored
+        // call-time edges before any authorization (see the synchronous
+        // linker); deferred entry points are the sanctioned path.
+        plan.ensure_native_call_time_edges_supported()?;
         let schedule = plan.asynchronous_evaluation_plan(entry)?;
         let mut receipts =
             plan.authorize_reachable_operations(entry, authorizer, authority_contexts)?;
@@ -3978,6 +3991,9 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
         authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
         prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>,
     ) -> Result<Self> {
+        // @ref LLP 0024#3-source-goal — same eager-boundary refusal for the
+        // prepared asynchronous entry.
+        plan.ensure_native_call_time_edges_supported()?;
         let schedule = plan.asynchronous_evaluation_plan(entry)?;
         let mut receipts =
             plan.authorize_reachable_operations(entry, authorizer, authority_contexts)?;

@@ -6262,8 +6262,14 @@ mod tests {
         fs::rename(&package_root, &original).unwrap();
         fs::rename(&substitute, &package_root).unwrap();
 
+        // A replaced armed binding root is a broken armed identity, not
+        // ordinary absence: classification matches the armed read path
+        // (`authenticated_package_binding_root_replacement_is_stale`) and the
+        // replaced-project-root precedent
+        // (`root_replacement_is_refused_without_leaking_host_path`), which
+        // both report ERR_IBEX_STALE_IDENTITY on a fresh lookup.
         let error = session.chdir(b"/project/node_modules/a/sub").unwrap_err();
-        assert_eq!(error.reason(), VfsReason::Absent);
+        assert_eq!(error.reason(), VfsReason::StaleIdentity);
         assert_eq!(session.current_cwd().unwrap(), b"/project");
     }
 
