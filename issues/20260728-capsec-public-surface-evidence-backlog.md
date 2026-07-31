@@ -5,7 +5,11 @@
 **Systems:** Security, Conformance, CI
 **Author:** Codex, directed by Charlie Cheever
 **Date:** 2026-07-28
-**Related:** LLP 0021; issues/20260717-sfe-capsec-advertisement.md
+**Related:** LLP 0021; issues/20260717-sfe-capsec-advertisement.md;
+LLP 0044 (Draft, 2026-07-31 — proposes collapsing this backlog's cost via
+scoped advertisement + obligation-vocabulary audits + the mechanized
+family loop; if accepted, this ticket's "each shipped target's required
+rows" criterion binds to the declared v1.1 scope)
 
 ## Problem
 

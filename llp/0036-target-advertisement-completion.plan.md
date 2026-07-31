@@ -349,6 +349,12 @@ strategic question below load-bearing.
 
 ### Strategic question this forces
 
+> **2026-07-31:** [LLP 0044](./0044-scoped-advertisement-and-evidence-cost-collapse.rfc.md)
+> (Draft) is the proposed resolution of this question: scoped
+> advertisement (option b), obligation-vocabulary audits extending the
+> step-1 precedent (option a), and the D-ruled mechanized family loop,
+> composed as one v1.1 design with an author-decision register.
+
 Because there is no bulk shortcut, the highest-leverage move may not be authoring
 at all but **reducing the bar**: (a) extend the internally-verified
 classification (LLP 0036 step 1) to any *reachable* scenario-class that is in
