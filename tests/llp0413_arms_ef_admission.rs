@@ -304,6 +304,52 @@ fn admit_publication(publication: &LoadedPublication) -> Result<()> {
     Ok(())
 }
 
+/// A flipped manifest byte must refuse somewhere on the REAL admission join:
+/// either `decode_and_admit` itself, or — when the flip lands inside an
+/// `entryId` spelling, which this layer deliberately does not digest-bind —
+/// the vouched-index entry lookup, where records name entries by the index's
+/// own spellings. Admission through BOTH layers is the failure this probe
+/// exists to catch (see
+/// issues/closed/20260729-hbc-carrier-manifest-entryid-tamper-latitude.md).
+fn assert_manifest_flip_refused_at_join(
+    publication: &LoadedPublication,
+    manifest_bytes: &[u8],
+    carrier_bytes: &[u8],
+    admission: &PreparedCarrierAdmissionV2,
+    position: usize,
+    label: &str,
+) -> Result<()> {
+    let mut tampered_manifest = manifest_bytes.to_vec();
+    tampered_manifest[position] ^= 0x01;
+    let Ok(admitted) =
+        AdmittedPreparedCarrierV2::decode_and_admit(&tampered_manifest, carrier_bytes, admission)
+    else {
+        return Ok(());
+    };
+    let carrier_records = publication
+        .records
+        .iter()
+        .filter(|record| record.carrier_index == 0)
+        .collect::<Vec<_>>();
+    if carrier_records.is_empty() {
+        bail!("carrier 0 has no index records to join against");
+    }
+    let join_refuses = carrier_records.iter().any(|record| {
+        admitted.entry(&record.entry_id).is_err()
+            || admitted
+                .manifest()
+                .prepared_artifact(&record.entry_id)
+                .is_err()
+    });
+    if !join_refuses {
+        bail!(
+            "tampered carrier manifest ({label}, byte {position}) was admitted \
+             through the full index join"
+        );
+    }
+    Ok(())
+}
+
 fn assert_tamper_refusals(publication: &LoadedPublication) -> Result<()> {
     let principals = publication.expected_carrier_principals()?;
     let (manifest_bytes, carrier_bytes) = publication
@@ -327,18 +373,68 @@ fn assert_tamper_refusals(publication: &LoadedPublication) -> Result<()> {
         bail!("tampered carrier bytes were admitted");
     }
 
-    // One flipped byte in the manifest refuses (canonicality or digest,
-    // whichever it lands on — refusal either way).
+    // The historical positional probe, now asserted against the full join
+    // rather than decode_and_admit alone: at manifest.len()/2 the flipped
+    // byte can land inside an entryId digest string and stay strict-JSON,
+    // canonical, and digest-consistent at this layer.
+    assert_manifest_flip_refused_at_join(
+        publication,
+        manifest_bytes,
+        carrier_bytes,
+        &admission,
+        manifest_bytes.len() / 2,
+        "positional middle byte",
+    )?;
+
+    // Deterministic digest-checked probe: a flip inside the carrier_digest
+    // value must refuse at decode itself (recompute mismatch), independent
+    // of the index join.
+    let digest_marker = b"\"carrier_digest\":\"sha256-";
+    let digest_at = find_subslice(manifest_bytes, digest_marker)
+        .ok_or_else(|| anyhow!("manifest has no carrier_digest field"))?
+        + digest_marker.len()
+        + 4;
     let mut tampered_manifest = manifest_bytes.clone();
-    let middle = tampered_manifest.len() / 2;
-    tampered_manifest[middle] ^= 0x01;
+    tampered_manifest[digest_at] ^= 0x01;
     if AdmittedPreparedCarrierV2::decode_and_admit(&tampered_manifest, carrier_bytes, &admission)
         .is_ok()
     {
-        bail!("tampered carrier manifest was admitted");
+        bail!("carrier_digest flip was admitted at decode");
+    }
+
+    // Deterministic entryId probes: flip the middle byte of every index
+    // record's entryId spelling inside the manifest. decode_and_admit is
+    // allowed to accept these (entry ids are index-join-bound, not
+    // digest-bound here); the join must refuse.
+    for record in publication
+        .records
+        .iter()
+        .filter(|record| record.carrier_index == 0)
+    {
+        let quoted = format!("\"{}\"", record.entry_id);
+        let Some(at) = find_subslice(manifest_bytes, quoted.as_bytes()) else {
+            bail!(
+                "carrier 0 manifest does not spell index entry {}",
+                record.entry_id
+            );
+        };
+        assert_manifest_flip_refused_at_join(
+            publication,
+            manifest_bytes,
+            carrier_bytes,
+            &admission,
+            at + 1 + record.entry_id.len() / 2,
+            &format!("entryId {}", record.entry_id),
+        )?;
     }
     println!("tamper refusals hold for {}", publication.label);
     Ok(())
+}
+
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }
 
 /// LLP 0413 §14 item 16: a carrier whose entries span two defining

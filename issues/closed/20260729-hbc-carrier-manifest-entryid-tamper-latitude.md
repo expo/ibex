@@ -60,3 +60,37 @@ Repro: run `llp0413_arms_ef_admission` with
 `EXACT_LLP0413_PUBLICATION_DIR` pointing at a publication whose carrier-0
 manifest has an `entryId` byte at `len()/2` (the Exact D2 contract-lab
 `per-principal-hbc` publication is one).
+
+## Resolution (2026-07-31)
+
+Disposition 1 (harness), plus the documentation half of disposition 2.
+
+- `tests/llp0413_arms_ef_admission.rs`: the manifest tamper probe now asserts
+  refusal of the FULL admission join — `decode_and_admit` may accept a flip
+  that lands inside an entryId spelling, but then at least one of the
+  carrier's index records must fail `entry()`/`prepared_artifact()` lookup by
+  the index's own spelling. Probes are deterministic: the historical
+  middle-byte position (kept, now join-asserted), a byte inside the
+  digest-checked `carrier_digest` value (must refuse at decode itself), and
+  the middle byte of every carrier-0 index record's entryId spelling.
+- `src/module_loader/carrier.rs`: new lib test
+  `entry_id_manifest_flip_refuses_at_the_admission_join` reproduces the
+  latitude self-contained (inline JS factory-table carrier, entryId byte
+  flip keeps the manifest canonical) and asserts the join refuses; written to
+  also accept refusal at decode so an optional future spelling-binding
+  hardening does not invalidate it. Runs in ordinary `cargo test --lib`, no
+  Exact publication needed.
+- `PreparedModuleCarrierV2::validate` now documents what it binds and that
+  entryId spellings are deliberately index-join-bound (hermes-bytecode table
+  keys cannot be cross-checked at this layer).
+
+Decoder hardening (byte-containment of entry ids in digest-bound JS factory
+source) remains optional and unimplemented, per the ticket's "either is
+fine" analysis.
+
+Verification: `cargo test --lib module_loader::carrier` 4/4 green
+(new test exercised for real); `cargo test --test llp0413_arms_ef_admission`
+compiles and skips vacuously here — no `EXACT_LLP0413_PUBLICATION_DIR`
+publication exists on this machine, so the reworked gated probes are
+compile-verified and logic-mirrored by the lib test; the next Exact-side
+LLP 0413 run exercises them against real publications.

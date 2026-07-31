@@ -245,6 +245,13 @@ impl PreparedModuleCarrierV2 {
             .ok_or_else(|| anyhow!("prepared carrier has no entry {entry_id:?}"))
     }
 
+    // Binds carrier BYTES (carrier_digest recompute), each entry's SEMANTICS
+    // (semantic_digest recompute), ordering/uniqueness, and principal
+    // agreement. It deliberately does NOT bind entryId SPELLINGS: for
+    // hermes-bytecode carriers the table keys live inside compiled bytecode
+    // and cannot be cross-checked at this layer, so spellings are bound by
+    // the vouched index join instead — lookups use the index's entryIds and
+    // a renamed manifest entry fails at entry()/prepared_artifact().
     fn validate(&self, bytes: &[u8]) -> Result<()> {
         if self.schema != PREPARED_CARRIER_SCHEMA_V2 {
             bail!("unsupported prepared carrier schema {:?}", self.schema);
@@ -665,6 +672,50 @@ mod tests {
         let mut malformed = bytes;
         malformed[32..36].copy_from_slice(&129u32.to_le_bytes());
         assert!(HermesBytecodeMetadataV1::inspect(&malformed).is_err());
+    }
+
+    /// An entryId spelling is not digest-bound at this layer (the vouched
+    /// index join binds it: lookups use the index's spellings, so a renamed
+    /// manifest entry fails at `entry()`/`prepared_artifact()`). A flip
+    /// inside an entryId must therefore refuse on the FULL admission join
+    /// even when `decode_and_admit` alone accepts the still-canonical
+    /// manifest. See
+    /// issues/closed/20260729-hbc-carrier-manifest-entryid-tamper-latitude.md.
+    #[test]
+    fn entry_id_manifest_flip_refuses_at_the_admission_join() {
+        let owner = principal("project");
+        let local = artifact(owner.clone(), "local.mjs");
+        let (manifest, bytes) = PreparedModuleCarrierV2::from_inline_artifacts(
+            owner.clone(),
+            NonEmptyString::new("prepared-producer").unwrap(),
+            digest("prepared-producer"),
+            digest("deployment-graph"),
+            [(NonEmptyString::new("entry-aa").unwrap(), verified(&local))],
+        )
+        .unwrap();
+        let canonical = manifest.encode_canonical().unwrap();
+        let quoted = b"\"entry-aa\"";
+        let at = canonical
+            .windows(quoted.len())
+            .position(|window| window == quoted)
+            .unwrap();
+        let mut tampered = canonical.clone();
+        tampered[at + 1 + "entry-aa".len() / 2] ^= 0x01;
+        assert_ne!(tampered, canonical);
+
+        match AdmittedPreparedCarrierV2::decode_and_admit(
+            &tampered,
+            &bytes,
+            &admission(owner, &manifest),
+        ) {
+            // Refusal at decode is fine too (a future hardening may bind
+            // spellings into the digest-checked source).
+            Err(_) => {}
+            Ok(admitted) => {
+                assert!(admitted.entry("entry-aa").is_err());
+                assert!(admitted.manifest().prepared_artifact("entry-aa").is_err());
+            }
+        }
     }
 
     #[test]
