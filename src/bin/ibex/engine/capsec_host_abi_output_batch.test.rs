@@ -2631,6 +2631,9 @@ fn execute_legacy_readdir(sandbox: &FsSandbox) -> Result<Value, String> {
 }
 
 fn execute_legacy_output(validated: &ValidatedRow, sandbox: &FsSandbox) -> Result<Value, String> {
+    // Covers the legacy sub-helpers too (path success/error/refusal,
+    // readdir, and the non-EPERM primer are only reachable from here).
+    let _host_lock = ambient_host_registry_lock();
     let result = match (
         validated.operation.as_str(),
         validated.mode.as_str(),
@@ -2665,7 +2668,21 @@ fn open_fixture(path: &Path, flags: u32) -> *mut crate::host::abi::ExactFileHand
     handle
 }
 
+/// Serializes an immediate helper's use of the process-global Host registry
+/// against every owned-runtime constructor (which takes the same engine lock
+/// itself and holds it in the struct). The lock lives DOWN here in the
+/// helpers, never at the batch top level: a top-level guard self-deadlocks
+/// the non-reentrant tokio mutex the moment `execute_host_abi_output_rows`
+/// constructs an owned runtime (verified 2026-07-27; see
+/// issues/closed/20260727-host-abi-batch-helpers-race-in-parallel.md).
+/// Helpers that construct their owned runtime (worklet, diagnostic, module
+/// runner, …) must NOT take this — their constructor already serializes.
+fn ambient_host_registry_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    hermes_engine_test_lock().blocking_lock()
+}
+
 fn execute_fs(function_name: &str, selector: &str, sandbox: &FsSandbox) -> Result<Value, String> {
+    let _host_lock = ambient_host_registry_lock();
     let file = sandbox.reset_file(&format!("{function_name}.txt"));
     let path = c_string(&file);
     let bytes = b"bounded";
@@ -2848,6 +2865,7 @@ fn open_sqlite_memory() -> u64 {
 }
 
 fn execute_sqlite(function_name: &str, sandbox: &FsSandbox) -> Result<Value, String> {
+    let _host_lock = ambient_host_registry_lock();
     let result = match function_name {
         "ex_host_sqlite_open" => {
             let memory = CString::new(":memory:").unwrap();
@@ -2970,6 +2988,7 @@ fn execute_sqlite(function_name: &str, sandbox: &FsSandbox) -> Result<Value, Str
 }
 
 fn execute_terminal(function_name: &str, selector: &str) -> Result<Value, String> {
+    let _host_lock = ambient_host_registry_lock();
     let result = match function_name {
         "ex_host_session_descriptor_alias_source_route" => {
             returned_number(crate::host::abi::ex_host_session_descriptor_alias_source_route(0))
@@ -3023,6 +3042,7 @@ fn fresh_legacy_host() {
 }
 
  fn execute_basic(function_name: &str) -> Result<Value, String> {
+    let _host_lock = ambient_host_registry_lock();
     fresh_legacy_host();
     let capability = CString::new("fs:read:/project/output.js").unwrap();
     let specifier = CString::new("node:path").unwrap();
