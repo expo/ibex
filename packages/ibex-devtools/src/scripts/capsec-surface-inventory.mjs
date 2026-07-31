@@ -13252,7 +13252,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       sourceRef: "260318099.0.0-stable",
       sourceVersion: "260318099.0.0",
       sourceInstallerAuthorityDigest:
-        "sha256-8535852d61ce0bb32cb3fc58426260909e6bdc4d2f35dbd248e481dbfea2fa9d",
+        "sha256-886f7b34e6f2d2d3cdffb1ca6b962ebb3239c55b4d513c8005634e62a4cae0bf",
     },
     reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
     sourceRefs: [

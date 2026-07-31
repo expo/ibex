@@ -52,11 +52,11 @@ const REVIEWED_PROFILE_DIGEST =
   // sourceInstallerAuthorityDigest move (install-windows-hermes.ps1 gh-probe
   // fix); same review as the evaluator review-id restamp in
   // capsec-coverage-model.mjs.
-  "sha256-f0cf7c4deaa128a52a6cf1b8f0292869cb6bc7d3addb1452b9c0df51961c5ef4";
+  "sha256-695fd4c9d81b622e689a1a23b8f1961d58f18600a00b806a3eead41bc2154a67";
 const REVIEWED_SOURCE_REVIEW_DIGEST =
   // Restamped 2026-07-31 alongside REVIEWED_PROFILE_DIGEST above (same
   // installer-authority move, same review).
-  "sha256-1c4701c6f8e88ec38e0d558bb723d34d552d710abad88e46edb92cd5c4f17573";
+  "sha256-3eae32ded97ed981f38c1a0030ca0529a202b7168cfdaea52798d5b1af79d3f3";
 
 const REVIEWED_SOURCE_NODE_DIGESTS = Object.freeze({
   bufferImplementation:

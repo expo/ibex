@@ -66,3 +66,16 @@ green). The prebuilt asset key embeds the installer git blob, so the
 `hermes-artifacts.yml` workflow publishes the new asset name on landing;
 existing installed artifacts self-invalidate against the new receipt
 expectations and reinstall/rebuild on next run (by design, fail-closed).
+
+### Addendum (2026-07-31, pre-merge review)
+
+The adversarial review found two remaining bare `gh` invocations
+(`gh release download`, `gh attestation verify`) that could still terminate
+the installer under stream-capturing PowerShell 5.1 hosts (ISE/remoting)
+before the fallbacks ran. Both now route through `Invoke-GitHubCliQuietly`
+(same relaxed-preference shape as the probe, success by exit code alone);
+the test file's guard additionally refuses any bare top-level
+`gh release`/`gh attestation` statement. The installer digest moved again,
+so `sourceInstallerAuthorityDigest`, the evaluator review id, and the
+inherited-intrinsic-alias profile/source-review digests were restamped a
+second time with the full chain green.

@@ -132,11 +132,20 @@ test("treats a missing GitHub CLI as an unavailable transport", () => {
 test("routes every gh availability decision through the guarded probe", () => {
   assert.ok(usableHelper, "installer is missing Test-GitHubCliUsable");
   // The stderr-redirected inline probe is exactly the PowerShell 5
-  // terminating-error shape this file exists to keep out.
+  // terminating-error shape this file exists to keep out — and no bare gh
+  // invocation may run under the script-level Stop preference at all
+  // (stream-capturing 5.1 hosts convert its first stderr line into a
+  // terminating error before the exit code is inspected).
   assert.doesNotMatch(installerSource, /^\s*gh auth status 2>\$null/mu);
+  assert.doesNotMatch(installerSource, /^\s*gh (?:release|attestation) /mu);
   const callSites = installerSource.match(/Test-GitHubCliUsable/gu);
   assert.ok(
     callSites.length >= 3,
     "expected the definition plus both transport call sites",
+  );
+  const quietSites = installerSource.match(/Invoke-GitHubCliQuietly/gu);
+  assert.ok(
+    quietSites.length >= 3,
+    "expected the definition plus the download and attestation call sites",
   );
 });

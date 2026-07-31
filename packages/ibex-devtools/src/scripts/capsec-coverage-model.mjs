@@ -3026,7 +3026,7 @@ const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
   // made an unusable GitHub CLI degrade to the HTTPS/-Source fallbacks
   // (issues/20260727-windows-hermes-installer-unauthenticated-gh-fallback.md);
   // attestation, digest, and provenance requirements are unchanged.
-  "hermes-evaluators.273ffdb5de99340412f69e79f5fc788ec2ebbcbf946f3566abbf64f8c292bcff";
+  "hermes-evaluators.f555092087f5120b4bec97b4d587c7577b86ad39d7b427761b41691df01eeed6";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-17da17dbe9239bda0640545bfc0fd669f4127b920148c66076bec63d1c8d0ec1";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([

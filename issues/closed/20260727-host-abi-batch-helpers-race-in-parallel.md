@@ -45,12 +45,15 @@ Audit of the `execute_immediate_host_abi_output` dispatch:
   at its top also covers `execute_legacy_path_success`/`_error`/`_refusal`,
   `execute_legacy_readdir`, and `prime_non_eperm_fs_error`, which are only
   reachable from it).
-- **Deliberately untouched** (their owned-runtime constructors already take
-  the same non-reentrant lock and hold it in the struct — wrapping them
-  would self-deadlock): `execute_javascript_absence`, `execute_http_output`,
+- **Also take the lock** (correction from the pre-merge adversarial review:
+  `OwnedDiagnosticRuntime::new()` takes NO lock and installs the legacy Host
+  via `fresh_legacy_host()`, so these were a live stomp path too):
   `execute_hermes_diagnostic`, `execute_app_bundle_route`,
-  `execute_module_runner_output`, `execute_bounded_dispatch`,
-  `execute_owned_value`, `execute_authenticated_armed_create`,
+  `execute_bounded_dispatch`, `execute_owned_value`.
+- **Deliberately untouched** (their owned-runtime constructors take the same
+  non-reentrant lock and hold it in the struct — wrapping them would
+  self-deadlock): `execute_javascript_absence`, `execute_http_output`,
+  `execute_module_runner_output`, `execute_authenticated_armed_create`,
   `execute_authenticated_session_output`, `execute_owned_runtime_teardown`
   (locks at its top itself).
 - **No lock needed**: `execute_hermes_stateless`, `execute_engine_path_output`,

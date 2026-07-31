@@ -2671,8 +2671,13 @@ fn open_fixture(path: &Path, flags: u32) -> *mut crate::host::abi::ExactFileHand
 /// the non-reentrant tokio mutex the moment `execute_host_abi_output_rows`
 /// constructs an owned runtime (verified 2026-07-27; see
 /// issues/closed/20260727-host-abi-batch-helpers-race-in-parallel.md).
-/// Helpers that construct their owned runtime (worklet, diagnostic, module
-/// runner, …) must NOT take this — their constructor already serializes.
+/// Helpers whose owned-runtime constructor takes this same lock itself
+/// (authenticated VFS/typed/session/module-runner fixtures, and
+/// `execute_owned_runtime_teardown`, which locks at its own top) must NOT
+/// take it again. `OwnedDiagnosticRuntime::new()` is the exception: it
+/// installs the legacy Host WITHOUT locking, so the four diagnostic-family
+/// helpers take this lock before constructing it. Worklet runtimes touch no
+/// global Host state and need nothing.
 fn ambient_host_registry_lock() -> tokio::sync::MutexGuard<'static, ()> {
     hermes_engine_test_lock().blocking_lock()
 }
@@ -4799,6 +4804,7 @@ fn execute_http_output(function_name: &str) -> Result<Value, String> {
 }
 
 fn execute_bounded_dispatch(function_name: &str, selector: &str) -> Result<Value, String> {
+    let _host_lock = ambient_host_registry_lock();
     let runtime = OwnedDiagnosticRuntime::new()?;
     let observation = match function_name {
         "ex_hermes_dispatch_worklet_calls" => {
@@ -4853,6 +4859,7 @@ fn free_native_owned_bytes(bytes: NativeOwnedBytes) {
 }
 
 fn execute_owned_value(function_name: &str, selector: &str) -> Result<Value, String> {
+    let _host_lock = ambient_host_registry_lock();
     let runtime = OwnedDiagnosticRuntime::new()?;
     let source: &[u8] = match function_name {
         "ex_hermes_value_safe_throw_metadata" => b"throw new Error('bounded safe throw metadata')",
@@ -5246,6 +5253,7 @@ fn execute_hermes_stateless(function_name: &str, selector: &str) -> Result<Value
 }
 
 fn execute_app_bundle_route(function_name: &str, selector: &str) -> Result<Value, String> {
+    let _host_lock = ambient_host_registry_lock();
     let runtime = OwnedDiagnosticRuntime::new()?;
     let raw = runtime.raw;
     let mut error = std::ptr::null_mut();
@@ -5280,6 +5288,7 @@ fn execute_app_bundle_route(function_name: &str, selector: &str) -> Result<Value
 }
 
 fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Value, String> {
+    let _host_lock = ambient_host_registry_lock();
     let runtime = OwnedDiagnosticRuntime::new()?;
     let result = match function_name {
         "ex_hermes_callback_backlog" => {

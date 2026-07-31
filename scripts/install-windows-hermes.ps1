@@ -347,6 +347,27 @@ function Test-GitHubCliUsable {
   }
 }
 
+# Runs a gh transport/verification attempt with the same terminating-stderr
+# conversion disarmed (a failed attempt is an expected outcome that must
+# leave the HTTPS and -Source fallbacks reachable, even in hosts that route
+# native stderr through PowerShell's error stream) and reports success by
+# exit code alone.
+function Invoke-GitHubCliQuietly {
+  param([string[]]$Arguments)
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    & gh @Arguments *> $null
+    return $LASTEXITCODE -eq 0
+  }
+  catch {
+    return $false
+  }
+  finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+}
+
 function Invoke-SourceBuild {
   Write-Host "Building the pinned patched Windows Hermes artifact from source."
   & $builder -Arch $Arch
@@ -360,12 +381,13 @@ function Test-ReviewedBuildProvenance {
     Write-Warning "An authenticated GitHub CLI is required to verify Windows Hermes build provenance; refusing an unattested prebuilt Windows Hermes bundle."
     return $false
   }
-  gh attestation verify $Archive `
-    --repo $reviewedAttestationRepo `
-    --signer-workflow $reviewedAttestationWorkflow `
-    --source-ref $reviewedAttestationSourceRef `
-    --deny-self-hosted-runners | Out-Null
-  if ($LASTEXITCODE -ne 0) {
+  if (-not (Invoke-GitHubCliQuietly @(
+        "attestation", "verify", $Archive,
+        "--repo", $reviewedAttestationRepo,
+        "--signer-workflow", $reviewedAttestationWorkflow,
+        "--source-ref", $reviewedAttestationSourceRef,
+        "--deny-self-hosted-runners"
+      ))) {
     Write-Warning "GitHub build-provenance verification failed for $asset."
     return $false
   }
@@ -399,9 +421,13 @@ try {
   $checksum = "$archive.sha256"
   $downloaded = $false
   if (Test-GitHubCliUsable) {
-    gh release download $tag --repo $artifactRepo --dir $tempRoot `
-      --pattern $asset --pattern "$asset.sha256"
-    $downloaded = $LASTEXITCODE -eq 0
+    $downloaded = Invoke-GitHubCliQuietly @(
+      "release", "download", $tag,
+      "--repo", $artifactRepo,
+      "--dir", $tempRoot,
+      "--pattern", $asset,
+      "--pattern", "$asset.sha256"
+    )
   }
   if (-not $downloaded) {
     $base = "https://github.com/$artifactRepo/releases/download/$tag"
