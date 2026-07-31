@@ -48,9 +48,15 @@ const RUNTIME_BOOTSTRAP_PATH = "packages/ibex-runtime-js/src/bootstrap.ts";
 const COMPAT_BOOTSTRAP_PATH = "src/engine/bootstrap/compat-polyfills.js";
 
 const REVIEWED_PROFILE_DIGEST =
-  "sha256-b89474c3235ce8a0ec8bdcfb9b87ab52aa0f7f80795cbae05d4a52d8615074a9";
+  // Restamped 2026-07-31 with the windows-source-patched
+  // sourceInstallerAuthorityDigest move (install-windows-hermes.ps1 gh-probe
+  // fix); same review as the evaluator review-id restamp in
+  // capsec-coverage-model.mjs.
+  "sha256-f0cf7c4deaa128a52a6cf1b8f0292869cb6bc7d3addb1452b9c0df51961c5ef4";
 const REVIEWED_SOURCE_REVIEW_DIGEST =
-  "sha256-d2066823cb8ebe7dd0331b8e5ec9b23d7c36aae6b877988434cbebfb6d595ff8";
+  // Restamped 2026-07-31 alongside REVIEWED_PROFILE_DIGEST above (same
+  // installer-authority move, same review).
+  "sha256-1c4701c6f8e88ec38e0d558bb723d34d552d710abad88e46edb92cd5c4f17573";
 
 const REVIEWED_SOURCE_NODE_DIGESTS = Object.freeze({
   bufferImplementation:
