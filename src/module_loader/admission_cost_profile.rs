@@ -27,8 +27,7 @@ use std::time::{Duration, Instant};
 use super::super::artifact::{
     semantics_digest, source_integrity, CanonicalSourceId, CommonJsExportsV1, ModulePayloadV1,
     ModuleSemanticsV1, ProducerIdentityV1, SourceDialectV1, SourceGoalV1, SourceMapV1,
-    TransformFingerprintV1, MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
-    MODULE_ARTIFACT_SEMANTIC_DOMAIN_V1,
+    TransformFingerprintV1, MODULE_ARTIFACT_FACTORY_DOMAIN_V1, MODULE_ARTIFACT_SEMANTIC_DOMAIN_V1,
 };
 use super::super::carrier::PREPARED_CARRIER_BYTES_DOMAIN_V1;
 use super::*;
@@ -84,8 +83,9 @@ fn record_semantics(
     // Compat-loader CJS record shape: require edges + detector output, no
     // ESM descriptors, VLQ-alphabet mappings sized like real Vite output.
     const MAPPING_PATTERN: &str = "AACA,QAASA,SAAS,EAAG;";
-    let mappings =
-        MAPPING_PATTERN.repeat(mapping_bytes / MAPPING_PATTERN.len() + 1)[..mapping_bytes].to_owned();
+    let mappings = MAPPING_PATTERN.repeat(mapping_bytes / MAPPING_PATTERN.len() + 1)
+        [..mapping_bytes]
+        .to_owned();
     ModuleSemanticsV1 {
         source_id: CanonicalSourceId(source_id.clone()),
         source_goal: SourceGoalV1::CommonJs,
@@ -148,7 +148,10 @@ fn build_publication(dir: &Path, shape: &Shape) -> BuiltPublication {
 
     let per_package = package_carrier_records(shape);
     let root_records = shape.records - per_package * (shape.carriers - 1);
-    assert!(root_records >= 1, "shape leaves no records for the root carrier");
+    assert!(
+        root_records >= 1,
+        "shape leaves no records for the root carrier"
+    );
 
     let mut index_records = Vec::with_capacity(shape.records);
     let mut index_carriers = Vec::with_capacity(shape.carriers);
@@ -202,10 +205,7 @@ fn build_publication(dir: &Path, shape: &Shape) -> BuiltPublication {
                     artifact
                         .verify_for_admission(&ArtifactAdmissionV1::TrustedInProcess {
                             expected_source_id: artifact.semantics.source_id.0.clone(),
-                            expected_source_integrity: artifact
-                                .semantics
-                                .source_integrity
-                                .clone(),
+                            expected_source_integrity: artifact.semantics.source_integrity.clone(),
                             expected_producer_id: producer_id.clone(),
                             producer_binary_digest: producer_binary_digest.clone(),
                             transform_fingerprint_digest: artifact
@@ -324,11 +324,8 @@ fn build_publication(dir: &Path, shape: &Shape) -> BuiltPublication {
         target: "dev".to_owned(),
         entry_source_id: non_empty(&entry_source_id.unwrap().encode().unwrap()),
         deployment_graph_digest,
-        publication_root_digest: digest_bytes(
-            PREPARED_PUBLICATION_ROOT_DOMAIN_V1,
-            &index_bytes,
-        )
-        .unwrap(),
+        publication_root_digest: digest_bytes(PREPARED_PUBLICATION_ROOT_DOMAIN_V1, &index_bytes)
+            .unwrap(),
         producer: capsec_semantics::arming::PreparedGraphProducerV1 {
             id: producer_id,
             binary_digest: producer_binary_digest,
@@ -403,9 +400,12 @@ fn measure_breakdown(
     // Index: read, strict parse, JCS re-canonicalize + compare, root digest,
     // typed decode.
     let t = Instant::now();
-    let index_bytes =
-        read_bounded_prepared_file(&dir.join("index.json"), MAX_PREPARED_INDEX_BYTES_V1, "graph index")
-            .unwrap();
+    let index_bytes = read_bounded_prepared_file(
+        &dir.join("index.json"),
+        MAX_PREPARED_INDEX_BYTES_V1,
+        "graph index",
+    )
+    .unwrap();
     b.io_index = t.elapsed();
 
     let text = std::str::from_utf8(&index_bytes).unwrap();
@@ -593,8 +593,7 @@ fn measure_breakdown(
             .unwrap();
         let inner_fp = t.elapsed();
         b.record_fingerprint_digest_verify += inner_fp;
-        b.record_verify_other +=
-            verify_total.saturating_sub(inner_semantics + inner_fp);
+        b.record_verify_other += verify_total.saturating_sub(inner_semantics + inner_fp);
         // verify_for_admission itself runs both recomputes; account them in
         // their buckets rather than double-counting under "other".
         b.record_semantics_digest_validate += inner_semantics;
@@ -702,7 +701,11 @@ fn run_cell(shape: &Shape) {
         shape.name,
         shape.carriers,
         shape.records,
-        if shape.hbc { "hermes-bytecode" } else { "javascript-factory-table" },
+        if shape.hbc {
+            "hermes-bytecode"
+        } else {
+            "javascript-factory-table"
+        },
         shape.mapping_bytes,
     );
     eprintln!(
@@ -732,22 +735,40 @@ fn run_cell(shape: &Shape) {
     row("io: manifest reads", b.io_manifests);
     row("io: carrier-bytes reads", b.io_carriers);
     row("index: strict-JSON parse", b.index_parse_strict);
-    row("index: JCS re-canonicalize + compare", b.index_jcs_recanonicalize);
+    row(
+        "index: JCS re-canonicalize + compare",
+        b.index_jcs_recanonicalize,
+    );
     row("index: root sha256", b.index_root_sha256);
     row("index: typed decode (from_value)", b.index_typed_decode);
     row("index: commitment facets", b.commitment_facets);
     row("index: file inventory", b.file_inventory);
-    row("carriers: encoding peek (Value parse)", b.carrier_encoding_peek);
-    row("carriers: manifest strict-JSON parse", b.manifest_parse_strict);
-    row("carriers: manifest JCS re-canon + compare", b.manifest_jcs_recanonicalize);
+    row(
+        "carriers: encoding peek (Value parse)",
+        b.carrier_encoding_peek,
+    );
+    row(
+        "carriers: manifest strict-JSON parse",
+        b.manifest_parse_strict,
+    );
+    row(
+        "carriers: manifest JCS re-canon + compare",
+        b.manifest_jcs_recanonicalize,
+    );
     row("carriers: manifest typed decode", b.manifest_typed_decode);
     row("carriers: bytes sha256", b.carrier_bytes_sha256);
     row(
         "carriers: entry semantics serde to_value",
         b.carrier_entry_semantics_to_value,
     );
-    row("carriers: entry semantics JCS", b.carrier_entry_semantics_jcs);
-    row("carriers: entry semantics sha256", b.carrier_entry_semantics_sha256);
+    row(
+        "carriers: entry semantics JCS",
+        b.carrier_entry_semantics_jcs,
+    );
+    row(
+        "carriers: entry semantics sha256",
+        b.carrier_entry_semantics_sha256,
+    );
     row(
         "carriers: authorized-digest membership",
         b.carrier_authorized_membership,
@@ -766,7 +787,10 @@ fn run_cell(shape: &Shape) {
         b.record_semantics_digest_validate,
     );
     row("records: verify residual (compares)", b.record_verify_other);
-    row("authorized-set clones (records+carriers)", b.authorized_set_clones);
+    row(
+        "authorized-set clones (records+carriers)",
+        b.authorized_set_clones,
+    );
     row("records: assembly (bindings/display)", b.record_assembly);
     eprintln!(
         "  {:<44} {component_sum:>9.2}ms ({:.1}% of end-to-end; remainder = untimed moves/allocs)",
@@ -812,7 +836,11 @@ fn admission_cost_profile_fixture_admits_and_refuses_tamper() {
         assert_eq!(admitted.carrier_count, 3);
 
         // Single-byte tamper in carrier bytes refuses (digest mismatch).
-        let bytes_file = dir.path().join(if hbc { "carrier-001.hbc" } else { "carrier-001.js" });
+        let bytes_file = dir.path().join(if hbc {
+            "carrier-001.hbc"
+        } else {
+            "carrier-001.js"
+        });
         let mut bytes = std::fs::read(&bytes_file).unwrap();
         let last = bytes.len() - 1;
         bytes[last] ^= 0x01;
@@ -827,7 +855,9 @@ fn admission_cost_profile_fixture_admits_and_refuses_tamper() {
         let Err(error) = refused else {
             panic!("tampered carrier bytes must refuse admission");
         };
-        assert!(error.to_string().contains("do not match the manifest digest"));
+        assert!(error
+            .to_string()
+            .contains("do not match the manifest digest"));
     }
 }
 
@@ -999,8 +1029,10 @@ fn semantic_hint_never_bypasses_a_tampered_digest() {
         // Different semantics, declared digest: semantics mismatch.
         (&other_semantics, &tampered_digest),
     ] {
-        let refused = artifact
-            .verify_for_admission_with_semantic_hint(&admission, Some((hint_semantics, hint_digest)));
+        let refused = artifact.verify_for_admission_with_semantic_hint(
+            &admission,
+            Some((hint_semantics, hint_digest)),
+        );
         assert!(
             refused.is_err()
                 && refused

@@ -146,7 +146,10 @@ fn dev_unarmed_committed_startup_evaluates_compat_abi_factories() {
         .unwrap();
     runtime.drive_compiled_event_loop_to_quiescence().unwrap();
     let canary = runtime
-        .eval_text("String(globalThis.__microCanary)", "llp0413-micro-canary-read")
+        .eval_text(
+            "String(globalThis.__microCanary)",
+            "llp0413-micro-canary-read",
+        )
         .unwrap();
     assert_eq!(canary.trim(), "42", "microtask canary did not settle");
 
@@ -206,10 +209,7 @@ fn dev_unarmed_committed_startup_evaluates_compat_abi_factories() {
         "exact-dev:other-target",
     );
     assert_eq!(outcome.status, 1);
-    assert!(outcome
-        .error
-        .unwrap()
-        .contains("IBEX_DEV_COMMITTED_TARGET"));
+    assert!(outcome.error.unwrap().contains("IBEX_DEV_COMMITTED_TARGET"));
 }
 
 /// Exact LLP 0413 §10 Phase 3: hermes-bytecode carriers through the same
@@ -317,7 +317,10 @@ fn dev_unarmed_committed_startup_evaluates_hbc_carriers() {
         &commitment("wrong-version/commitment.json"),
         "exact-dev:test",
     );
-    assert_eq!(outcome.status, 1, "wrong-version must refuse pre-evaluation");
+    assert_eq!(
+        outcome.status, 1,
+        "wrong-version must refuse pre-evaluation"
+    );
     let error = outcome.error.unwrap();
     assert!(
         error.contains("different engine"),

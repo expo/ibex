@@ -3558,18 +3558,16 @@ pub(crate) fn admit_committed_publication_v1(
         // manifest and carrier bytes and refuses downstream. The engine
         // identity itself always comes from the CALLER (the loaded engine),
         // never from the publication (Exact LLP 0413 §14 item 12).
-        let declares_hermes_bytecode = serde_json::from_slice::<serde_json::Value>(
-            &manifest_bytes,
-        )
-        .ok()
-        .and_then(|value| {
-            value
-                .get("encoding")
-                .and_then(|encoding| encoding.get("kind"))
-                .and_then(serde_json::Value::as_str)
-                .map(|kind| kind == "hermes-bytecode")
-        })
-        .unwrap_or(false);
+        let declares_hermes_bytecode = serde_json::from_slice::<serde_json::Value>(&manifest_bytes)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("encoding")
+                    .and_then(|encoding| encoding.get("kind"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(|kind| kind == "hermes-bytecode")
+            })
+            .unwrap_or(false);
         let (expected_engine_binding, expected_bytecode_version) = if declares_hermes_bytecode {
             let engine = hbc_engine.ok_or_else(|| {
                 anyhow!(
@@ -5591,8 +5589,7 @@ pub mod dev_committed_embedder {
     };
 
     const DEV_UNARMED_AUTHORITY: &str = "dev-unarmed-dev-served (non-production)";
-    const DEV_FINGERPRINT_POSTURE: &str =
-        "dev-vouched-index-external-producer (LLP 0043 pending)";
+    const DEV_FINGERPRINT_POSTURE: &str = "dev-vouched-index-external-producer (LLP 0043 pending)";
     const DEV_PREPARED_GRAPH_COMMITMENT_SCHEMA_V1: &str = "ibex/prepared-graph-commitment/1";
 
     /// Admission + evaluation receipt for one dev-unarmed committed startup.
@@ -5942,9 +5939,8 @@ pub mod dev_committed_embedder {
             SourceId::File { principal, path } => {
                 let mut components = Vec::with_capacity(path.len());
                 for component in path {
-                    let text = std::str::from_utf8(component.bytes()).map_err(|_| {
-                        anyhow!("dev committed record path component is not UTF-8")
-                    })?;
+                    let text = std::str::from_utf8(component.bytes())
+                        .map_err(|_| anyhow!("dev committed record path component is not UTF-8"))?;
                     // '?' stays displayable: Vite query-bearing module ids
                     // (`x.contract?import`, `y.wasm?url`) are distinct
                     // modules whose identity includes the query (LLP 0413
@@ -5955,9 +5951,7 @@ pub mod dev_committed_embedder {
                             .any(|ch| ch.is_control() || matches!(ch, '%' | '#' | '\\'))
                         || text.contains(char::is_whitespace)
                     {
-                        bail!(
-                            "dev committed record path component is not displayable: {text:?}"
-                        );
+                        bail!("dev committed record path component is not displayable: {text:?}");
                     }
                     components.push(text.to_owned());
                 }
@@ -6056,27 +6050,28 @@ pub mod dev_committed_embedder {
         if !out_error.is_null() {
             unsafe { *out_error = std::ptr::null_mut() };
         }
-        let outcome = (|| -> Result<DevUnarmedCommittedStartupReportV1, DevCommittedStartupError> {
-            let runtime = NonNull::new(runtime).ok_or_else(|| {
-                pre_evaluation(anyhow!("dev committed startup received a null runtime"))
-            })?;
-            let publication_dir = unsafe { required_utf8(publication_dir, "publication dir") }
-                .map_err(pre_evaluation)?;
-            let commitment_json = unsafe { required_utf8(commitment_json, "commitment") }
-                .map_err(pre_evaluation)?;
-            let expected_target = unsafe { required_utf8(expected_target, "expected target") }
-                .map_err(pre_evaluation)?;
-            let project_root = unsafe { required_utf8(project_root, "project root") }
-                .map_err(pre_evaluation)?;
-            run_prepared_graph_committed_dev_unarmed_v1(
-                runtime,
-                runtime_nonce,
-                Path::new(publication_dir),
-                commitment_json,
-                expected_target,
-                Path::new(project_root),
-            )
-        })();
+        let outcome =
+            (|| -> Result<DevUnarmedCommittedStartupReportV1, DevCommittedStartupError> {
+                let runtime = NonNull::new(runtime).ok_or_else(|| {
+                    pre_evaluation(anyhow!("dev committed startup received a null runtime"))
+                })?;
+                let publication_dir = unsafe { required_utf8(publication_dir, "publication dir") }
+                    .map_err(pre_evaluation)?;
+                let commitment_json = unsafe { required_utf8(commitment_json, "commitment") }
+                    .map_err(pre_evaluation)?;
+                let expected_target = unsafe { required_utf8(expected_target, "expected target") }
+                    .map_err(pre_evaluation)?;
+                let project_root = unsafe { required_utf8(project_root, "project root") }
+                    .map_err(pre_evaluation)?;
+                run_prepared_graph_committed_dev_unarmed_v1(
+                    runtime,
+                    runtime_nonce,
+                    Path::new(publication_dir),
+                    commitment_json,
+                    expected_target,
+                    Path::new(project_root),
+                )
+            })();
         match outcome {
             Ok(report) => {
                 match serde_json::to_string(&report) {
