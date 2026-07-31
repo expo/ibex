@@ -73,3 +73,18 @@ the exact static engine compatibility identity and bytecode version. A focused
 fixture proves both the accepted tuple and static-binding substitution refusal.
 After that complete preflight, release execution refuses at the compiled-arming
 and CapSec-advertisement gate rather than falling back to the diagnostic Host.
+
+## Remaining (verified 2026-07-31)
+
+- Swap fixtures (same-Hermes/different-stub, producer-newer/stub-older)
+  do not exist; `StubContractV1.accepted_schemas`/`accepted_abis` are
+  validated against constants but never consulted during boot admission.
+- No negative test passes a wrong contract digest to
+  `admit_executable_v1` (existing negatives mutate footer/section bytes).
+- A release contract cannot currently be produced:
+  `COMPILED_ENVIRONMENT_PROFILE_RELEASE_ELIGIBLE = false`
+  (src/compiled_environment_profile_generated.rs) gates
+  `release_stub_contract`, which has no non-test caller.
+- Stale digest in the Progress text: the CapSec runtime projection is
+  now `sha256-d1CUhCLd_-DrR27vEBEm8BWzwrqLkGq_yn1-sq6UAGU`
+  (src/capsec_runtime_projection_generated.rs), not `sha256-3CpJtaP2…`.

@@ -79,3 +79,23 @@ The remaining work is privileged-control migration/inertness, child-process and
 cross-principal isolation fixtures, and the LLP 0022 enumeration revision.
 Author decision 2 still controls the restore allowlist and therefore release
 eligibility.
+
+## Remaining (verified 2026-07-31)
+
+- DONE: pre-init capture + default-deny sanitize (C shim, ordering
+  probes, fail-closed boot), generated allowlist plumbing, broker base
+  with exact reads and authorization-gated enumeration, launch-value
+  survival fixture. The LLP 0022 enumeration revision has LANDED
+  (llp/0022 §Compiled-program exception) — the Progress text listing it
+  as remaining is stale.
+- Register item 2 (allowlist contents) still blocks release:
+  `allowlistDecision.status = "blocked-on-author-decision-2"`,
+  `releaseEligible: false`.
+- Privileged-control migration incomplete: fetch.ts still reads
+  `NODE_TLS_REJECT_UNAUTHORIZED`/`NODE_EXTRA_CA_CERTS` and Crypto.ts
+  reads `NODE_ENV`/`EXACT_ALLOW_INSECURE_CRYPTO` from mutable
+  `process.env`; `__exactHostEnv` remains a live read path (only the
+  three bootstrap compat controls migrated).
+- No compiled-mode child-inheritance or cross-principal isolation
+  fixtures exist (existing env tests are source-mode).
+- Stale count: the profile now classifies 167 consumers, not 155.

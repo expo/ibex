@@ -54,3 +54,19 @@ terminal code-signature superblob in terminal `__LINKEDIT`, after the unique
 payload. Synthetic malformed-layout tests are green. Developer ID/hardened
 runtime, minimum-OS, signature-replacement, notarization, and two-clean-builder
 release vectors remain, so this issue is not complete.
+
+## Remaining (verified 2026-07-31)
+
+- The injection/refusal mechanism is built, but the acceptance signing
+  vectors are absent: no Developer ID / hardened-runtime / notarization
+  coverage, no minimum-macOS (`LC_BUILD_VERSION`) handling, and no
+  strip→inject→sign→re-sign replacement vector (ad-hoc signing is a
+  shell smoke in scripts/test-sfe-phase0.sh, not a byte-level vector).
+- "Synthetic malformed-layout tests are green" overstates: the refusals
+  (leftover signature, duplicates, bad slack, malformed linkedit) are
+  implemented in crates/sfe-format/src/macho.rs but only two `#[test]`s
+  exist and neither is a malformed-layout test; nothing in tests/
+  references `macho::`.
+- Two-clean-builder reproducibility currently means two checkouts on
+  one builder, macOS-arm only per run; scripts/test-sfe-phase0.sh is
+  not wired into CI.

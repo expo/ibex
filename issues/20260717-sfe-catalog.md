@@ -48,3 +48,14 @@ requires the exact fixed production `hermesc` recipe digest, and the public
 compile route has no caller-selected catalog option: it can load only the
 content-addressed catalog named by its build-time trust-root constant. Host catalog population,
 the release-compiled digest constant/CLI fetch path, and the Linux entry remain.
+
+## Remaining (verified 2026-07-31)
+
+- No catalog manifest exists on disk for either v1 tuple;
+  `CatalogManifestV1` is constructed only in tests. The trust root is
+  unset (`IBEX_RELEASE_SFE_CATALOG_DIGEST` set by nothing in the repo)
+  and no fetch/update CLI subcommand exists — the header's "explicit
+  fetch/update command" describes intended, not current, behavior.
+- Met: `ibex compile` refuses non-catalog stubs (trust root acquired
+  before source access) and pinned-digest verification has unit-level
+  rollback/substitution fixtures; unmet: the same over real artifacts.

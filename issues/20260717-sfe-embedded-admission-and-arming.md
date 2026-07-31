@@ -60,3 +60,21 @@ recognized. The remaining work is the embedded authority snapshot and compiled
 Host construction, followed by authority-denial/bootstrap split fixtures on
 both release tuples; those steps depend on the unresolved LLP 0029 author
 decisions governing environment authority and the first target advertisement.
+
+## Remaining (verified 2026-07-31)
+
+- DONE: pinned-fd self-image acquisition with native identity proof and
+  replacement/relocation subprocess test; embedded protected-artifact
+  identity + LLP 0021 arming-ABI revision; stub-level wrong-engine/
+  wrong-version refusals.
+- Disk-free arming is NOT started: the stub validates the embedded
+  policy but never arms (`install_host(Host::strict())`, no nonce, no
+  authority snapshot); the release path fail-closes before evaluation.
+- No authority-denial or bootstrap/application-split fixtures exist for
+  the compiled path; no two-tuple fixture matrix; no CI job; no
+  syscall-level proof of "no fs/network reads at boot" (plausible but
+  untested; dev stub still rpath-links Hermes dynamically).
+- Stale claim: the Progress text says remaining steps await the
+  first-target-advertisement decision — register item 4 was re-resolved
+  2026-07-29 (v1 ships fail-closed); only register item 2 (env
+  allowlist) still blocks.

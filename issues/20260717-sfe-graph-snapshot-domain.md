@@ -72,3 +72,20 @@ independently recaptures that graph and re-admits the policy against it before
 carrier compilation. The remaining graph-domain work is the authority-bearing
 armed package-graph projection and the clean-root comparison using populated
 release catalog cells.
+
+## Remaining (verified 2026-07-31)
+
+- DONE: cross-language golden vectors; one snapshot binds policy,
+  carriers, and envelope on the compiled/embedded path; inter-step
+  mutation refusal; hermesc recipe digest contract; checkout-path
+  invariance (unit-level).
+- The divergent-graph fixture (Rolldown vs module-runner semantic
+  divergence, the LLP 0029 review-resolution criterion) has zero
+  implementation — the Progress text reads as two items remaining but
+  it is three.
+- Clean-root HBC byte comparison does not exist outside prose; the only
+  reproducibility harness is the factory-table dev-pack script.
+- The armed `packageGraph` is still digested under its own
+  `ibex:capsec:package-graph:1` domain (src/bin/ibex/runtime.rs:5433),
+  not a normative projection of the snapshot; and the legacy deployment
+  path still uses `ibex/rolldown-deployment-graph/1`.

@@ -5,7 +5,7 @@
 **Systems:** CapSec, Testing, CI
 **Author:** Claude Fable 5 (Claude Code), directed by Charlie Cheever
 **Date:** 2026-07-31
-**Related:** issues/closed/20260728-capsec-public-surface-evidence-backlog (adjacent program),
+**Related:** issues/20260728-capsec-public-surface-evidence-backlog.md (adjacent program),
 `.github/workflows/ci.yml` Preflight
 
 `bun test packages` fails 4 tests at origin/main (verified 2026-07-31 in a

@@ -52,3 +52,19 @@ timer, emits a brokered line, selects status 7, and proves both the line and
 status survive. SIGINT/SIGTERM/SIGHUP cleanup, privileged `process.exit`
 control-plane migration/inert exit-listener behavior, non-UTF-8 subprocess
 execution, both release tuples, and the decision-gated stdio/cwd rows remain.
+
+## Remaining (verified 2026-07-31)
+
+- DONE (dev tuple, behind `sfe-dev-spike`): argv pass-through incl.
+  reserved words, `process.argv`/`argv0`/`execArgv` shape, event-loop
+  drain, `process.exitCode`, output-broker flush on all exit paths.
+- Unicode argv rejection is unit-tested only; no end-to-end
+  non-UTF-8-argv fixture exists.
+- NOT started: uncaught-exception/unhandled-rejection exit semantics,
+  privileged `process.exit` (still throws), all signal handling in the
+  compiled stub (SIGINT/SIGTERM/SIGHUP + signal-derived status).
+- Release tuples: release compiled arming remains closed; everything
+  landed is dev-spike-gated and the signed relocation smoke is
+  macOS-only.
+- stdio/cwd remains blocked on LLP 0029 register item 1 (author
+  decision).

@@ -1,6 +1,6 @@
 # Retirement manifest + cargo-metadata prefix gate
 
-**Status:** Open
+**Status:** Closed (2026-07-31)
 **Impact:** 4
 **Urgency:** 3
 **Ease:** 3
@@ -49,3 +49,17 @@ off); prefix check green with a self-test.
 This remains **In Progress** until the engine-surgery change flips the
 manifest to its negative end state and the prefix gate passes with no SWC
 packages.
+
+## Resolution (closed 2026-07-31)
+
+Verified complete against the Done-when: `config/oxc-retirement-manifest.json`
+is generated and frozen (schema `ibex/oxc-retirement-manifest/1`, frozen
+2026-07-17) with all ten `surface.loader.*.swc.*` IDs, the three symbols, all
+six cache tags/namespaces, and all six env contracts (plus
+`IBEX_COMPAT_LOADER_TEST`); the cargo-metadata/Cargo.lock `swc_` prefix gate
+runs in CI (`bun run check:oxc-retirement`, .github/workflows/ci.yml) over
+both dependency profiles, with self-tests covering inventory drift and
+forbid-prefix rejection. `bun run check:oxc-retirement` verified green
+2026-07-31. The remaining action — flipping `dependencyGate.mode` from
+`inventory` to `forbid-prefix` — happens with the SWC deletion and is owned
+by issues/20260717-oxc-engine-surgery.md.

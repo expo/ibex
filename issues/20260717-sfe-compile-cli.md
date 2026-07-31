@@ -88,3 +88,23 @@ analysis must match its root/package file inventory, integrity values, package
 principals, and entry identity. The distributing binary still has no populated
 release catalog, and compiled authority arming remains gated by the author
 decisions recorded in LLP 0029.
+
+## Remaining (verified 2026-07-31)
+
+- `--deny-unsupported` is inert: parsed and threaded, but its only
+  effect is picking an error string — no unsupported-site diagnostic,
+  no refusal upgrade.
+- The TOCTOU/divergence fixtures named in the body do not exist for the
+  compile route (closest is a publication-level mutation refusal).
+- `inspect-executable` derives `expected_engine_binding` from the
+  manifest under inspection (src/bin/ibex/sfe.rs:596-616), so a
+  wrong-engine carrier is self-consistent at the inspect route; only
+  the stub cross-checks against the contract. No wrong-engine refusal
+  test exists for the compile/inspect CLI pair.
+- Two-clean-builder reproducibility for `ibex compile` is untested (the
+  only byte comparison is the dev-pack factory-table script, not in CI).
+- The public compile route is unreachable until a release catalog trust
+  root is compiled in (`IBEX_RELEASE_SFE_CATALOG_DIGEST` never set).
+- `CompilePlanV1` is constructed after capture/compile and consumed as
+  provenance cross-check, not as the single immutable producer input
+  the body describes.

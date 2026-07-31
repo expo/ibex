@@ -1,7 +1,8 @@
 # Committed-admission cost: blog-scale profile, M2 wave, and held designs
 
-**Status:** Open (tracking held items and follow-ups; the M2 wave itself is
-implemented on `admission-cost-profile`)
+**Status:** Open (tracking held items and follow-ups; the M2 wave landed on
+main — commits `e71cc491`, `ff8fd4e6`, `6616c850`, `6e314bcc` — and the
+`admission-cost-profile` branch is deleted)
 **Systems:** Module Loader, Prepared Publications, CapSec Semantics
 **Author:** Claude Fable 5 (Claude Code)
 **Date:** 2026-07-30

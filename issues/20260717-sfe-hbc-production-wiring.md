@@ -83,3 +83,14 @@ fixture, publishes the envelope, and re-admits the resulting release contracts.
 The compiled stub now admits release provenance and verifies every HBC carrier's
 static compatibility binding and bytecode version before execution. Execution
 under a compiled Host on both release tuples remains gated.
+
+## Remaining (verified 2026-07-31)
+
+- Refusal fixtures (wrong-engine, compiler/stub mismatch, substitution)
+  are DONE across carrier admission, stub cross-check, and catalog.
+- HBC has never executed from an envelope end-to-end: real HBC execution
+  is in-process via the linker only; the phase-0 envelope script
+  publishes factory-table carriers; the full-HBC envelope test uses a
+  synthetic non-executable stub and is macOS-arm-only (no Linux leg).
+- The production route is unreachable in every build:
+  `IBEX_RELEASE_SFE_CATALOG_DIGEST` is set by nothing in the repo.

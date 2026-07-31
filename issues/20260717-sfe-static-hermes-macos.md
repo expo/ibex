@@ -14,8 +14,9 @@
 **Date:** 2026-07-17
 **Related:** LLP 0029 §2a/§7 phase 1, LLP 0001, LLP 0005
 
-macOS links `hermesvm.framework` dynamically via a checkout rpath;
-`HERMES_LINK_STATIC` exists only on the Linux branch. Produce a static
+(Historical framing — now stale: macOS honors `HERMES_LINK_STATIC`
+since the Progress work below; `build.rs` links `macos-static/*.a`
+fail-closed.) Produce a static
 macOS Hermes archive for the stub, measuring lean vs full variants
 between eligible builds (equivalently pinned, patched,
 capsec-conformant) — the variant decision is register item 6 (author
@@ -34,3 +35,14 @@ system libraries only. Full measured 39,824,848 bytes; lean measured
 the current host bootstrap and diagnostic factory carrier still evaluate
 source and the lean VM correctly refuses them. HBC-only bootstrap/carrier
 execution and author ratification remain before selecting the variant.
+
+## Remaining (verified 2026-07-31)
+
+- No CI check exists for the static link claim: no macOS job builds a
+  static stub, there is no `otool -L` invocation anywhere in the repo,
+  and the only dependency-surface audit is the Linux one
+  (`scripts/audit-sfe-linux-deps.sh`). `scripts/test-sfe-phase0.sh` is
+  not wired into any workflow.
+- Measured sizes exist only in this ticket's prose; no measurement
+  artifact or gate records them.
+- Register item 6 (lean vs full) remains unratified in LLP 0029 §7.

@@ -48,3 +48,17 @@ Runtime `process.cwd`/`chdir`/filesystem adapter integration, authenticated
 launch-directory binding, relocation fixtures, and Node-compat sentinel evidence
 remain. The issue stays in progress; the implementation deliberately does not
 choose decision-register item 1's implicit-vs-policy-authored default.
+
+## Remaining (verified 2026-07-31)
+
+- DONE: LLP 0023 revision landed; semantics-layer mount table, sentinel,
+  stable error codes, compiled-root policy validation, JS authoring
+  mirror, schema enum, ingestion tests.
+- `CompiledMountTableV1` has zero consumers outside its own crate;
+  the sentinel and `ERR_IBEX_COMPILED_*` codes appear nowhere in the
+  runtime/native/JS layers; src/vfs never matches `LogicalRoot::App`/
+  `Work`; `process.cwd`/`chdir` are unchanged host-backed paths; the
+  compiled boot installs no cwd view.
+- No mount-aware relocation fixture (the phase-0 smoke does not
+  exercise /app, /work, or cwd) and no phase-3 Node-compat sentinel
+  evidence artifact.
