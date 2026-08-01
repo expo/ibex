@@ -41,13 +41,26 @@ function mechanismOf(raw) {
       ? "qualified-member-miss"
       : "unresolved-ident";
   }
-  // Bare callee names the walker emitted without a prefix: unqualified
-  // callback/virtual-member misses (e.g. `oncreate`, `IncomingMessage._read`).
-  if (/^[A-Za-z_$][\w$]*(\.[\w$]+)*$/u.test(raw)) return "bare-callee-miss";
+  // A bare (unprefixed) name is the walker's DUPLICATE-DEFINITION marker:
+  // `routeForCallable` pushes the plain name when `definitions.length > 1`
+  // (capsec-surface-inventory.mjs:4494-4498 for unqualified names, :4538
+  // inside `directAmbiguities` for qualified ones). It is not a "shape"
+  // bucket — it means the source declares the callee more than once.
+  //
+  // The inventory also emits `dynamic-callable-alternative:`, `shadowed:`,
+  // `computed-terminal:`, `dynamic-terminal-receiver:`, `dynamic-constructor:`
+  // and `unresolved-required-export:`. None appear in this data set, and all
+  // would throw below rather than be absorbed — which is what makes the
+  // taxonomy exhaustive *for this catalog* rather than merely total.
+  if (/^[A-Za-z_$][\w$]*(\.[\w$]+)*$/u.test(raw)) return "duplicate-definition";
   throw new Error(`unrecognized ambiguity shape: ${JSON.stringify(raw)}`);
 }
 
-function moduleOf(edgeId) {
+function modulePrefixOf(edgeId) {
+  // NOTE: a positional slice of the edge id, so this is a module.export
+  // PREFIX, not a module: ws.js's exports appear as `ws.server`,
+  // `ws.websocket`, …, and `node.dns` rows are `node.dns.promises` exports.
+  // Labelled `modulePrefix` in the output for that reason.
   const segments = edgeId.split(".");
   return segments[1] === "builtin"
     ? segments.slice(3, 5).join(".")
@@ -73,7 +86,7 @@ for (const recipe of catalog.recipes) {
     let cell = cells.get(edgeId);
     if (!cell) {
       cell = {
-        module: moduleOf(edgeId),
+        modulePrefix: modulePrefixOf(edgeId),
         mechanisms: new Set(),
         raw: new Set(),
         rows: new Set(),
@@ -91,13 +104,14 @@ for (const recipe of catalog.recipes) {
 const cellRows = [...cells]
   .map(([edgeId, cell]) => ({
     edgeId,
-    module: cell.module,
+    modulePrefix: cell.modulePrefix,
     bucket: cell.mechanisms.size
       ? [...cell.mechanisms].sort().join("+")
       : "empty-no-mechanism",
     mechanisms: [...cell.mechanisms].sort(),
     rawAmbiguousCallees: [...cell.raw].sort(),
     rowCount: cell.rows.size,
+    fixtureIds: [...cell.rows].sort(),
   }))
   .sort((left, right) => left.edgeId.localeCompare(right.edgeId));
 
@@ -109,15 +123,21 @@ const tally = (pairs) => {
 };
 const bucketCells = tally(cellRows.map((row) => row.bucket));
 const pureCells = tally(
-  cellRows.filter((row) => row.mechanisms.length === 1).map((row) => row.mechanisms[0]),
+  cellRows.map((row) =>
+    row.mechanisms.length === 1
+      ? row.mechanisms[0]
+      : row.mechanisms.length === 0
+        ? "zero-mechanism"
+        : null,
+  ).filter(Boolean),
 );
 const cellsTouching = tally(cellRows.flatMap((row) => row.mechanisms));
-const perModule = {};
+const perModulePrefix = {};
 for (const row of cellRows) {
-  perModule[row.module] ??= { cells: 0, buckets: {} };
-  perModule[row.module].cells += 1;
-  perModule[row.module].buckets[row.bucket] =
-    (perModule[row.module].buckets[row.bucket] ?? 0) + 1;
+  perModulePrefix[row.modulePrefix] ??= { cells: 0, buckets: {} };
+  perModulePrefix[row.modulePrefix].cells += 1;
+  perModulePrefix[row.modulePrefix].buckets[row.bucket] =
+    (perModulePrefix[row.modulePrefix].buckets[row.bucket] ?? 0) + 1;
 }
 const rawByMechanism = {};
 for (const row of cellRows) {
@@ -128,8 +148,28 @@ for (const row of cellRows) {
   }
 }
 
-// --- invariants: fail loudly rather than emit an unauditable summary ---
+// --- invariants ---
+// The first check is the only genuinely falsifiable one: it re-derives the
+// Lane B cell set by an INDEPENDENT second pass over the catalog rather than
+// from the structures built above, so a bug in the main loop's filtering or
+// edge attribution shows up as a mismatch. (The tallies below are derived
+// from cellRows, so they mostly restate its construction; they are kept as
+// cheap regression guards, not as proof.)
+const independentLaneB = new Set();
+for (const recipe of catalog.recipes) {
+  if (!recipe.residualReasons.includes(LANE_REASONS.B)) continue;
+  if (!recipe.actionIds.some((action) => action.startsWith("network"))) continue;
+  for (const edgeId of recipe.edgeIds) independentLaneB.add(edgeId);
+}
 const problems = [];
+if (
+  independentLaneB.size !== cellRows.length ||
+  cellRows.some((row) => !independentLaneB.has(row.edgeId))
+) {
+  problems.push(
+    `independent Lane B pass (${independentLaneB.size}) disagrees with emitted rows (${cellRows.length})`,
+  );
+}
 const bucketSum = Object.values(bucketCells).reduce((a, b) => a + b, 0);
 if (bucketSum !== laneCells.B.size) {
   problems.push(`bucket cells ${bucketSum} != Lane B cells ${laneCells.B.size}`);
@@ -160,7 +200,7 @@ process.stdout.write(
       bucketCells,
       pureCells,
       cellsTouchingMechanism: cellsTouching,
-      perModule,
+      perModulePrefix,
       rawAmbiguityByMechanism: rawByMechanism,
       cells: cellRows,
     },
