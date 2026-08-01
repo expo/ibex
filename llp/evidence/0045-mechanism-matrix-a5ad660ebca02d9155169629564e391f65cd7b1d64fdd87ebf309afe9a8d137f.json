@@ -1,0 +1,5171 @@
+{
+ "measurement": "llp-0045-network-laneB-mechanism-matrix",
+ "generator": "scripts/llp0045-mechanism-matrix.mjs",
+ "catalogDigest": "sha256-XcvN5FFF9meYMuBBgdMjEy8mmG8QiBrhNf9Z3w_ZISg",
+ "target": {
+  "triple": "aarch64-apple-darwin",
+  "features": [
+   "hermes-frame-attribution",
+   "native-compartments",
+   "native-lockdown"
+  ]
+ },
+ "laneCellCounts": {
+  "B": 338,
+  "C": 35,
+  "D": 0
+ },
+ "unionBCD": 373,
+ "laneBCells": 338,
+ "bucketCells": {
+  "qualified-member-miss": 113,
+  "dynamic-dispatch+unresolved-ident": 56,
+  "dynamic-dispatch": 39,
+  "empty-no-mechanism": 33,
+  "projection": 32,
+  "dynamic-dispatch+qualified-member-miss+unresolved-ident": 21,
+  "unresolved-ident": 17,
+  "dynamic-dispatch+qualified-member-miss": 14,
+  "bare-callee-miss+dynamic-dispatch+qualified-member-miss+unresolved-ident": 7,
+  "bare-callee-miss+dynamic-dispatch+unresolved-ident": 5,
+  "bare-callee-miss": 1
+ },
+ "pureCells": {
+  "qualified-member-miss": 113,
+  "dynamic-dispatch": 39,
+  "projection": 32,
+  "unresolved-ident": 17,
+  "bare-callee-miss": 1
+ },
+ "cellsTouchingMechanism": {
+  "qualified-member-miss": 155,
+  "dynamic-dispatch": 142,
+  "unresolved-ident": 106,
+  "projection": 32,
+  "bare-callee-miss": 13
+ },
+ "perModule": {
+  "node.dgram": {
+   "cells": 1,
+   "buckets": {
+    "dynamic-dispatch+unresolved-ident": 1
+   }
+  },
+  "node.dns": {
+   "cells": 32,
+   "buckets": {
+    "projection": 32
+   }
+  },
+  "node.http": {
+   "cells": 162,
+   "buckets": {
+    "dynamic-dispatch": 15,
+    "bare-callee-miss+dynamic-dispatch+unresolved-ident": 5,
+    "qualified-member-miss": 49,
+    "empty-no-mechanism": 28,
+    "dynamic-dispatch+unresolved-ident": 32,
+    "dynamic-dispatch+qualified-member-miss": 6,
+    "bare-callee-miss+dynamic-dispatch+qualified-member-miss+unresolved-ident": 7,
+    "bare-callee-miss": 1,
+    "dynamic-dispatch+qualified-member-miss+unresolved-ident": 12,
+    "unresolved-ident": 7
+   }
+  },
+  "node.http2": {
+   "cells": 18,
+   "buckets": {
+    "empty-no-mechanism": 5,
+    "dynamic-dispatch": 9,
+    "dynamic-dispatch+qualified-member-miss": 1,
+    "unresolved-ident": 1,
+    "dynamic-dispatch+qualified-member-miss+unresolved-ident": 1,
+    "dynamic-dispatch+unresolved-ident": 1
+   }
+  },
+  "node.https": {
+   "cells": 4,
+   "buckets": {
+    "dynamic-dispatch": 1,
+    "qualified-member-miss": 1,
+    "dynamic-dispatch+unresolved-ident": 2
+   }
+  },
+  "node.net": {
+   "cells": 78,
+   "buckets": {
+    "dynamic-dispatch+unresolved-ident": 18,
+    "dynamic-dispatch": 12,
+    "qualified-member-miss": 28,
+    "unresolved-ident": 6,
+    "dynamic-dispatch+qualified-member-miss": 6,
+    "dynamic-dispatch+qualified-member-miss+unresolved-ident": 8
+   }
+  },
+  "node.tls": {
+   "cells": 30,
+   "buckets": {
+    "qualified-member-miss": 30
+   }
+  },
+  "ws.createwebsocketstream": {
+   "cells": 1,
+   "buckets": {
+    "qualified-member-miss": 1
+   }
+  },
+  "ws.server": {
+   "cells": 4,
+   "buckets": {
+    "dynamic-dispatch+unresolved-ident": 1,
+    "qualified-member-miss": 2,
+    "unresolved-ident": 1
+   }
+  },
+  "ws.websocket": {
+   "cells": 4,
+   "buckets": {
+    "dynamic-dispatch": 2,
+    "dynamic-dispatch+qualified-member-miss": 1,
+    "unresolved-ident": 1
+   }
+  },
+  "ws.websocketserver": {
+   "cells": 4,
+   "buckets": {
+    "dynamic-dispatch+unresolved-ident": 1,
+    "qualified-member-miss": 2,
+    "unresolved-ident": 1
+   }
+  }
+ },
+ "rawAmbiguityByMechanism": {
+  "dynamic-dispatch": {
+   "dynamic-call-receiver:ref": 21,
+   "dynamic-call-receiver:unref": 22,
+   "dynamic-call-receiver:call": 35,
+   "dynamic-call-receiver:emitWarning": 8,
+   "dynamic-call-receiver:on": 17,
+   "dynamic-call-receiver:asyncReset": 1,
+   "dynamic-call-receiver:createConnection": 11,
+   "dynamic-call-receiver:destroy": 12,
+   "dynamic-call-receiver:getProviderType": 1,
+   "dynamic-call-receiver:onSocket": 8,
+   "dynamic-call-receiver:once": 15,
+   "dynamic-call-receiver:push": 35,
+   "dynamic-call-receiver:removeListener": 6,
+   "dynamic-call-receiver:setTimeout": 9,
+   "dynamic-call-receiver:splice": 2,
+   "dynamic-call-receiver:setKeepAlive": 3,
+   "dynamic-call-receiver:indexOf": 18,
+   "dynamic-call-receiver:_ensureSocketAssigned": 5,
+   "dynamic-call-receiver:addEventListener": 5,
+   "dynamic-call-receiver:charAt": 11,
+   "dynamic-call-receiver:charCodeAt": 20,
+   "dynamic-call-receiver:concat": 17,
+   "dynamic-call-receiver:getDefaultHighWaterMark": 8,
+   "dynamic-call-receiver:lastIndexOf": 11,
+   "dynamic-call-receiver:nextTick": 24,
+   "dynamic-call-receiver:removeEventListener": 5,
+   "dynamic-call-receiver:substring": 11,
+   "dynamic-call-receiver:toLowerCase": 25,
+   "dynamic-call-receiver:toString": 22,
+   "dynamic-call-receiver:toUpperCase": 5,
+   "dynamic-call-receiver:trim": 7,
+   "computed-call": 1,
+   "dynamic-call-receiver:_resolveConnectionOptions": 1,
+   "dynamic-call-receiver:connect": 1,
+   "dynamic-call-receiver:emit": 3,
+   "dynamic-call-receiver:end": 8,
+   "dynamic-call-receiver:shift": 16,
+   "dynamic-call-receiver:write": 18,
+   "dynamic-call-target:FunctionExpression": 1,
+   "dynamic-call-receiver:apply": 3,
+   "dynamic-call-receiver:abort": 4,
+   "dynamic-call-receiver:addRequest": 7,
+   "dynamic-call-receiver:catch": 7,
+   "dynamic-call-receiver:join": 9,
+   "dynamic-call-receiver:then": 7,
+   "dynamic-call-receiver:forEach": 9,
+   "dynamic-call-receiver:getReader": 3,
+   "dynamic-call-receiver:read": 3,
+   "dynamic-call-receiver:text": 3,
+   "dynamic-call-receiver:cork": 2,
+   "dynamic-call-receiver:uncork": 2,
+   "dynamic-call-receiver:getSetCookie": 1,
+   "dynamic-call-receiver:getConnections": 1,
+   "dynamic-call-receiver:listenerCount": 1,
+   "dynamic-call-receiver:replace": 8,
+   "dynamic-call-receiver:resume": 14,
+   "dynamic-call-receiver:slice": 11,
+   "dynamic-call-receiver:_consumeReadBuffer": 1,
+   "dynamic-call-receiver:add": 1,
+   "dynamic-call-receiver:execute": 1,
+   "dynamic-call-receiver:setNoDelay": 3,
+   "dynamic-call-receiver:pause": 2,
+   "dynamic-call-receiver:map": 6,
+   "dynamic-call-receiver:toISOString": 6,
+   "dynamic-call-receiver:toUTCString": 2,
+   "dynamic-call-receiver:respond": 3,
+   "dynamic-call-receiver:ownerGuard": 2,
+   "dynamic-call-receiver:_isFlowing": 8,
+   "dynamic-call-receiver:readStop": 2,
+   "dynamic-call-receiver:copy": 4,
+   "dynamic-call-receiver:set": 5,
+   "dynamic-call-receiver:subarray": 5,
+   "dynamic-call-receiver:_appendToReadBuffer": 2,
+   "dynamic-call-receiver:unshift": 2,
+   "dynamic-call-receiver:_startReading": 1,
+   "dynamic-call-receiver:copyWithin": 1,
+   "dynamic-call-receiver:decode": 1
+  },
+  "unresolved-ident": {
+   "unresolved-call:_dgramOwnerHost": 1,
+   "unresolved-call:setTimeout": 64,
+   "unresolved-call:createConnection": 10,
+   "unresolved-call:AbortController": 4,
+   "unresolved-call:fetch": 4,
+   "unresolved-call:_httpNetOwnerHost": 29,
+   "unresolved-call:_httpOwnerHost": 27,
+   "unresolved-call:_httpDefineOwnedProperty": 2,
+   "unresolved-call:assertOwner": 2,
+   "unresolved-call:atob": 2,
+   "unresolved-call:clearTimeout": 7,
+   "unresolved-call:require": 6,
+   "unresolved-call:_wsGlobal": 1,
+   "unresolved-call:callback": 2,
+   "unresolved-call:_netOwnerHost": 16,
+   "unresolved-call:buffer": 8,
+   "unresolved-call:StringDecoder": 2
+  },
+  "projection": {
+   "cross-source-export-projection:dns.promises:getServers": 1,
+   "cross-source-export-projection:dns.promises:lookup": 1,
+   "cross-source-export-projection:dns.promises:lookupService": 1,
+   "cross-source-export-projection:dns.promises:resolve": 1,
+   "cross-source-export-projection:dns.promises:resolve4": 1,
+   "cross-source-export-projection:dns.promises:resolve6": 1,
+   "cross-source-export-projection:dns.promises:resolveAny": 1,
+   "cross-source-export-projection:dns.promises:resolveCaa": 1,
+   "cross-source-export-projection:dns.promises:resolveCname": 1,
+   "cross-source-export-projection:dns.promises:resolveMx": 1,
+   "cross-source-export-projection:dns.promises:resolveNaptr": 1,
+   "cross-source-export-projection:dns.promises:resolveNs": 1,
+   "cross-source-export-projection:dns.promises:resolvePtr": 1,
+   "cross-source-export-projection:dns.promises:Resolver": 1,
+   "cross-source-export-projection:dns.promises:Resolver.resolve": 1,
+   "cross-source-export-projection:dns.promises:Resolver.resolve4": 1,
+   "cross-source-export-projection:dns.promises:Resolver.resolve6": 1,
+   "cross-source-export-projection:dns.promises:Resolver.resolveAny": 1,
+   "cross-source-export-projection:dns.promises:Resolver.resolveCaa": 1,
+   "cross-source-export-projection:dns.promises:Resolver.resolveCname": 1,
+   "cross-source-export-projection:dns.promises:Resolver.resolveMx": 1,
+   "cross-source-export-projection:dns.promises:Resolver.resolveNaptr": 1,
+   "cross-source-export-projection:dns.promises:Resolver.resolveNs": 1,
+   "cross-source-export-projection:dns.promises:Resolver.resolvePtr": 1,
+   "cross-source-export-projection:dns.promises:Resolver.resolveSoa": 1,
+   "cross-source-export-projection:dns.promises:Resolver.resolveSrv": 1,
+   "cross-source-export-projection:dns.promises:Resolver.resolveTxt": 1,
+   "cross-source-export-projection:dns.promises:Resolver.reverse": 1,
+   "cross-source-export-projection:dns.promises:resolveSoa": 1,
+   "cross-source-export-projection:dns.promises:resolveSrv": 1,
+   "cross-source-export-projection:dns.promises:resolveTxt": 1,
+   "cross-source-export-projection:dns.promises:reverse": 1
+  },
+  "bare-callee-miss": {
+   "oncreate": 10,
+   "IncomingMessage.pause": 1,
+   "IncomingMessage._read": 1,
+   "IncomingMessage.resume": 1
+  },
+  "qualified-member-miss": {
+   "unresolved-call:Agent.constructor": 2,
+   "unresolved-call:ClientRequest.addTrailers": 1,
+   "unresolved-call:ClientRequest.connection": 1,
+   "unresolved-call:ClientRequest.constructor": 1,
+   "unresolved-call:ClientRequest.cork": 1,
+   "unresolved-call:ClientRequest.once": 5,
+   "unresolved-call:ClientRequest._writePendingRequest": 6,
+   "unresolved-call:ClientRequest.emit": 7,
+   "unresolved-call:ClientRequest.headersSent": 1,
+   "unresolved-call:ClientRequest.parser": 1,
+   "unresolved-call:ClientRequest.pipe": 1,
+   "unresolved-call:ClientRequest._renderHeaders": 1,
+   "unresolved-call:ClientRequest.setHeaders": 1,
+   "unresolved-call:ClientRequest.uncork": 1,
+   "unresolved-call:ClientRequest.writableHighWaterMark": 1,
+   "unresolved-call:ClientRequest.writableLength": 1,
+   "unresolved-call:ClientRequest.writableNeedDrain": 1,
+   "unresolved-call:ClientRequest.writableObjectMode": 1,
+   "unresolved-call:IncomingMessage.connection": 1,
+   "unresolved-call:IncomingMessage.constructor": 1,
+   "unresolved-call:IncomingMessage.emit": 1,
+   "unresolved-call:IncomingMessage.once": 1,
+   "unresolved-call:OutgoingMessage.connection": 1,
+   "unresolved-call:OutgoingMessage.constructor": 1,
+   "unresolved-call:OutgoingMessage.emit": 1,
+   "unresolved-call:OutgoingMessage.headersSent": 1,
+   "unresolved-call:OutgoingMessage.once": 1,
+   "unresolved-call:OutgoingMessage.writableHighWaterMark": 1,
+   "unresolved-call:OutgoingMessage.writableLength": 1,
+   "unresolved-call:OutgoingMessage.writableNeedDrain": 1,
+   "unresolved-call:OutgoingMessage.writableObjectMode": 1,
+   "unresolved-call:Server.listening": 1,
+   "unresolved-call:Server.maxConnections": 1,
+   "unresolved-call:Server.emit": 1,
+   "unresolved-call:Server.on": 1,
+   "unresolved-call:ServerIncomingMessage._addHeaderLine": 1,
+   "unresolved-call:ServerIncomingMessage.addListener": 1,
+   "unresolved-call:ServerIncomingMessage.connection": 1,
+   "unresolved-call:ServerIncomingMessage.constructor": 1,
+   "unresolved-call:ServerIncomingMessage._consumeBody": 1,
+   "unresolved-call:ServerIncomingMessage.emit": 9,
+   "unresolved-call:ServerIncomingMessage.listenerCount": 8,
+   "unresolved-call:ServerIncomingMessage.removeAllListeners": 1,
+   "unresolved-call:ServerIncomingMessage.push": 1,
+   "unresolved-call:ServerIncomingMessage._read": 1,
+   "unresolved-call:ServerIncomingMessage.once": 1,
+   "unresolved-call:ServerResponse.emit": 1,
+   "unresolved-call:ServerResponse.connection": 1,
+   "unresolved-call:ServerResponse.constructor": 1,
+   "unresolved-call:ServerResponse.cork": 1,
+   "unresolved-call:ServerResponse.headersSent": 1,
+   "unresolved-call:ServerResponse.pipe": 1,
+   "unresolved-call:ServerResponse.setHeaders": 1,
+   "unresolved-call:ServerResponse.once": 1,
+   "unresolved-call:ServerResponse.socket": 1,
+   "unresolved-call:ServerResponse.uncork": 1,
+   "unresolved-call:ServerResponse.writableHighWaterMark": 1,
+   "unresolved-call:ServerResponse.writableLength": 1,
+   "unresolved-call:ServerResponse.writableNeedDrain": 1,
+   "unresolved-call:ServerResponse.writableObjectMode": 1,
+   "unresolved-call:Http2ServerRequest.once": 1,
+   "unresolved-call:Http2ServerResponse.emit": 1,
+   "unresolved-call:Socket.bufferSize": 2,
+   "unresolved-call:Socket.bytesWritten": 2,
+   "unresolved-call:Socket._connecting": 2,
+   "unresolved-call:Socket.emit": 8,
+   "unresolved-call:Socket.listenerCount": 10,
+   "unresolved-call:Socket.destroyed": 2,
+   "unresolved-call:Socket.once": 4,
+   "unresolved-call:Socket._handle": 2,
+   "unresolved-call:Socket._pendingConnectHandle": 2,
+   "unresolved-call:Socket.readableHighWaterMark": 2,
+   "unresolved-call:Socket.removeListener": 2,
+   "unresolved-call:Socket.writableCorked": 2,
+   "unresolved-call:Socket.writableEnded": 2,
+   "unresolved-call:Socket.writableHighWaterMark": 2,
+   "unresolved-call:Socket.writableLength": 2,
+   "unresolved-call:Socket.writableNeedDrain": 2,
+   "unresolved-call:TLSSocket.addListener": 1,
+   "unresolved-call:TLSSocket.allowHalfOpen": 1,
+   "unresolved-call:TLSSocket.alpnProtocol": 1,
+   "unresolved-call:TLSSocket.authorizationError": 1,
+   "unresolved-call:TLSSocket.authorized": 1,
+   "unresolved-call:TLSSocket.bytesRead": 1,
+   "unresolved-call:TLSSocket.bytesWritten": 1,
+   "unresolved-call:TLSSocket.connecting": 1,
+   "unresolved-call:TLSSocket.constructor": 1,
+   "unresolved-call:TLSSocket.destroyed": 1,
+   "unresolved-call:TLSSocket.encrypted": 1,
+   "unresolved-call:TLSSocket.eventNames": 1,
+   "unresolved-call:TLSSocket.getMaxListeners": 1,
+   "unresolved-call:TLSSocket.listenerCount": 1,
+   "unresolved-call:TLSSocket.listeners": 1,
+   "unresolved-call:TLSSocket.localAddress": 1,
+   "unresolved-call:TLSSocket.localFamily": 1,
+   "unresolved-call:TLSSocket.localPort": 1,
+   "unresolved-call:TLSSocket.off": 1,
+   "unresolved-call:TLSSocket.pending": 1,
+   "unresolved-call:TLSSocket.rawListeners": 1,
+   "unresolved-call:TLSSocket.readable": 1,
+   "unresolved-call:TLSSocket.readableHighWaterMark": 1,
+   "unresolved-call:TLSSocket.readyState": 1,
+   "unresolved-call:TLSSocket.remoteAddress": 1,
+   "unresolved-call:TLSSocket.remoteFamily": 1,
+   "unresolved-call:TLSSocket.remotePort": 1,
+   "unresolved-call:TLSSocket.servername": 1,
+   "unresolved-call:TLSSocket.writable": 1,
+   "unresolved-call:TLSSocket.writableHighWaterMark": 1,
+   "unresolved-call:WS.createWebSocketStream": 1,
+   "unresolved-call:WebSocketServer._handle": 2,
+   "unresolved-call:WebSocketServer._listening": 2,
+   "unresolved-call:WebSocketConnection.emit": 1
+  }
+ },
+ "cells": [
+  {
+   "edgeId": "surface.builtin.export.node.dgram.socket.startrecv.150460m",
+   "module": "node.dgram",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:_dgramOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.getservers.01v0q69",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:getServers"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.lookup.1a9e80f",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:lookup"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.lookupservice.0nrxs0i",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:lookupService"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolve.0qe3x1j",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:resolve"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolve4.1uhidzd",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:resolve4"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolve6.1txj6lf",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:resolve6"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolveany.1kwoqxj",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:resolveAny"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolvecaa.1yzg4si",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:resolveCaa"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolvecname.0inspqf",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:resolveCname"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolvemx.0vswwoi",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:resolveMx"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolvenaptr.1lzyqwo",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:resolveNaptr"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolvens.0viu5hk",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:resolveNs"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolveptr.1xc44vn",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:resolvePtr"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolver.1c0jtjj",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:Resolver"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolve.1kh4ti5",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:Resolver.resolve"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolve4.1n1q6vf",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:Resolver.resolve4"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolve6.1nlpe9d",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:Resolver.resolve6"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolveany.0pbf68l",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:Resolver.resolveAny"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolvecaa.04jkrj4",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:Resolver.resolveCaa"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolvecname.1j33v7l",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:Resolver.resolveCname"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolvemx.0d8cok8",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:Resolver.resolveMx"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolvenaptr.18jk9r6",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:Resolver.resolveNaptr"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolvens.0gahrou",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:Resolver.resolveNs"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolveptr.1wfdac1",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:Resolver.resolvePtr"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolvesoa.0z3quuy",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:Resolver.resolveSoa"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolvesrv.0sruj7e",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:Resolver.resolveSrv"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolver.resolvetxt.0jkf1ev",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:Resolver.resolveTxt"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolver.reverse.1hdraqf",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:Resolver.reverse"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolvesoa.1d9c8uw",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:resolveSoa"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolvesrv.1j2lxbo",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:resolveSrv"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.resolvetxt.0ll4aqd",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:resolveTxt"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.dns.promises.reverse.1g76tz5",
+   "module": "node.dns",
+   "bucket": "projection",
+   "mechanisms": [
+    "projection"
+   ],
+   "rawAmbiguousCallees": [
+    "cross-source-export-projection:dns.promises:reverse"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.agent.07oi24g",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:emitWarning",
+    "dynamic-call-receiver:on"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.agent.addrequest.1xknh46",
+   "module": "node.http",
+   "bucket": "bare-callee-miss+dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "bare-callee-miss",
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:asyncReset",
+    "dynamic-call-receiver:createConnection",
+    "dynamic-call-receiver:destroy",
+    "dynamic-call-receiver:getProviderType",
+    "dynamic-call-receiver:on",
+    "dynamic-call-receiver:onSocket",
+    "dynamic-call-receiver:once",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:removeListener",
+    "dynamic-call-receiver:setTimeout",
+    "dynamic-call-receiver:splice",
+    "oncreate",
+    "unresolved-call:createConnection"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.agent.constructor.0addkky",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Agent.constructor"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.agent.createconnection.0rsy22i",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:createConnection"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.agent.createsocket.008cgu7",
+   "module": "node.http",
+   "bucket": "bare-callee-miss+dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "bare-callee-miss",
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:createConnection",
+    "oncreate",
+    "unresolved-call:createConnection"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.agent.getname.1k82v9h",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.agent.keepsocketalive.1xnu5rj",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:setKeepAlive",
+    "dynamic-call-receiver:setTimeout",
+    "dynamic-call-receiver:unref"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.agent.removesocket.1lc7pnz",
+   "module": "node.http",
+   "bucket": "bare-callee-miss+dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "bare-callee-miss",
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:createConnection",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:splice",
+    "oncreate",
+    "unresolved-call:createConnection"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.agent.reusesocket.1dwe93z",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:removeListener"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.0eddph9",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:_ensureSocketAssigned",
+    "dynamic-call-receiver:addEventListener",
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:charAt",
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:concat",
+    "dynamic-call-receiver:destroy",
+    "dynamic-call-receiver:emitWarning",
+    "dynamic-call-receiver:getDefaultHighWaterMark",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:lastIndexOf",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:on",
+    "dynamic-call-receiver:once",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:removeEventListener",
+    "dynamic-call-receiver:substring",
+    "dynamic-call-receiver:toLowerCase",
+    "dynamic-call-receiver:toString",
+    "dynamic-call-receiver:toUpperCase",
+    "dynamic-call-receiver:trim",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.addtrailers.1a5l50o",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ClientRequest.addTrailers"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.appendheader.1esj1l4",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:concat",
+    "dynamic-call-receiver:push"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.attachtosocket.1htj5nb",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "computed-call",
+    "dynamic-call-receiver:_resolveConnectionOptions",
+    "dynamic-call-receiver:connect",
+    "dynamic-call-receiver:destroy",
+    "dynamic-call-receiver:emit",
+    "dynamic-call-receiver:end",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:on",
+    "dynamic-call-receiver:once",
+    "dynamic-call-receiver:removeListener",
+    "dynamic-call-receiver:setTimeout",
+    "dynamic-call-receiver:shift",
+    "dynamic-call-receiver:unref",
+    "dynamic-call-receiver:write",
+    "dynamic-call-target:FunctionExpression",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.connection.0cumait",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ClientRequest.connection"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.constructor.05nrdpn",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ClientRequest.constructor"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.cork.1n983o8",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ClientRequest.cork"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.defertoconnect.094izh7",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:apply",
+    "dynamic-call-receiver:once",
+    "unresolved-call:ClientRequest.once"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.end.0bxfrji",
+   "module": "node.http",
+   "bucket": "bare-callee-miss+dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "bare-callee-miss",
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:abort",
+    "dynamic-call-receiver:addRequest",
+    "dynamic-call-receiver:catch",
+    "dynamic-call-receiver:charAt",
+    "dynamic-call-receiver:createConnection",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:join",
+    "dynamic-call-receiver:lastIndexOf",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:onSocket",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:substring",
+    "dynamic-call-receiver:then",
+    "dynamic-call-receiver:toLowerCase",
+    "dynamic-call-receiver:toString",
+    "oncreate",
+    "unresolved-call:AbortController",
+    "unresolved-call:ClientRequest._writePendingRequest",
+    "unresolved-call:ClientRequest.emit",
+    "unresolved-call:ClientRequest.once",
+    "unresolved-call:createConnection",
+    "unresolved-call:fetch",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.ensuresocketassigned.04s4y8l",
+   "module": "node.http",
+   "bucket": "bare-callee-miss+dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "bare-callee-miss",
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:addRequest",
+    "dynamic-call-receiver:createConnection",
+    "dynamic-call-receiver:onSocket",
+    "oncreate",
+    "unresolved-call:ClientRequest.emit",
+    "unresolved-call:createConnection"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.flushheaders.0yrttlx",
+   "module": "node.http",
+   "bucket": "bare-callee-miss+dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "bare-callee-miss",
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:addRequest",
+    "dynamic-call-receiver:charAt",
+    "dynamic-call-receiver:createConnection",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:lastIndexOf",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:onSocket",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:substring",
+    "dynamic-call-receiver:toLowerCase",
+    "dynamic-call-receiver:trim",
+    "oncreate",
+    "unresolved-call:ClientRequest._writePendingRequest",
+    "unresolved-call:ClientRequest.emit",
+    "unresolved-call:createConnection",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.getheader.00x1iru",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.getheadernames.08xhsrq",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.getheaders.0ujtl8b",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.getrawheadernames.0ee4q2e",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.hasheader.1irinli",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.headerssent.02ntx8n",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ClientRequest.headersSent"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.implicitheader.1sh3xww",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.maybeemitfetchcontinue.1hmz57y",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:toLowerCase",
+    "dynamic-call-receiver:trim",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.onsocket.0b4i5tx",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:once",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.parser.1wx1xna",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ClientRequest.parser"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.pipe.0nmtqet",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ClientRequest.pipe"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.queuestreamingrequestbody.0bmou8w",
+   "module": "node.http",
+   "bucket": "bare-callee-miss+dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "bare-callee-miss",
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:addRequest",
+    "dynamic-call-receiver:createConnection",
+    "dynamic-call-receiver:onSocket",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:toString",
+    "oncreate",
+    "unresolved-call:ClientRequest._writePendingRequest",
+    "unresolved-call:ClientRequest.emit",
+    "unresolved-call:createConnection"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.removeheader.11530vg",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.renderheaders.1kfmdfg",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ClientRequest._renderHeaders"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.resolveconnectionoptions.10px8qw",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.send.1wr9p3k",
+   "module": "node.http",
+   "bucket": "bare-callee-miss+dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "bare-callee-miss",
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:abort",
+    "dynamic-call-receiver:addRequest",
+    "dynamic-call-receiver:catch",
+    "dynamic-call-receiver:charAt",
+    "dynamic-call-receiver:createConnection",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:join",
+    "dynamic-call-receiver:lastIndexOf",
+    "dynamic-call-receiver:onSocket",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:substring",
+    "dynamic-call-receiver:then",
+    "oncreate",
+    "unresolved-call:AbortController",
+    "unresolved-call:ClientRequest._writePendingRequest",
+    "unresolved-call:ClientRequest.emit",
+    "unresolved-call:createConnection",
+    "unresolved-call:fetch"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.sendviafetch.0u3h6o8",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:abort",
+    "dynamic-call-receiver:catch",
+    "dynamic-call-receiver:then",
+    "unresolved-call:AbortController",
+    "unresolved-call:fetch"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.sendviatcp.1ha5tlz",
+   "module": "node.http",
+   "bucket": "bare-callee-miss+dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "bare-callee-miss",
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:addRequest",
+    "dynamic-call-receiver:charAt",
+    "dynamic-call-receiver:createConnection",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:lastIndexOf",
+    "dynamic-call-receiver:onSocket",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:substring",
+    "oncreate",
+    "unresolved-call:ClientRequest._writePendingRequest",
+    "unresolved-call:ClientRequest.emit",
+    "unresolved-call:createConnection"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.setheader.11iri8m",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:concat",
+    "dynamic-call-receiver:push"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.setheaders.0jht5vj",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ClientRequest.setHeaders"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.setnodelay.0j8sl1v",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:apply",
+    "dynamic-call-receiver:once",
+    "unresolved-call:ClientRequest.once"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.setsocketkeepalive.1n28ai4",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:apply",
+    "dynamic-call-receiver:once",
+    "unresolved-call:ClientRequest.once"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.settimeout.08yo0gi",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:emitWarning",
+    "dynamic-call-receiver:on",
+    "dynamic-call-receiver:once",
+    "dynamic-call-receiver:removeListener",
+    "dynamic-call-receiver:setTimeout",
+    "unresolved-call:ClientRequest.once"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.startstreamingrequest.0j71dzn",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:charAt",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:lastIndexOf",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:substring",
+    "dynamic-call-receiver:toLowerCase"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.uncork.0yzz467",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ClientRequest.uncork"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.writablehighwatermark.1k9njo9",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ClientRequest.writableHighWaterMark"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.writablelength.19fhzed",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ClientRequest.writableLength"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.writableneeddrain.0s6rpch",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ClientRequest.writableNeedDrain"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.writableobjectmode.0pju30h",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ClientRequest.writableObjectMode"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.clientrequest.write.1wwqcds",
+   "module": "node.http",
+   "bucket": "bare-callee-miss+dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "bare-callee-miss",
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:abort",
+    "dynamic-call-receiver:addRequest",
+    "dynamic-call-receiver:catch",
+    "dynamic-call-receiver:charAt",
+    "dynamic-call-receiver:createConnection",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:join",
+    "dynamic-call-receiver:lastIndexOf",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:onSocket",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:substring",
+    "dynamic-call-receiver:then",
+    "dynamic-call-receiver:toLowerCase",
+    "dynamic-call-receiver:toString",
+    "oncreate",
+    "unresolved-call:AbortController",
+    "unresolved-call:ClientRequest._writePendingRequest",
+    "unresolved-call:ClientRequest.emit",
+    "unresolved-call:createConnection",
+    "unresolved-call:fetch",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.get.03q6wvx",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:_ensureSocketAssigned",
+    "dynamic-call-receiver:addEventListener",
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:charAt",
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:concat",
+    "dynamic-call-receiver:destroy",
+    "dynamic-call-receiver:emitWarning",
+    "dynamic-call-receiver:end",
+    "dynamic-call-receiver:getDefaultHighWaterMark",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:lastIndexOf",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:on",
+    "dynamic-call-receiver:once",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:removeEventListener",
+    "dynamic-call-receiver:substring",
+    "dynamic-call-receiver:toLowerCase",
+    "dynamic-call-receiver:toString",
+    "dynamic-call-receiver:toUpperCase",
+    "dynamic-call-receiver:trim",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.incomingmessage.0b4dk7e",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:forEach",
+    "dynamic-call-receiver:push"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.incomingmessage.addheaderline.1q30g2v",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:concat",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:toLowerCase"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.incomingmessage.connection.0uw2zr0",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:IncomingMessage.connection"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.incomingmessage.constructor.1jip1yg",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:IncomingMessage.constructor"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.incomingmessage.consumebody.1ds2y6t",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:catch",
+    "dynamic-call-receiver:getReader",
+    "dynamic-call-receiver:read",
+    "dynamic-call-receiver:text",
+    "dynamic-call-receiver:then",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.incomingmessage.destroy.1rwlgb2",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:IncomingMessage.emit"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.incomingmessage.pause.07botpi",
+   "module": "node.http",
+   "bucket": "bare-callee-miss",
+   "mechanisms": [
+    "bare-callee-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "IncomingMessage.pause"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.incomingmessage.push.0rowmuw",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.incomingmessage.read.021gpah",
+   "module": "node.http",
+   "bucket": "bare-callee-miss+dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "bare-callee-miss",
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "IncomingMessage._read",
+    "dynamic-call-receiver:catch",
+    "dynamic-call-receiver:getReader",
+    "dynamic-call-receiver:read",
+    "dynamic-call-receiver:text",
+    "dynamic-call-receiver:then",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.incomingmessage.read.1lykfvk",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.incomingmessage.resume.11y56kv",
+   "module": "node.http",
+   "bucket": "bare-callee-miss+dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "bare-callee-miss",
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "IncomingMessage.resume",
+    "dynamic-call-receiver:catch",
+    "dynamic-call-receiver:getReader",
+    "dynamic-call-receiver:read",
+    "dynamic-call-receiver:text",
+    "dynamic-call-receiver:then",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.incomingmessage.setencoding.0u0xg6p",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.incomingmessage.settimeout.0hq0c67",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:IncomingMessage.once"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.06fgpsc",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:getDefaultHighWaterMark"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.addtrailers.1ozh4bd",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:charCodeAt",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.appendheader.1iaas17",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:concat",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.connection.0hjp082",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:OutgoingMessage.connection"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.constructor.0vkko3q",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:OutgoingMessage.constructor"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.cork.1it98qf",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:cork",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.destroy.1vgvtp4",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:destroy",
+    "unresolved-call:OutgoingMessage.emit",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.end.02wrzz7",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:end",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:uncork",
+    "dynamic-call-receiver:write",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.flushheaders.0cp8mu2",
+   "module": "node.http",
+   "bucket": "unresolved-ident",
+   "mechanisms": [
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.getheader.1y1wkkb",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.getheadernames.1lq4aax",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.getheaders.1owquuw",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.getrawheadernames.1o0kjab",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.hasheader.1iz7aav",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.headerssent.0lqxxyq",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:OutgoingMessage.headersSent"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.implicitheader.0supebx",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.pipe.1ajttdu",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.removeheader.1drj41n",
+   "module": "node.http",
+   "bucket": "unresolved-ident",
+   "mechanisms": [
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.renderheaders.0e1ekkv",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.setheader.1dphh3j",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:charCodeAt",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.setheaders.1hqqfhw",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:forEach",
+    "dynamic-call-receiver:getSetCookie",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.settimeout.0s1m1e1",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:setTimeout",
+    "unresolved-call:OutgoingMessage.once",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.uncork.06pnpt8",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:uncork",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.writablehighwatermark.1sz4czk",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:OutgoingMessage.writableHighWaterMark"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.writablelength.16u8jnq",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:OutgoingMessage.writableLength"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.writableneeddrain.1h9ui0w",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:OutgoingMessage.writableNeedDrain"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.writableobjectmode.0ce13pi",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:OutgoingMessage.writableObjectMode"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.outgoingmessage.write.19fjfq9",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:write",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.request.0ltf698",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:_ensureSocketAssigned",
+    "dynamic-call-receiver:addEventListener",
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:charAt",
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:concat",
+    "dynamic-call-receiver:destroy",
+    "dynamic-call-receiver:emitWarning",
+    "dynamic-call-receiver:getDefaultHighWaterMark",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:lastIndexOf",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:on",
+    "dynamic-call-receiver:once",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:removeEventListener",
+    "dynamic-call-receiver:substring",
+    "dynamic-call-receiver:toLowerCase",
+    "dynamic-call-receiver:toString",
+    "dynamic-call-receiver:toUpperCase",
+    "dynamic-call-receiver:trim",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.server.getconnections.0c0qn4j",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:getConnections",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.server.handlenativerequest.1p22zvf",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:concat",
+    "dynamic-call-receiver:getDefaultHighWaterMark",
+    "dynamic-call-receiver:listenerCount",
+    "dynamic-call-receiver:once",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:replace",
+    "dynamic-call-receiver:resume",
+    "dynamic-call-receiver:slice",
+    "unresolved-call:_httpDefineOwnedProperty",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:assertOwner",
+    "unresolved-call:atob"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.server.listening.1csavzv",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Server.listening"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.server.maxconnections.1j20ae5",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Server.maxConnections"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.server.onconnection.01urfcu",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:_consumeReadBuffer",
+    "dynamic-call-receiver:add",
+    "dynamic-call-receiver:execute",
+    "dynamic-call-receiver:on",
+    "dynamic-call-receiver:setNoDelay",
+    "dynamic-call-receiver:setTimeout",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:Server.emit",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.server.settimeout.0i136a5",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:forEach",
+    "unresolved-call:Server.on",
+    "unresolved-call:clearTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.140pvoj",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:replace",
+    "dynamic-call-receiver:slice",
+    "unresolved-call:atob"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.addheaderline.0mi60eg",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerIncomingMessage._addHeaderLine"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.addlistener.009o3ta",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerIncomingMessage.addListener"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.connection.1heqk9b",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerIncomingMessage.connection"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.constructor.17nila5",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerIncomingMessage.constructor"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.consumebody.1kpydvm",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerIncomingMessage._consumeBody"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.destroy.0s1y3dj",
+   "module": "node.http",
+   "bucket": "unresolved-ident",
+   "mechanisms": [
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.dump.0viuzlq",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:resume",
+    "dynamic-call-receiver:shift",
+    "unresolved-call:ServerIncomingMessage.emit",
+    "unresolved-call:ServerIncomingMessage.listenerCount",
+    "unresolved-call:ServerIncomingMessage.removeAllListeners",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.emithttpclose.1ktglg9",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerIncomingMessage.emit"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.emitmanualend.0iwycm2",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerIncomingMessage.emit",
+    "unresolved-call:ServerIncomingMessage.listenerCount"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.finishbody.11nxlkv",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:resume",
+    "dynamic-call-receiver:shift",
+    "unresolved-call:ServerIncomingMessage.emit",
+    "unresolved-call:ServerIncomingMessage.listenerCount",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.flushmanualdata.05vca20",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:shift",
+    "unresolved-call:ServerIncomingMessage.emit",
+    "unresolved-call:ServerIncomingMessage.listenerCount",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.ispaused.1lr6ksl",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.mayberesumepausedsocket.0x7yiv4",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:resume"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.on.0uk168i",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:resume",
+    "dynamic-call-receiver:shift",
+    "unresolved-call:ServerIncomingMessage.emit",
+    "unresolved-call:ServerIncomingMessage.listenerCount",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.pause.1ekoomf",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.pipe.0ym3tkr",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:on"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.push.09xyfs3",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerIncomingMessage.push"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.pushbodychunk.190ix45",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:pause",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:shift",
+    "dynamic-call-receiver:toString",
+    "unresolved-call:ServerIncomingMessage.emit",
+    "unresolved-call:ServerIncomingMessage.listenerCount",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.read.0xt5eqj",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:resume",
+    "dynamic-call-receiver:shift",
+    "unresolved-call:ServerIncomingMessage.emit",
+    "unresolved-call:ServerIncomingMessage.listenerCount",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.read.1lasbt8",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerIncomingMessage._read"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.resume.04tbjzg",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:resume",
+    "dynamic-call-receiver:shift",
+    "unresolved-call:ServerIncomingMessage.emit",
+    "unresolved-call:ServerIncomingMessage.listenerCount",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.schedulemanualreadable.1colblf",
+   "module": "node.http",
+   "bucket": "unresolved-ident",
+   "mechanisms": [
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.setencoding.11gkq8o",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:toString"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverincomingmessage.settimeout.1bkmqhc",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:setTimeout",
+    "unresolved-call:ServerIncomingMessage.once"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.096955b",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:concat",
+    "dynamic-call-receiver:getDefaultHighWaterMark",
+    "unresolved-call:_httpDefineOwnedProperty",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:assertOwner"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.addtrailers.02j0iw2",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.appendheader.1pdmfbm",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.assignsocket.1ou2iir",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:cork",
+    "dynamic-call-receiver:on",
+    "unresolved-call:ServerResponse.emit"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.connection.07nmmg3",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerResponse.connection"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.constructor.0xj53fl",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerResponse.constructor"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.cork.0uqx776",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerResponse.cork"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.detachsocket.1ruh3d9",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:removeListener",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.ensureimplicitheaders.01rmckh",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:concat",
+    "dynamic-call-receiver:forEach",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:join",
+    "dynamic-call-receiver:map",
+    "dynamic-call-receiver:replace",
+    "dynamic-call-receiver:toISOString",
+    "dynamic-call-receiver:toLowerCase",
+    "dynamic-call-receiver:toString",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost",
+    "unresolved-call:require"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.finishnativestream.0wz8d74",
+   "module": "node.http",
+   "bucket": "unresolved-ident",
+   "mechanisms": [
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.getheader.0vvmt1k",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.getheadernames.1igy2p4",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.getheaders.1o649pd",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.getrawheadernames.1w57w3g",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.hasheader.1cbsbcs",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.headerssent.12ewn7p",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerResponse.headersSent"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.implicitheader.18n9dga",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:concat",
+    "dynamic-call-receiver:forEach",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:join",
+    "dynamic-call-receiver:map",
+    "dynamic-call-receiver:replace",
+    "dynamic-call-receiver:toISOString",
+    "dynamic-call-receiver:toLowerCase",
+    "dynamic-call-receiver:toString",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost",
+    "unresolved-call:require"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.pipe.1eu8vnj",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerResponse.pipe"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.removeheader.1ip68c6",
+   "module": "node.http",
+   "bucket": "unresolved-ident",
+   "mechanisms": [
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.renderheaders.0rp9p86",
+   "module": "node.http",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.send.087p6e2",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:concat",
+    "dynamic-call-receiver:forEach",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:join",
+    "dynamic-call-receiver:map",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:replace",
+    "dynamic-call-receiver:toISOString",
+    "dynamic-call-receiver:toLowerCase",
+    "dynamic-call-receiver:toString",
+    "dynamic-call-receiver:toUTCString",
+    "dynamic-call-receiver:write",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost",
+    "unresolved-call:require"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.sendsocketresponse.17k9lsg",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:concat",
+    "dynamic-call-receiver:destroy",
+    "dynamic-call-receiver:end",
+    "dynamic-call-receiver:forEach",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:join",
+    "dynamic-call-receiver:map",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:removeListener",
+    "dynamic-call-receiver:replace",
+    "dynamic-call-receiver:toISOString",
+    "dynamic-call-receiver:toLowerCase",
+    "dynamic-call-receiver:toString",
+    "dynamic-call-receiver:toUTCString",
+    "dynamic-call-receiver:write",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost",
+    "unresolved-call:require",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.setheader.0d7gc50",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:toLowerCase",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.setheaders.1w3g1l1",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerResponse.setHeaders"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.settimeout.059glxo",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:setTimeout",
+    "unresolved-call:ServerResponse.once",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.socket.03b0rgy",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerResponse.socket"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.streamchunk.0f6wao1",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:concat",
+    "dynamic-call-receiver:forEach",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:join",
+    "dynamic-call-receiver:map",
+    "dynamic-call-receiver:replace",
+    "dynamic-call-receiver:toISOString",
+    "dynamic-call-receiver:toLowerCase",
+    "dynamic-call-receiver:toString",
+    "dynamic-call-receiver:write",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost",
+    "unresolved-call:require"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.uncork.137a68d",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerResponse.uncork"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.writablehighwatermark.1tokt8v",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerResponse.writableHighWaterMark"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.writablelength.0t1ww6j",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerResponse.writableLength"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.writableneeddrain.0toubtr",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerResponse.writableNeedDrain"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.writableobjectmode.1hiwgmj",
+   "module": "node.http",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:ServerResponse.writableObjectMode"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.writecontinue.01y8wov",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:write",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.writeearlyhints.1dmfqk9",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:write",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.writehead.0n2xssw",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:concat",
+    "dynamic-call-receiver:forEach",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:join",
+    "dynamic-call-receiver:map",
+    "dynamic-call-receiver:replace",
+    "dynamic-call-receiver:toISOString",
+    "dynamic-call-receiver:toLowerCase",
+    "dynamic-call-receiver:toString",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost",
+    "unresolved-call:require"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.writeprocessing.0cubjzx",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:write",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.serverresponse.writeraw.0ijg25v",
+   "module": "node.http",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:write",
+    "unresolved-call:_httpNetOwnerHost",
+    "unresolved-call:_httpOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.websocket.1lnf83u",
+   "module": "node.http",
+   "bucket": "unresolved-ident",
+   "mechanisms": [
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:_wsGlobal"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.connect.0ragfsn",
+   "module": "node.http2",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.http2serverrequest.0cc4tw1",
+   "module": "node.http2",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.http2serverrequest.destroy.13bdgql",
+   "module": "node.http2",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:destroy"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.http2serverrequest.pause.1yq236t",
+   "module": "node.http2",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:pause"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.http2serverrequest.resume.027gd8i",
+   "module": "node.http2",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:resume"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.http2serverrequest.settimeout.18gpciu",
+   "module": "node.http2",
+   "bucket": "dynamic-dispatch+qualified-member-miss",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:setTimeout",
+    "unresolved-call:Http2ServerRequest.once"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.http2serverresponse.1y90zgv",
+   "module": "node.http2",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.http2serverresponse.createpushresponse.0o8ptqc",
+   "module": "node.http2",
+   "bucket": "unresolved-ident",
+   "mechanisms": [
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.http2serverresponse.end.11kp800",
+   "module": "node.http2",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:end",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:respond",
+    "dynamic-call-receiver:write",
+    "unresolved-call:Http2ServerResponse.emit",
+    "unresolved-call:callback",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.http2serverresponse.flushheaders.0slyiqv",
+   "module": "node.http2",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:respond"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.http2serverresponse.getheader.0r2rwp4",
+   "module": "node.http2",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:toLowerCase"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.http2serverresponse.getheadernames.1mges4o",
+   "module": "node.http2",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.http2serverresponse.hasheader.0a5pxdo",
+   "module": "node.http2",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:toLowerCase"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.http2serverresponse.removeheader.0ssv6gm",
+   "module": "node.http2",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:toLowerCase"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.http2serverresponse.setheader.10410s4",
+   "module": "node.http2",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:toLowerCase"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.http2serverresponse.write.1b12iyu",
+   "module": "node.http2",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:respond",
+    "dynamic-call-receiver:write",
+    "unresolved-call:callback",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.http2serverresponse.writehead.01t4jww",
+   "module": "node.http2",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:toLowerCase"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http2.performserverhandshake.0srim1k",
+   "module": "node.http2",
+   "bucket": "empty-no-mechanism",
+   "mechanisms": [],
+   "rawAmbiguousCallees": [],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.https.agent.16hknir",
+   "module": "node.https",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:emitWarning",
+    "dynamic-call-receiver:on"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.https.agent.constructor.1w3y5rh",
+   "module": "node.https",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Agent.constructor"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.https.get.0f1lwaq",
+   "module": "node.https",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:_ensureSocketAssigned",
+    "dynamic-call-receiver:addEventListener",
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:charAt",
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:concat",
+    "dynamic-call-receiver:destroy",
+    "dynamic-call-receiver:emitWarning",
+    "dynamic-call-receiver:end",
+    "dynamic-call-receiver:getDefaultHighWaterMark",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:lastIndexOf",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:on",
+    "dynamic-call-receiver:once",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:removeEventListener",
+    "dynamic-call-receiver:substring",
+    "dynamic-call-receiver:toLowerCase",
+    "dynamic-call-receiver:toString",
+    "dynamic-call-receiver:toUpperCase",
+    "dynamic-call-receiver:trim",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.https.request.1dbqkqz",
+   "module": "node.https",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:_ensureSocketAssigned",
+    "dynamic-call-receiver:addEventListener",
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:charAt",
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:concat",
+    "dynamic-call-receiver:destroy",
+    "dynamic-call-receiver:emitWarning",
+    "dynamic-call-receiver:getDefaultHighWaterMark",
+    "dynamic-call-receiver:indexOf",
+    "dynamic-call-receiver:lastIndexOf",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:on",
+    "dynamic-call-receiver:once",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:removeEventListener",
+    "dynamic-call-receiver:substring",
+    "dynamic-call-receiver:toLowerCase",
+    "dynamic-call-receiver:toString",
+    "dynamic-call-receiver:toUpperCase",
+    "dynamic-call-receiver:trim",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.server.getconnections.06jaj8m",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:ownerGuard",
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.server.startaccepting.1wr3zyg",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:ownerGuard",
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 6
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.addlistener.0q8mig8",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:_isFlowing",
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:resume",
+    "unresolved-call:_netOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.appendtoreadbuffer.1vk2ylh",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:push"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.buffersize.06okweu",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.bufferSize"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.byteswritten.1a5nrz3",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.bytesWritten"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.connecting.0nmxaco",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket._connecting"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.consumereadbuffer.1isomey",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:shift",
+    "dynamic-call-receiver:slice"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.cork.1pewzqw",
+   "module": "node.net",
+   "bucket": "unresolved-ident",
+   "mechanisms": [
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:_netOwnerHost"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.deliverinbounddata.1myh00k",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+qualified-member-miss",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:toString",
+    "dynamic-call-receiver:write",
+    "unresolved-call:Socket.emit",
+    "unresolved-call:Socket.listenerCount"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.destroyed.0b2rswo",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.destroyed"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.emitflowingdata.03lkzdv",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+qualified-member-miss",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:toString",
+    "dynamic-call-receiver:write",
+    "unresolved-call:Socket.emit"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.end.0u8srgu",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:Socket.once",
+    "unresolved-call:_netOwnerHost",
+    "unresolved-call:clearTimeout",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.handle.086b5fg",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket._handle"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.isflowing.1xbcisu",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.listenerCount"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.isreadbufferoverhighwatermark.12mbib4",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.listenerCount"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.notifyonreadeof.0zlt5bs",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "unresolved-call:buffer"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.on.15zmtis",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:_isFlowing",
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:resume",
+    "unresolved-call:_netOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.pause.0ps5t0p",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+qualified-member-miss",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:readStop",
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:Socket.emit"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.pendingconnecthandle.0bptyd3",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket._pendingConnectHandle"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.pipe.0qh9r9x",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:on"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.prependlistener.05gn5mb",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:_isFlowing",
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:resume",
+    "unresolved-call:_netOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.processonreadbuffer.0gonzto",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:copy",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:set",
+    "dynamic-call-receiver:shift",
+    "dynamic-call-receiver:slice",
+    "dynamic-call-receiver:subarray",
+    "unresolved-call:buffer"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.push.1cswp49",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:_appendToReadBuffer",
+    "dynamic-call-receiver:_isFlowing",
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:copy",
+    "dynamic-call-receiver:destroy",
+    "dynamic-call-receiver:emit",
+    "dynamic-call-receiver:end",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:set",
+    "dynamic-call-receiver:shift",
+    "dynamic-call-receiver:slice",
+    "dynamic-call-receiver:subarray",
+    "dynamic-call-receiver:toString",
+    "dynamic-call-receiver:unref",
+    "dynamic-call-receiver:write",
+    "unresolved-call:Socket.emit",
+    "unresolved-call:Socket.listenerCount",
+    "unresolved-call:buffer",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.read.0y69xl5",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:shift",
+    "dynamic-call-receiver:slice",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:Socket.listenerCount",
+    "unresolved-call:_netOwnerHost",
+    "unresolved-call:clearTimeout",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.readablehighwatermark.0bva5dp",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.readableHighWaterMark"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.resolveonreadbuffer.0mhn9yd",
+   "module": "node.net",
+   "bucket": "unresolved-ident",
+   "mechanisms": [
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:buffer"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.setencoding.06xq61a",
+   "module": "node.net",
+   "bucket": "unresolved-ident",
+   "mechanisms": [
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:StringDecoder"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.setkeepalive.13o7atz",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:setKeepAlive"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.setnodelay.0ke5ylv",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:setNoDelay"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.settimeout.07udfqq",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:Socket.once",
+    "unresolved-call:Socket.removeListener",
+    "unresolved-call:clearTimeout",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.startpolling.08zaxv9",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.uncork.0nba24f",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:_netOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.unshift.12777pq",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:unshift"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.writablecorked.1r0e6il",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.writableCorked"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.writableended.10ihjuj",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.writableEnded"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.writablehighwatermark.1qih115",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.writableHighWaterMark"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.writablelength.1vcn5at",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.writableLength"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.writableneeddrain.00dzlgx",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.writableNeedDrain"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.socket.write.1gleo7k",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:toLowerCase",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:_netOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.addlistener.1acl7s9",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:_isFlowing",
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:resume",
+    "unresolved-call:_netOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.appendtoreadbuffer.14l0w80",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:push"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.buffersize.02qshyh",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.bufferSize"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.byteswritten.159p3e8",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.bytesWritten"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.connecting.0voe4ht",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket._connecting"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.consumereadbuffer.0m5jupp",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:shift",
+    "dynamic-call-receiver:slice"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.cork.0v7ur7j",
+   "module": "node.net",
+   "bucket": "unresolved-ident",
+   "mechanisms": [
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:_netOwnerHost"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.deliverinbounddata.084dqql",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+qualified-member-miss",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:toString",
+    "dynamic-call-receiver:write",
+    "unresolved-call:Socket.emit",
+    "unresolved-call:Socket.listenerCount"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.destroyed.0sygp0x",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.destroyed"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.emitflowingdata.1mlogao",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+qualified-member-miss",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:toString",
+    "dynamic-call-receiver:write",
+    "unresolved-call:Socket.emit"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.end.192j8ff",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:Socket.once",
+    "unresolved-call:_netOwnerHost",
+    "unresolved-call:clearTimeout",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.handle.0ttkeud",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket._handle"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.isflowing.1m7bbwl",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.listenerCount"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.isreadbufferoverhighwatermark.0s1xvr3",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.listenerCount"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.notifyonreadeof.0j7vg17",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "unresolved-call:buffer"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.on.1epit3b",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:_isFlowing",
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:resume",
+    "unresolved-call:_netOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.pause.0sggls8",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+qualified-member-miss",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:readStop",
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:Socket.emit"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.pendingconnecthandle.0wccpt2",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket._pendingConnectHandle"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.pipe.001y34q",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:on"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.prependlistener.0eqfvkm",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:_isFlowing",
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:resume",
+    "unresolved-call:_netOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.processonreadbuffer.11nc7lj",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:copy",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:set",
+    "dynamic-call-receiver:shift",
+    "dynamic-call-receiver:slice",
+    "dynamic-call-receiver:subarray",
+    "unresolved-call:buffer"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.push.08ib7ae",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:_appendToReadBuffer",
+    "dynamic-call-receiver:_isFlowing",
+    "dynamic-call-receiver:call",
+    "dynamic-call-receiver:copy",
+    "dynamic-call-receiver:destroy",
+    "dynamic-call-receiver:emit",
+    "dynamic-call-receiver:end",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:set",
+    "dynamic-call-receiver:shift",
+    "dynamic-call-receiver:slice",
+    "dynamic-call-receiver:subarray",
+    "dynamic-call-receiver:toString",
+    "dynamic-call-receiver:unref",
+    "dynamic-call-receiver:write",
+    "unresolved-call:Socket.emit",
+    "unresolved-call:Socket.listenerCount",
+    "unresolved-call:buffer",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.read.0jmfsva",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:shift",
+    "dynamic-call-receiver:slice",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:Socket.listenerCount",
+    "unresolved-call:_netOwnerHost",
+    "unresolved-call:clearTimeout",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.readablehighwatermark.0f70r3s",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.readableHighWaterMark"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.resolveonreadbuffer.06z0lk6",
+   "module": "node.net",
+   "bucket": "unresolved-ident",
+   "mechanisms": [
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:buffer"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.setencoding.13m1o3r",
+   "module": "node.net",
+   "bucket": "unresolved-ident",
+   "mechanisms": [
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:StringDecoder"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.setkeepalive.10yz8b0",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:setKeepAlive"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.setnodelay.1lbrz2w",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:setNoDelay"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.settimeout.0janm69",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+qualified-member-miss+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:Socket.once",
+    "unresolved-call:Socket.removeListener",
+    "unresolved-call:clearTimeout",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.startpolling.06o8jbg",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.uncork.1rvt29w",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:_netOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.unshift.06dy0z3",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:unshift"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.writablecorked.1i1rl8y",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.writableCorked"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.writableended.16ehwau",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.writableEnded"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.writablehighwatermark.1hcxzjc",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.writableHighWaterMark"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.writablelength.0fb6tfi",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.writableLength"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.writableneeddrain.1iyg7vs",
+   "module": "node.net",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:Socket.writableNeedDrain"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.net.stream.write.1m2r6eh",
+   "module": "node.net",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:nextTick",
+    "dynamic-call-receiver:push",
+    "dynamic-call-receiver:ref",
+    "dynamic-call-receiver:toLowerCase",
+    "dynamic-call-receiver:unref",
+    "unresolved-call:_netOwnerHost",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.addlistener.116limb",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.addListener"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.allowhalfopen.1145o3c",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.allowHalfOpen"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.alpnprotocol.0ovjmzb",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.alpnProtocol"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.authorizationerror.1d1rlkl",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.authorizationError"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.authorized.08n8h6d",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.authorized"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.bytesread.0nb6akn",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.bytesRead"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.byteswritten.1h1wqqm",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.bytesWritten"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.connecting.053tzwy",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.connecting"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.constructor.0t4zd7g",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.constructor"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.destroyed.0vsgm4j",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.destroyed"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.encrypted.0nruk7c",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.encrypted"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.eventnames.05c0jcw",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.eventNames"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.getmaxlisteners.02vwrc7",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.getMaxListeners"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.listenercount.13o6b0f",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.listenerCount"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.listeners.1c0c0ft",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.listeners"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.localaddress.0yydslt",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.localAddress"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.localfamily.1mzv2jn",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.localFamily"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.localport.0pt9e70",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.localPort"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.off.147u0od",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.off"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.pending.0k5u5xv",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.pending"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.rawlisteners.0zc4mtf",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.rawListeners"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.readable.07br23o",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.readable"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.readablehighwatermark.1sn3kky",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.readableHighWaterMark"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.readystate.0uu1wds",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.readyState"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.remoteaddress.18gvw0m",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.remoteAddress"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.remotefamily.0ea4dm2",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.remoteFamily"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.remoteport.17cikpl",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.remotePort"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.servername.08etj08",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.servername"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.writable.1acsvz4",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.writable"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.node.tls.tlssocket.writablehighwatermark.1lv5lb2",
+   "module": "node.tls",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:TLSSocket.writableHighWaterMark"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.ws.createwebsocketstream.1xiy6ox",
+   "module": "ws.createwebsocketstream",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:WS.createWebSocketStream"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.ws.server.1h5qip1",
+   "module": "ws.server",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:on",
+    "dynamic-call-receiver:once",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.ws.server.handle.1y2jz2s",
+   "module": "ws.server",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:WebSocketServer._handle"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.ws.server.listening.1kdn1yj",
+   "module": "ws.server",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:WebSocketServer._listening"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.ws.server.startaccepting.1hs0rq6",
+   "module": "ws.server",
+   "bucket": "unresolved-ident",
+   "mechanisms": [
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.ws.websocket.0456ed1",
+   "module": "ws.websocket",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:_startReading"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.ws.websocket.appenddata.1s4x0ge",
+   "module": "ws.websocket",
+   "bucket": "dynamic-dispatch",
+   "mechanisms": [
+    "dynamic-dispatch"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:charCodeAt",
+    "dynamic-call-receiver:copyWithin",
+    "dynamic-call-receiver:set",
+    "dynamic-call-receiver:subarray"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.ws.websocket.delivermessage.0gtb1pa",
+   "module": "ws.websocket",
+   "bucket": "dynamic-dispatch+qualified-member-miss",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:decode",
+    "dynamic-call-receiver:slice",
+    "unresolved-call:WebSocketConnection.emit"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.ws.websocket.startreading.00cxho6",
+   "module": "ws.websocket",
+   "bucket": "unresolved-ident",
+   "mechanisms": [
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 12
+  },
+  {
+   "edgeId": "surface.builtin.export.ws.websocketserver.0qbl2ci",
+   "module": "ws.websocketserver",
+   "bucket": "dynamic-dispatch+unresolved-ident",
+   "mechanisms": [
+    "dynamic-dispatch",
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "dynamic-call-receiver:on",
+    "dynamic-call-receiver:once",
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.ws.websocketserver.handle.165w68f",
+   "module": "ws.websocketserver",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:WebSocketServer._handle"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.ws.websocketserver.listening.1oe2fjy",
+   "module": "ws.websocketserver",
+   "bucket": "qualified-member-miss",
+   "mechanisms": [
+    "qualified-member-miss"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:WebSocketServer._listening"
+   ],
+   "rowCount": 5
+  },
+  {
+   "edgeId": "surface.builtin.export.ws.websocketserver.startaccepting.1aclza9",
+   "module": "ws.websocketserver",
+   "bucket": "unresolved-ident",
+   "mechanisms": [
+    "unresolved-ident"
+   ],
+   "rawAmbiguousCallees": [
+    "unresolved-call:setTimeout"
+   ],
+   "rowCount": 5
+  }
+ ]
+}
