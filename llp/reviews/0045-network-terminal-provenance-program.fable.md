@@ -96,3 +96,11 @@
 - For step 2's inheritance resolution: when the child module later assigns the same member name on its own prototype, does the planned "statically-established inheritance" rule detect the shadow, or is that left to the future review?
 
 **Recommended next step:** Revise narrowly — Concerns 1–3 are mechanical fixes (recompute two number sets from the retained artifact, repair one dangling reference), Concerns 4–5 are wording additions to register items 1/5/7. The program structure, taxonomy, hazard analysis, acceptance criteria, and register are now coherent and verified against source and evidence; nothing structural needs another full round. After that revision, this reviewer's remaining concerns would be MINOR only, and register items 1–7 can go to the owner.
+
+## Round 3 (delta) — 2026-08-01
+
+- **Method:** delta round against revision `584983599f19` (revised from
+  `071214db0606`); brief `llp0045-brief-r3.md`; rounds 1-2 artifacts, the
+  regenerated evidence, and the new generator script in the capsule; same
+  family/runtime as round 1.
+- **Status:** LAUNCHED — review body appended below only if actually received.

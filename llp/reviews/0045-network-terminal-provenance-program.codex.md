@@ -241,3 +241,64 @@ Revise and re-review. Escalate two named decisions before implementation: **virt
 ## Recommended next step
 
 Revise and run another delta review. First regenerate the mechanism evidence from the bound catalog and reconcile every count; then close Step 0’s initialization/use grammar and replace the impossible additive-only gate. Do not begin implementation or put the analyzer-widening decision to the owner before those changes.
+
+## Round 3 (delta) — 2026-08-01
+
+- **Method:** delta round against revision `584983599f19` (revised from
+  `071214db0606`); brief `llp0045-brief-r3.md`; rounds 1-2 artifacts, the
+  regenerated evidence, and the new generator script in the capsule; same
+  family/runtime as round 1.
+- **Status:** RECEIVED 2026-08-01 — body below, recorded verbatim.
+
+### Round-3 review body (verbatim)
+
+**Verdict:** NOT READY
+
+## Delta assessment
+
+1. **RESOLVED** — The artifact hash matches its filename; it contains 338 unique Lane B cells, and bucket, touching, module, and raw-ambiguity summaries independently recompute correctly.
+2. **PARTIALLY RESOLVED** — Numeric and assignment figures are corrected, but the causal interpretation of `bare-callee-miss` is wrong and the “pure cells” caption is false.
+3. **PARTIALLY RESOLVED** — `const`, `null`, native identity, writes, `eval`, and `with` are closed, but the use/escape rule rejects the four intended sites and leaves “escaping function” undefined.
+4. **RESOLVED** — Additions and removals are individually paired and allow-listed; everything unlisted must remain byte-equivalent.
+5. **PARTIALLY RESOLVED** — P1/P2/P3 are orthogonal, but register item 4 still uses the retired “Class-2” taxonomy.
+6. **PARTIALLY RESOLVED** — The inherited-share hedge and soundness conditions are present, but the estimates section still calls all 155 cells a single lever, and most `bare-callee-miss` cells have the wrong disposition.
+7. **PARTIALLY RESOLVED** — Out-of-tree breakage and distinct mode options are present; the promised absent-hook normalization criterion is still missing from item 7.
+8. **RESOLVED** — The Open Questions section exists and covers all five promised subjects.
+
+## Concerns
+
+1. **IN-DELTA — MATERIAL:** Step 0’s supposedly closed use grammar does not admit the four aliases it is meant to analyze.
+
+   Every alias is used outside callee or `typeof` position: `_httpOwnerHost` appears in `!alias` guards; the other three appear in `alias && …` or `alias ? … : …` tests. They are also captured by exported/prototype functions, yet “closed over by an escaping function” is rejected without defining what makes a function escape. Consequently, the analyzer-widening branch has zero clearly eligible real sites, contradicting “four callable hook aliases matching this shape.” Define the accepted boolean-test forms and a mechanical closure-escape predicate, or state that Step 0 necessarily rewrites all four initializers and uses.
+
+2. **IN-DELTA — MATERIAL:** `bare-callee-miss` is routed to the wrong remedy.
+
+   The artifact reports `oncreate` in 10 of the 13 touching cells. Source shows `oncreate` is a local nested callback in `ClientRequest`/`Agent` code, not a documented or framework-virtual slot. Only the three `IncomingMessage.*` entries fit the preserved-dynamic account. Sending all 13 cells to register item 4 risks approving an analyzer/local-callback deficiency as irreducible extension-point residue. Split `oncreate` into local/nested-function attribution and retain only `IncomingMessage.*` under preserved dynamic dispatch.
+
+3. **PRE-EXISTING — MINOR:** Register item 7 still lacks the promised normalization-semantics criterion.
+
+   Open question 2 says hook installation “decides” normalization, but neither it nor item 7 states why: bare `const _x = __exactHook` throws when the global is absent, whereas the current `typeof` guard is safe. State explicitly that normalization is semantics-preserving only if authenticated hooks are unconditionally installed before evaluation in both modes.
+
+4. **PRE-EXISTING — MINOR:** The qualified-member sizing remains internally inconsistent.
+
+   Step 2 correctly says only TLS’s 30 inherited cells are proven and calls the expected yield a hypothesis. Section 4 nevertheless says qualified-member resolution is “the largest single lever” at 155 cells. That is the mechanism’s touching count, not the proven yield of the proposed inheritance resolver.
+
+5. **PRE-EXISTING — MINOR:** Register item 4 still says “Class-2 extension points,” despite the claimed removal of all nominal class references. Rename it in P1/P2 terms.
+
+6. **IN-DELTA — MINOR:** The matrix caption says “Pure cells sum to 338.” They do not: the artifact has 202 single-mechanism cells, 33 empty cells, and 103 multi-mechanism cells. Reword this as “single/empty buckets plus multi-mechanism buckets sum to 338.”
+
+## Suggestions
+
+- Emit contributing `fixtureId` values, not only `rowCount`, to make each cell’s aggregation independently traceable.
+- Use the same mechanism key in prose and JSON (`projection` versus `cross-source-export-projection`).
+- Add positive fixtures for every admitted Step-0 use form, alongside the existing negative-fixture requirement.
+
+## Open questions
+
+- Are truthiness tests such as `if (_x)`, `_x && …`, and `_x ? … : …` intended to be accepted?
+- Does “escaping function” conservatively include every function assigned to an exported prototype?
+- Should `oncreate` be handled by nested/local-function attribution even when it is also passed through the documented `createConnection` dispatch boundary?
+
+## Recommended next step
+
+Revise narrowly and run another delta review. Close Step 0 with an implementable use/escape grammar and split the `bare-callee-miss` disposition before implementation or owner approval. The evidence machinery and numeric corrections themselves are now sound.
