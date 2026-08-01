@@ -302,3 +302,33 @@ Revise and run another delta review. First regenerate the mechanism evidence fro
 ## Recommended next step
 
 Revise narrowly and run another delta review. Close Step 0 with an implementable use/escape grammar and split the `bare-callee-miss` disposition before implementation or owner approval. The evidence machinery and numeric corrections themselves are now sound.
+
+## Round 4 (narrow delta) — 2026-08-01
+
+- **Method:** narrow delta round against revision `76b043c8ab74` (revised from
+  `584983599f19`); brief `llp0045-brief-r4.md`; rounds 1-3 artifacts,
+  regenerated evidence, and hardened generator in the capsule; same
+  family/runtime as round 1.
+- **Status:** RECEIVED 2026-08-01 — body below, recorded verbatim.
+
+### Round-4 review body (verbatim)
+
+- **Verdict:** `NOT READY`
+
+- **Delta assessment**
+  1. **PARTIALLY RESOLVED** — `duplicate-definition` is correctly traced and routed, but the `IncomingMessage.pause` dead-code description is inverted.
+  2. **RESOLVED** — Boolean tests, `var`-with-dominance, the mechanical escape rule, and the zero-yield fallback decision are present.
+  3. **RESOLVED** — The Summary says six and appropriately qualifies the mixed causes.
+  4. **RESOLVED** — The stated identifier counts recompute from the artifact.
+  5. **RESOLVED** — Pairing is symmetric across terminals, paths, and ambiguities, for additions and removals.
+  6. **PARTIALLY RESOLVED** — The 113 pure plus 14/21/7 joint qualified-member figures recompute, but 13 duplicate-definition *touching* cells are still called a lever size.
+  7. **PARTIALLY RESOLVED** — Register item 4 is correctly rescoped; item 7 still does not state the promised ReferenceError semantics.
+  8. **RESOLVED** — 62 matches, two `__proto__`, 60 callable assignments, and 48 callable names recompute.
+  9. **RESOLVED** — The generator has the independent pass, `fixtureIds`, documented emission shapes, `modulePrefix`, and `zero-mechanism`; the artifact hash and 338 unique rows verify.
+  10. **PARTIALLY RESOLVED** — All four questions were added, but the dead-fallback question embeds the same inverted `pause` claim.
+
+- **Concerns**
+  1. **IN-DELTA, MINOR — The promised ReferenceError criterion is absent.** Register item 7 and Open Question 2 say hook installation decides normalization, but never state why: replacing the guarded initializer with `const _x = __exactHook` throws `ReferenceError` during module evaluation when the global is absent, whereas `typeof` is safe. The only `ReferenceError` occurrence is in the revision history.
+  2. **IN-DELTA, MINOR — Duplicate-definition cleanup is still misdescribed and mis-sized.** The assignment at `http.js:2805` is guarded by line 2804; the earlier `pause` fallback prevents that later branch, so the later assignment—not the fallback—is dead. Separately, the artifact has 13 duplicate-definition-touching cells but only one pure cell; the other 12 retain additional mechanisms. Calling all 13 a “lever” and saying the three fallback deletions “clear 3 cells” repeats the touching-versus-clearance error.
+
+- **Recommended next step.** Make two surgical edits: add the explicit absent-hook/ReferenceError condition to register item 7, and correct the `pause` dead-code direction plus distinguish 13 ambiguity removals from one independently cleared cell. Then run one final narrow verification; no structural revision is needed.

@@ -5,6 +5,31 @@
 **Systems:** Security, Conformance, Runtime
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-08-01
+**Revised:** 2026-08-01e (round-4 narrow delta — Fable 3 MATERIAL, Codex
+2 MINOR, converging on the same two items, all fixed. **The
+`IncomingMessage` dead-code direction was inverted** in the previous
+revision at the one point it claimed proof: `_read` (2707 fallback vs
+2811 unconditional) and `resume` (2710 vs 2807) have dead *fallbacks*,
+but `pause`'s second assignment at **2805** is guarded by 2804 and the
+live 2713 fallback makes that guard false — so 2805 is the dead one.
+Corrected in the table, step 2, and open question 7. **The
+duplicate-definition work is re-sized honestly**: cheapest in *effort*
+(one rename, three deletions) but standalone *yield of 1 cell* — only
+one of its 13 touching cells is pure; the other 12 need the analyzer
+work anyway. It removes 13 ambiguity entries but is not a lever, and
+§4's own rule against sizing with touching counts now applies to it too.
+Register item 7 finally **states the ReferenceError fact in the body**
+(third round asked): normalization throws at module evaluation when the
+global is absent where `typeof` is safe, so it is semantics-preserving
+only if hooks are unconditionally installed in both modes. Also: item 4
+excludes the duplicate-definition *marker*, not the cells (12 of 13 carry
+other mechanisms that may legitimately be residue); the
+`unresolved-ident` gloss is marked top-10-of-17 and notes the fourth hook
+alias; the per-module axis is relabelled a module.export prefix with the
+`ws.*`/`dns.promises` caveat inline; the projection row names its JSON
+key; open questions renumbered and the two 33-cell halves merged; the
+generator states that its bare-name test is a regex, not an enumeration.
+Review artifacts: llp/reviews/0045-*.{fable,codex}.md rounds 1-4)
 **Revised:** 2026-08-01d (round-3 dual-review revision, both families NOT
 READY — Codex 2 MATERIAL, Fable 3 MATERIAL + 8 MINOR, all addressed.
 **Fable's tracing superseded the earlier diagnosis of the sixth
@@ -154,10 +179,10 @@ native/global Fetch, WebSocket, Bun/Exact, executor surfaces) and are
 | --- | ---: | ---: | --- |
 | qualified-member-miss | 113 | 155 | `unresolved-call:Type.member` — a member of a type the walker cannot resolve, including **inherited** members (tls's `TLSSocket` inherits `net.Socket` via `Object.setPrototypeOf`, tls.js:2885/3678) |
 | dynamic-dispatch | 39 | 142 | `dynamic-call-receiver` / `computed-call` / `dynamic-call-target` — method calls on mutable receivers (the `this._x()` family) |
-| unresolved-ident | 17 | 106 | bare `unresolved-call:name`. Measured distribution: **`setTimeout` 64 cells** and `clearTimeout` 7 (the timer lever, §2), the hook aliases 29/27/16, `createConnection` 10, `buffer` 8, `require` 6, `AbortController`/`fetch` 4 each, `StringDecoder`/`atob` 2 each |
+| unresolved-ident | 17 | 106 | bare `unresolved-call:name`. Measured distribution: **`setTimeout` 64 cells** and `clearTimeout` 7 (the timer lever, §2), three hook aliases 29/27/16 (`_dgramOwnerHost`, the fourth, touches 1), `createConnection` 10, `buffer` 8, `require` 6, `AbortController`/`fetch` 4 each, `StringDecoder`/`atob` 2 each — top 10 of 17 raws; the artifact has the full set |
 | empty-no-mechanism | 33 | 33 | **undiagnosed**: routes recorded neither terminals nor any ambiguity (28 http, 5 http2) |
-| cross-source-export-projection | 32 | 32 | re-export layers emitted with empty `terminals` by construction (all of dns, via `dns.promises`) |
-| duplicate-definition | 1 | 13 | the walker's **multiple-definition marker** (`definitions.length > 1`, capsec-surface-inventory.mjs:4494-4498 unqualified / :4538 qualified) — *not* a dynamism shape. `oncreate` (10 cells) is declared twice (http.js:4015, 5877); `IncomingMessage.pause`/`_read`/`resume` each have a guarded fallback (http.js:2707/2710/2713) **and** a later unconditional assignment (2805/2807/2811). **The cheapest mechanism in the matrix** |
+| projection (`cross-source-export-projection`) | 32 | 32 | re-export layers emitted with empty `terminals` by construction (all of dns, via `dns.promises`) |
+| duplicate-definition | 1 | 13 | the walker's **multiple-definition marker** (`definitions.length > 1`, capsec-surface-inventory.mjs:4494-4498 unqualified / :4538 qualified) — *not* a dynamism shape. `oncreate` (10 cells) is declared twice (http.js:4015, 5877); `IncomingMessage._read`/`resume`/`pause` each have a guarded fallback (http.js:2707/2710/2713) **and** a second assignment (2811/2807/2805) — for `_read`/`resume` the second is unconditional so the *fallback* is dead; for `pause` the second sits inside `if (!…pause)` (2804) so the *second* is dead. Cheapest in effort, but see §4 on yield |
 
 ("Cells touching" counts every cell whose bucket contains the mechanism;
 a cell with several mechanisms is counted in each, so the column does not
@@ -165,7 +190,10 @@ sum to 338. The artifact's `bucketCells` partitions all 338: 202
 single-mechanism cells, 33 empty-mechanism cells, and 103
 multi-mechanism cells.)
 
-**Per module** (Lane B cells): node.http 162, node.net 78, node.dns 32,
+**Per module.export prefix** (Lane B cells; the axis is a positional
+prefix of the edge id, not a module — `ws.*` rows are four exports of the
+single `ws.js`, and `node.dns` rows are all `dns.promises` exports):
+node.http 162, node.net 78, node.dns 32,
 node.tls 30, node.http2 18, ws.server/websocket/websocketserver 4 each, https 4,
 dgram 1, ws.createwebsocketstream 1 — summing to 338.
 Decisively: **dns is 100% projection and tls is 100% qualified-member-miss**;
@@ -306,9 +334,9 @@ e.g. `_implicitHeader` ×3, `_read` ×3, plus `_send`, `_renderHeaders`,
 `_dump`, `_flushManualData`, `_scheduleManualReadable`, `_emitManualEnd`,
 `_emitHttpClose`, `_pushBodyChunk`). Their routes need a different
 mechanism — a declared, authenticated dispatch contract — or an explicit
-residual disposition (register item 4). (The duplicate-definition cells
-are **not** part of this residue — see §2 step 2; they are source
-hygiene.)
+residual disposition (register item 4). (The duplicate-definition
+*marker* is not part of this residue — see §2 step 2 — though 12 of those
+13 cells carry other mechanisms that may be.)
 
 Transform rule for the eligible (security-private) set: `this._x()` → a **per-class** module-local
 function with a mangled name (`_clientRequestQueueStreamingBody(self)`),
@@ -353,11 +381,15 @@ Each is separate work with its own review, not a variation of step 1:
   Traced to the emitting code, these are not dynamism and not residue:
   the walker refuses because the source declares the callee more than
   once. `oncreate` is declared twice (http.js:4015, 5877) — rename one.
-  `IncomingMessage.pause`/`_read`/`resume` each carry a guarded fallback
-  *and* a later unconditional assignment, the fallback being dead for
-  `pause` — collapse them (open question 7 asks whether all three
-  fallbacks are dead). This is the **cheapest** work in the program and
-  should be the first thing attempted, ahead of any analyzer change.
+  `IncomingMessage._read`/`resume`/`pause` each carry two assignments;
+  which one is dead differs per member: `_read` (2707 fallback vs 2811
+  unconditional) and `resume` (2710 vs 2807 unconditional) have dead
+  *fallbacks*; `pause`'s second assignment at 2805 is inside
+  `if (!IncomingMessage.prototype.pause)` (2804), and the 2713 fallback
+  already made it callable, so **2805** is the dead one. Collapse each
+  in its own direction. This is the **cheapest work in effort** — a
+  rename and three deletions — and worth doing first, but see §4: its
+  standalone yield is 1 cell.
   Two earlier drafts mis-routed these cells — once to extension-point
   residue, once to a nested-callback attribution gap — because the
   mechanism was named from the raw string's shape instead of traced to
@@ -428,9 +460,14 @@ alone clears at most its 113 pure cells; its other 42 touching cells
 clear only jointly (14 with dynamic-dispatch, 21 with
 dynamic-dispatch+unresolved-ident, 7 with three others), per the
 artifact's `bucketCells`. And of those 113, only tls's 30 are *proven*
-inherited. The cheapest lever is the 13 duplicate-definition cells;
-the timer admission would touch 64 `setTimeout` cells but clears only
-those whose other mechanisms also resolve; the four hook
+inherited. The duplicate-definition work is the cheapest in
+*effort* (one rename, three deletions) but its standalone *yield* is
+**1 cell** — only one of its 13 touching cells is pure; the other 12 also
+carry dynamic-dispatch (5) or dynamic-dispatch+qualified-member-miss (7)
+and clear only once that analyzer work lands. It still removes 13
+ambiguity entries, which is worth doing early, but it is not a lever.
+Likewise the timer admission would touch 64 `setTimeout` cells and clear
+only those whose other mechanisms also resolve; the four hook
 aliases are a small lever; and http.js's 117 call sites are bounded by
 the eligible (P1-no/P2-none) subset, which the step-1 inventory sizes. Re-estimate at the
 first gate.
@@ -453,9 +490,10 @@ first gate.
 3. **Sequencing** (blocks staffing): recommended to run beside, not
    blocking, the LLP 0044 fs+env+process v1.1 push.
 4. **Preserved-dynamic residue** (every slot with P1-yes **or**
-   P2-non-none — the union of the old classes 2 and 3, and *not* the
-   duplicate-definition cells, which are source hygiene; blocks step 3's
-   exit): accept that
+   P2-non-none — the union of the old classes 2 and 3, ; the duplicate-definition
+   **marker** is excluded as source hygiene, but a cell that also carries
+   a preserved-dynamic mechanism still belongs here — 12 of the 13 do;
+   blocks step 3's exit): accept that
    documented dynamic dispatch stays dynamic and its cells remain an
    honest, dispositioned residue — or fund a declared authenticated
    dispatch contract to prove them.
@@ -477,7 +515,13 @@ first gate.
    owns the 338 Lane B cells and that the 35 Lane C native/global
    surfaces belong to a separate program.
 7. **Analyzer widening vs source normalization for the four hook
-   aliases** (blocks step 0's shape): a general binding-aware rule
+   aliases** (blocks step 0's shape). **The deciding fact:** normalizing
+   to a bare `const _x = __exactHook` **throws a ReferenceError during
+   module evaluation** if the global is absent, where today's
+   `typeof __exactHook === 'function' ? … : null` is safe — so
+   normalization is semantics-preserving **only if** the authenticated
+   hooks are unconditionally installed before builtin evaluation in
+   *both* modes (open question 2). Options: a general binding-aware rule
    (broader, more review surface) vs normalizing four source sites into
    the `const` form today's walker already resolves (narrow, no analyzer
    trust change). Recommended: measure both at the spike, prefer
@@ -500,33 +544,29 @@ first gate.
 
 1. Are the `__exact*` network hooks installed as authenticated, immutable
    data properties **before every possible builtin evaluation**,
-   including lazy builtin loading? Step 0's resolution rests on this;
-   verify it rather than assume it.
+   including lazy builtin loading? Step 0's resolution rests on this.
 2. Are those hooks installed unconditionally in **insecure** mode as
-   well as secure? This decides register item 7's normalization option
-   and informs item 5.
-3. What raw shapes produced the 33 `empty-no-mechanism` cells — a source
-   pattern, or an inventory defect that records neither terminals nor
-   ambiguity? Step 2 diagnoses before planning.
+   well as secure? With register item 7's ReferenceError fact, this
+   decides whether normalization is even available.
+3. The 33 `empty-no-mechanism` cells record neither terminals nor
+   ambiguity — so what source pattern produces them, **and** where does
+   their Lane B tag come from if not route evidence? (One question, two
+   halves; step 2 diagnoses before planning.)
 4. What class of residue is expected at step 3, and how does the metric
-   distinguish *approved* residue (preserved extension points, per
-   register item 4) from *unfinished* work? "~0" is not a criterion
-   until that split is named.
+   distinguish *approved* residue (preserved-dynamic slots, register
+   item 4) from *unfinished* work? "~0" is not a criterion until that
+   split is named.
 5. For step 2's qualified-member resolution: when a child prototype
    later assigns the same member name, does the inheritance rule detect
    the shadow, or is that deferred to its own review?
-7. Are the three `IncomingMessage.prototype.*` guarded fallbacks
-   (http.js:2707-2715) dead code? The later unconditional assignments
-   appear to always win (proven dead for `pause`). If so, deleting them
-   clears 3 cells at zero behavioral cost.
+6. Should `oncreate` be attributed as a local nested callback even
+   though it is also handed across the documented `createConnection`
+   dispatch boundary — i.e. does attribution stop at the boundary?
+7. Confirmed dead assignments to delete: `_read`'s 2707 fallback (2811
+   is unconditional) and `resume`'s 2710 fallback (2807 is
+   unconditional); `pause`'s **2805** (guarded by 2804, which the live
+   2713 fallback makes false). Is there any load-bearing reason these
+   were written defensively that this reading misses?
 8. Is `unresolved-call:createConnection` (10 cells) the imported
    `net.createConnection` — i.e. covered by step 2's projection/require
    work — or a further uncounted lever?
-9. Do the 33 `empty-no-mechanism` cells derive their Lane B tag from
-   something other than route evidence? They record neither terminals
-   nor ambiguity, so the tag's source is itself unexplained.
-6. Should `oncreate` be attributed as a local nested callback even
-   though it is also handed across the documented `createConnection`
-   dispatch boundary — i.e. does attribution stop at the boundary, and
-   if so do those 10 cells fall back to preserved-dynamic residue after
-   all?

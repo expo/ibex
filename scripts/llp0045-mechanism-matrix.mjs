@@ -52,6 +52,13 @@ function mechanismOf(raw) {
   // and `unresolved-required-export:`. None appear in this data set, and all
   // would throw below rather than be absorbed — which is what makes the
   // taxonomy exhaustive *for this catalog* rather than merely total.
+  //
+  // Honest limit: the test below is a bare-name REGEX, not an enumeration
+  // of emission sites, so a future bare-name ambiguity from a third site
+  // would be absorbed here instead of throwing. The four raws in this
+  // catalog (`oncreate`, `IncomingMessage.{pause,_read,resume}`) were each
+  // verified against the source that emits them; a new catalog should be
+  // re-verified rather than trusted to this regex.
   if (/^[A-Za-z_$][\w$]*(\.[\w$]+)*$/u.test(raw)) return "duplicate-definition";
   throw new Error(`unrecognized ambiguity shape: ${JSON.stringify(raw)}`);
 }

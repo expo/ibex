@@ -130,3 +130,11 @@ Delta assessment: 1 PARTIALLY RESOLVED (artifact real and digest-true, every §1
 **Open questions:** is step 0 still a live step, or has it collapsed into "normalize four declarations and ~12 use sites"? · are the three `IncomingMessage.prototype.*` guarded fallbacks (http.js:2707-2715) dead code? · is `unresolved-call:createConnection` (10 cells) the imported `net.createConnection`, and does step 2's projection/require work cover it or is it a fifth uncounted lever? · do the 33 `empty-no-mechanism` cells get their Lane B tag from something other than route evidence?
 
 **Recommended next step:** Revise, then one more narrow delta round. Concerns 3, 7, 9 are one-line edits. Concern 1 is a paragraph plus a reframing of register item 7 — as written, step 0's measured yield is zero and normalization is a precondition rather than an alternative, so item 7 should not go to the owner in its current form. Concern 2 requires re-glossing the sixth mechanism against the emitting code and moving 13 cells out of register item 4's residue. Concerns 4-6, 8, 10 are generator/prose hardening that can land in the same pass. The program structure, denominators, hazard analysis, orthogonal slot properties, acceptance-gate direction, and Open Questions are sound and independently verified; nothing structural is in question.
+
+## Round 4 (narrow delta) — 2026-08-01
+
+- **Method:** narrow delta round against revision `76b043c8ab74` (revised from
+  `584983599f19`); brief `llp0045-brief-r4.md`; rounds 1-3 artifacts,
+  regenerated evidence, and hardened generator in the capsule; same
+  family/runtime as round 1.
+- **Status:** LAUNCHED — review body appended below only if actually received.
