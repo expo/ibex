@@ -579,7 +579,9 @@ demonstrating the authoring loop the estimate must price.
 - **New register-relevant fact for items 4 and 2:** certifying any
   seed family *as a family* requires handling its poisoned cells. The
   measured options: (a) scope v1.1 to fs+env+process and defer network
-  to a Lane B program; (b) extend the closed selector grammar with a
+  to a Lane B program (now planned as
+  [LLP 0045](./0045-network-terminal-provenance-program.plan.md));
+  (b) extend the closed selector grammar with a
   generated criterion — "cells whose enforcement routes have
   source-proven terminals" — which is intensional and generated, but
   interacts with the anti-cherry-picking constraint the review settled
