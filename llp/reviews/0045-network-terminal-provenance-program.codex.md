@@ -332,3 +332,52 @@ Revise narrowly and run another delta review. Close Step 0 with an implementable
   2. **IN-DELTA, MINOR — Duplicate-definition cleanup is still misdescribed and mis-sized.** The assignment at `http.js:2805` is guarded by line 2804; the earlier `pause` fallback prevents that later branch, so the later assignment—not the fallback—is dead. Separately, the artifact has 13 duplicate-definition-touching cells but only one pure cell; the other 12 retain additional mechanisms. Calling all 13 a “lever” and saying the three fallback deletions “clear 3 cells” repeats the touching-versus-clearance error.
 
 - **Recommended next step.** Make two surgical edits: add the explicit absent-hook/ReferenceError condition to register item 7, and correct the `pause` dead-code direction plus distinguish 13 ambiguity removals from one independently cleared cell. Then run one final narrow verification; no structural revision is needed.
+
+## Round 5 (fixed-text confirmation) — 2026-08-01
+
+- **Method:** confirmation pass against revision `e971c91ab230`; brief
+  `llp0045-brief-r5.md`; same family/runtime as round 1.
+- **Status:** RECEIVED 2026-08-01 — body below, recorded verbatim.
+
+### Round-5 confirmation body (verbatim)
+
+- **Verdict:** `READY`
+
+- **Confirmation**
+  1. CONFIRMED
+  2. CONFIRMED
+  3. CONFIRMED
+  4. CONFIRMED
+  5. CONFIRMED
+  6. CONFIRMED
+  7. CONFIRMED
+  8. CONFIRMED
+
+- **Recommended next step:** Record the round-5 confirmation; the author may advance the LLP.
+
+## Close-out ledger — 2026-08-01
+
+- **Terminal state: converged after 5 rounds.** Round 5 (codex): READY — all 8 edits confirmed, zero concerns.
+  Final reviewed text: revision `e971c91ab230` plus the five round-5
+  corrections; the corrected revision is labeled in the document header
+  and is **UNREVIEWED** beyond the round-5 confirmation, per the loop's
+  honesty rule.
+- Round history: r1 dual NOT READY (Fable 5 MATERIAL / Codex 7) → r2
+  dual NOT READY (1 / 3) → r3 dual NOT READY (3 / 2) → r4 NOT READY
+  (Fable 3 MATERIAL / Codex 2 MINOR) → r5 Codex READY, Fable
+  confirmation with editorial corrections.
+- What the loop changed, beyond wording: the TLS-bypass hazard
+  (`http.Agent.createSocket` → `this.createConnection`, overridden by
+  `https.Agent` to reach `tls.connect`) re-founded step 1 on virtual-slot
+  properties; the step-0 grammar was found to admit **zero** of the four
+  real alias sites (all `var`, all used in truthiness position),
+  reframing register item 7 as the live decision; the sixth mechanism
+  was retraced three times before landing on the walker's
+  duplicate-definition marker; denominators corrected to 338 Lane B; the
+  "additive-only" acceptance gate was found to forbid step 2's own work;
+  and the evidence artifact was replaced by a checked generator after the
+  hand-rolled one contradicted itself.
+- The author decides status. Both reviewers' terminal recommendation:
+  register items 1-7 are ready to go to the owner; step 0 is
+  decision-free and can start any time; step 1 waits on items 1 and 5.
+  This ledger proposes that transition; it does not apply it.

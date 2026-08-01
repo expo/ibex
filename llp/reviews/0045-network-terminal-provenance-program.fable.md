@@ -138,3 +138,52 @@ Delta assessment: 1 PARTIALLY RESOLVED (artifact real and digest-true, every §1
   regenerated evidence, and hardened generator in the capsule; same
   family/runtime as round 1.
 - **Status:** LAUNCHED — review body appended below only if actually received.
+
+## Round 5 (fixed-text confirmation) — 2026-08-01
+
+- **Method:** confirmation pass against revision `e971c91ab230`; brief
+  `llp0045-brief-r5.md`; same family/runtime as round 1.
+- **Status:** RECEIVED 2026-08-01 — body below, recorded verbatim.
+
+### Round-5 confirmation body (verbatim)
+
+**Verdict:** `NOT READY`
+
+**Confirmation:** 1 CONFIRMED (substance; see Concern 1 on the stated *reason*) · 2 CONFIRMED with a wrong breakdown (Concern 2) · 3 CONFIRMED (§5 item 7, not changelog-only) · 4 CONFIRMED (one editorial defect, Concern 4) · 5 CONFIRMED with an inaccurate label (Concern 3) · 6 CONFIRMED (per-prefix counts sum to 338) · 7 CONFIRMED · 8 CONFIRMED (1-8, halves merged, all in-text references resolve).
+
+**Concerns**
+
+1. **The `pause` justification is wrong in the default profile.** The doc asserts "the live 2713 fallback makes that guard false". `http.js:11` requires `node:stream`, which resolves in the default builtin set; `Readable.prototype.pause` exists (`stream.js:2153`), `Readable.prototype.on` exists (`:2163`) so `_IncomingMessageBase` is `Readable.prototype`, and therefore the `typeof … !== 'function'` guard at 2712 is **false** — 2713 does not execute. 2804 is falsified by the *inherited* `pause`, not by 2713. 2713 is live only in a stream-less profile (the `try/catch` at http.js:11 anticipates one). The conclusion is unaffected — 2805 is dead in **both** profiles, and the three planned deletions (2707, 2710, 2805) are safe in both — but the document states a profile-dependent premise as proof, at the one point it claims proof, for the second round running.
+2. **The 12-cell breakdown contradicts the retained artifact.** §4 says the other 12 "carry dynamic-dispatch (5) or dynamic-dispatch+qualified-member-miss (7)". The artifact's `bucketCells` gives `duplicate-definition+dynamic-dispatch+unresolved-ident` = 5 and `duplicate-definition+dynamic-dispatch+qualified-member-miss+unresolved-ident` = 7 — **all 12 also carry `unresolved-ident`**. Dropping it understates joint clearance in the very sentence enforcing "a cell clears only when every mechanism it touches is resolved".
+3. **"top 10 of 17 raws" is not what the gloss lists.** It names 13 raws, and `StringDecoder`/`atob` (2 each) are not in the top 10 — they tie with `_httpDefineOwnedProperty`, `assertOwner`, `callback` at 2, which are omitted.
+4. **Editorial:** §5 item 4 carries a stray "`, ;`" — deletion residue.
+5. **Minor tension:** §1 still says the generator "throws on any unrecognized ambiguity shape rather than absorbing it into a catch-all", while the generator now documents that a bare-name ambiguity from a new emission site *would* be absorbed.
+
+**Recommended next step:** Apply the four one-clause corrections (Concerns 1-4) plus the optional §1 hedge — no structural change, and no further review round is warranted: each fix is mechanically checkable. Register items 1-7 are ready for the owner once the text is corrected; the program structure, denominators, hazard analysis, acceptance gate, and open questions are sound and independently verified.
+
+## Close-out ledger — 2026-08-01
+
+- **Terminal state: converged after 5 rounds.** Round 5 (fable): confirmed all 8 edits in substance; 5 one-clause corrections applied in the same revision.
+  Final reviewed text: revision `e971c91ab230` plus the five round-5
+  corrections; the corrected revision is labeled in the document header
+  and is **UNREVIEWED** beyond the round-5 confirmation, per the loop's
+  honesty rule.
+- Round history: r1 dual NOT READY (Fable 5 MATERIAL / Codex 7) → r2
+  dual NOT READY (1 / 3) → r3 dual NOT READY (3 / 2) → r4 NOT READY
+  (Fable 3 MATERIAL / Codex 2 MINOR) → r5 Codex READY, Fable
+  confirmation with editorial corrections.
+- What the loop changed, beyond wording: the TLS-bypass hazard
+  (`http.Agent.createSocket` → `this.createConnection`, overridden by
+  `https.Agent` to reach `tls.connect`) re-founded step 1 on virtual-slot
+  properties; the step-0 grammar was found to admit **zero** of the four
+  real alias sites (all `var`, all used in truthiness position),
+  reframing register item 7 as the live decision; the sixth mechanism
+  was retraced three times before landing on the walker's
+  duplicate-definition marker; denominators corrected to 338 Lane B; the
+  "additive-only" acceptance gate was found to forbid step 2's own work;
+  and the evidence artifact was replaced by a checked generator after the
+  hand-rolled one contradicted itself.
+- The author decides status. Both reviewers' terminal recommendation:
+  register items 1-7 are ready to go to the owner; step 0 is
+  decision-free and can start any time; step 1 waits on items 1 and 5.
+  This ledger proposes that transition; it does not apply it.

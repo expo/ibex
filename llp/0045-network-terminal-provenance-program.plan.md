@@ -5,6 +5,18 @@
 **Systems:** Security, Conformance, Runtime
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-08-01
+**Revised:** 2026-08-01f (round-5 confirmation — Codex **READY** (all 8
+edits confirmed, zero concerns), Fable confirmed all 8 in substance with
+five one-clause corrections, now applied: the `pause` dead-code
+*justification* was profile-dependent (`IncomingMessage` inherits
+`pause` from `Readable.prototype`, stream.js:2153, so the 2712 guard is
+false and 2713 never runs in the default profile) — the conclusion holds
+in both profiles and now says why; the 12 non-pure duplicate-definition
+cells all carry `unresolved-ident`, which §4 had dropped; the
+`unresolved-ident` gloss is relabelled 13-of-17; a stray deletion
+residue and a §1 over-claim about the generator's catch-all are fixed.
+No structural change; both families state no further round is warranted.
+Review artifacts: llp/reviews/0045-*.{fable,codex}.md rounds 1-5)
 **Revised:** 2026-08-01e (round-4 narrow delta — Fable 3 MATERIAL, Codex
 2 MINOR, converging on the same two items, all fixed. **The
 `IncomingMessage` dead-code direction was inverted** in the previous
@@ -157,8 +169,10 @@ row per Lane B cell** (edge id, module, bucket, mechanisms, raw
 in the same run. Regenerate with
 `node scripts/llp0045-mechanism-matrix.mjs <catalog.json>`; the generator
 re-derives the Lane B cell set in an **independent second pass** and
-fails on disagreement, throws on any unrecognized ambiguity shape rather
-than absorbing it into a catch-all, and carries per-cell `fixtureIds` so
+fails on disagreement, throws on any unrecognized *prefixed* ambiguity shape rather than
+absorbing it into a catch-all (its bare-name test is a regex, so a
+bare-name ambiguity from a new emission site would be absorbed — the
+generator says so, and a new catalog must be re-verified), and carries per-cell `fixtureIds` so
 each row is traceable. (Its other numeric assertions are derived from the
 same rows they check and are regression guards, not proofs — the
 auditability comes from the retained rows.)
@@ -179,10 +193,10 @@ native/global Fetch, WebSocket, Bun/Exact, executor surfaces) and are
 | --- | ---: | ---: | --- |
 | qualified-member-miss | 113 | 155 | `unresolved-call:Type.member` — a member of a type the walker cannot resolve, including **inherited** members (tls's `TLSSocket` inherits `net.Socket` via `Object.setPrototypeOf`, tls.js:2885/3678) |
 | dynamic-dispatch | 39 | 142 | `dynamic-call-receiver` / `computed-call` / `dynamic-call-target` — method calls on mutable receivers (the `this._x()` family) |
-| unresolved-ident | 17 | 106 | bare `unresolved-call:name`. Measured distribution: **`setTimeout` 64 cells** and `clearTimeout` 7 (the timer lever, §2), three hook aliases 29/27/16 (`_dgramOwnerHost`, the fourth, touches 1), `createConnection` 10, `buffer` 8, `require` 6, `AbortController`/`fetch` 4 each, `StringDecoder`/`atob` 2 each — top 10 of 17 raws; the artifact has the full set |
+| unresolved-ident | 17 | 106 | bare `unresolved-call:name`. Measured distribution: **`setTimeout` 64 cells** and `clearTimeout` 7 (the timer lever, §2), three hook aliases 29/27/16 (`_dgramOwnerHost`, the fourth, touches 1), `createConnection` 10, `buffer` 8, `require` 6, `AbortController`/`fetch` 4 each, `StringDecoder`/`atob` 2 each — 13 of 17 raws (the 4 omitted each touch 1-2 cells); the artifact has the full set |
 | empty-no-mechanism | 33 | 33 | **undiagnosed**: routes recorded neither terminals nor any ambiguity (28 http, 5 http2) |
 | projection (`cross-source-export-projection`) | 32 | 32 | re-export layers emitted with empty `terminals` by construction (all of dns, via `dns.promises`) |
-| duplicate-definition | 1 | 13 | the walker's **multiple-definition marker** (`definitions.length > 1`, capsec-surface-inventory.mjs:4494-4498 unqualified / :4538 qualified) — *not* a dynamism shape. `oncreate` (10 cells) is declared twice (http.js:4015, 5877); `IncomingMessage._read`/`resume`/`pause` each have a guarded fallback (http.js:2707/2710/2713) **and** a second assignment (2811/2807/2805) — for `_read`/`resume` the second is unconditional so the *fallback* is dead; for `pause` the second sits inside `if (!…pause)` (2804) so the *second* is dead. Cheapest in effort, but see §4 on yield |
+| duplicate-definition | 1 | 13 | the walker's **multiple-definition marker** (`definitions.length > 1`, capsec-surface-inventory.mjs:4494-4498 unqualified / :4538 qualified) — *not* a dynamism shape. `oncreate` (10 cells) is declared twice (http.js:4015, 5877); `IncomingMessage._read`/`resume`/`pause` each have a guarded fallback (http.js:2707/2710/2713) **and** a second assignment (2811/2807/2805) — for `_read`/`resume` the second is unconditional so the *fallback* is dead; for `pause` the second sits inside `if (!…pause)` (2804) and `pause` is callable on the chain either way, so the *second* is dead. Cheapest in effort, but see §4 on yield |
 
 ("Cells touching" counts every cell whose bucket contains the mechanism;
 a cell with several mechanisms is counted in each, so the column does not
@@ -385,8 +399,12 @@ Each is separate work with its own review, not a variation of step 1:
   which one is dead differs per member: `_read` (2707 fallback vs 2811
   unconditional) and `resume` (2710 vs 2807 unconditional) have dead
   *fallbacks*; `pause`'s second assignment at 2805 is inside
-  `if (!IncomingMessage.prototype.pause)` (2804), and the 2713 fallback
-  already made it callable, so **2805** is the dead one. Collapse each
+  `if (!IncomingMessage.prototype.pause)` (2804), and `pause` is already
+  callable on the prototype chain by then — inherited from
+  `Readable.prototype` (stream.js:2153) in the default profile, or
+  supplied by the 2713 fallback in a stream-less one (http.js:11 wraps
+  the `node:stream` require in try/catch for exactly that case) — so
+  **2805** is dead in **both** profiles. Collapse each
   in its own direction. This is the **cheapest work in effort** — a
   rename and three deletions — and worth doing first, but see §4: its
   standalone yield is 1 cell.
@@ -463,8 +481,9 @@ artifact's `bucketCells`. And of those 113, only tls's 30 are *proven*
 inherited. The duplicate-definition work is the cheapest in
 *effort* (one rename, three deletions) but its standalone *yield* is
 **1 cell** — only one of its 13 touching cells is pure; the other 12 also
-carry dynamic-dispatch (5) or dynamic-dispatch+qualified-member-miss (7)
-and clear only once that analyzer work lands. It still removes 13
+carry `unresolved-ident` — 5 as duplicate-definition+dynamic-dispatch+
+unresolved-ident and 7 with qualified-member-miss on top — so they clear
+only once that analyzer *and* timer/identifier work lands. It still removes 13
 ambiguity entries, which is worth doing early, but it is not a lever.
 Likewise the timer admission would touch 64 `setTimeout` cells and clear
 only those whose other mechanisms also resolve; the four hook
@@ -490,7 +509,7 @@ first gate.
 3. **Sequencing** (blocks staffing): recommended to run beside, not
    blocking, the LLP 0044 fs+env+process v1.1 push.
 4. **Preserved-dynamic residue** (every slot with P1-yes **or**
-   P2-non-none — the union of the old classes 2 and 3, ; the duplicate-definition
+   P2-non-none — the union of the old classes 2 and 3; the duplicate-definition
    **marker** is excluded as source hygiene, but a cell that also carries
    a preserved-dynamic mechanism still belongs here — 12 of the 13 do;
    blocks step 3's exit): accept that
@@ -564,8 +583,9 @@ first gate.
    dispatch boundary — i.e. does attribution stop at the boundary?
 7. Confirmed dead assignments to delete: `_read`'s 2707 fallback (2811
    is unconditional) and `resume`'s 2710 fallback (2807 is
-   unconditional); `pause`'s **2805** (guarded by 2804, which the live
-   2713 fallback makes false). Is there any load-bearing reason these
+   unconditional); `pause`'s **2805** (guarded by 2804, false in both profiles: `pause` is
+   inherited from `Readable.prototype` when `node:stream` loads, and
+   supplied by the 2713 fallback when it does not). Is there any load-bearing reason these
    were written defensively that this reading misses?
 8. Is `unresolved-call:createConnection` (10 cells) the imported
    `net.createConnection` — i.e. covered by step 2's projection/require
