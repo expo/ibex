@@ -1347,13 +1347,18 @@ fn main() {
     let host_http_server_enabled = std::env::var_os("CARGO_FEATURE_HOST_HTTP_SERVER").is_some();
     let app_host_enabled = std::env::var_os("CARGO_FEATURE_APP_HOST").is_some();
     let openssl_crypto_enabled = std::env::var_os("CARGO_FEATURE_OPENSSL_CRYPTO").is_some();
-    // @ref LLP 0029#2-executable-layout-stub-envelope-footer —
-    // the compiled Linux release profile cannot inherit the source runtime's
-    // dynamic libcurl backend while compiled CapSec advertises no network
-    // authority; a later advertisement must bring a vendored/static backend.
+    let sfe_static_network_enabled = std::env::var_os("CARGO_FEATURE_SFE_STATIC_NETWORK").is_some();
+    // @ref LLP 0047#the-linux-ambient-network-gap-must-be-decided-not-inherited —
+    // the Linux SFE is a flagship Snapback CLI target, so its existing
+    // libcurl Fetch/WebSocket backend must be linked into the final image.
     let linux_release_stub = target_os == "linux" && env_truthy("IBEX_SFE_LINUX_RELEASE_STUB");
     if linux_release_stub && !hermes_link_static {
         panic!("IBEX_SFE_LINUX_RELEASE_STUB requires HERMES_LINK_STATIC=1");
+    }
+    if linux_release_stub && !sfe_static_network_enabled {
+        panic!(
+            "IBEX_SFE_LINUX_RELEASE_STUB requires the sfe-static-network feature so Fetch/WebSocket are present in the release image"
+        );
     }
     let hermes_macos_binary = if target_os == "macos" {
         let binary = if hermes_link_static {
@@ -2603,12 +2608,21 @@ fn main() {
 
     if target_os == "linux" {
         const MIN_LIBCURL_VERSION: &str = "7.86.0";
-        // @ref LLP 0008#linux-networking — libcurl is the supported Linux Fetch/WebSocket backend; the CLI fallback is explicit and degraded.
-        let allow_curl_cli_fallback = !linux_release_stub
+        // @ref LLP 0008#linux-networking — libcurl is the supported Linux
+        // Fetch/WebSocket backend. SFE builds use Cargo's pinned static curl
+        // closure; ordinary source-runtime builds retain the distro backend.
+        let static_curl_include = if sfe_static_network_enabled {
+            Some(std::env::var_os("DEP_CURL_INCLUDE").unwrap_or_else(|| {
+                panic!("sfe-static-network requires curl-sys to publish DEP_CURL_INCLUDE")
+            }))
+        } else {
+            None
+        };
+        let allow_curl_cli_fallback = !sfe_static_network_enabled
             && std::env::var("IBEX_ALLOW_CURL_CLI_FALLBACK")
                 .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
                 .unwrap_or(false);
-        let detected_libcurl_version = if linux_release_stub {
+        let detected_libcurl_version = if sfe_static_network_enabled {
             None
         } else {
             std::process::Command::new("pkg-config")
@@ -2623,7 +2637,7 @@ fn main() {
                     }
                 })
         };
-        let has_minimum_libcurl = !linux_release_stub
+        let has_minimum_system_libcurl = !sfe_static_network_enabled
             && std::process::Command::new("pkg-config")
                 .args(["--atleast-version", MIN_LIBCURL_VERSION, "libcurl"])
                 .status()
@@ -2636,9 +2650,13 @@ fn main() {
             .file("src/engine/native_fetch_linux.cc")
             .flag_if_supported("-std=c++17")
             .flag_if_supported("-fPIC");
-        if linux_release_stub {
-            fetch_build.define("EXACT_DISABLE_LINUX_NETWORK", Some("1"));
-        } else if has_minimum_libcurl {
+        if let Some(include) = static_curl_include.as_ref() {
+            fetch_build
+                .include(include)
+                .define("CURL_STATICLIB", Some("1"))
+                .define("IBEX_STATIC_CURL", Some("1"))
+                .define("EXACT_HAS_CURL", Some("1"));
+        } else if has_minimum_system_libcurl {
             fetch_build.define("EXACT_HAS_CURL", Some("1"));
         } else if allow_curl_cli_fallback {
             fetch_build.define("EXACT_ALLOW_CURL_CLI_FALLBACK", Some("1"));
@@ -2668,9 +2686,13 @@ fn main() {
             .file("src/engine/native_websocket_linux.cc")
             .flag_if_supported("-std=c++17")
             .flag_if_supported("-fPIC");
-        if linux_release_stub {
-            ws_build.define("EXACT_DISABLE_LINUX_NETWORK", Some("1"));
-        } else if has_minimum_libcurl {
+        if let Some(include) = static_curl_include.as_ref() {
+            ws_build
+                .include(include)
+                .define("CURL_STATICLIB", Some("1"))
+                .define("IBEX_STATIC_CURL", Some("1"))
+                .define("EXACT_HAS_CURL", Some("1"));
+        } else if has_minimum_system_libcurl {
             ws_build.define("EXACT_HAS_CURL", Some("1"));
         }
         ws_build.compile("exact_native_websocket");
@@ -2719,10 +2741,23 @@ fn main() {
             println!("cargo:rustc-link-lib=static=crypto");
         }
         println!("cargo:rustc-link-lib=stdc++");
-        println!("cargo:rustc-link-lib=z");
-        if has_minimum_libcurl {
+        if static_curl_include.is_some() {
+            // curl-sys is present to build and pin the native archive, but all
+            // of Ibex's curl references originate in C++. Name the archive
+            // explicitly after those cc-produced objects so rust-lld retains
+            // it; curl-sys's Cargo metadata supplies its vendored OpenSSL
+            // closure after this archive.
+            let curl_root = std::env::var_os("DEP_CURL_ROOT")
+                .unwrap_or_else(|| panic!("sfe-static-network requires DEP_CURL_ROOT"));
+            println!(
+                "cargo:rustc-link-search=native={}",
+                std::path::Path::new(&curl_root).join("build").display()
+            );
+            println!("cargo:rustc-link-lib=static=curl");
+        } else if has_minimum_system_libcurl {
             println!("cargo:rustc-link-lib=curl");
         }
+        println!("cargo:rustc-link-lib=z");
         println!("cargo:rustc-link-lib=resolv");
         println!("cargo:rustc-link-lib=pthread");
         println!("cargo:rustc-link-lib=dl");

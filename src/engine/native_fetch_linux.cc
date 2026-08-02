@@ -191,6 +191,29 @@ void ensure_curl_global_init() {
     });
 }
 
+#ifdef IBEX_STATIC_CURL
+// A source-built libcurl has no configure-time distro CA path. Keep trust in
+// the target OS certificate store rather than embedding a second, silently
+// aging root set in every application executable. These are the established
+// bundle locations across the glibc distributions supported by the SFE.
+// @ref LLP 0047#the-linux-ambient-network-gap-must-be-decided-not-inherited
+const char* linux_system_ca_bundle() {
+    static const char* const candidates[] = {
+        "/etc/ssl/certs/ca-certificates.crt",                   // Debian/Ubuntu
+        "/etc/pki/tls/certs/ca-bundle.crt",                    // Fedora/RHEL
+        "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",   // Fedora/RHEL
+        "/etc/ssl/ca-bundle.pem",                              // openSUSE
+        "/etc/ssl/cert.pem",                                   // Alpine fallback
+    };
+    for (const char* candidate : candidates) {
+        if (access(candidate, R_OK) == 0) {
+            return candidate;
+        }
+    }
+    return nullptr;
+}
+#endif
+
 int linux_fetch_progress_callback(
     void* clientp,
     curl_off_t,
@@ -278,6 +301,11 @@ static void native_fetch_perform_async(
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, linux_fetch_progress_callback);
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, request_state.get());
+#ifdef IBEX_STATIC_CURL
+    if (const char* ca_bundle = linux_system_ca_bundle()) {
+        curl_easy_setopt(curl, CURLOPT_CAINFO, ca_bundle);
+    }
+#endif
 
     // ENG-23471 — CURLOPT_POSTFIELDS switches curl's *internal* method to POST
     // even when the fields are null/empty (CURLOPT_CUSTOMREQUEST only rewrites

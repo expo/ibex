@@ -480,6 +480,14 @@ jobs:
           path: target/sfe-linux-static-audit/dependency-audit.json
           if-no-files-found: error
 
+      - name: Run static Linux Fetch backend fixtures
+        env:
+          HERMES_LINK_STATIC: "1"
+          HERMES_STATIC_LIB_NAME: hermesvm_a
+          IBEX_SFE_LINUX_RELEASE_STUB: "1"
+          CARGO_TARGET_DIR: target/sfe-linux-network-fixture
+        run: cargo test --test native_fetch_bridge --features sfe-static-network -- --test-threads=1
+
       - name: Package inert static handoff
         id: package
         run: |

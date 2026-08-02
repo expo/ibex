@@ -5,6 +5,11 @@
 **Systems:** Build, Module Loader, Runtime, Security
 **Author:** Charlie Cheever / Claude Fable
 **Date:** 2026-07-17
+**Revised:** 2026-08-01 (LLP 0047 register item 2 resolved: the Linux release
+stub now closes a pinned source-built libcurl and TLS implementation
+statically, exposes Fetch/WebSocket like the ordinary runtime, consumes the
+target OS CA bundle, and proves both backend presence and the absence of a
+dynamic libcurl in the final ELF audit)
 **Revised:** 2026-08-01 (author-decision register item 2 resolved: the CapSec
 pre-init restore allowlist is deliberately empty; ambient boot does not scrub
 the inherited environment, while application-visible CapSec environment values
@@ -528,19 +533,24 @@ baseline x86-64 ABI, unresolved libraries, and every `DT_NEEDED` entry outside
 the recorded system set (`ld-linux`, `libc`, `libdl`, `libgcc_s`, `libm`,
 `libpthread`, `libresolv`, `librt`, `libstdc++`, and `libz`).
 
-The Linux release-stub profile compiles fetch/WebSocket as unavailable and
-**libcurl is absent**, not reclassified as a system dependency. The ordinary
-source runtime keeps its native libcurl backend. Any compiled target that
-offers network authority must bring a vendored/static backend and pass the
-same final-image audit before its catalog cell is release eligible.
+The Linux release-stub profile carries Fetch/WebSocket through the same native
+bridge as the ordinary source runtime. The source runtime selects a supported
+distro libcurl; the release stub selects the `sfe-static-network` closure: an
+exactly pinned, source-built libcurl and TLS implementation linked into the
+image. `libcurl.so`, `libssl.so`, and `libcrypto.so` are not reclassified as
+system dependencies. The audit's closed `DT_NEEDED` allowlist rejects them and
+also proves that `curl_easy_init` survived in the final image, so a build cannot
+pass by silently compiling networking out. The static backend reads the target
+OS's maintained CA bundle from the documented cross-distribution locations;
+that platform trust store is an OS input, not an Ibex sidecar.
 
-The original rationale for the omission was that the compiled CapSec projection
-advertised no network authority. **LLP 0047 invalidates that rationale**: the
-shipped artifact's default path is ambient and does not consult advertisement
-at all, so the Linux stub's missing network is now a plain product gap — and an
-asymmetric one, since macOS ambient has a working NSURLSession-backed fetch.
-Which way it resolves is LLP 0047 register item 2; this section fixes only the
-dependency rule that applies once it resolves.
+The original omission was based on the compiled CapSec projection advertising
+no network authority. LLP 0047 invalidated that rationale when the shipped
+artifact's default path became ambient, then resolved register item 2 to the
+static-backend option because Snapback CLIs are the flagship first workload
+and require Fetch on Linux. Capability admission still governs the explicitly
+selected CapSec path; it no longer determines whether the backend exists in
+the artifact.
 
 **2b. Envelope, embedded graph, footer.**
 

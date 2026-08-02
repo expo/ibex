@@ -9,7 +9,7 @@ build = "build.rs"
 [dependencies]
 anyhow = "1"
 capsec-semantics = { path = "../capsec-semantics" }
-ibex-runtime = { path = "../..", features = ["sfe-dev-spike"] }
+ibex-runtime = { path = "../..", features = ["sfe-dev-spike", "sfe-static-network"] }
 ibex-sfe-format = { path = "../sfe-format" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

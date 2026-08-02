@@ -5,6 +5,11 @@
 **Systems:** Build, Distribution, Runtime, Module Loader, CapSec, Product
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-08-01
+**Revised:** 2026-08-01 (Linux ambient-network register item 2 resolved by
+the flagship Snapback CLI use case: v1 requires Fetch networking, reuses the
+existing Linux libcurl Fetch/WebSocket bridge, and closes libcurl plus TLS
+statically inside the release stub; the final-image audit rejects dynamic
+libcurl and proves the static backend is present)
 **Revised:** 2026-08-01 (round-3 delta review, **applied after the round budget
 closed and therefore NOT re-reviewed**: the contract and envelope rotations are
 both named and made consistent — `StubContractV2` and
@@ -458,34 +463,44 @@ not a CapSec denial and not a silent no-op.
 
 ### The Linux ambient network gap must be decided, not inherited
 
-v1 does not currently meet the `standard` closure, and the gap is asymmetric.
-The Linux release-stub profile compiles fetch and WebSocket out entirely and
-keeps libcurl absent from the image, which the ELF audit then enforces; macOS
-has a working NSURLSession-backed fetch. LLP 0029 §2a justified the Linux
-omission by CapSec state — "the current compiled CapSec projection advertises
-no network authority" — with the trigger for adding a backend being "a future
-compiled target that advertises network authority."
+Register item 2 is resolved to the static-backend option. Snapback CLIs are the
+flagship first standalone workload and require Fetch on Linux; a networkless
+Linux artifact would not satisfy that use case. The release-stub profile
+therefore reuses Ibex's existing libcurl Fetch/WebSocket bridge and selects a
+pinned Cargo-built static libcurl and TLS closure. The ELF audit rejects
+dynamic libcurl and other non-system dependencies and proves that the static
+backend symbol is present. Static libcurl uses the target OS's maintained CA
+bundle rather than embedding an independently aging root set.
 
-Under this plan that rationale is dangling: advertisement no longer gates the
-shipped artifact, and the default is ambient. The ambient v1 story is
-therefore **networking works on macOS and does not exist on Linux** — not a
-capability nuance, since a fetch call is among the first things a short script
-does, and on Linux it would fail with a backend-unavailable error unrelated to
-capability policy.
+This resolves an asymmetry that existed when the plan was accepted. The Linux
+release-stub profile compiled fetch and WebSocket out entirely and kept
+libcurl absent from the image, while macOS had a working NSURLSession-backed
+fetch. LLP 0029 §2a had justified the Linux omission by CapSec state — "the
+current compiled CapSec projection advertises no network authority" — with the
+trigger for adding a backend being "a future compiled target that advertises
+network authority."
 
-Nothing in the cluster decides this, so this plan makes it decision-forcing:
-v1 does not ship a Linux ambient artifact whose only network story is a stable
-error. Milestone 4 requires one of two outcomes, chosen by register item 2
-(§12), before §9's release criteria can be met:
+Without the resolution above, that rationale would be dangling: advertisement
+no longer gates the shipped artifact, and the default is ambient. The ambient
+v1 story would be **networking works on macOS and does not exist on Linux** —
+not a capability nuance, since a fetch call is among the first things a short
+script does, and on Linux it would fail with a backend-unavailable error
+unrelated to capability policy.
+
+The product evidence now decides this: v1 does not ship a Linux ambient
+artifact whose only network story is a stable error. Register item 2 (§12)
+selects the first of the two original options:
 
 1. Bring a vendored or statically linked backend into the Linux stub and pass
    the same final-image ELF audit LLP 0029 §2a requires of it; or
-2. Ship Linux ambient v1 without network, stated in that exact language in the
+2. ~~Ship Linux ambient v1 without network, stated in that exact language in the
    command help, the standalone guide, `inspect-executable`'s backend
-   inventory, and the release notes — not discovered at runtime.
+   inventory, and the release notes — not discovered at runtime.~~ Rejected:
+   it does not support the flagship Snapback CLI workload.
 
-What is no longer acceptable is the current state, where the omission is
-justified by a CapSec condition this plan removed.
+The old state — where the omission was justified by a CapSec condition this
+plan removed — is not an acceptable release posture; the static profile
+replaces it.
 
 **Exit:** end-to-end fixtures cover every row above on both tuples; inspection
 reports the exact backend inventory; the Linux network disposition is recorded
@@ -618,9 +633,10 @@ weakening a user who explicitly requested CapSec.
 
 ## 12. Author-decision register
 
-None of these block starting milestone 0. **Items 1, 2, and 3 block the §9
-release criteria**, each with a corresponding criterion there; item 4 blocks
-claiming the recipient-side disclosure posture is adequate.
+None of these block starting milestone 0. **Items 1 and 3 still block the §9
+release criteria**; item 2 is decided and its corresponding criterion now
+requires implementation/audit evidence; item 4 blocks claiming the
+recipient-side disclosure posture is adequate.
 
 Item 3's status is stated precisely, because an earlier draft left it
 ambiguous. Ambient-by-default is **decided** — §1 makes it, LLP 0029 §7 item 4
@@ -641,9 +657,11 @@ before v1 ships.
    that silently became the enforced authority would be the worst outcome
    available. Evidence to gather first: the verbatim new-user command sequence
    from milestone 1's exit.
-2. **Linux ambient network** (§7). Options: (a) vendor/static backend into the
-   Linux stub and pass the ELF audit; (b) ship Linux ambient v1 without
-   network, stated explicitly on every surface.
+2. **Linux ambient network** (§7) — **decided 2026-08-01: option (a)**. The
+   flagship first use case is producing Snapback CLIs, which require Fetch on
+   Linux. Reuse the existing libcurl Fetch/WebSocket bridge, build its pinned
+   libcurl/TLS closure statically into the Linux stub, and pass the final-image
+   ELF audit. Shipping Linux ambient v1 without network is rejected.
 3. **Ratify ambient-by-default before release** (§1). Confirm, against a
    working end-to-end artifact rather than a design, that ambient is the right
    v1 default before the CapSec path works on any tuple — or narrow it so v1

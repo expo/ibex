@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <unistd.h>
 
 #ifdef EXACT_HAS_CURL
 #include <curl/curl.h>
@@ -37,6 +38,27 @@ extern "C" void native_ws_retain_context(void* context);
 extern "C" void native_ws_release_context(void* context);
 
 #ifdef EXACT_HAS_CURL
+
+#ifdef IBEX_STATIC_CURL
+// Keep the source-built backend on the host's maintained certificate store.
+// This mirrors native_fetch_linux.cc; WebSocket owns a separate easy handle.
+// @ref LLP 0047#the-linux-ambient-network-gap-must-be-decided-not-inherited
+static const char* linux_system_ca_bundle() {
+    static const char* const candidates[] = {
+        "/etc/ssl/certs/ca-certificates.crt",
+        "/etc/pki/tls/certs/ca-bundle.crt",
+        "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+        "/etc/ssl/ca-bundle.pem",
+        "/etc/ssl/cert.pem",
+    };
+    for (const char* candidate : candidates) {
+        if (access(candidate, R_OK) == 0) {
+            return candidate;
+        }
+    }
+    return nullptr;
+}
+#endif
 
 struct OutboundMessage {
     std::vector<uint8_t> bytes;
@@ -415,6 +437,11 @@ static bool perform_handshake(const std::shared_ptr<WebSocketEntry>& entry) {
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, connect_progress_callback);
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, entry.get());
+#ifdef IBEX_STATIC_CURL
+    if (const char* ca_bundle = linux_system_ca_bundle()) {
+        curl_easy_setopt(curl, CURLOPT_CAINFO, ca_bundle);
+    }
+#endif
     if (should_disable_tls_verification_for_url(entry->url.c_str())) {
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);

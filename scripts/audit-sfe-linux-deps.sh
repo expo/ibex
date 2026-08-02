@@ -46,7 +46,7 @@ done
 if [[ -n "$contract" && -n "$minimum_platform" ]] || [[ -z "$contract" && -z "$minimum_platform" ]]; then
   usage
 fi
-for tool in readelf ldd python3; do
+for tool in readelf ldd nm python3; do
   command -v "$tool" >/dev/null 2>&1 || { echo "audit: required tool is absent: $tool" >&2; exit 1; }
 done
 
@@ -117,8 +117,12 @@ for library in "${needed[@]}"; do
     exit 1
   fi
 done
-if printf '%s\n' "${needed[@]}" | grep -q '^libcurl\.so'; then
-  echo "audit: libcurl must be absent from the compiled Linux release profile" >&2
+# A dynamic libcurl is already rejected by the closed allowlist above. The
+# inverse check proves that the release image actually retained the selected
+# static networking backend rather than silently compiling its bridge out.
+# @ref LLP 0047#the-linux-ambient-network-gap-must-be-decided-not-inherited
+if ! LC_ALL=C nm -g "$binary" 2>/dev/null | grep -E '[[:space:]]curl_easy_init$' >/dev/null; then
+  echo "audit: compiled Linux release profile lacks the static libcurl Fetch/WebSocket backend" >&2
   exit 1
 fi
 
@@ -179,7 +183,7 @@ value = {
         "allowedSystemDynamicLibraries": [
             line for line in os.environ["ALLOWED_LINES"].splitlines() if line
         ],
-        "libcurlDisposition": "absent-until-compiled-network-advertisement",
+        "libcurlDisposition": "statically-linked",
         "rpathAllowed": False,
     },
     "result": "pass",

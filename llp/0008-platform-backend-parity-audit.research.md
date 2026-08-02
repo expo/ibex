@@ -5,6 +5,10 @@
 **Systems:** Engine, Build, Runtime
 **Author:** Codex
 **Date:** 2026-06-14
+**Revised:** 2026-08-01 (the Linux standalone release profile now reuses the
+native Fetch/WebSocket bridge with a pinned source-built static libcurl and
+TLS closure, consumes the OS CA bundle, and final-image audits both backend
+presence and the absence of non-system dynamic dependencies)
 **Revised:** 2026-07-15 (the degraded Linux curl CLI fallback now selects only fixed absolute executable paths, disables curlrc, and passes an empty child environment); 2026-07-12 (ENG-24261: executable host-JVM tests cover the production Android WebSocket queue's flood, overflow, terminal, and repeated flow-control behavior); 2026-07-12 (spawn registry teardown now honors explicit ChildProcess unref state; previously 2026-07-11: ENG-23541 Windows async fs worker-pool hooks and verified error/handle/durability semantics; 2026-07-09: Linux curl CLI fallback replaced std::system with direct argv spawning — ENG-23874; Windows Child Process section — ENG-23485; default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
 **Related:** LLP 0001; LLP 0003; LLP 0005
 
@@ -24,7 +28,15 @@ Linux native networking is a libcurl-backed profile for Fetch and WebSocket:
 - `native_websocket_linux.cc` uses libcurl's WebSocket API, which requires
   libcurl >= 7.86.
 - `build.rs` now treats libcurl >= 7.86 plus `pkg-config` as the supported
-  Linux profile and fails closed when they are absent.
+  ordinary source-runtime profile and fails closed when they are absent.
+- The `sfe-static-network` profile used by the compiled stub instead selects
+  the exact Cargo-locked libcurl source and static TLS closure. It never probes
+  or links the host's dynamic libcurl. Because that source build has no distro
+  configure-time CA path, the bridge selects the first readable maintained OS
+  CA bundle from the Debian/Ubuntu, Fedora/RHEL, openSUSE, and Alpine paths.
+- The release ELF audit retains the closed system `DT_NEEDED` allowlist,
+  rejects any dynamic libcurl/TLS dependency, and requires the static
+  `curl_easy_init` symbol. A networking-disabled stub therefore fails audit.
 - `IBEX_ALLOW_CURL_CLI_FALLBACK=1` intentionally opts into a degraded local
   build: fetch runs the `curl` CLI, WebSocket is unavailable, and the build
   emits a warning.

@@ -206,6 +206,7 @@ module-runner = []
 # Phase-0 LLP 0029 development stub. This exposes an explicitly diagnostic
 # Hermes constructor and must never be used as the release compiled profile.
 sfe-dev-spike = ["module-runner"]
+sfe-static-network = ["dep:curl-sys"]
 # LLP 0042 development-posture committed admission for UNARMED embedders
 # (Exact LLP 0413 Phase 2): compiles the dev-unarmed committed prepared
 # startup entry (`ibex_dev_unarmed_committed_prepared_startup_v1`) and the
@@ -239,6 +240,15 @@ tls-client-identity-openssl = ["dep:openssl"]
 # always supplied by the library; the CLI registers a wake hook at runtime so
 # library and integration-test link units never depend on a second symbol.
 cli-notify = []
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The Linux single-file executable cannot depend on the host's libcurl ABI.
+# Its release profile enables this optional dependency to build libcurl and
+# OpenSSL from pinned Cargo sources and link the complete HTTP/WebSocket stack
+# into the stub. Ordinary Linux source-runtime builds continue to use the
+# distro libcurl selected by build.rs.
+# @ref LLP 0047#the-linux-ambient-network-gap-must-be-decided-not-inherited
+curl-sys = { version = "=0.4.90", default-features = false, features = ["static-curl", "ssl", "static-ssl"], optional = true }
 
 [target.'cfg(not(target_os = "ios"))'.dependencies]
 openssl-sys = { version = "0.9", features = ["vendored"], optional = true }
