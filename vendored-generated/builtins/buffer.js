@@ -990,15 +990,9 @@ BufferProto.toJSON = function() {
 BufferProto.toLocaleString = BufferProto.toString;
 BufferProto.inspect = function() {
 	if (typeof Bun !== "undefined" && Bun && typeof Bun.inspect === "function") return Bun.inspect(this);
-	if (typeof require === "function") {
-		try {
-			var bunMod = require("bun");
-			if (bunMod && typeof bunMod.inspect === "function") return bunMod.inspect(this);
-		} catch (_bunInspectErr) {}
-		try {
-			return require("node:util").inspect(this).replace(/'/g, "\"");
-		} catch (_utilInspectErr) {}
-	}
+	if (typeof require === "function") try {
+		return require("node:util").inspect(this).replace(/'/g, "\"");
+	} catch (_utilInspectErr) {}
 	return "<Buffer " + decodeBytes(this, "hex") + ">";
 };
 BufferProto.asciiSlice = function(start, end) {

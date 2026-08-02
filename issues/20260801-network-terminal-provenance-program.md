@@ -1,36 +1,101 @@
-# Network terminal-provenance program (LLP 0045) — umbrella
+# Network terminal-provenance program (LLP 0045 → 0046) — umbrella
 
-**Status:** Open
+**Status:** Open — rescoped
 **Severity:** P2
 **Systems:** Security, Conformance, Runtime
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-08-01
-**Related:** LLP 0045 (the plan; read it first); LLP 0044 §9 (origin
-measurement); issues/20260728-capsec-public-surface-evidence-backlog.md
+**Revised:** 2026-08-01 (LLP 0045 executed and superseded)
+**Related:** LLP 0046 (what the measurement found — **read this first**);
+LLP 0045 (the superseded plan); LLP 0044 §9 (origin measurement);
+issues/20260728-capsec-public-surface-evidence-backlog.md
 
-Umbrella for making the network builtins' enforcement routes statically
-provable, so the 373 network cells poisoned by
-`no-static-enforcement-terminal` (64% of the family) convert from
-unfixable-by-authoring into ordinary Lane A authoring work. LLP 0045 is
-the design authority; this ticket tracks execution.
+## Status change
 
-Work breakdown (details and gates in the LLP):
+LLP 0045 was executed on 2026-08-01. Every work stream was measured against
+source and the running walker; **seven of eight yield figures were wrong, five
+collapsing to zero**. The plan is superseded by LLP 0046, which records the
+measurement.
 
-- [ ] Step 0: SSA-alias analyzer extension spike + soundness review
-      (register item 2); measure per-module poison delta — expected to
-      clear dns/tls outright.
-- [ ] Step 1: http.js enforcement-trunk extraction (117 internal call
-      sites / 62 prototype methods; register item 1 decision needed
-      first).
-- [ ] Step 2: net, http2, https, dgram, ws on the proven pattern.
-- [ ] Step 3: full catalog regen (target: 373 → ~0 poisoned network
-      cells, residue explicitly dispositioned) + security review of
-      changed enforcement paths.
+The **problem is still real** — network cells genuinely cannot be certified by
+probe authoring alone. What changed is its size and shape.
 
-Blocked-on-decision: LLP 0045 register items 1 (de-patching enforcement
-internals) and 3 (sequencing vs the fs+env+process v1.1 push). Do not
-start step 1 before item 1 is decided; step 0 is decision-free and can
-start any time.
+## Corrected scope
 
-**Done when:** LLP 0045 step-3 gate passes and network's cells are
-Lane A-authorable, with the hand-off recorded in the backlog ticket.
+Of the 338 asserted Lane B cells: **127 capability-bearing** (floor 81), 112
+network-by-origin *policy*, 90 seeding defects, 9 unconditional throws. A
+further 42 are exact export aliases of other counted cells (296 unique).
+
+## Work breakdown (rescoped)
+
+**Blocked on an author decision — the highest-leverage question in the program:**
+
+- [ ] **Origin policy (112 cells).** Is touching a socket-derived message
+      network-attributed by origin (`retainedNetworkOriginEffectSpec`)? This one
+      decision moves the scope between **127 and 239**. Not a bug fix; a policy
+      call. LLP 0046 §6.
+
+**Prerequisite, not parallel cleanup** — certifying a mis-seeded cell would
+certify a claim that is false about the source:
+
+- [ ] Fix `builtinExportClassification` (capsec-coverage-model.mjs:8788): member
+      carve-outs *before* the receiver-class prefixes, following the existing
+      :9207/:9216/:9219 pattern. Prefer exact-string member sets over widened
+      regexes — a widened regex silently absorbs future members, which is how
+      this arose.
+- [ ] New `unsupported-throwing-stub` disposition for the 9 refusal cells —
+      `pure-in-memory-compute` is the wrong rationale for a throw.
+- [ ] Withdraw the `node_http2` effect assertion: 18/18 cells mis-seeded, 0
+      capability-bearing, every producer throws (http2.js:250/254/258/262). The
+      model asserts an effect the implementation does not have.
+- [ ] De-duplicate the 42 alias cells (`net.Stream.*` ≡ `net.Socket.*`
+      net.js:4623; `ws.Server*` ≡ `ws.WebSocketServer*` ws.js:1185-1186).
+- [ ] Re-measure, then author the successor plan — organized by **analyzer
+      capability**, not by ambiguity-string bucket.
+
+**Ready to staff now — measured, cheap, independent of the above:**
+
+- [ ] **Normalize the four hook aliases + harden the hook install.** 4 JS lines
+      (`const _x = globalThis.__exactNetOwner`, which the walker resolves today
+      unchanged) + 3 C++ lines (`writable:false, configurable:false` at
+      hermes_runtime_net.cc:967, hermes_runtime_http.cc:347, and the Windows
+      shim). **46 cells.** The two halves must land together: normalization
+      alone makes the analyzer credit a terminal the runtime does not guarantee.
+      See issues/20260801-net-owner-hook-lazily-captured-after-user-code.md.
+- [ ] **Callback-argument attribution** (`walkDirectFunctionBody`,
+      capsec-surface-inventory.mjs:3873). **11 cells**, and genuine hardening —
+      it surfaces `__exactTcpAccept`/`__exactTcpRead`/`__exactUdpRecv`/
+      `__exactUnixConnect` routes invisible today. **Must land before any timer
+      admission**, which is negative-valued without it (clears 0, falsifies 6).
+
+**Landed 2026-08-01:**
+
+- [x] Duplicate-definition source hygiene (`oncreate` rename + 3 dead-assignment
+      deletions in http.js). 13 ambiguity entries retired, 5 previously-masked
+      entries surfaced, **net −8, 0 cells cleared**. Open question 7 answered.
+- [x] `scripts/llp0045-route-evidence-diff.mjs` — LLP 0045 §3's paired
+      allow-list acceptance gate, executable, with 14 tests
+      (`bun run test:llp0045-route-evidence-gate`).
+
+## Explicitly NOT this program's work
+
+- **Step 1 de-virtualization.** The eligible set is 5 slots / 31 call sites, all
+  `HttpRequestParser` internals, and **no Lane B cell's route mentions any of
+  them**. Register items 1 and 5 govern a transform nothing routes through.
+- **Qualified-member resolution.** 113 pure cells → 0 Lane B yield, ceiling 6.
+  107 are property reads and EventEmitter projections with no route to prove.
+- **The 33 `empty-no-mechanism` cells.** 0 capability-bearing; they close via the
+  seeding fix, not via analysis. Count them separately — nothing became provable.
+
+## Spun out
+
+- issues/closed/20260801-builtin-commonjs-require-activation-refused.md — the
+  entire CommonJS builtin surface was broken on `main`; only `path` loaded.
+- issues/20260801-net-owner-hook-lazily-captured-after-user-code.md (P2)
+- issues/20260801-lockdown-tostring-override-blocks-builtins.md (P1)
+- issues/20260801-readline-interface-prefix-seeds-stdio-effect.md
+- issues/20260801-conformance-misattributed-terminals-outside-lane-b.md
+
+**Done when:** the successor plan authored in LLP 0046 §6's sequence passes its
+own exit gate. This ticket tracks the rescope; the original "373 → ~0" metric is
+void — both the numerator and the denominator were wrong.

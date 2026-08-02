@@ -879,6 +879,21 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                 // @ref LLP 0021#module-initialization-and-trusted-source-acquisition
                 if artifact.semantics.source_goal == SourceGoalV1::Builtin {
                     if let StaticEdgeV1::CommonJsRequire { specifier } = edge {
+                        // Bootstrap-internal specifiers are served by the shared
+                        // runtime's bootstrap module cache, never by a graph
+                        // record, so activation deliberately creates no binding
+                        // for them. There is no acquisition to authorize here;
+                        // demanding a target would fail linkage for every
+                        // builtin closure that reaches `fs` (i.e. almost all of
+                        // them). The sibling validators at
+                        // `validate_call_time_activation_support` and
+                        // `commonjs_require_bindings` already skip the same set.
+                        if self.is_bootstrap_internal_commonjs_require(
+                            &source_id,
+                            specifier.as_str(),
+                        ) {
+                            continue;
+                        }
                         let target = self.edge_target(
                             record,
                             specifier.as_str(),
@@ -1428,7 +1443,13 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             {
                 continue;
             }
-            targets.insert(self.static_edge_target(record, edge)?.clone());
+            targets.insert(
+                self.static_edge_target(record, edge)
+                    .map_err(|error| {
+                        GraphError::link(format!("{error} (requested by {source_id:?})"))
+                    })?
+                    .clone(),
+            );
         }
         // A deferred source intentionally has no authenticated dynamic target
         // until its exact site is reached. Enumerating its artifact edges here

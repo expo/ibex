@@ -1,0 +1,82 @@
+{
+ "measurement": "llp-0045-route-evidence-allow-list",
+ "step": "step-2-duplicate-definition-source-hygiene",
+ "gate": "LLP 0045 §3 — paired allow-list, checked by scripts/llp0045-route-evidence-diff.mjs",
+ "baselineDigest": "sha256-XcvN5FFF9meYMuBBgdMjEy8mmG8QiBrhNf9Z3w_ZISg",
+ "candidateDigest": "sha256-LQLYG19DdUFAT1w-oEbxcmEkZB6HvrDcLkx9Vx5Ms6A",
+ "note": "Source hygiene only: one rename and three dead-assignment deletions in src/builtins/http.js. It clears ZERO Lane B cells (338 -> 338). The three ADDITIONS below are the point of retaining this artifact: resolving a duplicate definition makes the walker descend into a callee body it previously early-returned from, surfacing dynamism the duplicate was masking. Net distinct ambiguity reduction is 13 - 5 = 8, not the 13 LLP 0045 §4 predicted. An additive-only or ambiguity-only gate would have recorded this as a clean 13-entry win.",
+ "entries": [
+  {
+   "edgeIdPrefix": "surface.builtin.export.node.http.clientrequest",
+   "field": "route.ambiguousCallees",
+   "direction": "removed",
+   "value": "oncreate",
+   "sourceSpan": "src/builtins/http.js:4015 (renamed to onRequestSocketCreated)",
+   "proof": "The walker emits a bare name when definitions.length > 1 (capsec-surface-inventory.mjs:4494-4498). Two distinct function-scoped locals were both named `oncreate`, at http.js:4015 inside ClientRequest._ensureSocketAssigned and http.js:5877 inside Agent.createSocket. Renaming the first leaves exactly one definition, so the duplicate-definition marker no longer fires. Verified distinct and non-escaping by repo-wide rg: the only references are within their own function bodies."
+  },
+  {
+   "edgeIdPrefix": "surface.builtin.export.node.http.agent",
+   "field": "route.ambiguousCallees",
+   "direction": "removed",
+   "value": "oncreate",
+   "sourceSpan": "src/builtins/http.js:5877 (retained; its twin at :4015 was renamed)",
+   "proof": "Same duplicate-definition marker as above, observed from the Agent side. The retained name is the one matching upstream Node's `Agent.createSocket`, so the rename was applied to the ClientRequest twin."
+  },
+  {
+   "edgeIdPrefix": "surface.builtin.export.node.http.agent",
+   "field": "route.ambiguousCallees",
+   "direction": "added",
+   "value": "unresolved-call:callback",
+   "sourceSpan": "src/builtins/http.js:5878, :5885 (`callback(...)`, a parameter of Agent.createSocket)",
+   "proof": "MASKED, NOT NEW. Before the rename the duplicate branch early-returned without walking the callee body, so nothing inside Agent's oncreate was recorded. With one definition the walker descends and reaches `callback(...)`, whose callee is a function parameter and is therefore correctly unresolvable. The route is unchanged; only the walker's visibility into it changed."
+  },
+  {
+   "edgeIdPrefix": "surface.builtin.export.node.http.agent",
+   "field": "route.ambiguousCallees",
+   "direction": "added",
+   "value": "dynamic-call-receiver:push",
+   "sourceSpan": "src/builtins/http.js:5882 (`self.sockets[name].push(...)`)",
+   "proof": "MASKED, NOT NEW. Same mechanism as the entry above: a computed-member receiver reached only once the duplicate no longer suppresses the walk."
+  },
+  {
+   "edgeIdPrefix": "surface.builtin.export.node.http.agent",
+   "field": "route.ambiguousCallees",
+   "direction": "added",
+   "value": "dynamic-call-receiver:on",
+   "sourceSpan": "src/builtins/http.js:5849-5851 via installAgentListeners (:5884 -> :5798)",
+   "proof": "MASKED, NOT NEW. `socket.on(...)` on a caller-supplied socket-like, reached through installAgentListeners once the walk proceeds. Genuinely dynamic — this is a documented extension point (a caller-supplied socket), so the refusal is correct and must persist."
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.incomingmessage.read.021gpah",
+   "field": "route.ambiguousCallees",
+   "direction": "removed",
+   "value": "IncomingMessage._read",
+   "sourceSpan": "src/builtins/http.js:2707 (deleted guarded fallback; :2811 is the unconditional assignment)",
+   "proof": "IncomingMessage.prototype._read carried two assignments: a guarded fallback at :2707 and an unconditional one at :2811. The unconditional assignment always wins, so the fallback was dead in every profile. Deleting it leaves one definition. Verified empirically by replaying the exact statement sequence pre- and post-edit under both stream-present and stream-absent bases: identical in all combinations."
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.incomingmessage.resume.11y56kv",
+   "field": "route.ambiguousCallees",
+   "direction": "removed",
+   "value": "IncomingMessage.resume",
+   "sourceSpan": "src/builtins/http.js:2710 (deleted guarded fallback; :2807 is the unconditional assignment)",
+   "proof": "Same shape as _read: dead guarded fallback superseded by an unconditional later assignment."
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.incomingmessage.pause.07botpi",
+   "field": "route.ambiguousCallees",
+   "direction": "removed",
+   "value": "IncomingMessage.pause",
+   "sourceSpan": "src/builtins/http.js:2805 (deleted; guarded by `if (!IncomingMessage.prototype.pause)` at :2804)",
+   "proof": "Direction is INVERTED relative to _read and resume, which is why LLP 0045 got it wrong twice. Here the SECOND assignment is the dead one: at :2804 `pause` is always already callable — inherited from Readable.prototype (src/builtins/stream.js:2153) when node:stream loads, or supplied by the :2713 fallback when it does not (http.js:11 wraps the require in try/catch for exactly that case) — so the guard is false in both profiles. git show 9e9418d2^ confirms the intent: the :2713 fallback block is the NEWER code (2026-03-13) and superseded the :2804 guard without removing it."
+  },
+  {
+   "edgeId": "surface.builtin.export.node.http.incomingmessage.pause.07botpi",
+   "field": "residualReasons",
+   "direction": "removed",
+   "value": "ambiguous-static-enforcement-route",
+   "sourceSpan": "src/builtins/http.js:2805",
+   "proof": "Consequence of the single ambiguity removal above: with the duplicate gone the route is no longer ambiguous. The cell does NOT leave Lane B — no-static-enforcement-terminal persists, because the surviving callee is `function() { return this; }`, a body with zero call expressions and therefore no terminal to find. This is the measured refutation of LLP 0045 §4's claim that this item's standalone yield is 1 cell; the true yield is 0, and the cell simply moved from the duplicate-definition bucket to empty-no-mechanism."
+  }
+ ]
+}

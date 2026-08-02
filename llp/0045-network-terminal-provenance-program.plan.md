@@ -1,10 +1,32 @@
 # LLP 0045: Network Terminal-Provenance Program
 
 **Type:** Plan
-**Status:** Draft
+**Status:** Superseded by [LLP 0046](./0046-network-terminal-provenance-measurement.research.md)
 **Systems:** Security, Conformance, Runtime
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-08-01
+
+> **Superseded 2026-08-01, by execution.** Every work stream below was measured
+> against source and the running walker. **Seven of eight yield figures were
+> wrong, five collapsing to zero**, and the two flagship streams — step 1's
+> de-virtualization and step 2's qualified-member resolution — clear **no cells
+> at all**. The cause is structural: §1 buckets cells by the *text of the
+> ambiguity string the walker emitted* and derives the work breakdown from those
+> buckets, but the strings are emission artifacts, not mechanisms. Separately,
+> the 338 denominator was never capability-audited: **127 cells are
+> capability-bearing** (floor 81), 112 are network-by-origin policy, 90 are
+> seeding defects, 9 are unconditional throws, and 42 are exact aliases of other
+> counted cells.
+>
+> **Do not staff any step below, and do not decide the §5 register against it** —
+> register item 1 governs a transform no Lane B cell's route passes through, and
+> item 7's fork has no live branch. Read LLP 0046 first; it records what the
+> measurement found, what survives (the problem statement, §3's acceptance
+> discipline, the mechanism-matrix generator, the TLS-bypass hazard), and why the
+> successor plan is deliberately not yet authored.
+>
+> Retained unedited below as the authored record — its §1 counts all reproduce
+> exactly, and the review history is why the errors were findable.
 **Revised:** 2026-08-01f (round-5 confirmation — Codex **READY** (all 8
 edits confirmed, zero concerns), Fable confirmed all 8 in substance with
 five one-clause corrections, now applied: the `pause` dead-code

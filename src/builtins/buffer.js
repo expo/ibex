@@ -1463,13 +1463,16 @@ BufferProto.inspect = function() {
   if (typeof Bun !== "undefined" && Bun && typeof Bun.inspect === "function") {
     return Bun.inspect(this);
   }
+  // No `require("bun")` fallback here on purpose. `bun` is not a manifest
+  // builtin specifier, and a builtin's CommonJS require edges are checked
+  // statically against the manifest at activation — a `require` literal inside
+  // a try/catch is still a declared edge, so the unresolvable specifier refuses
+  // activation of `node_buffer` (and everything that transitively requires it)
+  // before any code runs. The `Bun.inspect` global probe above already covers
+  // every environment where a Bun inspector is actually reachable.
+  // @ref LLP 0004#the-builtin-module-surface — builtin require edges must
+  // resolve through the manifest.
   if (typeof require === "function") {
-    try {
-      var bunMod = require("bun");
-      if (bunMod && typeof bunMod.inspect === "function") {
-        return bunMod.inspect(this);
-      }
-    } catch (_bunInspectErr) {}
     try {
       return require("node:util").inspect(this).replace(/'/g, '"');
     } catch (_utilInspectErr) {}

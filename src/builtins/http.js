@@ -2703,12 +2703,6 @@ IncomingMessage.prototype.constructor = IncomingMessage;
 if (typeof IncomingMessage.prototype.read !== 'function') {
   IncomingMessage.prototype.read = function() { return null; };
 }
-if (typeof IncomingMessage.prototype._read !== 'function') {
-  IncomingMessage.prototype._read = function() {};
-}
-if (typeof IncomingMessage.prototype.resume !== 'function') {
-  IncomingMessage.prototype.resume = function() { return this; };
-}
 if (typeof IncomingMessage.prototype.pause !== 'function') {
   IncomingMessage.prototype.pause = function() { return this; };
 }
@@ -2801,9 +2795,6 @@ IncomingMessage.prototype._consumeBody = function() {
   }
 };
 IncomingMessage.prototype.setEncoding = function() { return this; };
-if (!IncomingMessage.prototype.pause) {
-  IncomingMessage.prototype.pause = function() { return this; };
-}
 IncomingMessage.prototype.resume = function() {
   if (this._response) this._consumeBody();
   return this;
@@ -4012,18 +4003,24 @@ ClientRequest.prototype._ensureSocketAssigned = function() {
   var createConnection = connectionOptions.createConnection || this.options.createConnection || null;
   if (createConnection) {
     var created = false;
-    function oncreate(err, socket) {
+    // Named distinctly from Agent.prototype.createSocket's `oncreate` (Node
+    // uses that name in both places): the static call-graph walker keys
+    // callables by bare name per module, so two `oncreate` declarations in
+    // http.js collapse to a definitions.length > 1 ambiguity and the route
+    // records no enforcement terminal at all.
+    // @ref LLP 0045#2-the-plan — step 2 duplicate-definition source hygiene
+    function onRequestSocketCreated(err, socket) {
       if (created) return;
       created = true;
       self.onSocket(socket, connectionOptions, err);
     }
     try {
-      var maybeSocket = createConnection(connectionOptions, oncreate);
+      var maybeSocket = createConnection(connectionOptions, onRequestSocketCreated);
       if (maybeSocket) {
-        oncreate(null, maybeSocket);
+        onRequestSocketCreated(null, maybeSocket);
       }
     } catch (createErr) {
-      oncreate(createErr);
+      onRequestSocketCreated(createErr);
     }
     return;
   }
@@ -8381,12 +8378,20 @@ ServerIncomingMessage.prototype.pipe = function(dest, options) {
 _attachHttpAsyncIterator(ServerIncomingMessage.prototype);
 
 var _defaultHttpHighWaterMark = 16 * 1024;
+// Node reads this from `internal/streams/state`, but that specifier is neither
+// a manifest builtin nor a bootstrap-internal module here. A builtin's CommonJS
+// require literals are checked statically against the manifest at activation —
+// a require inside a try/catch is still a declared edge — so naming it refuses
+// activation of `node_http` outright instead of falling back at run time. The
+// public `stream` builtin re-exports the same accessor.
+// @ref LLP 0004#the-builtin-module-surface — builtin require edges must resolve
+// through the manifest.
 try {
-  var _streamState = require('internal/streams/state');
-  if (_streamState && typeof _streamState.getDefaultHighWaterMark === 'function') {
-    _defaultHttpHighWaterMark = _streamState.getDefaultHighWaterMark();
+  if (_httpStreamModule &&
+      typeof _httpStreamModule.getDefaultHighWaterMark === 'function') {
+    _defaultHttpHighWaterMark = _httpStreamModule.getDefaultHighWaterMark();
   }
-} catch (_streamStateErr) { /* ignored: optional internal/streams/state; use the default high-water mark */ }
+} catch (_streamStateErr) { /* ignored: use the default high-water mark */ }
 
 function _copyPrototypeMembers(target, ctor) {
   if (!target || !ctor || !ctor.prototype) return;

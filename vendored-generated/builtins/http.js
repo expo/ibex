@@ -1882,10 +1882,6 @@ IncomingMessage.prototype.constructor = IncomingMessage;
 if (typeof IncomingMessage.prototype.read !== "function") IncomingMessage.prototype.read = function() {
 	return null;
 };
-if (typeof IncomingMessage.prototype._read !== "function") IncomingMessage.prototype._read = function() {};
-if (typeof IncomingMessage.prototype.resume !== "function") IncomingMessage.prototype.resume = function() {
-	return this;
-};
 if (typeof IncomingMessage.prototype.pause !== "function") IncomingMessage.prototype.pause = function() {
 	return this;
 };
@@ -1963,9 +1959,6 @@ IncomingMessage.prototype._consumeBody = function() {
 	});
 };
 IncomingMessage.prototype.setEncoding = function() {
-	return this;
-};
-if (!IncomingMessage.prototype.pause) IncomingMessage.prototype.pause = function() {
 	return this;
 };
 IncomingMessage.prototype.resume = function() {
@@ -2807,16 +2800,16 @@ ClientRequest.prototype._ensureSocketAssigned = function() {
 	var createConnection = connectionOptions.createConnection || this.options.createConnection || null;
 	if (createConnection) {
 		var created = false;
-		function oncreate(err, socket) {
+		function onRequestSocketCreated(err, socket) {
 			if (created) return;
 			created = true;
 			self.onSocket(socket, connectionOptions, err);
 		}
 		try {
-			var maybeSocket = createConnection(connectionOptions, oncreate);
-			if (maybeSocket) oncreate(null, maybeSocket);
+			var maybeSocket = createConnection(connectionOptions, onRequestSocketCreated);
+			if (maybeSocket) onRequestSocketCreated(null, maybeSocket);
 		} catch (createErr) {
-			oncreate(createErr);
+			onRequestSocketCreated(createErr);
 		}
 		return;
 	}
@@ -6064,8 +6057,7 @@ ServerIncomingMessage.prototype.pipe = function(dest, options) {
 _attachHttpAsyncIterator(ServerIncomingMessage.prototype);
 var _defaultHttpHighWaterMark = 16 * 1024;
 try {
-	var _streamState = require("internal/streams/state");
-	if (_streamState && typeof _streamState.getDefaultHighWaterMark === "function") _defaultHttpHighWaterMark = _streamState.getDefaultHighWaterMark();
+	if (_httpStreamModule && typeof _httpStreamModule.getDefaultHighWaterMark === "function") _defaultHttpHighWaterMark = _httpStreamModule.getDefaultHighWaterMark();
 } catch (_streamStateErr) {}
 function _copyPrototypeMembers(target, ctor) {
 	if (!target || !ctor || !ctor.prototype) return;
