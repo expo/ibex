@@ -888,10 +888,9 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                         // them). The sibling validators at
                         // `validate_call_time_activation_support` and
                         // `commonjs_require_bindings` already skip the same set.
-                        if self.is_bootstrap_internal_commonjs_require(
-                            &source_id,
-                            specifier.as_str(),
-                        ) {
+                        if self
+                            .is_bootstrap_internal_commonjs_require(&source_id, specifier.as_str())
+                        {
                             continue;
                         }
                         let target = self.edge_target(
