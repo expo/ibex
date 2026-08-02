@@ -53,6 +53,7 @@ fn every_jsi_bearing_worker_family_holds_a_teardown_pin() {
         "src/engine/hermes_runtime_fetch.cc",
         "src/engine/hermes_runtime_websocket.cc",
         "src/engine/hermes_runtime_android.cc",
+        "src/engine/hermes_runtime_ios.cc",
     ] {
         let text = source(path);
         assert!(
@@ -73,6 +74,27 @@ fn every_jsi_bearing_worker_family_holds_a_teardown_pin() {
             "{path} must enqueue with a nonce-bearing target"
         );
     }
+}
+
+#[test]
+fn ios_animation_frames_keep_jsi_on_the_runtime_owner_and_cancel_at_teardown() {
+    let runtime = source("src/engine/hermes_runtime.cc");
+    let ios = source("src/engine/hermes_runtime_ios.cc");
+    let header = source("include/exact_runtime.h");
+
+    assert!(ios.contains("__exactRequestAnimationFrame"));
+    assert!(ios.contains("exactMakeTrackedJsiCallbackOwner("));
+    assert!(ios.contains("handle->runtime_thread, std::move(callback)"));
+    assert!(ios.contains("exactPinRuntimeNativeWorker(target)"));
+    assert!(ios.contains("pushRuntimeCallback(\n      entry.target,"));
+    assert!(ios.contains("exactUnpinRuntimeNativeWorker(entry.target)"));
+    assert!(ios.contains("removeIOSAnimationFrameCallbacksForRuntime(handle)"));
+    assert!(runtime.contains("unregisterIOSHostFunctions(runtime);"));
+    assert!(runtime.contains(
+        "unregisterIOSHostFunctions(runtime);\n  unregisterSignalRuntime(runtime);"
+    ));
+    assert!(header.contains("int32_t ex_hermes_deliver_animation_frame(uint64_t token);"));
+    assert!(header.contains("it never invokes JavaScript on the caller's thread"));
 }
 
 #[test]

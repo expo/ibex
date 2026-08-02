@@ -4669,6 +4669,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   installFsMutationGuardHostFunction(handle);
   installTimerGlobals(handle);
   installAndroidHostFunctions(handle);
+  installIOSHostFunctions(handle);
 
   // The shared runtime captures these registration functions while it installs
   // rejection event forwarding. Armed sealing deletes both root spellings;
@@ -9650,6 +9651,7 @@ static void cleanupPartiallyConstructedRuntime(ExactHermesRuntime* handle) {
     handle->vfs_runtime_bound = false;
   }
   unregisterAndroidHostFunctions(handle);
+  unregisterIOSHostFunctions(handle);
   exactCleanupRuntimeSpawnedProcesses(handle->runtime_nonce);
   exactCleanupRuntimeWebSockets(handle->runtime_nonce);
   ibex_tls_cleanup_runtime(handle->runtime_nonce);
@@ -10640,6 +10642,7 @@ extern "C" int32_t ex_hermes_try_destroy(
   // registered in Closing. Already-admitted JSI-bearing producers retain a
   // native-worker pin, may enqueue their captures, and are drained below.
   unregisterAndroidHostFunctions(runtime);
+  unregisterIOSHostFunctions(runtime);
   unregisterSignalRuntime(runtime);
   disableDebugger(runtime);
   forgetHostCallTargets(target);

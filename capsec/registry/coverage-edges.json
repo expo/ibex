@@ -139757,6 +139757,16 @@
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
     },
     {
+      "id": "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "callback",
+        "name": "producer:src/engine/hermes_runtime_ios.cc:ex_hermes_deliver_animation_frame:pushRuntimeCallback"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
       "id": "surface.callback.producer.src.engine.hermes.runtime.websocket.cc.installwebsocketglobals.0y1f3jo",
       "classification": "non-capability",
       "surface": {
@@ -146577,6 +146587,16 @@
       "rationale": "Debugger ABI access is closed in the initial profile."
     },
     {
+      "id": "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_deliver_animation_frame"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.destroy.0m27uxn",
       "classification": "non-capability",
       "surface": {
@@ -147265,6 +147285,16 @@
       },
       "rationaleId": "terminal-session-control",
       "rationale": "This native session-layer control operates presentation, editor state, or a parity-safe virtual-namespace projection without granting JavaScript authority; any external effect is classified and mediated at its own route."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_set_animation_frame_request_callback"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
     },
     {
       "id": "surface.host.abi.ex.hermes.set.dispatch.callback.0vppy3m",
@@ -274210,6 +274240,16 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.startup.install.route.installglobals.installioshostfunctions.0rg9l3j",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "install-route:installGlobals:installIOSHostFunctions"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.startup.install.route.installglobals.installipclistenerpatch.0l5le47",
       "classification": "closed",
       "surface": {
@@ -274495,6 +274535,16 @@
       "surface": {
         "kind": "startup",
         "name": "installer:installHttpHostFunctions"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.startup.installer.installioshostfunctions.130n19t",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "installer:installIOSHostFunctions"
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."

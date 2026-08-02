@@ -99572,6 +99572,41 @@
       ]
     },
     {
+      "edgeId": "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81",
+      "observedKey": "callback:producer:src/engine/hermes_runtime_ios.cc:ex_hermes_deliver_animation_frame:pushRuntimeCallback",
+      "branchId": "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81.main",
+      "enforcementBranchId": "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "callback:producer:src/engine/hermes_runtime_ios.cc:ex_hermes_deliver_animation_frame:pushRuntimeCallback"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_deliver_animation_frame:pushRuntimeCallback"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_deliver_animation_frame:pushRuntimeCallback"
+        ],
+        "terminalObservedKey": "callback:producer:src/engine/hermes_runtime_ios.cc:ex_hermes_deliver_animation_frame:pushRuntimeCallback"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_deliver_animation_frame:pushRuntimeCallback"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81.main.attribution-missing-deny",
+        "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81.main.generation-recheck",
+        "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81.main.non-capability",
+        "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81.main.principal-restore",
+        "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81.main.snapshot-mismatch-deny"
+      ]
+    },
+    {
       "edgeId": "surface.callback.producer.src.engine.hermes.runtime.websocket.cc.installwebsocketglobals.0y1f3jo",
       "observedKey": "callback:producer:src/engine/hermes_runtime_websocket.cc:installWebSocketGlobals:pushRuntimeCallback",
       "branchId": "surface.callback.producer.src.engine.hermes.runtime.websocket.cc.installwebsocketglobals.0y1f3jo.main",
@@ -121004,6 +121039,43 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j",
+      "observedKey": "host-abi:ex_hermes_deliver_animation_frame",
+      "branchId": "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j.ios",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j.ios",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_deliver_animation_frame"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_deliver_animation_frame"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_deliver_animation_frame"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_deliver_animation_frame"
+      },
+      "branchKind": "single",
+      "targetVariant": "ios",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "ios"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_deliver_animation_frame"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j.ios.attribution-missing-deny",
+        "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j.ios.generation-recheck",
+        "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j.ios.non-capability",
+        "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j.ios.principal-restore",
+        "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j.ios.snapshot-mismatch-deny"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.destroy.0m27uxn",
       "observedKey": "host-abi:ex_hermes_destroy",
       "branchId": "surface.host.abi.ex.hermes.destroy.0m27uxn.default",
@@ -123286,6 +123358,43 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.host.abi.ex.hermes.session.display.ack.0i9wiwm.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm",
+      "observedKey": "host-abi:ex_hermes_set_animation_frame_request_callback",
+      "branchId": "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm.ios",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm.ios",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_set_animation_frame_request_callback"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_set_animation_frame_request_callback"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_set_animation_frame_request_callback"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_set_animation_frame_request_callback"
+      },
+      "branchKind": "single",
+      "targetVariant": "ios",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "ios"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_animation_frame_request_callback"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm.ios.attribution-missing-deny",
+        "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm.ios.generation-recheck",
+        "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm.ios.non-capability",
+        "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm.ios.principal-restore",
+        "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm.ios.snapshot-mismatch-deny"
       ]
     },
     {
@@ -173847,7 +173956,7 @@
         ],
         "terminalObservedKey": "native-op:__exactRequestAnimationFrame"
       },
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "android",
       "targetApplicability": {
         "kind": "operating-system",
@@ -173864,6 +173973,45 @@
         "surface.native.op.exactrequestanimationframe.1ehmd4h.android.non-capability",
         "surface.native.op.exactrequestanimationframe.1ehmd4h.android.principal-restore",
         "surface.native.op.exactrequestanimationframe.1ehmd4h.android.snapshot-mismatch-deny"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactrequestanimationframe.1ehmd4h",
+      "observedKey": "native-op:__exactRequestAnimationFrame",
+      "branchId": "surface.native.op.exactrequestanimationframe.1ehmd4h.ios",
+      "enforcementBranchId": "surface.native.op.exactrequestanimationframe.1ehmd4h.ios",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactRequestAnimationFrame"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#__exactRequestAnimationFrame",
+          "src/engine/hermes_runtime_ios.cc#jsi-global:__exactRequestAnimationFrame"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#__exactRequestAnimationFrame",
+          "src/engine/hermes_runtime_ios.cc#jsi-global:__exactRequestAnimationFrame"
+        ],
+        "terminalObservedKey": "native-op:__exactRequestAnimationFrame"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "ios",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "ios"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#__exactRequestAnimationFrame",
+        "src/engine/hermes_runtime_ios.cc#jsi-global:__exactRequestAnimationFrame"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.native.op.exactrequestanimationframe.1ehmd4h.ios.attribution-missing-deny",
+        "surface.native.op.exactrequestanimationframe.1ehmd4h.ios.generation-recheck",
+        "surface.native.op.exactrequestanimationframe.1ehmd4h.ios.non-capability",
+        "surface.native.op.exactrequestanimationframe.1ehmd4h.ios.principal-restore",
+        "surface.native.op.exactrequestanimationframe.1ehmd4h.ios.snapshot-mismatch-deny"
       ]
     },
     {
@@ -274618,6 +274766,39 @@
       ]
     },
     {
+      "edgeId": "surface.startup.install.route.installglobals.installioshostfunctions.0rg9l3j",
+      "observedKey": "startup:install-route:installGlobals:installIOSHostFunctions",
+      "branchId": "surface.startup.install.route.installglobals.installioshostfunctions.0rg9l3j.main",
+      "enforcementBranchId": "surface.startup.install.route.installglobals.installioshostfunctions.0rg9l3j.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:install-route:installGlobals:installIOSHostFunctions"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#installGlobals:installIOSHostFunctions"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#installGlobals:installIOSHostFunctions"
+        ],
+        "terminalObservedKey": "startup:install-route:installGlobals:installIOSHostFunctions"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#installGlobals:installIOSHostFunctions"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.install.route.installglobals.installioshostfunctions.0rg9l3j.main.cannot-widen-authority",
+        "surface.startup.install.route.installglobals.installioshostfunctions.0rg9l3j.main.non-capability",
+        "surface.startup.install.route.installglobals.installioshostfunctions.0rg9l3j.main.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.startup.install.route.installglobals.installipclistenerpatch.0l5le47",
       "observedKey": "startup:install-route:installGlobals:installIpcListenerPatch",
       "branchId": "surface.startup.install.route.installglobals.installipclistenerpatch.0l5le47.main",
@@ -275588,6 +275769,39 @@
         "surface.startup.installer.installhttphostfunctions.1gf1ws4.main.cannot-widen-authority",
         "surface.startup.installer.installhttphostfunctions.1gf1ws4.main.non-capability",
         "surface.startup.installer.installhttphostfunctions.1gf1ws4.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.installer.installioshostfunctions.130n19t",
+      "observedKey": "startup:installer:installIOSHostFunctions",
+      "branchId": "surface.startup.installer.installioshostfunctions.130n19t.main",
+      "enforcementBranchId": "surface.startup.installer.installioshostfunctions.130n19t.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:installer:installIOSHostFunctions"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#installIOSHostFunctions"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#installIOSHostFunctions"
+        ],
+        "terminalObservedKey": "startup:installer:installIOSHostFunctions"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#installIOSHostFunctions"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.installer.installioshostfunctions.130n19t.main.cannot-widen-authority",
+        "surface.startup.installer.installioshostfunctions.130n19t.main.non-capability",
+        "surface.startup.installer.installioshostfunctions.130n19t.main.post-lockdown-invariant"
       ]
     },
     {
@@ -282286,59 +282500,59 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-BXqw-gkB1mbfpT0FaF0_6g76B7QCBl0UJWk8XVyADS4"
+      "rawContentDigest": "sha256-bF4kEvQXJ4S4vIrm7MpfvJHWOPLO73zdygevF23quEs"
     },
     {
       "kind": "output-disposition-dataset",
       "path": "capsec/generated/output-dispositions.json",
-      "rawContentDigest": "sha256-V4KgEBD-m_0lvmGszBqDibMf1VBe1WceISF1vbV6XBk"
+      "rawContentDigest": "sha256-UdBtX6guZTx_Z30KktPyfkjzhCtoTf-jFti-5jAHA4E"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/output-dispositions.md",
-      "rawContentDigest": "sha256-dsJ_Cdv7zF4D1rgIM3OKGWR16LC0Y_Rd4v9-DR4qjes"
+      "rawContentDigest": "sha256-NZlmbo-XTSKwSA8vG2CPhXG-fX-lYdv_yqcY6lAhQvs"
     },
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-7rA7OgOdioyefUKxF_ArIBVBYO3sBhtDXSHjCN7D4Eo"
+      "rawContentDigest": "sha256-f6TN1KPPyyFnAMMWyiedjp6WERTG_DteK1NefFBoNWk"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-Hj6h_wVgaKWwZx1GZY7AbZV-S1NXclPCdQVZS0PvP8k"
+      "rawContentDigest": "sha256-XsvFkTwd7klXinMy7_FjvNavrShrTR8JIPc4nJRC_as"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-JIEsMMioT_55ncK4UvWdADm4LmmNcnxIsy-GY0q60MQ"
+      "rawContentDigest": "sha256-rodWJLLFPOkB4CVaMm8P9VGMR7eiRZkBt77qT79XFK0"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-ryEqdclrm3NkRldAdnKBuTWQgLoYwK9tswHXe0NgbNM"
+      "rawContentDigest": "sha256-li4y9ba1EibU7yNX0g0B5sX-JwysJ3Ly4JEhp-PJs_w"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256--tF16cFVvEipViRnPyH0PmmcCaj3LaHT93PqlWShR5U"
+      "rawContentDigest": "sha256-NmnP59dn-kwcU8xRemv89WM8_NTzs3eUV9mr9GmzcZE"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-GS0QYdEoWKmYrElua2cmv-pi0wnf55cmwpMbtarPfwg"
+      "rawContentDigest": "sha256-ACKgSbvOs6WieaQI9ih4RafGlk6RWjdRZ9RqBABArGc"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-nlveHoUmRiOcXvO3dz_aCTc-hqOgAZz8wc39rAgAhZ0"
+      "rawContentDigest": "sha256-BqTIAV2mv2V0TUpdHWZXoYEzUAXYj__wGpPkIT5QUnk"
     }
   ],
   "counts": {
-    "observedReferences": 13385,
-    "logicalSurfaces": 7528,
-    "enforcementBranches": 7829,
-    "coverageEdges": 7528,
-    "targetCells": 15056
+    "observedReferences": 13392,
+    "logicalSurfaces": 7533,
+    "enforcementBranches": 7835,
+    "coverageEdges": 7533,
+    "targetCells": 15066
   }
 }

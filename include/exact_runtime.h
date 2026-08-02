@@ -1584,6 +1584,29 @@ void ex_hermes_schedule_watchdog_heartbeat_for_generation(
 // iOS Rendering Pipeline Callbacks
 // =============================================================================
 
+/// Install or clear the iOS display-paced animation-frame request provider.
+/// The private JavaScript scheduling bridge is installed during runtime
+/// bootstrap, before the shared runtime captures and seals it; this setter only
+/// supplies the host provider after construction. The callback runs inline on
+/// the runtime owner thread and must return promptly after asynchronously
+/// handing the opaque token to the UI/main thread. It must not call back into
+/// Hermes or wait for main. `context` is borrowed until successful runtime
+/// destruction.
+///
+/// Passing NULL clears the provider. Restricted worklet runtimes ignore this
+/// setter. The setter must be called on the runtime owner thread.
+void ex_hermes_set_animation_frame_request_callback(
+    ExactHermesRuntime* runtime,
+    void (*callback)(uint64_t token, void* context),
+    void* context);
+
+/// Deliver one opaque iOS animation-frame token. Safe from any thread. The
+/// token is consumed at most once; unknown, stale, replayed, and teardown-
+/// cancelled tokens return zero. A successful delivery only queues the
+/// retained JavaScript callback onto its owning runtime and wakes that runtime;
+/// it never invokes JavaScript on the caller's thread. Returns one when queued.
+int32_t ex_hermes_deliver_animation_frame(uint64_t token);
+
 /// Set callback for exact.dispatch(Uint8Array) - binary protocol for view tree.
 /// This installs the exact.dispatch() function in JavaScript.
 /// @param runtime The runtime handle

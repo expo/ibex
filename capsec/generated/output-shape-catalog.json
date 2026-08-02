@@ -32636,6 +32636,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81",
+      "status": "structural-only",
+      "reasonCode": "callback-producer-provenance",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_deliver_animation_frame:pushRuntimeCallback"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.callback.producer.src.engine.hermes.runtime.websocket.cc.installwebsocketglobals.0y1f3jo",
       "status": "structural-only",
       "reasonCode": "callback-producer-provenance",
@@ -38790,6 +38799,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_deliver_animation_frame"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.destroy.0m27uxn",
       "status": "structural-only",
       "reasonCode": "source-derived-void-all-input-abi",
@@ -39683,6 +39703,15 @@
       "outputKinds": [
         "[[return]]"
       ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm",
+      "status": "structural-only",
+      "reasonCode": "source-derived-void-all-input-abi",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_animation_frame_request_callback"
+      ],
+      "outputKinds": []
     },
     {
       "surfaceId": "surface.host.abi.ex.hermes.set.dispatch.callback.0vppy3m",
@@ -53692,7 +53721,9 @@
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
         "src/engine/hermes_runtime_android.cc#__exactRequestAnimationFrame",
-        "src/engine/hermes_runtime_android.cc#jsi-global:__exactRequestAnimationFrame"
+        "src/engine/hermes_runtime_android.cc#jsi-global:__exactRequestAnimationFrame",
+        "src/engine/hermes_runtime_ios.cc#__exactRequestAnimationFrame",
+        "src/engine/hermes_runtime_ios.cc#jsi-global:__exactRequestAnimationFrame"
       ],
       "outputKinds": [
         "native-invocation"
@@ -84692,6 +84723,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.install.route.installglobals.installioshostfunctions.0rg9l3j",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#installGlobals:installIOSHostFunctions"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.install.route.installglobals.installipclistenerpatch.0l5le47",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -84955,6 +84995,15 @@
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
         "src/engine/hermes_runtime_http.cc#installHttpHostFunctions"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.startup.installer.installioshostfunctions.130n19t",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#installIOSHostFunctions"
       ],
       "outputKinds": []
     },
@@ -85672,15 +85721,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-gRT0c7XrbQwvkKtfqvK7SwxDY2OGX8vZME0OT_V0Hso",
+  "catalogKeyDigest": "sha256-UHA0RaHGAGc8W96brEVbuFJBjyi4VpGRrEHJi6_eTKo",
   "counts": {
-    "coverageSurfaces": 7528,
-    "outputBearingSurfaces": 5819,
-    "structuralOnlySurfaces": 1704,
+    "coverageSurfaces": 7533,
+    "outputBearingSurfaces": 5820,
+    "structuralOnlySurfaces": 1708,
     "unresolvedSurfaces": 5,
-    "catalogRows": 6520,
+    "catalogRows": 6521,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6113,
+    "sourceInventoryRows": 6114,
     "structuredRows": 407
   },
   "rows": [
@@ -149276,6 +149325,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j",
+        "output": "[[return]]",
+        "alias": "ex_hermes_deliver_animation_frame",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_deliver_animation_frame"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_deliver_animation_frame"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.dispatch.event.0lbx6vi",
         "output": "[[return]]",
         "alias": "ex_hermes_dispatch_event",
@@ -171563,7 +171633,9 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime_android.cc#__exactRequestAnimationFrame",
-          "src/engine/hermes_runtime_android.cc#jsi-global:__exactRequestAnimationFrame"
+          "src/engine/hermes_runtime_android.cc#jsi-global:__exactRequestAnimationFrame",
+          "src/engine/hermes_runtime_ios.cc#__exactRequestAnimationFrame",
+          "src/engine/hermes_runtime_ios.cc#jsi-global:__exactRequestAnimationFrame"
         ]
       },
       "requiredValueProof": "live-value-observation"

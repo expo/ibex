@@ -465,6 +465,7 @@ const REVIEWED_CALLBACK_PRODUCER_NAMES = new Set([
   "producer:src/engine/hermes_runtime.cc:ex_hermes_schedule_watchdog_heartbeat_for_generation:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_android.cc:android_animation_frame_callback:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_android.cc:android_platform_event_available:pushRuntimeCallback",
+  "producer:src/engine/hermes_runtime_ios.cc:ex_hermes_deliver_animation_frame:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_crypto.cc:signalWatcherThreadMain:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_dns.cc:startDnsAsync:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_fetch.cc:installFetchGlobals:pushRuntimeCallback",
@@ -5245,6 +5246,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_debugger_remove_breakpoint",
     "ex_hermes_debugger_resume",
     "ex_hermes_debugger_set_breakpoint",
+    "ex_hermes_deliver_animation_frame",
     "ex_hermes_destroy",
     "ex_hermes_dispatch_event",
     "ex_hermes_dispatch_motion_rated_publish",
@@ -5314,6 +5316,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_schedule_watchdog_heartbeat_for_generation",
     "ex_hermes_seal_armed_shared_runtime_globals_v1",
     "ex_hermes_session_display_ack",
+    "ex_hermes_set_animation_frame_request_callback",
     "ex_hermes_set_dispatch_callback",
     "ex_hermes_set_dispatch_with_debug_context_callback",
     "ex_hermes_set_exact_host_call_async",
@@ -7046,6 +7049,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "install-route:installGlobals:installFsHostFunctions",
     "install-route:installGlobals:installFsMutationGuardHostFunction",
     "install-route:installGlobals:installHttpHostFunctions",
+    "install-route:installGlobals:installIOSHostFunctions",
     "install-route:installGlobals:installIpcListenerPatch",
     "install-route:installGlobals:installLegacyLazyBootstrapGetters",
     "install-route:installGlobals:installModuleLoader",
@@ -7075,6 +7079,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "installer:installFsMutationGuardHostFunction",
     "installer:installGlobals",
     "installer:installHttpHostFunctions",
+    "installer:installIOSHostFunctions",
     "installer:installIpcListenerPatch",
     "installer:installLegacyLazyBootstrapGetters",
     "installer:installModuleLoader",
@@ -10159,7 +10164,7 @@ function callbackClassification(surface) {
   }
 
   const producerMatch =
-    /^producer:src\/engine\/hermes_runtime(?:_(?:android|crypto|dns|extension|fetch|fs|fs_windows|http|websocket))?\.cc:(.+):(pushruntimecallback|trypushruntimeextensioncallback)$/u.exec(
+    /^producer:src\/engine\/hermes_runtime(?:_(?:android|crypto|dns|extension|fetch|fs|fs_windows|http|ios|websocket))?\.cc:(.+):(pushruntimecallback|trypushruntimeextensioncallback)$/u.exec(
       name,
     );
   if (
@@ -11613,6 +11618,7 @@ function startupClassification(surface) {
         "installer:installfshostfunctions",
         "installer:installglobals",
         "installer:installhttphostfunctions",
+        "installer:installioshostfunctions",
         "installer:installlegacylazybootstrapgetters",
         "installer:installmoduleloader",
         "installer:installnethostfunctions",
@@ -14006,6 +14012,8 @@ function classifyConcreteSurface(surface) {
       return nonCapabilitySpec("authority-control-plane", "WP8");
     }
     if (
+      surface.name === "ex_hermes_deliver_animation_frame" ||
+      surface.name === "ex_hermes_set_animation_frame_request_callback" ||
       surface.name === "ex_hermes_schedule_watchdog_heartbeat_for_generation"
     ) {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");

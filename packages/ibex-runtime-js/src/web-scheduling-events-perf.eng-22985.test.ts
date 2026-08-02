@@ -202,24 +202,41 @@ test('a promise marked handled before rejection is not later reported unhandled'
 // ---------------------------------------------------------------------------
 
 test('cancelAnimationFrame from a same-frame callback prevents the later callback', async () => {
-  (globalThis as { __exactDisplayLinkedEventLoop?: boolean }).__exactDisplayLinkedEventLoop = true;
-  try {
-    const ran: string[] = [];
-    let id2 = 0;
-    requestAnimationFrame(() => {
-      ran.push('1');
-      cancelAnimationFrame(id2);
-    });
-    id2 = requestAnimationFrame(() => {
-      ran.push('2');
-    });
+  const ran: string[] = [];
+  let id2 = 0;
+  requestAnimationFrame(() => {
+    ran.push('1');
+    cancelAnimationFrame(id2);
+  });
+  id2 = requestAnimationFrame(() => {
+    ran.push('2');
+  });
 
-    await wait(20);
-    // Bug pre-fix: runCallbacks snapshotted+cleared the map, so the cancel
-    // couldn't reach id2 and '2' still ran.
-    expect(ran).toEqual(['1']);
+  await wait(40);
+  // Bug pre-fix: runCallbacks snapshotted+cleared the map, so the cancel
+  // couldn't reach id2 and '2' still ran.
+  expect(ran).toEqual(['1']);
+});
+
+test('fallback animation frames stay paced even if a host exposes the retired display-link flag', () => {
+  const globals = globalThis as typeof globalThis & {
+    __exactDisplayLinkedEventLoop?: boolean;
+  };
+  const originalSetTimeout = globals.setTimeout;
+  let scheduledDelay: number | undefined;
+  globals.__exactDisplayLinkedEventLoop = true;
+  globals.setTimeout = ((callback: TimerHandler, delay?: number) => {
+    scheduledDelay = delay;
+    if (typeof callback === 'function') callback();
+    return 1 as unknown as ReturnType<typeof setTimeout>;
+  }) as typeof setTimeout;
+
+  try {
+    requestAnimationFrame(() => {});
+    expect(scheduledDelay).toBe(16);
   } finally {
-    delete (globalThis as { __exactDisplayLinkedEventLoop?: boolean }).__exactDisplayLinkedEventLoop;
+    globals.setTimeout = originalSetTimeout;
+    delete globals.__exactDisplayLinkedEventLoop;
   }
 });
 

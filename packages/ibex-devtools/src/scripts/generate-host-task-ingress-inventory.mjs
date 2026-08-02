@@ -250,6 +250,12 @@ export const HOST_TASK_INGRESS_CLASSIFICATIONS = Object.freeze([
       "ex_hermes_set_kernel_handle",
     ],
   ),
+  classification(
+    "src/engine/hermes_runtime_ios.cc",
+    "ex_hermes_deliver_animation_frame",
+    "joins-outer-host-task",
+    RATIONALE.nested,
+  ),
 
   ...classificationsFor(
     "src/engine/hermes_runtime_worklet.cc",
