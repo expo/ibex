@@ -2686,7 +2686,21 @@ static int evalRuntimeUnchecked(
 static void writeEvalRefusal(char** outValue, const char* text) noexcept;
 ExHermesEvaluationFault structuredRuntimeDriveFault(int32_t status);
 
-std::mutex g_runtimeRegistryMutex;
+// The registry primitives below are IMMORTAL — intentionally leaked so they
+// are never destroyed. The host process may call exit() (XCTest does, and so
+// does an ordinary app quit) while a dedicated runtime thread is still inside
+// ex_hermes_eval. exit() runs static destructors on the main thread; if these
+// were ordinary globals, the still-running drive's ExactRuntimeDriveGuard
+// destructor would then lock a destroyed mutex and walk a destroyed map. On
+// libc++ that lock throws, the exception escapes a (noexcept) destructor, and
+// the process dies in std::terminate — observed as a SIGABRT on
+// com.exact.runtime with main parked in __cxa_finalize_ranges. A leaked mutex
+// and map stay valid for the whole of process teardown; the memory is
+// reclaimed by the OS. Scalar atomics are trivially destructible and need no
+// such treatment.
+// @ref LLP 0002#runtime-driving-thread-contract — the guard must stay safe on
+// every unwind path, including one that races process exit.
+std::mutex& g_runtimeRegistryMutex = *new std::mutex();
 
 enum class RuntimeLifecycleState : uint8_t {
   Running,
@@ -2701,9 +2715,11 @@ struct RuntimeRegistryEntry {
   bool drive_active;
 };
 
-std::unordered_map<ExactHermesRuntime*, RuntimeRegistryEntry> g_activeRuntimes;
-std::mutex g_hostCallTargetMutex;
-std::unordered_map<uint64_t, RuntimeCallbackTarget> g_hostCallTargets;
+std::unordered_map<ExactHermesRuntime*, RuntimeRegistryEntry>& g_activeRuntimes =
+    *new std::unordered_map<ExactHermesRuntime*, RuntimeRegistryEntry>();
+std::mutex& g_hostCallTargetMutex = *new std::mutex();
+std::unordered_map<uint64_t, RuntimeCallbackTarget>& g_hostCallTargets =
+    *new std::unordered_map<uint64_t, RuntimeCallbackTarget>();
 std::atomic<uint64_t> g_nextHostCallId{1};
 
 static uint64_t registerHostCallTarget(RuntimeCallbackTarget target) {

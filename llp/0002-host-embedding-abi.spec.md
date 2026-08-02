@@ -428,6 +428,17 @@ any-thread callback-backlog observation is not a runtime drive: it instead
 holds the runtime registry's live-generation pin across both queue reads so a
 concurrent teardown cannot free their mutexes between validation and access.
 
+The registry's own primitives (its mutex and maps, and the host-call target
+table) are immortal: intentionally leaked, never destroyed. The contract above
+must hold on every unwind path, and one of those paths races process exit —
+the host may call `exit()` (XCTest does; so does an ordinary app quit) while a
+dedicated runtime thread is still inside `ex_hermes_eval`. `exit()` runs
+static destructors on the main thread, and a drive guard unwinding after that
+point would otherwise lock a destroyed mutex, which on libc++ throws out of a
+`noexcept` destructor straight into `std::terminate`. Leaking the primitives
+keeps every teardown-ordering guarantee in this section valid for the whole of
+process teardown; the memory is reclaimed by the OS.
+
 ### Native module-runner ABI
 
 The provisional `ex_hermes_module_*` and `ex_hermes_graph_context_*` family is
