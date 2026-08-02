@@ -5,6 +5,11 @@
 **Systems:** Build, Module Loader, Runtime, Security
 **Author:** Charlie Cheever / Claude Fable
 **Date:** 2026-07-17
+**Revised:** 2026-08-01 (LLP 0047 supplies the finish-line plan and revises
+the v1 product posture: one standalone artifact defaults to ambient
+compatibility execution, with CapSec selected explicitly at runtime and
+remaining fail-closed on missing target advertisement; envelope, graph, HBC,
+and provenance admission remain mandatory in both modes)
 **Revised:** 2026-07-29 (register item 4 re-resolved: v1 ships fail-closed
 with empty CapSec advertisements — production arming keeps refusing every
 unadvertised target — and the first verified advertisement moves to a v1.1
@@ -79,7 +84,7 @@ committed policy; host-target v1; threat model; phases); 2026-07-17 round-2
 (embedded-module-graph contract; StubContractV1; single snapshot; mounts;
 env sequence; signing state machine; Unicode argv; capsec CLI
 classification).
-**Related:** LLP 0010 (ibex binary ownership; command inventory this RFC extends); LLP 0012 (runtime identity); LLP 0013 (capability compartments); LLP 0014 (generated policy artifact; the embedded authority; revised by §4); LLP 0021 (typed policy and `ArmedSnapshot`; governing for §4); LLP 0022 (armed `process.env` classification); LLP 0023 (virtual filesystem namespace; revised by §4); LLP 0025 (terminal session ownership; §6 lifecycle); LLP 0026 (prepared production artifacts and Hermes bytecode, §9); LLP 0027 (module-carrier wire contract; engine-binding and snapshot-digest revisions, §3/§1); LLP 0028 (Oxc-only transform; error-timing contract preserved by §1)
+**Related:** LLP 0010 (ibex binary ownership; command inventory this RFC extends); LLP 0012 (runtime identity); LLP 0013 (capability compartments); LLP 0014 (generated policy artifact; the embedded authority; revised by §4); LLP 0021 (typed policy and `ArmedSnapshot`; governing for §4); LLP 0022 (armed `process.env` classification); LLP 0023 (virtual filesystem namespace; revised by §4); LLP 0025 (terminal session ownership; §6 lifecycle); LLP 0026 (prepared production artifacts and Hermes bytecode, §9); LLP 0027 (module-carrier wire contract; engine-binding and snapshot-digest revisions, §3/§1); LLP 0028 (Oxc-only transform; error-timing contract preserved by §1); LLP 0047 (v1 finish-line plan and dual-mode product posture)
 
 ## Summary
 
@@ -95,7 +100,8 @@ on the artifact contracts Ibex already has. Proposed surface:
 The motivating consumer is distributable agent-facing tools — most
 concretely Snapback's generated per-app CLI (Snapback LLP 0062; a
 cross-repo dependency not verifiable from this tree) — which wants a
-small, fast-starting, capability-bounded binary rather than a ~60 MB
+small, fast-starting binary with an opt-in capability-bounded posture rather
+than a ~60 MB
 Deno/Bun artifact or a Node installation requirement. v1's tuples
 (`aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`) do **not** cover
 Snapback's full distribution surface (Windows, x86_64 macOS): v1
@@ -136,10 +142,12 @@ which bytes are preserved and which bindings rotate.
   budgets** (size, cold start, dependency count), not just recorded
   measurements — a report without thresholds cannot decide whether
   the advantage over Deno/Bun was achieved.
-- **A compiled artifact is a legible authority story.** A single file
-  whose total capability surface is a frozen, embedded, auditable
-  policy artifact — with the runtime's own configuration surface
-  closed (§4) — is the LLP 0013/0014 model made portable. §3 states
+- **A compiled artifact is a legible posture story.** In ambient compatibility
+  mode, inspection states plainly that the app has the launching user's
+  authority. When CapSec is selected, the same file's total capability surface
+  is a frozen, embedded, auditable policy artifact — with the runtime's own
+  configuration surface closed (§4) — making the LLP 0013/0014 model portable.
+  §3 states
   what the integrity mechanisms do and do not defend against; per LLP
   0013's honesty discipline, no tamper-proofness is claimed that only
   platform signing can provide.
@@ -155,10 +163,13 @@ which bytes are preserved and which bindings rotate.
   unsupported-shape sites failing at **invocation** with LLP 0028's
   stable errors (§1 step 4) — compiled mode preserves `ibex run`'s
   observable error timing, including dead branches.
-- The compiled program's authority is exactly the embedded policy as
-  armed by the disk-free arming procedure (§4), with the root
-  ceiling carried in the armed snapshot's `processAuthorityCeiling`
-  and a bootstrap stage that ends before application code runs.
+- When CapSec is explicitly selected, the compiled program's authority is
+  exactly the embedded policy as armed by the disk-free arming procedure (§4),
+  with the root ceiling carried in the armed snapshot's
+  `processAuthorityCeiling` and a bootstrap stage that ends before application
+  code runs. LLP 0047 makes ambient compatibility the v1 default; that path
+  makes no capability-security claim but retains the same envelope, graph,
+  HBC, and provenance admission.
 - Deterministic output at the **unsigned-core** layer: same input
   digests → same unsigned package bytes, two-clean-builder verified.
   Signing (§2c) is a recorded, separable step.
@@ -334,8 +345,9 @@ Implementation update (2026-07-18): the public producer now implements the
 catalog-admitted graph → policy → HBC → CompilePlan → envelope → self-preflight
 → atomic-output path. Compiled-policy authoring consumes the native loader's
 exact authenticated snapshot. The stub performs complete release provenance and
-static-HBC admission, but release execution still refuses at the compiled-Host
-arming and first-target-advertisement gates recorded in §7.
+static-HBC admission. LLP 0047 replaces the unconditional release refusal with
+ambient compatibility boot by default and an explicitly selected CapSec path
+that retains the compiled-Host arming and target-advertisement gates.
 
 ### 2. Executable layout: stub, envelope, footer
 
@@ -645,6 +657,13 @@ platform policy are the honest answer there.
 
 ### 4. Compiled-mode authority
 
+Per LLP 0047, this section governs the explicitly selected CapSec boot path.
+The v1 default is ambient compatibility execution: it skips policy enforcement
+but still admits the self-file layout, envelope, graph, HBC carriers, compile
+plan, and provenance before application code. CapSec selection is monotonic
+and fail-closed; failure at any prerequisite in this section never retries the
+ambient path.
+
 LLP 0021 is governing: the embedded policy is the reviewable authority
 object; the engine consumes an `ArmedSnapshot`. Compiled boot runs a
 **disk-free arming procedure**: bind the embedded graph, embedded
@@ -718,7 +737,7 @@ replaced by envelope admission. Prerequisites as program gates:
     generator's compiled-target mode emits `/app`/`/work`/absolute
     resources so the reviewed artifact says what the shipped binary
     means. Denial and relocation fixtures pin the semantics.
-- **CapSec target advertisement — a visible external dependency.**
+- **CapSec target advertisement — a visible optional-posture dependency.**
   Production arming refuses unadvertised targets; today the matrix
   advertises **zero** verified targets (host tuple: 0 enforced / 7108
   unsupported cells). That gate is the completion condition of the
@@ -726,7 +745,9 @@ replaced by envelope admission. Prerequisites as program gates:
   own; the dependency's magnitude is a scheduling fact stated here,
   and §7's register carries the sequencing question. Module-runner
   advertisement, CapSec advertisement, and stub-contract availability
-  remain three separate predicates.
+  remain three separate predicates. Per LLP 0047, this predicate gates only
+  explicitly selected CapSec boot; ambient compatibility boot neither consumes
+  nor manufactures target evidence.
 
 **Environment: default-deny, and application env is data, not
 configuration.**
@@ -835,11 +856,15 @@ loudly naming the fetch step.
 - Verify §2c layout, section directory, envelope digest, contract
   pin — all from the pinned self-file handle (§3) — refusing with a
   stable error carrying the embedded identity.
-- Run the environment sequence and disk-free arming (§4); evaluate
-  the entry designation. Out-of-graph resolution fails closed;
+- Select the immutable boot posture before runtime construction. Ambient boot
+  projects ordinary inherited process state without capability enforcement;
+  CapSec boot runs the environment sequence and disk-free arming (§4). Then
+  evaluate the entry designation. Out-of-graph resolution fails closed in both;
   guarded sites fail at invocation per §1 step 4.
-- **Argv belongs to the application.** No interception, no runtime
-  flags; reserved Ibex words reach the program (fixtures). Unicode
+- **Argv belongs to the application, except for one first-position posture
+  selector.** LLP 0047 reserves `--ibex-capsec` only as argv[1], with a leading
+  `--` escape for passing it literally; every other argument and later
+  occurrence reaches the program (fixtures). Unicode
   argv contract: non-Unicode arguments fail at boot with a stable
   error **naming the offending argument index**; surrogate-escape is
   the recorded alternative if field friction (non-UTF-8 filenames)
@@ -914,15 +939,17 @@ cannot both be "the versioned change."
    0010/`runtime-surface.json` together, CompilePlan + two-atomic-file
    publication, build statement; gate: drift/wrong-engine refusals,
    clean-root HBC byte comparison, two-clean-builder reproducibility.
-5. **Environment** — capture/default-deny-sanitize/broker, typed
-   internal config surface (profiled controls inert), generated
-   profile, overlay/child fixtures, package-principal composition;
-   gate: every profiled variable + inheritance + inertness tests.
-6. **Process semantics + advertisement** — argv/lifecycle/signal
-   fixtures incl. reserved words; LLP 0025 rows landed; verified
-   CapSec advertisement for each shipped contract (inherits the LLP
-   0021 program; scheduling stated in §4); gate: matrix shows shipped
-   tuples advertised.
+5. **Environment** — ordinary inherited environment semantics in ambient mode;
+   capture/default-deny-sanitize/broker, typed internal config surface
+   (profiled controls inert), generated profile, overlay/child fixtures, and
+   package-principal composition in CapSec mode; gate: every profiled variable
+   plus ambient inheritance, CapSec inheritance, and inertness tests.
+6. **Process semantics + optional CapSec posture** — argv/lifecycle/signal
+   fixtures incl. the reserved selector and escape; LLP 0025 rows landed;
+   ambient compatibility boot works without a CapSec advertisement; explicit
+   CapSec selection refuses before application code until the exact shipped
+   contract is advertised. A verified advertisement is a gate for claiming
+   that optional posture works on a tuple, not for shipping ambient v1.
 7. **Measured claims against precommitted budgets** — the budget
    numbers are fixed **before measurement begins** (register item 7;
    thresholds set at measurement time can be fitted to results — the
@@ -935,14 +962,14 @@ cannot both be "the versioned change."
 **Author-decision register:** (1) stdio/cwd implicit vs
 policy-explicit (blocks `Accepted`); (2) the initial env allowlist
 contents (blocks `Accepted`); (3) factory-table as release encoding
-vs diagnostic-only (blocks phase-7 exit); (4) **re-resolved 2026-07-29** (supersedes the
-2026-07-18 resolution "v1 waits for verified CapSec advertisements on both
-LLP 0031 tuples"): v1 ships fail-closed with empty advertisements —
-production arming keeps refusing every unadvertised target, so secure mode
-makes no conformance claim rather than an unverified one — and the first
-verified advertisement is re-sequenced to a v1.1 milestone scoped to a
-single tuple (leading candidate on current verified-row volume:
-`aarch64-apple-darwin`; final tuple choice is an author call at v1.1
+vs diagnostic-only (blocks phase-7 exit); (4) **re-resolved 2026-08-01 by LLP
+0047** (supersedes both earlier advertisement-first postures): v1 defaults to
+ambient compatibility execution and ships without a verified CapSec target.
+The same artifact accepts an explicit CapSec selector, which keeps refusing
+every unadvertised target before application code and never falls back to
+ambient execution. The first successful CapSec posture remains a v1.1
+milestone scoped to a single tuple (leading candidate on current verified-row
+volume: `aarch64-apple-darwin`; final tuple choice is an author call at v1.1
 scoping) working the prioritized target-applicable subset of the residual
 catalog rows tracked in
 issues/20260728-capsec-public-surface-evidence-backlog.md; (5)

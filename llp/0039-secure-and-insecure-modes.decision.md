@@ -5,12 +5,16 @@
 **Systems:** Runtime, CapSec, Build, Product
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-24
+**Revised:** 2026-08-01 (LLP 0047 adds a scoped standalone-executable product
+posture: the general Ibex CLI remains secure by default, while a compiled
+application defaults to an explicitly documented ambient compatibility boot
+and can monotonically opt into fail-closed CapSec in the same artifact)
 **Revised:** 2026-07-27 (document the authenticated, release-only iOS
 Simulator performance observer and its non-product boundary)
 **Revised:** 2026-07-25 (the default feature set is secure and fail-closed; unadvertised development arming and no-sandbox execution are explicit compile-time choices; invocation-time ESM import and CommonJS require now cover source and prepared targets)
 **Revised:** 2026-07-24 (the secure prepared/live-graph path now defers ESM and CommonJS `import()` discovery until an exact reached site; synchronous authored CommonJS `require()` retains the no-probe refusal)
 **Revised:** 2026-07-24 (ENG-25424 closes prepared-graph backing-path disclosure and removes the secure-gate test exclusion; promotion-facing CapSec executors now explicitly disable Cargo defaults so conformance cannot inherit the insecure mode)
-**Related:** LLP 0021 (target advertisement + conformance report); LLP 0036 (advertisement completion); LLP 0038 (unadvertised dev arming, insecure build)
+**Related:** LLP 0021 (target advertisement + conformance report); LLP 0036 (advertisement completion); LLP 0038 (unadvertised dev arming, insecure build); LLP 0047 (standalone executable dual-mode finish line)
 
 ## Context
 
@@ -48,6 +52,17 @@ can arm from a real conformance report; at that point the split becomes exactly
 
 This supersedes the removal condition in LLP 0038, which assumed both features
 were transitional.
+
+LLP 0047 adds one deliberately scoped product exception. A standalone
+application produced by `ibex compile` contains an **ambient compatibility**
+boot path and a CapSec boot path in the same file. The standalone application
+defaults to ambient compatibility and accepts a single monotonic CapSec
+selector; the general `ibex` CLI, its Cargo defaults, and its publication
+posture remain secure and fail-closed. “Ambient compatibility” is named
+separately from the `insecure` Cargo feature because it is a supported compiled
+application contract, not a development build accidentally published. It uses
+the enforcement-off mechanics but keeps package/envelope integrity checks and
+does not permit runtime module discovery outside the embedded graph.
 
 Mechanically the modes are described in
 [LLP 0038](./0038-unadvertised-dev-arming.decision.md); this document records
@@ -97,8 +112,11 @@ not merely noting it:
    likeliest trip-wire because it can happen casually, in a single command.
 2. **Running code from outside the team** — a bug reproduction, a gist, a
    customer sample, an AI-generated snippet from an untrusted source.
-3. **Anything user-facing.** A build that reaches a user, a demo machine, or a
-   published artifact must never be `insecure`.
+3. **Anything user-facing outside LLP 0047's compiled-application contract.**
+   The general Ibex CLI, a demo runtime, or another published artifact must
+   never carry the development `insecure` feature. A standalone application
+   may use LLP 0047's ambient compatibility default only when its help,
+   inspection, and release metadata make the lack of sandboxing explicit.
 4. **Agent-driven execution.** Coding agents (including the one that wrote this)
    run code in this repository. An agent running arbitrary or generated code
    under an `insecure` build has the same exposure as item 2, with more volume
