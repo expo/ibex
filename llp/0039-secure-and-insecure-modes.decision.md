@@ -1,10 +1,26 @@
 # LLP 0039: Secure and Insecure Modes
 
 **Type:** Decision
-**Status:** Draft
+**Status:** Accepted
 **Systems:** Runtime, CapSec, Build, Product
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-24
+**Revised:** 2026-08-01 (round-3 delta review, **applied after the round budget
+closed and therefore NOT re-reviewed**: trip-wire 5 states why it stays keyed
+to the Cargo feature rather than generalizing like wires 1-4)
+**Revised:** 2026-08-01 (round-2 delta review: the enforcement-off distinction
+is restated at its true strength — an ordinary build has no runtime-selectable
+enforcement-off route, not literal absence of enforcement-off code; the
+foreign-code trigger is recorded as committed-to by a reviewed design rather
+than already fired, since no ambient artifact can exist yet)
+**Revised:** 2026-08-01 (round-1 dual review: the acceptability trip-wires now
+cover *both* enforcement-off surfaces rather than only the `insecure` Cargo
+feature, since LLP 0047's ambient path reaches ambient authority through a
+supported default route; trip-wire 3 is restated over surfaces Ibex actually
+controls; the accidental-ship guard distinguishes the defect it refuses from
+the product it permits; the foreign-code trigger is recorded as fired
+deliberately rather than left ambiguous; stale unresolved-row figures and an
+inverted `cfg` explanation corrected)
 **Revised:** 2026-08-01 (LLP 0047 adds a scoped standalone-executable product
 posture: the general Ibex CLI remains secure by default, while a compiled
 application defaults to an explicitly documented ambient compatibility boot
@@ -21,9 +37,11 @@ Simulator performance observer and its non-product boundary)
 Ibex's security model is real and largely built — a typed capability decision
 engine, per-package frame attribution, a virtual filesystem mount, and a
 fail-closed arming ceremony. What is *not* finished is the target advertisement
-pipeline that lets an ordinary build arm at all (LLP 0036 measures the remainder:
-~22k unresolved rows, no cheap bulk win). Finishing it is months of work, not
-days.
+pipeline that lets an ordinary build arm at all (LLP 0036 measures the
+remainder; as of 2026-07-27 it reports ~17.2k unresolved rows per tuple, and
+LLP 0021's 2026-07-28 accounting reports 16,628 — down from the ~22k this
+document originally cited, with no cheap bulk win found). Finishing it is
+months of work, not days.
 
 Until then a default build cannot run a single line of JavaScript. That is a
 correct fail-closed posture and a useless developer experience, and the second
@@ -60,9 +78,19 @@ defaults to ambient compatibility and accepts a single monotonic CapSec
 selector; the general `ibex` CLI, its Cargo defaults, and its publication
 posture remain secure and fail-closed. “Ambient compatibility” is named
 separately from the `insecure` Cargo feature because it is a supported compiled
-application contract, not a development build accidentally published. It uses
-the enforcement-off mechanics but keeps package/envelope integrity checks and
-does not permit runtime module discovery outside the embedded graph.
+application contract, not a development build accidentally published. The
+distinction is mechanical, not just nominal: `insecure` is a compile-time
+choice that selects an enforcement-off host construction and permissive gates
+for the entire binary, whereas ambient compatibility is a runtime posture
+selected within a binary that retains a reachable armed path. Stated precisely,
+because an earlier wording overclaimed it: the property an ordinary build has
+is **no runtime-selectable enforcement-off route**, not the literal absence of
+enforcement-off code — the armed constructor is compiled unconditionally, and
+`insecure` selects a different one. **A release stub must never be built with
+`insecure`** — its enforcement path has to be present, because the same
+artifact must be able to arm when the CapSec selector is given. Ambient boot
+keeps package/envelope integrity checks and does not permit runtime module
+discovery outside the embedded graph.
 
 Mechanically the modes are described in
 [LLP 0038](./0038-unadvertised-dev-arming.decision.md); this document records
@@ -103,29 +131,54 @@ without making every ordinary build inherit the same authority.
 
 ## When this stops being acceptable
 
-Choosing the explicit insecure posture rests on assumptions that will expire.
-Any of the following invalidates that choice and requires re-evaluating it —
+There are now **two** enforcement-off surfaces, and the trip-wires below cover
+both. Until 2026-08-01 there was only one — the `insecure` Cargo feature — and
+the wires were written to key on it. LLP 0047 adds a second: a compiled
+standalone application's ambient path, which reaches the same ambient authority
+through a supported, default, zero-feature-flag route. A wire that names only
+the Cargo feature would leave the newer and more likely surface uncovered, so
+the wires are stated over *enforcement-off execution* generally — except wire
+5, which stays feature-specific for the reason given there.
+
+Any of the following invalidates the choice and requires re-evaluating it —
 not merely noting it:
 
 1. **Running third-party code.** Installing an npm dependency and executing it
-   under `insecure` removes the only thing making the trade sound. This is the
-   likeliest trip-wire because it can happen casually, in a single command.
+   under `insecure`, *or embedding it in an ambient standalone executable*,
+   removes the only thing making the trade sound. LLP 0047 concedes the point
+   directly ("bundling third-party or generated code does not become safe
+   because it is embedded in one file"); this document records that the
+   concession is a live trip-wire, not a caveat. Likeliest wire on both
+   surfaces, because both are a single command.
 2. **Running code from outside the team** — a bug reproduction, a gist, a
-   customer sample, an AI-generated snippet from an untrusted source.
+   customer sample, an AI-generated snippet from an untrusted source — under
+   either surface.
 3. **Anything user-facing outside LLP 0047's compiled-application contract.**
    The general Ibex CLI, a demo runtime, or another published artifact must
-   never carry the development `insecure` feature. A standalone application
-   may use LLP 0047's ambient compatibility default only when its help,
-   inspection, and release metadata make the lack of sandboxing explicit.
+   never carry the development `insecure` feature. A standalone application may
+   use LLP 0047's ambient default only when the surfaces **Ibex actually
+   controls** disclose the absent sandbox: `ibex compile`'s help and
+   first-compile notice, `inspect-executable`, the standalone guide, and
+   release metadata. An earlier wording also demanded it of the application's
+   own help — which Ibex cannot deliver, since the compiled app owns its entire
+   argv and help surface. Where LLP 0047 §8 item 4 leaves a recipient-side
+   disclosure gap, that gap must be recorded there as accepted; an unrecorded
+   gap fails this wire.
 4. **Agent-driven execution.** Coding agents (including the one that wrote this)
    run code in this repository. An agent running arbitrary or generated code
    under an `insecure` build has the same exposure as item 2, with more volume
-   and less human review per execution.
+   and less human review per execution. The same applies verbatim to an agent
+   compiling and running ambient standalone executables, which is a plausible
+   near-term use of the very feature LLP 0047 ships.
 5. **CI producing artifacts.** A release pipeline that inherits `insecure`
-   ships a runtime with no sandbox.
+   ships a runtime with no sandbox. This wire stays keyed to the Cargo feature
+   deliberately: a posture-general version would fire on every sanctioned
+   item-3 ambient release, which is designed behavior, and a wire that fires
+   on the intended product stops being a signal. Distinct from, and not
+   excused by, deliberately shipping ambient standalone artifacts under item 3.
 
 None of these are hypothetical-only; items 1 and 4 are the ones to actually
-watch, because both are one careless command away.
+watch, because both are one careless command away on either surface.
 
 ## Secure mode must stay exercised
 
@@ -146,8 +199,12 @@ The same scoping now covers the `--bin ibex` armed/capsec conformance batches
 (2026-07-27, after forty of them spent days failing confusingly on
 insecure-default observer builds and were briefly misdiagnosed as engine
 drift): every observer test that asserts secure-armed semantics carries
-`#[cfg(not(feature = "insecure"))]`, so a default build simply does not
-contain them. The suite they belong to runs on an explicit secure build —
+`#[cfg(not(feature = "insecure"))]`. That gate excludes them from an
+`insecure` build — it does not exclude them from a default one, since
+`insecure` is not a default feature. What keeps them out of an ordinary
+default run is the separate `capsec-conformance-observer` feature they also
+require. An earlier wording stated the implication backwards. The suite they
+belong to runs on an explicit secure build —
 `scripts/run-tests.sh --secure --features capsec-conformance-observer
 --scope bin -- --test-threads=1` (the `--secure` flag supplies
 `--no-default-features --features standard,...`; serial because the batches
@@ -233,6 +290,25 @@ This is deliberately **not** implemented yet, because a release-profile
 publication (release pipeline, artifact upload), not on optimization level.
 Until it exists, item 3 and item 5 above rest on discipline alone.
 
+**This section is about *accidental* shipping, and LLP 0047 makes one form of
+enforcement-off shipping deliberate.** The two must not be conflated, and the
+guard must distinguish them rather than treat every enforcement-off artifact as
+a mistake:
+
+- An `ibex` CLI, demo, or pipeline artifact built with `insecure` is always a
+  defect. That is what the guard should refuse.
+- A standalone executable whose *default runtime posture* is ambient is the
+  reviewed product contract. It is built **without** `insecure` — its
+  enforcement path is present and reachable via the CapSec selector — so a
+  guard keyed on the Cargo feature correctly permits it without a carve-out.
+
+That is a convenient property, not a lucky one: keying the guard on the
+compile-time feature rather than on observed runtime posture is what lets the
+same rule refuse the mistake and permit the product. It does mean the guard
+provides no protection at all against the ambient default being wrong as a
+*product decision* — that risk is governed by trip-wire 3 and LLP 0047's
+register, not by a build-time check.
+
 ## Consequences
 
 - Ibex is usable locally through the explicitly selected secure-development or
@@ -245,4 +321,16 @@ Until it exists, item 3 and item 5 above rest on discipline alone.
   environment: insecure `process.env` projects it (LLP 0038 §"Fully open
   mode"), while every secure mode keeps the authenticated empty base.
 - This document should be revisited the first time Ibex executes code it did not
-  author — that event, not a date, is the trigger.
+  author — that event, not a date, is the trigger. **As of LLP 0047 a reviewed
+  design commits to firing it.** The execution event has not occurred: no
+  ambient standalone executable can exist yet, because `ibex compile` refuses
+  without a compiled-in catalog digest that no repository build sets, and the
+  stub refuses every release envelope. But an ambient standalone executable
+  embedding npm dependencies would be exactly "Ibex executing code it did not
+  author with ambient authority," and LLP 0047 schedules precisely that as
+  designed, reviewed behavior rather than the accident this trigger was meant
+  to catch. This revision is that re-evaluation, made in advance. What remains
+  live is every *undeliberate* instance — the general CLI, an agent, a demo, or
+  CI reaching ambient authority over foreign code without a reviewed contract
+  saying it may. Each such instance still requires re-evaluating this decision
+  rather than noting it.

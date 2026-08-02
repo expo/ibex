@@ -615,3 +615,330 @@ VERDICT: NOT READY. The proposal has a strong core architecture, but unresolved 
 ### Orchestrator verification notes (round 4, outside verbatim body)
 
 Spot-checked: `ProcessCeiling` applies to every constrained principal (stratum 5) rather than root only — the "root ceiling" naming correction is confirmed (`decision.rs:658-682`); armed enumeration returning empty and exact-name broker reads are as cited; `#[tokio::main]` on the full binary confirms the pre-main capture-feasibility point for that binary shape. The Apple TN2206 append-prohibition and ZIP-stapling claims are accepted on the cited documentation and adopted in the round-4 revision. No material defect found in the review's factual basis.
+
+## Round 5 — 2026-08-01 (cluster loop: LLP 0029 + 0039 + 0047, round 1)
+
+**Reviewer family:** OpenAI (Codex)
+**Provider / runtime:** `codex exec --skip-git-repo-check -m gpt-5.6-sol -c model_reasoning_effort=xhigh -s read-only`, codex-cli 0.146.0, session `019fc01a-2d68-7061-92a6-382ac991cd7d`, cwd `/Users/ccheever/projects/ibex`
+**Date:** 2026-08-01
+**Redacted:** no (repository content only; no secrets present). The reviewer additionally issued one outbound web search for Apple TN2206 Mach-O code-signing documentation; that query carried no repository content.
+**Topology:** lockstep cluster review. LLP 0047 is a scoped amendment to LLP 0029's release sequencing (§7 register item 4) and LLP 0039's product defaults; the three were reviewed together because cross-document coherence is the primary axis. This is the single verbatim cluster review, preserved once in the primary target's artifact; LLP 0039 and LLP 0047 carry pointer artifacts with the same per-target verdict sections.
+**Method:** orchestrated by `/llp-super-refine`; reviewer read the three targets at git-blobs 0029 `e082559b9c53a83b6fc5fc314dde367d752bffb0`, 0039 `b8a6e07c79ad6931a52d10734895a40b9ad0e53f`, 0047 `9890e6bb6587ec906ef09049ba84c03b77ceaec6` (repo HEAD `54761987`), plus governing LLPs and repo source. Blindness was structural: both prior 0029 review artifacts were moved out of the working tree for the round's duration, and each family's response was held in an out-of-repo scratchpad until both landed.
+**Brief:** `brief-r1.md`, hash `2d2438a011e9e43161263d6b58c45222bfa84552`
+**Verdicts:** LLP 0029 NOT READY · LLP 0039 NOT READY · LLP 0047 NOT READY · **CLUSTER NOT READY**
+
+### Review (verbatim)
+
+## Per-target findings
+
+### LLP 0029
+
+- [MATERIAL] Correctness: The “Implementation update” says LLP 0047 replaced unconditional release refusal with ambient-default boot and an explicit CapSec path (`llp/0029-single-file-executable-packaging.rfc.md:344`). The repository has not implemented either change: every release envelope is still rejected unconditionally (`crates/compiled-stub/src/main.rs:277`), and the argument parser passes all post-`argv[0]` arguments to the application without recognizing `--ibex-capsec` (`crates/compiled-stub/src/process.rs:46`). LLP 0047 itself correctly describes that refusal as current state (`llp/0047-standalone-executable-finish-line.plan.md:114`). This status paragraph must be written as a proposed amendment, not an implementation update.
+
+- [MATERIAL] Correctness: The inspection contract overstates implemented provenance verification. LLP 0029 says inspection verifies an adjacent build statement and rechecks the stub-core digest (`llp/0029-single-file-executable-packaging.rfc.md:322`, `:403`). The inspector only reports whether the adjacent statement exists and labels it `"unverified"` (`src/bin/ibex/sfe.rs:501`); it neither reads nor authenticates that statement. It also decodes and displays the provenance-supplied stub-core digest without hashing the actual stub core against it (`src/bin/ibex/sfe.rs:461`, `:515`). This is not yet even digest-consistent inspection, much less externally authenticated attestation.
+
+- [MINOR] Correctness: The CapSec inventory count is stale. LLP 0029 reports 7,108 unsupported host-tuple edges (`llp/0029-single-file-executable-packaging.rfc.md:740`), while the current generated matrix contains 7,528 edges, all unsupported for the Apple host (`capsec/generated/target-matrix.md:5`, `:9`). The important “zero advertised targets” conclusion remains correct.
+
+**LLP 0029 verdict: NOT READY**
+
+### LLP 0039
+
+- [MATERIAL] Coherence: The standalone exception does not reconcile the decision’s own release trip-wires. LLP 0039 says third-party code, generated/outside-team code, agent-driven execution, or a user-facing artifact invalidate the no-sandbox choice (`llp/0039-secure-and-insecure-modes.decision.md:104`). LLP 0047’s ambient path has exactly that no-enforcement posture and is intended for distributable, agent-facing executables; renaming it “ambient” and keeping it outside the Cargo `insecure` feature does not alter those threat conditions. Only one trip-wire is textually narrowed by the exception (`llp/0039-secure-and-insecure-modes.decision.md:120`). The decision must either explicitly supersede and justify the remaining trip-wires for this product surface or impose a scope that actually excludes them.
+
+- [MATERIAL] Safety: The stated disclosure condition does not cover the ordinary recipient’s launch path. LLP 0039 conditions the exception on help, inspection, and release metadata making the posture explicit (`llp/0039-secure-and-insecure-modes.decision.md:115`), but LLP 0047 deliberately provides no runtime banner (`llp/0047-standalone-executable-finish-line.plan.md:237`). A copied standalone executable can therefore start in ambient mode without any colocated or launch-time indication that CapSec is inactive; the separate Ibex inspector is not necessarily available to its recipient. That leaves an unguarded ambient-default path on the precise user-facing surface the earlier decision treated as disqualifying.
+
+- [MINOR] Correctness: The observer-test explanation reverses its `cfg` condition. `#[cfg(not(feature = "insecure"))]` means those tests are included in a default secure build and excluded when `insecure` is enabled, not that a default build “simply does not contain them” (`llp/0039-secure-and-insecure-modes.decision.md:145`).
+
+- [MINOR] Correctness: The cited scale of approximately 22,000 unresolved Apple target edges (`llp/0039-secure-and-insecure-modes.decision.md:24`) is stale relative to the current generated inventory and later tracking documents. The months-scale rationale may remain valid, but the quantitative claim should be refreshed or described as historical.
+
+**LLP 0039 verdict: NOT READY**
+
+### LLP 0047
+
+- [MATERIAL] Safety: The security meaning of the executable is not included in its authenticated compatibility contract. `StubContractV1` binds engine identity, ABI/schema versions, target, profile, and artifact digests, but contains neither the default boot mode, selector semantics, nor CapSec-advertisement identity (`crates/sfe-format/src/lib.rs:136`; `schemas/stub-contract-v1.schema.json:6`). `PackageProvenanceV1` and `CatalogEntry` omit them as well (`crates/sfe-format/src/lib.rs:95`; `crates/sfe-catalog/src/lib.rs:27`). Consequently, non-evaluating inspection cannot authenticate whether a stub is ambient-default, CapSec-default, or which CapSec evidence it contains, even though LLP 0047 requires those results and calls a future default reversal a versioned contract change (`llp/0047-standalone-executable-finish-line.plan.md:242`, `:292`). Boot-mode semantics must be bound into a digest-authenticated contract or an equivalently authenticated catalog identity.
+
+- [MINOR] Feasibility: The dual-mode initialization sequence needs an explicit implementation constraint. The current stub captures and sanitizes the environment in platform pre-initialization before Rust `main` (`crates/compiled-stub/src/environment_preinit.c:48`, `:116`), whereas arguments are captured later (`crates/compiled-stub/src/main.rs:99`). Unconditional pre-init sanitation violates ambient mode’s promised inherited-environment behavior, while deferring mode selection until ordinary argument parsing is too late to preserve CapSec’s earliest-hook guarantee (`llp/0029-single-file-executable-packaging.rfc.md:755`). This is buildable, but milestone 2 should require selector capture during pre-init, before choosing whether sanitation occurs.
+
+- [MINOR] Feasibility: Milestone sequencing omits the required catalog rotation. Milestone 1 pins a catalog and builds the release producer, while milestone 2 changes the cataloged stub’s boot behavior (`llp/0047-standalone-executable-finish-line.plan.md:147`, `:157`). Because catalog entries bind the exact stub-core digest (`crates/sfe-catalog/src/lib.rs:110`) and release `ibex` embeds the catalog digest (`src/bin/ibex/sfe.rs:74`), changing the stub necessarily requires rebuilding the catalog, re-pinning the producer, and rerunning reproducibility checks. This is implementation-phase detail, but the plan’s dependency ordering should state it.
+
+**LLP 0047 verdict: NOT READY**
+
+## Cross-document findings
+
+- [MATERIAL] Coherence: The cluster’s release gate directly contradicts governing LLP 0031 without amending it. LLP 0031 says the 0.2 release waits if either selected platform lacks verified CapSec advertisement and explicitly couples SFE release scheduling to advertisements for both tuples (`llp/0031-ibex-0-2-native-platform-matrix.decision.md:44`, `:55`, `:68`). LLP 0029 and LLP 0047 instead say standalone v1 may ship with no verified advertisement (`llp/0029-single-file-executable-packaging.rfc.md:965`; `llp/0047-standalone-executable-finish-line.plan.md:277`), while LLP 0047 claims its amendment is scoped only to LLPs 0029 and 0039 (`llp/0047-standalone-executable-finish-line.plan.md:39`). LLP 0031 must be explicitly amended or the no-advertisement release claim withdrawn.
+
+- [MATERIAL] Safety: Across LLPs 0039 and 0047, the exception is justified primarily by distribution context and terminology rather than a changed threat model. Ambient mode still executes with the launching user’s full authority, and LLP 0047 acknowledges that bundling untrusted dependencies or generated code is unsafe (`llp/0047-standalone-executable-finish-line.plan.md:72`, `:302`). The cluster nevertheless retains the broader “agent-facing tools” and “any program” product scope from LLP 0029 (`llp/0029-single-file-executable-packaging.rfc.md:100`). The accepted blast radius and intended eligibility boundary therefore remain contradictory at the set level.
+
+## Set-level verdict
+
+**CLUSTER: NOT READY**
+
+## Round 6 — 2026-08-01 (cluster loop round 2, DELTA ROUND)
+
+**Date:** 2026-08-01
+**Round type:** delta round (LLP 0010 §2 addendum). Instructions enumerated the
+revision and required every concern classified IN-DELTA vs PRE-EXISTING.
+**Revision reviewed:** 0029 `38f724c799948380d0be5c344e64bb2b06e39e70`, 0039
+`975c98a4fa77e262e8c4b53bd5a7dd25b8333606`, 0047
+`893ea5732c7283816f2f90869c0e7349537ed001`; collateral (non-target, coherence
+scope only) 0031 `9261864bb5a9097a7bc3f26e1026a46b05d31207`, 0022
+`7a5be6b9398746f278fb0003ce5786ac8f48bd8b`. Revision uncommitted, so `git diff
+llp/` was the delta.
+**Brief:** `brief-r2.md`
+**Redacted:** no (repository content only; no secrets present)
+**Blindness:** structural — all six cluster review artifacts moved out of the
+working tree for the round's duration; each family's response held in an
+out-of-repo scratchpad until both landed.
+**Reviewer family:** OpenAI (Codex)
+**Provider / runtime:** `codex exec --skip-git-repo-check -m gpt-5.6-sol -c model_reasoning_effort=xhigh -s read-only`, codex-cli 0.146.0
+**Verdicts:** LLP 0029 **READY** · LLP 0039 **READY** · LLP 0047 NOT READY · **CLUSTER NOT READY**
+
+### Review (verbatim)
+
+## Per-target findings
+
+### LLP 0029
+
+- [MINOR] [IN-DELTA] correctness: The RFC says the `ibex:hermesc-compatibility:1` recipe identity is enforced by carrier admission (`llp/0029-single-file-executable-packaging.rfc.md:304`). Carrier admission checks engine binding and inspected HBC version, not the recipe (`src/module_loader/carrier.rs:330`). Recipe-digest enforcement occurs during catalog admission (`crates/sfe-catalog/src/lib.rs:199`). The document should attribute the coordinated bump and rejection fixtures to the catalog/compiler admission boundary.
+
+- [MINOR] [PRE-EXISTING] correctness: The implementation-state sweep remains incomplete. The claim that today’s publisher emits only factory tables (`llp/0029-single-file-executable-packaging.rfc.md:308`) is stale or insufficiently scoped: the SFE producer invokes authenticated `hermesc` and emits HBC carriers (`src/bin/ibex/sfe.rs:163`, `src/module_loader/catalog_compiler.rs:90`). Likewise, graph-snapshot projection remains listed as an open question (`llp/0029-single-file-executable-packaging.rfc.md:1056`) despite the implemented canonical projection and identity (`crates/capsec-semantics/src/graph_snapshot.rs:95`).
+
+**LLP 0029 verdict: READY**
+
+### LLP 0039
+
+**LLP 0039 verdict: READY**
+
+### LLP 0047
+
+- [MATERIAL] [IN-DELTA] correctness/feasibility: The proposed authentication mechanism cannot support the inspection guarantee as written. The plan says adding boot fields to `StubContractV1`, compiling its digest into the stub, and pinning that digest in the envelope lets inspection report authenticated field values (`llp/0047-standalone-executable-finish-line.plan.md:279`, `llp/0047-standalone-executable-finish-line.plan.md:289`, `llp/0047-standalone-executable-finish-line.plan.md:436`). A digest authenticates supplied contract bytes but does not reveal them. The contract remains a separate catalog artifact (`crates/sfe-catalog/src/lib.rs:29`); the envelope has no contract section (`crates/sfe-format/src/lib.rs:595`), the producer embeds only provenance/graph/policy/entry/carriers (`src/bin/ibex/sfe.rs:186`), and the path-only inspector can report only the contract digest (`src/bin/ibex/sfe.rs:461`, `src/bin/ibex/sfe.rs:515`). The plan must require either embedding canonical contract bytes in a digest-checked, inspectable section or resolving them through an explicitly authenticated catalog. Without that, authenticated mode reporting—the stated compensating security control—is not implementable.
+
+- [MINOR] [IN-DELTA] decision quality: Register item 1 offers a generated minimal policy for an “ambient-only compile” (`llp/0047-standalone-executable-finish-line.plan.md:555`). The plan otherwise requires every artifact to contain both modes and retain a reachable CapSec selector. The option must therefore say “ambient-default” and define what the generated policy means when that artifact is launched with `--ibex-capsec`; otherwise the option describes a product shape the plan does not permit.
+
+**LLP 0047 verdict: NOT READY**
+
+## Cross-document findings
+
+- [MINOR] [IN-DELTA] coherence: LLP 0047 extends `StubContractV1` with required fields in place (`llp/0047-standalone-executable-finish-line.plan.md:289`), while LLP 0029 treats additions to strict `deny_unknown_fields` contracts as versioned schema changes (`llp/0029-single-file-executable-packaging.rfc.md:261`, `llp/0029-single-file-executable-packaging.rfc.md:948`). The implemented contract is strict and fixed to `ibex/stub-contract/1` and `ibex:stub-contract:1` (`crates/sfe-format/src/lib.rs:17`, `crates/sfe-format/src/lib.rs:134`). The cluster should either name `StubContractV2` or explicitly state that unshipped V1 is being replaced incompatibly, in lockstep, before the first catalog is cut.
+
+- [MINOR] [IN-DELTA] correctness: LLP 0039 says `insecure` removes the enforcement path from the binary (`llp/0039-secure-and-insecure-modes.decision.md:74`), while LLP 0047 states the inverse physical-absence property for secure binaries (`llp/0047-standalone-executable-finish-line.plan.md:152`). Source establishes compile-time selection and reachability—not literal code absence: the armed constructor is unconditional (`src/host/mod.rs:721`), while `insecure` selects a separate constructor and makes native/legacy gates permissive (`src/bin/ibex/runtime.rs:3699`, `src/host/abi.rs:7724`, `src/host/mod.rs:4613`). Both documents should describe the established property as absence of a runtime-selectable enforcement-off route in ordinary builds, rather than make an unsupported binary-content claim.
+
+## Delta assessment
+
+The revision introduced a new MATERIAL defect: LLP 0047’s digest-only contract mechanism cannot provide the authenticated field values required by artifact inspection. No MATERIAL concern remains in PRE-EXISTING text; the pre-existing concerns identified above are MINOR.
+
+## Set-level verdict
+
+**CLUSTER: NOT READY**
+
+## Round 7 — 2026-08-01 (cluster loop round 3, SECOND DELTA ROUND — final round of budget)
+
+**Date:** 2026-08-01
+**Round type:** delta round. Narrowly scoped to verifying the two round-2
+in-delta MATERIAL fixes; every concern classified IN-DELTA vs PRE-EXISTING.
+**Revision reviewed:** 0029 `42f8f3681e224a4b621491f1c492c3bab5fd90f9`, 0039
+`5d81b99b66efa42f8a75d094fed669d12ae377a0`, 0047
+`a2d26a3d6b76fcec59395ef3de06f57684af3530`; collateral (non-target) 0031
+`c2cd43f1845de50945d716fa30cd49a4f4351778`, 0022
+`89994ffa74f012517bee379ce9f5c07b671f0a9c`.
+**Brief:** `brief-r3.md`
+**Redacted:** no (repository content only; no secrets present)
+**Blindness:** structural — all six cluster review artifacts moved out of the
+working tree for the round's duration; each family's response held in an
+out-of-repo scratchpad until both landed.
+**Reviewer family:** OpenAI (Codex)
+**Provider / runtime:** `codex exec --skip-git-repo-check -m gpt-5.6-sol -c model_reasoning_effort=xhigh -s read-only`, codex-cli 0.146.0
+**Verdicts:** LLP 0029 NOT READY · LLP 0039 **READY** · LLP 0047 NOT READY · **CLUSTER NOT READY**
+
+### Review (verbatim)
+
+## Per-target findings
+
+### LLP 0029
+- [MATERIAL] [IN-DELTA] coherence: The round-3 `StubContractV2` and embedded-contract-section decision was not propagated into the governing packaging RFC. LLP 0029 still specifies `StubContractV1`, accepts `ibex/single-file-executable/1`, and enumerates an envelope without the contract section (`llp/0029-single-file-executable-packaging.rfc.md:136`, `:294-324`, `:414-451`, `:480-489`, `:517-535`). This text was coherent in round 2 but became stale when LLP 0047 changed the contract and envelope.
+
+**LLP 0029 verdict: NOT READY**
+
+### LLP 0039
+- None.
+
+**LLP 0039 verdict: READY**
+
+### LLP 0047
+- [MATERIAL] [IN-DELTA] coherence: The catalog sequence contradicts itself. Milestone 1 explicitly cuts and publishes a provisional catalog using `StubContractV1`, then milestone 2 re-cuts it for V2 (`llp/0047-standalone-executable-finish-line.plan.md:237-259`, `:390-395`), but the V2 section simultaneously requires replacement “before the first catalog is cut” (`:312-318`). The latter must instead refer to the first shipping/non-provisional catalog, or the selected provisional-first sequence is impossible.
+- [MATERIAL] [IN-DELTA] correctness: The document correctly refuses to extend strict `StubContractV1` in place, but immediately proposes an incompatible envelope change as a new `SectionKindV1` variant (`llp/0047-standalone-executable-finish-line.plan.md:312-329`). Source confirms that `/1` is a fixed schema with a closed `SectionKindV1` enum and fixed required-singleton rules (`crates/sfe-format/src/lib.rs:15-18`, `:595-605`, `:973-1063`). The plan must choose and propagate an envelope V2, or explicitly declare pre-release replacement of envelope V1 and update every LLP 0029 contract/layout reference. Calling this merely an envelope “schema revision” leaves the wire identity contradictory.
+
+**LLP 0047 verdict: NOT READY**
+
+## Cross-document findings
+- [MATERIAL] [IN-DELTA] coherence: LLP 0047’s amendment inventory says its LLP 0029 changes concern release sequencing and compiled-mode authority (`llp/0047-standalone-executable-finish-line.plan.md:62-68`), but round 3 also changes the stub-contract and envelope architecture. Consequently LLP 0029 remains normative on the superseded V1 format. The contract/envelope amendment and its chosen version must be made lockstep across both documents.
+
+## Delta assessment
+
+The register-item fix is correct: §1 makes ambient-by-default a decision, §12 accurately treats item 3 as pre-release ratification, and §9 now makes that ratification a release criterion.
+
+Embedding canonical contract bytes fixes the original information-availability defect in substance: inspection can read the fields and verify them against the pinned contract digest. However, integrating that mechanism introduced MATERIAL versioning and cross-document inconsistencies. The provisional-catalog fix also selected a feasible sequence, but retained a contradictory “before the first catalog is cut” requirement.
+
+No MATERIAL concern remains in PRE-EXISTING text.
+
+## Set-level verdict
+**CLUSTER: NOT READY**
+
+---
+
+## Loop close-out — 2026-08-01 (cluster 0029 + 0039 + 0047)
+
+**Terminal state: round budget exhausted (3/3), escalated to the author.**
+Not convergence-by-dual-READY, and not a detail-horizon stop.
+
+### What the final verdicts bind to
+
+Round-3 verdicts bind to these revision hashes:
+
+| doc | reviewed revision | Fable | Codex |
+|---|---|---|---|
+| LLP 0029 | `42f8f3681e224a4b621491f1c492c3bab5fd90f9` | READY | NOT READY |
+| LLP 0039 | `5d81b99b66efa42f8a75d094fed669d12ae377a0` | READY | READY |
+| LLP 0047 | `a2d26a3d6b76fcec59395ef3de06f57684af3530` | READY | NOT READY |
+| cluster | — | **READY** | **NOT READY** |
+
+**A later, UNREVIEWED revision exists.** After round 3 closed, the orchestrator
+applied one more revision addressing every round-3 finding from both families.
+No round was run against it and none was fabricated. Its hashes:
+
+- LLP 0029 `f2e1a69db85cf068852ecd6f60e6e0028577b5b9`
+- LLP 0039 `398fe7fab4dac708615aaf18e4048174f6afbb51`
+- LLP 0047 `c08cb90e90726ef470c0af404404b6fb20931c3f`
+- collateral, unchanged since round 3: LLP 0031
+  `c2cd43f1845de50945d716fa30cd49a4f4351778`, LLP 0022
+  `89994ffa74f012517bee379ce9f5c07b671f0a9c`
+
+### Verdict history
+
+| round | type | Fable | Codex |
+|---|---|---|---|
+| 1 (r5 of 0029's history) | full | NOT READY ×3 | NOT READY ×3 |
+| 2 (r6) | delta | 0029 READY · 0039 READY · 0047 NOT READY | 0029 READY · 0039 READY · 0047 NOT READY |
+| 3 (r7) | delta | **all three READY** | 0029 NOT READY · 0039 READY · 0047 NOT READY |
+
+### Delta-convergence status
+
+The LLP 0010 §2 addendum criterion — *no family reports a MATERIAL concern in
+pre-existing text* — was **met in both round 2 and round 3**. Every MATERIAL
+concern raised after round 1 was IN-DELTA: defects the loop's own revisions
+introduced, which is the documented hazard delta rounds exist to catch. The
+documents' pre-existing substance was not found materially defective by either
+family in two consecutive rounds.
+
+The loop did not close on dual-READY because each revision introduced fresh
+in-delta defects — round 1→2 introduced two (an unimplementable boot-mode
+authentication mechanism; a register that mis-scoped its own load-bearing
+item), and round 2→3 introduced version-propagation gaps. Both sets were
+corrected; the second correction is the unreviewed revision above.
+
+### Round-3 disposition ledger (nothing summarized away)
+
+Codex MATERIAL (all IN-DELTA), and their disposition in the unreviewed revision:
+
+1. *LLP 0029 still normative on `StubContractV1` and an envelope without the
+   contract section.* **Fixed** — §2 gains a wire-identity rotation note naming
+   `StubContractV2` and `ibex/single-file-executable/2`.
+2. *§5's "before the first catalog is cut" contradicts §4 item 6's provisional
+   catalog.* **Fixed** — qualified to the first *non-provisional* catalog, with
+   the provisional V1 cut explicitly permitted. (Fable raised the same point as
+   MINOR.)
+3. *Refusing to extend strict `StubContractV1` in place while proposing a new
+   `SectionKindV1` variant applies the rule inconsistently.* **Fixed** — the
+   envelope rotates to V2 on the same reasoning, stated as replacement rather
+   than migration since nothing has shipped. (Fable raised the same point as
+   MINOR: "state which it is.")
+4. *LLP 0047's amendment inventory omits that it changes 0029's contract and
+   envelope architecture.* **Fixed** — the inventory records both rotations.
+
+Fable MINOR, and disposition:
+
+5. *Trip-wire 5's preamble exception is asserted without its reason.* **Fixed**
+   — wire 5 now states why it stays keyed to the Cargo feature.
+6. *Milestone 0 item 5's "Done (2026-08-01)" is true only of the uncommitted
+   revision.* **Fixed** — restated as landing with this plan's own commit, with
+   an explicit all-five-files-together requirement.
+
+Fable's two LLP 0047 MINORs are items 2 and 3 above, fixed identically.
+
+### Divergence note
+
+Round 3's split is a **severity disagreement, not a factual contradiction**.
+Both families identified the same catalog-sequencing and envelope-versioning
+gaps from the same source evidence; Fable classified them as wording-level with
+the underlying decision unambiguous, Codex as material wire-identity
+incoherence. Codex additionally caught the LLP 0029 propagation gap that Fable
+missed. Neither family's factual claims were contradicted by the other, and the
+orchestrator independently verified the load-bearing ones against source.
+
+### Bounds
+
+- **Round budget:** 3/3 consumed. This is the terminal trigger.
+- **Launch cap:** 3 launches per family per target of an available 6. Not
+  reached. No voided rounds; no failed or malformed responses.
+- **Growth budget:** entering 1584 lines, ~20% ceiling 1901, final **2102
+  (+32.7%)** — **over budget**, concentrated in LLP 0047 (313 → 656). Two
+  compression passes were applied. The overage is reported rather than resolved
+  by cutting findings-driven content; it is the author's call whether the
+  additions earn their length.
+
+### Author decision required
+
+Both terminal bounds (round budget; growth budget with MATERIAL concerns open
+at round 3's close) require escalation. The documents remain `Status: Review` —
+the loop applied that transition at start and never sets `Accepted`. Options
+put to the author: keep `Review`, revert to `Draft`, or authorize one
+out-of-budget delta round against the unreviewed revision.
+
+### Concurrent-session note (disclosed)
+
+While this loop ran, LLP 0047 milestone-0 implementation work appeared in the
+working tree: the compiled-stub `Arc<BTreeSet<Digest>>` drift repair (M0.1),
+`-Xes6-block-scoping` added to `HermescRecipeV1::production()` plus a
+closure-capturing `for-of` execution fixture (M0.2), a
+`scripts/check-sfe-foundation.sh` gate wired into
+`.github/workflows/module-loader-baselines.yml` (M0.3), and subsequently
+catalog/contract/generated-artifact and issue-ticket changes (M0.4).
+
+The orchestrator initially misattributed these to a reviewer subagent and
+reverted them. That was wrong: a **separate, concurrent `codex` session of the
+author's** was running in this same checkout with write access (started
+2026-08-01 19:58, unsandboxed, cwd `/Users/ccheever/projects/ibex`), and the
+work is that session's. **The revert was undone and every change restored** from
+a preserved patch, verified to re-apply cleanly. No implementation work was lost.
+
+None of it is part of this loop's output, and none of it was committed by this
+loop — the acceptance commit contains only the five LLP documents and the six
+review artifacts.
+
+**Findings integrity: unaffected.** All three rounds' findings describe the
+unmodified tree. Rounds 1 and 2 both reproduced the compiled-stub build failure
+as still present; round 3's Fable review states "the current fixed recipe is
+still flagless," so its reading preceded its own edits. Codex ran under a
+read-only sandbox in every round and could not modify anything; none of its
+round-3 findings depend on the touched files' contents. No verdict in this
+artifact was formed against a mutated repository.
+
+### Author decision — applied 2026-08-01
+
+The author (Charlie Cheever) reviewed this close-out and set **all three
+targets to `Status: Accepted`**. Recorded here for provenance:
+
+- Acceptance was applied by the author, not by the loop. This skill never sets
+  `Accepted`; it escalated with the ledger above and the author decided.
+- Acceptance binds to the **unreviewed** post-round-3 revision — LLP 0029
+  `f2e1a69db85cf068852ecd6f60e6e0028577b5b9`, LLP 0039
+  `398fe7fab4dac708615aaf18e4048174f6afbb51`, LLP 0047
+  `c08cb90e90726ef470c0af404404b6fb20931c3f` — not to the round-3 revision the
+  final verdicts bind to. The delta between them is the six round-3 findings'
+  fixes, enumerated in the disposition ledger above.
+- The collateral documents LLP 0031 and LLP 0022 were **not** targets of this
+  loop and remain `Status: Draft`; only their scoping edits landed.
+- The open author-decision registers stay open: LLP 0029 §7 items 1, 2, 3, 6,
+  7, 8 and LLP 0047 §12 items 1–4. Acceptance of the documents is not
+  resolution of the decisions they register — LLP 0047 §12 items 1–3 still
+  block its own §9 release criteria.

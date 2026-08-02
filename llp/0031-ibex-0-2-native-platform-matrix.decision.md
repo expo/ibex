@@ -5,7 +5,10 @@
 **Systems:** Build, Engine, Runtime, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-18
-**Related:** LLP 0001 (target-platform ambition and CI); LLP 0026 (native module runner); LLP 0028 (legacy-window retirement); LLP 0029 (single-file executable targets); LLP 0030 (diagnostic audit admission)
+**Revised:** 2026-08-01 (LLP 0047 scopes the SFE release coupling below: the
+standalone executable's ambient path ships without a verified CapSec
+advertisement, while 0.2 source execution keeps the coupling unchanged)
+**Related:** LLP 0001 (target-platform ambition and CI); LLP 0026 (native module runner); LLP 0028 (legacy-window retirement); LLP 0029 (single-file executable targets); LLP 0030 (diagnostic audit admission); LLP 0047 (standalone executable finish line; scopes the SFE coupling)
 
 ## Context
 
@@ -57,6 +60,26 @@ Windows and macOS x64 may be pulled forward by a later author decision when
 Snapback needs them, but that changes scheduling only; it does not relax any
 promotion gate.
 
+**Scoped 2026-08-01 by LLP 0047.** The advertisement requirement above, and
+the release coupling in Consequences, govern **0.2 source execution** — `ibex
+run`, eval, REPL, runtime TypeScript, audit, and diagnostics — unchanged. They
+no longer gate the standalone executable, which under LLP 0047 ships one
+artifact with an ambient-compatibility default that makes no capability claim
+and an explicitly selected, fail-closed CapSec path. A standalone v1 may
+therefore release with zero verified advertisements; the first successful
+CapSec launch is a v1.1 milestone. Two consequences of the surrounding text
+are scoped accordingly: SFE catalog population still follows these two tuples,
+and there is still exactly one catalog entry per target serving one dual-mode
+artifact — but "complete verified CapSec target advertisement" is no longer
+among the evidence required to populate that entry. Advertisement now gates
+claiming the artifact's optional CapSec mode *works* on a tuple, not whether
+the tuple may be cataloged at all. The unadvertised-tuple
+refusal language above ("do not select ... an ambient Hermes build, or an
+unverified prepared carrier") continues to bind source execution and does not
+forbid ambient compiled boot, which selects neither an ambient engine build
+nor an unverified carrier — every carrier it evaluates is envelope-admitted
+and digest-bound exactly as on the CapSec path.
+
 ## Consequences
 
 - LLP 0028 may close the compatibility window without implying support on
@@ -65,8 +88,10 @@ promotion gate.
   tuples and an explicit incompatibility elsewhere.
 - CI derives required native execution rows from this decision and keeps other
   tuples visible as unsupported/known-red rather than silently passing them.
-- Release scheduling is coupled to verified CapSec advertisements for both
-  selected tuples. Missing evidence holds the release.
+- Release scheduling for **0.2 source execution** is coupled to verified CapSec
+  advertisements for both selected tuples. Missing evidence holds that release.
+  Per LLP 0047 this coupling does not extend to the standalone executable's
+  ambient path (see the scoping note above).
 - Adding Windows, macOS x64, another architecture, or another Linux baseline is
   a monotonic matrix expansion with its own artifacts and evidence, not a
   compatibility-mode exception.

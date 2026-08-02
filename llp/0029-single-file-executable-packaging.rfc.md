@@ -1,10 +1,34 @@
 # LLP 0029: Single-File Executable Packaging
 
 **Type:** RFC
-**Status:** Draft
+**Status:** Accepted
 **Systems:** Build, Module Loader, Runtime, Security
 **Author:** Charlie Cheever / Claude Fable
 **Date:** 2026-07-17
+**Revised:** 2026-08-01 (author-decision register item 2 resolved: the CapSec
+pre-init restore allowlist is deliberately empty; ambient boot does not scrub
+the inherited environment, while application-visible CapSec environment values
+remain brokered snapshot data)
+**Revised:** 2026-08-01 (round-3 delta review, **applied after the round
+budget closed and therefore NOT re-reviewed**: §2 gains the wire-identity
+rotation note — LLP 0047 rotates the stub contract and envelope to
+`StubContractV2` / `ibex/single-file-executable/2`, so this RFC no longer reads
+as normative on the superseded V1 layout)
+**Revised:** 2026-08-01 (round-2 delta review: computed-`require` restated as
+resolved-for-0.2 with a named reopening path, matching LLP 0028's register;
+`hermesc` recipe-identity enforcement attributed to catalog/compiler admission
+rather than carrier admission; ambient admission enumerations now include the
+embedded policy section and its semantic validation; the graph-snapshot
+open question closed; Summary scoped by LLP 0047's eligibility boundary)
+**Revised:** 2026-08-01 (round-1 dual review: stale present-tense repo claims
+swept — the graph-snapshot domain, derived HBC metadata, and embedded
+protected-artifact identity have all landed since they were written as future
+work; the LLP 0047 boot change is relabeled a proposed amendment rather than an
+implementation update; the normative `hermesc` recipe now requires
+`-Xes6-block-scoping` per LLP 0034, with the coordinated recipe-digest bump
+named; `inspect-executable`'s third state is stated at its true strength; the
+Linux network rationale is re-founded now that advertisement no longer gates
+the shipped artifact)
 **Revised:** 2026-08-01 (LLP 0047 supplies the finish-line plan and revises
 the v1 product posture: one standalone artifact defaults to ambient
 compatibility execution, with CapSec selected explicitly at runtime and
@@ -108,6 +132,11 @@ Snapback's full distribution surface (Windows, x86_64 macOS): v1
 prototypes the contract for Snapback; full coverage tracks the LLP
 0026 patched-Hermes question and the catalog mechanism of §5. The
 feature is general: any Ibex program becomes shippable as one file.
+**Scoped by LLP 0047's eligibility boundary:** the *mechanism* is general, but
+the v1 ambient default is not appropriate for every distribution. Where an
+artifact would reach recipients who cannot audit the embedded graph and would
+reasonably assume confinement, LLP 0047 §1 says to wait for the CapSec path
+rather than ship ambient with a disclaimer.
 
 The proposal reuses the hard parts Ibex already has — LLP 0027's
 versioned, digest-bound, per-principal carriers; LLP 0014's generated
@@ -169,7 +198,7 @@ which bytes are preserved and which bindings rotate.
   `processAuthorityCeiling` and a bootstrap stage that ends before application
   code runs. LLP 0047 makes ambient compatibility the v1 default; that path
   makes no capability-security claim but retains the same envelope, graph,
-  HBC, and provenance admission.
+  HBC, policy, and provenance admission.
 - Deterministic output at the **unsigned-core** layer: same input
   digests → same unsigned package bytes, two-clean-builder verified.
   Signing (§2c) is a recorded, separable step.
@@ -227,12 +256,14 @@ The producer pipeline:
    identity is a **new digest domain, `ibex/authenticated-graph-
    snapshot/1`** — a canonical schema and precommitted projection over
    node identities, package identities, source integrity, typed edges,
-   candidate sets, and the entry designation. This domain does not
-   exist today and the RFC does not pretend it does: the current
-   module-generation digest covers three of those six inventories, the
-   Rolldown `graphDigest` bound into publication hashes records
-   containing **absolute source paths**, and the armed snapshot
-   carries a third `packageGraph` digest. The new domain subsumes the
+   candidate sets, and the entry designation. This domain **has since
+   been implemented** (`crates/capsec-semantics/src/graph_snapshot.rs`)
+   and is consumed by the producer; when this section was first written
+   it did not exist, and the three partial identities it reconciles were
+   the current module-generation digest (covering three of those six
+   inventories), the Rolldown `graphDigest` bound into publication hashes
+   containing **absolute source paths**, and the armed snapshot's third
+   `packageGraph` digest. The new domain subsumes the
    generation digest's role for packaging and **replaces** the
    path-bearing Rolldown digest in every embedded binding. The armed
    `packageGraph` is not a parallel fact set: **the embedded snapshot
@@ -274,18 +305,32 @@ The producer pipeline:
    target `StubContractV1` (§2a); carrier manifests bind the stub
    contract's **engine compatibility identity** and the bytecode
    version **derived by inspecting the emitted HBC**, never accepted
-   as caller-supplied metadata (today `bind_hermes_bytecode` trusts
-   its caller, and the real-Hermes test labels real bytecode with a
-   dummy digest — production wiring must not inherit that). The
+   as caller-supplied metadata. (This has since been implemented —
+   `HermesBytecodeMetadataV1::inspect` derives the version from the
+   emitted bytes; the earlier caller-trusting `bind_hermes_bytecode`
+   behavior and the real-Hermes test that labeled real bytecode with a
+   dummy digest are no longer the current state.) The
    carrier engine-binding field is **versioned/tagged** in an LLP 0027
    schema revision so loaded-file identities and static compatibility
-   identities cannot be confused. The `hermesc` invocation recipe is the exact
-   `-emit-binary -out {output} {input}` vector over a private temporary
+   identities cannot be confused. The `hermesc` invocation recipe is exact and
+   digest-bound, over a private temporary
    directory, UTF-8 factory-table input, Hermes-bytecode-file output, and an
    empty inherited environment; clean-root HBC byte comparison is a
-   phase-4 gate. Wrong-engine and compiler/stub-mismatch fixtures
-   prove rejection. Production HBC publication/admission wiring is an
-   explicit phase — today's publisher emits factory tables only.
+   phase-4 gate. **The recipe must pass `-Xes6-block-scoping`.** An earlier
+   revision pinned the flagless `-emit-binary -out {output} {input}` vector,
+   which contradicts LLP 0034's requirement that every Ibex-owned `hermesc`
+   invocation emitting executable HBC carry the flag, and is an actual
+   miscompile hazard: without it, AOT compilation gives `for-of` `let` bindings
+   capture-last semantics. Because the recipe is covered by the
+   `ibex:hermesc-compatibility:1` identity, correcting it rotates that digest
+   and every catalog entry binding it — a coordinated bump, scheduled as LLP
+   0047 milestone 0. Enforcement of the recipe identity lives at the
+   **catalog/compiler admission** boundary, not in carrier admission (which
+   checks engine binding and the inspected HBC version); rejection fixtures
+   belong there. Wrong-engine and compiler/stub-mismatch fixtures
+   prove rejection. The SFE producer now invokes authenticated `hermesc` and
+   emits HBC carriers; the earlier "publisher emits factory tables only" state
+   applied to the general publication path before that wiring landed.
 4. **Unsupported shapes keep LLP 0028's invocation-time semantics.**
    A graph containing shapes the runner cannot execute natively
    (computed dynamic import without a candidate table, computed
@@ -297,13 +342,13 @@ The producer pipeline:
    such site; `--deny-unsupported` upgrades the diagnostic to a
    refusal for producers who want a clean-graph guarantee. (An
    earlier revision made these compile-time failures and claimed the
-   subset "widens automatically"; both contradicted LLP 0028 —
-   computed `require` is permanently invocation-refused there — and
-   are withdrawn. Note also that LLP 0028 *registers* computed
-   `require` as a live 0.2 author decision with a named reopening
-   design rather than refusing it permanently; if that reopening
-   lands, compiled binaries carry its candidate rows in the same
-   embedded tables with no format change here.) Cross-mode fixtures
+   subset "widens automatically"; both contradicted LLP 0028 and are
+   withdrawn. LLP 0028 *resolved* computed `require` for 0.2 on
+   2026-07-18 — the fail-closed disposition stands and no candidate
+   rows are added — while naming a reopening path (the same sidecar
+   and JSON authoring channel) if evidence later warrants; if that
+   reopening lands, compiled binaries carry its candidate rows in the
+   same embedded tables with no format change here.) Cross-mode fixtures
    compare `ibex run` and compiled behavior for timing, ordering, and
    dead branches.
 5. Assemble the §2 envelope, append, write the footer, and (macOS)
@@ -320,9 +365,16 @@ input; final assembly is a pure function of the plan, and the plan is
 recorded in provenance.
 
 `ibex inspect-executable` reports **three independent states**:
-envelope consistency, platform-signature validity, and externally
-authenticated attestation (verifying an adjacent
-`<file>.build.json` when present). It also dumps the embedded
+envelope consistency, platform-signature validity, and detached-attestation
+state for an adjacent `<file>.build.json`. The third state is deliberately
+weaker than its name suggests and the RFC does not overstate it: today the
+inspector reports only whether such a statement is *present*, marking it
+`unverified` because no publisher trust policy is configured (§7 register item
+8 owns that), and it displays the provenance-recorded stub-core digest without
+rehashing the stub core against it. So the current third state is neither
+"authenticated" nor yet "digest-consistent"; reaching the latter is
+`inspect-executable` work, and reaching the former needs register item 8.
+Inspection also dumps the embedded
 policy, environment profile, and digests. Introspection never reserves
 application flags.
 
@@ -345,11 +397,36 @@ Implementation update (2026-07-18): the public producer now implements the
 catalog-admitted graph → policy → HBC → CompilePlan → envelope → self-preflight
 → atomic-output path. Compiled-policy authoring consumes the native loader's
 exact authenticated snapshot. The stub performs complete release provenance and
-static-HBC admission. LLP 0047 replaces the unconditional release refusal with
-ambient compatibility boot by default and an explicitly selected CapSec path
-that retains the compiled-Host arming and target-advertisement gates.
+static-HBC admission.
+
+Proposed amendment (2026-08-01, **not implemented**): LLP 0047 replaces the
+unconditional release refusal with ambient compatibility boot by default and an
+explicitly selected CapSec path that retains the compiled-Host arming and
+target-advertisement gates. As of this revision the stub still refuses every
+release envelope unconditionally after admission, and its argument parser
+recognizes no reserved selector — both are LLP 0047 milestone 2 work. This
+paragraph states a design decision, not repository state.
 
 ### 2. Executable layout: stub, envelope, footer
+
+> **Wire-identity rotation (2026-08-01, LLP 0047 §5).** This section is written
+> against `StubContractV1` and `ibex/single-file-executable/1`, and both
+> rotate. LLP 0047 requires the stub contract to carry the boot-mode contract
+> (default mode, reserved selector spelling and position rule, CapSec-
+> advertisement identity) and requires the canonical contract bytes to be
+> embedded as a **new envelope section** so non-evaluating inspection can read
+> *and* authenticate them from the file alone — a digest pins bytes without
+> revealing them, and the contract is otherwise a catalog-only artifact.
+>
+> Both are strict schemas: `StubContractV1` is `deny_unknown_fields` with a
+> fixed schema string, and the envelope's section-kind vocabulary is a closed
+> enum. So both changes are versioned rotations, to **`StubContractV2`** and
+> **`ibex/single-file-executable/2`**, not in-place edits. Because no catalog
+> has shipped, each is a replacement rather than a migration — no compatibility
+> shim, no dual-version parser. Everything below describes the layout, digest
+> domains, boot checks, and signing sequence unchanged in substance; read `V1`
+> as `V2` and the envelope section list as gaining the contract section. LLP
+> 0047 milestone 2 owns the rotation, and both versions bump together.
 
 **2a. Runtime stub, contract, and catalog trust.** A dedicated minimal
 binary (`ibex-compiled-stub` crate) sharing host, engine,
@@ -403,8 +480,9 @@ carried the stub's own digest — a cycle; withdrawn):
 - **The instance descriptor** — the post-build stub-core digest
   (signature-stripped bytes, §2c), recorded in the **catalog** and in
   the envelope's provenance manifest. The *packager* verifies the stub
-  bytes against it before assembly, and `inspect-executable` re-checks
-  it; boot does not self-hash (a file cannot prove its own bytes —
+  bytes against it before assembly, and `inspect-executable` is specified to
+  re-check it — a check the current inspector does not yet perform, per §1;
+  boot does not self-hash (a file cannot prove its own bytes —
   boot's integrity comes from the platform loader plus the envelope
   digest checks).
 
@@ -450,14 +528,19 @@ baseline x86-64 ABI, unresolved libraries, and every `DT_NEEDED` entry outside
 the recorded system set (`ld-linux`, `libc`, `libdl`, `libgcc_s`, `libm`,
 `libpthread`, `libresolv`, `librt`, `libstdc++`, and `libz`).
 
-The current compiled CapSec projection advertises no network authority, so the
-Linux release-stub profile compiles fetch/WebSocket as unavailable and
+The Linux release-stub profile compiles fetch/WebSocket as unavailable and
 **libcurl is absent**, not reclassified as a system dependency. The ordinary
-source runtime keeps its native libcurl backend. A future compiled target that
-advertises network authority must bring a vendored/static backend and pass the
-same final-image audit before its catalog cell is release eligible. This closes
-the dependency question only; it does not decide the separate §7 gate about
-shipping before the first CapSec advertisement.
+source runtime keeps its native libcurl backend. Any compiled target that
+offers network authority must bring a vendored/static backend and pass the
+same final-image audit before its catalog cell is release eligible.
+
+The original rationale for the omission was that the compiled CapSec projection
+advertised no network authority. **LLP 0047 invalidates that rationale**: the
+shipped artifact's default path is ambient and does not consult advertisement
+at all, so the Linux stub's missing network is now a plain product gap — and an
+asymmetric one, since macOS ambient has a working NSURLSession-backed fetch.
+Which way it resolves is LLP 0047 register item 2; this section fixes only the
+dependency rule that applies once it resolves.
 
 **2b. Envelope, embedded graph, footer.**
 
@@ -630,8 +713,10 @@ mapped code from file A admitting an envelope from file B — and is
 forbidden. Arming consumes embedded sections through a new
 **embedded protected-artifact identity** — `(mapped executable
 object, authenticated byte range, section role, digest)` — an LLP
-0021/arming revision, since today's protected artifacts require a
-host path plus filesystem object identity.
+0021/arming revision, since protected artifacts originally required a
+host path plus filesystem object identity. That revision **has since
+landed**: `ExpectedEmbeddedProtectedArtifact` exists and LLP 0021 records
+arming ABI v2 carrying embedded protected ranges.
 
 For the v1 desktop tuples, Linux opens the kernel-maintained
 `/proc/self/exe` object and compares its `fstat` device/inode with the mapping
@@ -658,9 +743,12 @@ platform policy are the honest answer there.
 ### 4. Compiled-mode authority
 
 Per LLP 0047, this section governs the explicitly selected CapSec boot path.
-The v1 default is ambient compatibility execution: it skips policy enforcement
-but still admits the self-file layout, envelope, graph, HBC carriers, compile
-plan, and provenance before application code. CapSec selection is monotonic
+The v1 default is ambient compatibility execution: it skips policy
+*enforcement* but still admits the self-file layout, envelope, graph, HBC
+carriers, compile plan, provenance, **and the embedded policy section** —
+including that section's semantic validation against the compiled-in registry
+and graph identity — before application code. Skipping enforcement is not
+skipping admission. CapSec selection is monotonic
 and fail-closed; failure at any prerequisite in this section never retries the
 ambient path.
 
@@ -739,8 +827,9 @@ replaced by envelope admission. Prerequisites as program gates:
     means. Denial and relocation fixtures pin the semantics.
 - **CapSec target advertisement — a visible optional-posture dependency.**
   Production arming refuses unadvertised targets; today the matrix
-  advertises **zero** verified targets (host tuple: 0 enforced / 7108
-  unsupported cells). That gate is the completion condition of the
+  advertises **zero** verified targets (host tuple: 0 enforced / 7528
+  unsupported cells as of 2026-08-01; the count grows as the registry
+  expands and is not itself progress). That gate is the completion condition of the
   LLP 0021 conformance program, which this RFC inherits but does not
   own; the dependency's magnitude is a scheduling fact stated here,
   and §7's register carries the sequencing question. Module-runner
@@ -820,9 +909,13 @@ configuration.**
    and every dynamic consumer requires an explicit capture, broker, or
    typed-internal-dispatch disposition. New dynamic reads fail drift.
    The artifact records the name algebra and allowlist decision state.
-   Until register item 2 is decided its restore allowlist is empty and
-   `releaseEligible` is false; this profile may exercise machinery but
-   may not populate a release catalog.
+   **Resolved 2026-08-01:** the restore allowlist is empty. This is a decided,
+   release-eligible default-deny posture, not a placeholder: no inherited name
+   is restored to the real process environment on CapSec boot. Application-
+   visible environment values remain immutable captured data mediated by the
+   broker, and LLP 0047's ambient path does not sanitize the inherited real
+   environment at all. Widening the CapSec restore set later is a contract-
+   digest rotation with explicit compatibility evidence.
 
    Implementation update (2026-07-18): the compiled stub now performs the
    platform early-hook capture/default-deny sequence and restores only the
@@ -871,8 +964,10 @@ loudly naming the fetch step.
   demands it. `process.argv` is `[execPath, "<entry designation>",
   ...args]`; `argv0` is the invoked name; `execArgv` is empty.
   The stub implements this projection before linking the entry: `args_os` is
-  decoded with an index-specific Unicode refusal and reserved Ibex spellings
-  are passed through unchanged. Compiled boot also uses the native Hermes
+  decoded with an index-specific Unicode refusal. As of 2026-08-01 it passes
+  *every* argument through unchanged, including Ibex spellings — that is the
+  pre-LLP-0047 contract, and recognizing `--ibex-capsec` at argv[1] is
+  unimplemented milestone-2 work, not current behavior. Compiled boot also uses the native Hermes
   clock and wake hook to drain referenced work to quiescence, treats an
   unconsumed asynchronous failure as fatal, reads the final numeric
   `process.exitCode`, and bounded-flushes accepted broker output before
@@ -960,8 +1055,9 @@ cannot both be "the versioned change."
    **with pass/fail thresholds** (LLP 0026 pattern).
 
 **Author-decision register:** (1) stdio/cwd implicit vs
-policy-explicit (blocks `Accepted`); (2) the initial env allowlist
-contents (blocks `Accepted`); (3) factory-table as release encoding
+policy-explicit (blocks `Accepted`); (2) **resolved 2026-08-01:** the initial
+CapSec real-environment restore allowlist is empty; application values are
+brokered from the captured base and ambient boot does not scrub; (3) factory-table as release encoding
 vs diagnostic-only (blocks phase-7 exit); (4) **re-resolved 2026-08-01 by LLP
 0047** (supersedes both earlier advertisement-first postures): v1 defaults to
 ambient compatibility execution and ships without a verified CapSec target.
@@ -1009,9 +1105,9 @@ digest-consistent").
 
 ## Open questions
 
-- The concrete `ibex/authenticated-graph-snapshot/1` projection
-  details (owned by the phase-2/4 schema work; golden vectors
-  precommit it).
+- ~~The concrete `ibex/authenticated-graph-snapshot/1` projection
+  details.~~ **Closed:** the canonical projection and its identity are
+  implemented; golden vectors remain the pinning mechanism.
 - Whether the LLP 0023 revision's unset-cwd sentinel breaks real
   Node-compat libraries in practice (phase-3 fixture evidence).
 - Signed-artifact reproducibility (pinned in-tree signer) vs the

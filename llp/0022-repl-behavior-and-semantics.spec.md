@@ -5,6 +5,9 @@
 **Systems:** CLI Runtime, REPL, Runtime, Module Loader, Security
 **Author:** Charlie Cheever / Codex / Claude
 **Date:** 2026-07-11
+**Revised:** 2026-08-01 (the compiled-program environment exception is scoped
+to the CapSec boot path; LLP 0047's default ambient compatibility path projects
+the inherited environment and is outside this Spec's guarantees)
 **Revised:** 2026-07-25 (LLP 0040 removes deferred WebGPU activation and
 conditional WebGPU rows from Ibex. Selected runtime-extension globals/modules
 are authenticated descriptor facts installed in the fixed pre-user-code
@@ -846,7 +849,20 @@ the registry admits, never the host environment, and never the REPL's
 presentation variables.
 
 **Compiled-program exception.** LLP 0029 executables have no REPL and therefore
-do not inherit a session's explicitly empty base. Their earliest owned hook
+do not inherit a session's explicitly empty base.
+
+*Scoped 2026-08-01 by LLP 0047:* this exception describes the **CapSec boot
+path** of a compiled executable. LLP 0047 gives a standalone artifact a second,
+default **ambient compatibility** path that deliberately projects the inherited
+process environment: the real environment is **not sanitized** and reads are
+**not brokered**, so the program sees what it inherited. (Whether the early
+hook still *captures* a snapshot on that path is an implementation choice LLP
+0047 leaves open; only the scrub is required to be CapSec-conditional.) The
+ambient path makes no capability claim, and none of the guarantees in this
+paragraph apply to it. Everything below governs compiled programs launched with
+the CapSec selector.
+
+On that path, their earliest owned hook
 captures the launch environment and sanitizes the real process environment;
 `process.env` exact reads then use the immutable captured broker base only after
 the existing exact-name requested/commit decisions. Enumeration is permitted
