@@ -6493,6 +6493,58 @@ Promise.resolve().then(function capsecSafeThrowMetadataFixture() {
         let _ = fs::remove_dir_all(&temp_root);
     }
 
+    // @ref LLP 0005#c-compilation — Windows cargo test binaries load the
+    // digest-checked copy staged beside the executable, while other targets
+    // load the selected artifact at its canonical path.
+    fn loaded_engine_matches_selected_artifact(
+        loaded_path: &std::path::Path,
+        loaded_digest: &str,
+        selected_path: &std::path::Path,
+        selected_digest: &str,
+        content_staging_permitted: bool,
+    ) -> bool {
+        loaded_digest == selected_digest
+            && (loaded_path == selected_path
+                || (content_staging_permitted
+                    && loaded_path.file_name() == selected_path.file_name()))
+    }
+
+    #[test]
+    fn loaded_engine_selection_allows_only_digest_bound_windows_staging() {
+        let selected = std::path::Path::new("C:/ibex/hermes/bin/hermesvm.dll");
+        let staged = std::path::Path::new("C:/ibex/target/debug/deps/hermesvm.dll");
+        let other_name = std::path::Path::new("C:/ibex/target/debug/deps/other.dll");
+
+        assert!(loaded_engine_matches_selected_artifact(
+            staged,
+            "sha256-selected",
+            selected,
+            "sha256-selected",
+            true,
+        ));
+        assert!(!loaded_engine_matches_selected_artifact(
+            staged,
+            "sha256-selected",
+            selected,
+            "sha256-selected",
+            false,
+        ));
+        assert!(!loaded_engine_matches_selected_artifact(
+            staged,
+            "sha256-other",
+            selected,
+            "sha256-selected",
+            true,
+        ));
+        assert!(!loaded_engine_matches_selected_artifact(
+            other_name,
+            "sha256-selected",
+            selected,
+            "sha256-selected",
+            true,
+        ));
+    }
+
     #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
     async fn capsec_loaded_engine_identity_attestation() {
@@ -6513,8 +6565,16 @@ Promise.resolve().then(function capsecSafeThrowMetadataFixture() {
         let _lock = hermes_engine_test_lock().lock().await;
         let identity = HermesEngine::loaded_engine_identity()
             .expect("the linked Hermes object must expose a loaded identity");
-        assert_eq!(identity.engine_artifact_path, expected_path);
-        assert_eq!(identity.binary_digest, expected_digest);
+        assert!(
+            loaded_engine_matches_selected_artifact(
+                &identity.engine_artifact_path,
+                &identity.binary_digest,
+                &expected_path,
+                &expected_digest,
+                cfg!(windows),
+            ),
+            "loaded engine must be the selected artifact or its digest-bound Windows staging copy"
+        );
 
         let (host, snapshot_digest) =
             build_armed_test_host_at(None, false, false, false, Vec::new());

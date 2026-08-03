@@ -5,6 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-08-03 (CapSec loaded-engine attestation recognizes the digest-identical Windows DLL staged beside Cargo test executables while still binding the mapped canonical path/object and rejecting staging on other targets)
 **Revised:** 2026-08-03 (the Windows source-header path segments the structural-lockdown script into byte-identical raw-string chunks below MSVC's per-literal size limit)
 **Revised:** 2026-07-27 (source-built Hermes platforms move to the post-260318099.0.1 stable commit carrying the WeakRef read-barrier fix; Android remains on its older unaffected reviewed AAR until Maven publishes a fixed build)
 **Revised:** 2026-07-26 (Linux source and prebuilt Hermes bundles now publish the matching Hermes VM CLI beside `hermesc`, allowing build.rs to prove the linked runtime's HBC version and precompile the core runtime bundle instead of reparsing its source during every embedded startup)
@@ -433,6 +434,16 @@ different-source refusal on every host; Windows CI additionally holds the
 destination with an exclusive Windows handle and proves publication fails
 without changing it `[observed]` (`crates/windows-dll-staging/src/lib.rs`;
 `.github/workflows/ci.yml`).
+
+Because Windows loads that staged `deps/hermesvm.dll`, its canonical mapped
+path intentionally differs from the selected bundle path. CapSec's
+loaded-engine attestation therefore joins them by the exact SHA-256 digest and
+DLL basename on Windows, then retains the staged canonical path/object as the
+mapped identity and reopens it for the post-execution verification. Other
+targets continue to require canonical path equality. This is not an ambient
+DLL-search exception: staging itself remains the serialized,
+digest-verified publication described above, and a different basename or byte
+digest is refused.
 
 There is one deliberately narrower metadata-only exception. When a
 non-Windows host cross-checks `x86_64-pc-windows-msvc` with
