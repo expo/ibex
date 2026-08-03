@@ -89,3 +89,23 @@ release catalog cells.
   `ibex:capsec:package-graph:1` domain (src/bin/ibex/runtime.rs:5433),
   not a normative projection of the snapshot; and the legacy deployment
   path still uses `ibex/rolldown-deployment-graph/1`.
+
+## LLP 0047 reconciliation — 2026-08-01
+
+The snapshot remains the shared identity for both modes. Clean-builder HBC
+comparison is milestone 1/3 work. The normative armed-package-graph projection
+is needed by the CapSec-selected path and its fixture-only successful arming;
+ambient boot must still admit the same graph and policy but does not construct
+or claim an authority snapshot.
+
+## Implementation checkpoint — 2026-08-02
+
+The producer now has explicit divergence fixtures at both boundaries. Rust
+recaptures a mutated source tree and refuses the previously authored policy's
+graph identity, while the JavaScript policy-authoring comparator independently
+mutates file identities, package inventory, entry identity, and computed
+candidate materialization and refuses each disagreement with the native
+snapshot. Two physical clean Linux builders also produced identical real HBC,
+CompilePlan, and unsigned executable identities. The remaining
+authority-bearing `packageGraph` projection belongs to the deferred successful
+CapSec path described above; it is not required by ambient v1.

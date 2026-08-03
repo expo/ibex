@@ -46,3 +46,28 @@ execution and author ratification remain before selecting the variant.
 - Measured sizes exist only in this ticket's prose; no measurement
   artifact or gate records them.
 - Register item 6 (lean vs full) remains unratified in LLP 0029 §7.
+
+## LLP 0047 reconciliation — 2026-08-01
+
+The static full stub and exact compiler become provisional milestone-1 catalog
+artifacts, then rotate with `StubContractV2` at milestone 2. Static dependency
+and signed-image evidence remains a milestone-5 release requirement; CapSec
+advertisement is no longer a prerequisite for selecting or cataloging the
+ambient-capable artifact.
+
+## Implementation checkpoint — 2026-08-01
+
+The full static variant is now the exercised V2 catalog artifact. A 49 MB
+arm64 Mach-O linked no Hermes dylib, survived the required inject-then-sign
+sequence with a valid ad-hoc signature, and ran genuine HBC after relocation.
+The ticket remains open for a checked-in dependency-audit receipt/gate,
+precommitted size budget, and explicit lean/full register ratification.
+
+## Implementation checkpoint — 2026-08-02
+
+The checked-in full release-kit gate now audits the assembled final Mach-O,
+not merely the pre-envelope stub: `otool -L` must name only Apple system
+libraries and `otool -l` must expose no runtime search path. A fresh
+current-source catalog artifact passed that gate with genuine relocated HBC.
+The ticket remains open only for the precommitted size budget, a current
+measurement against it, and explicit lean/full register ratification.

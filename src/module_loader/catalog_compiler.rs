@@ -127,10 +127,17 @@ fn run_fixed_hermesc(hermesc: &[u8], source: &[u8]) -> Result<Vec<u8>> {
     }
 
     let result = Command::new(&compiler)
+        // @ref LLP 0034#decision — the fixed recipe and its authenticated
+        // digest include the runtime's enabled block-scoping semantics.
+        .arg("-Xes6-block-scoping")
         .arg("-emit-binary")
         .arg("-out")
-        .arg(&output)
-        .arg(&input)
+        // Hermes records the input filename in HBC. Keep both recipe paths
+        // relative to the private working directory so its random absolute
+        // location cannot perturb carrier or final executable bytes.
+        // @ref LLP 0047#4-milestone-1--publish-a-real-release-catalog
+        .arg("carrier.hbc")
+        .arg("carrier.js")
         .env_clear()
         .current_dir(directory.path())
         .stdin(Stdio::null())
@@ -163,14 +170,36 @@ fn write_new(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
+#[cfg(all(test, not(target_os = "windows")))]
 mod tests {
     use super::*;
 
+    fn checked_in_tool(name: &str) -> std::path::PathBuf {
+        let tools = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tools/hermes");
+        let path = match (name, std::env::consts::OS, std::env::consts::ARCH) {
+            ("hermesc", "macos", "aarch64") => tools.join("hermesc-macos-arm64"),
+            ("hermes", "macos", "aarch64") => tools.join("hermes"),
+            ("hermesc", "linux", "x86_64") => tools.join("hermesc-linux-x64"),
+            ("hermes", "linux", "x86_64") => tools.join("hermes-linux-x64"),
+            ("hermesc", "linux", "aarch64") => tools.join("hermesc-linux-arm64"),
+            ("hermes", "linux", "aarch64") => tools.join("hermes-linux-arm64"),
+            _ => panic!(
+                "catalog HBC engine-truth fixture has no tool mapping for {}-{}",
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            ),
+        };
+        assert!(
+            path.is_file(),
+            "checked-in {name} tool is absent: {}",
+            path.display()
+        );
+        path
+    }
+
     #[test]
     fn fixed_recipe_emits_inspectable_real_hbc() {
-        let compiler = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tools/hermes/hermesc-macos-arm64");
+        let compiler = checked_in_tool("hermesc");
         let compiler = std::fs::read(compiler).expect("checked-in macOS hermesc");
         let hbc = run_fixed_hermesc(
             &compiler,
@@ -180,5 +209,47 @@ mod tests {
         let metadata = HermesBytecodeMetadataV1::inspect(&hbc).unwrap();
         assert_eq!(metadata.file_length as usize, hbc.len());
         assert!(metadata.bytecode_version > 0);
+    }
+
+    #[test]
+    fn fixed_recipe_is_work_directory_independent() {
+        let compiler = std::fs::read(checked_in_tool("hermesc")).expect("checked-in hermesc");
+        let source = b"(function(){return Object.freeze(Object.create(null));})()";
+        let first = run_fixed_hermesc(&compiler, source).unwrap();
+        let second = run_fixed_hermesc(&compiler, source).unwrap();
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn fixed_recipe_preserves_per_iteration_capture_in_leave_raw_loop() {
+        let compiler = std::fs::read(checked_in_tool("hermesc")).expect("checked-in hermesc");
+        let hbc = run_fixed_hermesc(
+            &compiler,
+            br#"const callbacks = [];
+for (const value of ["skip", "a", "b"]) {
+  if (value === "skip") continue;
+  callbacks.push(() => value);
+}
+print(JSON.stringify(callbacks.map((read) => read())));"#,
+        )
+        .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let bytecode = directory.path().join("block-scoping.hbc");
+        std::fs::write(&bytecode, hbc).unwrap();
+        let result = Command::new(checked_in_tool("hermes"))
+            .arg(&bytecode)
+            .env_clear()
+            .current_dir(directory.path())
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "Hermes refused catalog HBC: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(result.stdout).unwrap().trim(),
+            r#"["a","b"]"#
+        );
     }
 }

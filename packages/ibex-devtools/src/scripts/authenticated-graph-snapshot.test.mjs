@@ -23,11 +23,11 @@ describe('authenticated graph snapshot v1', () => {
 
   test('round-trips builtin and synthetic SourceId variants canonically', () => {
     for (const source of [
-      { kind: 'builtin', domain: 'ibex-runtime', source_key: 'exact:fs' },
+      { kind: 'builtin', domain: 'ibex-runtime', sourceKey: 'exact:fs' },
       {
         kind: 'synthetic',
-        session_identity: 'fixture-session',
-        source_identity: 'ibex:stdin',
+        sessionIdentity: 'fixture-session',
+        sourceIdentity: 'ibex:stdin',
       },
     ]) {
       expect(decodeCanonicalSourceId(encodeCanonicalSourceId(source))).toEqual(source);
@@ -42,8 +42,8 @@ describe('authenticated graph snapshot v1', () => {
     const alienEdge = structuredClone(golden.snapshot);
     alienEdge.edges[0].target = encodeCanonicalSourceId({
       kind: 'synthetic',
-      session_identity: 'session',
-      source_identity: 'ibex:stdin',
+      sessionIdentity: 'session',
+      sourceIdentity: 'ibex:stdin',
     });
     expect(() => validateAuthenticatedGraphSnapshotV1(alienEdge)).toThrow();
 

@@ -22,7 +22,10 @@ on:
       - "llp/0019-hermes-compat-transform-authority.decision.md"
       - "llp/0026-esm-module-runner.rfc.md"
       - "llp/0027-module-artifact-and-interop.spec.md"
+      - "llp/0029-single-file-executable-packaging.rfc.md"
+      - "llp/0047-standalone-executable-finish-line.plan.md"
       - "packages/ibex-devtools/src/scripts/benchmark-module-loader-baseline.mjs"
+      - "packages/ibex-devtools/src/scripts/benchmark-sfe-release.mjs"
       - "packages/ibex-devtools/src/scripts/check-module-runner-performance.mjs"
       - "packages/ibex-devtools/src/scripts/check-module-runner-performance.test.mjs"
       - "packages/ibex-devtools/src/scripts/collect-module-loader-baseline.mjs"
@@ -34,14 +37,27 @@ on:
       - "packages/ibex-devtools/src/scripts/run-module-semantics-native.mjs"
       - "packages/ibex-devtools/src/scripts/oxc-dual-produce-report.mjs"
       - "packages/ibex-devtools/src/scripts/oxc-dual-produce-report.test.mjs"
+      - "packages/ibex-devtools/src/scripts/sfe-performance.mjs"
+      - "packages/ibex-devtools/src/scripts/sfe-performance.test.mjs"
       - "packages/ibex-devtools/src/scripts/transforms.mjs"
       - "config/llp0019-hermes-target-matrix.json"
       - "config/llp0019-native-tier3-corpus.json"
       - "include/exact_runtime.h"
+      - "src/compiled_contract.rs"
+      - "src/bin/ibex/sfe.rs"
+      - "src/bin/ibex_sfe_contract.rs"
       - "src/engine/hermes_module_runner.cc"
       - "src/engine/hermes_runtime_internal.h"
       - "src/module_loader/**"
+      - "crates/compiled-stub/**"
+      - "crates/sfe-catalog/**"
+      - "crates/sfe-format/**"
+      - "scripts/check-sfe-foundation.sh"
+      - "scripts/build-sfe-release.sh"
+      - "scripts/check-sfe-release-kit.sh"
+      - "scripts/check-sfe-reproducibility.sh"
       - "scripts/run-oxc-dual-produce-report.sh"
+      - "tests/fixtures/sfe-release/**"
       - "tests/module_runner_spike.rs"
       - "tests/module_semantics_native.rs"
       - "tests/native_tier3_conformance.rs"
@@ -134,6 +150,14 @@ jobs:
           cargo check --all-targets
           cargo check --all-targets --no-default-features
 
+      # Keep the executable format/catalog/stub interface and the real fixed
+      # hermesc recipe in one required gate on both v1 host tuples.
+      # @ref LLP 0047#3-milestone-0--restore-a-green-foundation
+      - name: Check standalone-executable foundation
+        if: runner.os != 'Windows'
+        shell: bash
+        run: scripts/check-sfe-foundation.sh
+
       # Git Bash prepends its own /usr/bin/link.exe ahead of the MSVC linker.
       # Keep Windows Rust invocations in the developer-command environment
       # established above so rustc resolves the intended Visual Studio tool.
@@ -213,6 +237,216 @@ jobs:
       - name: Run canonical and Test262 producer corpus on Hermes
         if: runner.os == 'macOS'
         run: scripts/run-tests.sh --test module_runner_spike --features module-runner-spike
+
+  sfe-release-kit:
+    name: sfe-release-kit-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.replica }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: darwin
+            arch: arm64
+            replica: a
+            target: aarch64-apple-darwin
+            minimum_platform: macos-14.0-arm64
+          - os: macos-14
+            platform: darwin
+            arch: arm64
+            replica: b
+            target: aarch64-apple-darwin
+            minimum_platform: macos-14.0-arm64
+          # The catalog contract promises glibc 2.35, so this row deliberately
+          # uses Ubuntu 22.04 rather than ubuntu-latest.
+          # @ref LLP 0031#decision
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x64
+            replica: a
+            target: x86_64-unknown-linux-gnu
+            minimum_platform: linux-glibc-2.35-x86-64-v1
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x64
+            replica: b
+            target: x86_64-unknown-linux-gnu
+            minimum_platform: linux-glibc-2.35-x86-64-v1
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: scripts/install-rust-toolchain.sh
+
+      - name: Install pinned policy-authoring runner
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install policy-authoring dependencies
+        shell: bash
+        run: bun install --frozen-lockfile
+
+      - name: Install Linux static-link dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libicu-dev pkg-config zlib1g-dev
+
+      - name: Install matching patched Hermes toolchain
+        shell: bash
+        run: ./scripts/download-hermes.sh
+
+      - name: Build catalog-pinned release kit
+        shell: bash
+        env:
+          HERMES_LINK_STATIC: "1"
+          HERMES_STATIC_LIB_NAME: hermesvm_a
+        run: |
+          set -euo pipefail
+          kit="$RUNNER_TEMP/ibex-sfe-release-kit"
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            scripts/build-sfe-release.sh \
+              --target "${{ matrix.target }}" \
+              --minimum-platform "${{ matrix.minimum_platform }}" \
+              --engine-profile hermes-release-static-v1 \
+              --hermesc tools/hermes/hermesc-macos-arm64 \
+              --hermes tools/hermes/hermes \
+              --policy-runner "$(command -v bun)" \
+              --static-archive hermesvm ios/Frameworks/macos-static/libhermesvm_a.a \
+              --static-archive jsi ios/Frameworks/macos-static/libjsi.a \
+              --static-archive boost-context ios/Frameworks/macos-static/libboost_context.a \
+              --output "$kit" \
+              --release "ibex-ci-$GITHUB_SHA" \
+              --sequence 1
+          else
+            icu_lib_dir="$(pkg-config --variable=libdir icu-i18n)"
+            scripts/build-sfe-release.sh \
+              --target "${{ matrix.target }}" \
+              --minimum-platform "${{ matrix.minimum_platform }}" \
+              --engine-profile hermes-release-static-v1 \
+              --hermesc tools/hermes/hermesc-linux-x64 \
+              --hermes tools/hermes/hermes-linux-x64 \
+              --policy-runner "$(command -v bun)" \
+              --static-archive hermesvm linux/lib/libhermesvm_a.a \
+              --static-archive jsi linux/lib/libjsi.a \
+              --static-archive boost-context linux/lib/libboost_context.a \
+              --static-archive icu-i18n "$icu_lib_dir/libicui18n.a" \
+              --static-archive icu-uc "$icu_lib_dir/libicuuc.a" \
+              --static-archive icu-data "$icu_lib_dir/libicudata.a" \
+              --output "$kit" \
+              --release "ibex-ci-$GITHUB_SHA" \
+              --sequence 1
+          fi
+
+      - name: Exercise installed-user standalone flow
+        shell: bash
+        env:
+          SFE_BUILDER_ID: gha-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.replica }}
+        run: |
+          scripts/check-sfe-release-kit.sh \
+            "$RUNNER_TEMP/ibex-sfe-release-kit" \
+            --evidence-output "$RUNNER_TEMP/sfe-repro-evidence"
+
+      - name: Record release-kit identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          kit="$RUNNER_TEMP/ibex-sfe-release-kit"
+          policy_toolchains=("$kit"/ibex-policy-toolchain-*)
+          [[ ${#policy_toolchains[@]} -eq 1 && -d "${policy_toolchains[0]}" ]]
+          shasum -a 256 \
+            "$kit/ibex" \
+            "$kit/ibex-sfe-catalog" \
+            "$kit"/*.tar.gz \
+            "$kit/policy-toolchain-report.json" \
+            "${policy_toolchains[0]}/manifest.json" \
+            "${policy_toolchains[0]}/bin/bun" \
+            > "$kit/release-kit.sha256"
+          cat "$kit/release-kit.sha256"
+
+      - name: Upload standalone release receipts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sfe-release-receipts-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.replica }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/ibex-sfe-release-kit/*.json
+            ${{ runner.temp }}/ibex-sfe-release-kit/ibex-policy-toolchain-*/manifest.json
+            ${{ runner.temp }}/ibex-sfe-release-kit/release-kit.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload clean-builder reproducibility evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: sfe-repro-evidence-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.replica }}-${{ github.sha }}
+          path: ${{ runner.temp }}/sfe-repro-evidence
+          if-no-files-found: error
+          retention-days: 30
+
+  sfe-reproducibility:
+    name: sfe-two-clean-builder-reproducibility
+    needs: [sfe-release-kit]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download macOS builder A evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: sfe-repro-evidence-darwin-arm64-a-${{ github.sha }}
+          path: ${{ runner.temp }}/evidence/darwin-a
+
+      - name: Download macOS builder B evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: sfe-repro-evidence-darwin-arm64-b-${{ github.sha }}
+          path: ${{ runner.temp }}/evidence/darwin-b
+
+      - name: Download Linux builder A evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: sfe-repro-evidence-linux-x64-a-${{ github.sha }}
+          path: ${{ runner.temp }}/evidence/linux-a
+
+      - name: Download Linux builder B evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: sfe-repro-evidence-linux-x64-b-${{ github.sha }}
+          path: ${{ runner.temp }}/evidence/linux-b
+
+      - name: Compare exact unsigned application identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          reports="$RUNNER_TEMP/reproducibility-reports"
+          mkdir "$reports"
+          scripts/check-sfe-reproducibility.sh \
+            --target aarch64-apple-darwin \
+            --left "$RUNNER_TEMP/evidence/darwin-a" \
+            --right "$RUNNER_TEMP/evidence/darwin-b" \
+            --output "$reports/aarch64-apple-darwin.json"
+          scripts/check-sfe-reproducibility.sh \
+            --target x86_64-unknown-linux-gnu \
+            --left "$RUNNER_TEMP/evidence/linux-a" \
+            --right "$RUNNER_TEMP/evidence/linux-b" \
+            --output "$reports/x86_64-unknown-linux-gnu.json"
+
+      - name: Upload two-builder reproducibility reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: sfe-reproducibility-reports-${{ github.sha }}
+          path: ${{ runner.temp }}/reproducibility-reports
+          if-no-files-found: error
+          retention-days: 30
 
   oxc-dual-produce:
     name: Oxc 0.121/0.140 dual-produce evidence

@@ -50,6 +50,9 @@ import {
   encodeCanonicalSourceId,
   validateAuthenticatedGraphSnapshotV1,
 } from './authenticated-graph-snapshot.mjs';
+import {
+  assertCompiledPolicyAnalysisMatchesNativeGraph,
+} from './compiled-policy-graph-crosscheck.mjs';
 
 const args = process.argv.slice(2);
 const opts = { mode: 'enforce' };
@@ -169,6 +172,23 @@ try {
   console.error(err?.message || err);
   process.exit(1);
 }
+
+// Policy generation analyzes the exact source graph but does not emit the
+// target executable. Rolldown's configured browser transform target warns for
+// top-level await even though the native SFE pipeline preserves that syntax,
+// records its async fact, and compiles it with Hermes. Suppress only that
+// inapplicable analysis warning; all other diagnostics retain their normal
+// severity and rendering.
+// @ref LLP 0026#1-source-admission-and-resolution
+const policyAnalysisOnLog = (level, log, defaultHandler) => {
+  if (
+    log.code === 'TOLERATED_TRANSFORM' &&
+    String(log.message || '').includes('Top-level await is not available')
+  ) {
+    return;
+  }
+  defaultHandler(level, log);
+};
 
 // ---------------------------------------------------------------------------
 // Collect: root-principal grant sites, package universe, package-level edges.
@@ -395,6 +415,7 @@ const config = createRolldownConfig({
   define: runtimeImportMetaDefine,
   compartments: false,
 });
+config.onLog = policyAnalysisOnLog;
 // Capture exact raw package bytes before any transform. The collector still
 // sees modules before the shared pipeline's strip pass.
 config.plugins = [graphPlugin, collector, ...config.plugins];
@@ -417,22 +438,26 @@ for (const [index, declaration] of candidateDeclarations.entries()) {
   ];
   const importStatement = (specifier) => {
     if (!authenticatedGraphSnapshot) return `import ${JSON.stringify(specifier)};`;
-    const matches = authenticatedGraphSnapshot.edges.filter((edge) => {
-      if (edge.resolutionKind !== 'dynamic-import' || edge.specifier !== specifier) return false;
-      const requester = decodeCanonicalSourceId(edge.requester);
+    // Computed candidates are authenticated as candidate-set rows, not as
+    // ordinary graph edges: no authored literal spelling connects the
+    // requester to any one target until runtime selection. Join this analysis
+    // import to that exact requester/label/set instead of expecting a forged
+    // dynamic edge in the graph projection.
+    // @ref LLP 0028#2-disposition-of-the-legacy-window-interop-shapes
+    const matches = authenticatedGraphSnapshot.candidateSets.filter((site) => {
+      if (site.label !== declaration.label || !site.candidates.includes(specifier)) return false;
+      const requester = decodeCanonicalSourceId(site.requester);
       return requester.kind === 'file' && requester.principal.kind === 'root' &&
         requester.path.every((component) => component.encoding === 'utf8') &&
         requester.path.map((component) => component.value).join('/') === declaration.requester;
     });
     if (matches.length !== 1) {
       throw new TypeError(
-        `authenticated graph has ${matches.length} dynamic candidate edges for ` +
+        `authenticated graph has ${matches.length} computed candidate sets for ` +
           `${declaration.requester}#${declaration.label}:${specifier}`,
       );
     }
-    return matches[0].attributes.type === 'json'
-      ? `import ${JSON.stringify(specifier)} with { type: 'json' };`
-      : `import ${JSON.stringify(specifier)};`;
+    return `import ${JSON.stringify(specifier)};`;
   };
   const candidatePlugin = {
     name: `computed-candidate-analysis-${index}`,
@@ -455,6 +480,7 @@ for (const [index, declaration] of candidateDeclarations.entries()) {
     define: runtimeImportMetaDefine,
     compartments: false,
   });
+  candidateConfig.onLog = policyAnalysisOnLog;
   candidateConfig.plugins = [candidatePlugin, graphPlugin, collector, ...candidateConfig.plugins];
   const candidateBundle = await rolldown(candidateConfig);
   await candidateBundle.generate({ format: 'esm', codeSplitting: false });
@@ -772,40 +798,12 @@ if (authenticatedGraphSnapshot) {
       expectedFileNodes.set(sourceId, sourceIntegrity);
     }
   }
-  const observedFileNodes = new Map();
-  for (const node of authenticatedGraphSnapshot.nodes) {
-    if (decodeCanonicalSourceId(node.sourceId).kind === 'file') {
-      observedFileNodes.set(node.sourceId, node.sourceIntegrity);
-    }
-  }
-  const orderedNodeEntries = (rows) => [...rows].sort(([left], [right]) =>
-    Buffer.from(left).compare(Buffer.from(right)));
-  if (
-    canonicalJson(orderedNodeEntries(observedFileNodes)) !==
-    canonicalJson(orderedNodeEntries(expectedFileNodes))
-  ) {
-    throw new TypeError(
-      'native authenticated graph file identities differ from the policy analysis bytes',
-    );
-  }
   const expectedPackages = [...packageMetadata.values()].sort(compareCanonicalBytes);
-  if (canonicalJson(authenticatedGraphSnapshot.packages) !== canonicalJson(expectedPackages)) {
-    throw new TypeError(
-      'native authenticated graph package inventory differs from policy analysis',
-    );
-  }
-  const entrySource = decodeCanonicalSourceId(authenticatedGraphSnapshot.entry.sourceId);
-  if (
-    entrySource.kind !== 'file' ||
-    canonicalJson(entrySource.principal) !== canonicalJson(rootPrincipal) ||
-    canonicalJson(entrySource.path) !== canonicalJson(entryIdentity.components) ||
-    observedFileNodes.get(authenticatedGraphSnapshot.entry.sourceId) !==
-      entryIdentity.sourceIntegrity
-  ) {
-    throw new TypeError(
-      'native authenticated graph entry differs from the policy entry identity',
-    );
-  }
+  const expectedEntrySourceId = encodeCanonicalSourceId({
+    kind: 'file',
+    principal: rootPrincipal,
+    path: entryIdentity.components,
+  });
   const expectedCandidateSets = materializedCandidateSites.map((site) => ({
     requester: encodeCanonicalSourceId({
       kind: 'file',
@@ -815,16 +813,14 @@ if (authenticatedGraphSnapshot) {
     label: site.label,
     candidates: [...new Set(site.candidates)].sort(compareCanonicalBytes),
   })).sort(compareCanonicalBytes);
-  const observedCandidateSets = authenticatedGraphSnapshot.candidateSets.map((site) => ({
-    requester: site.requester,
-    label: site.label,
-    candidates: site.candidates,
-  })).sort(compareCanonicalBytes);
-  if (canonicalJson(observedCandidateSets) !== canonicalJson(expectedCandidateSets)) {
-    throw new TypeError(
-      'native computed-candidate tables differ from the reviewed manifest materialization',
-    );
-  }
+  assertCompiledPolicyAnalysisMatchesNativeGraph({
+    snapshot: authenticatedGraphSnapshot,
+    expectedFileNodes,
+    expectedPackages,
+    expectedEntrySourceId,
+    expectedEntryIntegrity: entryIdentity.sourceIntegrity,
+    expectedCandidateSets,
+  });
   graphIdentity = computeAuthenticatedGraphIdentityV1(authenticatedGraphSnapshot);
 } else {
   const graphNodes = [

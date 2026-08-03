@@ -45,6 +45,9 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   codesign --verify --strict "$phase0_tmp/app-a"
 fi
 result="$(SFE_BASE=from-launch "$phase0_tmp/app-a" --inspect compile --policy)"
+information="$(SFE_BASE=from-launch "$phase0_tmp/app-a" --ibex-info)"
+escaped_information="$(SFE_BASE=from-launch "$phase0_tmp/app-a" -- --ibex-info)"
+later_information="$(SFE_BASE=from-launch "$phase0_tmp/app-a" value --ibex-info)"
 target/debug/ibex inspect-executable "$phase0_tmp/app-a" > "$phase0_tmp/inspection.json"
 grep -q '"envelopeConsistency":{"envelopeDigest":"sha256-' "$phase0_tmp/inspection.json"
 grep -q '"state":"consistent"' "$phase0_tmp/inspection.json"
@@ -60,6 +63,25 @@ if [[ "$result" != '{"answer":42,"applicationArgs":["--inspect","compile","--pol
   exit 1
 fi
 
+python3 -c '
+import json, sys
+report = json.loads(sys.argv[1])
+assert report["schema"] == "ibex/standalone-executable-info/1"
+assert report["execution"] == {"applicationEvaluated": False}
+assert report["integrity"]["status"] == "admitted"
+assert report["boot"]["defaultMode"] == "ambient-compatibility"
+assert report["boot"]["informationSelector"]["spelling"] == "--ibex-info"
+assert report["provenanceKind"] == "development"
+' "$information"
+if [[ "$escaped_information" != '{"answer":42,"applicationArgs":["--ibex-info"],"capturedEnvironment":"from-launch"}' ]]; then
+  echo "escaped information selector did not remain an application argument: $escaped_information" >&2
+  exit 1
+fi
+if [[ "$later_information" != '{"answer":42,"applicationArgs":["value","--ibex-info"],"capturedEnvironment":"from-launch"}' ]]; then
+  echo "later information selector did not remain an application argument: $later_information" >&2
+  exit 1
+fi
+
 set +e
 lifecycle_result="$(SFE_BASE=from-launch "$phase0_tmp/app-a" --async-exit-7)"
 lifecycle_status=$?
@@ -68,7 +90,9 @@ if [[ "$lifecycle_status" -ne 7 ]]; then
   echo "unexpected compiled lifecycle status: $lifecycle_status" >&2
   exit 1
 fi
-expected_lifecycle_result=$'{"answer":42,"applicationArgs":["--async-exit-7"],"capturedEnvironment":"from-launch"}\ncompiled-lifecycle-flush'
+# The development-only namespace diagnostic follows the application task
+# drain. Release artifacts do not print that diagnostic.
+expected_lifecycle_result=$'compiled-lifecycle-flush\n{"answer":42,"applicationArgs":["--async-exit-7"],"capturedEnvironment":"from-launch"}'
 if [[ "$lifecycle_result" != "$expected_lifecycle_result" ]]; then
   echo "unexpected compiled lifecycle output: $lifecycle_result" >&2
   exit 1

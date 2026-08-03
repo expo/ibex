@@ -72,15 +72,18 @@ describe("source-bound module-loader output recipes", () => {
       }),
     );
     // The authenticated dev-served loader seam and construction-only runtime
-    // extension registrar add reviewed residuals. Neither has a bounded public
-    // invocation, so the authored partition is unchanged.
-    expect(rows).toHaveLength(169);
+    // extension registrar add reviewed residuals. The diagnostic resolver
+    // pair, async sync-edge refusal, two dynamic-import scanners, and armed
+    // builtin-control sealer add six more reviewed loader-function residuals.
+    // None has a bounded public invocation, so the authored partition is
+    // unchanged.
+    expect(rows).toHaveLength(175);
     expect(counts).toEqual({
       base: { authored: 8, residual: 4 },
       "internal-loader-route": { authored: 47, residual: 0 },
       "lazy-loader-installer-route": { authored: 39, residual: 0 },
       "loader-entry-route": { authored: 9, residual: 3 },
-      "loader-function": { authored: 14, residual: 43 },
+      "loader-function": { authored: 14, residual: 49 },
       "loader-kind-branch": { authored: 1, residual: 1 },
     });
     const authored = rows.filter(
@@ -90,7 +93,7 @@ describe("source-bound module-loader output recipes", () => {
       ({ invocation }) => invocation.route.operation === "unexercisable",
     );
     expect(authored).toHaveLength(118);
-    expect(residual).toHaveLength(51);
+    expect(residual).toHaveLength(57);
     expect(
       residual
         .filter(({ surface }) =>

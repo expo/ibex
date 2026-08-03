@@ -64,6 +64,7 @@
     "check:compiled-environment-profile": "bun packages/ibex-devtools/src/scripts/generate-compiled-environment-profile.mjs --check",
     "check:oxc-retirement": "bun packages/ibex-devtools/src/scripts/oxc-retirement-manifest.mjs --check",
     "check:module-transform-config": "bun packages/ibex-devtools/src/scripts/generate-module-transform-config.mjs --check",
+    "benchmark:sfe-release": "node packages/ibex-devtools/src/scripts/benchmark-sfe-release.mjs",
     "check:example-policy": "bun packages/ibex-devtools/src/scripts/check-generated-policies.mjs",
     "test:android-java": "scripts/test-android-java.sh",
     "test": "bun test packages",

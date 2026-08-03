@@ -88,9 +88,9 @@ eligibility.
   survival fixture. The LLP 0022 enumeration revision has LANDED
   (llp/0022 §Compiled-program exception) — the Progress text listing it
   as remaining is stale.
-- Register item 2 (allowlist contents) still blocks release:
-  `allowlistDecision.status = "blocked-on-author-decision-2"`,
-  `releaseEligible: false`.
+- DONE (2026-08-01): LLP 0029 register item 2 is resolved to an empty
+  CapSec restore allowlist; the generated profile is release eligible without
+  restoring inherited names to the real process environment.
 - Privileged-control migration incomplete: fetch.ts still reads
   `NODE_TLS_REJECT_UNAUTHORIZED`/`NODE_EXTRA_CA_CERTS` and Crypto.ts
   reads `NODE_ENV`/`EXACT_ALLOW_INSECURE_CRYPTO` from mutable
@@ -99,3 +99,27 @@ eligibility.
 - No compiled-mode child-inheritance or cross-principal isolation
   fixtures exist (existing env tests are source-mode).
 - Stale count: the profile now classifies 167 consumers, not 155.
+
+## LLP 0047 reconciliation — 2026-08-01
+
+The existing unconditional pre-init scrub cannot be the dual-mode release
+behavior. Milestone 2 makes pre-init argv dispatch the single authoritative
+mode source: ambient captures without sanitizing and projects the inherited
+environment; CapSec preserves capture/default-deny scrub/broker semantics.
+Constructor-order probes must cover both modes. Privileged-control inertness,
+child inheritance, and cross-principal isolation remain; the CapSec restore
+allowlist is resolved empty. These gaps do not justify sanitizing ambient
+boot or falling back from a failed CapSec request.
+
+## Implementation checkpoint — 2026-08-01
+
+The dual-mode pre-init sequence is implemented. It performs exact byte
+selection before controlled constructors, leaves the inherited environment
+installed for ambient boot, and retains capture/default-deny sanitization for
+CapSec. Rust consumes that authoritative mode instead of parsing argv again.
+Real macOS and Linux executables prove an inherited launch-only value reaches
+ambient application code; CapSec refusal occurs before entry. Linux preinit
+sanitizes the authoritative loader-supplied `envp` vector in place so glibc
+cannot republish inherited entries between preinit and constructors.
+Privileged-control inertness, child inheritance, and cross-principal isolation
+remain open.

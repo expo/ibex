@@ -252,7 +252,8 @@ pub enum Commands {
         outdir: Option<PathBuf>,
     },
 
-    /// Build a release-pinned single-file executable
+    /// Build a self-contained executable from an authored policy (ambient by
+    /// default; use --ibex-capsec for CapSec or --ibex-info for artifact facts)
     Compile {
         /// Application entry point
         #[arg(required = true)]

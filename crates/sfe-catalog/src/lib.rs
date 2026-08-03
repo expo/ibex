@@ -5,15 +5,185 @@
 //! and target admission rechecks every artifact and contract cross-binding.
 //! @ref LLP 0029#2-executable-layout-stub-envelope-footer — a pinned manifest authenticates stub, contract, and hermesc as one target entry
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use ibex_sfe_format::{HermescCompatibilityV1, HermescRecipeV1, StubContractV1};
+use ibex_sfe_format::{
+    EngineCompatibilityV1, HermescCompatibilityV1, HermescRecipeV1, StubContractV3,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
+pub mod policy_toolchain;
+
 pub const CATALOG_SCHEMA_V1: &str = "ibex/sfe-catalog/1";
 pub const CATALOG_DOMAIN_V1: &str = "ibex:sfe-catalog:1";
+
+/// Return the filesystem-safe address component for an authenticated catalog.
+pub fn catalog_store_key(digest: &str) -> Result<&str> {
+    if !valid_digest(digest) {
+        return Err(Error::TrustRoot(
+            "compiled catalog digest is malformed".into(),
+        ));
+    }
+    Ok(&digest["sha256-".len()..])
+}
+
+/// Install one already-extracted release catalog under its immutable address.
+///
+/// The expected digest is supplied by the release binary, not by the user.
+/// Every source file is reopened as a regular file, and every catalog entry is
+/// fully admitted before an atomic directory rename makes the installation
+/// visible.
+/// @ref LLP 0047#4-milestone-1--publish-a-real-release-catalog
+pub fn install_pinned_catalog_directory(
+    source_root: &Path,
+    catalogs_dir: &Path,
+    expected_digest: &str,
+) -> Result<PathBuf> {
+    let key = catalog_store_key(expected_digest)?;
+    let (manifest_bytes, artifacts) = admit_catalog_directory(source_root, expected_digest)?;
+    std::fs::create_dir_all(catalogs_dir).map_err(|error| {
+        Error::Installation(format!(
+            "cannot create catalog store {}: {error}",
+            catalogs_dir.display()
+        ))
+    })?;
+    let final_root = catalogs_dir.join(key);
+    if final_root.exists() {
+        admit_catalog_directory(&final_root, expected_digest)?;
+        return Ok(final_root);
+    }
+
+    let staging = tempfile::Builder::new()
+        .prefix(".ibex-sfe-catalog-install-")
+        .tempdir_in(catalogs_dir)
+        .map_err(|error| {
+            Error::Installation(format!(
+                "cannot create catalog staging directory in {}: {error}",
+                catalogs_dir.display()
+            ))
+        })?;
+    write_new(&staging.path().join("manifest.json"), &manifest_bytes)?;
+    for (address, bytes) in artifacts {
+        let path = staging.path().join(address);
+        let parent = path
+            .parent()
+            .ok_or_else(|| Error::Installation("catalog artifact address has no parent".into()))?;
+        std::fs::create_dir_all(parent).map_err(|error| {
+            Error::Installation(format!(
+                "cannot create catalog artifact directory {}: {error}",
+                parent.display()
+            ))
+        })?;
+        write_new(&path, &bytes)?;
+    }
+    admit_catalog_directory(staging.path(), expected_digest)?;
+    match std::fs::rename(staging.path(), &final_root) {
+        Ok(()) => Ok(final_root),
+        Err(rename_error) if final_root.exists() => {
+            admit_catalog_directory(&final_root, expected_digest).map_err(|admission_error| {
+                Error::Installation(format!(
+                    "catalog installation raced with an invalid destination after {rename_error}: {admission_error}"
+                ))
+            })?;
+            Ok(final_root)
+        }
+        Err(error) => Err(Error::Installation(format!(
+            "cannot publish catalog at {}: {error}",
+            final_root.display()
+        ))),
+    }
+}
+
+fn admit_catalog_directory(
+    root: &Path,
+    expected_digest: &str,
+) -> Result<(Vec<u8>, BTreeMap<String, Vec<u8>>)> {
+    let metadata = std::fs::symlink_metadata(root).map_err(|error| {
+        Error::Installation(format!(
+            "cannot inspect catalog directory {}: {error}",
+            root.display()
+        ))
+    })?;
+    if !metadata.file_type().is_dir() {
+        return Err(Error::Installation(format!(
+            "catalog root is not a directory: {}",
+            root.display()
+        )));
+    }
+    let manifest_bytes = read_regular(&root.join("manifest.json"), "catalog manifest")?;
+    let catalog = PinnedCatalogV1::load(&manifest_bytes, expected_digest)?;
+    let mut artifacts = BTreeMap::new();
+    for entry in &catalog.manifest().entries {
+        let contract = read_catalog_artifact(root, &entry.contract)?;
+        let stub = read_catalog_artifact(root, &entry.stub_unsigned_core)?;
+        let hermesc = read_catalog_artifact(root, &entry.hermesc)?;
+        catalog.admit_target(
+            &entry.target,
+            CatalogTargetArtifacts {
+                contract: &contract,
+                stub_unsigned_core: &stub,
+                hermesc: &hermesc,
+            },
+        )?;
+        for (artifact, bytes) in [
+            (&entry.contract, contract),
+            (&entry.stub_unsigned_core, stub),
+            (&entry.hermesc, hermesc),
+        ] {
+            let address = artifact.content_address()?;
+            if let Some(existing) = artifacts.insert(address, bytes.clone()) {
+                if existing != bytes {
+                    return Err(Error::Artifact(
+                        "one content address resolves to different artifact bytes".into(),
+                    ));
+                }
+            }
+        }
+    }
+    Ok((manifest_bytes, artifacts))
+}
+
+fn read_catalog_artifact(root: &Path, artifact: &CatalogArtifactV1) -> Result<Vec<u8>> {
+    read_regular(&root.join(artifact.content_address()?), "catalog artifact")
+}
+
+fn read_regular(path: &Path, label: &str) -> Result<Vec<u8>> {
+    let metadata = std::fs::symlink_metadata(path).map_err(|error| {
+        Error::Installation(format!(
+            "cannot inspect {label} {}: {error}",
+            path.display()
+        ))
+    })?;
+    if !metadata.file_type().is_file() {
+        return Err(Error::Installation(format!(
+            "{label} is not a regular file: {}",
+            path.display()
+        )));
+    }
+    std::fs::read(path).map_err(|error| {
+        Error::Installation(format!("cannot read {label} {}: {error}", path.display()))
+    })
+}
+
+fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|error| {
+            Error::Installation(format!("cannot create {}: {error}", path.display()))
+        })?;
+    output.write_all(bytes).map_err(|error| {
+        Error::Installation(format!("cannot write {}: {error}", path.display()))
+    })?;
+    output
+        .sync_all()
+        .map_err(|error| Error::Installation(format!("cannot sync {}: {error}", path.display())))
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -173,7 +343,7 @@ impl PinnedCatalogV1 {
             .map_err(|error| Error::Contract(format!("contract is not UTF-8: {error}")))?;
         let contract_value = capsec_semantics::strict_json::parse_strict(contract_text)
             .map_err(|error| Error::Contract(error.to_string()))?;
-        let contract: StubContractV1 = serde_json::from_value(contract_value)
+        let contract: StubContractV3 = serde_json::from_value(contract_value)
             .map_err(|error| Error::Contract(error.to_string()))?;
         if contract
             .canonical_bytes()
@@ -230,6 +400,113 @@ impl PinnedCatalogV1 {
 }
 
 impl CatalogManifestV1 {
+    /// Construct one catalog entry from the exact release artifacts, deriving
+    /// every identity from authenticated bytes rather than build-script text.
+    /// @ref LLP 0029#2-executable-layout-stub-envelope-footer
+    pub fn from_target_artifacts(
+        release: impl Into<String>,
+        sequence: u64,
+        contract_bytes: &[u8],
+        stub_unsigned_core: &[u8],
+        hermesc: &[u8],
+    ) -> Result<Self> {
+        let contract_text = std::str::from_utf8(contract_bytes)
+            .map_err(|error| Error::Contract(format!("contract is not UTF-8: {error}")))?;
+        let contract_value = capsec_semantics::strict_json::parse_strict(contract_text)
+            .map_err(|error| Error::Contract(error.to_string()))?;
+        let contract: StubContractV3 = serde_json::from_value(contract_value)
+            .map_err(|error| Error::Contract(error.to_string()))?;
+        if contract
+            .canonical_bytes()
+            .map_err(|error| Error::Contract(error.to_string()))?
+            != contract_bytes
+        {
+            return Err(Error::Contract("stub contract is not canonical".into()));
+        }
+        if !contract.release_eligible {
+            return Err(Error::Contract(
+                "catalog construction requires a release-eligible stub contract".into(),
+            ));
+        }
+        let EngineCompatibilityV1::StaticHermes {
+            hbc_version: engine_hbc_version,
+            ..
+        } = &contract.engine
+        else {
+            return Err(Error::Contract(
+                "catalog construction requires a static Hermes contract".into(),
+            ));
+        };
+        let HermescCompatibilityV1::CatalogArtifact {
+            binary_digest,
+            hbc_version,
+            recipe_digest,
+            compiler_identity,
+        } = &contract.hermesc
+        else {
+            return Err(Error::Contract(
+                "catalog construction requires a catalog hermesc contract".into(),
+            ));
+        };
+        let hermesc_artifact = CatalogArtifactV1::from_bytes(
+            CatalogArtifactRoleV1::Hermesc,
+            "application/vnd.ibex.hermesc",
+            hermesc,
+        );
+        if binary_digest != &hermesc_artifact.digest {
+            return Err(Error::Contract(
+                "contract hermesc digest disagrees with the supplied compiler bytes".into(),
+            ));
+        }
+        if hbc_version != engine_hbc_version {
+            return Err(Error::Contract(
+                "contract hermesc and engine HBC versions disagree".into(),
+            ));
+        }
+        let production_recipe_digest = HermescRecipeV1::production()
+            .digest()
+            .map_err(|error| Error::Contract(error.to_string()))?;
+        if recipe_digest != &production_recipe_digest {
+            return Err(Error::Contract(format!(
+                "contract hermesc recipe {recipe_digest} differs from fixed production recipe {production_recipe_digest}"
+            )));
+        }
+        if compiler_identity != contract.hermesc.identity().unwrap_or_default() {
+            return Err(Error::Contract(
+                "contract hermesc compiler identity is internally inconsistent".into(),
+            ));
+        }
+        let entry = CatalogEntryV1 {
+            target: contract.target.triple.clone(),
+            minimum_platform: contract.target.minimum_platform.clone(),
+            contract_digest: contract
+                .digest()
+                .map_err(|error| Error::Contract(error.to_string()))?,
+            engine_compatibility_identity: contract.engine.identity().into(),
+            hermesc_identity: compiler_identity.clone(),
+            hbc_version: *hbc_version,
+            contract: CatalogArtifactV1::from_bytes(
+                CatalogArtifactRoleV1::StubContract,
+                "application/vnd.ibex.stub-contract+json",
+                contract_bytes,
+            ),
+            stub_unsigned_core: CatalogArtifactV1::from_bytes(
+                CatalogArtifactRoleV1::StubUnsignedCore,
+                "application/vnd.ibex.stub-core",
+                stub_unsigned_core,
+            ),
+            hermesc: hermesc_artifact,
+        };
+        let manifest = Self {
+            schema: CATALOG_SCHEMA_V1.into(),
+            release: release.into(),
+            sequence,
+            entries: vec![entry],
+        };
+        manifest.validate()?;
+        Ok(manifest)
+    }
+
     pub fn canonical_bytes(&self) -> Result<Vec<u8>> {
         self.validate()?;
         let value =
@@ -295,7 +572,7 @@ pub struct CatalogTargetArtifacts<'a> {
 pub struct AdmittedCatalogTargetV1<'a> {
     pub catalog_digest: &'a str,
     pub entry: &'a CatalogEntryV1,
-    pub contract: StubContractV1,
+    pub contract: StubContractV3,
     pub stub_unsigned_core: &'a [u8],
     pub hermesc: &'a [u8],
 }
@@ -312,6 +589,8 @@ pub enum Error {
     Artifact(String),
     #[error("SFC005 stub contract refused: {0}")]
     Contract(String),
+    #[error("SFC006 catalog installation refused: {0}")]
+    Installation(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -334,8 +613,9 @@ fn valid_digest(value: &str) -> bool {
 mod tests {
     use super::*;
     use ibex_sfe_format::{
-        EngineCompatibilityV1, StubAbisV1, StubAcceptedSchemasV1, StubTargetV1,
-        ENTRY_DESIGNATION_SCHEMA_V1, ENVELOPE_SCHEMA_V1, STUB_CONTRACT_SCHEMA_V1,
+        EngineCompatibilityV1, StubAbisV1, StubAcceptedSchemasV1, StubBackendInventoryV1,
+        StubBootContractV3, StubTargetV1, ENTRY_DESIGNATION_SCHEMA_V1, ENVELOPE_SCHEMA_V2,
+        STUB_CONTRACT_SCHEMA_V3,
     };
 
     fn fixture() -> (CatalogManifestV1, Vec<u8>, Vec<u8>, Vec<u8>) {
@@ -354,8 +634,8 @@ mod tests {
             HermescRecipeV1::production().digest().unwrap(),
         )
         .unwrap();
-        let contract = StubContractV1 {
-            schema: STUB_CONTRACT_SCHEMA_V1.into(),
+        let contract = StubContractV3 {
+            schema: STUB_CONTRACT_SCHEMA_V3.into(),
             profile: "release-v1".into(),
             release_eligible: true,
             target: StubTargetV1 {
@@ -365,7 +645,7 @@ mod tests {
             engine: engine.clone(),
             hermesc: compiler.clone(),
             accepted_schemas: StubAcceptedSchemasV1 {
-                envelope: ENVELOPE_SCHEMA_V1.into(),
+                envelope: ENVELOPE_SCHEMA_V2.into(),
                 entry_designation: ENTRY_DESIGNATION_SCHEMA_V1.into(),
                 embedded_graph: "ibex/embedded-module-graph/1".into(),
                 authenticated_graph_snapshot: "ibex/authenticated-graph-snapshot/1".into(),
@@ -385,6 +665,8 @@ mod tests {
             runtime_capsec_projection_digest: digest_bytes(b"capsec"),
             runtime_identity_digest: digest_bytes(b"identity"),
             environment_profile_digest: digest_bytes(b"environment"),
+            boot: StubBootContractV3::dual_mode(""),
+            backends: StubBackendInventoryV1::release_for_target("aarch64-apple-darwin").unwrap(),
         };
         let contract_bytes = contract.canonical_bytes().unwrap();
         let entry = CatalogEntryV1 {
@@ -447,6 +729,49 @@ mod tests {
                 &admitted.entry.stub_unsigned_core.digest["sha256-".len()..]
             )
         );
+    }
+
+    #[test]
+    fn release_catalog_entry_is_derived_from_exact_artifact_bytes() {
+        let (_fixture_manifest, contract, stub, hermesc) = fixture();
+        let manifest = CatalogManifestV1::from_target_artifacts(
+            "ibex-test-derived",
+            7,
+            &contract,
+            &stub,
+            &hermesc,
+        )
+        .unwrap();
+        let digest = manifest.digest().unwrap();
+        let bytes = manifest.canonical_bytes().unwrap();
+        let pinned = PinnedCatalogV1::load(&bytes, &digest).unwrap();
+        let admitted = pinned
+            .admit_target(
+                "aarch64-apple-darwin",
+                CatalogTargetArtifacts {
+                    contract: &contract,
+                    stub_unsigned_core: &stub,
+                    hermesc: &hermesc,
+                },
+            )
+            .unwrap();
+        assert_eq!(admitted.entry.contract.digest, digest_bytes(&contract));
+        assert_eq!(
+            admitted.entry.stub_unsigned_core.digest,
+            digest_bytes(&stub)
+        );
+        assert_eq!(admitted.entry.hermesc.digest, digest_bytes(&hermesc));
+
+        let mut changed_hermesc = hermesc;
+        changed_hermesc.push(0);
+        assert!(CatalogManifestV1::from_target_artifacts(
+            "ibex-test-derived",
+            7,
+            &contract,
+            &stub,
+            &changed_hermesc,
+        )
+        .is_err());
     }
 
     #[test]
@@ -526,6 +851,98 @@ mod tests {
         assert!(matches!(
             catalog.entry("x86_64-unknown-linux-gnu"),
             Err(Error::Target(_))
+        ));
+    }
+
+    #[test]
+    fn pinned_directory_install_is_atomic_verified_and_idempotent() {
+        let (manifest, contract, stub, hermesc) = fixture();
+        let digest = manifest.digest().unwrap();
+        let source = tempfile::tempdir().unwrap();
+        write_new(
+            &source.path().join("manifest.json"),
+            &manifest.canonical_bytes().unwrap(),
+        )
+        .unwrap();
+        let entry = &manifest.entries[0];
+        for (artifact, bytes) in [
+            (&entry.contract, contract.as_slice()),
+            (&entry.stub_unsigned_core, stub.as_slice()),
+            (&entry.hermesc, hermesc.as_slice()),
+        ] {
+            let path = source.path().join(artifact.content_address().unwrap());
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            write_new(&path, bytes).unwrap();
+        }
+        let store = tempfile::tempdir().unwrap();
+        let installed =
+            install_pinned_catalog_directory(source.path(), store.path(), &digest).unwrap();
+        assert_eq!(
+            installed,
+            store.path().join(catalog_store_key(&digest).unwrap())
+        );
+        assert_eq!(
+            install_pinned_catalog_directory(source.path(), store.path(), &digest).unwrap(),
+            installed
+        );
+        admit_catalog_directory(&installed, &digest).unwrap();
+        assert!(installed.join("manifest.json").is_file());
+    }
+
+    #[test]
+    fn pinned_directory_install_refuses_artifact_substitution_before_publish() {
+        let (manifest, contract, mut stub, hermesc) = fixture();
+        let digest = manifest.digest().unwrap();
+        let source = tempfile::tempdir().unwrap();
+        write_new(
+            &source.path().join("manifest.json"),
+            &manifest.canonical_bytes().unwrap(),
+        )
+        .unwrap();
+        stub[0] ^= 1;
+        let entry = &manifest.entries[0];
+        for (artifact, bytes) in [
+            (&entry.contract, contract.as_slice()),
+            (&entry.stub_unsigned_core, stub.as_slice()),
+            (&entry.hermesc, hermesc.as_slice()),
+        ] {
+            let path = source.path().join(artifact.content_address().unwrap());
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            write_new(&path, bytes).unwrap();
+        }
+        let store = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            install_pinned_catalog_directory(source.path(), store.path(), &digest),
+            Err(Error::Artifact(_))
+        ));
+        assert!(!store
+            .path()
+            .join(catalog_store_key(&digest).unwrap())
+            .exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pinned_directory_install_refuses_symlinked_catalog_root() {
+        use std::os::unix::fs::symlink;
+
+        let (manifest, _, _, _) = fixture();
+        let digest = manifest.digest().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let source = parent.path().join("source");
+        std::fs::create_dir(&source).unwrap();
+        write_new(
+            &source.join("manifest.json"),
+            &manifest.canonical_bytes().unwrap(),
+        )
+        .unwrap();
+        let linked = parent.path().join("linked");
+        symlink(&source, &linked).unwrap();
+
+        let store = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            install_pinned_catalog_directory(&linked, store.path(), &digest),
+            Err(Error::Installation(_))
         ));
     }
 }

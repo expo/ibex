@@ -7,8 +7,8 @@
 
 use ibex_sfe_format::{
     EngineCompatibilityV1, HermescCompatibilityV1, StubAbisV1, StubAcceptedSchemasV1,
-    StubContractV1, StubTargetV1, ENTRY_DESIGNATION_SCHEMA_V1, ENVELOPE_SCHEMA_V1,
-    STUB_CONTRACT_SCHEMA_V1,
+    StubBackendInventoryV1, StubBootContractV3, StubContractV3, StubTargetV1,
+    ENTRY_DESIGNATION_SCHEMA_V1, ENVELOPE_SCHEMA_V2, STUB_CONTRACT_SCHEMA_V3,
 };
 
 use crate::capsec_runtime_projection_generated::{
@@ -31,15 +31,16 @@ pub struct ReleaseStubFactsV1 {
     pub hermesc_recipe_digest: String,
 }
 
-pub fn release_stub_contract(facts: ReleaseStubFactsV1) -> ibex_sfe_format::Result<StubContractV1> {
+pub fn release_stub_contract(facts: ReleaseStubFactsV1) -> ibex_sfe_format::Result<StubContractV3> {
     if !COMPILED_ENVIRONMENT_PROFILE_RELEASE_ELIGIBLE {
         return Err(ibex_sfe_format::Error::Contract(
             "compiled environment profile is not release eligible; resolve LLP 0029 register item 2"
                 .into(),
         ));
     }
-    let contract = StubContractV1 {
-        schema: STUB_CONTRACT_SCHEMA_V1.into(),
+    let backends = StubBackendInventoryV1::release_for_target(&facts.target_triple)?;
+    let contract = StubContractV3 {
+        schema: STUB_CONTRACT_SCHEMA_V3.into(),
         profile: facts.profile,
         release_eligible: true,
         target: StubTargetV1 {
@@ -62,6 +63,8 @@ pub fn release_stub_contract(facts: ReleaseStubFactsV1) -> ibex_sfe_format::Resu
         runtime_capsec_projection_digest: CAPSEC_RUNTIME_PROJECTION_DIGEST.into(),
         runtime_identity_digest: RUNTIME_IDENTITY_DIGEST.into(),
         environment_profile_digest: COMPILED_ENVIRONMENT_PROFILE_DIGEST.into(),
+        boot: StubBootContractV3::dual_mode(""),
+        backends,
     };
     contract.canonical_bytes()?;
     Ok(contract)
@@ -71,9 +74,9 @@ use crate::module_loader::transform_config_generated::{
     MODULE_RUNNER_ABI, TRANSFORM_CONFIGURATION_DIGEST,
 };
 
-pub fn diagnostic_development_stub_contract() -> ibex_sfe_format::Result<StubContractV1> {
-    let contract = StubContractV1 {
-        schema: STUB_CONTRACT_SCHEMA_V1.into(),
+pub fn diagnostic_development_stub_contract() -> ibex_sfe_format::Result<StubContractV3> {
+    let contract = StubContractV3 {
+        schema: STUB_CONTRACT_SCHEMA_V3.into(),
         profile: "dynamic-development-source-carrier".into(),
         release_eligible: false,
         target: StubTargetV1 {
@@ -90,14 +93,40 @@ pub fn diagnostic_development_stub_contract() -> ibex_sfe_format::Result<StubCon
         runtime_capsec_projection_digest: CAPSEC_RUNTIME_PROJECTION_DIGEST.into(),
         runtime_identity_digest: RUNTIME_IDENTITY_DIGEST.into(),
         environment_profile_digest: COMPILED_ENVIRONMENT_PROFILE_DIGEST.into(),
+        boot: StubBootContractV3::dual_mode(""),
+        backends: StubBackendInventoryV1::diagnostic_development(),
     };
     contract.canonical_bytes()?;
     Ok(contract)
 }
 
+/// Verify that a parsed contract names the schema/ABI/semantic authorities
+/// compiled into this runtime. Target, engine, and compiler facts are allowed
+/// to vary by catalog entry; these generated facts are not.
+/// @ref LLP 0029#2-executable-layout-stub-envelope-footer — a newer producer
+/// cannot make an older stub accept an ABI merely by describing it in the
+/// embedded contract
+pub fn validate_stub_contract_local_authorities(
+    contract: &StubContractV3,
+) -> ibex_sfe_format::Result<()> {
+    if contract.accepted_schemas != accepted_schemas()
+        || contract.abis != stub_abis()
+        || contract.transform_profile_digest != TRANSFORM_CONFIGURATION_DIGEST
+        || contract.runtime_capsec_projection_digest != CAPSEC_RUNTIME_PROJECTION_DIGEST
+        || contract.runtime_identity_digest != RUNTIME_IDENTITY_DIGEST
+        || contract.environment_profile_digest != COMPILED_ENVIRONMENT_PROFILE_DIGEST
+    {
+        return Err(ibex_sfe_format::Error::Contract(
+            "stub contract schema, ABI, or generated semantic identity disagrees with the compiled runtime"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
 fn accepted_schemas() -> StubAcceptedSchemasV1 {
     StubAcceptedSchemasV1 {
-        envelope: ENVELOPE_SCHEMA_V1.into(),
+        envelope: ENVELOPE_SCHEMA_V2.into(),
         entry_designation: ENTRY_DESIGNATION_SCHEMA_V1.into(),
         embedded_graph: "ibex/embedded-module-graph/1".into(),
         authenticated_graph_snapshot: "ibex/authenticated-graph-snapshot/1".into(),
@@ -147,6 +176,37 @@ const fn host_target_triple() -> &'static str {
 }
 
 #[cfg(test)]
+mod authority_tests {
+    use super::*;
+    use crate::module_loader::artifact::source_integrity;
+
+    #[test]
+    fn producer_newer_stub_older_authority_matrix_refuses() {
+        let contract = diagnostic_development_stub_contract().unwrap();
+        validate_stub_contract_local_authorities(&contract).unwrap();
+
+        let mut newer_abi = contract.clone();
+        newer_abi.abis.module_runner.push_str("-producer-newer");
+        newer_abi.canonical_bytes().unwrap();
+        assert!(validate_stub_contract_local_authorities(&newer_abi).is_err());
+
+        let mut newer_transform = contract.clone();
+        newer_transform.transform_profile_digest = source_integrity(b"producer-newer-transform")
+            .unwrap()
+            .to_string();
+        newer_transform.canonical_bytes().unwrap();
+        assert!(validate_stub_contract_local_authorities(&newer_transform).is_err());
+
+        let mut newer_runtime = contract;
+        newer_runtime.runtime_identity_digest = source_integrity(b"producer-newer-runtime")
+            .unwrap()
+            .to_string();
+        newer_runtime.canonical_bytes().unwrap();
+        assert!(validate_stub_contract_local_authorities(&newer_runtime).is_err());
+    }
+}
+
+#[cfg(test)]
 mod tests {
     #[test]
     fn diagnostic_contract_is_closed_and_not_release_eligible() {
@@ -164,8 +224,8 @@ mod tests {
     }
 
     #[test]
-    fn release_contract_refuses_an_undecided_environment_profile() {
-        let error = super::release_stub_contract(super::ReleaseStubFactsV1 {
+    fn release_contract_accepts_the_decided_empty_capsec_restore_allowlist() {
+        let contract = super::release_stub_contract(super::ReleaseStubFactsV1 {
             profile: "release-v1".into(),
             target_triple: "aarch64-apple-darwin".into(),
             minimum_platform: "macos-13.0-arm64".into(),
@@ -175,7 +235,11 @@ mod tests {
             hermesc_binary_digest: "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into(),
             hermesc_recipe_digest: "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into(),
         })
-        .unwrap_err();
-        assert!(error.to_string().contains("register item 2"));
+        .unwrap();
+        assert!(contract.release_eligible);
+        assert_eq!(
+            contract.environment_profile_digest,
+            super::COMPILED_ENVIRONMENT_PROFILE_DIGEST
+        );
     }
 }

@@ -78,3 +78,14 @@ decisions governing environment authority and the first target advertisement.
   first-target-advertisement decision — register item 4 was re-resolved
   2026-07-29 (v1 ships fail-closed); only register item 2 (env
   allowlist) still blocks.
+
+## LLP 0047 reconciliation — 2026-08-01
+
+Milestone 2 splits the remaining work without splitting admission. Both boot
+modes must use this ticket's existing self-file, envelope, graph, policy, and
+carrier preflight. Ambient boot then constructs the enforcement-off compiled
+Host and may ship without target evidence. Disk-free `ArmedSnapshot`
+construction, authority denial, and bootstrap/application split remain the
+CapSec-selected path; missing advertisement must refuse before entry and may
+never retry ambient. Successful production CapSec admission is v1.1, while a
+fixture-only advertised build is still required to prove milestone 2 dispatch.

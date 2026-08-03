@@ -22,6 +22,9 @@ use std::time::Duration;
 /// compilation attempts for the rest of the process lifetime.
 static BYTECODE_INCOMPATIBLE: AtomicBool = AtomicBool::new(false);
 
+const RELEASE_POLICY_TOOLCHAIN_DIGEST: Option<&str> =
+    option_env!("IBEX_RELEASE_POLICY_TOOLCHAIN_DIGEST");
+
 #[cfg(feature = "module-runner")]
 const LEGACY_MODULE_LOADER_LAST_SUPPORTED_MINOR: &str = "0.1";
 
@@ -10520,6 +10523,7 @@ async fn run_bundler_with_source_provenance(
         bundle_format,
         source_provenance_authority,
         BundlePublicationMode::ReusableCache,
+        None,
     )
     .await
 }
@@ -10539,6 +10543,35 @@ async fn run_fresh_bundler_with_source_provenance(
         bundle_format,
         Some(source_provenance_authority),
         BundlePublicationMode::FreshPrivate,
+        None,
+    )
+    .await
+}
+
+struct BundleCaptureBarrier {
+    entry: PathBuf,
+    directory: PathBuf,
+}
+
+#[cfg(test)]
+async fn run_bundler_with_test_capture_barrier(
+    entry: &Path,
+    artifact_root: &Path,
+    bundle_format: BundleFormat,
+    barrier_entry: &Path,
+    barrier_directory: &Path,
+) -> Result<PathBuf> {
+    let barrier = BundleCaptureBarrier {
+        entry: barrier_entry.to_path_buf(),
+        directory: barrier_directory.to_path_buf(),
+    };
+    run_bundler_with_source_provenance_mode(
+        entry,
+        artifact_root,
+        bundle_format,
+        None,
+        BundlePublicationMode::ReusableCache,
+        Some(&barrier),
     )
     .await
 }
@@ -10584,6 +10617,7 @@ async fn run_bundler_with_source_provenance_mode(
     bundle_format: BundleFormat,
     source_provenance_authority: Option<&BundleSourceProvenanceAuthority>,
     publication_mode: BundlePublicationMode,
+    test_capture_barrier: Option<&BundleCaptureBarrier>,
 ) -> Result<PathBuf> {
     if entry.to_str().is_none() || artifact_root.to_str().is_none() {
         anyhow::bail!(
@@ -10674,19 +10708,14 @@ async fn run_bundler_with_source_provenance_mode(
         .arg("--cache-manifest")
         .current_dir(&working_dir);
     configure_js_tool_environment(&mut command, &private_runner_environment);
-    #[cfg(test)]
-    if publication_mode == BundlePublicationMode::ReusableCache {
-        // These two barriers exercise cache publication races only. They are
-        // never part of a production compiler environment and FreshPrivate
-        // deliberately withholds them.
-        for name in [
-            "IBEX_TEST_BUNDLE_BARRIER_ENTRY",
-            "IBEX_TEST_BUNDLE_BARRIER_DIR",
-        ] {
-            if let Some(value) = std::env::var_os(name) {
-                command.env(name, value);
-            }
-        }
+    if let Some(barrier) = test_capture_barrier {
+        // This explicitly scoped hook exercises cache-publication races. It
+        // is never sourced from the process environment, so a parallel
+        // bundler cannot inherit another test's temporary paths.
+        debug_assert!(publication_mode == BundlePublicationMode::ReusableCache);
+        command
+            .env("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &barrier.entry)
+            .env("IBEX_TEST_BUNDLE_BARRIER_DIR", &barrier.directory);
     }
     if let Some((authority_path, authority_digest)) = source_provenance_input.as_ref() {
         command
@@ -10891,13 +10920,49 @@ fn bundler_script_path() -> Result<PathBuf> {
 pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<()> {
     use crate::cli::PolicyCommands;
 
-    let root = repo_root()?;
-    let script = authenticated_repo_file(
-        &root,
-        Path::new("packages/ibex-devtools/src/scripts/generate-policy.mjs"),
-    )?;
-    let (runner, runner_name) = find_js_runner()?;
+    let toolchain = policy_authoring_toolchain()?;
+    let script = &toolchain.script;
+    let runner = &toolchain.runner;
+    let runner_name = toolchain.runner_name;
     let private_environment = FreshGeneratedArtifactRoot::create(&std::env::temp_dir())?;
+
+    let compiled_entry = match command {
+        PolicyCommands::Generate {
+            entry,
+            target_triple: Some(_),
+            ..
+        }
+        | PolicyCommands::Check {
+            entry,
+            target_triple: Some(_),
+            ..
+        } => Some(entry),
+        _ => None,
+    };
+    let authenticated_graph_snapshot = if let Some(entry) = compiled_entry {
+        let path = private_environment
+            .path()
+            .join("authenticated-graph-snapshot.canonical.json");
+        let bytes = crate::sfe::capture_compiled_policy_snapshot(entry)
+            .context("failed to capture the compiled policy graph")?;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .and_then(|mut file| {
+                use std::io::Write as _;
+                file.write_all(&bytes)
+            })
+            .with_context(|| {
+                format!(
+                    "failed to publish private policy graph snapshot {}",
+                    path.display()
+                )
+            })?;
+        Some(path)
+    } else {
+        None
+    };
 
     let mut cmd = tokio::process::Command::new(&runner);
     configure_js_tool_environment(&mut cmd, private_environment.path());
@@ -10926,6 +10991,9 @@ pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<
         ));
     }
     cmd.arg(&script);
+    if let Some(snapshot) = authenticated_graph_snapshot.as_ref() {
+        cmd.arg("--authenticated-graph-snapshot").arg(snapshot);
+    }
     match command {
         PolicyCommands::Generate {
             entry,
@@ -10986,10 +11054,90 @@ pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<
         .status()
         .await
         .context("failed to spawn the policy generator")?;
+    toolchain.verify_after_execution()?;
     if !status.success() {
         std::process::exit(status.code().unwrap_or(1));
     }
     Ok(())
+}
+
+struct PolicyAuthoringToolchain {
+    runner: PathBuf,
+    runner_name: &'static str,
+    script: PathBuf,
+    packaged_root: Option<PathBuf>,
+}
+
+impl PolicyAuthoringToolchain {
+    fn verify_after_execution(&self) -> Result<()> {
+        let Some(root) = self.packaged_root.as_ref() else {
+            return Ok(());
+        };
+        let digest = RELEASE_POLICY_TOOLCHAIN_DIGEST
+            .context("release policy-toolchain verification lost its compiled trust root")?;
+        ibex_sfe_catalog::policy_toolchain::admit_policy_toolchain_directory(
+            root,
+            digest,
+            current_policy_toolchain_target()?,
+        )
+        .context("SFP004 packaged policy toolchain changed during policy authoring")?;
+        Ok(())
+    }
+}
+
+fn policy_authoring_toolchain() -> Result<PolicyAuthoringToolchain> {
+    if let Some(digest) = RELEASE_POLICY_TOOLCHAIN_DIGEST {
+        let executable =
+            std::env::current_exe().context("SFP001 cannot locate the release Ibex executable")?;
+        let install_root = executable
+            .parent()
+            .context("SFP001 release Ibex executable has no installation directory")?;
+        let directory_name =
+            ibex_sfe_catalog::policy_toolchain::policy_toolchain_directory_name(digest)
+                .context("SFP001 compiled policy-toolchain trust root is invalid")?;
+        let root = install_root.join(directory_name);
+        let admitted =
+            ibex_sfe_catalog::policy_toolchain::admit_policy_toolchain_directory(
+                &root,
+                digest,
+                current_policy_toolchain_target()?,
+            )
+            .with_context(|| {
+                format!(
+                    "SFP002 packaged policy author unavailable: install the policy-toolchain directory next to {}",
+                    executable.display()
+                )
+            })?;
+        return Ok(PolicyAuthoringToolchain {
+            runner: admitted.runner,
+            runner_name: "bun",
+            script: admitted.script,
+            packaged_root: Some(root),
+        });
+    }
+
+    let root = repo_root()?;
+    let script = authenticated_repo_file(
+        &root,
+        Path::new("packages/ibex-devtools/src/scripts/generate-policy.mjs"),
+    )?;
+    let (runner, runner_name) = find_js_runner()?;
+    Ok(PolicyAuthoringToolchain {
+        runner,
+        runner_name,
+        script,
+        packaged_root: None,
+    })
+}
+
+fn current_policy_toolchain_target() -> Result<&'static str> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => Ok("aarch64-apple-darwin"),
+        ("linux", "x86_64") => Ok("x86_64-unknown-linux-gnu"),
+        (os, arch) => {
+            anyhow::bail!("SFP003 no standalone policy-toolchain target exists for {os}-{arch}")
+        }
+    }
 }
 
 fn bundler_working_dir() -> Result<PathBuf> {
@@ -17956,9 +18104,6 @@ pub(crate) mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn bundle_rejects_source_mutation_after_rolldown_capture() {
-        let _lock = crate::engine::hermes::hermes_engine_test_lock()
-            .lock()
-            .await;
         bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
         let source_dir = tempdir().unwrap();
         let cache_dir = tempdir().unwrap();
@@ -17966,18 +18111,19 @@ pub(crate) mod tests {
         let entry = source_dir.path().join("entry.js");
         let artifact_root = cache_dir.path().join("cache-key");
         std::fs::write(&entry, "module.exports = 'before';\n").unwrap();
-        // The shared test lock owns these process-global hook variables until
-        // the child has exited and they have been removed.
-        unsafe {
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &entry);
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
-        }
         let task_entry = entry.clone();
         let task_root = artifact_root.clone();
-        let task =
-            tokio::spawn(
-                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
-            );
+        let task_barrier_dir = barrier_dir.path().to_path_buf();
+        let task = tokio::spawn(async move {
+            run_bundler_with_test_capture_barrier(
+                &task_entry,
+                &task_root,
+                BundleFormat::Cjs,
+                &task_entry,
+                &task_barrier_dir,
+            )
+            .await
+        });
         let captured = barrier_dir.path().join("captured");
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !captured.exists() && std::time::Instant::now() < deadline {
@@ -17988,13 +18134,9 @@ pub(crate) mod tests {
             std::fs::write(&entry, "module.exports = 'after!';\n").unwrap();
         }
         // Always unblock and join the child before asserting so a timeout
-        // cannot strand a subprocess or leak the process-global test hook.
+        // cannot strand a subprocess.
         std::fs::write(barrier_dir.path().join("release"), []).unwrap();
         let result = task.await.unwrap();
-        unsafe {
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
-        }
         assert!(
             reached_barrier,
             "bundler never reached source capture barrier: {result:?}"
@@ -18011,9 +18153,6 @@ pub(crate) mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn bundle_rejects_resolution_candidate_added_after_resolver_decision() {
-        let _lock = crate::engine::hermes::hermes_engine_test_lock()
-            .lock()
-            .await;
         bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
         let source_dir = tempdir().unwrap();
         let cache_dir = tempdir().unwrap();
@@ -18024,16 +18163,20 @@ pub(crate) mod tests {
         let artifact_root = cache_dir.path().join("cache-key");
         std::fs::write(&entry, "module.exports = require('./dep').value;\n").unwrap();
         std::fs::write(&selected, "exports.value = 'typescript';\n").unwrap();
-        unsafe {
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &selected);
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
-        }
         let task_entry = entry.clone();
         let task_root = artifact_root.clone();
-        let task =
-            tokio::spawn(
-                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
-            );
+        let task_barrier_entry = selected.clone();
+        let task_barrier_dir = barrier_dir.path().to_path_buf();
+        let task = tokio::spawn(async move {
+            run_bundler_with_test_capture_barrier(
+                &task_entry,
+                &task_root,
+                BundleFormat::Cjs,
+                &task_barrier_entry,
+                &task_barrier_dir,
+            )
+            .await
+        });
         let captured = barrier_dir.path().join("captured");
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !captured.exists() && std::time::Instant::now() < deadline {
@@ -18045,10 +18188,6 @@ pub(crate) mod tests {
         }
         std::fs::write(barrier_dir.path().join("release"), []).unwrap();
         let result = task.await.unwrap();
-        unsafe {
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
-        }
         assert!(
             reached_barrier,
             "bundler never resolved/captured dep.ts: {result:?}"
@@ -18065,9 +18204,6 @@ pub(crate) mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn bundle_witnesses_hoisted_packages_above_nested_project_boundaries() {
-        let _lock = crate::engine::hermes::hermes_engine_test_lock()
-            .lock()
-            .await;
         bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
         let workspace = tempdir().unwrap();
         let cache_dir = tempdir().unwrap();
@@ -18086,17 +18222,21 @@ pub(crate) mod tests {
         )
         .unwrap();
         std::fs::write(&selected, "exports.value = 'workspace';\n").unwrap();
-        unsafe {
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &selected);
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
-        }
 
         let task_entry = entry.clone();
         let task_root = artifact_root.clone();
-        let task =
-            tokio::spawn(
-                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
-            );
+        let task_barrier_entry = selected.clone();
+        let task_barrier_dir = barrier_dir.path().to_path_buf();
+        let task = tokio::spawn(async move {
+            run_bundler_with_test_capture_barrier(
+                &task_entry,
+                &task_root,
+                BundleFormat::Cjs,
+                &task_barrier_entry,
+                &task_barrier_dir,
+            )
+            .await
+        });
         let captured = barrier_dir.path().join("captured");
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !captured.exists() && std::time::Instant::now() < deadline {
@@ -18123,10 +18263,6 @@ pub(crate) mod tests {
         }
         std::fs::write(barrier_dir.path().join("release"), []).unwrap();
         let result = task.await.unwrap();
-        unsafe {
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
-        }
         assert!(
             reached_barrier,
             "bundler never resolved hoisted package: {result:?}"
@@ -18143,9 +18279,6 @@ pub(crate) mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn bundle_witnesses_bare_package_subpath_extension_precedence() {
-        let _lock = crate::engine::hermes::hermes_engine_test_lock()
-            .lock()
-            .await;
         bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
         let project = tempdir().unwrap();
         let cache_dir = tempdir().unwrap();
@@ -18164,17 +18297,21 @@ pub(crate) mod tests {
         .unwrap();
         std::fs::write(&entry, "module.exports = require('pkg/lib/value').value;\n").unwrap();
         std::fs::write(&selected, "exports.value = 'typescript';\n").unwrap();
-        unsafe {
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &selected);
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
-        }
 
         let task_entry = entry.clone();
         let task_root = artifact_root.clone();
-        let task =
-            tokio::spawn(
-                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
-            );
+        let task_barrier_entry = selected.clone();
+        let task_barrier_dir = barrier_dir.path().to_path_buf();
+        let task = tokio::spawn(async move {
+            run_bundler_with_test_capture_barrier(
+                &task_entry,
+                &task_root,
+                BundleFormat::Cjs,
+                &task_barrier_entry,
+                &task_barrier_dir,
+            )
+            .await
+        });
         let captured = barrier_dir.path().join("captured");
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !captured.exists() && std::time::Instant::now() < deadline {
@@ -18186,10 +18323,6 @@ pub(crate) mod tests {
         }
         std::fs::write(barrier_dir.path().join("release"), []).unwrap();
         let result = task.await.unwrap();
-        unsafe {
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
-        }
         assert!(
             reached_barrier,
             "bundler never resolved package subpath: {result:?}"
@@ -18206,9 +18339,6 @@ pub(crate) mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn bundle_witnesses_package_main_target_extension_precedence() {
-        let _lock = crate::engine::hermes::hermes_engine_test_lock()
-            .lock()
-            .await;
         bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
         let project = tempdir().unwrap();
         let cache_dir = tempdir().unwrap();
@@ -18227,17 +18357,21 @@ pub(crate) mod tests {
         .unwrap();
         std::fs::write(&entry, "module.exports = require('pkg').value;\n").unwrap();
         std::fs::write(&selected, r#"{"value":"json"}"#).unwrap();
-        unsafe {
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &selected);
-            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
-        }
 
         let task_entry = entry.clone();
         let task_root = artifact_root.clone();
-        let task =
-            tokio::spawn(
-                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
-            );
+        let task_barrier_entry = selected.clone();
+        let task_barrier_dir = barrier_dir.path().to_path_buf();
+        let task = tokio::spawn(async move {
+            run_bundler_with_test_capture_barrier(
+                &task_entry,
+                &task_root,
+                BundleFormat::Cjs,
+                &task_barrier_entry,
+                &task_barrier_dir,
+            )
+            .await
+        });
         let captured = barrier_dir.path().join("captured");
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !captured.exists() && std::time::Instant::now() < deadline {
@@ -18249,10 +18383,6 @@ pub(crate) mod tests {
         }
         std::fs::write(barrier_dir.path().join("release"), []).unwrap();
         let result = task.await.unwrap();
-        unsafe {
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
-            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
-        }
         assert!(
             reached_barrier,
             "bundler never resolved package main target: {result:?}"

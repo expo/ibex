@@ -4567,6 +4567,18 @@ impl Host {
         })
     }
 
+    /// Deliberate enforcement-off Host for an admitted standalone
+    /// application's ambient-compatibility boot. General Ibex binaries do not
+    /// enable this feature or expose a runtime selector for it.
+    /// @ref LLP 0047#ambient-path
+    #[cfg(feature = "sfe-compiled-runtime")]
+    pub fn compiled_ambient() -> Self {
+        Self::new(HostConfig {
+            mode: SecurityMode::Permissive,
+            ..Default::default()
+        })
+    }
+
     /// Create a host with strict security mode
     pub fn strict() -> Self {
         Self::new(HostConfig {

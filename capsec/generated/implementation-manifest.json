@@ -136224,20 +136224,21 @@
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Some:count-17",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:cfg:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:let:count-1",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:and_then:count-3",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:and_then:count-4",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:as_deref:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:as_str:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:canonicalize:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:clone:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:directory:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:display:count-1",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:eq_ignore_ascii_case:count-2",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:eq_ignore_ascii_case:count-3",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:exists:count-1",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:extension:count-3",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:extension:count-4",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:flatten:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:full_path:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:is_absolute:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:is_none:count-5",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:is_some_and:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:join:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:map:count-2",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:module_type:count-1",
@@ -136249,7 +136250,7 @@
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:starts_with:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:then:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_path_buf:count-2",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_str:count-3",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_str:count-4",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_string:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_string_lossy:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:unzip:count-1",
@@ -137250,20 +137251,21 @@
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Some:count-17",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:cfg:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:let:count-1",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:and_then:count-3",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:and_then:count-4",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:as_deref:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:as_str:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:canonicalize:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:clone:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:directory:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:display:count-1",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:eq_ignore_ascii_case:count-2",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:eq_ignore_ascii_case:count-3",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:exists:count-1",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:extension:count-3",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:extension:count-4",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:flatten:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:full_path:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:is_absolute:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:is_none:count-5",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:is_some_and:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:join:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:map:count-2",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:module_type:count-1",
@@ -137275,7 +137277,7 @@
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:starts_with:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:then:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_path_buf:count-2",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_str:count-3",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_str:count-4",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_string:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_string_lossy:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:unzip:count-1",
@@ -138283,20 +138285,21 @@
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Some:count-17",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:cfg:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:let:count-1",
-        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:and_then:count-3",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:and_then:count-4",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:as_deref:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:as_str:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:canonicalize:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:clone:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:directory:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:display:count-1",
-        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:eq_ignore_ascii_case:count-2",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:eq_ignore_ascii_case:count-3",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:exists:count-1",
-        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:extension:count-3",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:extension:count-4",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:flatten:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:full_path:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:is_absolute:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:is_none:count-5",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:is_some_and:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:join:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:map:count-2",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:module_type:count-1",
@@ -138308,7 +138311,7 @@
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:starts_with:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:then:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_path_buf:count-2",
-        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_str:count-3",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_str:count-4",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_string:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_string_lossy:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:unzip:count-1",
@@ -267896,7 +267899,7 @@
       "edgeId": "surface.startup.env.dynamic.rust.command.default.env.1o1kxgs",
       "observedKey": "startup:env:<dynamic>:rust:Command::default_env",
       "branchId": "surface.startup.env.dynamic.rust.command.default.env.1o1kxgs.main",
-      "enforcementBranchId": "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.1ayo99h",
+      "enforcementBranchId": "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0hj723m",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -267910,6 +267913,7 @@
           "src/bin/ibex/session_semantics_conformance.rs#Command::default_env:dynamic:write",
           "src/bin/ibex/session_worker.rs#Command::default_env:dynamic:write",
           "src/bin/ibex/sfe.rs#Command::default_env:dynamic:write",
+          "src/bin/ibex_sfe_contract.rs#Command::default_env:dynamic:write",
           "src/module_loader/catalog_compiler.rs#Command::default_env:dynamic:write",
           "src/module_loader/mod.rs#Command::default_env:dynamic:write"
         ],
@@ -267921,6 +267925,7 @@
           "src/bin/ibex/session_semantics_conformance.rs#Command::default_env:dynamic:write",
           "src/bin/ibex/session_worker.rs#Command::default_env:dynamic:write",
           "src/bin/ibex/sfe.rs#Command::default_env:dynamic:write",
+          "src/bin/ibex_sfe_contract.rs#Command::default_env:dynamic:write",
           "src/module_loader/catalog_compiler.rs#Command::default_env:dynamic:write",
           "src/module_loader/mod.rs#Command::default_env:dynamic:write"
         ],
@@ -267939,23 +267944,24 @@
         "src/bin/ibex/session_semantics_conformance.rs#Command::default_env:dynamic:write",
         "src/bin/ibex/session_worker.rs#Command::default_env:dynamic:write",
         "src/bin/ibex/sfe.rs#Command::default_env:dynamic:write",
+        "src/bin/ibex_sfe_contract.rs#Command::default_env:dynamic:write",
         "src/module_loader/catalog_compiler.rs#Command::default_env:dynamic:write",
         "src/module_loader/mod.rs#Command::default_env:dynamic:write"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.1ayo99h.allow",
-        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.1ayo99h.deny",
-        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.1ayo99h.malformed",
-        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.1ayo99h.missing-attribution",
-        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.1ayo99h.wrong-principal"
+        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0hj723m.allow",
+        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0hj723m.deny",
+        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0hj723m.malformed",
+        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0hj723m.missing-attribution",
+        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0hj723m.wrong-principal"
       ]
     },
     {
       "edgeId": "surface.startup.env.dynamic.rust.command.env.clear.0cl6ccg",
       "observedKey": "startup:env:<dynamic>:rust:Command::env_clear",
       "branchId": "surface.startup.env.dynamic.rust.command.env.clear.0cl6ccg.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.0qms7wg",
+      "enforcementBranchId": "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.15wa29p",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -267964,12 +267970,14 @@
         "proofSourceRefs": [
           "src/bin/ibex/engine/hermes.rs#Command::env_clear:dynamic:unset",
           "src/bin/ibex/runtime.rs#Command::env_clear:dynamic:unset",
+          "src/bin/ibex_sfe_contract.rs#Command::env_clear:dynamic:unset",
           "src/module_loader/catalog_compiler.rs#Command::env_clear:dynamic:unset",
           "src/module_loader/mod.rs#Command::env_clear:dynamic:unset"
         ],
         "sourceRefs": [
           "src/bin/ibex/engine/hermes.rs#Command::env_clear:dynamic:unset",
           "src/bin/ibex/runtime.rs#Command::env_clear:dynamic:unset",
+          "src/bin/ibex_sfe_contract.rs#Command::env_clear:dynamic:unset",
           "src/module_loader/catalog_compiler.rs#Command::env_clear:dynamic:unset",
           "src/module_loader/mod.rs#Command::env_clear:dynamic:unset"
         ],
@@ -267983,16 +267991,17 @@
       "sourceRefs": [
         "src/bin/ibex/engine/hermes.rs#Command::env_clear:dynamic:unset",
         "src/bin/ibex/runtime.rs#Command::env_clear:dynamic:unset",
+        "src/bin/ibex_sfe_contract.rs#Command::env_clear:dynamic:unset",
         "src/module_loader/catalog_compiler.rs#Command::env_clear:dynamic:unset",
         "src/module_loader/mod.rs#Command::env_clear:dynamic:unset"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.0qms7wg.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.0qms7wg.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.0qms7wg.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.0qms7wg.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.0qms7wg.wrong-principal"
+        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.15wa29p.allow",
+        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.15wa29p.deny",
+        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.15wa29p.malformed",
+        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.15wa29p.missing-attribution",
+        "enforcement.src.bin.ibex.engine.hermes.rs.command.env.clear.dynamic.unset.15wa29p.wrong-principal"
       ]
     },
     {
@@ -282286,7 +282295,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-BXqw-gkB1mbfpT0FaF0_6g76B7QCBl0UJWk8XVyADS4"
+      "rawContentDigest": "sha256-ZXjO9HxYPiYuPt8pfYNbPcH7vd7I8VWAMAeOMSx0xKc"
     },
     {
       "kind": "output-disposition-dataset",
@@ -282301,12 +282310,12 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-7rA7OgOdioyefUKxF_ArIBVBYO3sBhtDXSHjCN7D4Eo"
+      "rawContentDigest": "sha256-yPzE62eNtzKGVcqYAYtZHhFo8Fd0PLgJVw2mBafs7qI"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-Hj6h_wVgaKWwZx1GZY7AbZV-S1NXclPCdQVZS0PvP8k"
+      "rawContentDigest": "sha256-t4tLuLMbDX4nk9aqtN8MuO9VfH6TZImDC0_xLMoi4Q4"
     },
     {
       "kind": "registry",
@@ -282316,26 +282325,26 @@
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-ryEqdclrm3NkRldAdnKBuTWQgLoYwK9tswHXe0NgbNM"
+      "rawContentDigest": "sha256-jg7rtl4IeCGYZJ5bu1JN5Rx-MaoNsLF-vNjt18YjhiQ"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256--tF16cFVvEipViRnPyH0PmmcCaj3LaHT93PqlWShR5U"
+      "rawContentDigest": "sha256-IGZQON4EDWfY_PhQtrNuqeNYcAgkSla46F8bRRTAWas"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-GS0QYdEoWKmYrElua2cmv-pi0wnf55cmwpMbtarPfwg"
+      "rawContentDigest": "sha256-i8vg5qIvsi3mKYxnaeC7I6PE4y0SrIlpsDg3rd2RQLM"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-nlveHoUmRiOcXvO3dz_aCTc-hqOgAZz8wc39rAgAhZ0"
+      "rawContentDigest": "sha256-oX17hgdyD-ps3gwM0lsB4Jvn2B4SM9K_U6di23wBw5U"
     }
   ],
   "counts": {
-    "observedReferences": 13385,
+    "observedReferences": 13388,
     "logicalSurfaces": 7528,
     "enforcementBranches": 7829,
     "coverageEdges": 7528,

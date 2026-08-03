@@ -2216,6 +2216,15 @@ pub extern "C" fn ex_host_claim_diagnostic_context() -> u64 {
     claim_pending_host_context(None, RuntimeExtensionAuthorityClaim::Ignore)
 }
 
+/// Claim the deliberate enforcement-off context installed only by a compiled
+/// standalone application's authenticated ambient boot path.
+/// @ref LLP 0047#ambient-path
+#[no_mangle]
+#[cfg(feature = "sfe-compiled-runtime")]
+pub extern "C" fn ibex_private_host_claim_compiled_ambient_context_v1() -> u64 {
+    claim_pending_host_context(None, RuntimeExtensionAuthorityClaim::Ignore)
+}
+
 #[no_mangle]
 pub extern "C" fn ex_host_enter_context(context_id: u64) -> u64 {
     let exists = HOST_CONTEXTS

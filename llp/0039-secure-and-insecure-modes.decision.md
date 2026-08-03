@@ -5,6 +5,15 @@
 **Systems:** Runtime, CapSec, Build, Product
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-24
+**Revised:** 2026-08-02 (LLP 0047 author ratification retains ambient
+compatibility as the standalone v1 default and closes the copied-recipient
+disclosure gap with authenticated first-position `--ibex-info`, which reports
+posture/backend/CapSec facts after admission and before application evaluation.)
+**Revised:** 2026-08-01 (implementation checkpoint: a catalog-pinned V2
+ambient standalone artifact now exists and runs authored code after relocation;
+the foreign-code trigger remains tied to actually embedding/executing code Ibex
+did not author, while this document's advance re-evaluation already governs
+that planned use)
 **Revised:** 2026-08-01 (round-3 delta review, **applied after the round budget
 closed and therefore NOT re-reviewed**: trip-wire 5 states why it stays keyed
 to the Cargo feature rather than generalizing like wires 1-4)
@@ -74,8 +83,9 @@ were transitional.
 LLP 0047 adds one deliberately scoped product exception. A standalone
 application produced by `ibex compile` contains an **ambient compatibility**
 boot path and a CapSec boot path in the same file. The standalone application
-defaults to ambient compatibility and accepts a single monotonic CapSec
-selector; the general `ibex` CLI, its Cargo defaults, and its publication
+defaults to ambient compatibility, accepts a monotonic CapSec selector, and
+reserves a separate non-evaluating information selector; the general `ibex`
+CLI, its Cargo defaults, and its publication
 posture remain secure and fail-closed. “Ambient compatibility” is named
 separately from the `insecure` Cargo feature because it is a supported compiled
 application contract, not a development build accidentally published. The
@@ -160,10 +170,11 @@ not merely noting it:
    controls** disclose the absent sandbox: `ibex compile`'s help and
    first-compile notice, `inspect-executable`, the standalone guide, and
    release metadata. An earlier wording also demanded it of the application's
-   own help — which Ibex cannot deliver, since the compiled app owns its entire
-   argv and help surface. Where LLP 0047 §8 item 4 leaves a recipient-side
-   disclosure gap, that gap must be recorded there as accepted; an unrecorded
-   gap fails this wire.
+   own help — which Ibex cannot deliver. LLP 0047 now reserves exact
+   first-position `--ibex-info`, so a copied executable itself can disclose the
+   authenticated posture, backend inventory, and CapSec availability without
+   evaluating its application. Removing or weakening that surface reopens and
+   fails this wire.
 4. **Agent-driven execution.** Coding agents (including the one that wrote this)
    run code in this repository. An agent running arbitrary or generated code
    under an `insecure` build has the same exposure as item 2, with more volume
@@ -322,10 +333,10 @@ register, not by a build-time check.
   mode"), while every secure mode keeps the authenticated empty base.
 - This document should be revisited the first time Ibex executes code it did not
   author — that event, not a date, is the trigger. **As of LLP 0047 a reviewed
-  design commits to firing it.** The execution event has not occurred: no
-  ambient standalone executable can exist yet, because `ibex compile` refuses
-  without a compiled-in catalog digest that no repository build sets, and the
-  stub refuses every release envelope. But an ambient standalone executable
+  design commits to firing it.** The standalone mechanism now exists: a
+  catalog-pinned producer has built and run an authored ambient fixture from
+  a relocated, source-free executable. That evidence does not by itself prove
+  the narrower foreign-code event occurred. An ambient standalone executable
   embedding npm dependencies would be exactly "Ibex executing code it did not
   author with ambient authority," and LLP 0047 schedules precisely that as
   designed, reviewed behavior rather than the accident this trigger was meant

@@ -1,0 +1,72 @@
+{
+  "description": "Deterministic development-stub envelope vector for ibex/single-file-executable/2",
+  "directory": {
+    "schema": "ibex/single-file-executable/2",
+    "sections": [
+      {
+        "alignment": 8,
+        "digest": "sha256-yBeHj9AC4bx1smuNtHgJdgFknfRP45-aCYmzFgXP7Rw",
+        "id": "stub-contract",
+        "kind": "stub-contract",
+        "length": 1920,
+        "offset": 0
+      },
+      {
+        "alignment": 8,
+        "digest": "sha256-NE7mDE--jhjwTIi1hHSHnqP6Q79TMNQs-FgiRNb4YMM",
+        "id": "provenance",
+        "kind": "provenance-manifest",
+        "length": 38,
+        "offset": 1920
+      },
+      {
+        "alignment": 8,
+        "digest": "sha256-PJNM2sYe7-bBWa8RdlmIQYMsvtmByeTc3VwR1brlnGU",
+        "id": "graph",
+        "kind": "embedded-module-graph",
+        "length": 41,
+        "offset": 1960
+      },
+      {
+        "alignment": 8,
+        "digest": "sha256-L-qnd_v5dJ0BhXSfOmDzEhzw5xVwDpeBkYAYfxRxBXo",
+        "id": "policy",
+        "kind": "resolved-policy",
+        "length": 39,
+        "offset": 2008
+      },
+      {
+        "alignment": 8,
+        "digest": "sha256-UfYcM-_p5MX4w_iXhErtV1kAnrW35PdXKsIIpr31Ytw",
+        "id": "entry",
+        "kind": "entry-designation",
+        "length": 185,
+        "offset": 2048
+      },
+      {
+        "alignment": 8,
+        "digest": "sha256-hFj9WPqliusJ1gUhsu44A8U_h1WwNfkh9Rlao5vZrQc",
+        "id": "carrier-manifest-0",
+        "kind": "carrier-manifest",
+        "length": 34,
+        "offset": 2240,
+        "pairId": "module-0"
+      },
+      {
+        "alignment": 4096,
+        "digest": "sha256-VzqQxIXhcNkzhgmEM9UGjHObbZXNSkLBKgxyAX4ih0E",
+        "id": "carrier-payload-0",
+        "kind": "carrier-payload",
+        "length": 13,
+        "offset": 4072,
+        "pairId": "module-0"
+      }
+    ],
+    "stubContractDigest": "sha256-Nqx_iGVShCY8pmy8fMSFZtkCEe58BU7CFiqVZMDmUao"
+  },
+  "envelopeDigest": "sha256-Pv3nQl63GW_uMH4VOOqhmebwtnac777U-f12RQOVUoc",
+  "fileDigest": "sha256-sAz1Qfuo6LZOSVjaMuUWWDuz1F2yBE4lQHkZ7-NAQpY",
+  "fileLength": 5416,
+  "schema": "ibex/single-file-executable-golden/2",
+  "stubContractDigest": "sha256-Nqx_iGVShCY8pmy8fMSFZtkCEe58BU7CFiqVZMDmUao"
+}

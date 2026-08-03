@@ -117,8 +117,8 @@ export { trace };
     oracle: [`${marker}["dep:start","dep:end","entry"]`],
     currentIbex: {
       outcome: 'error',
-      stderrIncludes: "';' expected",
-      note: 'The current file-at-a-time fallback rejects this dependency TLA before producing an entry observation.',
+      stderrIncludes: "Cannot read property 'concat' of undefined",
+      note: 'The current file-at-a-time fallback parses dependency TLA but evaluates the importer before the dependency export settles.',
     },
   },
   {

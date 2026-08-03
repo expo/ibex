@@ -158,6 +158,9 @@ extern "C" {
 #endif // !EXACT_NO_OPENSSL
 #elif !defined(_WIN32)
 #include <sys/sysinfo.h>
+#if !defined(EXACT_NO_OPENSSL)
+// @ref LLP 0008#crypto — the default Linux profile deliberately omits the
+// OpenSSL dependency while `openssl-crypto` supplies the full native surface.
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/pem.h>
@@ -167,6 +170,7 @@ extern "C" {
 #include <openssl/bn.h>
 #include <openssl/param_build.h>
 #include <openssl/core_names.h>
+#endif // !EXACT_NO_OPENSSL
 #include <zlib.h>
 #include <brotli/encode.h>
 #include <brotli/decode.h>
@@ -198,6 +202,23 @@ extern "C" char **environ;
 // transitively. Spell it out so the realpath() path-resolution helpers build
 // on Linux. @ref LLP 0008#filesystem
 #include <limits.h>
+
+#if defined(EXACT_HAVE_JSI_MUTABLE_BUFFER)
+// Keep the MutableBuffer key function and its data accessors in one object
+// file. When every virtual was inline, the standalone stub's dead-stripped
+// static-Hermes link could retain a weak vtable whose size/data slots resolved
+// to null, crashing as soon as native networking returned a Uint8Array.
+// @ref LLP 0047#4-milestone-1--publish-a-real-release-catalog
+VectorBuffer::~VectorBuffer() = default;
+
+size_t VectorBuffer::size() const {
+  return data_.size();
+}
+
+uint8_t* VectorBuffer::data() {
+  return data_.data();
+}
+#endif
 
 thread_local uint64_t g_active_module_id = 0;
 thread_local uint64_t g_native_callback_principal_id = kNoNativePrincipalOverride;
@@ -7944,6 +7965,9 @@ extern "C" uint64_t ex_host_claim_armed_context_with_runtime_extensions(
     const char* digest,
     const char* authority_digest);
 extern "C" uint64_t ex_host_claim_diagnostic_context();
+#ifdef IBEX_SFE_COMPILED_RUNTIME
+extern "C" uint64_t ibex_private_host_claim_compiled_ambient_context_v1();
+#endif
 extern "C" void ex_host_release_context(uint64_t context_id);
 
 static ExactHermesRuntime* ex_hermes_create_impl(
@@ -7952,7 +7976,8 @@ static ExactHermesRuntime* ex_hermes_create_impl(
     bool authenticate_extension_registry,
     const char* extension_report_mode,
     const IbexRuntimeExtensionRegistryV1* extension_registry,
-    bool disable_dynamic_code);
+    bool disable_dynamic_code,
+    bool publish_consumer_async_failures);
 
 static std::string rootGlobalSymbolKey(
     facebook::jsi::Runtime& rt,
@@ -9662,7 +9687,7 @@ extern "C" ExactHermesRuntime* ex_hermes_create_armed(
   if (context == 0) return nullptr;
   auto* runtime =
       ex_hermes_create_impl(
-          context, true, true, "production-armed", nullptr, false);
+          context, true, true, "production-armed", nullptr, false, false);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
 }
@@ -9679,7 +9704,7 @@ extern "C" ExactHermesRuntime* ex_hermes_create_no_eval() {
   if (context == 0) return nullptr;
   auto* runtime =
       ex_hermes_create_impl(
-          context, false, false, "restricted-no-eval", nullptr, true);
+          context, false, false, "restricted-no-eval", nullptr, true, true);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
 }
@@ -9689,10 +9714,26 @@ extern "C" ExactHermesRuntime* ex_hermes_create_diagnostic() {
   if (context == 0) return nullptr;
   auto* runtime =
       ex_hermes_create_impl(
-          context, false, false, "diagnostic", nullptr, false);
+          context, false, false, "diagnostic", nullptr, false, false);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
 }
+
+#ifdef IBEX_SFE_COMPILED_RUNTIME
+extern "C" ExactHermesRuntime*
+ibex_private_hermes_create_compiled_ambient_v1() {
+  // This constructor is selected only after the standalone image's shared
+  // bulk admission and immutable pre-init dispatch have completed.
+  // @ref LLP 0047#ambient-path
+  uint64_t context = ibex_private_host_claim_compiled_ambient_context_v1();
+  if (context == 0) return nullptr;
+  auto* runtime =
+      ex_hermes_create_impl(
+          context, false, false, "compiled-ambient", nullptr, false, true);
+  if (runtime == nullptr) ex_host_release_context(context);
+  return runtime;
+}
+#endif
 
 extern "C" ExactHermesRuntime* ibex_runtime_create_armed_v2(
     const IbexArmedRuntimeOptionsV2* options) {
@@ -9717,6 +9758,7 @@ extern "C" ExactHermesRuntime* ibex_runtime_create_armed_v2(
           true,
           "production-armed",
           options->extension_registry,
+          false,
           false);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
@@ -9738,6 +9780,7 @@ extern "C" ExactHermesRuntime* ibex_runtime_create_diagnostic_v2(
           false,
           "diagnostic",
           options->extension_registry,
+          false,
           false);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
@@ -9786,6 +9829,7 @@ ibex_runtime_extension_conformance_create_authenticated_fixture_v1(
           true,
           "authenticated-conformance-fixture",
           options->extension_registry,
+          false,
           false);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
@@ -9870,7 +9914,8 @@ static ExactHermesRuntime* ex_hermes_create_impl(
     bool authenticate_extension_registry,
     const char* extension_report_mode,
     const IbexRuntimeExtensionRegistryV1* extension_registry,
-    bool disable_dynamic_code) {
+    bool disable_dynamic_code,
+    bool publish_consumer_async_failures) {
   std::string runtimeExtensionError;
   auto runtimeExtensions =
       ibex::runtime_extension::internal::prepare(
@@ -9916,7 +9961,8 @@ static ExactHermesRuntime* ex_hermes_create_impl(
   handle->runtime_thread = std::this_thread::get_id();
   handle->host_context_id = host_context_id;
   handle->armed = armed;
-  handle->restricted_consumer_async_failures = disable_dynamic_code;
+  handle->restricted_consumer_async_failures =
+      publish_consumer_async_failures;
   handle->authenticated_native_storage_closed =
       armed || authenticate_extension_registry;
   handle->trusted_bootstrap_in_progress = true;
@@ -15252,6 +15298,67 @@ extern "C" uint32_t ex_hermes_value_safe_throw_metadata(
     *stack = {nullptr, 0};
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
+}
+
+// The standalone owner has no supervisor-side value renderer. Consume and
+// release one worker-local background-failure root inside the native ABI so
+// the compiled Rust boundary receives only a closed fatality disposition.
+// @ref LLP 0024#9-asynchronous-failures
+extern "C" int32_t ibex_private_hermes_take_compiled_async_failure_v1(
+    ExactHermesRuntime* runtime,
+    uint64_t* dropped_count,
+    uint8_t** message,
+    size_t* message_length) {
+  if (dropped_count == nullptr || message == nullptr ||
+      message_length == nullptr) return -1;
+  *dropped_count = 0;
+  *message = nullptr;
+  *message_length = 0;
+  ExHermesAsyncFailureEvent event{
+      EX_HERMES_ASYNC_FAILURE_EVENT_ABI_VERSION,
+      sizeof(ExHermesAsyncFailureEvent),
+      0,
+      0,
+      {0, 0},
+      0,
+      0,
+      0,
+      0,
+      0};
+  const uint32_t status =
+      ex_hermes_take_async_failure_event(runtime, &event);
+  if (status == EX_HERMES_ASYNC_FAILURE_EVENT_EMPTY) return 0;
+  if (status == EX_HERMES_ASYNC_FAILURE_EVENT_AVAILABLE) {
+    uint32_t metadata_fields = 0;
+    uint32_t error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+    ExHermesOwnedBytes safe_message{nullptr, 0};
+    ExHermesOwnedBytes safe_stack{nullptr, 0};
+    const uint32_t metadata_status = ex_hermes_value_safe_throw_metadata(
+        runtime,
+        event.value,
+        &metadata_fields,
+        &error_class,
+        &safe_message,
+        &safe_stack);
+    (void)metadata_fields;
+    (void)error_class;
+    free(safe_stack.data);
+    if (metadata_status == EX_HERMES_EVAL_FAULT_NONE) {
+      *message = safe_message.data;
+      *message_length = safe_message.length;
+    } else {
+      free(safe_message.data);
+    }
+    return ex_hermes_value_release(runtime, event.value) ==
+            EX_HERMES_EVAL_FAULT_NONE
+        ? 1
+        : -1;
+  }
+  if (status == EX_HERMES_ASYNC_FAILURE_EVENT_DROPPED) {
+    *dropped_count = event.dropped_count;
+    return 2;
+  }
+  return -1;
 }
 
 extern "C" uint32_t ex_hermes_session_display_ack(

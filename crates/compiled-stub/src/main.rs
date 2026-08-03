@@ -1,20 +1,21 @@
-//! Dedicated compiled-executable stub; currently the phase-0 dynamically
-//! linked development profile from LLP 0029.
+//! Dedicated dual-mode compiled-executable stub.
 //!
 //! The image reads no original application source. It authenticates its own
 //! envelope, resolved policy, embedded graph, and prepared carrier before an
-//! explicitly diagnostic Hermes runtime evaluates the entry.
+//! selected runtime evaluates the entry.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read as _;
+use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
 use capsec_semantics::model::{Digest, NonEmptyString};
 use capsec_semantics::policy::{CanonicalPolicy, ExpectedPolicyIdentity};
 use capsec_semantics::registry::ValidatedProfile;
 use ibex_runtime::engine::module_runner::{
-    preflight_hermes_bytecode, ComputedDynamicImportLinks, DiagnosticModuleRuntime,
-    GraphEvaluationContext, NativeModuleRecordConfig, NativeSynchronousGraph,
+    preflight_hermes_bytecode, AsyncGraphPoll, CompiledModuleRuntime, ComputedDynamicImportLinks,
+    GraphEvaluationContext, NativeAsynchronousGraph, NativeModuleRecordConfig,
+    NativeSynchronousGraph,
 };
 use ibex_runtime::module_loader::artifact::{ArtifactAdmissionV1, ModuleArtifactV1};
 use ibex_runtime::module_loader::carrier::{
@@ -23,16 +24,19 @@ use ibex_runtime::module_loader::carrier::{
 };
 use ibex_runtime::module_loader::computed_candidates::ComputedCandidateTableV1;
 use ibex_runtime::module_loader::embedded_graph::{EmbeddedCarrierFactV1, EmbeddedModuleGraphV1};
-use ibex_runtime::module_loader::graph::{GraphEdgeKey, SynchronousGraphPlan};
+use ibex_runtime::module_loader::graph::{
+    ComputedCandidateBinding, ComputedCandidateSiteMap, GraphEdgeKey, SynchronousGraphPlan,
+};
 use ibex_runtime::module_loader::identity::SourceId;
 use ibex_sfe_format::{
     admit_executable_v1, CompileCarrierEncodingV1, EngineCompatibilityV1, PackageProvenanceV1,
-    SectionKindV1, StubContractV1,
+    SectionKindV1, StubContractV3, STANDALONE_INFO_SCHEMA_V1,
 };
 use serde::Deserialize;
 
 mod environment;
 mod process;
+mod signals;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -90,17 +94,21 @@ fn main() {
         Ok(0) => {}
         Ok(code) => std::process::exit(code),
         Err(error) => {
-            eprintln!("ibex compiled development stub refused: {error:#}");
+            eprintln!("ibex compiled executable refused: {error:#}");
             std::process::exit(1);
         }
     }
 }
 
 fn run() -> Result<i32> {
+    signals::install().context("compiled signal mediation is unavailable")?;
     let environment = environment::captured_environment()
         .context("compiled environment capture/sanitization did not complete")?;
-    ibex_runtime::host::process::install_compiled_environment_base(environment.broker_base()?)?;
-    let process_arguments = process::CapturedProcessArguments::capture()?;
+    let boot_mode = environment.boot_mode;
+    if boot_mode == environment::CompiledBootMode::CapsecRequested {
+        ibex_runtime::host::process::install_compiled_environment_base(environment.broker_base()?)?;
+    }
+    let process_arguments = process::CapturedProcessArguments::capture(boot_mode)?;
     let contract = compiled_stub_contract()?;
     let contract_digest = contract.digest()?;
     let mut pinned_image = ibex_runtime::engine::open_pinned_self_image()
@@ -123,6 +131,10 @@ fn run() -> Result<i32> {
         ibex_sfe_format::macho::validate_signed_envelope_layout_v1(&file)?;
     }
     let envelope = admit_executable_v1(&file, &contract_digest)?;
+    let embedded_contract = section_bytes(&envelope, SectionKindV1::StubContract)?;
+    if embedded_contract != contract.canonical_bytes()? {
+        bail!("embedded stub contract differs from the contract compiled into the stub");
+    }
     let provenance = decode_boot_provenance(
         section_bytes(&envelope, SectionKindV1::ProvenanceManifest)?,
         &contract,
@@ -139,11 +151,13 @@ fn run() -> Result<i32> {
         &preliminary_graph.graph_identity,
     )?;
 
-    let authorized_semantic_digests = preliminary_graph
-        .records
-        .iter()
-        .map(|record| record.semantic_digest.clone())
-        .collect::<BTreeSet<_>>();
+    let authorized_semantic_digests = Arc::new(
+        preliminary_graph
+            .records
+            .iter()
+            .map(|record| record.semantic_digest.clone())
+            .collect::<BTreeSet<_>>(),
+    );
     let mut carrier_manifests = BTreeMap::new();
     let mut admitted_carriers = BTreeMap::new();
     let mut carrier_facts = BTreeMap::new();
@@ -237,7 +251,8 @@ fn run() -> Result<i32> {
         &provenance,
         &authorized_semantic_digests,
     )?;
-    let computed_candidates = admit_computed_candidates(&candidate_tables, &graph, &artifacts)?;
+    let (computed_candidates, computed_candidate_sites) =
+        admit_computed_candidates(&candidate_tables, &graph, &artifacts)?;
     let plan_records = graph
         .records
         .iter()
@@ -263,7 +278,10 @@ fn run() -> Result<i32> {
             Ok((verified, edges))
         })
         .collect::<Result<Vec<_>>>()?;
-    let plan = SynchronousGraphPlan::new_typed(plan_records)?;
+    let plan = SynchronousGraphPlan::new_typed_with_computed_candidates(
+        plan_records,
+        computed_candidate_sites,
+    )?;
     let prepared_entries = prepared_entries(&graph, &admitted_carriers)?;
     let configs = native_configs(&graph)?;
     let entry_designation = graph
@@ -274,43 +292,157 @@ fn run() -> Result<i32> {
         .ok_or_else(|| anyhow!("compiled entry designation is absent from the graph"))?;
     let process = process_arguments.bind_entry(entry_designation)?;
 
-    if provenance.is_release() {
-        // A release stub may not manufacture complete target evidence or an
-        // environment posture merely because its inner bytes are consistent.
-        // @ref LLP 0029#7-phases-gates-and-the-author-decision-register
+    if boot_mode == environment::CompiledBootMode::InformationRequested {
+        // The recipient-facing report is produced only after the same complete
+        // admission used by both execution postures, and before a Host, Hermes
+        // runtime, or application module is constructed.
+        // @ref LLP 0047#8-milestone-5--distribution-and-usability
+        emit_standalone_information(
+            &contract,
+            &contract_digest,
+            &provenance,
+            &graph,
+            carrier_manifests.len(),
+            candidate_tables.len(),
+        )?;
+        return Ok(0);
+    }
+
+    if boot_mode == environment::CompiledBootMode::CapsecRequested {
+        // Selection is monotonic: an unavailable CapSec path terminates here
+        // and never retries the ambient runtime.
+        // @ref LLP 0047#capsec-path
         bail!(
-            "release compiled arming remains closed until the SFE CapSec target advertisement and environment decisions are accepted"
+            "CapSec requested but target {} has no accepted SFE CapSec advertisement",
+            contract.target.triple
         );
     }
-    ibex_runtime::host::abi::install_host(ibex_runtime::host::Host::strict());
-    let mut owner = DiagnosticModuleRuntime::new()?;
+    // The ambient compatibility path deliberately makes no confinement claim.
+    // Admission above remains identical to the CapSec-selected path.
+    // @ref LLP 0047#ambient-path
+    ibex_runtime::host::abi::install_host(ibex_runtime::host::Host::compiled_ambient());
+    let mut owner = CompiledModuleRuntime::new_ambient()?;
     owner.install_compiled_process_metadata(
         &process.exec_path,
         &process.entry_designation,
         &process.invoked_name,
         &process.application_arguments,
+        "ambient-compatibility",
     )?;
     let namespace = {
         let runtime = owner.borrow()?;
-        let mut linked = NativeSynchronousGraph::link_prepared_with_computed_candidates(
-            &runtime,
-            &plan,
-            &graph.entry.0,
-            configs,
-            &prepared_entries,
-            &computed_candidates,
-        )?;
-        linked.evaluate()?;
-        linked.namespace_json(&graph.entry.0)?
+        let asynchronous = plan
+            .asynchronous_evaluation_plan(&graph.entry.0)?
+            .is_async_tainted(&graph.entry.0)
+            .unwrap_or(false);
+        if asynchronous {
+            let mut linked = NativeAsynchronousGraph::link_prepared_with_computed_candidates(
+                &runtime,
+                &plan,
+                &graph.entry.0,
+                configs,
+                &prepared_entries,
+                &computed_candidates,
+            )?;
+            let maximum_idle_graph_polls = linked.schedule().sccs.len().saturating_add(1);
+            let mut idle_graph_polls = 0usize;
+            loop {
+                match linked.poll()? {
+                    AsyncGraphPoll::Evaluated => {
+                        let namespace = linked.namespace_json(&graph.entry.0)?;
+                        while runtime.drive_compiled_tasks_until_progress()? {}
+                        break namespace;
+                    }
+                    AsyncGraphPoll::Suspended => {
+                        if runtime.drive_compiled_tasks_until_progress()? {
+                            idle_graph_polls = 0;
+                        } else {
+                            idle_graph_polls = idle_graph_polls.saturating_add(1);
+                            if idle_graph_polls > maximum_idle_graph_polls {
+                                bail!(
+                                    "asynchronous module graph remained suspended without pending host work"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            let mut linked = NativeSynchronousGraph::link_prepared_with_computed_candidates(
+                &runtime,
+                &plan,
+                &graph.entry.0,
+                configs,
+                &prepared_entries,
+                &computed_candidates,
+            )?;
+            linked.evaluate()?;
+            let namespace = linked.namespace_json(&graph.entry.0)?;
+            // Imported live bindings remain callback-backed after entry
+            // evaluation. Retain the authenticated graph records until every
+            // referenced callback has completed, or a post-await access would
+            // observe a fabricated stale-import failure.
+            // @ref LLP 0029#6-compiled-boot-and-process-semantics
+            while runtime.drive_compiled_tasks_until_progress()? {}
+            namespace
+        }
     };
-    println!("{namespace}");
+    if !provenance.is_release() {
+        println!("{namespace}");
+    }
     owner.drive_compiled_event_loop_to_quiescence()?;
     owner.compiled_process_exit_code()
 }
 
+fn emit_standalone_information(
+    contract: &StubContractV3,
+    contract_digest: &str,
+    provenance: &BootProvenanceV1,
+    graph: &EmbeddedModuleGraphV1,
+    carrier_count: usize,
+    candidate_table_count: usize,
+) -> Result<()> {
+    let capsec_availability = if contract.boot.capsec_advertisement_identity.is_empty() {
+        "unavailable-no-advertisement"
+    } else {
+        "contract-advertised"
+    };
+    let report = serde_json::json!({
+        "schema": STANDALONE_INFO_SCHEMA_V1,
+        "execution": {
+            "applicationEvaluated": false,
+        },
+        "integrity": {
+            "status": "admitted",
+            "envelopeSchema": contract.accepted_schemas.envelope,
+            "stubContractDigest": contract_digest,
+            "graphIdentity": graph.graph_identity,
+            "recordCount": graph.records.len(),
+            "carrierCount": carrier_count,
+            "candidateTableCount": candidate_table_count,
+        },
+        "boot": {
+            "defaultMode": contract.boot.default_mode,
+            "capsecSelector": contract.boot.capsec_selector,
+            "informationSelector": contract.boot.information_selector,
+            "capsecAdvertisementIdentity": contract.boot.capsec_advertisement_identity,
+            "capsecAvailability": capsec_availability,
+        },
+        "target": contract.target,
+        "backendInventory": contract.backends,
+        "provenanceKind": if provenance.is_release() { "release" } else { "development" },
+    });
+    let bytes = capsec_semantics::canonical::to_jcs_bytes(&report)?;
+    println!(
+        "{}",
+        std::str::from_utf8(&bytes).expect("canonical JSON is UTF-8")
+    );
+    Ok(())
+}
+
 fn decode_boot_provenance(
     bytes: &[u8],
-    contract: &StubContractV1,
+    contract: &StubContractV3,
     contract_digest: &str,
 ) -> Result<BootProvenanceV1> {
     let value: serde_json::Value = decode_canonical_section(bytes, "provenance")?;
@@ -341,7 +473,7 @@ fn decode_boot_provenance(
 }
 
 fn expected_carrier_engine(
-    contract: &StubContractV1,
+    contract: &StubContractV3,
     manifest: &PreparedModuleCarrierV2,
     release: bool,
 ) -> Result<(Option<PreparedCarrierEngineBindingV2>, Option<u32>)> {
@@ -381,25 +513,28 @@ fn expected_carrier_engine(
 }
 
 #[cfg(ibex_release_stub_contract)]
-fn compiled_stub_contract() -> Result<ibex_sfe_format::StubContractV1> {
+fn compiled_stub_contract() -> Result<ibex_sfe_format::StubContractV3> {
     let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/stub-contract.canonical.json"));
-    let contract: ibex_sfe_format::StubContractV1 = serde_json::from_slice(bytes)?;
+    let contract: ibex_sfe_format::StubContractV3 = serde_json::from_slice(bytes)?;
     if contract.canonical_bytes()? != bytes {
         bail!("compiled release stub contract bytes are not canonical");
     }
+    ibex_runtime::compiled_contract::validate_stub_contract_local_authorities(&contract)?;
     Ok(contract)
 }
 
 #[cfg(not(ibex_release_stub_contract))]
-fn compiled_stub_contract() -> Result<ibex_sfe_format::StubContractV1> {
-    Ok(ibex_runtime::compiled_contract::diagnostic_development_stub_contract()?)
+fn compiled_stub_contract() -> Result<ibex_sfe_format::StubContractV3> {
+    let contract = ibex_runtime::compiled_contract::diagnostic_development_stub_contract()?;
+    ibex_runtime::compiled_contract::validate_stub_contract_local_authorities(&contract)?;
+    Ok(contract)
 }
 
 fn prepared_artifacts(
     graph: &EmbeddedModuleGraphV1,
     manifests: &BTreeMap<String, PreparedModuleCarrierV2>,
     provenance: &BootProvenanceV1,
-    authorized: &BTreeSet<Digest>,
+    authorized: &Arc<BTreeSet<Digest>>,
 ) -> Result<(
     BTreeMap<SourceId, ModuleArtifactV1>,
     BTreeMap<SourceId, ArtifactAdmissionV1>,
@@ -434,8 +569,9 @@ fn admit_computed_candidates(
     tables: &[ComputedCandidateTableV1],
     graph: &EmbeddedModuleGraphV1,
     artifacts: &BTreeMap<SourceId, ModuleArtifactV1>,
-) -> Result<ComputedDynamicImportLinks> {
+) -> Result<(ComputedDynamicImportLinks, ComputedCandidateSiteMap)> {
     let mut links = ComputedDynamicImportLinks::new();
+    let mut authenticated_sites = ComputedCandidateSiteMap::new();
     for table in tables {
         if table.generation != 1 {
             bail!("compiled candidate table names a stale execution generation");
@@ -449,21 +585,20 @@ fn admit_computed_candidates(
             .iter()
             .find(|record| record.source_id == table.requester)
             .ok_or_else(|| anyhow!("computed-candidate requester graph record is absent"))?;
+        let table_digest = table.digest()?;
+        if !requester_record
+            .candidate_table_refs
+            .iter()
+            .any(|reference| reference.as_str() == table_digest.as_str())
+        {
+            bail!("computed-candidate table is not referenced by its authenticated requester");
+        }
         for candidate in &table.candidates {
             let target_artifact = artifacts
                 .get(&candidate.target.0)
                 .ok_or_else(|| anyhow!("computed-candidate target artifact is absent"))?;
             if target_artifact.semantics.source_integrity != candidate.target_source_integrity {
                 bail!("computed-candidate target source integrity is stale");
-            }
-            if !requester_record.edges.iter().any(|edge| {
-                edge.resolution_kind
-                    == ibex_runtime::module_loader::identity::ResolutionKind::DynamicImport
-                    && edge.specifier == candidate.specifier
-                    && edge.attributes == candidate.attributes
-                    && edge.target == candidate.target
-            }) {
-                bail!("computed-candidate row is absent from the authenticated graph edges");
             }
             if links
                 .entry(table.requester.0.clone())
@@ -476,9 +611,23 @@ fn admit_computed_candidates(
             {
                 bail!("computed-candidate table repeats one site spelling");
             }
+            if authenticated_sites
+                .entry(table.requester.0.clone())
+                .or_default()
+                .insert(
+                    (table.site, candidate.specifier.as_str().to_owned()),
+                    ComputedCandidateBinding {
+                        target: candidate.target.0.clone(),
+                        attributes: candidate.attributes.clone(),
+                    },
+                )
+                .is_some()
+            {
+                bail!("computed-candidate table repeats one authenticated site spelling");
+            }
         }
     }
-    Ok(links)
+    Ok((links, authenticated_sites))
 }
 
 fn prepared_entries<'a>(
@@ -593,7 +742,7 @@ mod tests {
         PACKAGE_PROVENANCE_SCHEMA_V1,
     };
 
-    fn release_contract() -> StubContractV1 {
+    fn release_contract() -> StubContractV3 {
         let mut contract =
             ibex_runtime::compiled_contract::diagnostic_development_stub_contract().unwrap();
         let archive = source_integrity(b"static archive bundle").unwrap();
@@ -602,6 +751,9 @@ mod tests {
         contract.profile = "sfe-v1".into();
         contract.target.triple = "aarch64-apple-darwin".into();
         contract.target.minimum_platform = "macos-13.0-arm64".into();
+        contract.backends =
+            ibex_sfe_format::StubBackendInventoryV1::release_for_target(&contract.target.triple)
+                .unwrap();
         contract.engine =
             EngineCompatibilityV1::static_hermes("full", archive.as_str(), 96).unwrap();
         contract.hermesc = HermescCompatibilityV1::catalog_artifact(
@@ -613,7 +765,7 @@ mod tests {
         contract
     }
 
-    fn release_provenance(contract: &StubContractV1) -> PackageProvenanceV1 {
+    fn release_provenance(contract: &StubContractV3) -> PackageProvenanceV1 {
         let plan = CompilePlanV1 {
             schema: COMPILE_PLAN_SCHEMA_V1.into(),
             graph_snapshot_digest: source_integrity(b"graph").unwrap().to_string(),
@@ -632,6 +784,14 @@ mod tests {
             catalog_sequence: 1,
             catalog_entry_target: contract.target.triple.clone(),
             stub_core_digest: source_integrity(b"stub").unwrap().to_string(),
+            stub_core_reconstruction: ibex_sfe_format::StubCoreReconstructionV1 {
+                size: 4,
+                macho_linkedit_vmsize: if contract.target.triple == "aarch64-apple-darwin" {
+                    Some(0x4000)
+                } else {
+                    None
+                },
+            },
             producer_identity: "ibex-compile/test".into(),
         }
     }

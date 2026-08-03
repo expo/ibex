@@ -142,7 +142,7 @@ fn install_release_contract(path: PathBuf) {
         .unwrap_or_else(|error| panic!("release stub contract is not UTF-8: {error}"));
     let value = capsec_semantics::strict_json::parse_strict(text)
         .unwrap_or_else(|error| panic!("release stub contract is not strict JSON: {error}"));
-    let contract: ibex_sfe_format::StubContractV1 = serde_json::from_value(value)
+    let contract: ibex_sfe_format::StubContractV3 = serde_json::from_value(value)
         .unwrap_or_else(|error| panic!("release stub contract shape is invalid: {error}"));
     let canonical = contract
         .canonical_bytes()

@@ -218,9 +218,35 @@ pub struct DynamicImportSiteV1 {
     pub runtime_options_supported: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GuardedUnsupportedShapeV1 {
+    ComputedDynamicImportWithoutCandidateTable,
+    ComputedCommonJsRequire,
+    UnsupportedDynamicImportOptions,
+}
+
+impl GuardedUnsupportedShapeV1 {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ComputedDynamicImportWithoutCandidateTable => {
+                "computed-dynamic-import-without-candidate-table"
+            }
+            Self::ComputedCommonJsRequire => "computed-commonjs-require",
+            Self::UnsupportedDynamicImportOptions => "unsupported-dynamic-import-options",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GuardedUnsupportedSiteV1 {
+    pub shape: GuardedUnsupportedShapeV1,
+    pub original_source_span: OriginalSourceSpanV1,
+}
+
 pub struct ProducedModuleArtifactV1 {
     pub artifact: ModuleArtifactV1,
     pub dynamic_import_sites: Vec<DynamicImportSiteV1>,
+    pub guarded_unsupported_sites: Vec<GuardedUnsupportedSiteV1>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1427,6 +1453,18 @@ pub fn produce_module_artifact_with_sites_v1(
             })
         })
         .collect::<Result<Vec<_>>>()?;
+    let guarded_unsupported_sites = spike
+        .dynamic_edges
+        .iter()
+        .filter(|edge| !edge.runtime_options_supported)
+        .map(|edge| GuardedUnsupportedSiteV1 {
+            shape: GuardedUnsupportedShapeV1::UnsupportedDynamicImportOptions,
+            original_source_span: OriginalSourceSpanV1 {
+                start: edge.original_source_offset,
+                end: edge.original_source_end,
+            },
+        })
+        .collect();
     let export_descriptors = spike
         .export_descriptors
         .iter()
@@ -1489,6 +1527,7 @@ pub fn produce_module_artifact_with_sites_v1(
     Ok(ProducedModuleArtifactV1 {
         artifact,
         dynamic_import_sites,
+        guarded_unsupported_sites,
     })
 }
 
@@ -1653,6 +1692,31 @@ pub fn produce_commonjs_artifact_with_sites_v1(
             })
         })
         .collect::<Result<Vec<_>>>()?;
+    let mut guarded_unsupported_sites = visitor
+        .dynamic_edges
+        .iter()
+        .filter(|edge| !edge.runtime_options_supported)
+        .map(|edge| GuardedUnsupportedSiteV1 {
+            shape: GuardedUnsupportedShapeV1::UnsupportedDynamicImportOptions,
+            original_source_span: OriginalSourceSpanV1 {
+                start: edge.original_source_offset,
+                end: edge.original_source_end,
+            },
+        })
+        .collect::<Vec<_>>();
+    guarded_unsupported_sites.extend(intermediate.authored_computed_requires.iter().cloned().map(
+        |original_source_span| GuardedUnsupportedSiteV1 {
+            shape: GuardedUnsupportedShapeV1::ComputedCommonJsRequire,
+            original_source_span,
+        },
+    ));
+    guarded_unsupported_sites.sort_by_key(|site| {
+        (
+            site.original_source_span.start,
+            site.original_source_span.end,
+            site.shape,
+        )
+    });
     let rewritten = apply_replacements(
         &intermediate.code,
         Span::new(0, intermediate.code.len() as u32),
@@ -1717,6 +1781,7 @@ pub fn produce_commonjs_artifact_with_sites_v1(
     Ok(ProducedModuleArtifactV1 {
         artifact,
         dynamic_import_sites,
+        guarded_unsupported_sites,
     })
 }
 

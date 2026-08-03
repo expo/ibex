@@ -5,6 +5,42 @@
 **Systems:** Build, Module Loader, Runtime, Security
 **Author:** Charlie Cheever / Claude Fable
 **Date:** 2026-07-17
+**Revised:** 2026-08-02 (LLP 0047 author decisions: standalone v1 requires an
+explicit authored policy, retains the ratified ambient default, and reserves
+first-position `--ibex-info`. The strict stub contract rotates from the
+unshipped V2 candidate to `StubContractV3` / `ibex/stub-contract/3`; envelope
+V2 remains valid because no section vocabulary changes. Inspection rotates to
+`ibex/executable-inspection/3`, and the in-artifact information report is
+`ibex/standalone-executable-info/1`.)
+**Revised:** 2026-08-02 (diagnostic performance-fixture checkpoint: a separate
+host-target builder now emits a full-static-engine factory-table executable,
+admits its inner contracts, and labels it development-only; the release
+producer's factory-table refusal remains unchanged.)
+**Revised:** 2026-08-02 (outer stub-core inspection checkpoint: release
+provenance now authenticates the stub size and the Mach-O `__LINKEDIT` value
+that platform signing destroys; inspection inversely projects the actual
+signature-stripped catalog stub from ELF or Mach-O, rehashes it, and refuses a
+digest mismatch. The machine report rotates to
+`ibex/executable-inspection/3`, and the release matrix mutates outer stub bytes
+independently.)
+**Revised:** 2026-08-02 (stub authority and platform-baseline checkpoint:
+release and diagnostic stubs independently require the embedded V2 contract's
+schema, ABI, transform, CapSec projection, runtime identity, and environment
+identity to equal their locally compiled authorities; the explicit
+producer-newer/stub-older matrix refuses. macOS construction and final-image
+checks now require the Mach-O minimum OS to be no newer than the authenticated
+catalog baseline.)
+**Revised:** 2026-08-02 (producer completion checkpoint: deterministic
+unsupported-site diagnostics and `--deny-unsupported` refusal now share one
+captured inventory; CompilePlan is fixed before HBC production and the producer
+self-admits all inner contracts before publication; policy/native graph
+divergence and inspector wrong-engine fixtures refuse independently)
+**Revised:** 2026-08-01 (LLP 0047 implementation checkpoint: the V2 contract
+and envelope rotation, authenticated contract section, ambient-default/
+CapSec-selected pre-init dispatch, canonical catalog assembly, derived release
+contract, catalog-pinned producer, and macOS arm64 relocated/offline real-HBC
+execution are implemented; Linux final-image and the remaining release matrix
+stay open)
 **Revised:** 2026-08-01 (LLP 0047 register item 2 resolved: the Linux release
 stub now closes a pinned source-built libcurl and TLS implementation
 statically, exposes Fetch/WebSocket like the ordinary runtime, consumes the
@@ -147,7 +183,7 @@ The proposal reuses the hard parts Ibex already has — LLP 0027's
 versioned, digest-bound, per-principal carriers; LLP 0014's generated
 policy artifact; LLP 0026 §9's prepared-graph production — but
 packaging is **composition plus new contracts**, not concatenation:
-an outer executable envelope (`ibex/single-file-executable/1`, §2b);
+an outer executable envelope (`ibex/single-file-executable/2`, §2b);
 an inner path-independent embedded graph
 (`ibex/embedded-module-graph/1`, §2b) replacing the path-bearing
 on-disk index; and one **authenticated graph-snapshot digest domain**
@@ -307,7 +343,7 @@ The producer pipeline:
    not just the review policy.
 3. **Produce carriers bound to the stub, not to the packager.** HBC
    is compiled with a catalog-authenticated `hermesc` paired with the
-   target `StubContractV1` (§2a); carrier manifests bind the stub
+   target `StubContractV3` (§2a); carrier manifests bind the stub
    contract's **engine compatibility identity** and the bytecode
    version **derived by inspecting the emitted HBC**, never accepted
    as caller-supplied metadata. (This has since been implemented —
@@ -375,13 +411,16 @@ state for an adjacent `<file>.build.json`. The third state is deliberately
 weaker than its name suggests and the RFC does not overstate it: today the
 inspector reports only whether such a statement is *present*, marking it
 `unverified` because no publisher trust policy is configured (§7 register item
-8 owns that), and it displays the provenance-recorded stub-core digest without
-rehashing the stub core against it. So the current third state is neither
-"authenticated" nor yet "digest-consistent"; reaching the latter is
-`inspect-executable` work, and reaching the former needs register item 8.
+8 owns that). Stub-core consistency is a fourth, independent state: current
+release provenance carries a `stubCoreReconstruction` descriptor, and the
+inspector inversely projects and rehashes the actual outer stub bytes rather
+than echoing the claimed digest. This makes the instance descriptor
+digest-consistent, but not publisher-authenticated; the latter still needs
+register item 8.
 Inspection also dumps the embedded
-policy, environment profile, and digests. Introspection never reserves
-application flags.
+policy, environment profile, and digests. The artifact itself reserves only
+exact first-position `--ibex-info` for authenticated recipient-facing
+introspection; leading `--` and later occurrences remain application argv.
 
 Implementation status (2026-07-17): the public clap tree and recursive runtime
 surface manifest now include `compile` and `inspect-executable`. The latter
@@ -404,34 +443,39 @@ catalog-admitted graph → policy → HBC → CompilePlan → envelope → self-
 exact authenticated snapshot. The stub performs complete release provenance and
 static-HBC admission.
 
-Proposed amendment (2026-08-01, **not implemented**): LLP 0047 replaces the
-unconditional release refusal with ambient compatibility boot by default and an
-explicitly selected CapSec path that retains the compiled-Host arming and
-target-advertisement gates. As of this revision the stub still refuses every
-release envelope unconditionally after admission, and its argument parser
-recognizes no reserved selector — both are LLP 0047 milestone 2 work. This
-paragraph states a design decision, not repository state.
+Implementation update (2026-08-01): LLP 0047's amendment is implemented. The
+stub's pre-init hook is the sole mode authority: ordinary launch selects
+ambient compatibility without scrubbing the inherited environment, while an
+exact first-position `--ibex-capsec` preserves sanitize-first construction and
+cannot fall back. Both paths perform the same bulk envelope/graph/carrier/
+policy admission. The current V3 contract authenticates those boot semantics and its
+canonical bytes are an admitted envelope section visible to inspection.
 
 ### 2. Executable layout: stub, envelope, footer
 
-> **Wire-identity rotation (2026-08-01, LLP 0047 §5).** This section is written
-> against `StubContractV1` and `ibex/single-file-executable/1`, and both
-> rotate. LLP 0047 requires the stub contract to carry the boot-mode contract
+> **Wire-identity rotation (implemented 2026-08-01, LLP 0047 §5).** This
+> section was originally written against `StubContractV1` and
+> `ibex/single-file-executable/1`; both have rotated. LLP 0047 requires the stub
+> contract to carry the boot-mode contract
 > (default mode, reserved selector spelling and position rule, CapSec-
 > advertisement identity) and requires the canonical contract bytes to be
 > embedded as a **new envelope section** so non-evaluating inspection can read
 > *and* authenticate them from the file alone — a digest pins bytes without
 > revealing them, and the contract is otherwise a catalog-only artifact.
 >
-> Both are strict schemas: `StubContractV1` is `deny_unknown_fields` with a
+> Both original changes were strict-schema rotations: `StubContractV1` was `deny_unknown_fields` with a
 > fixed schema string, and the envelope's section-kind vocabulary is a closed
-> enum. So both changes are versioned rotations, to **`StubContractV2`** and
+> enum. So both changes rotated to **`StubContractV2`** and
 > **`ibex/single-file-executable/2`**, not in-place edits. Because no catalog
 > has shipped, each is a replacement rather than a migration — no compatibility
 > shim, no dual-version parser. Everything below describes the layout, digest
 > domains, boot checks, and signing sequence unchanged in substance; read `V1`
 > as `V2` and the envelope section list as gaining the contract section. LLP
-> 0047 milestone 2 owns the rotation, and both versions bump together.
+> 0047 milestone 2 owns that rotation. Its later `--ibex-info` decision adds
+> required boot fields without changing the envelope vocabulary, so the
+> **current contract is `StubContractV3` / `ibex/stub-contract/3` while the
+> envelope remains `ibex/single-file-executable/2`**. V2 never shipped and is
+> replaced, not accepted as a compatibility input.
 
 **2a. Runtime stub, contract, and catalog trust.** A dedicated minimal
 binary (`ibex-compiled-stub` crate) sharing host, engine,
@@ -482,12 +526,27 @@ carried the stub's own digest — a cycle; withdrawn):
   and HBC version. Diagnostic source-carrier contracts are explicitly
   `releaseEligible: false`; validation refuses diagnostic engine or
   compiler variants in a release-eligible contract.
+
+  The static archive-bundle fact is derived, never typed into a release
+  command. `ibex/static-hermes-archive-bundle/1` is canonical JCS with exact
+  fields `schema, artifacts`; each artifact row is `role, digest, size`, roles
+  are unique and strictly sorted lowercase kebab-case strings, and digests are
+  raw SHA-256 identities of the exact archive bytes. Its domain is
+  `ibex:static-hermes-archive-bundle:1`. Release contract construction reads
+  every named archive, derives this document and digest, independently probes
+  the paired `hermesc` and Hermes VM for one matching nonzero HBC version, and
+  derives the compiler byte digest. No caller supplies those three facts as
+  metadata.
 - **The instance descriptor** — the post-build stub-core digest
   (signature-stripped bytes, §2c), recorded in the **catalog** and in
   the envelope's provenance manifest. The *packager* verifies the stub
-  bytes against it before assembly, and `inspect-executable` is specified to
-  re-check it — a check the current inspector does not yet perform, per §1;
-  boot does not self-hash (a file cannot prove its own bytes —
+  bytes against it before assembly, and `inspect-executable` re-checks it from
+  the completed file. Release provenance also authenticates the original stub
+  size and, for Mach-O, the catalog `__LINKEDIT` virtual size: Apple's signer
+  rewrites that field and signature removal does not restore it. Those facts
+  make the injection inverse unique without treating the replaceable platform
+  signature as part of the deterministic identity. Boot does not self-hash (a
+  file cannot prove its own bytes —
   boot's integrity comes from the platform loader plus the envelope
   digest checks).
 
@@ -523,6 +582,20 @@ recomputes `StubContractV1` and its engine/compiler cross-bindings.
 Missing-target errors name the explicit fetch step. The catalog never
 treats a matching content digest without the release pin as trusted.
 
+The release kit now carries a separate `ibex-sfe-catalog` installer compiled
+with the **same** `IBEX_RELEASE_SFE_CATALOG_DIGEST` as its `ibex` producer. The
+installer accepts an extracted catalog directory, but no caller-supplied
+digest: it admits the canonical manifest, every regular-file artifact, and
+every contract/compiler/stub cross-binding against that compiled pin, stages
+fresh bytes under the standard user cache, re-admits the staged directory, and
+publishes it with one atomic directory rename. `ibex compile` names the exact
+version/target/digest archive and the extraction/install command when its pin
+is absent. `scripts/build-sfe-release.sh` assembles those three coupled
+artifacts (producer, installer, catalog archive) from explicit release inputs.
+This completes the local install mechanism; actually publishing both official
+tuple kits and proving their two-builder identity remain LLP 0047 milestone-1
+release evidence.
+
 The stub is statically self-contained: no non-system dynamic libraries,
 verified with `otool -L`/`ldd` in CI. The release Hermes bundles carry the
 full static Hermes archive plus JSI and Boost.Context; Linux additionally
@@ -556,8 +629,9 @@ the artifact.
 
 ```
 [ runtime stub (ELF/Mach-O) ]
-[ envelope: ibex/single-file-executable/1
-    package provenance manifest (§3) — pins StubContractV1 digest,
+[ envelope: ibex/single-file-executable/2
+    canonical StubContractV3 — pins authenticated boot semantics
+    package provenance manifest (§3) — pins StubContractV3 digest,
         CompilePlanV1, catalog evidence
     embedded module graph: ibex/embedded-module-graph/1
     per-principal carrier sections, one HBC carrier per module in v1:
@@ -964,20 +1038,20 @@ loudly naming the fetch step.
   CapSec boot runs the environment sequence and disk-free arming (§4). Then
   evaluate the entry designation. Out-of-graph resolution fails closed in both;
   guarded sites fail at invocation per §1 step 4.
-- **Argv belongs to the application, except for one first-position posture
-  selector.** LLP 0047 reserves `--ibex-capsec` only as argv[1], with a leading
-  `--` escape for passing it literally; every other argument and later
-  occurrence reaches the program (fixtures). Unicode
+- **Argv belongs to the application, except for two exact first-position
+  selectors.** LLP 0047 reserves `--ibex-capsec` and `--ibex-info` only as
+  argv[1], with a leading `--` escape for passing either literally; every other
+  argument and later occurrence reaches the program (fixtures). The info path
+  completes the same self-admission as execution, prints canonical
+  `ibex/standalone-executable-info/1`, and exits before Host or Hermes
+  construction. Unicode
   argv contract: non-Unicode arguments fail at boot with a stable
   error **naming the offending argument index**; surrogate-escape is
   the recorded alternative if field friction (non-UTF-8 filenames)
   demands it. `process.argv` is `[execPath, "<entry designation>",
   ...args]`; `argv0` is the invoked name; `execArgv` is empty.
   The stub implements this projection before linking the entry: `args_os` is
-  decoded with an index-specific Unicode refusal. As of 2026-08-01 it passes
-  *every* argument through unchanged, including Ibex spellings — that is the
-  pre-LLP-0047 contract, and recognizing `--ibex-capsec` at argv[1] is
-  unimplemented milestone-2 work, not current behavior. Compiled boot also uses the native Hermes
+  decoded with an index-specific Unicode refusal. Compiled boot also uses the native Hermes
   clock and wake hook to drain referenced work to quiescence, treats an
   unconsumed asynchronous failure as fatal, reads the final numeric
   `process.exitCode`, and bounded-flushes accepted broker output before
@@ -992,8 +1066,8 @@ loudly naming the fetch step.
   stub is in-process (no supervisor). End-to-end fixtures per row.
   Stdio/cwd implicit-vs-policy is the named author decision (§7),
   settled before `Accepted`.
-- Introspection via `ibex inspect-executable` and an in-app
-  namespaced API only.
+- Introspection via `ibex inspect-executable`, exact first-position
+  `--ibex-info`, and an in-app namespaced API only.
 
 ### 7. Phases, gates, and the author-decision register
 
@@ -1063,6 +1137,27 @@ cannot both be "the versioned change."
    mmap vs zero-copy mapped image), large-graph startup,
    signature-scan cost, factory-table vs HBC; gate: recorded report
    **with pass/fail thresholds** (LLP 0026 pattern).
+
+   **Implementation checkpoint (2026-08-02):** the versioned
+   `ibex/sfe-performance-budgets/1`, measurement, gate, and report machinery is
+   implemented under `packages/ibex-devtools/src/scripts/`. The collector
+   requires one accepted, committed budget covering both v1 tuples and a clean
+   tracked source tree before it samples; records raw fresh-process samples,
+   artifact digests/sizes, dynamic dependencies, the exact budget blob and
+   source revision; and fails named maxima for HBC hello/large-graph startup,
+   relocation copy-and-launch, full inspection scan, and diagnostic
+   factory-table comparison. The accepted budget also fixes record-count
+   constraints before sampling so a trivial input cannot be relabeled as the
+   large graph. Every input is inspected first: HBC rows must be exact-baseline
+   release-v1 envelopes from one catalog/stub/producer family, and the
+   factory-table row must remain in the diagnostic development lane.
+   `scripts/build-sfe-diagnostic-factory-table.sh` supplies that comparison
+   with a full-static-engine fixture whose diagnostic contract and development
+   provenance cannot enter a release kit; `ibex compile --carrier
+   factory-table` remains a hard refusal. Its startup protocol explicitly
+   records that it does not evict the OS page cache. Synthetic pass/refusal
+   vectors are part of the standalone foundation gate. No numeric budget or
+   final measurement has been recorded, so this phase remains open.
 
 **Author-decision register:** (1) stdio/cwd implicit vs
 policy-explicit (blocks `Accepted`); (2) **resolved 2026-08-01:** the initial

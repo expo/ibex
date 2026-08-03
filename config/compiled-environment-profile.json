@@ -1,8 +1,8 @@
 {
-  "$comment": "Reviewed classification authority for the compiled-runtime environment profile (LLP 0029). Exact-name consumers not listed as intentional application behavior default to privileged-control. The process-environment restore allowlist remains an explicit author decision.",
+  "$comment": "Reviewed classification authority for the compiled-runtime environment profile (LLP 0029). Exact-name consumers not listed as intentional application behavior default to privileged-control. The CapSec process-environment restore allowlist is deliberately empty; LLP 0047 ambient boot does not sanitize the inherited environment.",
   "schema": "ibex/compiled-environment-profile-config/1",
   "allowlistDecision": {
-    "status": "blocked-on-author-decision-2",
+    "status": "decided",
     "names": []
   },
   "intentionalApplicationBehaviorNames": [

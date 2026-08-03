@@ -1773,8 +1773,9 @@ class VectorBuffer : public facebook::jsi::MutableBuffer {
  public:
   explicit VectorBuffer(std::vector<uint8_t> data) : data_(std::move(data)) {}
 
-  size_t size() const override { return data_.size(); }
-  uint8_t* data() override { return data_.data(); }
+  ~VectorBuffer() override;
+  size_t size() const override;
+  uint8_t* data() override;
 
  private:
   std::vector<uint8_t> data_;

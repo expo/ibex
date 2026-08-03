@@ -185,6 +185,7 @@ fn read_dir_paths_or_panic(path: &Path, context: &str) -> Vec<PathBuf> {
         });
         paths.push(entry.path());
     }
+    paths.sort();
     paths
 }
 
@@ -2031,6 +2032,9 @@ fn main() {
     if std::env::var_os("CARGO_FEATURE_INSECURE").is_some() {
         build.define("IBEX_INSECURE_BUILD", None);
     }
+    if std::env::var_os("CARGO_FEATURE_SFE_COMPILED_RUNTIME").is_some() {
+        build.define("IBEX_SFE_COMPILED_RUNTIME", None);
+    }
 
     if target_os == "windows" {
         let hermes_jsi_cpp = hermes_include_dir.join("jsi").join("jsi.cpp");
@@ -2279,11 +2283,15 @@ fn main() {
         build.define("EXACT_HAVE_HERMES_ASYNC_TRIGGER_TIMEOUT", None);
     }
 
-    // Debugger support is auto-detected on macOS so we do not compile against
-    // debugger APIs that are missing from the checked-in Hermes framework.
+    // Debugger support is derived from the exact linked desktop artifact so a
+    // lean static Hermes archive cannot make the adapter compile calls to
+    // symbols that are absent at final link.
+    // @ref LLP 0029#7-phases-gates-and-the-author-decision-register — both
+    // eligible engine variants must remain mechanically honest until the
+    // measured lean-vs-full release choice is ratified.
     let enable_debugger = portable_engine.is_none()
         && target_os != "windows"
-        && should_enable_hermes_debugger(&target_os, hermes_macos_binary.as_deref());
+        && should_enable_hermes_debugger(&target_os, hermes_frame_attribution_binary.as_deref());
 
     if enable_debugger {
         build.define("HERMES_ENABLE_DEBUGGER", None);
@@ -2820,7 +2828,13 @@ fn emit_rerun_for_tree(path: &Path) {
     match std::fs::symlink_metadata(path) {
         Ok(meta) if meta.file_type().is_dir() => {
             if let Ok(entries) = std::fs::read_dir(path) {
-                for entry in entries.flatten() {
+                let mut entries = entries.flatten().collect::<Vec<_>>();
+                // Cargo retains directive order in the build fingerprint.
+                // Filesystem enumeration order must therefore never choose
+                // Rust metadata or final native bytes.
+                // @ref LLP 0047#4-milestone-1--publish-a-real-release-catalog
+                entries.sort_by_key(|entry| entry.file_name());
+                for entry in entries {
                     if entry.file_name() == "node_modules" {
                         continue;
                     }
@@ -4068,17 +4082,16 @@ fn find_framework_binary(framework_dir: &Path, framework_name: &str) -> Option<P
     candidates.into_iter().find(|path| path.exists())
 }
 
-fn macos_hermes_has_debugger_symbols(binary_path: &Path) -> bool {
-    let output = std::process::Command::new("nm")
-        .args(["-gU", binary_path.to_string_lossy().as_ref()])
-        .output()
-        .or_else(|_| {
-            std::process::Command::new("xcrun")
-                .arg("nm")
-                .arg("-gU")
-                .arg(binary_path)
-                .output()
-        });
+fn hermes_has_debugger_symbols(target_os: &str, binary_path: &Path) -> bool {
+    let mut command = std::process::Command::new("nm");
+    configure_defined_nm_command(&mut command, target_os, binary_path);
+    command.arg(binary_path);
+    let output = command.output().or_else(|_| {
+        let mut command = std::process::Command::new("xcrun");
+        command.arg("nm");
+        configure_defined_nm_command(&mut command, target_os, binary_path);
+        command.arg(binary_path).output()
+    });
 
     let Ok(output) = output else {
         return false;
@@ -4088,7 +4101,12 @@ fn macos_hermes_has_debugger_symbols(binary_path: &Path) -> bool {
         return false;
     }
 
-    String::from_utf8_lossy(&output.stdout).contains("AsyncDebuggerAPI")
+    let symbols = String::from_utf8_lossy(&output.stdout);
+    // A no-debugger Hermes still retains RuntimeTaskRunner definitions whose
+    // signatures mention AsyncDebuggerAPI. Require the exact constructor and
+    // loaded-script query that the adapter calls so those stubs cannot create
+    // a false-positive link profile.
+    symbols.contains("AsyncDebuggerAPIC") && symbols.contains("getLoadedScripts")
 }
 
 // @ref LLP 0013#mechanism-3 — detect whether the exact linked desktop Hermes
@@ -4170,17 +4188,17 @@ fn hermes_has_job_constrained_principals(target_os: &str, binary_path: &Path) ->
     hermes_exports_exact_symbols(target_os, binary_path, JOB_CONSTRAINED_PRINCIPAL_SYMBOLS)
 }
 
-fn should_enable_hermes_debugger(target_os: &str, hermes_macos_binary: Option<&Path>) -> bool {
+fn should_enable_hermes_debugger(target_os: &str, hermes_binary: Option<&Path>) -> bool {
     match parse_env_flag("HERMES_ENABLE_DEBUGGER") {
         Some(false) => false,
         Some(true) => {
-            if target_os == "macos" {
-                let Some(binary_path) = hermes_macos_binary else {
+            if matches!(target_os, "macos" | "linux") {
+                let Some(binary_path) = hermes_binary else {
                     panic!(
-                        "HERMES_ENABLE_DEBUGGER=1 was requested, but no macOS Hermes framework binary was found."
+                        "HERMES_ENABLE_DEBUGGER=1 was requested, but no {target_os} Hermes binary was found."
                     );
                 };
-                if !macos_hermes_has_debugger_symbols(binary_path) {
+                if !hermes_has_debugger_symbols(target_os, binary_path) {
                     panic!(
                         "HERMES_ENABLE_DEBUGGER=1 was requested, but {} does not export Hermes debugger symbols. Rebuild Hermes with debugger support or unset HERMES_ENABLE_DEBUGGER.",
                         binary_path.display()
@@ -4191,8 +4209,8 @@ fn should_enable_hermes_debugger(target_os: &str, hermes_macos_binary: Option<&P
         }
         None => match target_os {
             "ios" | "android" => false,
-            "macos" => match hermes_macos_binary {
-                Some(binary_path) if macos_hermes_has_debugger_symbols(binary_path) => true,
+            "macos" | "linux" => match hermes_binary {
+                Some(binary_path) if hermes_has_debugger_symbols(target_os, binary_path) => true,
                 Some(binary_path) => {
                     println!(
                         "cargo:warning=Hermes debugger disabled: {} does not export debugger symbols.",
@@ -4202,7 +4220,7 @@ fn should_enable_hermes_debugger(target_os: &str, hermes_macos_binary: Option<&P
                 }
                 None => {
                     println!(
-                        "cargo:warning=Hermes debugger disabled: could not locate a macOS Hermes framework binary."
+                        "cargo:warning=Hermes debugger disabled: could not locate the linked {target_os} Hermes binary."
                     );
                     false
                 }

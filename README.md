@@ -19,6 +19,8 @@ and app framework live in the `exact` repo.
   host ABI in `src/host`, the module loader, vendored Brotli).
 - The `ibex` runtime binary (`src/bin/ibex`) for running JavaScript and
   TypeScript files.
+- Catalog-pinned release builds can package a program as a standalone,
+  self-contained executable; see [Standalone executables](./docs/standalone-executables.md).
 - The Hermes build scripts (`scripts/build-hermes-*.sh`, `download-hermes.sh`).
 
 ## The contract

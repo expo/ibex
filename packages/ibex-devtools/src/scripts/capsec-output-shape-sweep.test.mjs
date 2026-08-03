@@ -1212,9 +1212,12 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         "ibex/capsec-output-shape-execution-partition/1",
       completeCatalogKeyDigest: completeCatalog.catalogKeyDigest,
     });
-    expect(completeCatalog.rows).toHaveLength(6517);
-    expect(executionPartition.genericCatalog.rows).toHaveLength(5911);
-    expect(executionPartition.genericProbes).toHaveLength(5911);
+    // The compat-loader stats object and its two counters are source-derived
+    // native-op outputs. They belong to the generic executor partition and do
+    // not change the independently owned Host ABI tranches below.
+    expect(completeCatalog.rows).toHaveLength(6520);
+    expect(executionPartition.genericCatalog.rows).toHaveLength(5914);
+    expect(executionPartition.genericProbes).toHaveLength(5914);
     expect(
       executionPartition.genericCatalog.rows.some(
         (row) => row.key.sourceKind === "host-abi",
