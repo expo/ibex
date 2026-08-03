@@ -4366,6 +4366,15 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ),
     ).toThrow(/unclassified observed surface/u);
 
+    const nativeRunnerProfile = classifyObservedSurface(
+      surface("startup", "env:IBEX_TEST_NATIVE_RUNNER_PROFILE"),
+      context,
+    );
+    expect(nativeRunnerProfile.edge.classification).toBe("non-capability");
+    expect(nativeRunnerProfile.edge.rationaleId).toBe(
+      "runtime-bootstrap-state",
+    );
+
     expect(
       classifyObservedSurface(surface("startup", "env:EXACT_IPC_FD"), context)
         .edge,

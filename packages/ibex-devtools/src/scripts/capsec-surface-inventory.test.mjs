@@ -70,6 +70,8 @@ const LOCKDOWN_EVALUATOR_SOURCE = String.raw`
     tameCtor(Function.prototype, 'Function');
     tameCtor(getProto(function*(){}), 'GeneratorFunction');
     tameCtor(getProto(async function(){}), 'AsyncFunction');
+)JS";
+  lockdownJS += R"JS(
     makeTamed('eval');
   })())JS";
   auto buffer = std::make_shared<facebook::jsi::StringBuffer>(lockdownJS.c_str());

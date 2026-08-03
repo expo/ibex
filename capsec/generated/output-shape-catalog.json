@@ -84113,6 +84113,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.env.ibex.test.native.runner.profile.171bg89",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/bin/ibex/runtime.rs#env::var_os:IBEX_TEST_NATIVE_RUNNER_PROFILE:read"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.env.ibex.test.transpile.input.barrier.07svevo",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -85744,9 +85753,9 @@
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
   "catalogKeyDigest": "sha256-UHA0RaHGAGc8W96brEVbuFJBjyi4VpGRrEHJi6_eTKo",
   "counts": {
-    "coverageSurfaces": 7535,
+    "coverageSurfaces": 7536,
     "outputBearingSurfaces": 5820,
-    "structuralOnlySurfaces": 1710,
+    "structuralOnlySurfaces": 1711,
     "unresolvedSurfaces": 5,
     "catalogRows": 6521,
     "parameterizedBindings": 1,

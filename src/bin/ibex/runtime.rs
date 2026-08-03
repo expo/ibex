@@ -458,6 +458,125 @@ pub(crate) fn module_producer_binary_digest() -> Result<capsec_semantics::model:
     )
 }
 
+#[cfg(feature = "module-runner")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NativeRunnerTestProfile {
+    Source,
+    Prepared,
+}
+
+#[cfg(feature = "module-runner")]
+impl NativeRunnerTestProfile {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Source => "source",
+            Self::Prepared => "prepared",
+        }
+    }
+}
+
+/// Select the real-binary source/prepared conformance profile. This test seam
+/// is deliberately absent from release execution even if an environment value
+/// is supplied.
+/// @ref LLP 0019#tier-3-the-rustoxc-module-artifact-producer
+#[cfg(feature = "module-runner")]
+pub(crate) fn native_runner_test_profile() -> Result<Option<NativeRunnerTestProfile>> {
+    let Some(value) = std::env::var_os("IBEX_TEST_NATIVE_RUNNER_PROFILE") else {
+        return Ok(None);
+    };
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = value;
+        anyhow::bail!("IBEX_TEST_NATIVE_RUNNER_PROFILE is unavailable in release builds");
+    }
+    #[cfg(debug_assertions)]
+    match value.to_str() {
+        Some("source") => Ok(Some(NativeRunnerTestProfile::Source)),
+        Some("prepared") => Ok(Some(NativeRunnerTestProfile::Prepared)),
+        _ => anyhow::bail!("IBEX_TEST_NATIVE_RUNNER_PROFILE must be source or prepared"),
+    }
+}
+
+#[cfg(feature = "module-runner")]
+fn native_runner_test_deployment_digest(
+    graph: &ibex_runtime::module_loader::runner_pipeline::SourceModuleGraphV1,
+) -> Result<capsec_semantics::model::Digest> {
+    let records = graph
+        .records()
+        .map(|(source_id, _, verified)| {
+            let artifact = verified.artifact();
+            Ok(serde_json::json!({
+                "sourceId": source_id.encode()?,
+                "semanticDigest": artifact.semantic_digest,
+            }))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let value = serde_json::json!({
+        "schema": "ibex/native-runner-test-deployment/1",
+        "entrySourceId": graph.entry().encode()?,
+        "records": records,
+    });
+    let digest = capsec_semantics::digest::compute_domain_digest(
+        "ibex:native-runner-test-deployment:1",
+        &value,
+        &[],
+    )?;
+    capsec_semantics::model::Digest::new(digest).map_err(anyhow::Error::msg)
+}
+
+/// Emit a receipt only after the engine has successfully executed the exact
+/// graph. The engine calls this while it still owns any records added by
+/// invocation-time activation, so the carrier inventory reflects what ran.
+/// @ref LLP 0028#5-conformance-gates-telemetry-and-rollout
+#[cfg(feature = "module-runner")]
+pub(crate) fn emit_native_runner_execution_receipt(
+    graph: &ibex_runtime::module_loader::runner_pipeline::SourceModuleGraphV1,
+    profile: NativeRunnerTestProfile,
+) -> Result<()> {
+    use ibex_runtime::module_loader::artifact::{ModulePayloadV1, ProducerIdentityV1};
+
+    let records = graph
+        .records()
+        .map(|(source_id, _, verified)| {
+            let artifact = verified.artifact();
+            let producer_binary_digest = match &artifact.producer {
+                ProducerIdentityV1::InProcess {
+                    producer_binary_digest,
+                    ..
+                }
+                | ProducerIdentityV1::Prepared {
+                    producer_binary_digest,
+                    ..
+                } => producer_binary_digest,
+            };
+            Ok(serde_json::json!({
+                "sourceId": source_id.encode()?,
+                "semanticDigest": artifact.semantic_digest,
+                "transformFingerprintDigest": artifact.semantics.transform_fingerprint.digest()?,
+                "carrierKind": match &artifact.payload {
+                    ModulePayloadV1::Inline { .. } => "inline-source",
+                    ModulePayloadV1::Carrier { .. } => "prepared-carrier",
+                },
+                "producerBinaryDigest": producer_binary_digest,
+            }))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let hermes = crate::engine::hermes::HermesEngine::loaded_engine_identity()?;
+    let receipt = serde_json::json!({
+        "schema": "ibex/native-module-execution-receipt/1",
+        "profile": profile.as_str(),
+        "entrySourceId": graph.entry().encode()?,
+        "loadedHermesDigest": hermes.binary_digest,
+        "records": records,
+    });
+    let bytes = capsec_semantics::canonical::to_jcs_bytes(&receipt)?;
+    eprintln!(
+        "IBEX_NATIVE_MODULE_EXECUTION_RECEIPT {}",
+        std::str::from_utf8(&bytes).expect("canonical JSON is UTF-8")
+    );
+    Ok(())
+}
+
 const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
   if (g.__exactRuntimeLoaded === true) return;
 
@@ -2398,6 +2517,58 @@ impl ibex_runtime::module_loader::runner_pipeline::PreparedActivationCacheLocato
     }
 }
 
+/// Debug-only native-runner conformance uses the production publisher and
+/// consumer at the exact post-acquisition activation boundary. This makes a
+/// `prepared` receipt prove prepared carriers for modules reached after entry.
+/// @ref LLP 0028#5-conformance-gates-telemetry-and-rollout
+#[cfg(all(
+    feature = "module-runner",
+    debug_assertions,
+    feature = "capsec-conformance-observer"
+))]
+struct NativeRunnerPreparedActivationCacheLocator {
+    artifact_dir: PathBuf,
+    deployment_graph_digest: capsec_semantics::model::Digest,
+}
+
+#[cfg(all(
+    feature = "module-runner",
+    debug_assertions,
+    feature = "capsec-conformance-observer"
+))]
+impl ibex_runtime::module_loader::runner_pipeline::PreparedActivationCacheLocatorV1
+    for NativeRunnerPreparedActivationCacheLocator
+{
+    fn publish_authenticated_records(
+        &self,
+        graph: &ibex_runtime::module_loader::runner_pipeline::SourceModuleGraphV1,
+        record_ids: &std::collections::BTreeSet<ibex_runtime::module_loader::identity::SourceId>,
+    ) -> Result<()> {
+        ibex_runtime::module_loader::runner_pipeline::publish_prepared_activation_records_v1(
+            graph,
+            record_ids,
+            &self.artifact_dir,
+            self.deployment_graph_digest.clone(),
+        )?;
+        Ok(())
+    }
+
+    fn locate(
+        &self,
+        _target: &ibex_runtime::module_loader::identity::SourceId,
+    ) -> Result<Vec<ibex_runtime::module_loader::runner_pipeline::PreparedActivationCacheCandidateV1>>
+    {
+        use ibex_runtime::module_loader::runner_pipeline::{
+            prepared_graph_cache_dir, PreparedActivationCacheCandidateV1,
+        };
+
+        Ok(vec![PreparedActivationCacheCandidateV1 {
+            cache_dir: prepared_graph_cache_dir(&self.artifact_dir, &self.deployment_graph_digest),
+            deployment_graph_digest: self.deployment_graph_digest.clone(),
+        }])
+    }
+}
+
 struct PreparedAuthenticatedGeneratedEntry {
     entry: crate::engine::AuthenticatedGeneratedEntry,
 }
@@ -2761,7 +2932,6 @@ fn classify_authenticated_preparation_failure(
                     | SourceRefusal::LoadTypesOnlyRefused
                     | SourceRefusal::LoadUnsupportedPath
                     | SourceRefusal::FileEntryAlreadySubmitted
-                    | SourceRefusal::FileCommonJsUnsupported
                     | SourceRefusal::FileBytecodeUnsupported
                     | SourceRefusal::FileUnsupportedPath
             )
@@ -3083,13 +3253,18 @@ impl AuthenticatedFileIngress {
         let mut phase = StartupPhaseTrace::begin();
         let (_, source_entry) = self.authenticated_source_entry(request)?;
         phase.mark("graph_source_entry");
+        let test_profile = native_runner_test_profile()?;
 
         // A production commitment changes admission mode before graph work:
         // attempt the parse-free publication first. Any refusal goes directly
         // to a cold authenticated source build; this startup must not rejoin
         // and accept the cache generation the independent authority refused.
         // @ref LLP 0042#migration-and-coexistence
-        let commitment = self.prepared_commitment_for_entry(&source_entry)?;
+        let commitment = if test_profile.is_none() {
+            self.prepared_commitment_for_entry(&source_entry)?
+        } else {
+            None
+        };
         let committed_attempted = commitment.is_some();
         if let Some(commitment) = commitment {
             match self.load_committed_prepared_module_graph(&source_entry, request, &commitment) {
@@ -3126,6 +3301,20 @@ impl AuthenticatedFileIngress {
         )? {
             SourceModuleGraphBuildV1::Native(graph) => graph,
             SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                if test_profile.is_some() {
+                    let telemetry = requirement.telemetry_event(env!("CARGO_PKG_VERSION"))?;
+                    eprintln!(
+                        "{}{}",
+                        ibex_runtime::module_loader::compatibility::LEGACY_REQUIRED_TELEMETRY_PREFIX,
+                        serde_json::to_string(&telemetry)?
+                    );
+                    let diagnostic = format!(
+                        "native module-runner conformance quarantine: {}",
+                        requirement
+                    );
+                    eprintln!("{diagnostic}");
+                    anyhow::bail!(diagnostic);
+                }
                 if !legacy_module_loader_window_is_open() {
                     anyhow::bail!(
                         "native module runner does not support this graph and the bounded legacy loader window is closed: {}",
@@ -3158,6 +3347,44 @@ impl AuthenticatedFileIngress {
             "authenticated native source graph identity changed after the structured request was admitted"
         );
         phase.mark("graph_validate");
+
+        match test_profile {
+            Some(NativeRunnerTestProfile::Source) => {
+                return Ok(AuthenticatedModuleGraphPreparation::Native(graph));
+            }
+            Some(NativeRunnerTestProfile::Prepared) => {
+                use ibex_runtime::module_loader::runner_pipeline::{
+                    load_prepared_source_graph_v1, publish_prepared_source_graph_v1,
+                };
+
+                let deployment_digest = native_runner_test_deployment_digest(&graph)?;
+                let artifact_dir = self.runtime_cache_root.join("native-runner-test");
+                #[cfg(all(debug_assertions, feature = "capsec-conformance-observer"))]
+                graph.set_prepared_activation_cache_locator(Arc::new(
+                    NativeRunnerPreparedActivationCacheLocator {
+                        artifact_dir: artifact_dir.clone(),
+                        deployment_graph_digest: deployment_digest.clone(),
+                    },
+                ));
+                #[cfg(not(all(debug_assertions, feature = "capsec-conformance-observer")))]
+                anyhow::bail!(
+                    "prepared native-runner conformance requires a debug build with the capsec-conformance-observer feature"
+                );
+                let cache_dir = publish_prepared_source_graph_v1(
+                    &graph,
+                    &artifact_dir,
+                    deployment_digest.clone(),
+                )?;
+                let prepared = load_prepared_source_graph_v1(
+                    &cache_dir,
+                    &graph,
+                    &entry_join,
+                    &deployment_digest,
+                )?;
+                return Ok(AuthenticatedModuleGraphPreparation::Native(prepared));
+            }
+            None => {}
+        }
 
         if !committed_attempted {
             if let Some(prepared) =
@@ -4786,12 +5013,19 @@ fn build_host_with_route(
     use std::sync::Arc;
 
     validate_production_inputs(cli)?;
+    #[cfg(feature = "module-runner")]
+    let native_runner_conformance = native_runner_test_profile()?.is_some();
     match (&cli.capsec_armed_snapshot, &cli.capsec_arming_identity) {
         (None, None) => build_default_armed_host(cli, authenticate_launch_entry(cli, route)?),
         (Some(_), None) | (None, Some(_)) => anyhow::bail!(
             "--capsec-armed-snapshot and --capsec-arming-identity must be provided together"
         ),
         (Some(snapshot_path), Some(identity_path)) => {
+            #[cfg(feature = "module-runner")]
+            anyhow::ensure!(
+                !native_runner_conformance,
+                "native module-runner conformance fixtures cannot supply an armed snapshot"
+            );
             if cli.inspect
                 || cli.inspect_wait
                 || cli.inspect_open
@@ -5017,6 +5251,10 @@ fn build_default_armed_host(
 
     let mut phase = StartupPhaseTrace::begin();
     validate_production_inputs(cli)?;
+    #[cfg(feature = "module-runner")]
+    let native_runner_conformance = native_runner_test_profile()?.is_some();
+    #[cfg(not(feature = "module-runner"))]
+    let native_runner_conformance = false;
     for line in check_capsec_readiness(
         crate::host::SecurityMode::Enforce,
         CapsecStage::Run,
@@ -5183,6 +5421,61 @@ fn build_default_armed_host(
     } else if cli.policy.is_some() {
         anyhow::bail!("canonical policy {} not found", policy_path.display());
     }
+    if native_runner_conformance {
+        if policy_loaded {
+            anyhow::bail!(
+                "native module-runner conformance fixtures cannot supply a project policy"
+            );
+        }
+        // The real-binary source/prepared harness gets only its disposable
+        // project tree and the stdout broker needed by the result oracle.
+        // @ref LLP 0019#tier-3-the-rustoxc-module-artifact-producer
+        policy["rootCeiling"] = serde_json::json!([
+            {
+                "authority": {
+                    "cap": "fs:list",
+                    "resource": {
+                        "kind": "path-tree",
+                        "path": {"root": "project", "components": []}
+                    }
+                },
+                "provenance": [{
+                    "kind": "direct",
+                    "source": "IBEX_TEST_NATIVE_RUNNER_PROFILE"
+                }]
+            },
+            {
+                "authority": {
+                    "cap": "fs:read",
+                    "resource": {
+                        "kind": "path-tree",
+                        "path": {"root": "project", "components": []}
+                    }
+                },
+                "provenance": [{
+                    "kind": "direct",
+                    "source": "IBEX_TEST_NATIVE_RUNNER_PROFILE"
+                }]
+            },
+            {
+                "authority": {
+                    "cap": "stdio:write",
+                    "resource": {
+                        "kind": "stdio",
+                        "stream": "stdout",
+                        "source": {
+                            "kind": "broker",
+                            "identity": "ibex:console:stdout"
+                        }
+                    }
+                },
+                "provenance": [{
+                    "kind": "direct",
+                    "source": "IBEX_TEST_NATIVE_RUNNER_PROFILE"
+                }]
+            }
+        ]);
+    }
     for (field, expected) in [
         ("policySchema", "ibex/capsec-policy/2"),
         ("capsVocab", "ibex/capsec/1"),
@@ -5209,7 +5502,7 @@ fn build_default_armed_host(
     // why the ceiling and not a floor: the floor strata are never reached,
     // because the root-ceiling gate denies first.
     #[cfg(feature = "unadvertised-dev-arming")]
-    if !policy_loaded {
+    if !policy_loaded && !native_runner_conformance {
         // Canonically sorted by capability; arming refuses an unsorted ceiling.
         // `path:cwd-*` is required for *relative* paths: resolving `foo.txt`
         // observes the session cwd before any fs effect, so without it every
@@ -5290,9 +5583,19 @@ fn build_default_armed_host(
         .map(|name| format!("node:{name}"))
         .collect::<Vec<_>>();
     root_builtins.sort();
+    let native_runner_root_floor = if native_runner_conformance {
+        policy["rootCeiling"]
+            .as_array()
+            .context("native runner root ceiling must be an array")?
+            .iter()
+            .map(|row| row["authority"].clone())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     let mut snapshot_principals = vec![serde_json::json!({
         "principal": {"kind": "root", "identity": "project-root"},
-        "floor": [],
+        "floor": native_runner_root_floor,
         "denials": [],
         "escalationCeiling": [],
         "imports": {
@@ -5587,18 +5890,47 @@ fn build_default_armed_host(
         mode: crate::host::SecurityMode::Enforce,
         ..Default::default()
     };
-    #[cfg(feature = "insecure")]
-    let host = Host::new_armed_insecure(host_config, snapshot)?;
-    #[cfg(all(not(feature = "insecure"), feature = "unadvertised-dev-arming"))]
-    let host = if unadvertised_dev_arming_active() {
-        Host::new_armed_unadvertised_dev(host_config, snapshot)?
-    } else {
-        Host::new_armed(host_config, snapshot)?
-    };
-    #[cfg(not(feature = "unadvertised-dev-arming"))]
-    let host = Host::new_armed(host_config, snapshot)?;
+    let host = construct_default_armed_host(host_config, snapshot)?;
     phase.mark("arm_host_new");
     Ok((host, Some(digest), project_root, cache_root))
+}
+
+fn construct_default_armed_host(
+    config: HostConfig,
+    snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
+) -> Result<Host> {
+    #[cfg(feature = "module-runner")]
+    if native_runner_test_profile()?.is_some() {
+        #[cfg(all(
+            debug_assertions,
+            feature = "capsec-conformance-observer",
+            not(feature = "insecure")
+        ))]
+        {
+            return Host::new_armed_for_native_module_runner_conformance(config, snapshot)
+                .context("failed to construct native module-runner conformance host");
+        }
+        #[cfg(not(all(
+            debug_assertions,
+            feature = "capsec-conformance-observer",
+            not(feature = "insecure")
+        )))]
+        anyhow::bail!(
+            "IBEX_TEST_NATIVE_RUNNER_PROFILE requires a secure debug build with the capsec-conformance-observer feature"
+        );
+    }
+
+    #[cfg(feature = "insecure")]
+    {
+        return Host::new_armed_insecure(config, snapshot)
+            .context("failed to construct insecure armed capability host");
+    }
+    #[cfg(all(not(feature = "insecure"), feature = "unadvertised-dev-arming"))]
+    if unadvertised_dev_arming_active() {
+        return Host::new_armed_unadvertised_dev(config, snapshot)
+            .context("failed to construct unadvertised development host");
+    }
+    Host::new_armed(config, snapshot).context("failed to construct armed capability host")
 }
 
 /// Whether the opt-in `unadvertised-dev-arming` feature is compiled in. When it

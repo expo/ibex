@@ -271560,6 +271560,16 @@
             "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
           },
           {
+            "id": "surface.startup.env.ibex.test.native.runner.profile.171bg89",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "env:IBEX_TEST_NATIVE_RUNNER_PROFILE"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
             "id": "surface.startup.env.ibex.test.transpile.input.barrier.07svevo",
             "classification": "non-capability",
             "surface": {

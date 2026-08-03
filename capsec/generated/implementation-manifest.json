@@ -272466,6 +272466,37 @@
       ]
     },
     {
+      "edgeId": "surface.startup.env.ibex.test.native.runner.profile.171bg89",
+      "observedKey": "startup:env:IBEX_TEST_NATIVE_RUNNER_PROFILE",
+      "branchId": "surface.startup.env.ibex.test.native.runner.profile.171bg89.main",
+      "enforcementBranchId": "surface.startup.env.ibex.test.native.runner.profile.171bg89.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:IBEX_TEST_NATIVE_RUNNER_PROFILE"
+        ],
+        "proofSourceRefs": [
+          "src/bin/ibex/runtime.rs#env::var_os:IBEX_TEST_NATIVE_RUNNER_PROFILE:read"
+        ],
+        "sourceRefs": [
+          "src/bin/ibex/runtime.rs#env::var_os:IBEX_TEST_NATIVE_RUNNER_PROFILE:read"
+        ],
+        "terminalObservedKey": "startup:env:IBEX_TEST_NATIVE_RUNNER_PROFILE"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/bin/ibex/runtime.rs#env::var_os:IBEX_TEST_NATIVE_RUNNER_PROFILE:read"
+      ],
+      "implementationOwner": "WP9",
+      "fixtureObligations": [
+        "surface.startup.env.ibex.test.native.runner.profile.171bg89.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.startup.env.ibex.test.transpile.input.barrier.07svevo",
       "observedKey": "startup:env:IBEX_TEST_TRANSPILE_INPUT_BARRIER",
       "branchId": "surface.startup.env.ibex.test.transpile.input.barrier.07svevo.main",
@@ -282609,7 +282640,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-qM1hU6CXVq9FxSuWjDLkkDoBTxKlDRcqaoR9NS_6-2w"
+      "rawContentDigest": "sha256-f4CxLlPobywDE4GCgsZDbrrbXXgi88t10PmdB5dklpE"
     },
     {
       "kind": "output-disposition-dataset",
@@ -282624,44 +282655,44 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256--exioA09hlcGFP2Lo1c-BOrJ1NagVL40i0t4W1f12bw"
+      "rawContentDigest": "sha256-_LIlVKPP8p6PsrruFSpQ6isCT6DsD-OGXPoLVygVRb4"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-hjo__MAjmRLiZqsJv4UfVy_fxsUeW2L-Y-lI_71M2mk"
+      "rawContentDigest": "sha256-qHTUO1dR_t96nocvaL-MMGZ_BFwvjPwvb4FfCDS7n8g"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-jGolE5d2824xwPIombbPL7KKoY44uZ0mwNcv_tYN3rE"
+      "rawContentDigest": "sha256-FDerRuoHNzgNBunnBpie8aqpgfR804fLQWUOqsst0a8"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-VTvCmMvC6ck8J3Zi6i5XZ4yz2A8BMFfqORqe7d4HvkU"
+      "rawContentDigest": "sha256-Hua_uY6-XNob0Kxs-krVnD5hw-aHBX_7ua90naW2vRA"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-u23JposztkM8SSxWQOUvBvpx4FI4Ndl5YhWDj9yOA8k"
+      "rawContentDigest": "sha256-3wfZMntJX9jxqjFfpZSBrZwQ3kWaiQkgtx2b8bl5GTY"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-HX28_v7bUTxBJp3ePeGyMUFAr5W0UqC_r2Og8FBOKrk"
+      "rawContentDigest": "sha256-SpWmnUQFR5xuc4-0vXnGZW0wWpAEuA1KQC6s5GORfAI"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-kfWFBcTFy0sWTskj8oXco-nLIEOJgpsxm7ULzCjXdzQ"
+      "rawContentDigest": "sha256-veYejRnYuas_fSUloWp9oF1Qlw0pwpH0D01JfXh--8o"
     }
   ],
   "counts": {
-    "observedReferences": 13397,
-    "logicalSurfaces": 7535,
-    "enforcementBranches": 7837,
-    "coverageEdges": 7535,
-    "targetCells": 15070
+    "observedReferences": 13398,
+    "logicalSurfaces": 7536,
+    "enforcementBranches": 7838,
+    "coverageEdges": 7536,
+    "targetCells": 15072
   }
 }

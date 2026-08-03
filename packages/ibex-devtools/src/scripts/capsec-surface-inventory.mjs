@@ -12320,6 +12320,8 @@ export function scanEvaluatedCppGlobalScripts(
   for (const statement of statements) {
     const variable = cppAssignmentVariable(statement);
     if (!variable) continue;
+    const equals = statement.findIndex((token) => token.value === "=");
+    const appends = equals > 0 && statement[equals - 1]?.value === "+";
     const values = statement
       .filter((token) => token.type === "string")
       .map((token) => token.value);
@@ -12328,7 +12330,12 @@ export function scanEvaluatedCppGlobalScripts(
     // Ignore ordinary labels/URLs cheaply. Evaluated scripts always contain at
     // least one JavaScript statement delimiter or function/object expression.
     if (!/[;{}()]/u.test(script)) continue;
-    scripts.set(variable, script);
+    scripts.set(
+      variable,
+      appends && scripts.has(variable)
+        ? `${scripts.get(variable)}${script}`
+        : script,
+    );
   }
 
   const evaluated = new Map();
@@ -13842,9 +13849,43 @@ export function scanLockdownEvaluatorSurfaces(
       `${sourcePath}#lockdownJS: expected exact armed and diagnostic script parts`,
     );
   }
-  // Reconstruct the production armed form. The diagnostic false form is not
-  // target evidence and cannot satisfy the fail-closed claim.
-  const script = `${parts[0]}true${parts[3]}`;
+  // Reconstruct the production armed form, including any later `+=` raw
+  // literals used to stay below compiler token-size limits. The diagnostic
+  // false form is not target evidence and cannot satisfy the fail-closed
+  // claim.
+  let script = `${parts[0]}true${parts[3]}`;
+  const bufferUse = tokens.findIndex(
+    (token, index) =>
+      token.value === "lockdownJS" &&
+      tokens[index + 1]?.value === "." &&
+      tokens[index + 2]?.value === "c_str",
+  );
+  if (bufferUse === -1) {
+    throw new Error(
+      `${sourcePath}#lockdownJS: expected one exact StringBuffer source route`,
+    );
+  }
+  for (const [start, end] of cppStatementRanges(tokens)) {
+    if (start <= assignmentEnd || end >= bufferUse) continue;
+    const statement = tokens.slice(start, end + 1);
+    if (cppAssignmentVariable(statement) !== "lockdownJS") continue;
+    const equals = statement.findIndex((token) => token.value === "=");
+    if (equals < 1 || statement[equals - 1]?.value !== "+") {
+      throw new Error(
+        `${sourcePath}#lockdownJS: post-declaration mutation must append exact literal bytes`,
+      );
+    }
+    const appended = statement
+      .slice(equals + 1)
+      .filter((token) => token.type === "string")
+      .map((token) => token.value);
+    if (appended.length === 0) {
+      throw new Error(
+        `${sourcePath}#lockdownJS: append mutation omitted its literal bytes`,
+      );
+    }
+    script += appended.join("");
+  }
   const lockdownTamingDigest = `sha256-${sha256Hex(script)}`;
   const tokenValues = tokens.map((token) => token.value);
   for (const [label, sequence] of [

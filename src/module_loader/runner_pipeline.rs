@@ -340,6 +340,18 @@ pub struct PreparedActivationCacheCandidateV1 {
 /// authorized and its source closure has produced retained acquisition
 /// receipts.
 pub trait PreparedActivationCacheLocatorV1: Send + Sync {
+    /// Optionally populate cache candidates for the exact records whose source
+    /// acquisition was just authorized. Consumers still authenticate every
+    /// returned byte against those records, so publication remains an
+    /// acceleration rather than authority.
+    fn publish_authenticated_records(
+        &self,
+        _graph: &SourceModuleGraphV1,
+        _record_ids: &BTreeSet<SourceId>,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     fn locate(&self, target: &SourceId) -> Result<Vec<PreparedActivationCacheCandidateV1>>;
 }
 
@@ -1031,6 +1043,7 @@ impl SourceModuleGraphV1 {
         self.matched_candidate_declarations = pending_matched;
         self._activation_receipts.extend(pending_receipts);
         if let Some(locator) = self.prepared_activation_cache_locator.clone() {
+            let _ = locator.publish_authenticated_records(self, &activated_record_ids);
             if let Ok(candidates) = locator.locate(&target_id) {
                 for candidate in candidates {
                     if load_prepared_activation_records_v1(

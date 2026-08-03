@@ -6642,7 +6642,12 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       }
     } catch (e) { throw e; }
   }
-
+)JS";
+    // MSVC refuses individual string-literal tokens larger than 16,380 bytes.
+    // Preserve the lockdown script byte-for-byte while keeping each semantic
+    // chunk comfortably below that compiler limit.
+    // @ref LLP 0005#windows-source-literal-portability
+    lockdownJS += R"JS(
   // `process:umask` is deny-only in the armed profile. The shared runtime
   // installs a compatibility implementation before lockdown, so seal the
   // actual public invocation here rather than relying on a catalog label. A
@@ -6830,7 +6835,8 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       pinClosedProcessProperty('report', 'ProcessReport');
     } catch (e) { throw e; }
   }
-
+)JS";
+    lockdownJS += R"JS(
   // --- Property override enablement for the error intrinsics ---
   // Freezing Error.prototype makes its data properties non-writable, and a
   // non-writable property on the prototype chain rejects plain assignment on

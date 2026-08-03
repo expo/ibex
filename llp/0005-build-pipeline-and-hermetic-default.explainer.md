@@ -5,6 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-08-03 (the Windows source-header path segments the structural-lockdown script into byte-identical raw-string chunks below MSVC's per-literal size limit)
 **Revised:** 2026-07-27 (source-built Hermes platforms move to the post-260318099.0.1 stable commit carrying the WeakRef read-barrier fix; Android remains on its older unaffected reviewed AAR until Maven publishes a fixed build)
 **Revised:** 2026-07-26 (Linux source and prebuilt Hermes bundles now publish the matching Hermes VM CLI beside `hermesc`, allowing build.rs to prove the linked runtime's HBC version and precompile the core runtime bundle instead of reparsing its source during every embedded startup)
 **Revised:** 2026-07-25 (the managed source-built Windows `hermesc` compiles the authenticated shared-runtime bundle under the same version and generated-file validation gates as Apple/Linux, while per-file bootstrap HBC remains on the Windows source-header exception)
@@ -194,6 +195,15 @@ the combined runtime bundle does not silently remove that distinct fallback
 boundary `[observed]`
 (`src/engine/hermes_bootstrap.cc`; `build.rs`;
 `scripts/build-hermes-windows.ps1`).
+
+### Windows source-literal portability
+
+Windows evaluates the generated bootstrap source headers when per-file HBC is
+intentionally unavailable. MSVC also applies a 16,380-byte limit to each C++
+string-literal token. Long embedded scripts must therefore remain one
+byte-identical JavaScript program while being assembled from smaller raw-string
+chunks; a single growing literal can pass Clang/GCC and fail the Windows native
+build with `C2026` `[observed]` (`src/engine/hermes_runtime.cc`).
 
 The macOS Hermes 0.11 compiler is stricter than the runtime authoring surface
 too: it rejects BigInt literal syntax in bootstrap files while accepting

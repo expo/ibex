@@ -180,8 +180,6 @@ pub enum SourceRefusal {
     InvalidFileIdentity,
     #[error("the authenticated .js file kind was not resolved by the Host")]
     FileModuleKindUnauthenticated,
-    #[error("direct CommonJS TypeScript execution is unavailable for .cts entries")]
-    FileCommonJsUnsupported,
     #[error("direct bytecode execution requires authenticated original-source provenance")]
     FileBytecodeUnsupported,
     #[error("direct file execution refuses unsupported or extensionless source paths")]
@@ -647,10 +645,17 @@ fn canonical_file_shape(virtual_path: &str) -> Result<SourceShape, SourceRefusal
     if extension == "json" {
         return Ok(SourceShape::JsonData);
     }
-    if extension == "cjs" {
+    // Runtime-loaded TypeScript includes the CommonJS-asserting `.cts` form;
+    // keep its dialect separate from its resolved execution goal.
+    // @ref LLP 0028#summary
+    if matches!(extension.as_str(), "cjs" | "cts") {
         return Ok(SourceShape::Program {
             goal: SourceGoal::ScriptWithExtensions,
-            dialect: ParserDialect::JavaScript,
+            dialect: if extension == "cts" {
+                ParserDialect::TypeScript
+            } else {
+                ParserDialect::JavaScript
+            },
             role: SourceRole::Entry,
             module_kind: Some(ModuleKind::CommonJs),
             is_main: true,
@@ -674,7 +679,6 @@ fn canonical_file_shape(virtual_path: &str) -> Result<SourceShape, SourceRefusal
         "mts" | "ts" => ParserDialect::TypeScript,
         "tsx" => ParserDialect::TypeScriptJsx,
         "jsx" => ParserDialect::JavaScriptJsx,
-        "cts" => return Err(SourceRefusal::FileCommonJsUnsupported),
         "hbc" => return Err(SourceRefusal::FileBytecodeUnsupported),
         _ => return Err(SourceRefusal::FileUnsupportedPath),
     };
@@ -2566,10 +2570,6 @@ mod tests {
     fn file_constructor_refuses_unsupported_module_routes_without_consuming() {
         for (identity, expected) in [
             (
-                "file:///project/main.cts",
-                SourceRefusal::FileCommonJsUnsupported,
-            ),
-            (
                 "file:///project/main.hbc",
                 SourceRefusal::FileBytecodeUnsupported,
             ),
@@ -2602,6 +2602,23 @@ mod tests {
             SourceShape::Program {
                 goal: SourceGoal::ScriptWithExtensions,
                 dialect: ParserDialect::JavaScript,
+                role: SourceRole::Entry,
+                module_kind: Some(ModuleKind::CommonJs),
+                is_main: true,
+            }
+        ));
+
+        let mut cts = SubmissionSequence::new(session_for(
+            EntryKind::File,
+            "file:///project/main.cts",
+            ExecutionMode::Program,
+        ))
+        .unwrap();
+        assert!(matches!(
+            cts.mint_file(referrer(), &[]).unwrap().submission.shape,
+            SourceShape::Program {
+                goal: SourceGoal::ScriptWithExtensions,
+                dialect: ParserDialect::TypeScript,
                 role: SourceRole::Entry,
                 module_kind: Some(ModuleKind::CommonJs),
                 is_main: true,

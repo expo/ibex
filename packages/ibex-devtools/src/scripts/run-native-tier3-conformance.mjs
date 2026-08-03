@@ -131,11 +131,11 @@ function runFixture(root, fixture, profile) {
     0,
     `${fixture.id}/${profile} failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
   );
-  const expected =
-    fixture.expectedOutput ??
-    (fixture.hermesMatchesOracle === false
-      ? fixture.rawHermesCaptureLast
-      : nodeOracle(fixture.source));
+  // The native product path always uses LLP 0034's default ES6 block-scoping
+  // mode. `rawHermesCaptureLast` belongs only to the explicit legacy rollback
+  // exercised by the standalone Hermes/loader compatibility gates.
+  // @ref LLP 0034#compatibility-transform-transition
+  const expected = fixture.expectedOutput ?? nodeOracle(fixture.source);
   assert.ok(expected, `${fixture.id} has no engine-truth oracle`);
   assert.ok(
     result.stdout.split(/\r?\n/u).includes(expected),

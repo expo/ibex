@@ -387,7 +387,7 @@ print(${JSON.stringify(marker)} + JSON.stringify(value));
     oracle: [`${marker}42`],
     native: {
       outcome: 'error',
-      stderrIncludes: 'native CommonJS record evaluation refused',
+      stderrIncludes: "Property 'sloppyValue' doesn't exist",
       note: 'The native CapSec global refuses sloppy implicit-global creation that Node CommonJS permits; this is the pinned shim-to-runner behavior delta.',
     },
   },

@@ -5,6 +5,7 @@
 **Systems:** Module Loader, Build, Runtime
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-06
+**Revised:** 2026-08-03 (the debug-only source/prepared real-binary seam was restored through the authenticated-ingress architecture; its product path always compares Tier 3 with the default ES6 block-scoping oracle, while raw-Hermes capture-last remains confined to the explicit legacy rollback gate)
 **Revised:** 2026-07-29 (Tier 3 now mirrors the canonical explicit-iterator
 pass, including recursive/destructured/non-block/assignment/`var` shapes,
 lexical arrow semantics, IteratorClose, and the canonical leave-raw hazard

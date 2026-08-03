@@ -223,6 +223,103 @@ fn authenticated_evaluation(evaluation: Stage1Evaluation) -> AuthenticatedEvalua
     }
 }
 
+#[cfg(feature = "module-runner")]
+struct NativeModuleSourceMap {
+    source_label: String,
+    bundle_path: String,
+    map: super::sourcemap::SourceMap,
+}
+
+#[cfg(feature = "module-runner")]
+fn native_module_source_maps(
+    plan: &ibex_runtime::module_loader::graph::SynchronousGraphPlan<'_>,
+    configs: &std::collections::BTreeMap<
+        ibex_runtime::module_loader::identity::SourceId,
+        ibex_runtime::engine::module_runner::NativeModuleRecordConfig,
+    >,
+) -> Result<std::collections::BTreeMap<String, NativeModuleSourceMap>> {
+    let mut maps = std::collections::BTreeMap::new();
+    for (source_id, config) in configs {
+        let artifact = plan.artifact(source_id)?;
+        let source_map = &artifact.artifact().semantics.source_map;
+        let source_labels = source_map
+            .source_ids
+            .iter()
+            .map(|source| {
+                configs
+                    .get(&source.0)
+                    .map(|source_config| source_config.source_label.clone())
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "native module source map names a source outside its authenticated graph"
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let map =
+            super::sourcemap::SourceMap::from_parts(source_labels, source_map.mappings.as_str())
+                .ok_or_else(|| anyhow!("native module source map has no authenticated sources"))?;
+        let bundle_path = config
+            .virtual_path
+            .clone()
+            .unwrap_or_else(|| config.source_label.clone());
+        maps.insert(
+            config.source_label.clone(),
+            NativeModuleSourceMap {
+                source_label: config.source_label.clone(),
+                bundle_path,
+                map,
+            },
+        );
+    }
+    Ok(maps)
+}
+
+#[cfg(feature = "module-runner")]
+fn rewrite_native_module_source_positions(
+    mut evaluation: AuthenticatedEvaluation,
+    source_maps: &std::collections::BTreeMap<String, NativeModuleSourceMap>,
+) -> AuthenticatedEvaluation {
+    let AuthenticatedEvaluation::Throw(thrown) = &mut evaluation else {
+        return evaluation;
+    };
+    let AuthenticatedThrowMetadata::Captured {
+        stack, positions, ..
+    } = &mut thrown.metadata
+    else {
+        return evaluation;
+    };
+
+    if let Some(stack) = stack {
+        for source_map in source_maps.values() {
+            if stack.contains(source_map.source_label.as_str())
+                || stack.contains(source_map.bundle_path.as_str())
+            {
+                *stack = super::sourcemap::rewrite_error(
+                    stack,
+                    &source_map.map,
+                    source_map.bundle_path.as_str(),
+                );
+            }
+        }
+    }
+    for position in positions {
+        let Some(source_map) = source_maps.get(position.source_label.as_str()) else {
+            continue;
+        };
+        let Some((source_label, line, column)) = source_map.map.lookup(
+            position.line.saturating_sub(1),
+            position.column.saturating_sub(1),
+        ) else {
+            continue;
+        };
+        position.source_label = source_label.to_owned();
+        position.line = line;
+        position.column = column;
+    }
+    evaluation
+}
+
 // The native bootstrap installs this one-shot trusted hook before any bundled
 // runtime code executes. Rust invokes it only after the embedded/disk runtime
 // path is complete, then removes the hook so application code cannot recapture
@@ -2463,6 +2560,7 @@ impl HermesEngine {
         };
         use ibex_runtime::module_loader::security::ModuleGraphAuthorizer;
 
+        let native_test_profile = crate::runtime::native_runner_test_profile()?;
         let mut phase = crate::runtime::StartupPhaseTrace::begin();
         self.load_runtime().await?;
         phase.mark("graph_runtime_load");
@@ -2481,10 +2579,14 @@ impl HermesEngine {
         let armed_snapshot_digest = self.armed_snapshot_digest.clone();
         let admitted = unsafe {
             admit_prepare_authenticated_module_graph(raw.cast(), session, request, |request| {
-                let preparation = prepare(request).map_err(|_| {
-                    EngineFault::Rejected(Arc::from(
-                        "authenticated module graph preparation failed",
-                    ))
+                let preparation = prepare(request).map_err(|error| {
+                    // The preparer has already consumed an authenticated
+                    // request, so its source-labelled producer diagnostic is
+                    // safe and necessary for the native diagnostics contract.
+                    // @ref LLP 0026#10-diagnostics-and-source-maps
+                    EngineFault::Rejected(Arc::from(format!(
+                        "authenticated module graph preparation failed: {error:#}"
+                    )))
                 })?;
                 match preparation {
                     super::AuthenticatedModuleGraphPreparation::Native(graph) => {
@@ -2558,11 +2660,13 @@ impl HermesEngine {
         let native_runtime = unsafe { NativeModuleRuntime::from_raw(raw_module_runtime, nonce)? };
         let mut forced_terminal = None;
         let mut retained_activation_state = None;
+        let mut source_maps = std::collections::BTreeMap::new();
 
         let graph_result: Result<()> = async {
             let plan = graph.plan()?;
             phase.mark("graph_plan");
             let (configs, authority_contexts) = graph.native_execution_inputs(generation)?;
+            source_maps = native_module_source_maps(&plan, &configs)?;
             phase.mark("graph_execution_inputs");
             let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
             let prepared_entries = graph.prepared_entries()?;
@@ -2653,6 +2757,8 @@ impl HermesEngine {
                                 let expanded_plan = activation_state.source_graph.plan()?;
                                 let (configs, contexts) =
                                     activation_state.source_graph.native_execution_inputs(generation)?;
+                                let expanded_source_maps =
+                                    native_module_source_maps(&expanded_plan, &configs)?;
                                 let expanded_deferred =
                                     activation_state.source_graph.deferred_dynamic_links();
                                 let available_prepared =
@@ -2670,21 +2776,25 @@ impl HermesEngine {
                                     &contexts,
                                     &expanded_deferred,
                                     Some(&available_prepared),
-                                )
+                                )?;
+                                Ok(expanded_source_maps)
                             });
-                        if let Err(error) = activation {
-                            activation_state
-                                .source_graph
-                                .rollback_activation(checkpoint);
-                            let diagnostic = format!(
-                                "dynamic module activation refused: {error}"
-                            );
-                            if let Err(refusal_error) = native_runtime
-                                .refuse_dynamic_activation(&request, &diagnostic)
-                            {
-                                return Err(error.context(format!(
-                                    "activation refusal completion failed: {refusal_error}"
-                                )));
+                        match activation {
+                            Ok(expanded_source_maps) => source_maps = expanded_source_maps,
+                            Err(error) => {
+                                activation_state
+                                    .source_graph
+                                    .rollback_activation(checkpoint);
+                                let diagnostic = format!(
+                                    "dynamic module activation refused: {error}"
+                                );
+                                if let Err(refusal_error) = native_runtime
+                                    .refuse_dynamic_activation(&request, &diagnostic)
+                                {
+                                    return Err(error.context(format!(
+                                        "activation refusal completion failed: {refusal_error}"
+                                    )));
+                                }
                             }
                         }
                     }
@@ -2797,6 +2907,8 @@ impl HermesEngine {
                             let expanded_plan = activation_state.source_graph.plan()?;
                             let (configs, contexts) =
                                 activation_state.source_graph.native_execution_inputs(generation)?;
+                            let expanded_source_maps =
+                                native_module_source_maps(&expanded_plan, &configs)?;
                             let expanded_deferred =
                                 activation_state.source_graph.deferred_dynamic_links();
                             let available_prepared =
@@ -2814,20 +2926,24 @@ impl HermesEngine {
                                 &contexts,
                                 &expanded_deferred,
                                 Some(&available_prepared),
-                            )
+                            )?;
+                            Ok(expanded_source_maps)
                         });
-                    if let Err(error) = activation {
-                        activation_state
-                            .source_graph
-                            .rollback_activation(checkpoint);
-                        let diagnostic =
-                            format!("dynamic module activation refused: {error}");
-                        if let Err(refusal_error) = native_runtime
-                            .refuse_dynamic_activation(&request, &diagnostic)
-                        {
-                            return Err(error.context(format!(
-                                "activation refusal completion failed: {refusal_error}"
-                            )));
+                    match activation {
+                        Ok(expanded_source_maps) => source_maps = expanded_source_maps,
+                        Err(error) => {
+                            activation_state
+                                .source_graph
+                                .rollback_activation(checkpoint);
+                            let diagnostic =
+                                format!("dynamic module activation refused: {error}");
+                            if let Err(refusal_error) = native_runtime
+                                .refuse_dynamic_activation(&request, &diagnostic)
+                            {
+                                return Err(error.context(format!(
+                                    "activation refusal completion failed: {refusal_error}"
+                                )));
+                            }
                         }
                     }
                 }
@@ -2929,6 +3045,12 @@ impl HermesEngine {
         let settled = unsafe { structured.finish(terminal) }.map_err(anyhow::Error::new);
         if graph_result.is_ok() && settled.is_ok() {
             if let Some(state) = retained_activation_state {
+                if let Some(profile) = native_test_profile {
+                    crate::runtime::emit_native_runner_execution_receipt(
+                        &state.source_graph,
+                        profile,
+                    )?;
+                }
                 if state.source_graph.has_call_time_activation_links() {
                     runtime.retain_module_activation_state(state)?;
                 }
@@ -2940,7 +3062,10 @@ impl HermesEngine {
         // file-program owner performs quiescence, while the runtime-lifetime
         // generation pin preserves records for delayed `--keep-alive` imports.
         match (graph_result, settled) {
-            (Ok(()), Ok(evaluation)) => Ok(authenticated_evaluation(evaluation)),
+            (Ok(()), Ok(evaluation)) => Ok(rewrite_native_module_source_positions(
+                authenticated_evaluation(evaluation),
+                &source_maps,
+            )),
             (Ok(()), Err(error)) => Err(error),
             (Err(_graph_error), Ok(evaluation))
                 if matches!(
@@ -2950,7 +3075,10 @@ impl HermesEngine {
                         | Stage1EvaluationOutcome::Lifecycle { .. }
                 ) =>
             {
-                Ok(authenticated_evaluation(evaluation))
+                Ok(rewrite_native_module_source_positions(
+                    authenticated_evaluation(evaluation),
+                    &source_maps,
+                ))
             }
             (Err(graph_error), Ok(_)) => Err(graph_error),
             (Err(graph_error), Err(settlement_error)) => Err(graph_error.context(format!(
