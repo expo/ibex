@@ -5,6 +5,14 @@
 **Systems:** Build, Distribution, Runtime, Module Loader, CapSec, Product
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-08-01
+**Revised:** 2026-08-03 (the separate LLP 0048 gate now names catalog V2 and
+the catalog/stub/plan/report-bound per-target enforcement evidence; no current
+M0–M5 row supplies it)
+**Revised:** 2026-08-03 (LLP 0048 separates Snapback's missing external-script
+worker from this plan's general embedded-entry finish line. A green standalone
+compiler does not close the app-bound `run analysis.ts` contract; the matrix
+now records its independent admission, broker, policy, host-parity, and
+target-evidence gate.)
 **Revised:** 2026-08-03 (Developer ID and physical-builder checkpoint: a fresh
 arm64 application is hardened-runtime signed with the configured Developer ID,
 receives Apple's secure timestamp, passes strict signature inspection and Ibex
@@ -167,7 +175,8 @@ architecture); LLP 0031 (v1 platform matrix; SFE release coupling amended by
 §Summary/M0); LLP 0034
 (Hermes ES6 block-scoping mode); LLP 0035
 (portable engine provenance); LLP 0038 (enforcement-off mechanics); LLP 0039
-(secure/insecure product modes); issues/20260717-sfe-compile-cli.md;
+(secure/insecure product modes); LLP 0048 (restricted external-script
+admission and broker ABI); issues/20260717-sfe-compile-cli.md;
 issues/closed/20260717-sfe-hbc-production-wiring.md;
 issues/20260717-sfe-static-hermes-macos.md;
 issues/closed/20260731-hermesc-recipe-missing-es6-block-scoping.md
@@ -233,6 +242,22 @@ they land the corpus contains a Decision and a Spec that contradict this plan.
 This plan does not change the default posture of the general
 `ibex run`/`eval`/REPL binary.
 
+### Relationship to app-bound external scripts
+
+This plan finishes the general **one embedded entry** executable. It does not,
+by itself, implement Snapback LLP 0062's `run analysis.ts`. LLP 0048 owns that
+separate post-admission extension: the trusted embedded parent reads one
+bounded local `.ts`/`.js` file or stdin stream as data, hashes and attributes
+it, applies LLP 0028's import-free erasable-only profile, and starts a fresh
+mandatory-enforced broker-only worker.
+
+The distinction is load-bearing. The embedded parent may retain ambient
+authority under this plan; the external worker may not. A successful M0–M5
+standalone matrix therefore proves only the outer parent. It cannot be cited as
+evidence for restricted source ingress, broker non-transmission, worker policy,
+Node/Ibex host parity, or worker lifecycle/resource limits. Those claims begin
+only when LLP 0048's acceptance suite passes on the exact artifact and tuple.
+
 ## 1. Product decision
 
 ### One artifact, two modes
@@ -255,8 +280,11 @@ The stub recognizes `--ibex-capsec` and `--ibex-info` only as the first
 argument. A leading `--` ends stub option parsing and is removed before
 constructing application `process.argv`. Every other argument, including
 later occurrences of either spelling, belongs to the application. These two
-words are the complete v1 exception to LLP 0029's earlier “all argv belongs to
-the application” rule.
+words are the complete exception for the general StubContractV3/envelope-V2
+profile to LLP 0029's earlier “all argv belongs to the application” rule. LLP
+0048 adds no stub-reserved selector: `run <source>` remains ordinary
+application argv interpreted by the one trusted embedded parent, and its v1
+worker is an in-process dedicated runtime rather than a re-exec mode.
 
 The selector is intentionally one-way. There is no `--no-capsec` switch and
 no environment variable that silently changes the posture. The stub captures
@@ -364,6 +392,17 @@ language/module and final-envelope tamper matrix and the M4 process/backend
 matrix are green on both target tuples. Remaining work is publication, the
 macOS two-clean-builder receipt, precommitted performance budgets and
 measurements, platform distribution evidence, and the open §12 decisions.
+
+The current path still has no caller-selected external-script admission lane.
+LLP 0048 specifies that lane, but its implementation and target evidence are
+independent work; no current “complete” milestone below includes it. Its
+app-bound profile deliberately rotates the strict formats to StubContractV4,
+envelope V3, catalog V2 plus its target-specific restricted-worker
+advertisement/evidence artifact, CompilePlanV2, PackageProvenanceV2,
+executable inspection V4, and standalone-info V2. Stub V4 selects info V2 and
+the catalog/stub/plan/report chain cross-binds the advertisement digest. Those
+are not retroactive changes to this plan's general StubContractV3/envelope-V2/
+catalog-V1/inspection-V3/info-V1 finish line.
 
 ### Implementation checkpoint — 2026-08-02
 
@@ -935,6 +974,11 @@ CapSec advertisement completion is explicitly **not** a v1 release criterion.
 It is the criterion for claiming that the optional CapSec mode works on a
 specific shipped tuple.
 
+LLP 0048 external-worker completion is likewise not a criterion for the
+general one-entry standalone v1 release. It **is** a criterion for claiming the
+Snapback phase-2 app-bound executable: standalone compilation green alone does
+not satisfy that downstream contract.
+
 ### Requirement-by-requirement audit — 2026-08-03
 
 | §9 criterion | State | Evidence or remaining action |
@@ -953,6 +997,7 @@ specific shipped tuple.
 | Ambient-default ratification | **Resolved — ratified** | The author ratified ambient compatibility as the v1 default against the working macOS and Linux end-to-end artifacts. |
 | Non-evaluating explanation | **Complete** | Inspection v3 admits inner contracts; the artifact's authenticated `--ibex-info` path reports recipient-facing posture/backend/CapSec facts after the same admission and before application evaluation. |
 | LLP 0022/0031 reconciliation | **Complete** | Both documents scope the former categorical/advertisement-first gates to the CapSec path. |
+| LLP 0048 external-script worker | **Specified; implementation/evidence open** | Separate gate for bounded source admission, broker-only enforced policy, host-portable semantics, planted-secret non-transmission, lifecycle/ceilings, and exact-tuple evidence. Not implied by any M0–M5 completion row. |
 | Distribution + precommitted performance | **Open — release/author evidence** | Credential-free Mach-O minimum/hardened/replacement vectors, Developer ID hardened-runtime signing with secure timestamp, Linux audit, and the strict two-physical-Mac comparator pass. Gatekeeper still requires notarization credentials/ticket. The versioned performance collector still refuses measurements until both tuples' numeric budgets are accepted and committed. |
 
 Milestone 5's recipient-side disclosure choice is resolved by the authenticated
@@ -967,6 +1012,8 @@ no-evaluation, and copied-file-without-catalog fixtures green.
 - embedded filesystem assets;
 - native addons/FFI payloads;
 - multi-entry executables;
+- LLP 0048 restricted external-script worker implementation and promotion on
+  exact target tuples (specified separately; not a general second entry);
 - self-update/installers;
 - making CapSec the default for standalone applications.
 
@@ -1025,8 +1072,9 @@ look against real artifacts and closes it.
    authority when the artifact is launched with `--ibex-capsec`. The standalone
    guide records the complete new-user sequence.
 2. **Linux ambient network** (§7) — **decided 2026-08-01: option (a)**. The
-   flagship first use case is producing Snapback CLIs, which require Fetch on
-   Linux. Reuse the existing libcurl Fetch/WebSocket bridge, build its pinned
+   flagship outer-parent use case is producing Snapback CLIs, which require
+   Fetch on Linux. This establishes parent transport only, not LLP 0048's
+   external worker. Reuse the existing libcurl Fetch/WebSocket bridge, build its pinned
    libcurl/TLS closure statically into the Linux stub, and pass the final-image
    ELF audit. Shipping Linux ambient v1 without network is rejected. Evidence
    completed 2026-08-02: the final ELF has no dynamic libcurl dependency,

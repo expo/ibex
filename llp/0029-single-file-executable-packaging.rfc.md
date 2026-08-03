@@ -5,6 +5,15 @@
 **Systems:** Build, Module Loader, Runtime, Security
 **Author:** Charlie Cheever / Claude Fable
 **Date:** 2026-07-17
+**Revised:** 2026-08-03 (the app-bound rotation now also includes catalog V2
+and a target-specific restricted-worker advertisement/evidence artifact whose
+digest is cross-bound by StubContractV4, CompilePlanV2, inspection V4, and
+standalone-info V2; the general catalog-V1 profile is unchanged)
+**Revised:** 2026-08-03 (the Snapback scope is corrected and LLP 0048 supplies
+the missing external-script lane: the executable retains one trusted embedded
+parent entry while that parent may admit one bounded caller-selected `.ts`/`.js`
+file or stdin stream as data into a distinct broker-only worker. This is not a
+general file-execution, eval, REPL, import, or runtime-selected-entry facility.)
 **Revised:** 2026-08-02 (LLP 0047 author decisions: standalone v1 requires an
 explicit authored policy, retains the ratified ambient default, and reserves
 first-position `--ibex-info`. The strict stub contract rotates from the
@@ -86,10 +95,12 @@ process-block flag lookup as typed internal dispatch, keeping Rust and the
 Hermes DLL on one pre-construction runtime configuration value)
 **Revised:** 2026-07-18 (platform decision: LLP 0031 keeps the v1 SFE matrix at
 macOS arm64 and Linux x64, defers Windows/macOS x64, and holds release until
-both exact tuples have verified CapSec advertisements); 2026-07-18 (Snapback 0.2 decision: computed dynamic imports are
-required; phase 4 now embeds each producer-owned, digest-addressed candidate
-table, cross-binds its projection into graph/policy identity, and links it in
-the compiled stub); 2026-07-18 (implementation: compiled boot now drives referenced
+   both exact tuples have verified CapSec advertisements); 2026-07-18 (computed
+dynamic-import candidate tables were selected for the Ibex 0.2 module runner;
+phase 4 now embeds each producer-owned, digest-addressed table, cross-binds its
+projection into graph/policy identity, and links it in the compiled stub. The
+former attribution to Snapback is superseded by the 2026-08-03 correction);
+2026-07-18 (implementation: compiled boot now drives referenced
 Hermes work to quiescence on the native timer clock, treats unconsumed async
 failures as fatal, propagates the final numeric `process.exitCode`, and bounded-flushes the
 output broker before orderly termination); 2026-07-18 (implementation: `inspect-executable` now internally
@@ -149,7 +160,7 @@ committed policy; host-target v1; threat model; phases); 2026-07-17 round-2
 (embedded-module-graph contract; StubContractV1; single snapshot; mounts;
 env sequence; signing state machine; Unicode argv; capsec CLI
 classification).
-**Related:** LLP 0010 (ibex binary ownership; command inventory this RFC extends); LLP 0012 (runtime identity); LLP 0013 (capability compartments); LLP 0014 (generated policy artifact; the embedded authority; revised by §4); LLP 0021 (typed policy and `ArmedSnapshot`; governing for §4); LLP 0022 (armed `process.env` classification); LLP 0023 (virtual filesystem namespace; revised by §4); LLP 0025 (terminal session ownership; §6 lifecycle); LLP 0026 (prepared production artifacts and Hermes bytecode, §9); LLP 0027 (module-carrier wire contract; engine-binding and snapshot-digest revisions, §3/§1); LLP 0028 (Oxc-only transform; error-timing contract preserved by §1); LLP 0047 (v1 finish-line plan and dual-mode product posture)
+**Related:** LLP 0010 (ibex binary ownership; command inventory this RFC extends); LLP 0012 (runtime identity); LLP 0013 (capability compartments); LLP 0014 (generated policy artifact; the embedded authority; revised by §4); LLP 0021 (typed policy and `ArmedSnapshot`; governing for §4); LLP 0022 (armed `process.env` classification); LLP 0023 (virtual filesystem namespace; revised by §4); LLP 0025 (terminal session ownership; §6 lifecycle); LLP 0026 (prepared production artifacts and Hermes bytecode, §9); LLP 0027 (module-carrier wire contract; engine-binding and snapshot-digest revisions, §3/§1); LLP 0028 (Oxc-only transform; error-timing contract preserved by §1); LLP 0047 (v1 finish-line plan and dual-mode product posture); LLP 0048 (restricted external-script admission and broker ABI)
 
 ## Summary
 
@@ -163,16 +174,18 @@ on the artifact contracts Ibex already has. Proposed surface:
 `ibex compile <entry> -o <file>` plus `ibex inspect-executable` (§1).
 
 The motivating consumer is distributable agent-facing tools — most
-concretely Snapback's generated per-app CLI (Snapback LLP 0062; a
-cross-repo dependency not verifiable from this tree) — which wants a
-small, fast-starting binary with an opt-in capability-bounded posture rather
-than a ~60 MB
-Deno/Bun artifact or a Node installation requirement. v1's tuples
-(`aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`) do **not** cover
-Snapback's full distribution surface (Windows, x86_64 macOS): v1
-prototypes the contract for Snapback; full coverage tracks the LLP
-0026 patched-Hermes question and the catalog mechanism of §5. The
-feature is general: any Ibex program becomes shippable as one file.
+concretely Snapback's generated per-app CLI (Snapback LLP 0062; a cross-repo
+dependency not verifiable from this tree) — which wants a small,
+fast-starting binary rather than a ~60 MB Deno/Bun artifact or a Node
+installation requirement. This RFC supplies the **outer one-file parent** but,
+by itself, does not supply Snapback's `run analysis.ts` lane. LLP 0048 adds the
+narrow extension: one trusted embedded parent may admit one caller-selected
+local source object as a separately attributed broker-only worker. v1's tuples
+(`aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`) do **not** cover Snapback's
+full distribution surface (Windows, x86_64 macOS), and no document may claim
+the Snapback phase-2 product is complete until LLP 0048's target-specific
+acceptance passes. The general feature remains: any prepared Ibex program can
+be shippable as one file.
 **Scoped by LLP 0047's eligibility boundary:** the *mechanism* is general, but
 the v1 ambient default is not appropriate for every distribution. Where an
 artifact would reach recipients who cannot audit the embedded graph and would
@@ -245,6 +258,9 @@ which bytes are preserved and which bindings rotate.
   Signing (§2c) is a recorded, separable step.
 - TypeScript entry points work identically to `ibex run` on the same
   tuple (LLP 0028's guarantee); types erased at compile time only.
+- An app-bound trusted parent may opt into LLP 0048's independently gated
+  external-worker extension without adding another embedded entry or weakening
+  the ordinary compiled graph's closed module resolution.
 
 ## Non-goals
 
@@ -255,6 +271,9 @@ which bytes are preserved and which bindings rotate.
 - Cross-target packaging in v1 (§5: same catalog machinery, deferred
   population).
 - Native addons or FFI payloads inside the executable.
+- General file execution, eval, REPL, or runtime-selected embedded entries.
+  LLP 0048's one bounded external source object is an explicit data-ingress
+  exception owned by its own mandatory enforced-worker profile.
 - Byte-preserving non-Unicode argv (§6: Unicode contract with stable
   indexed rejection; reversible surrogate-escape recorded as the
   considered alternative if field friction demands it).
@@ -481,8 +500,12 @@ canonical bytes are an admitted envelope section visible to inspection.
 binary (`ibex-compiled-stub` crate) sharing host, engine,
 embedded-loader, and capsec boot libraries — not a subtractive feature
 of the full CLI (whose pre-clap namespace interception and audit rules
-reject that shape). No REPL, no `eval`, no file-execution ingress, no
-clap tree; exactly one entry, the embedded designation.
+reject that shape). No REPL, no `eval`, no general file-execution ingress, no
+clap tree; exactly one embedded entry, the trusted designation. LLP 0048 does
+not change that table: after outer admission, the designated parent may invoke
+one dedicated native capability that reads a bounded caller-selected source as
+data and creates a fresh, non-root, broker-only worker. The stub itself never
+selects that source as an entry.
 
 Stub identity is **acyclic**, split into two objects (an earlier
 revision compiled the contract digest into the stub while the contract
@@ -1014,7 +1037,10 @@ configuration.**
    trusted runtime construction rather than capturing or brokering the whole
    ambient environment.
 
-No REPL, no `eval`, no `.env` loading in compiled mode.
+No REPL, no `eval`, no `.env` loading in compiled mode. LLP 0048's external
+worker is created with dynamic code disabled and has no environment; its one
+initial transformed source evaluation is a distinct authenticated ingress, not
+an exception that exposes these general surfaces.
 
 ### 5. Targets: host-target v1 on the catalog machinery
 
@@ -1071,11 +1097,11 @@ loudly naming the fetch step.
 
 ### 7. Phases, gates, and the author-decision register
 
-**Sequencing against LLP 0028.** The two programs are concurrent
-Drafts and touch shared contracts, so the ordering is explicit. The
-2026-07-18 Snapback decision requires computed dynamic imports for 0.2;
-phase 4 therefore consumes LLP 0028's guarded-site representation and
-complete candidate-table contract from rollout step 2. Each canonical
+**Sequencing against LLP 0028.** The two programs touch shared contracts, so
+the ordering is explicit. Ibex 0.2 selected computed dynamic import as a
+module-runner capability; phase 4 therefore consumes LLP 0028's guarded-site
+representation and complete candidate-table contract from rollout step 2.
+This is not a Snapback phase-1 requirement. Each canonical
 table is carried as a digest-addressed candidate section, its projection
 is bound into authenticated graph and policy identity, and the compiled
 stub links only those admitted rows. An unlabeled site or absent row still
@@ -1086,6 +1112,42 @@ change** (one owner, one version bump) carrying both programs' fields —
 identity, entry identity, target/mount profile, root-ceiling declaration)
 — since the schema is `deny_unknown_fields` and two uncoordinated revisions
 cannot both be "the versioned change."
+
+**App-bound external source is a separate post-admission lane.** Candidate
+tables above govern the trusted parent's **embedded prepared graph**. They do
+not grant imports to a caller-selected script. LLP 0048's external-script
+profile refuses static value imports, runtime re-exports, dynamic `import()`,
+`import.meta`, and `require`; it transforms under LLP 0028's same pinned Oxc
+authority, then runs as a fresh non-root principal whose only authority-bearing
+object is the broker handle. The parent retains credentials, target/envelope
+authority, transport, result framing, and teardown.
+
+The outer app binding is immutable parent data carried in its own canonical
+`ApplicationBinding` section and cross-bound through CompilePlanV2 and
+PackageProvenanceV2: normalized fixed origin, app id, engine/protocol
+compatibility, and acyclic pre-build release lineage only. The embedded graph
+does not cover this independent section. Credentials, current envelopes,
+generated API program source, and handler source are excluded. An
+ordinary app deploy changes the fetched envelope and does not rebuild the
+executable. Because envelope V2, `StubContractV3`, `CompilePlanV1`, and
+`PackageProvenanceV1` are strict and have no inspectable binding slot, LLP 0048
+rotates only the app-bound profile to `StubContractV4`,
+`ibex/single-file-executable/3` with one `ApplicationBinding` section,
+catalog V2 with a digest-bound target-specific restricted-worker enforcement
+advertisement/evidence artifact, `CompilePlanV2`, `PackageProvenanceV2`,
+`ibex/executable-inspection/4`, and `ibex/standalone-executable-info/2`.
+StubContractV4 selects info V2 and the stub, catalog, plan, inspection, and
+info report cross-bind the advertisement digest. The general V3/V2 artifact,
+catalog V1, and its inspection-V3/info-V1 reports remain valid. App-bound
+inspection exposes the binding, feature/policy/profile digests, and exact
+target-advertisement identity without evaluating parent or worker code; older
+readers refuse the app-bound profile.
+
+This extension has its own implementation and eligibility gate. Standalone
+compilation being green does not satisfy it. Snapback phase 2 waits for LLP
+0048's literal `introspect` / `call` / `run analysis.ts`, Node-versus-Ibex
+host-portable, planted-secret, lifecycle/ceiling, policy-inspection, two-tuple,
+one-file-closure, unsupported-tuple-refusal, and rebuild-boundary acceptance.
 
 0. **Format spike:** factory-table payload on a dynamically-linked dev
    stub — envelope parsing, bulk preflight, embedded admission,

@@ -942,3 +942,14 @@ targets to `Status: Accepted`**. Recorded here for provenance:
   7, 8 and LLP 0047 §12 items 1–4. Acceptance of the documents is not
   resolution of the decisions they register — LLP 0047 §12 items 1–3 still
   block its own §9 release criteria.
+
+## 2026-08-03 external-script correction cluster
+
+The app-bound amendment at git-blob
+`ad717b9578a650577be4b6177243126f56edb167` was reviewed in the LLP 0048
+cluster. The complete Codex-family bodies and provenance are recorded once in
+`0048-external-script-admission-and-broker.codex.md`, Rounds 1–4. The final
+full-cluster and delta verdicts were **READY** with no remaining MATERIAL or
+MINOR findings. The amendment preserves the one trusted embedded entry while
+placing caller-selected source in the separate restricted-worker lane and
+mirrors the complete app-bound format/evidence rotations.

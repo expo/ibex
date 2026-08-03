@@ -5,6 +5,11 @@
 **Systems:** Module Loader, Runtime, Build, Engine
 **Author:** Charlie Cheever / Claude Fable
 **Date:** 2026-07-17
+**Revised:** 2026-08-03 (Snapback LLP 0062's phase boundary is corrected: phase
+1 has no embedded-Ibex or computed-import dependency; the future app-bound
+Ibex host instead uses LLP 0048's import-free, erasable-only external-script
+profile under this RFC's pinned Oxc transform authority. Candidate tables
+remain an Ibex module-runner capability, not a Snapback requirement.)
 **Revised:** 2026-08-03 (the authenticated source/prepared real-binary gate was restored after the ingress refactor; direct `.cts` entries now use the Oxc TypeScript/CommonJS path, reached prepared records are published only after authenticated acquisition, and native graph failures retain Oxc diagnostics plus composed original-source locations)
 **Revised:** 2026-07-18 (LLP 0030 round-1 review reconciliation: foreground
 audit v1 is source-inline only, refuses every prepared/HBC carrier, and has no
@@ -14,12 +19,12 @@ Linux x64 as the evidence-gated 0.2 native tuples; computed `require` remains
 fail-closed; decorators are an intentional typed incompatibility; candidate
 tables stay in LLP 0014/0026/0027 rather than a new Spec; and 0.2 waits for the
 window-close gates instead of extending the compatibility fence)
-**Revised:** 2026-07-18 (author decision: “Snapback requires computed dynamic
-imports for 0.2; implement candidate tables now.” Register item 2 is resolved
-and overrides the advisory telemetry gate. The v1 manifest join, producer
-correspondence table, digest-bound sidecar, prepared-graph v2 references,
-site-bearing native ABI, source/prepared/SFE admission, invocation taxonomy,
-and compiled-stub execution are implemented.)
+**Revised:** 2026-07-18 (candidate tables were selected for Ibex 0.2 and
+implemented: the v1 manifest join, producer correspondence table, digest-bound
+sidecar, prepared-graph v2 references, site-bearing native ABI,
+source/prepared/SFE admission, invocation taxonomy, and compiled-stub
+execution. The former attribution of this decision to Snapback LLP 0062 was
+incorrect and is superseded by the 2026-08-03 correction above.)
 **Revised:** 2026-07-17 (implementation progress: the exhaustive Hermes
 target matrix, exact 31-row Tier-3 disposition map, debug-only real-binary
 source/prepared receipt runner, BigInt lowering, and typed unsupported-syntax
@@ -53,7 +58,7 @@ candidate-map alignment; reachability matrix; identity atomicity; gates);
 2026-07-17 round-2 (explicit-declaration default; deployment-layer binding;
 LLP 0024 revise-then-build; file-at-a-time deletion; Phase 0; typed
 telemetry).
-**Related:** LLP 0007 (transform-toolchain authority; revised and closed by §5); LLP 0009 (runtime transform candidate scope; the Decision this RFC completes); LLP 0019 (hermes-compat transform tiers and zero-divergence discipline); LLP 0024 (parser and session-lowering contracts, revised by §3); LLP 0026 (ESM module runner; Phase 5 retirement gates); LLP 0027 (ModuleArtifact wire contract; `transform_fingerprint`); LLP 0001 (platform matrix, §4d); LLP 0014 (policy generation and import attributes, revised by §2)
+**Related:** LLP 0007 (transform-toolchain authority; revised and closed by §5); LLP 0009 (runtime transform candidate scope; the Decision this RFC completes); LLP 0019 (hermes-compat transform tiers and zero-divergence discipline); LLP 0024 (parser and session-lowering contracts, revised by §3); LLP 0026 (ESM module runner; Phase 5 retirement gates); LLP 0027 (ModuleArtifact wire contract; `transform_fingerprint`); LLP 0001 (platform matrix, §4d); LLP 0014 (policy generation and import attributes, revised by §2); LLP 0048 (restricted external-script profile and broker ABI)
 
 ## Summary
 
@@ -102,14 +107,15 @@ has a kill switch (`IBEX_LEGACY_MODULE_LOADER=0`) and a version fence
 Two external forcing functions make now the right time:
 
 - **Downstream embedders want the guarantee, not the migration.**
-  Snapback's generated per-app CLI (Snapback LLP 0062, in the snapback
-  repo — a cross-repo dependency not verifiable from this tree) executes
-  agent-written TypeScript in an embedded Ibex and wants "Ibex runs TS,
-  one engine, one fingerprint domain" as a stable claim it can build a
-  code-mode contract on. That exact claim is pinned as an acceptance
-  criterion in §6. On 2026-07-18 the author confirmed that Snapback's
-  0.2 contract requires computed dynamic import; candidate tables are
-  therefore part of step 2 regardless of advisory telemetry.
+  Snapback's post-phase-1 app-bound executable direction (Snapback LLP 0062,
+  in the snapback repo) needs one pinned transform authority for a
+  caller-selected local TypeScript/JavaScript file. It does **not** create a
+  phase-1 embedded-Ibex dependency and does **not** require computed import.
+  LLP 0048 therefore defines a narrower host-portable external-script profile:
+  erasable-only TypeScript, top-level await, and no static, dynamic, or
+  CommonJS imports. That profile consumes this RFC's Oxc configuration and
+  fingerprint authority without changing the general module runner's fuller
+  TypeScript surface or candidate-table design.
 - **The Oxc pin is aging in place.** We are pinned to Oxc 0.121.0
   because the repo's Rust 1.93.1 toolchain rejects newer
   `oxc_transformer` code (LLP 0009 records the matrix). Every month the
@@ -154,8 +160,11 @@ Two external forcing functions make now the right time:
   sidecar referenced from the deployment layer — the strict canonical
   `ibex/prepared-module-graph/1` was not loosened in place; v2 adds the
   sidecar digest-reference inventory and v1 caches rebuild.
-- Erasable-syntax-only TypeScript. Ibex already lowers full TS (enums,
-  namespaces); narrowing that surface would need its own Decision.
+- Erasable-syntax-only TypeScript for the **general module runner**. Ibex
+  already lowers full TS (enums, namespaces), and this RFC does not narrow
+  that surface. LLP 0048 deliberately defines an erasable-only, import-free
+  profile for one separately attributed external worker; that bounded profile
+  is not a change to ordinary `.ts` module loading.
 - Retiring the build-time Babel `--lower-classes` stage (LLP 0007
   "Current state"; build-tool concern on the Rolldown track). §4b
   classifies it so the "one engine" claim is honest about its scope.
@@ -339,12 +348,13 @@ order.
   closing the window fail-closed first and landing candidate tables as
   a follow-up (decoupled from SWC deletion) goes to the author with
   the archived report; nonzero usage confirms step 2's scope. If
-  Snapback's code-mode contract independently requires computed
-  import, that requirement overrides the telemetry gate and is
-  recorded in §7 as the stated reason. **Resolved 2026-07-18:**
-  Snapback requires computed dynamic imports for 0.2, so candidate
-  tables land now and the fail-closed-first sequencing option is not
-  used.
+  a downstream module-graph consumer independently requires computed
+  import, that requirement may inform the evidence decision. **Resolved
+  2026-07-18 and corrected 2026-08-03:** candidate tables landed as an Ibex
+  module-runner capability, so the fail-closed-first sequencing option was
+  not used. Snapback LLP 0062 was not the reason: its phase 1 has no Ibex
+  dependency, and LLP 0048's future external-script profile refuses every
+  import form.
 - **Computed CommonJS `require(expr)`** — *not* carried natively at
   window close; an invocation-class stable error (dead-branch
   preserved; argument expression still evaluates first). This is an
@@ -602,14 +612,15 @@ and runtime version. The report states its controlled/advisory population
 boundary, binds the authenticated fixture tree and event stream by digest, and
 includes a pinned-Oxc syntactic upper-bound denominator. The checked Ibex
 native population passed 22/22 with eight events; its content-addressed report
-is under `llp/evidence/`. Snapback's separately owned generated-CLI population
-still needs to emit and aggregate the same report before the window closes.
+is under `llp/evidence/`. No Snapback phase-1 population is a window-close
+prerequisite; representative downstream authenticated module graphs may be
+added as advisory evidence when such an Ibex consumer exists.
 
 **Telemetry (advisory, honestly bounded).** The compat loader's
 `LegacyRequired` diagnostic gains a typed event (stable category enum
 covering all shapes, module, original-source site, runtime version).
-Populations: CI test/fixture runs and Snapback's generated-CLI test
-population — **controlled test populations, not field usage of
+Populations: CI test/fixture runs and representative authenticated downstream
+module graphs — **controlled test populations, not field usage of
 released binaries**, and the RFC says so; the stable invocation-time
 error with its error-index entry is the safety net for unobserved
 field usage. As a denominator, the program adds **static scans of
@@ -688,8 +699,10 @@ is picked in the revision itself, not left as "closed"); LLP 0024 per
 - The platform Decision and audit-admission Spec are accepted and
   landed; every Tier 3 quarantine row is resolved by pass or by
   documented unsupported disposition.
-- Snapback's claim — "one engine, one fingerprint domain" — is true in
-  LLP 0027's fingerprint vocabulary.
+- The LLP 0048 external-script profile and the general module runner both
+  derive identity from this RFC's canonical Oxc configuration manifest; the
+  narrower profile adds a domain-separated profile component rather than a
+  second transform authority.
 
 ## Alternatives considered
 
@@ -713,9 +726,10 @@ is picked in the revision itself, not left as "closed"); LLP 0024 per
 - **Wait for Rolldown wholesale** — rejected; the runtime path needs
   only the Oxc set; coupling deletion to Rolldown's cadence buys
   nothing.
-- **Close the window without native computed dynamic import** — held
-  open as a real option, now explicitly evidence-gated (§2, §5)
-  rather than rejected by assertion.
+- **Close the window without native computed dynamic import** — was held open
+  as a real evidence-gated option (§2, §5); not selected once the independent
+  Ibex 0.2 candidate-table implementation landed. Snapback is not used as the
+  rationale.
 
 ## Author-decision register (§7)
 
@@ -726,10 +740,12 @@ noted:
    `aarch64-apple-darwin` and `x86_64-unknown-linux-gnu` as the intended
    evidence-gated native tuples and explicitly de-supports source/module
    execution elsewhere until independently promoted.
-2. **Resolved 2026-07-18 — computed dynamic import sequencing:**
-   “Snapback requires computed dynamic imports for 0.2; implement
-   candidate tables now.” This overrides the telemetry gate and
-   unblocks the complete step-2 candidate-table scope.
+2. **Resolved 2026-07-18; rationale corrected 2026-08-03 — computed dynamic
+   import sequencing:** implement candidate tables as an Ibex 0.2
+   module-runner capability. The complete step-2 scope is implemented. The
+   former statement that Snapback LLP 0062 required it was incorrect: that
+   RFC creates no phase-1 Ibex dependency, and LLP 0048's post-phase-1
+   external-script profile is import-free.
 3. **Resolved 2026-07-18 — computed `require` at 0.2:** keep the
    invocation-time fail-closed disposition; the JSON-channel candidate design
    remains deferred.

@@ -435,3 +435,13 @@ VERDICT: NOT READY — The Oxc-only direction is strong, but the script replacem
 ### Orchestrator verification notes (round 4, outside verbatim body)
 
 Spot-checked: `EXACT_COMPAT_TEST` has fixture-fidelity readers beyond the loader (`compat/runner.rs:486`, `Headers.ts:36`, `process.ts:804,870`, `runtime.rs:1646,3292`) — confirmed; `.cjs` is absent from the entry shim's lowering extension set — confirmed; the cargo-deny wildcard-ban limitation is accepted on the cited documentation (bans are name+version specs, not name-prefix globs) and the gate was respecified over `cargo metadata` in the round-4 revision. The script-frontend contradiction, taxonomy inconsistency, and `hermes_target` gap are internal-consistency findings verified against the reviewed revision's own text. No material defect found in the review's factual basis.
+
+## 2026-08-03 external-script correction cluster
+
+The correcting amendment at git-blob
+`095940436b53d9c839025a379bbc0a8ee0cbb97e` was reviewed in the LLP 0048
+cluster. The complete Codex-family bodies and provenance are recorded once in
+`0048-external-script-admission-and-broker.codex.md`, Rounds 1–4. The final
+full-cluster and delta verdicts were **READY** with no remaining MATERIAL or
+MINOR findings; the correction removes the false Snapback phase-1/computed-
+import attribution without changing Ibex's candidate-table capability.

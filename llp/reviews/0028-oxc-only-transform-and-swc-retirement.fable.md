@@ -268,3 +268,13 @@ VERDICT: NOT READY — the document is close and factually meticulous, but the u
 ### Orchestrator verification notes (round 4, outside verbatim body)
 
 Spot-checked: the `.main`-suffixed `surface.loader.*.swc.*` variants exist in the generated registry (the base-five count in earlier revisions was incomplete); the 0.1 version-fence force-close behavior is as the review describes. The `ibex:site` options-bag suggestion was adopted in the round-4 revision as the site-naming mechanism. No material defect found in the review's factual basis.
+
+## 2026-08-03 external-script correction cluster
+
+The correcting amendment at git-blob
+`095940436b53d9c839025a379bbc0a8ee0cbb97e` was reviewed in the LLP 0048
+cluster. The complete Fable-family bodies and provenance are recorded once in
+`0048-external-script-admission-and-broker.fable.md`, Rounds 1–4. The final
+full-cluster and delta verdicts were **READY** with no remaining MATERIAL or
+MINOR findings; the correction removes the false Snapback phase-1/computed-
+import attribution without changing Ibex's candidate-table capability.
