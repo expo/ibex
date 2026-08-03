@@ -5,6 +5,7 @@
 **Systems:** Module Loader, Runtime, Build, Engine
 **Author:** Charlie Cheever / Claude Fable
 **Date:** 2026-07-17
+**Revised:** 2026-08-03 (the authenticated source/prepared real-binary gate was restored after the ingress refactor; direct `.cts` entries now use the Oxc TypeScript/CommonJS path, reached prepared records are published only after authenticated acquisition, and native graph failures retain Oxc diagnostics plus composed original-source locations)
 **Revised:** 2026-07-18 (LLP 0030 round-1 review reconciliation: foreground
 audit v1 is source-inline only, refuses every prepared/HBC carrier, and has no
 production or diagnostic prepared-cache admission path)
