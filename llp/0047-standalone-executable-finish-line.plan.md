@@ -22,7 +22,11 @@ changing the stub core despite identical inputs and toolchains. Release builds
 now invoke `hermesc` from each source directory with only a stable basename;
 fresh full receipts after that correction remain to be recorded. The same
 physical rerun found that the installed-user verifier still assumed the
-non-default `rg` utility; it now uses platform `grep` throughout.)
+non-default `rg` utility; it now uses platform `grep` throughout. The resulting
+valid receipt pair exposed a third checkout leak: vendored OpenSSL records its
+Cargo install prefix in `libcrypto`. Release stubs now build in a stable
+target- and contract-addressed `/tmp` namespace; another physical pair remains
+to be recorded.)
 **Revised:** 2026-08-02 (author decisions 1, 3, and 4 resolved: v1 keeps
 explicit policy authoring, ratifies ambient compatibility as the standalone
 default against the completed two-tuple artifacts, and reserves authenticated
@@ -847,9 +851,13 @@ directory and passes only its basename, and the foundation gate unit-tests that
 compiler argument contract. A direct two-directory Hermes vector produces
 identical HBC under the corrected invocation. The next physical invocation also
 found an undeclared `rg` dependency in the installed-user verifier on the clean
-second Mac; the verifier now uses platform `grep` throughout. Fresh full
-physical receipts are still required before recording the macOS comparator as
-passed.
+second Mac; the verifier now uses platform `grep` throughout. Both corrected
+kits then passed the installed-user matrix, but their strict comparison exposed
+vendored OpenSSL's checkout-absolute Cargo install prefix in `libcrypto` engine
+and module directory strings. The release stub now builds in a stable target-
+and contract-addressed `/tmp` namespace so equivalent builders give OpenSSL the
+same prefix. Fresh full physical receipts are still required before recording
+the macOS comparator as passed.
 
 The first required native-matrix run also exposed two clean-checkout-only
 packaging faults. The Ubuntu foundation probe assumed `rg` was installed even

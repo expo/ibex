@@ -162,5 +162,9 @@ directory with only a stable basename. A focused foundation test protects that
 argument contract, and a two-directory real-Hermes probe produces identical
 HBC. The corrected physical rerun also exposed that the installed-user verifier
 assumed the non-default `rg` utility; it now uses platform `grep` throughout.
-The issue remains open until the corrected full physical comparator passes and
-the signed artifact is notarized.
+Both resulting kits passed the installed-user matrix, but their strict
+comparison exposed a further checkout-absolute path: vendored OpenSSL records
+its Cargo install prefix in `libcrypto` engine and module directory strings.
+Release stubs now build in a stable target- and contract-addressed `/tmp`
+namespace. The issue remains open until the corrected full physical comparator
+passes and the signed artifact is notarized.

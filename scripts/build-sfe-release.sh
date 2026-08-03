@@ -260,13 +260,20 @@ cargo run --quiet --release --bin ibex-sfe-contract --features "$contract_featur
   "${static_archive_arguments[@]}" \
   --output "$contract_path" > "$contract_report"
 
-stub_target_dir="${CARGO_TARGET_DIR:-$repo_root/target}"
+producer_target_dir="${CARGO_TARGET_DIR:-$repo_root/target}"
 contract_digest="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["contractDigest"])' "$contract_report")"
 contract_key="${contract_digest#sha256-}"
 [[ "$contract_digest" == "sha256-$contract_key" && ${#contract_key} -eq 43 ]] || {
   echo "contract producer returned a malformed digest: $contract_digest" >&2
   exit 1
 }
+# Vendored OpenSSL records its build/install prefix in the static library. A
+# checkout-local Cargo target therefore changes the linked stub even when all
+# authenticated inputs match. Build only the release stub in a target- and
+# contract-addressed absolute namespace shared by equivalent builders; Cargo's
+# own fingerprints still rebuild it when source or compiler inputs change.
+# @ref LLP 0047#4-milestone-1--publish-a-real-release-catalog
+stub_target_dir="/tmp/ibex-sfe-stub-target/$target_triple/$contract_key"
 # Cargo fingerprints build-script environment values. Feeding the release stub
 # through the random release-stage path would therefore perturb Rust/LLVM
 # symbol identities even when the authenticated contract bytes were identical.
@@ -400,8 +407,8 @@ IBEX_RELEASE_SFE_CATALOG_DIGEST="$catalog_digest" \
 
 deliverable="$release_stage/deliverable"
 mkdir "$deliverable"
-cp "$stub_target_dir/release/ibex" "$deliverable/ibex"
-cp "$stub_target_dir/release/ibex-sfe-catalog" "$deliverable/ibex-sfe-catalog"
+cp "$producer_target_dir/release/ibex" "$deliverable/ibex"
+cp "$producer_target_dir/release/ibex-sfe-catalog" "$deliverable/ibex-sfe-catalog"
 asset_base="ibex-sfe-catalog-$package_version-$target_triple-$catalog_key"
 asset_name="$asset_base.tar.gz"
 tar -C "$catalog_store" -czf "$deliverable/$asset_name" "$catalog_key"
