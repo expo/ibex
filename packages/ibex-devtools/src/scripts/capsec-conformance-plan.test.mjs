@@ -8,16 +8,20 @@ import {
   readConformanceSuitePlan,
   validateConformanceSuitePlan,
 } from "./capsec-conformance-plan.mjs";
+import { commandEvidenceIdSuffix } from "./capsec-command-evidence.mjs";
 import {
   CONFORMANCE_PREFLIGHT_COMMANDS,
   CONFORMANCE_PRODUCT_COMMANDS,
 } from "./capsec-conformance-matrix.mjs";
+import { canonicalJson } from "./capsec-contract.mjs";
+import { PUBLIC_SURFACE_EXECUTOR_DESCRIPTORS } from "./capsec-public-executors.mjs";
 
 test("the authored target budgets fit their outer job timeouts", () => {
   const plan = readConformanceSuitePlan();
-  expect(plan.timeoutPolicyVersion).toBe(4);
+  expect(plan.timeoutPolicyVersion).toBe(5);
   for (const target of Object.keys(plan.targets)) {
     const budget = criticalPathBudget(plan, target);
+    expect(budget.totalMs).toBe(22_440_000);
     expect(budget.totalMs).toBeLessThanOrEqual(
       plan.targets[target].outerTimeoutMs,
     );
@@ -34,6 +38,29 @@ test("the authored target budgets fit their outer job timeouts", () => {
       plan,
       "aarch64-apple-darwin",
       "public-fixtures-002-deadbeef",
+    ).deadlineMs,
+  ).toBe(300_000);
+  const noncapCommand = PUBLIC_SURFACE_EXECUTOR_DESCRIPTORS.find(
+    ({ testName }) => testName === "capsec_public_noncap_builtin_recipe_batch",
+  ).command;
+  const windowsNoncapBatchId = `public-fixtures-005-${commandEvidenceIdSuffix(
+    Buffer.from(canonicalJson(noncapCommand), "utf8"),
+  )}`;
+  expect(windowsNoncapBatchId).toBe(
+    "public-fixtures-005-d0b17e51064234a80cd89dc1c8f4a2f2fbedab33b08f7d065b33f5926cfe3d5f",
+  );
+  expect(
+    commandPolicyFor(
+      plan,
+      "x86_64-pc-windows-msvc",
+      windowsNoncapBatchId,
+    ).deadlineMs,
+  ).toBe(420_000);
+  expect(
+    commandPolicyFor(
+      plan,
+      "x86_64-pc-windows-msvc",
+      "public-fixtures-004-deadbeef",
     ).deadlineMs,
   ).toBe(300_000);
   expect(
@@ -116,6 +143,16 @@ test("suite-plan validation is exact-field and fail-closed", () => {
   const plan = structuredClone(readConformanceSuitePlan());
   plan.unreviewed = true;
   expect(() => validateConformanceSuitePlan(plan)).toThrow(/exact fields/u);
+});
+
+test("suite-plan deadline overrides name fixed or exact dynamic commands", () => {
+  const plan = structuredClone(readConformanceSuitePlan());
+  plan.targets["x86_64-pc-windows-msvc"].deadlineOverrides[
+    "unreviewed-dynamic-command"
+  ] = 420_000;
+  expect(() => validateConformanceSuitePlan(plan)).toThrow(
+    /deadline override names unknown command/u,
+  );
 });
 
 test("suite entry points spawn evidence commands only through the envelope", () => {

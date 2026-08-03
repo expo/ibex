@@ -5,6 +5,11 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-08-03 (synchronizes the independent loaded-engine target-
+absence budget with the already-reviewed source-derived Apple catalog: 114
+executable absence fixtures partition exactly into 92 target-absence
+invocations and 22 native-global absence reads; the executor retains both the
+total and split assertions so future catalog growth remains fail-closed)
 **Revised:** 2026-08-03 (scopes the reviewed pure-compatibility call validator
 to callable `node_readline` recipes after a physical Windows-catalog replay
 proved that its default branch also rejected the inert

@@ -5,6 +5,15 @@
 **Systems:** Security, CI, Build, Runtime, Engine, Tooling
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
+**Revised:** 2026-08-03 (timeout policy version 5 gives the exact Windows
+`public-fixtures-005-d0b17e51064234a80cd89dc1c8f4a2f2fbedab33b08f7d065b33f5926cfe3d5f`
+non-capability builtin batch a 420-second deadline after the hosted runner
+completed 1,280 of 1,290 probes but crossed the common 300-second deadline and
+was killed at the 330-second grace boundary; exact dynamic-command overrides
+are now admitted and charged by critical-path accounting, the still-
+conservative Windows setup reserve narrows from 60 to 58 minutes, and the
+worst-case Windows path remains 374 minutes under the 375-minute outer bound;
+the common public-fixture deadline and Apple plan are unchanged)
 **Revised:** 2026-08-03
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021
 
@@ -78,6 +87,18 @@ the command deadlines and cleanup/upload reserve do not change. The resulting
 maximum critical paths are 374 minutes on both Apple and Windows, leaving one
 minute of outer-budget headroom for tests that exercise bounded policy
 variants.
+
+Implementation checkpoint (2026-08-03): PR #25's exact-head hosted Windows
+run physically passed 1,280 of 1,290 non-capability builtin probes but the
+batch crossed the common 300-second deadline and was terminated at the end of
+its 30-second cleanup grace without a probe assertion. Timeout policy version
+5 commits a 420-second override for that exact dynamic command ID rather than
+widening every public batch. Critical-path accounting now includes exact
+dynamic-command overrides. The Windows setup that preceded the suite took
+under 18 minutes in this observation, so its conservative reserve narrows from
+60 to 58 minutes; the resulting worst-case path remains 374 minutes, the same
+as version 4 and below the 375-minute outer containment bound. Apple and the
+common 300-second public-fixture class are unchanged.
 
 ## Motivation
 

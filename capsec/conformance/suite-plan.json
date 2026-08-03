@@ -1,7 +1,7 @@
 {
   "schema": "ibex/capsec-suite-plan/1",
   "planId": "capsec-full-matrix-stage1",
-  "timeoutPolicyVersion": 4,
+  "timeoutPolicyVersion": 5,
   "heartbeatIntervalMs": 30000,
   "commands": {
     "capsec-registry-drift": { "phase": "preflight", "deadlineMs": 120000, "gracePeriodMs": 10000 },
@@ -54,13 +54,14 @@
     },
     "x86_64-pc-windows-msvc": {
       "outerTimeoutMs": 22500000,
-      "setupReserveMs": 3600000,
+      "setupReserveMs": 3480000,
       "cleanupUploadReserveMs": 900000,
       "maxPublicFixtureBatches": 10,
       "maxPortablePublicFixtureBatches": 0,
       "aliasDiagnosticCommands": [],
       "deadlineOverrides": {
-        "exact-loaded-engine-attestation": 2700000
+        "exact-loaded-engine-attestation": 2700000,
+        "public-fixtures-005-d0b17e51064234a80cd89dc1c8f4a2f2fbedab33b08f7d065b33f5926cfe3d5f": 420000
       }
     }
   },

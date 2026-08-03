@@ -47,6 +47,12 @@ function validatePolicy(policy, label) {
   positiveInteger(policy.gracePeriodMs, `${label}.gracePeriodMs`);
 }
 
+function dynamicCommandPrefixForId(plan, id) {
+  return Object.keys(plan.dynamicCommands).find(
+    (prefix) => id.length > prefix.length && id.startsWith(prefix),
+  );
+}
+
 export function validateConformanceSuitePlan(plan) {
   if (!plan || typeof plan !== "object" || Array.isArray(plan)) {
     throw new Error("suite plan must be an object");
@@ -137,7 +143,7 @@ export function validateConformanceSuitePlan(plan) {
       }
     }
     for (const [id, deadline] of Object.entries(budget.deadlineOverrides)) {
-      if (!plan.commands[id]) {
+      if (!plan.commands[id] && !dynamicCommandPrefixForId(plan, id)) {
         throw new Error(`${target}: deadline override names unknown command ${id}`);
       }
       positiveInteger(deadline, `${target}.deadlineOverrides.${id}`);
@@ -195,8 +201,25 @@ export function criticalPathBudget(plan, target) {
   }
   const publicPolicy = plan.dynamicCommands["public-fixtures-"];
   if (!publicPolicy) throw new Error("suite plan lacks public fixture policy");
-  commandDeadlinesMs +=
-    targetPlan.maxPublicFixtureBatches * publicPolicy.deadlineMs;
+  const dynamicDeadlineBudget = (prefix, maximumCommands) => {
+    const policy = plan.dynamicCommands[prefix];
+    const overrides = Object.entries(targetPlan.deadlineOverrides).filter(
+      ([id]) => dynamicCommandPrefixForId(plan, id) === prefix,
+    );
+    if (overrides.length > maximumCommands) {
+      throw new Error(
+        `${target}: ${overrides.length} ${prefix} deadline overrides exceed maximum command count ${maximumCommands}`,
+      );
+    }
+    return (
+      (maximumCommands - overrides.length) * policy.deadlineMs +
+      overrides.reduce((sum, [, deadline]) => sum + deadline, 0)
+    );
+  };
+  commandDeadlinesMs += dynamicDeadlineBudget(
+    "public-fixtures-",
+    targetPlan.maxPublicFixtureBatches,
+  );
   maximumGracePeriodMs = Math.max(
     maximumGracePeriodMs,
     publicPolicy.gracePeriodMs,
@@ -206,9 +229,10 @@ export function criticalPathBudget(plan, target) {
   if (!portablePublicPolicy) {
     throw new Error("suite plan lacks portable public fixture policy");
   }
-  commandDeadlinesMs +=
-    targetPlan.maxPortablePublicFixtureBatches *
-    portablePublicPolicy.deadlineMs;
+  commandDeadlinesMs += dynamicDeadlineBudget(
+    "portable-public-fixtures-",
+    targetPlan.maxPortablePublicFixtureBatches,
+  );
   if (targetPlan.maxPortablePublicFixtureBatches > 0) {
     maximumGracePeriodMs = Math.max(
       maximumGracePeriodMs,
