@@ -5,6 +5,21 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-08-03 (scopes the reviewed pure-compatibility call validator
+to callable `node_readline` recipes after a physical Windows-catalog replay
+proved that its default branch also rejected the inert
+`node:readline.promises` data read; non-callable export reads now bypass that
+call-only vocabulary, while the exact CSI and Interface call contracts,
+unreviewed readline calls, and callable-as-read near misses remain fail-closed)
+**Revised:** 2026-08-03 (retires executable credit for the deprecated root
+`node:fs` `F_OK`, `R_OK`, `W_OK`, and `X_OK` accessors after physical Apple
+and Windows batches proved that each getter intentionally enters the DEP0176
+warning path; armed runtimes keep `process.emitWarning` disabled, so authoring
+now records the four exact rows as `builtin-export-requires-deprecation-warning`
+residuals and the loaded-engine validator rejects stale recipes before
+evaluating a getter, while the inert `fs.constants` object remains separately
+covered; Apple accounting becomes 3,926 fully executable / 3,050 internally
+verified / 16,671 unresolved and Windows becomes 3,560 / 3,036 / 16,710)
 **Revised:** 2026-07-28 (accepts the security-critical CapSec rev2 implementation under an explicit convergence boundary: the final armed `exact_crypto` mixed-module controls are sealed only for the JCS-canonical authenticated builtin SourceId, shared by the `crypto`, `exact:crypto`, and `node:crypto` cache aliases, and pin `fips`, `secureHeapUsed`, `setEngine`, and `setFips` to immutable `ERR_ACCESS_DENIED` / `CryptoControl` refusal while leaving unarmed diagnostic behavior unchanged; the planned pre-fix negative control proved mutable descriptors and successful access, while the fixed EPYC authenticated batch passes 845/845 receipts against loaded engine `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`, independently reconstructs all four new records, and has raw evidence SHA-256 `08a1585232e19e13d7b9b64f4f6a7b758214a685f564e6a96835be56c4f4577c`; final Apple catalog `sha256-GHlqGTU7b020Cp107EbGh4TShEtB_kOoRz5R1pDtYEo` reports 23,598 required / 3,928 executable / 3,042 internally verified / 16,628 unresolved and Windows `sha256-FAud-eHXcShfXTx3wsnucQFaQ96H2khcNzhxUqxbwzU` reports 23,257 / 3,564 / 3,028 / 16,665; advertisements remain empty, so no exact target is falsely claimed, and target promotion plus catalog/evidence completeness move to prioritized filesystem tickets rather than extending this security-implementation tranche)
 **Revised:** 2026-07-28 (retires the stale armed-runtime crash exclusion for the four source-inventoried global WebCrypto CSPRNG routes: `Crypto.getRandomValues`, `crypto.getRandomValues`, `Crypto.randomUUID`, and `crypto.randomUUID`; both `getRandomValues` spellings receive a harness-owned four-byte `Uint8Array`, both UUID spellings require a normal string return, and every route binds its exact global/prototype source descriptor, reaches quiescence, performs owned cleanup, and emits zero legacy or typed decisions; an EPYC authenticated armed batch passes all 579 Apple global-callable rows against loaded engine `sha256-MdTBzG7byvsZPmeYDdFD1zx9oP33e7f9Iza6sWNR7LU`, including independent JavaScript reconstruction of the four new records; Apple catalog `sha256-h-aEuY5hwrzFjpPHiwFduM-g8AZggxy2rg7QLAiwrtM` reports 23,595 required / 3,924 executable / 3,040 internally verified / 16,631 unresolved and Windows `sha256-FQOQTr_HtWdl9UXnHquLaEp--6knN2qhgflw1PnH6GY` reports 23,254 / 3,560 / 3,026 / 16,668; advertisements remain empty and criterion 7 remains open)
 **Revised:** 2026-07-28 (seals the armed `__exactAndroidDispatchPlatformEvent` rendezvous after trusted bootstrap while preserving native Android framework-event delivery through an owner-thread JSI function retained by the runtime; the initial trusted shared-runtime drain and unarmed compatibility runtimes may resolve the public global before finalization, but armed delivery after project admission never falls back to a mutable project-visible spelling; the first EPYC batch proved the gap when root disposition refused the still-reachable dispatcher, while the hardened batch emits 841 passing records and the new absence receipt independently reconstructs exactly; an Android-defined C++ syntax build and a source contract verify the retained-handler dispatch path; the descriptor sweep advances to 369 sealed/private and 2,441 permitted reachable rows across 2,810 install branches; Apple catalog `sha256-O-gOrYFifBB1UOiBdeaaRgvh9lcT4TII-bOGrHKK3bE` reports 23,595 required / 3,920 executable / 3,040 internally verified / 16,635 unresolved and Windows `sha256-OC3SQg1at67QVQt-uxJKuGIuvB-fTgQ8GfxLRZa5maM` reports 23,254 / 3,556 / 3,026 / 16,672; advertisements remain empty and criterion 7 remains open)
@@ -2462,6 +2477,14 @@ initialization: the exemption does not suppress capability terminal checks,
 survive after initialization, or re-enter through an exported `require`
 closure while another record is active.
 
+Generic root-accessor reads are eligible only when the accessor itself is
+zero-effect. The deprecated `node:fs` `F_OK`, `R_OK`, `W_OK`, and `X_OK`
+getters intentionally emit DEP0176 and therefore remain explicit residuals in
+an armed runtime; their inert numeric values are available through the
+separately inventoried `fs.constants` object. A warning-producing getter must
+not gain zero-decision credit by disabling, pre-emitting, or swallowing the
+warning in the harness.
+
 Bounded non-capability callable recipes are grouped by exact source template,
 not inferred from `typeof value === "function"`. The first authored families
 cover `assert`, `buffer`, `events`, `path`, `perf_hooks`, `punycode`,
@@ -2469,8 +2492,13 @@ cover `assert`, `buffer`, `events`, `path`, `perf_hooks`, `punycode`,
 recipe fixes its setup, receiver, arguments, dispatch mode, and expected return
 type. Direct member-to-member aliases inherit a callable shape only from the
 already observed source member, and reuse that member family's bounded
-arguments rather than weakening the template allowlist. Prototype
-recipes construct the declared owner (with dedicated bounded Buffer,
+arguments rather than weakening the template allowlist.
+Loaded-engine validators for these call families apply only to callables; an
+inert data read from the same source family does not inherit or fail a
+call-only name vocabulary. Conversely, changing a reviewed callable recipe
+into an export read is a contract mismatch rather than a way around its setup
+and argument checks.
+Prototype recipes construct the declared owner (with dedicated bounded Buffer,
 CallTracker, zlib-transform, string-decoder, and configured
 readable/writable/duplex stream fixtures), then dispatch the exact
 source-inventoried prototype function. Zlib decoder probes derive a valid

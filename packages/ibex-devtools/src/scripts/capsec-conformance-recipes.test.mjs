@@ -473,11 +473,16 @@ describe("exact-target CapSec executable recipes", () => {
     // and replacement closure without entering the authority evaluator.
     // Nine nested process.report rows prove their exact public spelling is
     // stopped at the pinned parent accessor before nested state is reachable.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_930);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_926);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_050);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_667);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_671);
+    expect(
+      recipes.summary.residualReasons[
+        "builtin-export-requires-deprecation-warning"
+      ],
+    ).toBe(4);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -667,9 +672,14 @@ describe("exact-target CapSec executable recipes", () => {
     // The same twelve shared-state closures and eight target-applicable nested
     // process.report closures bind Windows' selected source variants to the
     // final armed runtime gate.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_564);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_560);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_706);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_710);
+    expect(
+      windowsRecipes.summary.residualReasons[
+        "builtin-export-requires-deprecation-warning"
+      ],
+    ).toBe(4);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(

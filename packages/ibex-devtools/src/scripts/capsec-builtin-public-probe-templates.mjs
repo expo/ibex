@@ -43,6 +43,18 @@ const EVENT_LOOP_COMPLETION = Object.freeze({
   timeoutMilliseconds: 1_000,
 });
 
+// The deprecated root fs constants are accessors whose source contract emits
+// DEP0176. That observable warning is not a zero-effect read, and armed
+// runtimes deliberately disable process.emitWarning. The inert values remain
+// available through the separately inventoried fs.constants object.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+const DEPRECATED_FS_CONSTANT_ACCESSORS = new Set([
+  "F_OK",
+  "R_OK",
+  "W_OK",
+  "X_OK",
+]);
+
 // These are the module-root aliases whose current source has been reviewed as
 // decision-free at import time. Each spelling is observed in a fresh engine;
 // exported operations remain separate obligations. Keep this allowlist exact:
@@ -2928,6 +2940,23 @@ function sourceDescriptor(
   return descriptor;
 }
 
+function isDeprecatedFsConstantAccessorDescriptor(descriptor) {
+  return (
+    descriptor?.sourceKey === "node_fs" &&
+    DEPRECATED_FS_CONSTANT_ACCESSORS.has(descriptor.exportName) &&
+    descriptor.valueShape === "accessor" &&
+    canonicalJson(descriptor.exportIdioms) ===
+      canonicalJson(["define-property"]) &&
+    canonicalJson(descriptor.moduleSpecifiers) ===
+      canonicalJson(["bun:fs", "fs", "node:fs"]) &&
+    descriptor.sourceRef ===
+      `src/builtins/fs.js#exports:${descriptor.exportName}` &&
+    descriptor.access.kind === "export-property" &&
+    canonicalJson(descriptor.access.path) ===
+      canonicalJson([descriptor.exportName])
+  );
+}
+
 function reviewedRuntimeTypedValueSourceDescriptor(
   surface,
   target,
@@ -3251,6 +3280,7 @@ function authoredNonCapabilityBuiltinInvocationDefinition({
     sourceDescriptor(surface, target, new Set(["accessor", "data"]), {
       allowTargetAbsence: allowTargetAbsence && targetAbsent,
     });
+  if (isDeprecatedFsConstantAccessorDescriptor(readDescriptor)) return null;
   const readEligible =
     readDescriptor &&
     (readDescriptor === reviewedPrototypeDescriptor ||
@@ -3457,6 +3487,14 @@ export function nonCapabilityBuiltinProbeResidualReason({
     surface.metadata.importReachability === "private-manifest"
   ) {
     return "builtin-export-not-publicly-importable";
+  }
+  const readDescriptor = sourceDescriptor(
+    surface,
+    target,
+    new Set(["accessor"]),
+  );
+  if (isDeprecatedFsConstantAccessorDescriptor(readDescriptor)) {
+    return "builtin-export-requires-deprecation-warning";
   }
   const targetUnavailableReason = targetUnavailablePublicExportReason(
     surface,
