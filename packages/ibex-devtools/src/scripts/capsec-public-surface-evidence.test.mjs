@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
+  authenticatedBuiltinSourceRuntimeNonce,
   assertPublicSurfaceExecutionComplete,
   buildPublicFixtureEvidence,
   buildPublicSurfaceExecutionArtifact,
@@ -5344,6 +5345,21 @@ describe("CapSec public-surface promotion evidence", () => {
         executions: replayedRuntimeExecutions,
       }),
     ).toThrow(/reused a runtime nonce/);
+
+    expect(
+      authenticatedBuiltinSourceRuntimeNonce({
+        evidence: {
+          runtimeObservation: {
+            invocation: {
+              sourceExecution: {
+                schema: "ibex/capsec-loader-source-point-execution/1",
+                runtimeNonce: "u64:1",
+              },
+            },
+          },
+        },
+      }),
+    ).toBeUndefined();
   });
 
   test("accepts only the exact zero-decision builtin normal-return proof", () => {

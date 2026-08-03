@@ -235,6 +235,10 @@ unless the authenticated snapshot opts in.)
 public spelling in a fresh engine and binds its first-load `NODE_DEBUG` read to
 the independently observed native environment gate; platform and lazy DNS
 aliases remain residual.)
+**Revised:** 2026-08-03 (aggregate public-evidence validation now applies the
+pairwise-distinct runtime-nonce rule only to authenticated builtin first-load
+receipts; loader source-point receipts are emitted by a separate harness
+process whose monotonic runtime counter occupies an independent namespace.)
 **Revised:** 2026-07-19 (ENG-24933 reconciles the current lazy DNS sources with
 the coverage model: the four exact `dns`/`node:dns` and promises import
 spellings, plus both default namespace rows, are module-reachability-only;

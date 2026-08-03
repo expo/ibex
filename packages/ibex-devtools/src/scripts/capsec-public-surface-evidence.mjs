@@ -23,6 +23,8 @@ import {
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 const canonicalSet = (values) => [...new Set(values)].sort(compareText);
+const AUTHENTICATED_BUILTIN_SOURCE_EXECUTION_SCHEMA =
+  "ibex/capsec-authenticated-builtin-source-execution/1";
 const builtinCacheSourceId = (sourceKey) =>
   `ibex-source-id-v1:${Buffer.from(
     canonicalJson({
@@ -2108,7 +2110,7 @@ function validateNonCapabilityBuiltinModuleImportInvocation(
       authored.completion.timeoutMilliseconds ||
     invocation.completion.status !== "quiescent" ||
     invocation.sourceExecution.schema !==
-      "ibex/capsec-authenticated-builtin-source-execution/1" ||
+      AUTHENTICATED_BUILTIN_SOURCE_EXECUTION_SCHEMA ||
     invocation.sourceExecution.observationId !== recipe.fixtureId ||
     !isTaggedRuntimeNonce(invocation.sourceExecution.runtimeNonce) ||
     invocation.sourceExecution.moduleSpecifier !== authored.moduleSpecifier ||
@@ -9649,8 +9651,7 @@ export function validatePublicSurfaceExecutionArtifact(
       coverage,
     );
     const authenticatedSourceRuntimeNonce =
-      execution.evidence?.runtimeObservation?.invocation?.sourceExecution
-        ?.runtimeNonce;
+      authenticatedBuiltinSourceRuntimeNonce(execution);
     if (authenticatedSourceRuntimeNonce !== undefined) {
       if (
         authenticatedSourceRuntimeNonces.has(authenticatedSourceRuntimeNonce)
@@ -9679,6 +9680,22 @@ export function validatePublicSurfaceExecutionArtifact(
     );
   }
   return artifact;
+}
+
+export function authenticatedBuiltinSourceRuntimeNonce(execution) {
+  const sourceExecution =
+    execution?.evidence?.runtimeObservation?.invocation?.sourceExecution;
+  // Runtime nonces are monotonic only within one harness process. The builtin
+  // first-load family runs in one process and requires pairwise-distinct
+  // nonces; loader source-point receipts come from a separate process and use
+  // their own evidence schema, so their counter values are not comparable.
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+  // — first-load builtin receipts require independent engines without
+  // conflating evidence families.
+  return sourceExecution?.schema ===
+    AUTHENTICATED_BUILTIN_SOURCE_EXECUTION_SCHEMA
+    ? sourceExecution.runtimeNonce
+    : undefined;
 }
 
 export function assertPublicSurfaceExecutionComplete(
