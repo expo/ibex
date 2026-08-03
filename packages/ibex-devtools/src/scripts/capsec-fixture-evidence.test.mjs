@@ -264,15 +264,16 @@ describe("Exact fixture-evidence pilot", () => {
     });
     expect(report.status).toBe("incomplete");
     // Async sync-edge refusal, armed builtin sealing, the three compat-loader
-    // counters, and the scoped bundle-capture barrier are all reflected in the
-    // source-derived fixture obligations while promotion remains closed.
+    // counters, the scoped bundle-capture barrier, and the debug-only native
+    // runner profile selector are all reflected in the source-derived fixture
+    // obligations while promotion remains closed.
     expect(report.summary).toMatchObject({
-      cells: 7_535,
+      cells: 7_536,
       conformantCells: 1,
-      incompleteCells: 7_534,
-      requiredFixtures: 23_646,
+      incompleteCells: 7_535,
+      requiredFixtures: 23_647,
       passedFixtures: 9,
-      missingFixtures: 23_637,
+      missingFixtures: 23_638,
       failedFixtures: 0,
     });
     expect(() => assertReportMayAdvertise(report)).toThrow(

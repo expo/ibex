@@ -422,7 +422,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_646);
+    expect(recipes.summary.requiredFixtures).toBe(23_647);
     // The linear dynamic-import scanner's two exact index recognizers are
     // independently inventoried pure-compute rows and therefore add two
     // unresolved non-capability obligations without executable credit.
@@ -433,10 +433,11 @@ describe("exact-target CapSec executable recipes", () => {
     // or are read through a reviewed inert prototype path. Eight fixed-prime
     // DiffieHellman construction and state-only calls add no random work.
     // Three exact source-only compatibility helpers retain only harness-owned
-    // values and perform no native key-store or terminal work. A separately
-    // bounded readline Interface.close call proves exact listener teardown on
-    // an inert harness-owned input shim. Interface.pause separately proves its
-    // retained paused state and then closes that shim before completion.
+    // values and perform no native key-store or terminal work. The debug-only
+    // native-runner profile selector adds one reviewed structural obligation.
+    // A separately bounded readline Interface.close call proves exact listener
+    // teardown on an inert harness-owned input shim. Interface.pause separately
+    // proves its retained paused state and then closes that shim before completion.
     // Eleven idle zlib destroy calls authenticate and close their
     // constructor-owned native selectors without processing codec input.
     // Three isolated sync encoders process one fixed four-byte Buffer and
@@ -476,7 +477,7 @@ describe("exact-target CapSec executable recipes", () => {
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_050);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_666);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_667);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -611,7 +612,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_305);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_306);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch. The
@@ -668,7 +669,7 @@ describe("exact-target CapSec executable recipes", () => {
     // final armed runtime gate.
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_564);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_705);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_706);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
