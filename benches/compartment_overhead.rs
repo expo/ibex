@@ -27,11 +27,13 @@
 //! (`__exactSetCompartmentFor`). The workload requires a trivial `arm-pkg`; under
 //! `IBEX_COMPARTMENTS=1` the diagnostic fixture loader binds its compartment,
 //! arming the guard for the whole process. The bench uses `ibex capsec audit`
-//! with `EXACT_COMPAT_TEST=1`: this deliberately exercises the fixture loader
-//! while ordinary production execution remains fail-closed until this exact
-//! engine target has a verified advertisement. The bench reads `armed=<bool>`
-//! back from the run to confirm the flag actually flipped (not just the env
-//! var).
+//! with `EXACT_COMPAT_TEST=1`: this deliberately exercises the fixture
+//! fidelity shims while ordinary production execution remains fail-closed
+//! until this exact engine target has a verified advertisement.
+//! `IBEX_COMPAT_LOADER_TEST=1` separately keeps the bounded fixture loader
+//! selected, as required by LLP 0028's split between fixture fidelity and
+//! preparation bypass. The bench reads `armed=<bool>` back from the run to
+//! confirm the flag actually flipped (not just the env var).
 //!
 //! ## Running
 //!
@@ -101,7 +103,10 @@ fn run_arm(bin: &Path, app: &Path, iters: u64, active: bool) -> RunResult {
     cmd.env("BENCH_ITERS", iters.to_string());
     // Fixture mode bypasses the normal audit bundler (which always requests
     // compartments), preserving IBEX_COMPARTMENTS as the sole A/B toggle.
+    // @ref LLP 0028#4-reachability-inventory-and-retirement-matrix — fixture
+    // fidelity and compatibility-loader selection are distinct controls.
     cmd.env("EXACT_COMPAT_TEST", "1");
+    cmd.env("IBEX_COMPAT_LOADER_TEST", "1");
     cmd.env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1");
     // Keep the two arms otherwise identical.
     cmd.env_remove("IBEX_LOCKDOWN");
