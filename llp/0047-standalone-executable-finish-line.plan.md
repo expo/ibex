@@ -32,7 +32,11 @@ plus its dependent ad-hoc signature bytes. Omitting the command made the two
 catalogs identical, but both relocated runtime matrices caught dyld's mandatory
 `LC_UUID` check. The release builder instead replaces the UUID after signature
 removal with a digest-derived RFC 4122 value before catalog hashing; another
-physical pair remains to be recorded.)
+physical pair remains to be recorded. The final pair at commit `2a611b4f`
+passes both complete installed-user matrices and the strict comparator across
+all six identities, including stub core
+`sha256-l50-bX04ZMTR6mTTvyFHYmAuHgnzH45xHQdHD5uzs_I` and unsigned file
+`sha256-o2i8DnpfuZoxrol10OVCwQR-lFsEaMBe1tvaI_kn884`.)
 **Revised:** 2026-08-02 (author decisions 1, 3, and 4 resolved: v1 keeps
 explicit policy authoring, ratifies ambient compatibility as the standalone
 default against the completed two-tuple artifacts, and reserves authenticated
@@ -874,7 +878,18 @@ authority. The release builder now preserves the command but, after removing
 the linker's signature, replaces its UUID with an RFC 4122 value derived from
 the otherwise complete stub bytes. The normalizer refuses signed, malformed,
 fat, missing-UUID, and duplicate-UUID inputs and is covered for convergence and
-idempotence. One final physical pair remains to be recorded.
+idempotence.
+
+That final pair used two distinct clean physical arm64 Macs at commit
+`2a611b4f4455b1a39013d88e229c0e23f13100cf`, both with Xcode 26.6 build
+17F113, SDK 26.5 build 25F70, and Rust/Cargo 1.97.0. Each complete
+installed-user matrix passed. The strict receipt comparator passed with no
+mismatches across the catalog, contract, packaged policy toolchain,
+CompilePlan, stub core, and unsigned file. The shared catalog is
+`sha256-TCdWrod4l9HVkiDEDCCY6pIZWhj-3WjWfXOig5C_x8o`; the shared stub core is
+`sha256-l50-bX04ZMTR6mTTvyFHYmAuHgnzH45xHQdHD5uzs_I`; and the shared unsigned
+file is `sha256-o2i8DnpfuZoxrol10OVCwQR-lFsEaMBe1tvaI_kn884`. The macOS
+physical-builder reproducibility criterion is complete.
 
 The first required native-matrix run also exposed two clean-checkout-only
 packaging faults. The Ubuntu foundation probe assumed `rg` was installed even
@@ -920,7 +935,7 @@ CapSec advertisement completion is explicitly **not** a v1 release criterion.
 It is the criterion for claiming that the optional CapSec mode works on a
 specific shipped tuple.
 
-### Requirement-by-requirement audit — 2026-08-02
+### Requirement-by-requirement audit — 2026-08-03
 
 | §9 criterion | State | Evidence or remaining action |
 | --- | --- | --- |
@@ -938,7 +953,7 @@ specific shipped tuple.
 | Ambient-default ratification | **Resolved — ratified** | The author ratified ambient compatibility as the v1 default against the working macOS and Linux end-to-end artifacts. |
 | Non-evaluating explanation | **Complete** | Inspection v3 admits inner contracts; the artifact's authenticated `--ibex-info` path reports recipient-facing posture/backend/CapSec facts after the same admission and before application evaluation. |
 | LLP 0022/0031 reconciliation | **Complete** | Both documents scope the former categorical/advertisement-first gates to the CapSec path. |
-| Distribution + precommitted performance | **Open — release/author evidence** | Credential-free Mach-O minimum/hardened/replacement vectors, Developer ID hardened-runtime signing with secure timestamp, and the Linux audit pass. Gatekeeper still requires notarization credentials/ticket. Matching macOS builders now converge all static inputs; their first fresh full receipts exposed checkout-absolute HBC source labels, which are corrected but await a repeated physical comparator. The versioned performance collector still refuses measurements until both tuples' numeric budgets are accepted and committed. |
+| Distribution + precommitted performance | **Open — release/author evidence** | Credential-free Mach-O minimum/hardened/replacement vectors, Developer ID hardened-runtime signing with secure timestamp, Linux audit, and the strict two-physical-Mac comparator pass. Gatekeeper still requires notarization credentials/ticket. The versioned performance collector still refuses measurements until both tuples' numeric budgets are accepted and committed. |
 
 Milestone 5's recipient-side disclosure choice is resolved by the authenticated
 `--ibex-info` path. Release artifacts must keep its first-position, escape,

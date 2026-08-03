@@ -176,5 +176,14 @@ command and made both catalogs identical. The relocated runtime matrix caught
 that dyld nevertheless requires `LC_UUID`. The release builder now preserves
 the command but replaces its value after signature removal with a digest-derived
 RFC 4122 UUID before catalog hashing. Focused vectors cover convergence,
-idempotence, signed-image refusal, and missing-command refusal; one final
-physical pair remains.
+idempotence, signed-image refusal, and missing-command refusal.
+
+The final pair at commit `2a611b4f4455b1a39013d88e229c0e23f13100cf`
+used two distinct clean physical arm64 Macs with identical Xcode 26.6 build
+17F113, SDK 26.5 build 25F70, and Rust/Cargo 1.97.0 toolchains. Both complete
+installed-user matrices passed. The strict comparator passed all six identities
+with catalog `sha256-TCdWrod4l9HVkiDEDCCY6pIZWhj-3WjWfXOig5C_x8o`, stub core
+`sha256-l50-bX04ZMTR6mTTvyFHYmAuHgnzH45xHQdHD5uzs_I`, and unsigned file
+`sha256-o2i8DnpfuZoxrol10OVCwQR-lFsEaMBe1tvaI_kn884`. The reproducibility
+acceptance is complete; this issue remains open only for the notarization
+credential/ticket proof.
