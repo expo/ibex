@@ -223,7 +223,7 @@ jobs:
             --features module-runner,capsec-conformance-observer \
             -- --nocapture --test-threads=1
 
-      - name: Verify Windows remains an explicit unadvertised native target
+      - name: Verify Windows native linkage and explicit unadvertised target
         if: runner.os == 'Windows'
         shell: pwsh
         run: |

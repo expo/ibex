@@ -15,6 +15,7 @@ import {
 
 test("the authored target budgets fit their outer job timeouts", () => {
   const plan = readConformanceSuitePlan();
+  expect(plan.timeoutPolicyVersion).toBe(4);
   for (const target of Object.keys(plan.targets)) {
     const budget = criticalPathBudget(plan, target);
     expect(budget.totalMs).toBeLessThanOrEqual(
@@ -60,6 +61,15 @@ test("the authored target budgets fit their outer job timeouts", () => {
     deadlineMs: 90_000,
     gracePeriodMs: 30_000,
   });
+  expect(
+    plan.targets["aarch64-apple-darwin"].maxPublicFixtureBatches,
+  ).toBe(11);
+  expect(
+    plan.targets["aarch64-apple-darwin"].setupReserveMs,
+  ).toBe(3_540_000);
+  expect(
+    plan.targets["x86_64-pc-windows-msvc"].maxPublicFixtureBatches,
+  ).toBe(10);
   expect(
     plan.targets["x86_64-pc-windows-msvc"]
       .maxPortablePublicFixtureBatches,

@@ -5,6 +5,7 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-08-03 (isolates the optional app-host Rust-kernel imports in their own static-archive member so standalone desktop links do not acquire them)
 **Revised:** 2026-07-27 (adds the restricted consumer construction path, its one-way post-bootstrap/pre-publication Hermes dynamic-code latch while preserving host-selected `ex_hermes_eval`, and native asynchronous-failure checkpoints without reviving handler-reachable Promise observers)
 **Revised:** 2026-07-25 (LLP 0040 replaces the retired WebGPU-specific mailbox and activation bundle with the generic runtime-extension registry, fixed install phase, owner executor, completion tokens, and package-owned authenticated bootstrap inputs)
 **Revised:** 2026-07-25 (historical: separated the core bundle from an Ibex-owned WebGPU activation bundle; superseded by LLP 0040)
@@ -592,9 +593,23 @@ functions / globals for one subsystem and carries per-OS implementations behind
 | DNS | `hermes_runtime_dns.cc` | resolver |
 | SQLite | `hermes_runtime_sqlite.cc` | bridges to rusqlite via `ex_host_sqlite_*` |
 | Console/IPC/timers | `hermes_runtime_console.cc`, `_ipc.cc`, `_timers.cc` | |
-| OS info / iOS | `hermes_runtime_osinfo.cc`, `hermes_runtime_ios.cc` | |
+| OS info / iOS | `hermes_runtime_osinfo.cc`, `hermes_runtime_ios.cc`, `hermes_runtime_kernel_bridge.cc` | The kernel bridge is an optional app-host archive member; see below. |
 | Debugger | `hermes_runtime_debugger.cc` | gated on `HERMES_ENABLE_DEBUGGER` |
 | Native runtime extensions | `hermes_runtime_extension.cc` | generic descriptor validation, fixed-phase installation, operation membrane, owner callbacks, lifecycle, and optional keyed external buffers; feature-specific providers live in embedder packages |
+
+### App-host kernel bridge is a separate archive member
+
+The `ex_hermes_set_kernel_handle` implementation imports the Exact app host's
+Rust-kernel ABI (`exact_get_layout`, `exact_hit_test`, and related inspection
+functions). Those imports are optional for Ibex's standalone CLI. Static
+linkers select archive members as a unit, so keeping that implementation in
+the same object as the ordinary dispatch and module-event callbacks made MSVC
+pull the optional imports into standalone test and executable links. The build
+therefore compiles the kernel bridge through
+`hermes_runtime_kernel_bridge.cc` as its own archive member. App hosts that
+call `ex_hermes_set_kernel_handle` still select the member and must supply the
+kernel ABI; standalone executables do not select it and have no kernel-crate
+link dependency.
 
 The `native_fetch_*` / `native_websocket_*` files are per-OS. macOS/iOS use
 Foundation/NSURLSession implementations `[observed]`

@@ -1,7 +1,7 @@
 {
   "schema": "ibex/capsec-suite-plan/1",
   "planId": "capsec-full-matrix-stage1",
-  "timeoutPolicyVersion": 3,
+  "timeoutPolicyVersion": 4,
   "heartbeatIntervalMs": 30000,
   "commands": {
     "capsec-registry-drift": { "phase": "preflight", "deadlineMs": 120000, "gracePeriodMs": 10000 },
@@ -42,9 +42,9 @@
   "targets": {
     "aarch64-apple-darwin": {
       "outerTimeoutMs": 22500000,
-      "setupReserveMs": 3600000,
+      "setupReserveMs": 3540000,
       "cleanupUploadReserveMs": 900000,
-      "maxPublicFixtureBatches": 9,
+      "maxPublicFixtureBatches": 11,
       "maxPortablePublicFixtureBatches": 8,
       "aliasDiagnosticCommands": [
         "loaded-engine-preflight",
@@ -56,7 +56,7 @@
       "outerTimeoutMs": 22500000,
       "setupReserveMs": 3600000,
       "cleanupUploadReserveMs": 900000,
-      "maxPublicFixtureBatches": 8,
+      "maxPublicFixtureBatches": 10,
       "maxPortablePublicFixtureBatches": 0,
       "aliasDiagnosticCommands": [],
       "deadlineOverrides": {

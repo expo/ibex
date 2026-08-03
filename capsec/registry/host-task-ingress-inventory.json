@@ -1864,49 +1864,49 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 829,
+          "line": 836,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) return -1;"
         },
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 854,
+          "line": 861,
           "column": 11,
           "source": ".callAsConstructor(rt, static_cast<int>(payload_len))"
         },
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 859,
+          "line": 866,
           "column": 41,
           "source": "auto payloadArray = uint8ArrayCtor.callAsConstructor("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 862,
+          "line": 869,
           "column": 16,
           "source": "handler.call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 869,
+          "line": 876,
           "column": 16,
           "source": "handler.call(rt, std::move(moduleStr), std::move(eventStr), std::move(payloadArray));"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 873,
+          "line": 880,
           "column": 16,
           "source": "handler.call("
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 879,
+          "line": 886,
           "column": 16,
           "source": "handler.call(rt, std::move(moduleStr), std::move(eventStr));"
         }
@@ -1921,7 +1921,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 235,
+          "line": 239,
           "column": 17,
           "source": "callback->call(runtime);"
         }
@@ -1936,14 +1936,14 @@
         {
           "kind": "user-execution-gate",
           "operation": "exactRuntimeEnterUserExecution",
-          "line": 928,
+          "line": 935,
           "column": 8,
           "source": "if (!exactRuntimeEnterUserExecution(runtime)) return -1;"
         },
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 945,
+          "line": 952,
           "column": 12,
           "source": "handler.call("
         }
@@ -1958,7 +1958,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "call",
-          "line": 354,
+          "line": 358,
           "column": 41,
           "source": "auto stringified = stringifyFn.call(rt, args[1]);"
         }
@@ -1973,7 +1973,7 @@
         {
           "kind": "jsi-function-call",
           "operation": "callAsConstructor",
-          "line": 553,
+          "line": 559,
           "column": 13,
           "source": ".callAsConstructor(rt, static_cast<double>(size))"
         }

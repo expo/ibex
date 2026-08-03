@@ -1257,6 +1257,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_sqlite.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_debugger.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_ios.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_kernel_bridge.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_console.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_timers.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_osinfo.cc");
@@ -2058,8 +2059,11 @@ fn main() {
         // sans-IO rustls engine can be driven from src/builtins/tls.js.
         build.file("src/engine/hermes_runtime_tls.cc");
         // Despite the historical filename, this file owns the platform-neutral
-        // exact.dispatch/module/kernel C ABI that native hosts install.
+        // exact.dispatch/module C ABI that native hosts install.
         build.file("src/engine/hermes_runtime_ios.cc");
+        // @ref LLP 0003#app-host-kernel-bridge-is-a-separate-archive-member —
+        // keep optional kernel-host imports out of standalone link closure.
+        build.file("src/engine/hermes_runtime_kernel_bridge.cc");
         // This file also provides the non-Android no-op definitions for the
         // Android host hooks that installGlobals()/destroy() call unconditionally.
         build.file("src/engine/hermes_runtime_android.cc");
@@ -2086,6 +2090,9 @@ fn main() {
             .file("src/engine/hermes_runtime_http.cc")
             .file("src/engine/hermes_runtime_debugger.cc")
             .file("src/engine/hermes_runtime_ios.cc")
+            // @ref LLP 0003#app-host-kernel-bridge-is-a-separate-archive-member —
+            // keep optional kernel-host imports out of standalone link closure.
+            .file("src/engine/hermes_runtime_kernel_bridge.cc")
             .file("src/engine/hermes_runtime_android.cc")
             .file("src/engine/hermes_runtime_osinfo.cc")
             .file("src/engine/hermes_runtime_process_setup.cc")
