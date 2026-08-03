@@ -4039,8 +4039,20 @@ function validateRuntimeInvocation(observation, recipe) {
       );
     }
     if (authored.operation?.kind === "terminal-builtin-import") {
+      // Keep this independent evidence vocabulary complete for every builtin
+      // family closed by the authenticated import gate. The authoring and
+      // loaded-engine executors repeat the same set deliberately.
+      // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
       const terminalBuiltin = new Map([
         ["node_async_hooks", ["async_hooks", ["async_hooks", "node:async_hooks"]]],
+        [
+          "node_diagnostics_channel",
+          [
+            "diagnostics_channel",
+            ["diagnostics_channel", "node:diagnostics_channel"],
+          ],
+        ],
+        ["node_domain", ["domain", ["domain", "node:domain"]]],
         [
           "node_inspector",
           [

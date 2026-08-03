@@ -5,6 +5,12 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-08-03 (restores `node:diagnostics_channel` and `node:domain`
+to the independent public-evidence validator's terminal-builtin vocabulary
+after the exact Apple matrix proved that production, authoring, and the Rust
+loaded-engine executor recognized all seven reviewed families while the final
+JavaScript evidence check repeated only five; a regression now exercises the
+root-module closure contract for all seven families)
 **Revised:** 2026-08-03 (synchronizes the independent loaded-engine target-
 absence budget with the already-reviewed source-derived Apple catalog: 114
 executable absence fixtures partition exactly into 92 target-absence
