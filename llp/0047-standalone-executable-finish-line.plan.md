@@ -26,7 +26,10 @@ non-default `rg` utility; it now uses platform `grep` throughout. The resulting
 valid receipt pair exposed a third checkout leak: vendored OpenSSL records its
 Cargo install prefix in `libcrypto`. Release stubs now build in a stable
 target- and contract-addressed `/tmp` namespace; another physical pair remains
-to be recorded.)
+to be recorded. That pair removed every checkout path and reduced the raw stub
+difference to 48 bytes: the independently synthesized 16-byte Mach-O `LC_UUID`
+plus its dependent ad-hoc signature bytes. macOS release stubs now link with
+`-no_uuid`; another physical pair remains to be recorded.)
 **Revised:** 2026-08-02 (author decisions 1, 3, and 4 resolved: v1 keeps
 explicit policy authoring, ratifies ambient compatibility as the standalone
 default against the completed two-tuple artifacts, and reserves authenticated
@@ -857,7 +860,12 @@ vendored OpenSSL's checkout-absolute Cargo install prefix in `libcrypto` engine
 and module directory strings. The release stub now builds in a stable target-
 and contract-addressed `/tmp` namespace so equivalent builders give OpenSSL the
 same prefix. Fresh full physical receipts are still required before recording
-the macOS comparator as passed.
+the macOS comparator as passed. The first stable-prefix pair removed every
+checkout path and reduced the raw stub difference to 48 bytes: the
+independently synthesized 16-byte Mach-O `LC_UUID` plus its dependent ad-hoc
+signature bytes. Because the catalog authenticates the stub core directly and
+does not use UUID as an authority, macOS release stubs now link with
+`-Wl,-no_uuid`; one final physical pair remains to be recorded.
 
 The first required native-matrix run also exposed two clean-checkout-only
 packaging faults. The Ubuntu foundation probe assumed `rg` was installed even

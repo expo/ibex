@@ -167,4 +167,9 @@ comparison exposed a further checkout-absolute path: vendored OpenSSL records
 its Cargo install prefix in `libcrypto` engine and module directory strings.
 Release stubs now build in a stable target- and contract-addressed `/tmp`
 namespace. The issue remains open until the corrected full physical comparator
-passes and the signed artifact is notarized.
+passes and the signed artifact is notarized. The stable-prefix pair removed
+every checkout path and reduced the raw stub difference to 48 bytes: the
+independently synthesized 16-byte Mach-O `LC_UUID` plus its dependent ad-hoc
+signature bytes. Since the authenticated stub-core digest is the release
+identity and UUID carries no authority, macOS release stubs now link with
+`-Wl,-no_uuid`; one final physical pair remains.
