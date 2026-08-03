@@ -149,6 +149,16 @@ cache, which also rotates the source-profile cache key because the builder
 script is authenticated build authority. The SFE foundation gate covers two
 synthetic builder timestamps, byte convergence, idempotence, and exported
 symbol preservation. The exact pre-fix physical archives also converge under
-the checked transform. The issue remains open until two fresh full release-kit
-receipts from the rotated cache key pass the strict comparator and the signed
-artifact is notarized.
+the checked transform.
+
+The first two fresh full release kits on the rotated key each passed the
+installed-user matrix and agreed on the exact contract and packaged policy
+toolchain, but the strict comparator refused their catalog, CompilePlan, stub
+core, and unsigned-file identities. Byte comparison isolated checkout-absolute
+bootstrap and generated-runtime source paths recorded by `hermesc` inside HBC;
+the equal-size stubs differed in roughly 2.6 million bytes and therefore had
+different Mach-O UUIDs. Release compilation now runs `hermesc` from the source
+directory with only a stable basename. A focused foundation test protects that
+argument contract, and a two-directory real-Hermes probe produces identical
+HBC. The issue remains open until the corrected full physical comparator passes
+and the signed artifact is notarized.

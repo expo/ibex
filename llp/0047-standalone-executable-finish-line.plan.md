@@ -15,8 +15,12 @@ object members for both architectures, but their universal static archives
 retained builder-specific member timestamps and numeric owners. The Apple
 builder now reconstructs every cached static slice with `libtool -D` and
 canonical architecture order. Synthetic/idempotence coverage and normalization
-of the two physical archive sets converge byte-for-byte; fresh full release-kit
-receipts on the rotated source-cache key remain to be recorded.)
+of the two physical archive sets converge byte-for-byte. The first fresh full
+receipt pair on the rotated cache key then exposed a second checkout leak:
+`hermesc` recorded absolute bootstrap and generated-runtime source paths in HBC,
+changing the stub core despite identical inputs and toolchains. Release builds
+now invoke `hermesc` from each source directory with only a stable basename;
+fresh full receipts after that correction remain to be recorded.)
 **Revised:** 2026-08-02 (author decisions 1, 3, and 4 resolved: v1 keeps
 explicit policy authoring, ratifies ambient compatibility as the standalone
 default against the completed two-tuple artifacts, and reserves authenticated
@@ -826,9 +830,21 @@ canonical architecture order, makes the real `hermesvm`, JSI, and
 Boost.Context inputs byte-identical across the machines. `build-hermes.sh` now
 applies that transform before cache publication, its own digest rotates the
 source-cache authority, and the SFE foundation gate exercises two synthetic
-builders plus idempotence and symbol preservation. A full pair of release-kit
-receipts from the newly keyed source builds is still required before recording
-the macOS comparator as passed.
+builders plus idempotence and symbol preservation.
+
+The first full pair of clean release-kit receipts from the newly keyed source
+builds passed the complete installed-user matrix independently and agreed on
+the contract and packaged policy-toolchain digests. The strict comparator still
+refused because the catalog, CompilePlan, stub core, and unsigned file differed.
+A byte-level Mach-O comparison found checkout-absolute bootstrap and
+generated-runtime JavaScript paths embedded in Hermes bytecode. Those paths
+entered because `build.rs` passed absolute source paths to `hermesc`; the two
+otherwise matching stubs had the same size but differed in about 2.6 million
+bytes and carried different linker UUIDs. The build now changes to the source
+directory and passes only its basename, and the foundation gate unit-tests that
+compiler argument contract. A direct two-directory Hermes vector produces
+identical HBC under the corrected invocation. Fresh full physical receipts are
+still required before recording the macOS comparator as passed.
 
 The first required native-matrix run also exposed two clean-checkout-only
 packaging faults. The Ubuntu foundation probe assumed `rg` was installed even
@@ -892,7 +908,7 @@ specific shipped tuple.
 | Ambient-default ratification | **Resolved — ratified** | The author ratified ambient compatibility as the v1 default against the working macOS and Linux end-to-end artifacts. |
 | Non-evaluating explanation | **Complete** | Inspection v3 admits inner contracts; the artifact's authenticated `--ibex-info` path reports recipient-facing posture/backend/CapSec facts after the same admission and before application evaluation. |
 | LLP 0022/0031 reconciliation | **Complete** | Both documents scope the former categorical/advertisement-first gates to the CapSec path. |
-| Distribution + precommitted performance | **Open — release/author evidence** | Credential-free Mach-O minimum/hardened/replacement vectors, Developer ID hardened-runtime signing with secure timestamp, and the Linux audit pass. Gatekeeper still requires notarization credentials/ticket. The matching macOS builder exposed archive-header nondeterminism; deterministic normalization converges the real inputs, but fresh full receipts on the rotated cache key remain. The versioned performance collector still refuses measurements until both tuples' numeric budgets are accepted and committed. |
+| Distribution + precommitted performance | **Open — release/author evidence** | Credential-free Mach-O minimum/hardened/replacement vectors, Developer ID hardened-runtime signing with secure timestamp, and the Linux audit pass. Gatekeeper still requires notarization credentials/ticket. Matching macOS builders now converge all static inputs; their first fresh full receipts exposed checkout-absolute HBC source labels, which are corrected but await a repeated physical comparator. The versioned performance collector still refuses measurements until both tuples' numeric budgets are accepted and committed. |
 
 Milestone 5's recipient-side disclosure choice is resolved by the authenticated
 `--ibex-info` path. Release artifacts must keep its first-position, escape,

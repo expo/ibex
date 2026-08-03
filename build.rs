@@ -9,6 +9,8 @@ use ibex_windows_dll_staging::stage_runtime_dlls;
 mod hermes_profile_provenance;
 #[path = "build_support/hermes_symbol_probe.rs"]
 mod hermes_symbol_probe;
+#[path = "build_support/hermesc_source_label.rs"]
+mod hermesc_source_label;
 #[path = "build_support/portable_engine_build_consumption.rs"]
 mod portable_engine_build_consumption;
 #[cfg(target_os = "macos")]
@@ -1793,16 +1795,7 @@ fn main() {
                     .unwrap_or_else(|error| panic!("Portable bootstrap hermesc refused: {error}"));
                 true
             } else {
-                matches!(
-                    hermesc_command(&hermesc)
-                        .arg("-emit-binary")
-                        .arg("-O")
-                        .arg("-out")
-                        .arg(&hbc_path)
-                        .arg(&js_path)
-                        .status(),
-                    Ok(status) if status.success()
-                )
+                run_checkout_independent_hermesc_compile(&hermesc, &js_path, &hbc_path)
             };
 
             match compile_succeeded {
@@ -3534,16 +3527,7 @@ fn generate_runtime_bundle_bytecode_header(
             .unwrap_or_else(|error| panic!("Portable runtime-bundle hermesc refused: {error}"));
         true
     } else {
-        matches!(
-            hermesc_command(hermesc)
-                .arg("-emit-binary")
-                .arg("-O")
-                .arg("-out")
-                .arg(&bundled_runtime_hbc)
-                .arg(bundled_runtime)
-                .status(),
-            Ok(result) if result.success()
-        )
+        run_checkout_independent_hermesc_compile(hermesc, bundled_runtime, &bundled_runtime_hbc)
     };
 
     if !compile_succeeded {
@@ -4011,6 +3995,19 @@ fn hermesc_command(hermesc: &Path) -> std::process::Command {
         command.arg("-Xes6-block-scoping");
     }
     command
+}
+
+fn run_checkout_independent_hermesc_compile(hermesc: &Path, source: &Path, output: &Path) -> bool {
+    let mut command = hermesc_command(hermesc);
+    command
+        .arg("-emit-binary")
+        .arg("-O")
+        .arg("-out")
+        .arg(output);
+    hermesc_source_label::append_checkout_independent_source(&mut command, source).unwrap_or_else(
+        |error| panic!("Cannot construct checkout-independent hermesc input: {error}"),
+    );
+    matches!(command.status(), Ok(status) if status.success())
 }
 
 fn resolve_macos_hermes_framework(lib_root: &Path) -> Option<AppleFramework> {

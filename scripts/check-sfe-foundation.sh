@@ -11,6 +11,13 @@ cd "$repo_root"
 bash -n scripts/build-sfe-diagnostic-factory-table.sh
 bash scripts/hermes-static-archive-normalization.test.sh
 bash scripts/test-sfe-reproducibility.sh
+(
+  source_label_test_dir="$(mktemp -d -t ibex-hermesc-source-label.XXXXXX)"
+  trap 'rm -rf -- "$source_label_test_dir"' EXIT INT TERM
+  rustc --edition=2021 --test build_support/hermesc_source_label.rs \
+    -o "$source_label_test_dir/hermesc-source-label-test"
+  "$source_label_test_dir/hermesc-source-label-test"
+)
 cargo test --package ibex-sfe-format
 cargo test --package ibex-sfe-catalog --all-targets
 cargo test --package ibex-compiled-stub
