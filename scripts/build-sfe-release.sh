@@ -292,11 +292,13 @@ else
   cp "$contract_path" "$stub_contract_path"
 fi
 if [[ "$target_triple" == "x86_64-unknown-linux-gnu" ]]; then
-  IBEX_STUB_CONTRACT_PATH="$stub_contract_path" \
+  CARGO_TARGET_DIR="$stub_target_dir" \
+    IBEX_STUB_CONTRACT_PATH="$stub_contract_path" \
     IBEX_SFE_LINUX_RELEASE_STUB=1 \
     cargo build --quiet --release --package ibex-compiled-stub
 else
-  IBEX_STUB_CONTRACT_PATH="$stub_contract_path" \
+  CARGO_TARGET_DIR="$stub_target_dir" \
+    IBEX_STUB_CONTRACT_PATH="$stub_contract_path" \
     cargo build --quiet --release --package ibex-compiled-stub
 fi
 stub_core="$release_stage/ibex-compiled-stub-unsigned-core"
