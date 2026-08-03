@@ -11,6 +11,7 @@ cd "$repo_root"
 bash -n scripts/build-sfe-diagnostic-factory-table.sh
 bash scripts/hermes-static-archive-normalization.test.sh
 bash scripts/test-sfe-reproducibility.sh
+python3 scripts/normalize-macho-uuid.test.py
 (
   source_label_test_dir="$(mktemp -d -t ibex-hermesc-source-label.XXXXXX)"
   trap 'rm -rf -- "$source_label_test_dir"' EXIT INT TERM

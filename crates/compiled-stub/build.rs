@@ -30,11 +30,6 @@ fn main() {
         // Reserve deterministic load-command space for __IBEX + __payload and
         // for LC_CODE_SIGNATURE added after envelope injection.
         println!("cargo:rustc-link-arg=-Wl,-headerpad,0x1000");
-        // Apple ld synthesizes a different LC_UUID on independent builders
-        // even when every other unsigned stub byte matches. The SFE identity
-        // is its authenticated stub-core digest, so omit that unbound nonce.
-        // @ref LLP 0047#4-milestone-1--publish-a-real-release-catalog
-        println!("cargo:rustc-link-arg=-Wl,-no_uuid");
     }
     if target_os != "macos" && target_os != "linux" {
         return;

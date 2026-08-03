@@ -305,6 +305,7 @@ stub_core="$release_stage/ibex-compiled-stub-unsigned-core"
 cp "$stub_target_dir/release/ibex-compiled-stub" "$stub_core"
 if [[ "$target_triple" == "aarch64-apple-darwin" ]]; then
   codesign --remove-signature "$stub_core"
+  python3 scripts/normalize-macho-uuid.py "$stub_core"
 
   [[ "$minimum_platform" =~ ^macos-([0-9]+\.[0-9]+)-arm64$ ]] || {
     echo "macOS minimum platform has an unsupported spelling: $minimum_platform" >&2

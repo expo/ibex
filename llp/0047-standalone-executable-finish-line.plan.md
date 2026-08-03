@@ -28,8 +28,11 @@ Cargo install prefix in `libcrypto`. Release stubs now build in a stable
 target- and contract-addressed `/tmp` namespace; another physical pair remains
 to be recorded. That pair removed every checkout path and reduced the raw stub
 difference to 48 bytes: the independently synthesized 16-byte Mach-O `LC_UUID`
-plus its dependent ad-hoc signature bytes. macOS release stubs now link with
-`-no_uuid`; another physical pair remains to be recorded.)
+plus its dependent ad-hoc signature bytes. Omitting the command made the two
+catalogs identical, but both relocated runtime matrices caught dyld's mandatory
+`LC_UUID` check. The release builder instead replaces the UUID after signature
+removal with a digest-derived RFC 4122 value before catalog hashing; another
+physical pair remains to be recorded.)
 **Revised:** 2026-08-02 (author decisions 1, 3, and 4 resolved: v1 keeps
 explicit policy authoring, ratifies ambient compatibility as the standalone
 default against the completed two-tuple artifacts, and reserves authenticated
@@ -864,8 +867,14 @@ the macOS comparator as passed. The first stable-prefix pair removed every
 checkout path and reduced the raw stub difference to 48 bytes: the
 independently synthesized 16-byte Mach-O `LC_UUID` plus its dependent ad-hoc
 signature bytes. Because the catalog authenticates the stub core directly and
-does not use UUID as an authority, macOS release stubs now link with
-`-Wl,-no_uuid`; one final physical pair remains to be recorded.
+does not use UUID as an authority, the first correction omitted the command and
+made the two catalogs identical. Both relocated runtime matrices then refused:
+dyld requires `LC_UUID` even though it does not use the value as Ibex release
+authority. The release builder now preserves the command but, after removing
+the linker's signature, replaces its UUID with an RFC 4122 value derived from
+the otherwise complete stub bytes. The normalizer refuses signed, malformed,
+fat, missing-UUID, and duplicate-UUID inputs and is covered for convergence and
+idempotence. One final physical pair remains to be recorded.
 
 The first required native-matrix run also exposed two clean-checkout-only
 packaging faults. The Ubuntu foundation probe assumed `rg` was installed even

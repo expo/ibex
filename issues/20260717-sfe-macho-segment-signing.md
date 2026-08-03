@@ -171,5 +171,10 @@ passes and the signed artifact is notarized. The stable-prefix pair removed
 every checkout path and reduced the raw stub difference to 48 bytes: the
 independently synthesized 16-byte Mach-O `LC_UUID` plus its dependent ad-hoc
 signature bytes. Since the authenticated stub-core digest is the release
-identity and UUID carries no authority, macOS release stubs now link with
-`-Wl,-no_uuid`; one final physical pair remains.
+identity and UUID carries no authority, the first correction omitted the load
+command and made both catalogs identical. The relocated runtime matrix caught
+that dyld nevertheless requires `LC_UUID`. The release builder now preserves
+the command but replaces its value after signature removal with a digest-derived
+RFC 4122 UUID before catalog hashing. Focused vectors cover convergence,
+idempotence, signed-image refusal, and missing-command refusal; one final
+physical pair remains.
