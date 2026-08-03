@@ -20,7 +20,9 @@ receipt pair on the rotated cache key then exposed a second checkout leak:
 `hermesc` recorded absolute bootstrap and generated-runtime source paths in HBC,
 changing the stub core despite identical inputs and toolchains. Release builds
 now invoke `hermesc` from each source directory with only a stable basename;
-fresh full receipts after that correction remain to be recorded.)
+fresh full receipts after that correction remain to be recorded. The same
+physical rerun found that the installed-user verifier still assumed the
+non-default `rg` utility; it now uses platform `grep` throughout.)
 **Revised:** 2026-08-02 (author decisions 1, 3, and 4 resolved: v1 keeps
 explicit policy authoring, ratifies ambient compatibility as the standalone
 default against the completed two-tuple artifacts, and reserves authenticated
@@ -843,8 +845,11 @@ otherwise matching stubs had the same size but differed in about 2.6 million
 bytes and carried different linker UUIDs. The build now changes to the source
 directory and passes only its basename, and the foundation gate unit-tests that
 compiler argument contract. A direct two-directory Hermes vector produces
-identical HBC under the corrected invocation. Fresh full physical receipts are
-still required before recording the macOS comparator as passed.
+identical HBC under the corrected invocation. The next physical invocation also
+found an undeclared `rg` dependency in the installed-user verifier on the clean
+second Mac; the verifier now uses platform `grep` throughout. Fresh full
+physical receipts are still required before recording the macOS comparator as
+passed.
 
 The first required native-matrix run also exposed two clean-checkout-only
 packaging faults. The Ubuntu foundation probe assumed `rg` was installed even

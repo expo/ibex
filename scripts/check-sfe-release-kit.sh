@@ -169,7 +169,7 @@ set -e
   echo "release Ibex did not refuse its missing packaged policy toolchain" >&2
   exit 1
 }
-rg -F 'SFP002 packaged policy author unavailable' \
+grep -F 'SFP002 packaged policy author unavailable' \
   "$work/missing-policy-toolchain.stderr" >/dev/null
 
 "${policy_environment[@]}" "$ibex" policy generate \
@@ -219,8 +219,8 @@ set -e
   echo "compile did not refuse the absent release catalog" >&2
   exit 1
 }
-rg -F "$catalog_asset_name" "$work/missing-catalog.stderr" >/dev/null
-rg -F 'ibex-sfe-catalog install --source' "$work/missing-catalog.stderr" >/dev/null
+grep -F "$catalog_asset_name" "$work/missing-catalog.stderr" >/dev/null
+grep -F 'ibex-sfe-catalog install --source' "$work/missing-catalog.stderr" >/dev/null
 
 XDG_CACHE_HOME="$work/cache" "$installer" install --source "$catalog_source" \
   > "$work/catalog-install.json"
@@ -269,7 +269,7 @@ for unsupported_shape in \
   computed-dynamic-import-without-candidate-table \
   computed-commonjs-require \
   unsupported-dynamic-import-options; do
-  rg -F "$unsupported_shape" "$work/unsupported-sites-compile.stderr" >/dev/null
+  grep -F "$unsupported_shape" "$work/unsupported-sites-compile.stderr" >/dev/null
 done
 set +e
 XDG_CACHE_HOME="$work/cache" "$ibex" compile \
@@ -285,7 +285,7 @@ set -e
   echo "--deny-unsupported did not refuse the guarded-site graph" >&2
   exit 1
 }
-rg -F 'SFE_UNSUPPORTED_SITES: --deny-unsupported refused 3' \
+grep -F 'SFE_UNSUPPORTED_SITES: --deny-unsupported refused 3' \
   "$work/unsupported-sites-denied.stderr" >/dev/null
 if [[ "$target_triple" == "aarch64-apple-darwin" ]]; then
   # A copied SFE may use Apple system libraries, but it must not retain an
@@ -294,13 +294,13 @@ if [[ "$target_triple" == "aarch64-apple-darwin" ]]; then
   # @ref LLP 0047#8-milestone-5--distribution-and-usability
   otool -L "$work/standalone" > "$work/standalone.otool-libraries"
   if tail -n +2 "$work/standalone.otool-libraries" | \
-      rg -v '^\s+(/System/Library/|/usr/lib/)' > "$work/non-system-dylibs"; then
+      grep -Ev '^[[:space:]]+(/System/Library/|/usr/lib/)' > "$work/non-system-dylibs"; then
     echo "macOS standalone retains a non-system dynamic dependency" >&2
     cat "$work/non-system-dylibs" >&2
     exit 1
   fi
   otool -l "$work/standalone" > "$work/standalone.otool-load-commands"
-  if rg -A2 '^\s+cmd LC_RPATH$' "$work/standalone.otool-load-commands" \
+  if grep -E -A2 '^[[:space:]]+cmd LC_RPATH$' "$work/standalone.otool-load-commands" \
       > "$work/standalone-rpaths"; then
     echo "macOS standalone retains a runtime search path" >&2
     cat "$work/standalone-rpaths" >&2
@@ -404,7 +404,7 @@ set -e
   echo "inspection admitted a mutated outer stub core" >&2
   exit 1
 }
-rg -F 'executable stub core disagrees with release provenance' \
+grep -F 'executable stub core disagrees with release provenance' \
   "$work/stub-core-tamper.stderr" >/dev/null
 
 if [[ "$target_triple" == "aarch64-apple-darwin" ]]; then
@@ -437,7 +437,7 @@ assert stripped["provenance"]["compilePlan"] == original["provenance"]["compileP
   /usr/bin/codesign --verify --strict --verbose=2 "$signature_replacement_app"
   /usr/bin/codesign --display --verbose=4 "$signature_replacement_app" \
     > /dev/null 2> "$work/signature-replacement-codesign.txt"
-  rg 'flags=.*runtime' "$work/signature-replacement-codesign.txt" >/dev/null
+  grep 'flags=.*runtime' "$work/signature-replacement-codesign.txt" >/dev/null
   "$ibex" inspect-executable "$signature_replacement_app" \
     > "$work/signature-replacement-signed-inspection.json"
   python3 -c '
@@ -563,7 +563,7 @@ set -e
   sed -n '1,20p' "$work/non-unicode-argv.stderr" >&2
   exit 1
 }
-rg -F 'compiled process argument 1 is not valid Unicode' \
+grep -F 'compiled process argument 1 is not valid Unicode' \
   "$work/non-unicode-argv.stderr" >/dev/null || {
   echo "non-Unicode argv fixture omitted the offending argument index" >&2
   sed -n '1,20p' "$work/non-unicode-argv.stderr" >&2
@@ -603,7 +603,7 @@ set -e
 }
 (cd "$work/relocated" && ./unsupported-sites) \
   > "$work/unsupported-sites.stdout" 2> "$work/unsupported-sites.stderr"
-rg -Fx 'unsupported-sites-ok' "$work/unsupported-sites.stdout" >/dev/null
+grep -Fx 'unsupported-sites-ok' "$work/unsupported-sites.stdout" >/dev/null
 
 set +e
 (cd "$work/relocated" && ./lifecycle exit-code) \
@@ -653,11 +653,11 @@ set -e
   sed -n '1,20p' "$work/unavailable-worker.stderr" >&2
   exit 1
 }
-rg -Fx 'worker_threads.Worker is not supported in this runtime. Use child_process instead.' \
+grep -Fx 'worker_threads.Worker is not supported in this runtime. Use child_process instead.' \
   "$work/unavailable-worker.stdout" >/dev/null
 (cd "$work/relocated" && ./http-server) \
   > "$work/http-server.stdout" 2> "$work/http-server.stderr"
-rg -Fx 'http-server=200:ibex-standalone-http-server' \
+grep -Fx 'http-server=200:ibex-standalone-http-server' \
   "$work/http-server.stdout" >/dev/null
 set +e
 (cd "$work/relocated" && ./unavailable-backends) \
@@ -677,9 +677,9 @@ expected_unavailable_backends=$'http2=http2.createServer is not supported in thi
   sed -n '1,20p' "$work/unavailable-backends.stderr" >&2
   exit 1
 }
-rg -F 'compiled JavaScript background failure was unhandled' \
+grep -F 'compiled JavaScript background failure was unhandled' \
   "$work/background-throw.stderr" >/dev/null
-rg -F 'compiled JavaScript background failure was unhandled' \
+grep -F 'compiled JavaScript background failure was unhandled' \
   "$work/rejection.stderr" >/dev/null
 
 run_signal_case() {
@@ -691,7 +691,7 @@ run_signal_case() {
   (cd "$work/relocated" && exec ./lifecycle signal) > "$output" 2> "$error" &
   lifecycle_pid=$!
   for _attempt in $(seq 1 50); do
-    if rg -Fx 'signal-ready' "$output" >/dev/null 2>&1; then
+    if grep -Fx 'signal-ready' "$output" >/dev/null 2>&1; then
       break
     fi
     if ! kill -0 "$lifecycle_pid" 2>/dev/null; then
@@ -699,7 +699,7 @@ run_signal_case() {
     fi
     sleep 0.1
   done
-  rg -Fx 'signal-ready' "$output" >/dev/null || {
+  grep -Fx 'signal-ready' "$output" >/dev/null || {
     echo "$signal_name fixture did not become ready" >&2
     exit 1
   }
@@ -784,7 +784,7 @@ while IFS=$'\t' read -r section_kind section_id byte_offset; do
     echo "tampered $section_kind section $section_id did not refuse before carrier evaluation" >&2
     exit 1
   }
-  rg -F 'SFE007 envelope digest mismatch' "$tampered.inspect.stderr" >/dev/null
+  grep -F 'SFE007 envelope digest mismatch' "$tampered.inspect.stderr" >/dev/null
 done < "$work/section-inventory.tsv"
 [[ "$tamper_count" -ge 18 ]] || {
   echo "final-envelope tamper matrix covered only $tamper_count sections" >&2
@@ -800,7 +800,7 @@ set -e
   echo "CapSec-selected SFE did not refuse before application output" >&2
   exit 1
 }
-rg -F 'has no accepted SFE CapSec advertisement' "$work/capsec.stderr" >/dev/null
+grep -F 'has no accepted SFE CapSec advertisement' "$work/capsec.stderr" >/dev/null
 [[ ! -e "$work/source" && ! -e "$catalog_installed_root" ]] || {
   echo "source or catalog became available during relocated execution" >&2
   exit 1

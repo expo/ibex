@@ -160,5 +160,7 @@ the equal-size stubs differed in roughly 2.6 million bytes and therefore had
 different Mach-O UUIDs. Release compilation now runs `hermesc` from the source
 directory with only a stable basename. A focused foundation test protects that
 argument contract, and a two-directory real-Hermes probe produces identical
-HBC. The issue remains open until the corrected full physical comparator passes
-and the signed artifact is notarized.
+HBC. The corrected physical rerun also exposed that the installed-user verifier
+assumed the non-default `rg` utility; it now uses platform `grep` throughout.
+The issue remains open until the corrected full physical comparator passes and
+the signed artifact is notarized.
