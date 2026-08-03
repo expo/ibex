@@ -66,7 +66,7 @@ test("the authored target budgets fit their outer job timeouts", () => {
   ).toBe(11);
   expect(
     plan.targets["aarch64-apple-darwin"].setupReserveMs,
-  ).toBe(3_540_000);
+  ).toBe(3_480_000);
   expect(
     plan.targets["x86_64-pc-windows-msvc"].maxPublicFixtureBatches,
   ).toBe(10);

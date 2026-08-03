@@ -73,10 +73,11 @@ Implementation checkpoint (2026-08-03): the reviewed public-surface catalog
 now produces 11 Apple and 10 Windows command batches. Timeout policy version 4
 raises the per-target batch ceilings to those exact counts. The Apple setup
 that preceded the matrix completed in under 29 minutes in the failing CI
-observation, so its conservative setup reserve narrows from 60 to 59 minutes;
+observation, so its conservative setup reserve narrows from 60 to 58 minutes;
 the command deadlines and cleanup/upload reserve do not change. The resulting
-maximum critical paths are exactly 375 minutes on Apple and 374 minutes on
-Windows, within the unchanged outer bounds.
+maximum critical paths are 374 minutes on both Apple and Windows, leaving one
+minute of outer-budget headroom for tests that exercise bounded policy
+variants.
 
 ## Motivation
 

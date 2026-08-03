@@ -42,7 +42,7 @@
   "targets": {
     "aarch64-apple-darwin": {
       "outerTimeoutMs": 22500000,
-      "setupReserveMs": 3540000,
+      "setupReserveMs": 3480000,
       "cleanupUploadReserveMs": 900000,
       "maxPublicFixtureBatches": 11,
       "maxPortablePublicFixtureBatches": 8,
