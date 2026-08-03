@@ -51523,12 +51523,12 @@
         "returnVariant": "default",
         "contextId": "host.private-native-call-initialized"
       },
-      "disposition": "non-path",
+      "disposition": "absent",
       "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
+        "outcome": "absent",
+        "normalizedValue": "absent"
       },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-1vYcd7Juz0aE5JHR0s6bP7yV3wHz8FbmFCqLfR8ZpTQ, requires the loaded target to observe this exact output key absent."
     },
     {
       "key": {
@@ -110882,9 +110882,9 @@
     "catalogRows": 6521,
     "dispositionRows": 6521,
     "byDisposition": {
-      "absent": 152,
+      "absent": 153,
       "closed": 28,
-      "non-path": 6193,
+      "non-path": 6192,
       "private-native-path": 5,
       "refused": 12,
       "reserved-constant": 1,

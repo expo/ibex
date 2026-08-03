@@ -422,7 +422,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_597);
+    expect(recipes.summary.requiredFixtures).toBe(23_646);
     // The linear dynamic-import scanner's two exact index recognizers are
     // independently inventoried pure-compute rows and therefore add two
     // unresolved non-capability obligations without executable credit.
@@ -472,11 +472,11 @@ describe("exact-target CapSec executable recipes", () => {
     // and replacement closure without entering the authority evaluator.
     // Nine nested process.report rows prove their exact public spelling is
     // stopped at the pinned parent accessor before nested state is reachable.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_928);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_930);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
-    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_042);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_627);
+    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_050);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_666);
     const dnsPromiseErrorReads = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.sourceDescriptor?.sourceKey ===
@@ -611,7 +611,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_256);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_305);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch. The
@@ -667,8 +667,8 @@ describe("exact-target CapSec executable recipes", () => {
     // process.report closures bind Windows' selected source variants to the
     // final armed runtime gate.
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_564);
-    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_028);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_664);
+    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_036);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_705);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -1929,7 +1929,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(3_042);
+    expect(rationaleOnly).toHaveLength(3_050);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -1938,12 +1938,12 @@ describe("exact-target CapSec executable recipes", () => {
         ]),
       ),
     ).toEqual({
-      "attribution-missing-deny": 511,
-      "generation-recheck": 511,
-      "principal-restore": 511,
-      "snapshot-mismatch-deny": 511,
-      "cannot-widen-authority": 499,
-      "post-lockdown-invariant": 499,
+      "attribution-missing-deny": 512,
+      "generation-recheck": 512,
+      "principal-restore": 512,
+      "snapshot-mismatch-deny": 512,
+      "cannot-widen-authority": 501,
+      "post-lockdown-invariant": 501,
     });
     // These are internal callback-security invariant scenarios: attested by
     // internal Rust proofs, not public-surface probes, so they carry the
@@ -3581,7 +3581,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rows = recipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
-    expect(rows).toHaveLength(112);
+    expect(rows).toHaveLength(114);
     expect(rows.every((recipe) => recipe.scenario === "absent")).toBe(true);
     expect(rows.every((recipe) => recipe.status === "fully-executable")).toBe(
       true,
@@ -3676,10 +3676,10 @@ describe("exact-target CapSec executable recipes", () => {
       },
     });
 
-    expect(bindings).toHaveLength(115);
+    expect(bindings).toHaveLength(116);
     expect(
       bindings.filter((binding) => binding.key.sourceKind === "host-abi"),
-    ).toHaveLength(59);
+    ).toHaveLength(60);
     expect(
       bindings.filter((binding) => binding.key.sourceKind === "native-op"),
     ).toHaveLength(56);
@@ -3689,7 +3689,7 @@ describe("exact-target CapSec executable recipes", () => {
           binding.invocationSchema ===
           "ibex/capsec-target-absence-invocation/1",
       ),
-    ).toHaveLength(93);
+    ).toHaveLength(94);
     expect(
       bindings.filter(
         (binding) =>
@@ -3711,7 +3711,7 @@ describe("exact-target CapSec executable recipes", () => {
       .map((decision) => canonicalOutputDispositionKey(decision.key))
       .sort();
     expect(actualKeys).toEqual(expectedKeys);
-    expect(targetAbsentDecisions).toHaveLength(115);
+    expect(targetAbsentDecisions).toHaveLength(116);
     const bindingByKey = new Map(
       bindings.map((binding) => [
         canonicalOutputDispositionKey(binding.key),
@@ -3931,7 +3931,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.classification === "effects" &&
         recipe.terminalObservedKey.startsWith("startup:env:"),
     );
-    expect(startupEnvironmentRecipes).toHaveLength(670);
+    expect(startupEnvironmentRecipes).toHaveLength(706);
     expect(
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.terminalObservedKey === "startup:env:CLICOLOR_FORCE",
@@ -4263,7 +4263,7 @@ describe("exact-target CapSec executable recipes", () => {
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.status === "unresolved",
       ),
-    ).toHaveLength(604);
+    ).toHaveLength(640);
     for (const environmentName of expectedSources.keys()) {
       const residual = startupEnvironmentRecipes.filter(
         (recipe) =>

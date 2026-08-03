@@ -6464,7 +6464,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     expect(first.hostAbi.some((row) => row.name === "ex_host_fs_open")).toBe(
       true,
     );
-    expect(first.hostAbi).toHaveLength(363);
+    expect(first.hostAbi).toHaveLength(365);
     for (const [name, sourceRef] of [
       [
         "evaluation:installGlobals:native-freeze-conformance-observation",
@@ -6539,8 +6539,8 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .sort(),
       ),
     ).toEqual({
-      "output-bearing": 312,
-      "structural-only": 51,
+      "output-bearing": 313,
+      "structural-only": 52,
     });
     expect(
       catalogAbiAccounts.filter(
@@ -6572,7 +6572,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .map(([role, channels]) => [role, channels.length])
           .sort(),
       ),
-    ).toEqual({ callback: 66, out: 231, return: 293 });
+    ).toEqual({ callback: 66, out: 231, return: 294 });
     expect(
       Object.fromEntries(
         [
@@ -6585,10 +6585,10 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .sort(),
       ),
     ).toEqual({
-      "none:void": 70,
+      "none:void": 71,
       "value:aggregate": 17,
       "value:pointer": 50,
-      "value:scalar": 226,
+      "value:scalar": 227,
     });
     expect(
       Object.fromEntries(
@@ -6604,7 +6604,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual({
       "callback-payload": 39,
       inout: 10,
-      input: 915,
+      input: 919,
       output: 87,
     });
 
@@ -7186,10 +7186,10 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     const producers = first.callbacks.filter((row) =>
       row.name.startsWith("producer:"),
     );
-    expect(producers).toHaveLength(14);
+    expect(producers).toHaveLength(15);
     expect(
       producers.reduce((count, row) => count + row.metadata.occurrenceCount, 0),
-    ).toBe(19);
+    ).toBe(20);
     expect(
       first.loader
         .filter((row) => row.metadata?.evidenceType === "loader-kind-branch")

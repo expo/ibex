@@ -263,17 +263,16 @@ describe("Exact fixture-evidence pilot", () => {
       validateRuntimeObservation: validatePublicFixtureRuntimeObservation,
     });
     expect(report.status).toBe("incomplete");
-    // Async sync-edge refusal, armed builtin sealing, and the three compat
-    // loader counters add five cells while the two test-only startup-delay
-    // surfaces retire. Their seven added and two retired fixture obligations
-    // make the net fixture increase five as well.
+    // Async sync-edge refusal, armed builtin sealing, the three compat-loader
+    // counters, and the scoped bundle-capture barrier are all reflected in the
+    // source-derived fixture obligations while promotion remains closed.
     expect(report.summary).toMatchObject({
-      cells: 7_528,
+      cells: 7_535,
       conformantCells: 1,
-      incompleteCells: 7_527,
-      requiredFixtures: 23_597,
+      incompleteCells: 7_534,
+      requiredFixtures: 23_646,
       passedFixtures: 9,
-      missingFixtures: 23_588,
+      missingFixtures: 23_637,
       failedFixtures: 0,
     });
     expect(() => assertReportMayAdvertise(report)).toThrow(

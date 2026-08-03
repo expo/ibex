@@ -470,13 +470,13 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-shape-catalog/2",
     );
     expect(catalog.counts).toEqual({
-      coverageSurfaces: 7_528,
-      outputBearingSurfaces: 5_819,
-      structuralOnlySurfaces: 1_704,
+      coverageSurfaces: 7_535,
+      outputBearingSurfaces: 5_820,
+      structuralOnlySurfaces: 1_710,
       unresolvedSurfaces: 5,
-      catalogRows: 6_520,
+      catalogRows: 6_521,
       parameterizedBindings: 1,
-      sourceInventoryRows: 6_113,
+      sourceInventoryRows: 6_114,
       structuredRows: 407,
     });
     expect(catalog.surfaceAccounts).toHaveLength(coverage.edges.length);
@@ -491,8 +491,8 @@ describe("LLP 0023 output-disposition dataset", () => {
         parameterizedOutputBindings: catalog.parameterizedOutputBindings,
       }),
     ).toEqual({
-      "output-bearing": 5_819,
-      "structural-only": 1_704,
+      "output-bearing": 5_820,
+      "structural-only": 1_710,
       unresolved: 5,
     });
     expect(
@@ -601,7 +601,7 @@ describe("LLP 0023 output-disposition dataset", () => {
         surface.metadata?.callbackOutputContractSchema ===
         CALLBACK_OUTPUT_CONTRACT_SCHEMA,
     );
-    expect(producerCallbacks).toHaveLength(14);
+    expect(producerCallbacks).toHaveLength(15);
     expect(controlCallbacks).toHaveLength(9);
     expect(outputCallbacks).toHaveLength(21);
     expect(
@@ -611,7 +611,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       }),
     ).toEqual({
       "output-bearing": 21,
-      "structural-only": 23,
+      "structural-only": 24,
     });
     for (const [surfaces, reasonCode] of [
       [producerCallbacks, "callback-producer-provenance"],
@@ -695,8 +695,8 @@ describe("LLP 0023 output-disposition dataset", () => {
       ...fixture.catalog.counts,
       outputBearingSurfaces: fixture.catalog.counts.outputBearingSurfaces - 1,
       structuralOnlySurfaces:
-        fixture.catalog.counts.structuralOnlySurfaces - 23,
-      unresolvedSurfaces: fixture.catalog.counts.unresolvedSurfaces + 24,
+        fixture.catalog.counts.structuralOnlySurfaces - 24,
+      unresolvedSurfaces: fixture.catalog.counts.unresolvedSurfaces + 25,
       catalogRows: fixture.catalog.counts.catalogRows - 1,
       sourceInventoryRows: fixture.catalog.counts.sourceInventoryRows - 1,
     });
@@ -1295,16 +1295,16 @@ describe("LLP 0023 output-disposition dataset", () => {
       return derived;
     });
 
-    expect(hostEdges).toHaveLength(363);
+    expect(hostEdges).toHaveLength(365);
     expect(countsBy(derivedAccounts, (account) => account.status)).toEqual({
-      "output-bearing": 312,
-      "structural-only": 51,
+      "output-bearing": 313,
+      "structural-only": 52,
     });
     expect(
       derivedAccounts
         .filter((account) => account.status === "output-bearing")
         .flatMap((account) => account.outputChannels),
-    ).toHaveLength(590);
+    ).toHaveLength(591);
     expect(
       derivedAccounts.some(
         (account) =>
@@ -1465,10 +1465,10 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-disposition-policy/2",
     );
     expect(policy.catalogKeyDigest).toBe(
-      "sha256-gRT0c7XrbQwvkKtfqvK7SwxDY2OGX8vZME0OT_V0Hso",
+      "sha256-UHA0RaHGAGc8W96brEVbuFJBjyi4VpGRrEHJi6_eTKo",
     );
     expect(policy.catalogKeyDigest).toBe(catalog.catalogKeyDigest);
-    expect(policy.overrides).toHaveLength(369);
+    expect(policy.overrides).toHaveLength(370);
     expect(
       new Set(
         policy.overrides.map((row) => canonicalOutputDispositionKey(row.key)),
@@ -1483,7 +1483,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       ),
     ).toBe(true);
     expect(countsBy(policy.overrides, (row) => row.disposition)).toEqual({
-      absent: 152,
+      absent: 153,
       closed: 28,
       "non-path": 41,
       "private-native-path": 5,
@@ -1499,10 +1499,10 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-dispositions/2",
     );
     expect(dataset.counts).toEqual({
-      catalogRows: 6_520,
-      dispositionRows: 6_520,
+      catalogRows: 6_521,
+      dispositionRows: 6_521,
       byDisposition: {
-        absent: 152,
+        absent: 153,
         closed: 28,
         "non-path": 6_192,
         "private-native-path": 5,
@@ -1517,13 +1517,13 @@ describe("LLP 0023 output-disposition dataset", () => {
     });
 
     // The legacy v1 policy had 494 explicit overrides. The exact-key join
-    // retained 227; 142 source-reviewed v2 corrections remain after removing
+    // retained 227; 143 source-reviewed v2 corrections remain after removing
     // four overrides for the now-private original-Promise carrier.
     expect({
       legacyExplicitOverrides: 494,
       exactKeyRetained: 227,
       exactKeyDropped: 267,
-      reviewedV2Corrections: 142,
+      reviewedV2Corrections: 143,
       currentOverrides: policy.overrides.length,
       droppedByCatalogAccount: {
         "output-bearing-key-changed": 14,
@@ -1542,8 +1542,8 @@ describe("LLP 0023 output-disposition dataset", () => {
       legacyExplicitOverrides: 494,
       exactKeyRetained: 227,
       exactKeyDropped: 267,
-      reviewedV2Corrections: 142,
-      currentOverrides: 369,
+      reviewedV2Corrections: 143,
+      currentOverrides: 370,
       droppedByCatalogAccount: {
         "output-bearing-key-changed": 14,
         "structural-only": 137,

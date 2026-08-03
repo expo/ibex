@@ -1212,10 +1212,10 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         "ibex/capsec-output-shape-execution-partition/1",
       completeCatalogKeyDigest: completeCatalog.catalogKeyDigest,
     });
-    // The compat-loader stats object and its two counters are source-derived
-    // native-op outputs. They belong to the generic executor partition and do
-    // not change the independently owned Host ABI tranches below.
-    expect(completeCatalog.rows).toHaveLength(6520);
+    // The compat-loader stats object and its two counters, plus the explicitly
+    // scoped bundle-capture barrier, are reflected in the source-derived
+    // catalog. The generic and Host ABI tranches stay independently pinned.
+    expect(completeCatalog.rows).toHaveLength(6521);
     expect(executionPartition.genericCatalog.rows).toHaveLength(5914);
     expect(executionPartition.genericProbes).toHaveLength(5914);
     expect(
@@ -1223,7 +1223,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         (row) => row.key.sourceKind === "host-abi",
       ),
     ).toBe(false);
-    expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(59);
+    expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(60);
     expect(executionPartition.hostAbi.rows).toHaveLength(485);
     // Thirty-five module-activation ABI rows need an owned graph/runtime
     // fixture; twenty-four runtime-extension/ambient-environment rows need an
@@ -1351,12 +1351,12 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       shifted.hostAbi.targetAbsenceBindings.length,
       shifted.hostAbi.rows.length,
       shifted.hostAbi.residuals.length,
-    ]).not.toEqual([59, 485, 62]);
+    ]).not.toEqual([60, 485, 62]);
     expect([
       executionPartition.hostAbi.targetAbsenceBindings.length,
       executionPartition.hostAbi.rows.length,
       executionPartition.hostAbi.residuals.length,
-    ]).toEqual([59, 485, 62]);
+    ]).toEqual([60, 485, 62]);
   }, 180_000);
 
   test("routes and exactly validates the complete builtin-effects tranche", async () => {

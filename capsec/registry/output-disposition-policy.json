@@ -4172,6 +4172,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j",
+        "output": "[[return]]",
+        "alias": "ex_hermes_deliver_animation_frame",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-1vYcd7Juz0aE5JHR0s6bP7yV3wHz8FbmFCqLfR8ZpTQ, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.dispatch.event.0lbx6vi",
         "output": "[[return]]",
         "alias": "ex_hermes_dispatch_event",

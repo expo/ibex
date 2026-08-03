@@ -45,11 +45,11 @@ describe("LLP 0002 host-task ingress inventory", () => {
     expect(artifact.counts).toEqual({
       "user-execution-gate": 22,
       "engine-eval-or-prepare": 28,
-      "jsi-function-call": 109,
+      "jsi-function-call": 110,
     });
     expect(
       artifact.rows.reduce((count, row) => count + row.sites.length, 0),
-    ).toBe(159);
+    ).toBe(160);
     expect(artifact.ingressRows).toHaveLength(34);
     expect(
       artifact.rows.find(
