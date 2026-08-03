@@ -918,6 +918,9 @@ struct ExactHermesRuntime {
                                   size_t* result_length,
                                   void* context) = nullptr;
   void* ios_module_sync_context = nullptr;
+  void (*ios_animation_frame_request_callback)(
+      uint64_t token, void* context) = nullptr;
+  void* ios_animation_frame_request_context = nullptr;
   void* kernel_handle = nullptr;
 
   // LLP 0297 §4.3 (exact repo): true for restricted UI worklet runtimes
@@ -2467,6 +2470,8 @@ void installWebSocketGlobals(ExactHermesRuntime* handle);
 void installFetchGlobals(ExactHermesRuntime* handle);
 void installAndroidHostFunctions(ExactHermesRuntime* handle);
 void unregisterAndroidHostFunctions(ExactHermesRuntime* handle);
+void installIOSHostFunctions(ExactHermesRuntime* handle);
+void unregisterIOSHostFunctions(ExactHermesRuntime* handle);
 void installIpcListenerPatch(ExactHermesRuntime* handle);
 
 // Process-global registries retain resources by runtime nonce and must be

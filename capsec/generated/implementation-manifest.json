@@ -99572,6 +99572,41 @@
       ]
     },
     {
+      "edgeId": "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81",
+      "observedKey": "callback:producer:src/engine/hermes_runtime_ios.cc:ex_hermes_deliver_animation_frame:pushRuntimeCallback",
+      "branchId": "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81.main",
+      "enforcementBranchId": "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "callback:producer:src/engine/hermes_runtime_ios.cc:ex_hermes_deliver_animation_frame:pushRuntimeCallback"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_deliver_animation_frame:pushRuntimeCallback"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_deliver_animation_frame:pushRuntimeCallback"
+        ],
+        "terminalObservedKey": "callback:producer:src/engine/hermes_runtime_ios.cc:ex_hermes_deliver_animation_frame:pushRuntimeCallback"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_deliver_animation_frame:pushRuntimeCallback"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81.main.attribution-missing-deny",
+        "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81.main.generation-recheck",
+        "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81.main.non-capability",
+        "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81.main.principal-restore",
+        "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81.main.snapshot-mismatch-deny"
+      ]
+    },
+    {
       "edgeId": "surface.callback.producer.src.engine.hermes.runtime.websocket.cc.installwebsocketglobals.0y1f3jo",
       "observedKey": "callback:producer:src/engine/hermes_runtime_websocket.cc:installWebSocketGlobals:pushRuntimeCallback",
       "branchId": "surface.callback.producer.src.engine.hermes.runtime.websocket.cc.installwebsocketglobals.0y1f3jo.main",
@@ -121004,6 +121039,43 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j",
+      "observedKey": "host-abi:ex_hermes_deliver_animation_frame",
+      "branchId": "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j.ios",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j.ios",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_deliver_animation_frame"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_deliver_animation_frame"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_deliver_animation_frame"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_deliver_animation_frame"
+      },
+      "branchKind": "single",
+      "targetVariant": "ios",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "ios"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_deliver_animation_frame"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j.ios.attribution-missing-deny",
+        "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j.ios.generation-recheck",
+        "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j.ios.non-capability",
+        "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j.ios.principal-restore",
+        "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j.ios.snapshot-mismatch-deny"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.destroy.0m27uxn",
       "observedKey": "host-abi:ex_hermes_destroy",
       "branchId": "surface.host.abi.ex.hermes.destroy.0m27uxn.default",
@@ -123286,6 +123358,43 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.host.abi.ex.hermes.session.display.ack.0i9wiwm.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm",
+      "observedKey": "host-abi:ex_hermes_set_animation_frame_request_callback",
+      "branchId": "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm.ios",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm.ios",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_set_animation_frame_request_callback"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_set_animation_frame_request_callback"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#ex_hermes_set_animation_frame_request_callback"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_set_animation_frame_request_callback"
+      },
+      "branchKind": "single",
+      "targetVariant": "ios",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "ios"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_animation_frame_request_callback"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm.ios.attribution-missing-deny",
+        "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm.ios.generation-recheck",
+        "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm.ios.non-capability",
+        "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm.ios.principal-restore",
+        "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm.ios.snapshot-mismatch-deny"
       ]
     },
     {
@@ -173850,7 +173959,7 @@
         ],
         "terminalObservedKey": "native-op:__exactRequestAnimationFrame"
       },
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "android",
       "targetApplicability": {
         "kind": "operating-system",
@@ -173867,6 +173976,45 @@
         "surface.native.op.exactrequestanimationframe.1ehmd4h.android.non-capability",
         "surface.native.op.exactrequestanimationframe.1ehmd4h.android.principal-restore",
         "surface.native.op.exactrequestanimationframe.1ehmd4h.android.snapshot-mismatch-deny"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactrequestanimationframe.1ehmd4h",
+      "observedKey": "native-op:__exactRequestAnimationFrame",
+      "branchId": "surface.native.op.exactrequestanimationframe.1ehmd4h.ios",
+      "enforcementBranchId": "surface.native.op.exactrequestanimationframe.1ehmd4h.ios",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactRequestAnimationFrame"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#__exactRequestAnimationFrame",
+          "src/engine/hermes_runtime_ios.cc#jsi-global:__exactRequestAnimationFrame"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#__exactRequestAnimationFrame",
+          "src/engine/hermes_runtime_ios.cc#jsi-global:__exactRequestAnimationFrame"
+        ],
+        "terminalObservedKey": "native-op:__exactRequestAnimationFrame"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "ios",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "ios"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#__exactRequestAnimationFrame",
+        "src/engine/hermes_runtime_ios.cc#jsi-global:__exactRequestAnimationFrame"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.native.op.exactrequestanimationframe.1ehmd4h.ios.attribution-missing-deny",
+        "surface.native.op.exactrequestanimationframe.1ehmd4h.ios.generation-recheck",
+        "surface.native.op.exactrequestanimationframe.1ehmd4h.ios.non-capability",
+        "surface.native.op.exactrequestanimationframe.1ehmd4h.ios.principal-restore",
+        "surface.native.op.exactrequestanimationframe.1ehmd4h.ios.snapshot-mismatch-deny"
       ]
     },
     {
@@ -272098,6 +272246,102 @@
       ]
     },
     {
+      "edgeId": "surface.startup.env.ibex.test.bundle.barrier.dir.1r5n2p3",
+      "observedKey": "startup:env:IBEX_TEST_BUNDLE_BARRIER_DIR",
+      "branchId": "surface.startup.env.ibex.test.bundle.barrier.dir.1r5n2p3.main",
+      "enforcementBranchId": "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "startup:env:IBEX_TEST_BUNDLE_BARRIER_DIR"
+        ],
+        "proofSourceRefs": [
+          "src/bin/ibex/runtime.rs#Command::env:IBEX_TEST_BUNDLE_BARRIER_DIR:write"
+        ],
+        "sourceRefs": [
+          "src/bin/ibex/runtime.rs#Command::env:IBEX_TEST_BUNDLE_BARRIER_DIR:write"
+        ],
+        "terminalObservedKey": "startup:env:IBEX_TEST_BUNDLE_BARRIER_DIR"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/bin/ibex/runtime.rs#Command::env:IBEX_TEST_BUNDLE_BARRIER_DIR:write"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.absent.allow",
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.absent.branch-selection",
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.absent.deny",
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.absent.malformed",
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.absent.missing-attribution",
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.absent.wrong-principal",
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.present.allow",
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.present.branch-selection",
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.present.deny",
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.present.malformed",
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.present.missing-attribution",
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.present.wrong-principal",
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.propagated.allow",
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.propagated.branch-selection",
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.propagated.deny",
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.propagated.malformed",
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.propagated.missing-attribution",
+        "enforcement.n.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.dir.write.16ib6yu.logical.propagated.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.env.ibex.test.bundle.barrier.entry.1qnowf8",
+      "observedKey": "startup:env:IBEX_TEST_BUNDLE_BARRIER_ENTRY",
+      "branchId": "surface.startup.env.ibex.test.bundle.barrier.entry.1qnowf8.main",
+      "enforcementBranchId": "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "startup:env:IBEX_TEST_BUNDLE_BARRIER_ENTRY"
+        ],
+        "proofSourceRefs": [
+          "src/bin/ibex/runtime.rs#Command::env:IBEX_TEST_BUNDLE_BARRIER_ENTRY:write"
+        ],
+        "sourceRefs": [
+          "src/bin/ibex/runtime.rs#Command::env:IBEX_TEST_BUNDLE_BARRIER_ENTRY:write"
+        ],
+        "terminalObservedKey": "startup:env:IBEX_TEST_BUNDLE_BARRIER_ENTRY"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/bin/ibex/runtime.rs#Command::env:IBEX_TEST_BUNDLE_BARRIER_ENTRY:write"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.absent.allow",
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.absent.branch-selection",
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.absent.deny",
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.absent.malformed",
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.absent.missing-attribution",
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.absent.wrong-principal",
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.present.allow",
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.present.branch-selection",
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.present.deny",
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.present.malformed",
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.present.missing-attribution",
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.present.wrong-principal",
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.propagated.allow",
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.propagated.branch-selection",
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.propagated.deny",
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.propagated.malformed",
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.propagated.missing-attribution",
+        "enforcement.ibex.runtime.rs.command.env.ibex.test.bundle.barrier.entry.write.1rwykyf.logical.propagated.wrong-principal"
+      ]
+    },
+    {
       "edgeId": "surface.startup.env.ibex.test.fs.worker.max.queue.1jonmn2",
       "observedKey": "startup:env:IBEX_TEST_FS_WORKER_MAX_QUEUE",
       "branchId": "surface.startup.env.ibex.test.fs.worker.max.queue.1jonmn2.main",
@@ -274627,6 +274871,39 @@
       ]
     },
     {
+      "edgeId": "surface.startup.install.route.installglobals.installioshostfunctions.0rg9l3j",
+      "observedKey": "startup:install-route:installGlobals:installIOSHostFunctions",
+      "branchId": "surface.startup.install.route.installglobals.installioshostfunctions.0rg9l3j.main",
+      "enforcementBranchId": "surface.startup.install.route.installglobals.installioshostfunctions.0rg9l3j.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:install-route:installGlobals:installIOSHostFunctions"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#installGlobals:installIOSHostFunctions"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#installGlobals:installIOSHostFunctions"
+        ],
+        "terminalObservedKey": "startup:install-route:installGlobals:installIOSHostFunctions"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#installGlobals:installIOSHostFunctions"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.install.route.installglobals.installioshostfunctions.0rg9l3j.main.cannot-widen-authority",
+        "surface.startup.install.route.installglobals.installioshostfunctions.0rg9l3j.main.non-capability",
+        "surface.startup.install.route.installglobals.installioshostfunctions.0rg9l3j.main.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.startup.install.route.installglobals.installipclistenerpatch.0l5le47",
       "observedKey": "startup:install-route:installGlobals:installIpcListenerPatch",
       "branchId": "surface.startup.install.route.installglobals.installipclistenerpatch.0l5le47.main",
@@ -275597,6 +275874,39 @@
         "surface.startup.installer.installhttphostfunctions.1gf1ws4.main.cannot-widen-authority",
         "surface.startup.installer.installhttphostfunctions.1gf1ws4.main.non-capability",
         "surface.startup.installer.installhttphostfunctions.1gf1ws4.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.installer.installioshostfunctions.130n19t",
+      "observedKey": "startup:installer:installIOSHostFunctions",
+      "branchId": "surface.startup.installer.installioshostfunctions.130n19t.main",
+      "enforcementBranchId": "surface.startup.installer.installioshostfunctions.130n19t.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:installer:installIOSHostFunctions"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#installIOSHostFunctions"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#installIOSHostFunctions"
+        ],
+        "terminalObservedKey": "startup:installer:installIOSHostFunctions"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#installIOSHostFunctions"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.installer.installioshostfunctions.130n19t.main.cannot-widen-authority",
+        "surface.startup.installer.installioshostfunctions.130n19t.main.non-capability",
+        "surface.startup.installer.installioshostfunctions.130n19t.main.post-lockdown-invariant"
       ]
     },
     {
@@ -278172,6 +278482,8 @@
         "surface.startup.env.ibex.policy.1jjizio",
         "surface.startup.env.ibex.repo.root.0qhf2d7",
         "surface.startup.env.ibex.suppress.console.mirror.0vlv453",
+        "surface.startup.env.ibex.test.bundle.barrier.dir.1r5n2p3",
+        "surface.startup.env.ibex.test.bundle.barrier.entry.1qnowf8",
         "surface.startup.env.ibex.transpile.cache.max.bytes.0kkuqkk",
         "surface.startup.env.lines.0c2zxai",
         "surface.startup.env.no.color.0u5kipw",
@@ -278192,7 +278504,7 @@
         "surface.startup.supervisor.history.global.platform.data.root.0ykfpn6",
         "surface.startup.supervisor.history.project.platform.data.root.16mbl6y"
       ],
-      "rationale": "Covered by 194 observed effect edges."
+      "rationale": "Covered by 196 observed effect edges."
     },
     {
       "definitionId": "env:write",
@@ -278234,12 +278546,14 @@
         "surface.startup.env.exact.quiet.1nd5flt",
         "surface.startup.env.exact.raw.argv0.1dcel06",
         "surface.startup.env.home.1aw1qfo",
+        "surface.startup.env.ibex.test.bundle.barrier.dir.1r5n2p3",
+        "surface.startup.env.ibex.test.bundle.barrier.entry.1qnowf8",
         "surface.startup.env.temp.1wag4vd",
         "surface.startup.env.tmp.0lxnsz0",
         "surface.startup.env.tmpdir.1crsfhf",
         "surface.startup.env.userprofile.1sxunkp"
       ],
-      "rationale": "Covered by 40 observed effect edges."
+      "rationale": "Covered by 42 observed effect edges."
     },
     {
       "definitionId": "ffi:load",
@@ -282295,59 +282609,59 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-ZXjO9HxYPiYuPt8pfYNbPcH7vd7I8VWAMAeOMSx0xKc"
+      "rawContentDigest": "sha256-qM1hU6CXVq9FxSuWjDLkkDoBTxKlDRcqaoR9NS_6-2w"
     },
     {
       "kind": "output-disposition-dataset",
       "path": "capsec/generated/output-dispositions.json",
-      "rawContentDigest": "sha256-V4KgEBD-m_0lvmGszBqDibMf1VBe1WceISF1vbV6XBk"
+      "rawContentDigest": "sha256-UdBtX6guZTx_Z30KktPyfkjzhCtoTf-jFti-5jAHA4E"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/output-dispositions.md",
-      "rawContentDigest": "sha256-dsJ_Cdv7zF4D1rgIM3OKGWR16LC0Y_Rd4v9-DR4qjes"
+      "rawContentDigest": "sha256-NZlmbo-XTSKwSA8vG2CPhXG-fX-lYdv_yqcY6lAhQvs"
     },
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-yPzE62eNtzKGVcqYAYtZHhFo8Fd0PLgJVw2mBafs7qI"
+      "rawContentDigest": "sha256-NuPV-nFB0-hkAhmRsMtu1YcO5K7PfBVuAY6Ya376jqw"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-t4tLuLMbDX4nk9aqtN8MuO9VfH6TZImDC0_xLMoi4Q4"
+      "rawContentDigest": "sha256-xUxRBSf8GzCyHcs2svhveHKhIFmco2dVPn6TYIR154E"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-JIEsMMioT_55ncK4UvWdADm4LmmNcnxIsy-GY0q60MQ"
+      "rawContentDigest": "sha256-jGolE5d2824xwPIombbPL7KKoY44uZ0mwNcv_tYN3rE"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-jg7rtl4IeCGYZJ5bu1JN5Rx-MaoNsLF-vNjt18YjhiQ"
+      "rawContentDigest": "sha256-VTvCmMvC6ck8J3Zi6i5XZ4yz2A8BMFfqORqe7d4HvkU"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-IGZQON4EDWfY_PhQtrNuqeNYcAgkSla46F8bRRTAWas"
+      "rawContentDigest": "sha256-u23JposztkM8SSxWQOUvBvpx4FI4Ndl5YhWDj9yOA8k"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-i8vg5qIvsi3mKYxnaeC7I6PE4y0SrIlpsDg3rd2RQLM"
+      "rawContentDigest": "sha256-HX28_v7bUTxBJp3ePeGyMUFAr5W0UqC_r2Og8FBOKrk"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-oX17hgdyD-ps3gwM0lsB4Jvn2B4SM9K_U6di23wBw5U"
+      "rawContentDigest": "sha256-kfWFBcTFy0sWTskj8oXco-nLIEOJgpsxm7ULzCjXdzQ"
     }
   ],
   "counts": {
-    "observedReferences": 13388,
-    "logicalSurfaces": 7528,
-    "enforcementBranches": 7829,
-    "coverageEdges": 7528,
-    "targetCells": 15056
+    "observedReferences": 13397,
+    "logicalSurfaces": 7535,
+    "enforcementBranches": 7837,
+    "coverageEdges": 7535,
+    "targetCells": 15070
   }
 }

@@ -139757,6 +139757,16 @@
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
     },
     {
+      "id": "surface.callback.producer.src.engine.hermes.runtime.ios.cc.ex.hermes.deliver.animation.fr.1ukgi81",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "callback",
+        "name": "producer:src/engine/hermes_runtime_ios.cc:ex_hermes_deliver_animation_frame:pushRuntimeCallback"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
       "id": "surface.callback.producer.src.engine.hermes.runtime.websocket.cc.installwebsocketglobals.0y1f3jo",
       "classification": "non-capability",
       "surface": {
@@ -146577,6 +146587,16 @@
       "rationale": "Debugger ABI access is closed in the initial profile."
     },
     {
+      "id": "surface.host.abi.ex.hermes.deliver.animation.frame.0tkek3j",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_deliver_animation_frame"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.destroy.0m27uxn",
       "classification": "non-capability",
       "surface": {
@@ -147265,6 +147285,16 @@
       },
       "rationaleId": "terminal-session-control",
       "rationale": "This native session-layer control operates presentation, editor state, or a parity-safe virtual-namespace projection without granting JavaScript authority; any external effect is classified and mediated at its own route."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.set.animation.frame.request.callback.0nh2mrm",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_set_animation_frame_request_callback"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
     },
     {
       "id": "surface.host.abi.ex.hermes.set.dispatch.callback.0vppy3m",
@@ -271078,6 +271108,410 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.startup.env.ibex.test.bundle.barrier.dir.1r5n2p3",
+      "classification": "effects",
+      "surface": {
+        "kind": "startup",
+        "name": "env:IBEX_TEST_BUNDLE_BARRIER_DIR"
+      },
+      "effects": [
+        {
+          "cap": "env:read",
+          "selectorNormalizer": "environment.name.selector.v1",
+          "occurrenceNormalizer": "environment.name.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "session",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "env:write",
+          "selectorNormalizer": "environment.name.selector.v1",
+          "occurrenceNormalizer": "environment.name.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "root"
+      ],
+      "effectOwnerSource": "root",
+      "gate": "reclassifies",
+      "effectMode": "conditional",
+      "logicalBranches": [
+        {
+          "id": "absent",
+          "when": [
+            {
+              "fact": "environment.startup.ibex_test_bundle_barrier_dir",
+              "equals": "absent"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "env:read",
+              "selectorNormalizer": "environment.name.selector.v1",
+              "occurrenceNormalizer": "environment.name.occurrence.v1",
+              "stages": [
+                "requested",
+                "commit"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "root"
+          ],
+          "effectOwnerSource": "root",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "environment-access"
+            ],
+            "recheckAt": [],
+            "cancelAt": [
+              "negative-generation-change"
+            ]
+          }
+        },
+        {
+          "id": "present",
+          "when": [
+            {
+              "fact": "environment.startup.ibex_test_bundle_barrier_dir",
+              "equals": "present"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "env:read",
+              "selectorNormalizer": "environment.name.selector.v1",
+              "occurrenceNormalizer": "environment.name.occurrence.v1",
+              "stages": [
+                "requested",
+                "commit"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "session",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "env:write",
+              "selectorNormalizer": "environment.name.selector.v1",
+              "occurrenceNormalizer": "environment.name.occurrence.v1",
+              "stages": [
+                "requested",
+                "commit"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "root"
+          ],
+          "effectOwnerSource": "root",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "environment-access"
+            ],
+            "recheckAt": [],
+            "cancelAt": [
+              "negative-generation-change"
+            ]
+          }
+        },
+        {
+          "id": "propagated",
+          "when": [
+            {
+              "fact": "environment.startup.ibex_test_bundle_barrier_dir",
+              "equals": "propagated"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "env:read",
+              "selectorNormalizer": "environment.name.selector.v1",
+              "occurrenceNormalizer": "environment.name.occurrence.v1",
+              "stages": [
+                "requested",
+                "commit"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "session",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "env:write",
+              "selectorNormalizer": "environment.name.selector.v1",
+              "occurrenceNormalizer": "environment.name.occurrence.v1",
+              "stages": [
+                "requested",
+                "commit"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "root"
+          ],
+          "effectOwnerSource": "root",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "environment-access"
+            ],
+            "recheckAt": [],
+            "cancelAt": [
+              "negative-generation-change"
+            ]
+          }
+        }
+      ],
+      "atomicityGroup": "surface.startup.env.ibex.test.bundle.barrier.dir.1r5n2p3.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "environment-access"
+        ],
+        "recheckAt": [],
+        "cancelAt": [
+          "negative-generation-change"
+        ]
+      }
+    },
+    {
+      "id": "surface.startup.env.ibex.test.bundle.barrier.entry.1qnowf8",
+      "classification": "effects",
+      "surface": {
+        "kind": "startup",
+        "name": "env:IBEX_TEST_BUNDLE_BARRIER_ENTRY"
+      },
+      "effects": [
+        {
+          "cap": "env:read",
+          "selectorNormalizer": "environment.name.selector.v1",
+          "occurrenceNormalizer": "environment.name.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "session",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "env:write",
+          "selectorNormalizer": "environment.name.selector.v1",
+          "occurrenceNormalizer": "environment.name.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "root"
+      ],
+      "effectOwnerSource": "root",
+      "gate": "reclassifies",
+      "effectMode": "conditional",
+      "logicalBranches": [
+        {
+          "id": "absent",
+          "when": [
+            {
+              "fact": "environment.startup.ibex_test_bundle_barrier_entry",
+              "equals": "absent"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "env:read",
+              "selectorNormalizer": "environment.name.selector.v1",
+              "occurrenceNormalizer": "environment.name.occurrence.v1",
+              "stages": [
+                "requested",
+                "commit"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "root"
+          ],
+          "effectOwnerSource": "root",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "environment-access"
+            ],
+            "recheckAt": [],
+            "cancelAt": [
+              "negative-generation-change"
+            ]
+          }
+        },
+        {
+          "id": "present",
+          "when": [
+            {
+              "fact": "environment.startup.ibex_test_bundle_barrier_entry",
+              "equals": "present"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "env:read",
+              "selectorNormalizer": "environment.name.selector.v1",
+              "occurrenceNormalizer": "environment.name.occurrence.v1",
+              "stages": [
+                "requested",
+                "commit"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "session",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "env:write",
+              "selectorNormalizer": "environment.name.selector.v1",
+              "occurrenceNormalizer": "environment.name.occurrence.v1",
+              "stages": [
+                "requested",
+                "commit"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "root"
+          ],
+          "effectOwnerSource": "root",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "environment-access"
+            ],
+            "recheckAt": [],
+            "cancelAt": [
+              "negative-generation-change"
+            ]
+          }
+        },
+        {
+          "id": "propagated",
+          "when": [
+            {
+              "fact": "environment.startup.ibex_test_bundle_barrier_entry",
+              "equals": "propagated"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "env:read",
+              "selectorNormalizer": "environment.name.selector.v1",
+              "occurrenceNormalizer": "environment.name.occurrence.v1",
+              "stages": [
+                "requested",
+                "commit"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "session",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "env:write",
+              "selectorNormalizer": "environment.name.selector.v1",
+              "occurrenceNormalizer": "environment.name.occurrence.v1",
+              "stages": [
+                "requested",
+                "commit"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "root"
+          ],
+          "effectOwnerSource": "root",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "environment-access"
+            ],
+            "recheckAt": [],
+            "cancelAt": [
+              "negative-generation-change"
+            ]
+          }
+        }
+      ],
+      "atomicityGroup": "surface.startup.env.ibex.test.bundle.barrier.entry.1qnowf8.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "environment-access"
+        ],
+        "recheckAt": [],
+        "cancelAt": [
+          "negative-generation-change"
+        ]
+      }
+    },
+    {
       "id": "surface.startup.env.ibex.test.fs.worker.max.queue.1jonmn2",
       "classification": "non-capability",
       "surface": {
@@ -274210,6 +274644,16 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.startup.install.route.installglobals.installioshostfunctions.0rg9l3j",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "install-route:installGlobals:installIOSHostFunctions"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.startup.install.route.installglobals.installipclistenerpatch.0l5le47",
       "classification": "closed",
       "surface": {
@@ -274495,6 +274939,16 @@
       "surface": {
         "kind": "startup",
         "name": "installer:installHttpHostFunctions"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.startup.installer.installioshostfunctions.130n19t",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "installer:installIOSHostFunctions"
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."

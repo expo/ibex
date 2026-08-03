@@ -19,10 +19,14 @@
 #pragma GCC diagnostic pop
 #endif
 
+#include <atomic>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <mutex>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "hermes_runtime_internal.h"
 
@@ -47,6 +51,197 @@ extern "C" uint32_t exact_get_layout_generation(void* handle);
 extern "C" int32_t exact_hit_test(void* handle, float x, float y);
 extern "C" int32_t exact_node_exists(void* handle, uint32_t view_id);
 extern "C" int32_t exact_get_root_view_id(void* handle, uint32_t root_id);
+
+namespace {
+
+#if defined(EXACT_PLATFORM_IOS)
+struct IOSAnimationFrameCallback {
+  RuntimeCallbackTarget target;
+  std::shared_ptr<facebook::jsi::Function> callback;
+};
+
+std::mutex g_ios_animation_frame_mutex;
+std::unordered_map<uint64_t, IOSAnimationFrameCallback>
+    g_ios_animation_frame_callbacks;
+std::atomic<uint64_t> g_next_ios_animation_frame_token{1};
+
+uint64_t allocateIOSAnimationFrameToken() {
+  uint64_t token =
+      g_next_ios_animation_frame_token.load(std::memory_order_relaxed);
+  for (;;) {
+    if (token == 0 || token == std::numeric_limits<uint64_t>::max()) return 0;
+    if (g_next_ios_animation_frame_token.compare_exchange_weak(
+            token, token + 1, std::memory_order_relaxed,
+            std::memory_order_relaxed)) {
+      return token;
+    }
+  }
+}
+
+uint64_t registerIOSAnimationFrameCallback(
+    ExactHermesRuntime* handle, facebook::jsi::Function callback) {
+  const uint64_t token = allocateIOSAnimationFrameToken();
+  if (token == 0) return 0;
+
+  auto target = exactRuntimeCallbackTarget(handle);
+  if (!exactPinRuntimeNativeWorker(target)) return 0;
+
+  bool inserted = false;
+  try {
+    auto owned = exactMakeTrackedJsiCallbackOwner(
+        handle->runtime_thread, std::move(callback));
+    std::lock_guard<std::mutex> lock(g_ios_animation_frame_mutex);
+    inserted = g_ios_animation_frame_callbacks
+                   .emplace(
+                       token,
+                       IOSAnimationFrameCallback{target, std::move(owned)})
+                   .second;
+  } catch (...) {
+    exactUnpinRuntimeNativeWorker(target);
+    throw;
+  }
+  if (!inserted) {
+    exactUnpinRuntimeNativeWorker(target);
+    return 0;
+  }
+  return token;
+}
+
+void removeIOSAnimationFrameCallback(uint64_t token) {
+  RuntimeCallbackTarget target;
+  {
+    std::lock_guard<std::mutex> lock(g_ios_animation_frame_mutex);
+    auto it = g_ios_animation_frame_callbacks.find(token);
+    if (it == g_ios_animation_frame_callbacks.end()) return;
+    target = it->second.target;
+    g_ios_animation_frame_callbacks.erase(it);
+  }
+  exactUnpinRuntimeNativeWorker(target);
+}
+
+void removeIOSAnimationFrameCallbacksForRuntime(ExactHermesRuntime* handle) {
+  std::vector<RuntimeCallbackTarget> targets;
+  {
+    std::lock_guard<std::mutex> lock(g_ios_animation_frame_mutex);
+    for (auto it = g_ios_animation_frame_callbacks.begin();
+         it != g_ios_animation_frame_callbacks.end();) {
+      if (it->second.target.runtime == handle) {
+        targets.push_back(it->second.target);
+        it = g_ios_animation_frame_callbacks.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  for (auto target : targets) exactUnpinRuntimeNativeWorker(target);
+}
+#endif
+
+}  // namespace
+
+void installIOSHostFunctions(ExactHermesRuntime* handle) {
+#if defined(EXACT_PLATFORM_IOS)
+  if (!handle || handle->restricted) return;
+  auto& rt = *handle->runtime;
+  auto requestAnimationFrameFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactRequestAnimationFrame"),
+      1,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isObject() ||
+            !args[0].asObject(runtime).isFunction(runtime) ||
+            !handle->ios_animation_frame_request_callback) {
+          return facebook::jsi::Value(false);
+        }
+
+        auto callback = args[0].asObject(runtime).asFunction(runtime);
+        const uint64_t token =
+            registerIOSAnimationFrameCallback(handle, std::move(callback));
+        if (token == 0) return facebook::jsi::Value(false);
+
+        try {
+          // This provider only hands an opaque token to the host. The host
+          // asynchronously moves it to the primary surface clock; it must not
+          // enter Hermes or synchronously wait for main from this callback.
+          handle->ios_animation_frame_request_callback(
+              token, handle->ios_animation_frame_request_context);
+        } catch (...) {
+          removeIOSAnimationFrameCallback(token);
+          return facebook::jsi::Value(false);
+        }
+        return facebook::jsi::Value(true);
+      });
+  rt.global().setProperty(
+      rt, "__exactRequestAnimationFrame", std::move(requestAnimationFrameFn));
+#else
+  (void)handle;
+#endif
+}
+
+void unregisterIOSHostFunctions(ExactHermesRuntime* handle) {
+#if defined(EXACT_PLATFORM_IOS)
+  if (!handle) return;
+  handle->ios_animation_frame_request_callback = nullptr;
+  handle->ios_animation_frame_request_context = nullptr;
+  removeIOSAnimationFrameCallbacksForRuntime(handle);
+#else
+  (void)handle;
+#endif
+}
+
+// @abi-callback ex_hermes_set_animation_frame_request_callback callback delivery=none
+extern "C" void ex_hermes_set_animation_frame_request_callback(
+    ExactHermesRuntime* runtime,
+    void (*callback)(uint64_t token, void* context),
+    void* context) {
+  if (!runtime) return;
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || runtime->restricted) return;
+#if defined(EXACT_PLATFORM_IOS)
+  runtime->ios_animation_frame_request_callback = callback;
+  runtime->ios_animation_frame_request_context = callback ? context : nullptr;
+  if (!callback) removeIOSAnimationFrameCallbacksForRuntime(runtime);
+#else
+  (void)callback;
+  (void)context;
+#endif
+}
+
+extern "C" int32_t ex_hermes_deliver_animation_frame(uint64_t token) {
+#if defined(EXACT_PLATFORM_IOS)
+  IOSAnimationFrameCallback entry;
+  {
+    std::lock_guard<std::mutex> lock(g_ios_animation_frame_mutex);
+    auto it = g_ios_animation_frame_callbacks.find(token);
+    if (it == g_ios_animation_frame_callbacks.end()) return 0;
+    entry = std::move(it->second);
+    g_ios_animation_frame_callbacks.erase(it);
+  }
+
+  if (!entry.target || !entry.callback) {
+    exactUnpinRuntimeNativeWorker(entry.target);
+    return 0;
+  }
+
+  bool accepted = false;
+  // Delivery may originate on main, but the retained JSI function is only
+  // called (or discarded during teardown) on the exact runtime owner thread.
+  pushRuntimeCallback(
+      entry.target,
+      [callback = std::move(entry.callback)](facebook::jsi::Runtime& runtime) {
+        callback->call(runtime);
+      },
+      &accepted);
+  exactUnpinRuntimeNativeWorker(entry.target);
+  return accepted ? 1 : 0;
+#else
+  (void)token;
+  return 0;
+#endif
+}
 
 // iOS Rendering Pipeline Callbacks
 // =============================================================================

@@ -2,7 +2,7 @@
   "rootGlobalDispositionManifestSchema": "ibex/root-global-disposition-manifest/1",
   "profile": "ibex/capsec/1",
   "status": "enforced-by-armed-live-sweep",
-  "sourceDigest": "sha256-EnwPMa11SoJWztj8vai2gD8Tvi1iJhtR8jqGxXbRgEc",
+  "sourceDigest": "sha256-jrN_6ykPBb0W1KWgqJdSSrxH-O4EYs7lh07z3zdoAMc",
   "sweep": {
     "roots": [
       "globalThis"
@@ -39867,6 +39867,37 @@
           "src/engine/hermes_runtime_android.cc#jsi-global:__exactRequestAnimationFrame"
         ],
         "targetVariant": "android",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactRequestAnimationFrame"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.exactrequestanimationframe.f14ddfec92221bdc",
+      "observedKey": "native-op:__exactRequestAnimationFrame",
+      "registryEdgeId": "surface.native.op.exactrequestanimationframe.1ehmd4h",
+      "branch": {
+        "id": "ios",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#jsi-global:__exactRequestAnimationFrame"
+        ],
+        "targetVariant": "ios",
         "activation": "always"
       },
       "property": {
@@ -105556,10 +105587,10 @@
     }
   ],
   "counts": {
-    "installBranches": 2810,
+    "installBranches": 2811,
     "logicalGlobals": 2581,
     "registryEdges": 2581,
     "sealedOrPrivate": 369,
-    "permittedReachable": 2441
+    "permittedReachable": 2442
   }
 }

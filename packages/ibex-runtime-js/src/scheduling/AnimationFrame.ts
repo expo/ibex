@@ -56,7 +56,7 @@ export function requestAnimationFrame(callback: FrameRequestCallback): number {
     setTimeout(() => {
       isScheduled = false;
       runCallbacks();
-    }, fallbackFrameDelayMs());
+    }, FRAME_TIME);
   }
 
   return id;
@@ -109,13 +109,6 @@ function runCallbacks(): void {
   }
 
   trackAnimationFrameExecuted(executed);
-}
-
-function fallbackFrameDelayMs(): number {
-  return (globalThis as { __exactDisplayLinkedEventLoop?: boolean })
-    .__exactDisplayLinkedEventLoop === true
-    ? 0
-    : FRAME_TIME;
 }
 
 export default { requestAnimationFrame, cancelAnimationFrame };
