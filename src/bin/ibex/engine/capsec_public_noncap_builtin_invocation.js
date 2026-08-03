@@ -889,16 +889,18 @@
   // Stream end is credited only after exact output, one finish event, terminal
   // writable state, native cleanup, and event-loop quiescence.
   function isReviewedZlibEndInvocation(invocation) {
+    var usesZlibEndSetup =
+      invocation &&
+      invocation.setup &&
+      invocation.setup.kind === "zlib-end-owner";
     if (
       !invocation ||
+      !invocation.sourceDescriptor ||
+      invocation.sourceDescriptor.sourceKey !== "node_zlib" ||
       typeof invocation.exportName !== "string" ||
       !invocation.exportName.endsWith(".end")
     ) {
-      return !(
-        invocation &&
-        invocation.setup &&
-        invocation.setup.kind === "zlib-end-owner"
-      );
+      return !usesZlibEndSetup;
     }
     var contract = zlibEndContract(invocation);
     if (contract === null) return false;

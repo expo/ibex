@@ -2240,6 +2240,41 @@ describe("source-bound builtin public probes", () => {
     }
   });
 
+  test("keeps non-zlib end methods out of the zlib end validator", async () => {
+    const probe = probeFor({
+      sourceKey: "exact_crypto",
+      exportName: "Sign.end",
+      exportIdioms: ["exported-constructor-prototype"],
+      moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+      valueShape: "callable",
+    });
+    expect(probe).toMatchObject({
+      invocation: {
+        arguments: [{ kind: "json", value: "ibex" }],
+        setup: {
+          kind: "constructed-owner",
+          ownerExportName: "Sign",
+          constructorArguments: [{ kind: "json", value: "sha256" }],
+        },
+      },
+    });
+    expect((await builtinInvocationHarness(probe.invocation)).kind).not.toBe(
+      "contract-mismatch",
+    );
+
+    const crossFamilySetup = structuredClone(probe.invocation);
+    crossFamilySetup.setup = {
+      kind: "zlib-end-owner",
+      ownerExportName: "Sign",
+      outputContract: "nonempty-byte-view",
+    };
+    expect(await builtinInvocationHarness(crossFamilySetup)).toMatchObject({
+      kind: "contract-mismatch",
+      moduleSpecifier: "node:crypto",
+      exportName: "Sign.end",
+    });
+  });
+
   test("binds shared Windows crypto probes but leaves native KDFs residual", () => {
     expect(
       probeFor({

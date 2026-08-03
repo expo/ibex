@@ -5,6 +5,10 @@
 **Systems:** Security, Conformance, CI
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-07-31
+**Revised:** 2026-08-03 (records the resolution of the day-one `Sign.end`
+probe failure: the zlib end validator now scopes its `.end` vocabulary to
+the `node_zlib` source family while still rejecting cross-family reuse of its
+dedicated setup)
 **Revised:** 2026-07-31d (§5 day-one measurement addendum, §9 — this
 revision is UNREVIEWED beyond the dual-READY revision `e41717a8b82b`; it
 adds measured data and changes no design content. Headline: the cost
@@ -559,7 +563,8 @@ env 5%, process 0%. Representative batch execution
 (`capsec_public_noncap_builtin_recipe_batch`, bound engine): **16.24 s**
 — and it failed loudly on one live contract-mismatch
 (`node:crypto` `Sign.end`; filed as
-issues/20260731-noncap-crypto-sign-end-probe-contract-mismatch.md),
+issues/closed/20260731-noncap-crypto-sign-end-probe-contract-mismatch.md and
+resolved on 2026-08-03 by source-scoping the zlib `.end` validator),
 demonstrating the authoring loop the estimate must price.
 
 **What the measurement establishes:**
