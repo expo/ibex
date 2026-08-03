@@ -9,6 +9,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 bash -n scripts/build-sfe-diagnostic-factory-table.sh
+bash scripts/hermes-static-archive-normalization.test.sh
 bash scripts/test-sfe-reproducibility.sh
 cargo test --package ibex-sfe-format
 cargo test --package ibex-sfe-catalog --all-targets
@@ -32,7 +33,7 @@ target/debug/ibex-compiled-stub --ibex-capsec >"$stub_probe_stdout" 2>"$stub_pro
 stub_probe_status=$?
 set -e
 if [[ "$stub_probe_status" -ne 1 ]] || [[ -s "$stub_probe_stdout" ]] ||
-  ! rg -q 'SFE001 footer is absent or malformed|signed Mach-O has no __IBEX payload' "$stub_probe_stderr"; then
+  ! grep -Eq 'SFE001 footer is absent or malformed|signed Mach-O has no __IBEX payload' "$stub_probe_stderr"; then
   echo "compiled-stub CapSec preinit probe did not reach envelope admission" >&2
   sed -n '1,20p' "$stub_probe_stderr" >&2
   exit 1

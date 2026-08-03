@@ -124,3 +124,31 @@ and every mismatched toolchain field before accepting equal unsigned artifact
 identities. Synthetic pass, copied-receipt, wrong-compiler, and dirty-source
 vectors run in the SFE foundation gate. The Xcode 26.6 second physical build
 itself remains pending while that machine is offline.
+
+## Implementation checkpoint — 2026-08-03
+
+The configured Developer ID certificate has now signed a fresh completed
+standalone with `--options runtime --timestamp`. The result carries the
+hardened-runtime flag, expected Developer ID authority/team, and an Apple
+timestamp; strict system verification, Ibex inspection, relocation, and Fetch
+all pass. `spctl`'s remaining refusal is exactly `Unnotarized Developer ID`.
+There is no configured `notarytool` keychain profile or API-key credential on
+this builder, so the notarization/ticket leg still requires publisher input.
+
+The matching Xcode 26.6 MacBook Air is now reachable and produced an
+independent default/debugger-enabled Hermes build. Both architectures of the
+three SFE static inputs have identical member sequences, sizes, and extracted
+object-file digests across the two Macs. Their raw fat-archive digests differed
+only because the archive headers retained build-time member timestamps and
+numeric owner/group ids. Reconstructing each thin slice with Apple's
+deterministic `libtool -D`, then recreating the universal archive in canonical
+architecture order, makes all three real inputs byte-identical.
+
+`scripts/build-hermes.sh` now performs that transform before publishing its
+cache, which also rotates the source-profile cache key because the builder
+script is authenticated build authority. The SFE foundation gate covers two
+synthetic builder timestamps, byte convergence, idempotence, and exported
+symbol preservation. The exact pre-fix physical archives also converge under
+the checked transform. The issue remains open until two fresh full release-kit
+receipts from the rotated cache key pass the strict comparator and the signed
+artifact is notarized.

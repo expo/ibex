@@ -29,6 +29,7 @@ stale=()
 # do not hide those diagnostics behind the generic stale-file summary.
 # @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory — both
 # registry freshness and its downstream contract digests are required.
+bun run check:root-global-dispositions
 bun run check:capsec-registry
 bun run check:runtime-environment-inventory
 bun run check:host-task-ingress-inventory

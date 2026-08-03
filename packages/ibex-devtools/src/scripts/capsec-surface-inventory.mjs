@@ -13215,7 +13215,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
         "scripts/build-hermes-linux.sh":
           "sha256-af521ddda077302b82de42a024eba5e708b9072462d2c4e53c742d8cc473ea92",
         "scripts/build-hermes.sh":
-          "sha256-45d927d725f28145e7299283e8c9ea298c190aac83050484e63accad187036ae",
+          "sha256-60b2b604a01cb52186061c7e6967c9303d86ca587eee2db79d2df4e0f8c991e9",
       },
       sourceCommit: "e639a7bad8bfca844d982afa54fac786c65a8856",
       sourceRef: "260318099.0.0-stable",

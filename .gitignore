@@ -10,6 +10,9 @@
 .agent-skill-backups/
 vendored-generated/*.deps.json
 *.o
+# The published ring crate uses these checked-in NASM objects on Windows so
+# consumers do not need an assembler. They are source inputs, not build output.
+!vendor/ring/pregenerated/*.o
 *.a.tmp
 
 # Local secrets and environment overrides. Keep example templates trackable.

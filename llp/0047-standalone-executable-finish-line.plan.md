@@ -5,6 +5,18 @@
 **Systems:** Build, Distribution, Runtime, Module Loader, CapSec, Product
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-08-01
+**Revised:** 2026-08-03 (Developer ID and physical-builder checkpoint: a fresh
+arm64 application is hardened-runtime signed with the configured Developer ID,
+receives Apple's secure timestamp, passes strict signature inspection and Ibex
+admission, and runs Fetch after relocation. Gatekeeper's remaining refusal is
+specifically the absent notarization ticket. The matching Xcode 26.6 MacBook
+Air is reachable; independent default-profile Hermes builds have identical
+object members for both architectures, but their universal static archives
+retained builder-specific member timestamps and numeric owners. The Apple
+builder now reconstructs every cached static slice with `libtool -D` and
+canonical architecture order. Synthetic/idempotence coverage and normalization
+of the two physical archive sets converge byte-for-byte; fresh full release-kit
+receipts on the rotated source-cache key remain to be recorded.)
 **Revised:** 2026-08-02 (author decisions 1, 3, and 4 resolved: v1 keeps
 explicit policy authoring, ratifies ambient compatibility as the standalone
 default against the completed two-tuple artifacts, and reserves authenticated
@@ -794,6 +806,40 @@ outer file, and the release matrix mutates that projection independently from
 all inner sections. Platform signing remains a separate axis, as shown by the
 same identity surviving removal and replacement of the ad-hoc signature.
 
+### Implementation checkpoint — 2026-08-03
+
+The credentialed Developer ID leg now passes through secure timestamping. A
+fresh completed standalone carries the hardened-runtime flag, the expected
+Developer ID authority and team, and an Apple timestamp; `codesign --verify
+--strict`, `ibex inspect-executable`, relocation, and real Fetch all pass.
+`spctl` rejects it only as an unnotarized Developer ID application. No local
+`notarytool` keychain profile or API-key material is configured, so notarization
+remains a publisher-credential action rather than a code change.
+
+The matching Xcode 26.6 physical MacBook Air is reachable. Its independently
+built debugger-enabled Hermes archives have the same architecture sets, member
+names, member sizes, and every extracted object digest as the primary builder,
+but raw archive digests differ. The only observed differences are archive
+member timestamps and numeric owner/group fields. Rebuilding each thin slice
+with Apple's deterministic `libtool -D`, then recreating the fat archive in
+canonical architecture order, makes the real `hermesvm`, JSI, and
+Boost.Context inputs byte-identical across the machines. `build-hermes.sh` now
+applies that transform before cache publication, its own digest rotates the
+source-cache authority, and the SFE foundation gate exercises two synthetic
+builders plus idempotence and symbol preservation. A full pair of release-kit
+receipts from the newly keyed source builds is still required before recording
+the macOS comparator as passed.
+
+The first required native-matrix run also exposed two clean-checkout-only
+packaging faults. The Ubuntu foundation probe assumed `rg` was installed even
+though its runner contract does not provide it, and the repository-wide
+`*.o` ignore rule excluded the published `ring` crate's pregenerated Windows
+COFF inputs. The probe now uses baseline `grep`, and the exact 17 object files
+from the checksummed `ring` 0.17.14 crate are explicitly tracked under
+`vendor/ring/pregenerated/`. The standalone drift gate now checks the generated
+root-global disposition manifest directly as well, closing the stale-artifact
+gap revealed when the authenticated Hermes builder identity rotated.
+
 ## 9. Release criteria
 
 The standalone v1 is done when all of the following are true:
@@ -846,7 +892,7 @@ specific shipped tuple.
 | Ambient-default ratification | **Resolved — ratified** | The author ratified ambient compatibility as the v1 default against the working macOS and Linux end-to-end artifacts. |
 | Non-evaluating explanation | **Complete** | Inspection v3 admits inner contracts; the artifact's authenticated `--ibex-info` path reports recipient-facing posture/backend/CapSec facts after the same admission and before application evaluation. |
 | LLP 0022/0031 reconciliation | **Complete** | Both documents scope the former categorical/advertisement-first gates to the CapSec path. |
-| Distribution + precommitted performance | **Open — release/author evidence** | Credential-free Mach-O minimum/hardened/replacement vectors and Linux audit pass. A versioned collector/gate now refuses measurements unless both tuples' numeric budgets are accepted and committed first, but no thresholds or final samples have been recorded. Developer ID secure timestamp/notarization and a matching macOS builder also remain. |
+| Distribution + precommitted performance | **Open — release/author evidence** | Credential-free Mach-O minimum/hardened/replacement vectors, Developer ID hardened-runtime signing with secure timestamp, and the Linux audit pass. Gatekeeper still requires notarization credentials/ticket. The matching macOS builder exposed archive-header nondeterminism; deterministic normalization converges the real inputs, but fresh full receipts on the rotated cache key remain. The versioned performance collector still refuses measurements until both tuples' numeric budgets are accepted and committed. |
 
 Milestone 5's recipient-side disclosure choice is resolved by the authenticated
 `--ibex-info` path. Release artifacts must keep its first-position, escape,

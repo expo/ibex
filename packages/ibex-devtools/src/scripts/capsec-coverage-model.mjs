@@ -3022,12 +3022,12 @@ const REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES = Object.freeze([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  // Restamped 2026-07-31: the windows-source-patched profile's
-  // sourceInstallerAuthorityDigest moved when install-windows-hermes.ps1
-  // made an unusable GitHub CLI degrade to the HTTPS/-Source fallbacks
-  // (issues/20260727-windows-hermes-installer-unauthenticated-gh-fallback.md);
-  // attestation, digest, and provenance requirements are unchanged.
-  "hermes-evaluators.f555092087f5120b4bec97b4d587c7577b86ad39d7b427761b41691df01eeed6";
+  // Restamped 2026-08-03: the source-patched profile's Apple build authority
+  // now normalizes static-archive metadata before cache publication. The
+  // pinned source, patch stack, lockdown taming, and evaluator reachability
+  // are unchanged; the builder change makes identical object members converge
+  // across physical Macs (LLP 0047's 2026-08-03 checkpoint).
+  "hermes-evaluators.f45bd9b434a88fe9e6821086ffe7987230b73db5bde2898e4dd728f477cd62b0";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-17da17dbe9239bda0640545bfc0fd669f4127b920148c66076bec63d1c8d0ec1";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
