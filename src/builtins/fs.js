@@ -80,9 +80,15 @@ function _fsInvalidArgType(name, expected, actual) {
     : ('of type ' + expectedText);
   var err = new TypeError('The "' + name + '" argument must be ' + requirement + '. Received ' + received);
   err.code = 'ERR_INVALID_ARG_TYPE';
-  err.toString = function() {
-    return 'TypeError [ERR_INVALID_ARG_TYPE]: ' + this.message;
-  };
+  // @ref LLP 0013#mechanism-1-lockdown — Error.prototype is already frozen during lazy builtin evaluation.
+  Object.defineProperty(err, 'toString', {
+    value: function() {
+      return 'TypeError [ERR_INVALID_ARG_TYPE]: ' + this.message;
+    },
+    writable: true,
+    configurable: true,
+    enumerable: true
+  });
   return err;
 }
 
@@ -1796,11 +1802,17 @@ function wrapBuffer(bytes) {
   if (typeof Buffer !== 'undefined' && Buffer.from) {
     return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
   }
-  bytes.toString = function(encoding, start, end) {
-    var slice = (start !== undefined || end !== undefined) ? bytes.slice(start || 0, end) : bytes;
-    if (!encoding) return decodeBytes(slice, 'utf8');
-    return decodeBytes(slice, encoding);
-  };
+  // @ref LLP 0013#mechanism-1-lockdown — shadow the locked inherited method with an explicit own property.
+  Object.defineProperty(bytes, 'toString', {
+    value: function(encoding, start, end) {
+      var slice = (start !== undefined || end !== undefined) ? bytes.slice(start || 0, end) : bytes;
+      if (!encoding) return decodeBytes(slice, 'utf8');
+      return decodeBytes(slice, encoding);
+    },
+    writable: true,
+    configurable: true,
+    enumerable: true
+  });
   return bytes;
 }
 

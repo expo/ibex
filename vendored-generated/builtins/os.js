@@ -6,24 +6,40 @@ function legacyStringValue(getter) {
 	var fn = function() {
 		return getter();
 	};
-	fn.toString = function() {
-		var value = getter();
-		if (value === void 0 || value === null) return "";
-		return String(value);
-	};
-	fn.valueOf = fn.toString;
+	Object.defineProperty(fn, "toString", {
+		value: function() {
+			var value = getter();
+			if (value === void 0 || value === null) return "";
+			return String(value);
+		},
+		writable: true,
+		configurable: true
+	});
+	Object.defineProperty(fn, "valueOf", {
+		value: fn.toString,
+		writable: true,
+		configurable: true
+	});
 	return fn;
 }
 function legacyNumberValue(getter) {
 	var fn = function() {
 		return getter();
 	};
-	fn.toString = function() {
-		return String(getter());
-	};
-	fn.valueOf = function() {
-		return Number(getter());
-	};
+	Object.defineProperty(fn, "toString", {
+		value: function() {
+			return String(getter());
+		},
+		writable: true,
+		configurable: true
+	});
+	Object.defineProperty(fn, "valueOf", {
+		value: function() {
+			return Number(getter());
+		},
+		writable: true,
+		configurable: true
+	});
 	return fn;
 }
 function authorizeSystemInfo(kind) {

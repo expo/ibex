@@ -687,7 +687,13 @@ function _addCodeToString(err) {
     var _origName = err.name || 'Error';
     var _origCode = err.code;
     var _origMsg = err.message || '';
-    err.toString = function() { return _origName + ' [' + _origCode + ']: ' + _origMsg; };
+    // @ref LLP 0013#mechanism-1-lockdown — lazy builtins define own error formatting over frozen intrinsics.
+    Object.defineProperty(err, 'toString', {
+      value: function() { return _origName + ' [' + _origCode + ']: ' + _origMsg; },
+      writable: true,
+      configurable: true,
+      enumerable: true
+    });
   }
   return err;
 }
