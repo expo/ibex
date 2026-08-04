@@ -385,43 +385,205 @@ fn exact_body_keys(body: &serde_json::Value, expected: &[&str]) -> bool {
     object.len() == expected.len() && expected.iter().all(|key| object.contains_key(*key))
 }
 
+fn valid_decimal_id(value: &serde_json::Value) -> bool {
+    let Some(value) = value.as_str() else {
+        return false;
+    };
+    !value.is_empty()
+        && value.as_bytes().first() != Some(&b'0')
+        && value.bytes().all(|byte| byte.is_ascii_digit())
+        && value.parse::<u64>().is_ok_and(|value| value > 0)
+}
+
+fn valid_wire_integer(value: Option<&serde_json::Value>, minimum: u64, maximum: u64) -> bool {
+    value
+        .and_then(serde_json::Value::as_u64)
+        .is_some_and(|value| (minimum..=maximum).contains(&value))
+}
+
+fn valid_function_id(value: Option<&serde_json::Value>) -> bool {
+    value
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|value| !value.is_empty() && value.len() <= 512)
+}
+
+fn valid_broker_error(value: Option<&serde_json::Value>) -> bool {
+    let Some(value) = value else {
+        return false;
+    };
+    if !exact_body_keys(
+        value,
+        &[
+            "attribution",
+            "code",
+            "exitClass",
+            "locus",
+            "recognized",
+            "safeFields",
+        ],
+    ) {
+        return false;
+    }
+    let code_ok = value
+        .get("code")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|code| {
+            (1..=128).contains(&code.len())
+                && code.as_bytes()[0].is_ascii_uppercase()
+                && code
+                    .bytes()
+                    .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+        });
+    let locus_ok = matches!(
+        value.get("locus").and_then(serde_json::Value::as_str),
+        Some("request" | "result" | "live" | "broker")
+    );
+    code_ok
+        && valid_wire_integer(value.get("exitClass"), 2, 9)
+        && value
+            .get("recognized")
+            .is_some_and(serde_json::Value::is_boolean)
+        && locus_ok
+        && value
+            .get("safeFields")
+            .is_some_and(serde_json::Value::is_object)
+        && value
+            .get("attribution")
+            .is_some_and(|row| row.is_null() || row.is_object())
+}
+
+// @ref LLP 0048#62-canonical-frames-and-closed-bodies — the native boundary rejects every non-exact worker body before parent dispatch
+fn valid_worker_frame_body(frame_type: &str, body: &serde_json::Value) -> bool {
+    match frame_type {
+        "call" => {
+            exact_body_keys(body, &["args", "callId", "functionId", "timeoutMs"])
+                && body.get("callId").is_some_and(valid_decimal_id)
+                && valid_function_id(body.get("functionId"))
+                && body.get("args").is_some_and(serde_json::Value::is_object)
+                && valid_wire_integer(body.get("timeoutMs"), 1, 300_000)
+        }
+        "liveOpen" => {
+            exact_body_keys(body, &["args", "functionId", "subscriptionId", "timeoutMs"])
+                && body.get("subscriptionId").is_some_and(valid_decimal_id)
+                && valid_function_id(body.get("functionId"))
+                && body.get("args").is_some_and(serde_json::Value::is_object)
+                && valid_wire_integer(body.get("timeoutMs"), 1, 300_000)
+        }
+        "liveClose" => {
+            exact_body_keys(body, &["subscriptionId"])
+                && body.get("subscriptionId").is_some_and(valid_decimal_id)
+        }
+        "timerSet" => {
+            exact_body_keys(body, &["delayMs", "timerId"])
+                && body.get("timerId").is_some_and(valid_decimal_id)
+                && valid_wire_integer(body.get("delayMs"), 0, 1_800_000)
+        }
+        "timerClear" => {
+            exact_body_keys(body, &["timerId"]) && body.get("timerId").is_some_and(valid_decimal_id)
+        }
+        "console" => {
+            exact_body_keys(body, &["level", "values"])
+                && matches!(
+                    body.get("level").and_then(serde_json::Value::as_str),
+                    Some("log" | "info" | "warn" | "error" | "debug")
+                )
+                && body.get("values").is_some_and(serde_json::Value::is_array)
+        }
+        "settlementBegin" => {
+            if !exact_body_keys(body, &["byteLength", "chunkCount", "digest", "hasValue"]) {
+                return false;
+            }
+            let Some(has_value) = body.get("hasValue").and_then(serde_json::Value::as_bool) else {
+                return false;
+            };
+            let Some(byte_length) = body.get("byteLength").and_then(serde_json::Value::as_u64)
+            else {
+                return false;
+            };
+            let Some(chunk_count) = body.get("chunkCount").and_then(serde_json::Value::as_u64)
+            else {
+                return false;
+            };
+            let digest = body.get("digest").and_then(serde_json::Value::as_str);
+            if has_value {
+                byte_length > 0 && chunk_count > 0 && digest.is_some_and(valid_digest)
+            } else {
+                byte_length == 0 && chunk_count == 0 && digest == Some("")
+            }
+        }
+        "settlementChunk" => {
+            exact_body_keys(body, &["data", "index"])
+                && body
+                    .get("index")
+                    .and_then(serde_json::Value::as_u64)
+                    .is_some()
+                && body
+                    .get("data")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|value| {
+                        !value.is_empty()
+                            && !value.contains('=')
+                            && URL_SAFE_NO_PAD.decode(value).is_ok()
+                    })
+        }
+        "settlementEnd" => exact_body_keys(body, &[]),
+        "failed" => match body.get("kind").and_then(serde_json::Value::as_str) {
+            Some("script") => {
+                exact_body_keys(body, &["code", "kind"])
+                    && body.get("code").and_then(serde_json::Value::as_str)
+                        == Some("SNAPBACK_APP_CLI_SCRIPT_ERROR")
+            }
+            Some("broker") => {
+                exact_body_keys(body, &["error", "kind"]) && valid_broker_error(body.get("error"))
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 fn valid_parent_frame_body(frame_type: &str, body: &serde_json::Value) -> bool {
-    let string = |key: &str| body.get(key).is_some_and(serde_json::Value::is_string);
     match frame_type {
         "callResult" => {
             let Some(ok) = body.get("ok").and_then(serde_json::Value::as_bool) else {
                 return false;
             };
-            string("callId")
+            body.get("callId").is_some_and(valid_decimal_id)
                 && if ok {
                     exact_body_keys(body, &["callId", "ok", "value"])
                 } else {
                     exact_body_keys(body, &["callId", "error", "ok"])
-                        && body.get("error").is_some_and(serde_json::Value::is_object)
+                        && valid_broker_error(body.get("error"))
                 }
         }
         "liveOpened" => {
             let Some(ok) = body.get("ok").and_then(serde_json::Value::as_bool) else {
                 return false;
             };
-            string("subscriptionId")
+            body.get("subscriptionId").is_some_and(valid_decimal_id)
                 && if ok {
                     exact_body_keys(body, &["ok", "subscriptionId"])
                 } else {
                     exact_body_keys(body, &["error", "ok", "subscriptionId"])
-                        && body.get("error").is_some_and(serde_json::Value::is_object)
+                        && valid_broker_error(body.get("error"))
                 }
         }
         "liveValue" => {
-            string("subscriptionId") && exact_body_keys(body, &["subscriptionId", "value"])
+            body.get("subscriptionId").is_some_and(valid_decimal_id)
+                && exact_body_keys(body, &["subscriptionId", "value"])
         }
         "liveTerminal" => {
-            string("subscriptionId")
-                && body.get("error").is_some_and(serde_json::Value::is_object)
+            body.get("subscriptionId").is_some_and(valid_decimal_id)
+                && valid_broker_error(body.get("error"))
                 && exact_body_keys(body, &["error", "subscriptionId"])
         }
-        "liveClosed" => string("subscriptionId") && exact_body_keys(body, &["subscriptionId"]),
-        "timerFired" => string("timerId") && exact_body_keys(body, &["timerId"]),
+        "liveClosed" => {
+            body.get("subscriptionId").is_some_and(valid_decimal_id)
+                && exact_body_keys(body, &["subscriptionId"])
+        }
+        "timerFired" => {
+            body.get("timerId").is_some_and(valid_decimal_id) && exact_body_keys(body, &["timerId"])
+        }
         "abort" => {
             let reason = body.get("reason").and_then(serde_json::Value::as_str);
             let signal = body.get("signal");
@@ -520,23 +682,10 @@ unsafe extern "C" fn emit_frame(context: *mut c_void, bytes: *const u8, len: usi
         Ok(v) => v,
         Err(_) => return -1,
     };
-    let known = matches!(
-        parsed.frame_type.as_str(),
-        "call"
-            | "liveOpen"
-            | "liveClose"
-            | "timerSet"
-            | "timerClear"
-            | "console"
-            | "settlementBegin"
-            | "settlementChunk"
-            | "settlementEnd"
-            | "failed"
-    );
     if parsed.schema != RESTRICTED_WORKER_BROKER_V1
         || parsed.run_id != context.run_id
         || parsed.sequence != *next
-        || !known
+        || !valid_worker_frame_body(&parsed.frame_type, &parsed.body)
     {
         return -1;
     }
@@ -1233,6 +1382,82 @@ mod tests {
     fn run_id_is_lower_hex_only() {
         assert!(valid_run_id("00000000000000000000000000000000"));
         assert!(!valid_run_id("0000000000000000000000000000000A"));
+    }
+    #[test]
+    fn worker_frame_bodies_are_closed_and_typed() {
+        let valid = [
+            (
+                "call",
+                serde_json::json!({"callId":"1","functionId":"app:list","args":{},"timeoutMs":1}),
+            ),
+            (
+                "liveOpen",
+                serde_json::json!({"subscriptionId":"18446744073709551615","functionId":"app:watch","args":{},"timeoutMs":300000}),
+            ),
+            ("liveClose", serde_json::json!({"subscriptionId":"2"})),
+            ("timerSet", serde_json::json!({"timerId":"1","delayMs":0})),
+            ("timerClear", serde_json::json!({"timerId":"1"})),
+            (
+                "console",
+                serde_json::json!({"level":"warn","values":["safe"]}),
+            ),
+            (
+                "settlementBegin",
+                serde_json::json!({"hasValue":false,"byteLength":0,"digest":"","chunkCount":0}),
+            ),
+            (
+                "settlementBegin",
+                serde_json::json!({"hasValue":true,"byteLength":1,"digest":digest(b"x"),"chunkCount":1}),
+            ),
+            (
+                "settlementChunk",
+                serde_json::json!({"index":0,"data":"eA"}),
+            ),
+            ("settlementEnd", serde_json::json!({})),
+            (
+                "failed",
+                serde_json::json!({"kind":"script","code":"SNAPBACK_APP_CLI_SCRIPT_ERROR"}),
+            ),
+            (
+                "failed",
+                serde_json::json!({"kind":"broker","error":{"code":"SNAPBACK_APP_CLI_TIMEOUT","exitClass":9,"recognized":true,"locus":"broker","safeFields":{},"attribution":null}}),
+            ),
+        ];
+        for (frame_type, body) in valid {
+            assert!(
+                valid_worker_frame_body(frame_type, &body),
+                "{frame_type}: {body}"
+            );
+            let mut extra = body.clone();
+            extra
+                .as_object_mut()
+                .unwrap()
+                .insert("unexpected".into(), serde_json::json!(true));
+            assert!(
+                !valid_worker_frame_body(frame_type, &extra),
+                "accepted extra key for {frame_type}"
+            );
+        }
+        assert!(!valid_worker_frame_body(
+            "call",
+            &serde_json::json!({"callId":"01","functionId":"app:list","args":{},"timeoutMs":1})
+        ));
+        assert!(!valid_worker_frame_body(
+            "timerSet",
+            &serde_json::json!({"timerId":"1","delayMs":1800001})
+        ));
+        assert!(!valid_worker_frame_body(
+            "console",
+            &serde_json::json!({"level":"trace","values":[]})
+        ));
+        assert!(!valid_worker_frame_body(
+            "settlementChunk",
+            &serde_json::json!({"index":0,"data":"eA=="})
+        ));
+        assert!(!valid_worker_frame_body(
+            "failed",
+            &serde_json::json!({"kind":"broker","error":{"code":"SNAPBACK_APP_CLI_TIMEOUT","exitClass":9,"recognized":true,"locus":"broker","safeFields":{},"attribution":null,"message":"secret"}})
+        ));
     }
     #[test]
     fn native_broker_round_trip_uses_only_the_opaque_worker() {

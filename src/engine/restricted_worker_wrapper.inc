@@ -69,7 +69,7 @@ R"IBEXJS(
   }
 
   function invoke(functionId, args, timeoutMs) {
-    if (terminal) return Promise.reject(new Error("worker is terminating"));
+    if (terminal || signalState.aborted) return Promise.reject(new Error("worker is terminating"));
     var callId = String(nextCallId++);
     return new Promise(function(resolve, reject) {
       pendingCalls[callId] = { resolve: resolve, reject: reject };
@@ -78,7 +78,7 @@ R"IBEXJS(
   }
 
   function liveInvoke(functionId, args, timeoutMs) {
-    if (terminal) throw new Error("worker is terminating");
+    if (terminal || signalState.aborted) throw new Error("worker is terminating");
     var subscriptionId = String(nextSubscriptionId++);
     var row = { opened: false, closed: false, queued: [], waiters: [] };
     subscriptions[subscriptionId] = row;
@@ -131,7 +131,7 @@ R"IBEXJS(
   }
 
   function setTimer(callback, delayMs) {
-    if (terminal || typeof callback !== "function" || arguments.length !== 2 || !Number.isInteger(delayMs) || delayMs < 0 || delayMs > 1800000) throw new TypeError("invalid timer");
+    if (terminal || signalState.aborted || typeof callback !== "function" || arguments.length !== 2 || !Number.isInteger(delayMs) || delayMs < 0 || delayMs > 1800000) throw new TypeError("invalid timer");
     var timerId = String(nextTimerId++);
     var handle = Object.freeze(Object.create(null));
     timers[timerId] = { callback: callback, handle: handle };
@@ -161,7 +161,24 @@ R"IBEXJS(
     } }
   }));
 
+  // @ref LLP 0048#63-settlement-console-live-and-timer-rules
+  function disposeBeforeTerminal() {
+    Object.keys(subscriptions).forEach(function(subscriptionId) {
+      var row = subscriptions[subscriptionId];
+      if (!row.closed) {
+        row.closed = true;
+        emit("liveClose", { subscriptionId: subscriptionId });
+      }
+    });
+    Object.keys(timers).forEach(function(timerId) {
+      delete timers[timerId];
+      emit("timerClear", { timerId: timerId });
+    });
+    timerHandles = [];
+  }
+
   function settle(value, present, limits) {
+    disposeBeforeTerminal();
     if (!present) {
       emit("settlementBegin", { byteLength: 0, chunkCount: 0, digest: "", hasValue: false });
       emit("settlementEnd", {});
@@ -177,6 +194,7 @@ R"IBEXJS(
   }
 
   function fail(error) {
+    disposeBeforeTerminal();
     var branded = error && (typeof error === "object" || typeof error === "function") ? brokerErrors.get(error) : void 0;
     emit("failed", branded ? { error: branded, kind: "broker" } : { code: "SNAPBACK_APP_CLI_SCRIPT_ERROR", kind: "script" });
     terminal = true;
