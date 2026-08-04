@@ -268,12 +268,12 @@ describe("Exact fixture-evidence pilot", () => {
     // runner profile selector are all reflected in the source-derived fixture
     // obligations while promotion remains closed.
     expect(report.summary).toMatchObject({
-      cells: 7_536,
+      cells: 7_580,
       conformantCells: 1,
-      incompleteCells: 7_535,
-      requiredFixtures: 23_647,
+      incompleteCells: 7_579,
+      requiredFixtures: 23_765,
       passedFixtures: 9,
-      missingFixtures: 23_638,
+      missingFixtures: 23_756,
       failedFixtures: 0,
     });
     expect(() => assertReportMayAdvertise(report)).toThrow(

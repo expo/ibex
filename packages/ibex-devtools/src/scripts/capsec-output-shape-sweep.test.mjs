@@ -1215,9 +1215,9 @@ describe("output-shape-sweep-v3 evidence contract", () => {
     // The compat-loader stats object and its two counters, plus the explicitly
     // scoped bundle-capture barrier, are reflected in the source-derived
     // catalog. The generic and Host ABI tranches stay independently pinned.
-    expect(completeCatalog.rows).toHaveLength(6521);
-    expect(executionPartition.genericCatalog.rows).toHaveLength(5914);
-    expect(executionPartition.genericProbes).toHaveLength(5914);
+    expect(completeCatalog.rows).toHaveLength(6522);
+    expect(executionPartition.genericCatalog.rows).toHaveLength(5915);
+    expect(executionPartition.genericProbes).toHaveLength(5915);
     expect(
       executionPartition.genericCatalog.rows.some(
         (row) => row.key.sourceKind === "host-abi",

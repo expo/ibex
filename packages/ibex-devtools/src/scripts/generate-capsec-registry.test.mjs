@@ -506,13 +506,13 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       const catalog = result.outputShapeCatalog;
       const dataset = result.outputDispositionDataset;
       expect(catalog.counts).toEqual({
-        coverageSurfaces: 7_536,
-        outputBearingSurfaces: 5_820,
-        structuralOnlySurfaces: 1_711,
-        unresolvedSurfaces: 5,
-        catalogRows: 6_521,
+        coverageSurfaces: 7_580,
+        outputBearingSurfaces: 5_821,
+        structuralOnlySurfaces: 1_752,
+        unresolvedSurfaces: 7,
+        catalogRows: 6_522,
         parameterizedBindings: 1,
-        sourceInventoryRows: 6_114,
+        sourceInventoryRows: 6_115,
         structuredRows: 407,
       });
       expect(catalog.surfaceAccounts).toHaveLength(

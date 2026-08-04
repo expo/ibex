@@ -422,7 +422,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_647);
+    expect(recipes.summary.requiredFixtures).toBe(23_765);
     // The linear dynamic-import scanner's two exact index recognizers are
     // independently inventoried pure-compute rows and therefore add two
     // unresolved non-capability obligations without executable credit.
@@ -476,8 +476,8 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.summary.fullyExecutableFixtures).toBe(3_926);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
-    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_050);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_671);
+    expect(recipes.summary.internallyVerifiedFixtures).toBe(3_124);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_715);
     expect(
       recipes.summary.residualReasons[
         "builtin-export-requires-deprecation-warning"
@@ -617,7 +617,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_306);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_424);
     // Windows gains the same ten zero-decision node_fs constructor/pure-helper
     // proofs, while registrations from build.rs-replaced default translation
     // units remain target-absent instead of borrowing the POSIX branch. The
@@ -673,8 +673,8 @@ describe("exact-target CapSec executable recipes", () => {
     // process.report closures bind Windows' selected source variants to the
     // final armed runtime gate.
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_560);
-    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_036);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_710);
+    expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_110);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_754);
     expect(
       windowsRecipes.summary.residualReasons[
         "builtin-export-requires-deprecation-warning"
@@ -1940,7 +1940,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(3_050);
+    expect(rationaleOnly).toHaveLength(3_124);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -1949,12 +1949,12 @@ describe("exact-target CapSec executable recipes", () => {
         ]),
       ),
     ).toEqual({
-      "attribution-missing-deny": 512,
-      "generation-recheck": 512,
-      "principal-restore": 512,
-      "snapshot-mismatch-deny": 512,
-      "cannot-widen-authority": 501,
-      "post-lockdown-invariant": 501,
+      "attribution-missing-deny": 513,
+      "generation-recheck": 513,
+      "principal-restore": 513,
+      "snapshot-mismatch-deny": 513,
+      "cannot-widen-authority": 536,
+      "post-lockdown-invariant": 536,
     });
     // These are internal callback-security invariant scenarios: attested by
     // internal Rust proofs, not public-surface probes, so they carry the

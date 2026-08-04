@@ -470,13 +470,13 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-shape-catalog/2",
     );
     expect(catalog.counts).toEqual({
-      coverageSurfaces: 7_536,
-      outputBearingSurfaces: 5_820,
-      structuralOnlySurfaces: 1_711,
-      unresolvedSurfaces: 5,
-      catalogRows: 6_521,
+      coverageSurfaces: 7_580,
+      outputBearingSurfaces: 5_821,
+      structuralOnlySurfaces: 1_752,
+      unresolvedSurfaces: 7,
+      catalogRows: 6_522,
       parameterizedBindings: 1,
-      sourceInventoryRows: 6_114,
+      sourceInventoryRows: 6_115,
       structuredRows: 407,
     });
     expect(catalog.surfaceAccounts).toHaveLength(coverage.edges.length);
@@ -491,9 +491,9 @@ describe("LLP 0023 output-disposition dataset", () => {
         parameterizedOutputBindings: catalog.parameterizedOutputBindings,
       }),
     ).toEqual({
-      "output-bearing": 5_820,
-      "structural-only": 1_711,
-      unresolved: 5,
+      "output-bearing": 5_821,
+      "structural-only": 1_752,
+      unresolved: 7,
     });
     expect(
       catalog.rows.filter(
@@ -1378,7 +1378,7 @@ describe("LLP 0023 output-disposition dataset", () => {
           },
         },
       }),
-    ).toThrow(/verified output catalog has 5 unresolved surface accounts/);
+    ).toThrow(/verified output catalog has 7 unresolved surface accounts/);
   }, 120_000);
 
   test("rejects incomplete accounts and registrar-only value evidence", async () => {
@@ -1465,7 +1465,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-disposition-policy/2",
     );
     expect(policy.catalogKeyDigest).toBe(
-      "sha256-UHA0RaHGAGc8W96brEVbuFJBjyi4VpGRrEHJi6_eTKo",
+      "sha256-jAtRyrk5Ntw_ls-C58L7X0Gi9e0iPg2TY_Ru31ypldU",
     );
     expect(policy.catalogKeyDigest).toBe(catalog.catalogKeyDigest);
     expect(policy.overrides).toHaveLength(370);
@@ -1499,12 +1499,12 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-dispositions/2",
     );
     expect(dataset.counts).toEqual({
-      catalogRows: 6_521,
-      dispositionRows: 6_521,
+      catalogRows: 6_522,
+      dispositionRows: 6_522,
       byDisposition: {
         absent: 153,
         closed: 28,
-        "non-path": 6_192,
+        "non-path": 6_193,
         "private-native-path": 5,
         refused: 12,
         "reserved-constant": 1,
