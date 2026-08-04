@@ -119,7 +119,9 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__compartments",
   "__esModule",
   "__ex_p",
+  "__ibexAppBoundWorkerV1",
   "__ibexCapsecContextObserver_",
+  "__ibexRestrictedEmit",
   "__exact",
   "__exactAccess",
   "__exactAccessibilitySnapshot",
@@ -1830,6 +1832,7 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_fs_promises:stat",
   "export:node_fs_promises:statfs",
   "export:node_fs_promises:symlink",
+  "export:node_fs_promises:toString",
   "export:node_fs_promises:truncate",
   "export:node_fs_promises:unlink",
   "export:node_fs_promises:utimes",
@@ -2991,7 +2994,9 @@ const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
   "__exactScheduleOnAppRuntime",
   "__exactSetCompartmentFor",
   "__ibex",
+  "__ibexAppBoundWorkerV1",
   "__ibexCapsecContextObserver_",
+  "__ibexRestrictedEmit",
   "__ibexLockedDown",
   "__ibexTamed",
   "native_fetch_cancel",
@@ -5633,6 +5638,10 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "argument-parser:ibex%20compat:section:utf8-string",
     "argument-parser:ibex%20compat:test:utf8-string",
     "argument-parser:ibex%20compat:timeout:unsigned-integer-u64",
+    "argument-parser:ibex%20compile-app:binding:os-path",
+    "argument-parser:ibex%20compile-app:compile_policy:os-path",
+    "argument-parser:ibex%20compile-app:entry:os-path",
+    "argument-parser:ibex%20compile-app:output:os-path",
     "argument-parser:ibex%20compile:compile_policy:os-path",
     "argument-parser:ibex%20compile:entry:os-path",
     "argument-parser:ibex%20compile:output:os-path",
@@ -5667,6 +5676,7 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "argument-parser:ibex:policy:os-path",
     "argument-parser:ibex:print_eval:utf8-string",
     "argument-parser:ibex:project_root:os-path",
+    "argument-parser:ibex:runtime_cache_dir:os-path",
     "argument-parser:ibex:stack_size:utf8-string",
     "authenticated-direct-file-ingress",
     "authenticated-one-shot-ingress",
@@ -5681,6 +5691,7 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "command:ibex%20capsec%20audit",
     "command:ibex%20compat",
     "command:ibex%20compile",
+    "command:ibex%20compile-app",
     "command:ibex%20completions",
     "command:ibex%20debug",
     "command:ibex%20debug%20modules",
@@ -5695,6 +5706,7 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "command:ibex%20version",
     "compat",
     "compile",
+    "compile-app",
     "completions",
     "create",
     "debug",
@@ -5730,6 +5742,11 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "option-name:ibex%20compat:test:-t",
     "option-name:ibex%20compat:timeout:--timeout",
     "option-name:ibex%20compat:update_expectations:--update-expectations",
+    "option-name:ibex%20compile-app:binding:--binding",
+    "option-name:ibex%20compile-app:compile_policy:--policy",
+    "option-name:ibex%20compile-app:deny_unsupported:--deny-unsupported",
+    "option-name:ibex%20compile-app:output:--output",
+    "option-name:ibex%20compile-app:output:-o",
     "option-name:ibex%20compile:carrier:--carrier",
     "option-name:ibex%20compile:compile_policy:--policy",
     "option-name:ibex%20compile:deny_unsupported:--deny-unsupported",
@@ -5785,6 +5802,7 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "option-name:ibex:print_eval:--print",
     "option-name:ibex:print_eval:-p",
     "option-name:ibex:project_root:--project-root",
+    "option-name:ibex:runtime_cache_dir:--runtime-cache-dir",
     "option-name:ibex:stack_size:--stack-size",
     "option-name:ibex:version:--version",
     "option-name:ibex:version:-V",
@@ -5884,6 +5902,24 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "option:ibex%20compat:update_expectations:default-missing:true",
     "option:ibex%20compat:update_expectations:default:false",
     "option:ibex%20compat:update_expectations:value-name:UPDATE_EXPECTATIONS",
+    "option:ibex%20compile-app:binding",
+    "option:ibex%20compile-app:binding:action:Set",
+    "option:ibex%20compile-app:binding:arity:1:1",
+    "option:ibex%20compile-app:binding:value-name:BINDING",
+    "option:ibex%20compile-app:compile_policy",
+    "option:ibex%20compile-app:compile_policy:action:Set",
+    "option:ibex%20compile-app:compile_policy:arity:1:1",
+    "option:ibex%20compile-app:compile_policy:value-name:FILE",
+    "option:ibex%20compile-app:deny_unsupported",
+    "option:ibex%20compile-app:deny_unsupported:action:SetTrue",
+    "option:ibex%20compile-app:deny_unsupported:arity:0:0",
+    "option:ibex%20compile-app:deny_unsupported:default-missing:true",
+    "option:ibex%20compile-app:deny_unsupported:default:false",
+    "option:ibex%20compile-app:deny_unsupported:value-name:DENY_UNSUPPORTED",
+    "option:ibex%20compile-app:output",
+    "option:ibex%20compile-app:output:action:Set",
+    "option:ibex%20compile-app:output:arity:1:1",
+    "option:ibex%20compile-app:output:value-name:OUTPUT",
     "option:ibex%20compile:carrier",
     "option:ibex%20compile:carrier:action:Set",
     "option:ibex%20compile:carrier:arity:1:1",
@@ -6144,6 +6180,10 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "option:ibex:project_root:action:Set",
     "option:ibex:project_root:arity:1:1",
     "option:ibex:project_root:value-name:DIR",
+    "option:ibex:runtime_cache_dir",
+    "option:ibex:runtime_cache_dir:action:Set",
+    "option:ibex:runtime_cache_dir:arity:1:1",
+    "option:ibex:runtime_cache_dir:value-name:DIR",
     "option:ibex:stack_size",
     "option:ibex:stack_size:action:Set",
     "option:ibex:stack_size:arity:1:1",
@@ -6173,6 +6213,10 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "positional:ibex%20capsec%20audit:file:action:Set",
     "positional:ibex%20capsec%20audit:file:arity:1:1",
     "positional:ibex%20capsec%20audit:file:value-name:FILE",
+    "positional:ibex%20compile-app:entry",
+    "positional:ibex%20compile-app:entry:action:Set",
+    "positional:ibex%20compile-app:entry:arity:1:1",
+    "positional:ibex%20compile-app:entry:value-name:ENTRY",
     "positional:ibex%20compile:entry",
     "positional:ibex%20compile:entry:action:Set",
     "positional:ibex%20compile:entry:arity:1:1",
@@ -7037,6 +7081,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "install-route:ex_hermes_create_impl:installCompartmentRegistry",
     "install-route:ex_hermes_create_impl:installGlobals",
     "install-route:ex_worklet_create:installWorkletGlobals",
+    "install-route:ibex_private_restricted_engine_create_v1:installSurface",
     "install-route:installAndroidHostFunctions:installAndroidCameraBridge",
     "install-route:installAndroidHostFunctions:installAndroidEnvironmentGlobals",
     "install-route:installAndroidHostFunctions:installAndroidLocationBridge",
@@ -7095,6 +7140,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "installer:installStoragePathsGlobal",
     "installer:installStructuredLastValueAccessor",
     "installer:installStructuredLifecycleAccessors",
+    "installer:installSurface",
     "installer:installTimerGlobals",
     "installer:installTlsHostFunctions",
     "installer:installWebSocketGlobals",
@@ -8984,6 +9030,9 @@ function builtinExportClassification(surface) {
   }
 
   if (source === "node_fs" || source === "node_fs_promises") {
+    if (name === "tostring") {
+      return nonCapabilitySpec("pure-in-memory-compute", "WP5");
+    }
     if (name === "dir") {
       return effectSpec(["fs:list"], "filesystem", "WP5");
     }
@@ -11636,6 +11685,7 @@ function startupClassification(surface) {
         "installer:installstoragepathsglobal",
         "installer:installstructuredlastvalueaccessor",
         "installer:installstructuredlifecycleaccessors",
+        "installer:installsurface",
         "installer:installtimerglobals",
         "installer:installtlshostfunctions",
         "installer:installunsupportedglobal",
@@ -14086,6 +14136,15 @@ function classifyConcreteSurface(surface) {
       return nonCapabilitySpec("module-reachability-only", "WP8");
     }
     if (surface.name === "__ibexCapsecContextObserver_") {
+      return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+    }
+    if (surface.name === "__ibexAppBoundWorkerV1") {
+      // @ref LLP 0048#61-native-construction-and-ownership-seam — this
+      // parent-only object installs the separately admitted restricted-worker
+      // boundary; it is not a general project-source evaluator.
+      return nonCapabilitySpec("authority-control-plane", "WP7");
+    }
+    if (surface.name === "__ibexRestrictedEmit") {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
     }
     if (surface.name === "__exactCaptureDevServedModuleTableLifecycle") {

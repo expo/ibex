@@ -1212,7 +1212,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "open_devtools_for_port",
-          "sourceOffset": 96878,
+          "sourceOffset": 97436,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1227,7 +1227,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "open_devtools_for_port",
-          "sourceOffset": 97187,
+          "sourceOffset": 97745,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1242,7 +1242,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "open_devtools_for_port",
-          "sourceOffset": 97561,
+          "sourceOffset": 98119,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1257,7 +1257,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "open_devtools_for_port",
-          "sourceOffset": 97754,
+          "sourceOffset": 98312,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1272,7 +1272,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "open_devtools_for_port",
-          "sourceOffset": 98167,
+          "sourceOffset": 98725,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1287,7 +1287,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "open_devtools_for_port",
-          "sourceOffset": 98373,
+          "sourceOffset": 98931,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1302,7 +1302,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_package_script",
-          "sourceOffset": 52839,
+          "sourceOffset": 53285,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1317,7 +1317,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_package_script",
-          "sourceOffset": 53003,
+          "sourceOffset": 53449,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1332,7 +1332,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_watch",
-          "sourceOffset": 72337,
+          "sourceOffset": 72783,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1347,7 +1347,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_bundler_with_source_provenance_mode",
-          "sourceOffset": 441001,
+          "sourceOffset": 441045,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1362,7 +1362,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_policy_command",
-          "sourceOffset": 451596,
+          "sourceOffset": 451640,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1406,8 +1406,8 @@
           "occurrenceIndex": 0,
           "postArmDisposition": null,
           "postArmEvidence": null,
-          "scope": "publish_compiled_output",
-          "sourceOffset": 19478,
+          "scope": "publish_output",
+          "sourceOffset": 29627,
           "sourcePath": "src/bin/ibex/sfe.rs",
           "sourceRef": "src/bin/ibex/sfe.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1422,7 +1422,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "verify_macos_signature",
-          "sourceOffset": 41161,
+          "sourceOffset": 54831,
           "sourcePath": "src/bin/ibex/sfe.rs",
           "sourceRef": "src/bin/ibex/sfe.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1437,7 +1437,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "hbc_version",
-          "sourceOffset": 7173,
+          "sourceOffset": 14030,
           "sourcePath": "src/bin/ibex_sfe_contract.rs",
           "sourceRef": "src/bin/ibex_sfe_contract.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1452,7 +1452,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "fixed_recipe_preserves_per_iteration_capture_in_leave_raw_loop",
-          "sourceOffset": 9718,
+          "sourceOffset": 11955,
           "sourcePath": "src/module_loader/catalog_compiler.rs",
           "sourceRef": "src/module_loader/catalog_compiler.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1467,7 +1467,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_fixed_hermesc",
-          "sourceOffset": 5141,
+          "sourceOffset": 7378,
           "sourcePath": "src/module_loader/catalog_compiler.rs",
           "sourceRef": "src/module_loader/catalog_compiler.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"
@@ -1553,7 +1553,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 437380,
+          "sourceOffset": 437424,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env_clear:dynamic:unset",
           "stage": "child-environment-construction"
@@ -1568,7 +1568,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "hbc_version",
-          "sourceOffset": 7217,
+          "sourceOffset": 14074,
           "sourcePath": "src/bin/ibex_sfe_contract.rs",
           "sourceRef": "src/bin/ibex_sfe_contract.rs#Command::env_clear:dynamic:unset",
           "stage": "child-environment-construction"
@@ -1583,7 +1583,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "fixed_recipe_preserves_per_iteration_capture_in_leave_raw_loop",
-          "sourceOffset": 9790,
+          "sourceOffset": 12027,
           "sourcePath": "src/module_loader/catalog_compiler.rs",
           "sourceRef": "src/module_loader/catalog_compiler.rs#Command::env_clear:dynamic:unset",
           "stage": "child-environment-construction"
@@ -1598,7 +1598,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_fixed_hermesc",
-          "sourceOffset": 5747,
+          "sourceOffset": 7984,
           "sourcePath": "src/module_loader/catalog_compiler.rs",
           "sourceRef": "src/module_loader/catalog_compiler.rs#Command::env_clear:dynamic:unset",
           "stage": "child-environment-construction"
@@ -1787,7 +1787,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 437969,
+          "sourceOffset": 438013,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:APPDATA:write",
           "stage": "child-environment-construction"
@@ -1830,7 +1830,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 437688,
+          "sourceOffset": 437732,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:BUN_RUNTIME_TRANSPILER_CACHE_PATH:write",
           "stage": "child-environment-construction"
@@ -1873,7 +1873,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capture",
-          "sourceOffset": 33551,
+          "sourceOffset": 33593,
           "sourcePath": "src/bin/ibex/terminal_session.rs",
           "sourceRef": "src/bin/ibex/terminal_session.rs#env::var_os:CLICOLOR_FORCE:read",
           "stage": "launcher-pre-arm-read"
@@ -2067,7 +2067,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "runtime_cache_dir",
-          "sourceOffset": 2940,
+          "sourceOffset": 2967,
           "sourcePath": "src/lib.rs",
           "sourceRef": "src/lib.rs#env::var:EXACT_ANDROID_CACHE_DIR:read",
           "stage": "armed-bootstrap-host-read"
@@ -2223,7 +2223,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_bundler_with_source_provenance_mode",
-          "sourceOffset": 438952,
+          "sourceOffset": 438996,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#timeout_from_env:EXACT_BUNDLER_TIMEOUT_MS:read",
           "stage": "armed-bootstrap-host-read"
@@ -3194,7 +3194,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "repo_root",
-          "sourceOffset": 460668,
+          "sourceOffset": 460712,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#env::var_os:EXACT_REPO_ROOT:read",
           "stage": "armed-bootstrap-host-read"
@@ -4015,7 +4015,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "prepare_entry_with_format_and_bytecode_in_cache",
-          "sourceOffset": 323136,
+          "sourceOffset": 323180,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#runtime_env:EX_NO_BYTECODE:read",
           "stage": "armed-bootstrap-host-read"
@@ -4030,7 +4030,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "prepare_entry_with_format_and_bytecode_in_cache",
-          "sourceOffset": 324436,
+          "sourceOffset": 324480,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#runtime_env:EX_NO_BYTECODE:read",
           "stage": "armed-bootstrap-host-read"
@@ -4045,7 +4045,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "prepare_entry_with_format_and_bytecode_in_cache",
-          "sourceOffset": 327821,
+          "sourceOffset": 327865,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#runtime_env:EX_NO_BYTECODE:read",
           "stage": "armed-bootstrap-host-read"
@@ -4889,7 +4889,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 437414,
+          "sourceOffset": 437458,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:HOME:write",
           "stage": "child-environment-construction"
@@ -4983,7 +4983,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "enforce_bundle_cache_quota",
-          "sourceOffset": 434596,
+          "sourceOffset": 434640,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#env::var:IBEX_BUNDLE_CACHE_MAX_BYTES:read",
           "stage": "armed-bootstrap-host-read"
@@ -5011,7 +5011,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "enforce_bytecode_cache_quota",
-          "sourceOffset": 382408,
+          "sourceOffset": 382452,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#env::var:IBEX_BYTECODE_CACHE_MAX_BYTES:read",
           "stage": "armed-bootstrap-host-read"
@@ -5823,7 +5823,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "prepare_entry_with_format_and_bytecode_in_cache",
-          "sourceOffset": 323136,
+          "sourceOffset": 323180,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#runtime_env:IBEX_NO_BYTECODE:read",
           "stage": "armed-bootstrap-host-read"
@@ -5838,7 +5838,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "prepare_entry_with_format_and_bytecode_in_cache",
-          "sourceOffset": 324436,
+          "sourceOffset": 324480,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#runtime_env:IBEX_NO_BYTECODE:read",
           "stage": "armed-bootstrap-host-read"
@@ -5853,7 +5853,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "prepare_entry_with_format_and_bytecode_in_cache",
-          "sourceOffset": 327821,
+          "sourceOffset": 327865,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#runtime_env:IBEX_NO_BYTECODE:read",
           "stage": "armed-bootstrap-host-read"
@@ -6022,7 +6022,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "repo_root",
-          "sourceOffset": 460622,
+          "sourceOffset": 460666,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#env::var_os:IBEX_REPO_ROOT:read",
           "stage": "armed-bootstrap-host-read"
@@ -6233,7 +6233,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_bundler_with_source_provenance_mode",
-          "sourceOffset": 442078,
+          "sourceOffset": 442122,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:IBEX_TEST_BUNDLE_BARRIER_DIR:write",
           "stage": "child-environment-construction"
@@ -6261,7 +6261,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_bundler_with_source_provenance_mode",
-          "sourceOffset": 442011,
+          "sourceOffset": 442055,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:IBEX_TEST_BUNDLE_BARRIER_ENTRY:write",
           "stage": "child-environment-construction"
@@ -6582,7 +6582,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 437807,
+          "sourceOffset": 437851,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:LANG:write",
           "stage": "child-environment-construction"
@@ -6670,7 +6670,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 437833,
+          "sourceOffset": 437877,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:LC_ALL:write",
           "stage": "child-environment-construction"
@@ -6741,7 +6741,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 438014,
+          "sourceOffset": 438058,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:LOCALAPPDATA:write",
           "stage": "child-environment-construction"
@@ -6855,7 +6855,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 437759,
+          "sourceOffset": 437803,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:NODE_DISABLE_COMPILE_CACHE:write",
           "stage": "child-environment-construction"
@@ -7069,7 +7069,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capture",
-          "sourceOffset": 33483,
+          "sourceOffset": 33525,
           "sourcePath": "src/bin/ibex/terminal_session.rs",
           "sourceRef": "src/bin/ibex/terminal_session.rs#env::var_os:NO_COLOR:read",
           "stage": "launcher-pre-arm-read"
@@ -7130,7 +7130,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_package_script",
-          "sourceOffset": 53085,
+          "sourceOffset": 53531,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#Command::env:PATH:write",
           "stage": "child-environment-construction"
@@ -7145,7 +7145,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "run_package_script",
-          "sourceOffset": 52379,
+          "sourceOffset": 52825,
           "sourcePath": "src/bin/ibex/main.rs",
           "sourceRef": "src/bin/ibex/main.rs#env::var_os:PATH:read",
           "stage": "launcher-pre-arm-read"
@@ -7160,7 +7160,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "discover_js_runner",
-          "sourceOffset": 458177,
+          "sourceOffset": 458221,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#env::var_os:PATH:read",
           "stage": "launcher-pre-arm-read"
@@ -7296,7 +7296,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 437646,
+          "sourceOffset": 437690,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:TEMP:write",
           "stage": "child-environment-construction"
@@ -7376,7 +7376,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "capture",
-          "sourceOffset": 33674,
+          "sourceOffset": 33716,
           "sourcePath": "src/bin/ibex/terminal_session.rs",
           "sourceRef": "src/bin/ibex/terminal_session.rs#env::var_os:TERM:read",
           "stage": "launcher-pre-arm-read"
@@ -7451,7 +7451,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 437605,
+          "sourceOffset": 437649,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:TMP:write",
           "stage": "child-environment-construction"
@@ -7547,7 +7547,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 437561,
+          "sourceOffset": 437605,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:TMPDIR:write",
           "stage": "child-environment-construction"
@@ -7687,7 +7687,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 437861,
+          "sourceOffset": 437905,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:TZ:write",
           "stage": "child-environment-construction"
@@ -7765,7 +7765,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 437920,
+          "sourceOffset": 437964,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:USERPROFILE:write",
           "stage": "child-environment-construction"
@@ -7878,7 +7878,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 437509,
+          "sourceOffset": 437553,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:XDG_CACHE_HOME:write",
           "stage": "child-environment-construction"
@@ -7921,7 +7921,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "configure_js_tool_environment",
-          "sourceOffset": 437456,
+          "sourceOffset": 437500,
           "sourcePath": "src/bin/ibex/runtime.rs",
           "sourceRef": "src/bin/ibex/runtime.rs#Command::env:XDG_CONFIG_HOME:write",
           "stage": "child-environment-construction"

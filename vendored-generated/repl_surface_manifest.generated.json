@@ -3,7 +3,7 @@
   "version": 1,
   "source": {
     "path": "runtime-surface.json",
-    "sha256": "82360bc91eceed2eeebdfffbd13c217602f93caa36a7136d88262959497dd247"
+    "sha256": "ea36915c445f7013e92ffbdee814e868573e829c534d0e87a5902543257a06b6"
   },
   "schema": {
     "path": "session/schema/repl-surface.schema.json",
@@ -27,7 +27,7 @@
     {
       "name": "rust",
       "path": "vendored-generated/repl_surface.generated.rs",
-      "sha256": "068f565c15f1730ee39a877c2501c4b159f590f555a0d834c7a9af1028347405"
+      "sha256": "1a835389fbb7cf485cc5271506ff6c504ec6c45d96bc0ec1e8a21e790686b6fe"
     },
     {
       "name": "help",
@@ -37,7 +37,7 @@
     {
       "name": "table",
       "path": "vendored-generated/repl_surface.generated.md",
-      "sha256": "a16c138d33aedd60098ef1913fcfbbf1852e5cd0e211b6de18e6394d11b5f1ef"
+      "sha256": "217023a0ae9645f41570ccaba187f0b213aeca94fdc090a9f2b13c4be347173b"
     }
   ]
 }

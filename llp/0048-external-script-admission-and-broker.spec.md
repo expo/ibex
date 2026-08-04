@@ -5,6 +5,8 @@
 **Systems:** Runtime, Host ABI, Module Loader, CapSec, Distribution
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-08-03
+**Revised:** 2026-08-04 (align target-advertisement minimum-platform spelling
+with the existing catalog and checked schema contract)
 **Revised:** 2026-08-03 (round-3 minor reconciliation: full-frame function-id
 reserve admission, explicit envelope-deadline ownership, precise grace timer
 wording, and a closed target-advertisement artifact descriptor)
@@ -934,7 +936,7 @@ The target evidence artifact is the following exact canonical object:
   "schema": "ibex/restricted-worker-target-advertisement/1",
   "target": {
     "triple": "aarch64-apple-darwin",
-    "minimumPlatform": "macOS-14.0"
+    "minimumPlatform": "macos-14.0-arm64"
   },
   "engineCompatibilityDigest": "sha256-...",
   "nativeAbi": "ibex/restricted-worker-abi/1",
@@ -958,9 +960,11 @@ The target evidence artifact is the following exact canonical object:
 
 All fields and keys are required and closed. `target.triple` is exactly the
 catalog entry target; `minimumPlatform` is its canonical platform-floor string
-(`macOS-<major>.<minor>` for Darwin, `glibc-<major>.<minor>` for this Linux
-profile). `engineCompatibilityDigest` is the exact engine identity accepted by
-the stub. Defaults and maxima digests use
+(`macos-<major>.<minor>-arm64` for Darwin,
+`linux-glibc-<major>.<minor>-x86-64-v1` for this Linux profile), using the same
+spelling as the catalog entry rather than a second platform vocabulary.
+`engineCompatibilityDigest` is the exact engine identity accepted by the
+stub. Defaults and maxima digests use
 `ibex:restricted-worker-limits:1`; the four evidence digests are ordinary
 SHA-256 content digests of immutable target-specific result/artifact files.
 The advertisement semantic digest uses

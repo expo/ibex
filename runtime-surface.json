@@ -197,33 +197,33 @@
           "argumentId": "entry",
           "parserKind": "os-path"
         },
-      {
-        "commandPath": "ibex compile",
-        "argumentId": "output",
-        "parserKind": "os-path"
-      },
-      {
-        "commandPath": "ibex compile-app",
-        "argumentId": "binding",
-        "parserKind": "os-path"
-      },
-      {
-        "commandPath": "ibex compile-app",
-        "argumentId": "compile_policy",
-        "parserKind": "os-path"
-      },
-      {
-        "commandPath": "ibex compile-app",
-        "argumentId": "entry",
-        "parserKind": "os-path"
-      },
-      {
-        "commandPath": "ibex compile-app",
-        "argumentId": "output",
-        "parserKind": "os-path"
-      },
-      {
-        "commandPath": "ibex eval",
+        {
+          "commandPath": "ibex compile",
+          "argumentId": "output",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex compile-app",
+          "argumentId": "binding",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex compile-app",
+          "argumentId": "compile_policy",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex compile-app",
+          "argumentId": "entry",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex compile-app",
+          "argumentId": "output",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex eval",
           "argumentId": "code",
           "parserKind": "utf8-string"
         },

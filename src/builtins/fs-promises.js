@@ -371,20 +371,16 @@ var promises = {
   rm: base.rm || function(path, options) { fs.rmSync(path, options || {}); return Promise.resolve(); },
   mkdtemp: base.mkdtemp || function(prefix) { return Promise.resolve(fs.mkdtempSync(prefix)); },
   readFileSync: function(path, options) { return fs.readFileSync(path, options); },
+  // Some admitted host surfaces enumerate an own `toString`. Declare that
+  // hazardous inherited name statically so the fallback copy remains both
+  // lockdown-safe and visible to the capability-surface scanner.
+  toString: base.toString,
 };
 
 for (var key in base) {
   if (key === 'FileHandle' || key === 'constants') continue;
   if (!Object.prototype.hasOwnProperty.call(promises, key)) {
-    // Lockdown freezes Object.prototype. Some host fs.promises surfaces carry
-    // enumerable names such as `toString`; ordinary assignment would then hit
-    // the inherited non-writable property instead of creating the export.
-    Object.defineProperty(promises, key, {
-      value: base[key],
-      writable: true,
-      enumerable: true,
-      configurable: true,
-    });
+    promises[key] = base[key];
   }
 }
 

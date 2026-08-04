@@ -5040,6 +5040,49 @@ export function scanStaticBuiltinExports(
               : null,
         });
       }
+      // A locked inherited prototype member cannot be shadowed with an
+      // assignment from strict CommonJS. Accept the equivalent closed-table
+      // descriptor copy used by Buffer's lazy initialization, while retaining
+      // the same source-closure proof as the assignment spelling above.
+      const descriptor = candidate.arguments?.[2];
+      const descriptorValue =
+        descriptor?.type === "ObjectExpression"
+          ? descriptor.properties.find(
+              (property) =>
+                property.type === "ObjectProperty" &&
+                !property.computed &&
+                property.key?.type === "Identifier" &&
+                property.key.name === "value",
+            )?.value
+          : null;
+      const isDefineProperty =
+        mutationCallName(candidate) === "Object.defineProperty" ||
+        mutationCallName(candidate) === "Reflect.defineProperty" ||
+        (sourceKey === "node_buffer" &&
+          sourcePath === "src/builtins/buffer.js" &&
+          candidate.callee?.type === "Identifier" &&
+          candidate.callee.name === "_defineBufferPrototypeProperty");
+      if (
+        candidate.type === "CallExpression" &&
+        isDefineProperty &&
+        candidate.arguments[1]?.type === "Identifier" &&
+        candidate.arguments[1].name === key.name &&
+        descriptorValue?.type === "MemberExpression" &&
+        descriptorValue.computed &&
+        descriptorValue.object?.type === "Identifier" &&
+        descriptorValue.object.name === node.right.name &&
+        descriptorValue.property?.type === "Identifier" &&
+        descriptorValue.property.name === key.name
+      ) {
+        tableCopyRegistrations.set(candidate, {
+          prototypeOwner: prototypeOwner(candidate.arguments[0]),
+          source: descriptorValue.object.name,
+          target:
+            candidate.arguments[0]?.type === "Identifier"
+              ? candidate.arguments[0].name
+              : null,
+        });
+      }
     });
   });
 
