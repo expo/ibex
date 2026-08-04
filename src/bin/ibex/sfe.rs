@@ -541,9 +541,11 @@ fn release_producer_digest(catalog_digest: &str) -> Result<Digest> {
 /// @ref LLP 0029#1-command-surface-and-producer-pipeline
 #[cfg(feature = "module-runner")]
 pub fn capture_compiled_policy_snapshot(entry: &Path) -> Result<Vec<u8>> {
-    let catalog_digest = RELEASE_CATALOG_DIGEST.context(
-        "SFC001 catalog trust root refused: compiled policy generation requires an ibex release with a pinned SFE catalog",
-    )?;
+    let catalog_digest = RELEASE_CATALOG_DIGEST
+        .or(RELEASE_APP_CATALOG_DIGEST)
+        .context(
+            "SFC001 catalog trust root refused: compiled policy generation requires an ibex release with a pinned SFE catalog",
+        )?;
     let captured =
         capture_embedded_source_graph_v1(entry, release_producer_digest(catalog_digest)?)?;
     let mut candidate_sets = captured
