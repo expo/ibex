@@ -1674,10 +1674,13 @@ fn discover_compiled_project_root(entry: &Path) -> Result<PathBuf> {
         let package_path = cursor.join("package.json");
         if package_path.is_file() {
             nearest_package.get_or_insert_with(|| cursor.to_path_buf());
-            let package_bytes = std::fs::read(&package_path)
-                .with_context(|| format!("cannot read project marker {}", package_path.display()))?;
-            let package: serde_json::Value = serde_json::from_slice(&package_bytes)
-                .with_context(|| format!("project marker is not JSON: {}", package_path.display()))?;
+            let package_bytes = std::fs::read(&package_path).with_context(|| {
+                format!("cannot read project marker {}", package_path.display())
+            })?;
+            let package: serde_json::Value =
+                serde_json::from_slice(&package_bytes).with_context(|| {
+                    format!("project marker is not JSON: {}", package_path.display())
+                })?;
             if package.get("workspaces").is_some() {
                 outermost_workspace = Some(cursor.to_path_buf());
             }

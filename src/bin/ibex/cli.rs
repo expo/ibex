@@ -19,7 +19,7 @@ use std::path::PathBuf;
 #[command(propagate_version = true)]
 #[command(disable_version_flag = true)]
 #[command(
-    after_help = "Examples:\n  ibex app.ts                  Run a TypeScript file\n  ibex eval '1 + 1'            Evaluate an expression\n  ibex -p 'process.versions'   Evaluate and print the result\n  ibex --watch server.ts       Run with auto-restart on changes\n  ibex run dev                 Run a package script\n  ibex build app.ts            Compile to Hermes bytecode\n  ibex compile app.ts -o app   Build a single-file executable\n  ibex inspect-executable app  Inspect an SFE without executing it\n  ibex completions zsh         Generate shell completions\n  ibex debug modules           Print builtin module registry metadata\n  ibex repl                    Interactive REPL (also: ibex with no arguments)"
+    after_help = "Examples:\n  ibex app.ts                  Run a TypeScript file\n  ibex eval '1 + 1'            Evaluate an expression\n  ibex -p 'process.versions'   Evaluate and print the result\n  ibex --watch server.ts       Run with auto-restart on changes\n  ibex run dev                 Run a package script\n  ibex build app.ts            Compile to Hermes bytecode\n  ibex compile app.ts -o app   Build a single-file executable\n  ibex compile-app app.ts --binding binding.json -o app\n                               Build an app-bound executable\n  ibex inspect-executable app  Inspect an SFE without executing it\n  ibex completions zsh         Generate shell completions\n  ibex debug modules           Print builtin module registry metadata\n  ibex repl                    Interactive REPL (also: ibex with no arguments)"
 )]
 pub struct Cli {
     /// Print version information
@@ -2200,6 +2200,27 @@ pub(crate) mod tests {
             Some(Commands::Compat { all: true, .. })
         ));
         assert!(Cli::try_parse_from(["ibex", "compat", "--log", "--json"]).is_err());
+    }
+
+    #[test]
+    fn compile_app_requires_the_explicit_binding_and_output() {
+        let cli = Cli::parse_from([
+            "ibex",
+            "compile-app",
+            "parent.mjs",
+            "--binding",
+            "binding.json",
+            "-o",
+            "app",
+        ]);
+        assert!(matches!(
+            cli.command,
+            Some(Commands::CompileApp { entry, binding, output, .. })
+                if entry == PathBuf::from("parent.mjs")
+                    && binding == PathBuf::from("binding.json")
+                    && output == PathBuf::from("app")
+        ));
+        assert!(Cli::try_parse_from(["ibex", "compile-app", "parent.mjs", "-o", "app"]).is_err());
     }
 
     /// The runtime surface manifest (`runtime-surface.json` at the repo root,
