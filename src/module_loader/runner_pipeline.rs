@@ -1668,12 +1668,24 @@ fn discover_compiled_project_root(entry: &Path) -> Result<PathBuf> {
         .parent()
         .ok_or_else(|| anyhow!("compiled entry has no parent directory"))?;
     let mut cursor = entry_parent;
+    let mut nearest_package = None;
+    let mut outermost_workspace = None;
     loop {
-        if cursor.join("package.json").is_file() {
-            return Ok(cursor.to_path_buf());
+        let package_path = cursor.join("package.json");
+        if package_path.is_file() {
+            nearest_package.get_or_insert_with(|| cursor.to_path_buf());
+            let package_bytes = std::fs::read(&package_path)
+                .with_context(|| format!("cannot read project marker {}", package_path.display()))?;
+            let package: serde_json::Value = serde_json::from_slice(&package_bytes)
+                .with_context(|| format!("project marker is not JSON: {}", package_path.display()))?;
+            if package.get("workspaces").is_some() {
+                outermost_workspace = Some(cursor.to_path_buf());
+            }
         }
         let Some(parent) = cursor.parent() else {
-            return Ok(entry_parent.to_path_buf());
+            return Ok(outermost_workspace
+                .or(nearest_package)
+                .unwrap_or_else(|| entry_parent.to_path_buf()));
         };
         cursor = parent;
     }
@@ -5566,6 +5578,26 @@ mod tests {
             assert_eq!(left.manifest, right.manifest);
             assert_eq!(left.payload, right.payload);
         }
+    }
+
+    #[test]
+    fn compiled_project_root_prefers_the_outer_workspace_over_a_member_package() {
+        let temporary = tempfile::tempdir().unwrap();
+        let member = temporary.path().join("packages/app");
+        std::fs::create_dir_all(&member).unwrap();
+        std::fs::write(
+            temporary.path().join("package.json"),
+            r#"{"name":"workspace","workspaces":["packages/*"]}"#,
+        )
+        .unwrap();
+        std::fs::write(member.join("package.json"), r#"{"name":"app"}"#).unwrap();
+        let entry = member.join("entry.mjs");
+        std::fs::write(&entry, "export default 1;").unwrap();
+
+        assert_eq!(
+            discover_compiled_project_root(&entry).unwrap(),
+            temporary.path()
+        );
     }
 
     #[test]
