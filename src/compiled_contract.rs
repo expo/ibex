@@ -204,7 +204,7 @@ pub fn validate_stub_contract_local_authorities(
 /// application binding and target evidence are envelope/catalog inputs; they
 /// cannot revise any schema, ABI, transform, or runtime identity compiled into
 /// this image.
-/// @ref LLP 0048#82-stub-contract-v4-and-lockstep-admission
+/// @ref LLP 0048#8-app-bound-executable-contract
 pub fn validate_app_bound_stub_contract_local_authorities(
     contract: &StubContractV4,
 ) -> ibex_sfe_format::Result<()> {

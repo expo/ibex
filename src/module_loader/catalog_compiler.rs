@@ -57,7 +57,7 @@ pub fn compile_catalog_embedded_graph_to_hbc(
 /// admitted by Catalog V2. The physical carrier recipe is intentionally the
 /// same as general SFE production; only the V4 contract/catalog authority is
 /// distinct.
-/// @ref LLP 0048#84-catalog-v2-target-advertisement-and-release-evidence
+/// @ref LLP 0048#10-inspection-and-evidence
 #[cfg(any(test, feature = "module-runner"))]
 pub fn compile_app_bound_catalog_embedded_graph_to_hbc(
     target: &AdmittedCatalogTargetV2<'_>,

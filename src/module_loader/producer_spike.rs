@@ -2100,7 +2100,7 @@ fn transform_with_oxc(path: &Path, source: &str) -> Result<IntermediateSource> {
 /// Closed Oxc transform for one app-bound external script. The output is one
 /// callable expression consumed by the restricted-worker constructor; it is
 /// never admitted to the parent module graph.
-/// @ref LLP 0048#3-external-script-language-profile-and-transform
+/// @ref LLP 0048#2-external-script-language-and-transform-profile
 #[derive(Debug, Clone)]
 pub struct ExternalScriptTransformV1 {
     pub callable_source: Vec<u8>,

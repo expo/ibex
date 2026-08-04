@@ -275,7 +275,7 @@ impl ExternalWorkerV1 {
 /// The shared authenticated projection emitted by inspection V4 and
 /// standalone-info V2. Keeping this as one strict type prevents the two
 /// non-evaluating readers from drifting apart.
-/// @ref LLP 0048#8.1-strict-schema-and-binary-definitions — both reports carry
+/// @ref LLP 0048#81-strict-schema-and-binary-definitions — both reports carry
 /// this exact closed projection and only the enabled/advertised state may run.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

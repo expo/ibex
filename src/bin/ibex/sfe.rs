@@ -139,7 +139,7 @@ pub fn compile(
 /// executable. The target tuple and worker evidence come only from the
 /// release-pinned Catalog V2; the caller supplies the trusted parent graph and
 /// one canonical immutable application binding.
-/// @ref LLP 0048#85-producer-pipeline-and-reproducibility
+/// @ref LLP 0048#10-inspection-and-evidence
 pub fn compile_app_bound(
     entry: &Path,
     binding_path: &Path,
