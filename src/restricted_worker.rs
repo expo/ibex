@@ -478,7 +478,7 @@ fn valid_broker_error(value: Option<&serde_json::Value>) -> bool {
             .is_some_and(|row| row.is_null() || row.is_object())
 }
 
-// @ref LLP 0048#62-canonical-frames-and-closed-bodies — the native boundary rejects every non-exact worker body before parent dispatch
+// @ref LLP 0048#62-canonical-values-and-frames — the native boundary rejects every non-exact worker body before parent dispatch
 fn valid_worker_frame_body(frame_type: &str, body: &serde_json::Value) -> bool {
     match frame_type {
         "call" => {
