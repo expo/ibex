@@ -1,4 +1,8 @@
-var BufferProto = {};
+// This staging table can be initialized after lockdown. A normal object
+// inherits Object.prototype's frozen toString/toLocaleString properties, so a
+// strict compiled CommonJS factory cannot shadow them with assignment.
+// @ref LLP 0013#mechanism-1-lockdown — lazy builtins must not shadow locked intrinsics.
+var BufferProto = Object.create(null);
 var objectToString = Object.prototype.toString;
 var detachedArrayBuffersSymbol =
   typeof Symbol === "function" && typeof Symbol.for === "function"

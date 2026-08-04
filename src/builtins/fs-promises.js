@@ -380,7 +380,15 @@ var promises = {
 for (var key in base) {
   if (key === 'FileHandle' || key === 'constants') continue;
   if (!Object.prototype.hasOwnProperty.call(promises, key)) {
-    promises[key] = base[key];
+    // Lockdown freezes Object.prototype. Some host fs.promises surfaces carry
+    // enumerable names such as `toString`; ordinary assignment would then hit
+    // the inherited non-writable property instead of creating the export.
+    Object.defineProperty(promises, key, {
+      value: base[key],
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
   }
 }
 

@@ -1,5 +1,5 @@
 //#region src/builtins/buffer.js
-var BufferProto = {};
+var BufferProto = Object.create(null);
 var objectToString = Object.prototype.toString;
 var detachedArrayBuffersSymbol = typeof Symbol === "function" && typeof Symbol.for === "function" ? Symbol.for("exact.detachedArrayBuffers") : "__exactDetachedArrayBuffers";
 function getDetachedArrayBuffers() {

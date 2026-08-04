@@ -26,6 +26,16 @@ import path from 'node:path';
 
 const require = createRequire(import.meta.url);
 
+test('buffer.js stages prototype overrides without inheriting locked Object.prototype names', () => {
+  const source = fs.readFileSync(
+    path.resolve(import.meta.dir, '../../../src/builtins/buffer.js'),
+    'utf8',
+  );
+
+  expect(source).toContain('var BufferProto = Object.create(null);');
+  expect(source).not.toContain('var BufferProto = {};');
+});
+
 // ---------------------------------------------------------------------------
 // Finding #1: Buffer offset validation (src/builtins/buffer.js)
 // ---------------------------------------------------------------------------
