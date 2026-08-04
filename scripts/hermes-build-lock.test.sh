@@ -264,8 +264,8 @@ assert_windows_locked_pristine_publication() {
     clean_line="$(grep -nF 'git -C $sourceDir clean -fdxq' "$builder" | cut -d: -f1)"
     apply_line="$(grep -nF '& bash $applyScriptUnix $sourceDirUnix' "$builder" | cut -d: -f1)"
     build_line="$(grep -nF 'cmake --build $buildDir' "$builder" | cut -d: -f1)"
-    manifest_line="$(grep -nF '$manifest | ConvertTo-Json | Set-Content' "$builder" | cut -d: -f1)"
-    receipt_line="$(grep -nF 'Set-Content -LiteralPath (Join-Path $binDir "hermes-profile-provenance.json")' "$builder" | cut -d: -f1)"
+    manifest_line="$(grep -nF -- '-Content ($manifest | ConvertTo-Json)' "$builder" | cut -d: -f1)"
+    receipt_line="$(grep -nF -- '-Content ($receipt | ConvertTo-Json -Depth 8)' "$builder" | cut -d: -f1)"
     publish_line="$(grep -nF 'Remove-Item -LiteralPath $targetRoot' "$builder" | cut -d: -f1)"
     release_line="$(grep -nF 'Exit-HermesSourceBuildLock $buildLock' "$builder" | cut -d: -f1)"
     [[ -n "$lock_line" && -n "$reset_line" && -n "$clean_line" \
@@ -277,6 +277,12 @@ assert_windows_locked_pristine_publication() {
         && manifest_line < receipt_line && receipt_line < publish_line \
         && publish_line < release_line )) \
         || fail "Windows builder releases its lock before complete artifact publication"
+    [[ "$(sed -n "$((manifest_line - 2))p" "$builder")" == *'Write-Utf8NoBomFile `'* \
+        && "$(sed -n "$((manifest_line - 1))p" "$builder")" == *'-Path (Join-Path $installDir "artifact.json") `'* ]] \
+        || fail "Windows builder does not publish its manifest through the UTF-8 no-BOM writer"
+    [[ "$(sed -n "$((receipt_line - 2))p" "$builder")" == *'Write-Utf8NoBomFile `'* \
+        && "$(sed -n "$((receipt_line - 1))p" "$builder")" == *'-Path (Join-Path $binDir "hermes-profile-provenance.json") `'* ]] \
+        || fail "Windows builder does not publish its receipt through the UTF-8 no-BOM writer"
     grep -Fq '[System.IO.FileShare]::None' "$builder" \
         || fail "Windows builder lock is not an exclusive OS file handle"
     grep -Fq 'finally {' "$builder" \
