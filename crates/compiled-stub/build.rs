@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(ibex_release_stub_contract)");
+    println!("cargo:rustc-check-cfg=cfg(ibex_app_bound_stub_contract)");
     println!("cargo:rerun-if-env-changed=IBEX_STUB_CONTRACT_PATH");
     println!("cargo:rerun-if-env-changed=IBEX_SFE_LINUX_RELEASE_STUB");
     println!("cargo:rerun-if-env-changed=HERMES_LINK_STATIC");
@@ -142,17 +143,40 @@ fn install_release_contract(path: PathBuf) {
         .unwrap_or_else(|error| panic!("release stub contract is not UTF-8: {error}"));
     let value = capsec_semantics::strict_json::parse_strict(text)
         .unwrap_or_else(|error| panic!("release stub contract is not strict JSON: {error}"));
-    let contract: ibex_sfe_format::StubContractV3 = serde_json::from_value(value)
-        .unwrap_or_else(|error| panic!("release stub contract shape is invalid: {error}"));
-    let canonical = contract
-        .canonical_bytes()
-        .unwrap_or_else(|error| panic!("release stub contract is invalid: {error}"));
+    let schema = value.get("schema").and_then(serde_json::Value::as_str);
+    let (canonical, release_eligible, app_bound) = match schema {
+        Some(ibex_sfe_format::app_bound::STUB_CONTRACT_SCHEMA_V4) => {
+            let contract: ibex_sfe_format::app_bound::StubContractV4 =
+                serde_json::from_value(value).unwrap_or_else(|error| {
+                    panic!("app-bound release stub contract shape is invalid: {error}")
+                });
+            (
+                contract.canonical_bytes().unwrap_or_else(|error| {
+                    panic!("app-bound release stub contract is invalid: {error}")
+                }),
+                contract.release_eligible,
+                true,
+            )
+        }
+        Some(ibex_sfe_format::STUB_CONTRACT_SCHEMA_V3) => {
+            let contract: ibex_sfe_format::StubContractV3 = serde_json::from_value(value)
+                .unwrap_or_else(|error| panic!("release stub contract shape is invalid: {error}"));
+            (
+                contract
+                    .canonical_bytes()
+                    .unwrap_or_else(|error| panic!("release stub contract is invalid: {error}")),
+                contract.release_eligible,
+                false,
+            )
+        }
+        _ => panic!("release stub contract schema is unsupported"),
+    };
     assert_eq!(
         canonical, bytes,
         "release stub contract must be exact canonical JCS"
     );
     assert!(
-        contract.release_eligible,
+        release_eligible,
         "release stub contract must be release eligible"
     );
     let output = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR is absent"))
@@ -160,4 +184,7 @@ fn install_release_contract(path: PathBuf) {
     std::fs::write(&output, canonical)
         .unwrap_or_else(|error| panic!("cannot stage release stub contract: {error}"));
     println!("cargo:rustc-cfg=ibex_release_stub_contract");
+    if app_bound {
+        println!("cargo:rustc-cfg=ibex_app_bound_stub_contract");
+    }
 }

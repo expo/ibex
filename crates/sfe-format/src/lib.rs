@@ -10,6 +10,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
+pub mod app_bound;
 pub mod macho;
 
 pub const ENVELOPE_SCHEMA_V2: &str = "ibex/single-file-executable/2";

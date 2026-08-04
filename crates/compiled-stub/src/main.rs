@@ -28,6 +28,10 @@ use ibex_runtime::module_loader::graph::{
     ComputedCandidateBinding, ComputedCandidateSiteMap, GraphEdgeKey, SynchronousGraphPlan,
 };
 use ibex_runtime::module_loader::identity::SourceId;
+use ibex_sfe_format::app_bound::{
+    admit_executable_v2, ApplicationBindingV1, PackageProvenanceV2, SectionKindV2, StubContractV4,
+    STANDALONE_INFO_SCHEMA_V2,
+};
 use ibex_sfe_format::{
     admit_executable_v1, CompileCarrierEncodingV1, EngineCompatibilityV1, PackageProvenanceV1,
     SectionKindV1, StubContractV3, STANDALONE_INFO_SCHEMA_V1,
@@ -51,6 +55,7 @@ struct DevelopmentProvenanceV1 {
 enum BootProvenanceV1 {
     Development(DevelopmentProvenanceV1),
     Release(PackageProvenanceV1),
+    AppBound(PackageProvenanceV2),
 }
 
 impl BootProvenanceV1 {
@@ -63,6 +68,12 @@ impl BootProvenanceV1 {
                 }
                 Ok(&graph.graph_identity)
             }
+            Self::AppBound(value) => {
+                if value.compile_plan.graph_snapshot_digest != graph.graph_identity.as_str() {
+                    bail!("app-bound CompilePlanV2 names a different graph snapshot");
+                }
+                Ok(&graph.graph_identity)
+            }
         }
     }
 
@@ -72,7 +83,7 @@ impl BootProvenanceV1 {
                 value.producer_id.clone(),
                 value.producer_binary_digest.clone(),
             ),
-            Self::Release(_) => (
+            Self::Release(_) | Self::AppBound(_) => (
                 manifest.producer_id.clone(),
                 manifest.producer_binary_digest.clone(),
             ),
@@ -80,7 +91,35 @@ impl BootProvenanceV1 {
     }
 
     fn is_release(&self) -> bool {
-        matches!(self, Self::Release(_))
+        matches!(self, Self::Release(_) | Self::AppBound(_))
+    }
+}
+
+struct CompiledContract {
+    runtime: StubContractV3,
+    canonical: Vec<u8>,
+    app_bound: Option<StubContractV4>,
+}
+
+struct EnvelopeSection<'a> {
+    kind: SectionKindV1,
+    id: String,
+    pair_id: Option<String>,
+    bytes: &'a [u8],
+}
+
+struct AdmittedImage<'a> {
+    sections: Vec<EnvelopeSection<'a>>,
+    application_binding: Option<ApplicationBindingV1>,
+}
+
+impl<'a> AdmittedImage<'a> {
+    fn section(&self, kind: SectionKindV1) -> Result<&'a [u8]> {
+        self.sections
+            .iter()
+            .find(|section| section.kind == kind)
+            .map(|section| section.bytes)
+            .ok_or_else(|| anyhow!("required {kind:?} section is absent"))
     }
 }
 
@@ -109,8 +148,13 @@ fn run() -> Result<i32> {
         ibex_runtime::host::process::install_compiled_environment_base(environment.broker_base()?)?;
     }
     let process_arguments = process::CapturedProcessArguments::capture(boot_mode)?;
-    let contract = compiled_stub_contract()?;
-    let contract_digest = contract.digest()?;
+    let compiled = compiled_stub_contract()?;
+    let contract = &compiled.runtime;
+    let contract_digest = if let Some(app_bound) = &compiled.app_bound {
+        app_bound.digest()?
+    } else {
+        contract.digest()?
+    };
     let mut pinned_image = ibex_runtime::engine::open_pinned_self_image()
         .map_err(anyhow::Error::msg)
         .context("cannot pin the mapped executable image")?;
@@ -130,24 +174,25 @@ fn run() -> Result<i32> {
     if file.get(..4) == Some(&0xfeedfacfu32.to_le_bytes()) {
         ibex_sfe_format::macho::validate_signed_envelope_layout_v1(&file)?;
     }
-    let envelope = admit_executable_v1(&file, &contract_digest)?;
-    let embedded_contract = section_bytes(&envelope, SectionKindV1::StubContract)?;
-    if embedded_contract != contract.canonical_bytes()? {
+    let envelope = admit_image(&file, &compiled, &contract_digest)?;
+    let embedded_contract = envelope.section(SectionKindV1::StubContract)?;
+    if embedded_contract != compiled.canonical {
         bail!("embedded stub contract differs from the contract compiled into the stub");
     }
     let provenance = decode_boot_provenance(
-        section_bytes(&envelope, SectionKindV1::ProvenanceManifest)?,
-        &contract,
+        envelope.section(SectionKindV1::ProvenanceManifest)?,
+        contract,
         &contract_digest,
+        envelope.application_binding.as_ref(),
     )?;
 
-    let graph_bytes = section_bytes(&envelope, SectionKindV1::EmbeddedModuleGraph)?;
+    let graph_bytes = envelope.section(SectionKindV1::EmbeddedModuleGraph)?;
     let preliminary_graph = EmbeddedModuleGraphV1::decode_canonical(graph_bytes)?;
     if &preliminary_graph.graph_identity != provenance.graph_identity(&preliminary_graph)? {
         bail!("embedded provenance and graph name different snapshots");
     }
     admit_policy(
-        section_bytes(&envelope, SectionKindV1::ResolvedPolicy)?,
+        envelope.section(SectionKindV1::ResolvedPolicy)?,
         &preliminary_graph.graph_identity,
     )?;
 
@@ -162,19 +207,20 @@ fn run() -> Result<i32> {
     let mut admitted_carriers = BTreeMap::new();
     let mut carrier_facts = BTreeMap::new();
     for manifest_section in envelope
-        .sections()
-        .filter(|section| section.record.kind == SectionKindV1::CarrierManifest)
+        .sections
+        .iter()
+        .filter(|section| section.kind == SectionKindV1::CarrierManifest)
     {
         let pair = manifest_section
-            .record
             .pair_id
             .as_deref()
             .ok_or_else(|| anyhow!("carrier manifest has no pair id"))?;
         let payload = envelope
-            .sections()
+            .sections
+            .iter()
             .find(|section| {
-                section.record.kind == SectionKindV1::CarrierPayload
-                    && section.record.pair_id.as_deref() == Some(pair)
+                section.kind == SectionKindV1::CarrierPayload
+                    && section.pair_id.as_deref() == Some(pair)
             })
             .ok_or_else(|| anyhow!("carrier pair {pair:?} has no payload"))?;
         let manifest: PreparedModuleCarrierV2 =
@@ -185,7 +231,7 @@ fn run() -> Result<i32> {
         let (expected_producer_id, producer_binary_digest) =
             provenance.expected_producer(&manifest);
         let (expected_engine_binding, expected_bytecode_version) =
-            expected_carrier_engine(&contract, &manifest, provenance.is_release())?;
+            expected_carrier_engine(contract, &manifest, provenance.is_release())?;
         let admission = PreparedCarrierAdmissionV2 {
             expected_principal: manifest.defining_principal.clone(),
             expected_producer_id,
@@ -226,11 +272,12 @@ fn run() -> Result<i32> {
         }
     }
     let candidate_tables = envelope
-        .sections()
-        .filter(|section| section.record.kind == SectionKindV1::CandidateTable)
+        .sections
+        .iter()
+        .filter(|section| section.kind == SectionKindV1::CandidateTable)
         .map(|section| {
             let table = ComputedCandidateTableV1::decode_canonical(section.bytes)?;
-            if table.digest()?.as_str() != section.record.id {
+            if table.digest()?.as_str() != section.id.as_str() {
                 bail!("computed-candidate section id disagrees with its canonical bytes");
             }
             Ok(table)
@@ -298,12 +345,13 @@ fn run() -> Result<i32> {
         // runtime, or application module is constructed.
         // @ref LLP 0047#8-milestone-5--distribution-and-usability
         emit_standalone_information(
-            &contract,
+            contract,
             &contract_digest,
             &provenance,
             &graph,
             carrier_manifests.len(),
             candidate_tables.len(),
+            envelope.application_binding.as_ref(),
         )?;
         return Ok(0);
     }
@@ -322,6 +370,25 @@ fn run() -> Result<i32> {
     // @ref LLP 0047#ambient-path
     ibex_runtime::host::abi::install_host(ibex_runtime::host::Host::compiled_ambient());
     let mut owner = CompiledModuleRuntime::new_ambient()?;
+    if let (Some(binding), Some(app_contract)) = (
+        envelope.application_binding.as_ref(),
+        compiled.app_bound.as_ref(),
+    ) {
+        let bridge_contract = capsec_semantics::canonical::to_jcs_bytes(&serde_json::json!({
+            "schema": "ibex/app-bound-worker-bridge-contract/1",
+            "appBindingDigest": binding.digest()?,
+            "engineCompatibilityDigest": app_contract.engine.identity(),
+            "language": app_contract.external_worker.language_profile,
+            "languageDigest": app_contract.external_worker.language_profile_digest,
+            "workerPolicy": app_contract.external_worker.worker_policy,
+            "workerPolicyDigest": app_contract.external_worker.worker_policy_digest,
+            "broker": app_contract.external_worker.broker_protocol,
+            "globalsDigest": app_contract.external_worker.global_inventory_digest,
+            "defaults": app_contract.external_worker.defaults,
+            "maxima": app_contract.external_worker.maxima,
+        }))?;
+        owner.install_app_bound_worker_bridge(&bridge_contract)?;
+    }
     owner.install_compiled_process_metadata(
         &process.exec_path,
         &process.entry_designation,
@@ -401,6 +468,7 @@ fn emit_standalone_information(
     graph: &EmbeddedModuleGraphV1,
     carrier_count: usize,
     candidate_table_count: usize,
+    application_binding: Option<&ApplicationBindingV1>,
 ) -> Result<()> {
     let capsec_availability = if contract.boot.capsec_advertisement_identity.is_empty() {
         "unavailable-no-advertisement"
@@ -408,7 +476,7 @@ fn emit_standalone_information(
         "contract-advertised"
     };
     let report = serde_json::json!({
-        "schema": STANDALONE_INFO_SCHEMA_V1,
+        "schema": if application_binding.is_some() { STANDALONE_INFO_SCHEMA_V2 } else { STANDALONE_INFO_SCHEMA_V1 },
         "execution": {
             "applicationEvaluated": false,
         },
@@ -431,6 +499,7 @@ fn emit_standalone_information(
         "target": contract.target,
         "backendInventory": contract.backends,
         "provenanceKind": if provenance.is_release() { "release" } else { "development" },
+        "applicationBinding": application_binding,
     });
     let bytes = capsec_semantics::canonical::to_jcs_bytes(&report)?;
     println!(
@@ -444,9 +513,27 @@ fn decode_boot_provenance(
     bytes: &[u8],
     contract: &StubContractV3,
     contract_digest: &str,
+    application_binding: Option<&ApplicationBindingV1>,
 ) -> Result<BootProvenanceV1> {
     let value: serde_json::Value = decode_canonical_section(bytes, "provenance")?;
-    if value.get("compilePlan").is_some() {
+    if application_binding.is_some() {
+        let release: PackageProvenanceV2 = serde_json::from_value(value)?;
+        if release.canonical_bytes()? != bytes {
+            bail!("app-bound package provenance is not canonical");
+        }
+        let plan = &release.compile_plan;
+        let binding_digest = application_binding.expect("checked app binding").digest()?;
+        if plan.stub_contract_digest != contract_digest
+            || plan.target != contract.target.triple
+            || plan.environment_profile_digest != contract.environment_profile_digest
+            || plan.compiler_identity != contract.hermesc.identity().unwrap_or_default()
+            || plan.carrier_encoding != CompileCarrierEncodingV1::HermesBytecode
+            || plan.application_binding_digest != binding_digest
+        {
+            bail!("app-bound CompilePlanV2 disagrees with admitted executable identities");
+        }
+        Ok(BootProvenanceV1::AppBound(release))
+    } else if value.get("compilePlan").is_some() {
         let release: PackageProvenanceV1 = serde_json::from_value(value)?;
         if release.canonical_bytes()? != bytes {
             bail!("release package provenance is not canonical");
@@ -512,22 +599,155 @@ fn expected_carrier_engine(
     }
 }
 
-#[cfg(ibex_release_stub_contract)]
-fn compiled_stub_contract() -> Result<ibex_sfe_format::StubContractV3> {
+#[cfg(all(ibex_release_stub_contract, ibex_app_bound_stub_contract))]
+fn compiled_stub_contract() -> Result<CompiledContract> {
     let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/stub-contract.canonical.json"));
-    let contract: ibex_sfe_format::StubContractV3 = serde_json::from_slice(bytes)?;
+    let contract: StubContractV4 = serde_json::from_slice(bytes)?;
+    if contract.canonical_bytes()? != bytes {
+        bail!("compiled app-bound release stub contract bytes are not canonical");
+    }
+    ibex_runtime::compiled_contract::validate_app_bound_stub_contract_local_authorities(&contract)?;
+    Ok(CompiledContract {
+        runtime: project_v4_contract(&contract),
+        canonical: bytes.to_vec(),
+        app_bound: Some(contract),
+    })
+}
+
+#[cfg(all(ibex_release_stub_contract, not(ibex_app_bound_stub_contract)))]
+fn compiled_stub_contract() -> Result<CompiledContract> {
+    let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/stub-contract.canonical.json"));
+    let contract: StubContractV3 = serde_json::from_slice(bytes)?;
     if contract.canonical_bytes()? != bytes {
         bail!("compiled release stub contract bytes are not canonical");
     }
     ibex_runtime::compiled_contract::validate_stub_contract_local_authorities(&contract)?;
-    Ok(contract)
+    Ok(CompiledContract {
+        runtime: contract,
+        canonical: bytes.to_vec(),
+        app_bound: None,
+    })
 }
 
 #[cfg(not(ibex_release_stub_contract))]
-fn compiled_stub_contract() -> Result<ibex_sfe_format::StubContractV3> {
+fn compiled_stub_contract() -> Result<CompiledContract> {
     let contract = ibex_runtime::compiled_contract::diagnostic_development_stub_contract()?;
     ibex_runtime::compiled_contract::validate_stub_contract_local_authorities(&contract)?;
-    Ok(contract)
+    Ok(CompiledContract {
+        canonical: contract.canonical_bytes()?,
+        runtime: contract,
+        app_bound: None,
+    })
+}
+
+fn project_v4_contract(contract: &StubContractV4) -> StubContractV3 {
+    StubContractV3 {
+        schema: ibex_sfe_format::STUB_CONTRACT_SCHEMA_V3.into(),
+        profile: contract.profile.clone(),
+        release_eligible: contract.release_eligible,
+        target: contract.target.clone(),
+        engine: contract.engine.clone(),
+        hermesc: contract.hermesc.clone(),
+        accepted_schemas: ibex_sfe_format::StubAcceptedSchemasV1 {
+            envelope: ibex_sfe_format::ENVELOPE_SCHEMA_V2.into(),
+            entry_designation: contract.accepted_schemas.entry_designation.clone(),
+            embedded_graph: contract.accepted_schemas.embedded_graph.clone(),
+            authenticated_graph_snapshot: contract
+                .accepted_schemas
+                .authenticated_graph_snapshot
+                .clone(),
+            computed_candidates: contract.accepted_schemas.computed_candidates.clone(),
+            carrier: contract.accepted_schemas.carrier.clone(),
+            canonical_policy: contract.accepted_schemas.canonical_policy.clone(),
+            armed_snapshot: contract.accepted_schemas.armed_snapshot.clone(),
+            runtime_capsec_projection: contract.accepted_schemas.runtime_capsec_projection.clone(),
+            runtime_identity: contract.accepted_schemas.runtime_identity.clone(),
+            environment_profile: contract.accepted_schemas.environment_profile.clone(),
+        },
+        abis: ibex_sfe_format::StubAbisV1 {
+            module_runner: contract.abis.module_runner.clone(),
+            arming: contract.abis.arming.clone(),
+        },
+        transform_profile_digest: contract.transform_profile_digest.clone(),
+        runtime_capsec_projection_digest: contract.runtime_capsec_projection_digest.clone(),
+        runtime_identity_digest: contract.runtime_identity_digest.clone(),
+        environment_profile_digest: contract.environment_profile_digest.clone(),
+        boot: contract.boot.clone(),
+        backends: contract.backends.clone(),
+    }
+}
+
+fn admit_image<'a>(
+    file: &'a [u8],
+    contract: &CompiledContract,
+    contract_digest: &str,
+) -> Result<AdmittedImage<'a>> {
+    if contract.app_bound.is_some() {
+        let admitted = admit_executable_v2(file, Some(contract_digest))?;
+        let mut sections = Vec::with_capacity(admitted.directory.sections.len());
+        for row in &admitted.directory.sections {
+            let Some(kind) = project_section_kind(row.kind) else {
+                continue;
+            };
+            let start = admitted.stub_len + row.offset as usize;
+            let bytes = &file[start..start + row.length as usize];
+            sections.push(EnvelopeSection {
+                kind,
+                id: row.id.clone(),
+                pair_id: row.pair_id.clone(),
+                bytes,
+            });
+        }
+        let binding_row = admitted
+            .directory
+            .sections
+            .iter()
+            .find(|row| row.kind == SectionKindV2::ApplicationBinding)
+            .ok_or_else(|| anyhow!("application binding section is absent"))?;
+        let binding_start = admitted.stub_len + binding_row.offset as usize;
+        let binding_bytes = &file[binding_start..binding_start + binding_row.length as usize];
+        let binding: ApplicationBindingV1 =
+            decode_canonical_section(binding_bytes, "application binding")?;
+        binding.validate()?;
+        Ok(AdmittedImage {
+            sections,
+            application_binding: Some(binding),
+        })
+    } else {
+        let admitted = admit_executable_v1(file, contract_digest)?;
+        let sections = admitted
+            .directory
+            .sections
+            .iter()
+            .map(|section| EnvelopeSection {
+                kind: section.kind,
+                id: section.id.clone(),
+                pair_id: section.pair_id.clone(),
+                bytes: {
+                    let start = admitted.stub_len + section.offset as usize;
+                    &file[start..start + section.length as usize]
+                },
+            })
+            .collect();
+        Ok(AdmittedImage {
+            sections,
+            application_binding: None,
+        })
+    }
+}
+
+fn project_section_kind(kind: SectionKindV2) -> Option<SectionKindV1> {
+    Some(match kind {
+        SectionKindV2::StubContract => SectionKindV1::StubContract,
+        SectionKindV2::ProvenanceManifest => SectionKindV1::ProvenanceManifest,
+        SectionKindV2::EmbeddedModuleGraph => SectionKindV1::EmbeddedModuleGraph,
+        SectionKindV2::ResolvedPolicy => SectionKindV1::ResolvedPolicy,
+        SectionKindV2::EntryDesignation => SectionKindV1::EntryDesignation,
+        SectionKindV2::CandidateTable => SectionKindV1::CandidateTable,
+        SectionKindV2::CarrierManifest => SectionKindV1::CarrierManifest,
+        SectionKindV2::CarrierPayload => SectionKindV1::CarrierPayload,
+        SectionKindV2::ApplicationBinding => return None,
+    })
 }
 
 fn prepared_artifacts(
@@ -802,7 +1022,7 @@ mod tests {
         let provenance = release_provenance(&contract);
         let bytes = provenance.canonical_bytes().unwrap();
         assert!(matches!(
-            decode_boot_provenance(&bytes, &contract, &contract.digest().unwrap()).unwrap(),
+            decode_boot_provenance(&bytes, &contract, &contract.digest().unwrap(), None).unwrap(),
             BootProvenanceV1::Release(_)
         ));
 

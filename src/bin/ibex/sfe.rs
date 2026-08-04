@@ -27,12 +27,22 @@ use ibex_runtime::module_loader::computed_candidates::ComputedCandidateTableV1;
 use ibex_runtime::module_loader::embedded_graph::{EmbeddedCarrierFactV1, EmbeddedModuleGraphV1};
 #[cfg(feature = "module-runner")]
 use ibex_runtime::module_loader::{
-    catalog_compiler::compile_catalog_embedded_graph_to_hbc,
+    catalog_compiler::{
+        compile_app_bound_catalog_embedded_graph_to_hbc, compile_catalog_embedded_graph_to_hbc,
+    },
     runner_pipeline::{capture_embedded_source_graph_v1, CapturedEmbeddedSourceGraphV1},
 };
+use ibex_sfe_catalog::app_bound::{AdmittedCatalogTargetV2, PinnedCatalogV2};
 #[cfg(feature = "module-runner")]
 use ibex_sfe_catalog::AdmittedCatalogTargetV1;
 use ibex_sfe_catalog::{CatalogTargetArtifacts, PinnedCatalogV1};
+use ibex_sfe_format::app_bound::ApplicationBindingV1;
+#[cfg(feature = "module-runner")]
+use ibex_sfe_format::app_bound::{
+    admit_executable_v2, build_executable_v2, rehash_stub_core_v2, CompilePlanV2,
+    PackageProvenanceV2, SectionInputV2, SectionKindV2, StubContractV4, COMPILE_PLAN_SCHEMA_V2,
+    PACKAGE_PROVENANCE_SCHEMA_V2,
+};
 #[cfg(feature = "module-runner")]
 use ibex_sfe_format::{
     admit_executable_v1, build_executable_v1, CompilePlanV1, SectionInputV1,
@@ -48,6 +58,7 @@ use crate::cli::CompileCarrier;
 
 const INSPECTION_SCHEMA_V3: &str = "ibex/executable-inspection/3";
 const RELEASE_CATALOG_DIGEST: Option<&str> = option_env!("IBEX_RELEASE_SFE_CATALOG_DIGEST");
+const RELEASE_APP_CATALOG_DIGEST: Option<&str> = option_env!("IBEX_RELEASE_APP_SFE_CATALOG_DIGEST");
 
 struct InnerAdmissionSummary {
     graph_identity: Digest,
@@ -121,6 +132,84 @@ pub fn compile(
             admitted,
         );
         bail!("single-file executable compilation requires the module-runner build feature")
+    }
+}
+
+/// Produce the lockstep Envelope V3 / Stub V4 / CompilePlan V2 app-bound
+/// executable. The target tuple and worker evidence come only from the
+/// release-pinned Catalog V2; the caller supplies the trusted parent graph and
+/// one canonical immutable application binding.
+/// @ref LLP 0048#85-producer-pipeline-and-reproducibility
+pub fn compile_app_bound(
+    entry: &Path,
+    binding_path: &Path,
+    output: &Path,
+    root_policy: Option<&Path>,
+    compile_policy: Option<&Path>,
+    deny_unsupported: bool,
+) -> Result<()> {
+    if root_policy.is_some() && compile_policy.is_some() {
+        bail!(
+            "root --policy and compile-app-local --policy conflict; name the canonical policy once"
+        );
+    }
+    let catalog_digest = RELEASE_APP_CATALOG_DIGEST.context(
+        "SAC001 app-bound catalog trust root refused: this ibex release has no pinned Catalog V2",
+    )?;
+    let binding_bytes = std::fs::read(binding_path)
+        .with_context(|| format!("cannot read app binding {}", binding_path.display()))?;
+    let binding: ApplicationBindingV1 =
+        decode_canonical_section(&binding_bytes, "application binding")?;
+    if binding.canonical_bytes()? != binding_bytes {
+        bail!("application binding is not exact canonical JCS");
+    }
+    let target_name = host_target_triple()?;
+    let root = release_catalog_root(catalog_digest)?;
+    let remedy = catalog_installation_remedy(catalog_digest, target_name, &root)?;
+    let manifest = std::fs::read(root.join("manifest.json"))
+        .with_context(|| format!("SAC003 app-bound catalog target unavailable: {remedy}"))?;
+    let catalog = PinnedCatalogV2::load(&manifest, catalog_digest)?;
+    let row = catalog.entry(target_name).with_context(|| remedy.clone())?;
+    let contract = read_catalog_artifact(&root, &row.contract)?;
+    let stub = read_catalog_artifact(&root, &row.stub_unsigned_core)?;
+    let hermesc = read_catalog_artifact(&root, &row.hermesc)?;
+    let worker = row
+        .restricted_worker_target
+        .as_ref()
+        .context("Catalog V2 target has no restricted-worker advertisement")?;
+    let advertisement_path = root.join(format!(
+        "sha256/{}/blob",
+        worker
+            .artifact
+            .digest
+            .strip_prefix("sha256-")
+            .context("target advertisement digest is malformed")?
+    ));
+    let advertisement = std::fs::read(&advertisement_path).with_context(|| remedy.clone())?;
+    let admitted = catalog.admit_target(target_name, &contract, &stub, &hermesc, &advertisement)?;
+    #[cfg(feature = "module-runner")]
+    {
+        return compile_app_bound_target(
+            entry,
+            output,
+            root_policy.or(compile_policy),
+            deny_unsupported,
+            catalog.manifest().sequence,
+            &binding,
+            &admitted,
+        );
+    }
+    #[cfg(not(feature = "module-runner"))]
+    {
+        let _ = (
+            entry,
+            output,
+            root_policy,
+            compile_policy,
+            deny_unsupported,
+            admitted,
+        );
+        bail!("app-bound executable compilation requires the module-runner build feature")
     }
 }
 
@@ -240,6 +329,136 @@ fn compile_admitted_target(
     admit_inner_contracts(&admitted, &target.contract, Some(&provenance))
         .context("assembled release envelope failed its own inner-contract admission")?;
     publish_compiled_output(output, &unsigned, &provenance)?;
+    emit_ambient_authority_notice_once();
+    Ok(())
+}
+
+#[cfg(feature = "module-runner")]
+fn compile_app_bound_target(
+    entry: &Path,
+    output: &Path,
+    policy_path: Option<&Path>,
+    deny_unsupported: bool,
+    catalog_sequence: u64,
+    binding: &ApplicationBindingV1,
+    target: &AdmittedCatalogTargetV2<'_>,
+) -> Result<()> {
+    let producer_digest = release_producer_digest(target.catalog_digest)?;
+    let captured = capture_embedded_source_graph_v1(entry, producer_digest)
+        .context("app-bound parent graph capture refused")?;
+    report_guarded_unsupported_sites(&captured, deny_unsupported)?;
+    let policy_path = match policy_path {
+        Some(path) => path.to_path_buf(),
+        None => default_compile_policy_path(entry, &target.entry.target)?,
+    };
+    let authored_policy = std::fs::read(&policy_path).with_context(|| {
+        format!(
+            "canonical app-bound parent policy is absent at {}",
+            policy_path.display()
+        )
+    })?;
+    let policy = admit_policy(&authored_policy, &captured.prepared.graph.graph_identity)
+        .with_context(|| format!("compiled policy {} was refused", policy_path.display()))?;
+    validate_compile_policy(&policy, &captured, &target.entry.target)?;
+    let canonical_policy =
+        capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(&policy)?)?;
+    let binding_digest = binding.digest()?;
+    if !binding
+        .engine_compatibility
+        .iter()
+        .any(|identity| identity == &target.entry.engine_compatibility_identity)
+    {
+        bail!("application binding does not admit the catalog target engine identity");
+    }
+    let plan = CompilePlanV2 {
+        schema: COMPILE_PLAN_SCHEMA_V2.into(),
+        graph_snapshot_digest: captured.prepared.graph.graph_identity.as_str().into(),
+        policy_digest: policy.policy_digest.as_str().into(),
+        stub_contract_digest: target.entry.contract_digest.clone(),
+        catalog_digest: target.catalog_digest.into(),
+        compiler_identity: target.entry.hermesc_identity.clone(),
+        carrier_encoding: CompileCarrierEncodingV1::HermesBytecode,
+        target: target.entry.target.clone(),
+        environment_profile_digest: target.contract.environment_profile_digest.clone(),
+        application_binding_digest: binding_digest,
+        target_advertisement_digest: Some(target.advertisement.digest()?),
+    };
+    let compiled = compile_app_bound_catalog_embedded_graph_to_hbc(target, captured.prepared)?;
+    let provenance = PackageProvenanceV2 {
+        schema: PACKAGE_PROVENANCE_SCHEMA_V2.into(),
+        compile_plan_digest: plan.digest()?,
+        compile_plan: plan,
+        catalog_sequence,
+        catalog_entry_target: target.entry.target.clone(),
+        stub_core_digest: target.entry.stub_unsigned_core.digest.clone(),
+        stub_core_reconstruction: ibex_sfe_format::StubCoreReconstructionV1::from_stub(
+            target.stub_unsigned_core,
+        )?,
+        producer_identity: format!("ibex-compile-app/{}", env!("CARGO_PKG_VERSION")),
+    };
+    let entry_designation =
+        EntryDesignationV1::one(compiled.graph.entry.0.encode()?).canonical_bytes()?;
+    let mut sections = vec![
+        SectionInputV2::canonical(
+            "stub-contract",
+            SectionKindV2::StubContract,
+            target.contract.canonical_bytes()?,
+        ),
+        SectionInputV2::canonical(
+            "provenance",
+            SectionKindV2::ProvenanceManifest,
+            provenance.canonical_bytes()?,
+        ),
+        SectionInputV2::canonical(
+            "graph",
+            SectionKindV2::EmbeddedModuleGraph,
+            compiled.graph.canonical_bytes()?,
+        ),
+        SectionInputV2::canonical("policy", SectionKindV2::ResolvedPolicy, canonical_policy),
+        SectionInputV2::canonical("entry", SectionKindV2::EntryDesignation, entry_designation),
+        SectionInputV2::canonical(
+            "application-binding",
+            SectionKindV2::ApplicationBinding,
+            binding.canonical_bytes()?,
+        ),
+    ];
+    for table in compiled.candidate_tables {
+        sections.push(SectionInputV2::canonical(
+            table.digest()?.as_str(),
+            SectionKindV2::CandidateTable,
+            table.canonical_bytes()?,
+        ));
+    }
+    for (index, carrier) in compiled.carriers.into_iter().enumerate() {
+        sections.push(SectionInputV2::carrier(
+            format!("carrier-manifest-{index:04}"),
+            SectionKindV2::CarrierManifest,
+            carrier.pair_id.clone(),
+            carrier.manifest.encode_canonical()?,
+        ));
+        sections.push(SectionInputV2::carrier(
+            format!("carrier-payload-{index:04}"),
+            SectionKindV2::CarrierPayload,
+            carrier.pair_id,
+            carrier.payload,
+        ));
+    }
+    let unsigned = if target.stub_unsigned_core.get(..4) == Some(&0xfeedfacfu32.to_le_bytes()) {
+        let envelope = build_executable_v2(&[], &target.entry.contract_digest, sections)?;
+        ibex_sfe_format::macho::inject_envelope_segment_v1(target.stub_unsigned_core, &envelope)?
+    } else {
+        build_executable_v2(
+            target.stub_unsigned_core,
+            &target.entry.contract_digest,
+            sections,
+        )?
+    };
+    let admitted = admit_executable_v2(&unsigned, Some(&target.entry.contract_digest))
+        .context("assembled app-bound executable failed its own bulk preflight")?;
+    if admitted.directory.sections.len() < 8 {
+        bail!("assembled app-bound executable omitted required inner sections");
+    }
+    publish_app_bound_output(output, &unsigned, &provenance)?;
     emit_ambient_authority_notice_once();
     Ok(())
 }
@@ -487,6 +706,38 @@ fn publish_compiled_output(
     unsigned: &[u8],
     provenance: &PackageProvenanceV1,
 ) -> Result<()> {
+    publish_output(
+        output,
+        unsigned,
+        "ibex/sfe-build-statement/1",
+        &provenance.compile_plan_digest,
+        &provenance.stub_core_digest,
+    )
+}
+
+#[cfg(feature = "module-runner")]
+fn publish_app_bound_output(
+    output: &Path,
+    unsigned: &[u8],
+    provenance: &PackageProvenanceV2,
+) -> Result<()> {
+    publish_output(
+        output,
+        unsigned,
+        "ibex/sfe-build-statement/2",
+        &provenance.compile_plan_digest,
+        &provenance.stub_core_digest,
+    )
+}
+
+#[cfg(feature = "module-runner")]
+fn publish_output(
+    output: &Path,
+    unsigned: &[u8],
+    statement_schema: &str,
+    compile_plan_digest: &str,
+    stub_core_digest: &str,
+) -> Result<()> {
     let unsigned_digest = source_integrity(unsigned)?;
     let parent = output.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(parent)
@@ -524,9 +775,9 @@ fn publish_compiled_output(
     let published = std::fs::read(output)?;
     let published_digest = source_integrity(&published)?;
     let statement = json!({
-        "schema": "ibex/sfe-build-statement/1",
-        "compilePlanDigest": provenance.compile_plan_digest,
-        "stubCoreDigest": provenance.stub_core_digest,
+        "schema": statement_schema,
+        "compilePlanDigest": compile_plan_digest,
+        "stubCoreDigest": stub_core_digest,
         "unsignedFileDigest": unsigned_digest,
         "publishedFileDigest": published_digest,
         "platformSignature": if published == unsigned { "not-applicable" } else { "ad-hoc" },
@@ -591,6 +842,10 @@ fn host_target_triple() -> Result<&'static str> {
 pub fn inspect(path: &Path) -> Result<()> {
     let file = std::fs::read(path)
         .with_context(|| format!("cannot read executable {}", path.display()))?;
+    #[cfg(feature = "module-runner")]
+    if let Ok(envelope) = admit_executable_v2(&file, None) {
+        return inspect_app_bound(path, &file, &envelope);
+    }
     let envelope = inspect_executable_v1(&file)
         .with_context(|| format!("executable envelope {} is inconsistent", path.display()))?;
 
@@ -726,6 +981,83 @@ pub fn inspect(path: &Path) -> Result<()> {
     });
     let bytes = canonical_value(&report)?;
     println!("{}", std::str::from_utf8(&bytes).expect("JCS is UTF-8"));
+    Ok(())
+}
+
+#[cfg(feature = "module-runner")]
+fn inspect_app_bound(
+    path: &Path,
+    file: &[u8],
+    envelope: &ibex_sfe_format::app_bound::AdmittedEnvelopeV2<'_>,
+) -> Result<()> {
+    let section = |kind: SectionKindV2| -> Result<&[u8]> {
+        let row = envelope
+            .directory
+            .sections
+            .iter()
+            .find(|row| row.kind == kind)
+            .with_context(|| format!("required {kind:?} section is absent"))?;
+        envelope
+            .section(&row.id)
+            .with_context(|| format!("required {kind:?} section bytes are absent"))
+    };
+    let contract: StubContractV4 =
+        decode_canonical_section(section(SectionKindV2::StubContract)?, "V4 stub contract")?;
+    let provenance: PackageProvenanceV2 = decode_canonical_section(
+        section(SectionKindV2::ProvenanceManifest)?,
+        "V2 package provenance",
+    )?;
+    let binding: ApplicationBindingV1 = decode_canonical_section(
+        section(SectionKindV2::ApplicationBinding)?,
+        "application binding",
+    )?;
+    if contract.digest()? != envelope.directory.stub_contract_digest
+        || provenance.compile_plan.stub_contract_digest != contract.digest()?
+        || provenance.compile_plan.application_binding_digest != binding.digest()?
+        || provenance.compile_plan.target_advertisement_digest
+            != contract.external_worker.target_advertisement_digest
+    {
+        bail!("app-bound contract, provenance, binding, or worker evidence identities disagree");
+    }
+    let graph: EmbeddedModuleGraphV1 = decode_canonical_section(
+        section(SectionKindV2::EmbeddedModuleGraph)?,
+        "embedded graph",
+    )?;
+    let stub_digest = rehash_stub_core_v2(file, envelope, &provenance.stub_core_reconstruction)?;
+    if stub_digest != provenance.stub_core_digest {
+        bail!("app-bound executable stub core disagrees with V2 provenance");
+    }
+    let carrier_count = envelope
+        .directory
+        .sections
+        .iter()
+        .filter(|row| row.kind == SectionKindV2::CarrierManifest)
+        .count();
+    let report = json!({
+        "schema": "ibex/executable-inspection/4",
+        "file": path,
+        "envelopeConsistency": {
+            "state": "consistent",
+            "schema": envelope.directory.schema,
+            "envelopeDigest": envelope.envelope_digest,
+            "stubContractDigest": envelope.directory.stub_contract_digest,
+            "sectionCount": envelope.directory.sections.len(),
+        },
+        "platformSignature": platform_signature_state(path, file),
+        "stubCoreConsistency": { "state": "consistent", "digest": stub_digest, "size": provenance.stub_core_reconstruction.size },
+        "runtimeAdmission": {
+            "applicationEvaluated": false,
+            "graphIdentity": graph.graph_identity,
+            "recordCount": graph.records.len(),
+            "carrierCount": carrier_count,
+        },
+        "applicationBinding": binding,
+        "restrictedWorker": contract.external_worker,
+        "target": contract.target,
+        "backendInventory": contract.backends,
+        "provenance": provenance,
+    });
+    println!("{}", std::str::from_utf8(&canonical_value(&report)?)?);
     Ok(())
 }
 

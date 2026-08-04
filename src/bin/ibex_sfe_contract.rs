@@ -9,8 +9,18 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use ibex_runtime::compiled_contract::{release_stub_contract, ReleaseStubFactsV1};
+use ibex_runtime::compiled_contract::{
+    release_app_bound_stub_contract, release_stub_contract, ReleaseExternalWorkerFactsV1,
+    ReleaseStubFactsV1,
+};
 use ibex_runtime::module_loader::artifact::source_integrity;
+use ibex_sfe_format::app_bound::{
+    LimitsV1, TargetAdvertisementV1, TargetEvidenceV1, RESTRICTED_WORKER_ABI_V1,
+    RESTRICTED_WORKER_BROKER_V1, RESTRICTED_WORKER_GLOBAL_INVENTORY_DOMAIN_V1,
+    RESTRICTED_WORKER_LANGUAGE_PROFILE_DOMAIN_V1, RESTRICTED_WORKER_LANGUAGE_PROFILE_V1,
+    RESTRICTED_WORKER_POLICY_DOMAIN_V1, RESTRICTED_WORKER_POLICY_V1,
+    TARGET_ADVERTISEMENT_SCHEMA_V1, TARGET_EVIDENCE_SCHEMA_V1,
+};
 use ibex_sfe_format::HermescRecipeV1;
 
 struct Arguments {
@@ -21,6 +31,12 @@ struct Arguments {
     hermesc: PathBuf,
     hermes: PathBuf,
     output: PathBuf,
+    advertisement_output: Option<PathBuf>,
+    worker_profile: Option<PathBuf>,
+    worker_policy: Option<PathBuf>,
+    worker_global_inventory: Option<PathBuf>,
+    worker_suite: Option<PathBuf>,
+    worker_broker_corpus: Option<PathBuf>,
 }
 
 fn main() {
@@ -42,25 +58,114 @@ fn run() -> Result<()> {
             "Hermes compiler/runtime HBC mismatch: hermesc {compiler_hbc}, runtime {runtime_hbc}"
         );
     }
-    let contract = release_stub_contract(ReleaseStubFactsV1 {
+    let facts = ReleaseStubFactsV1 {
         profile: "sfe-v1".into(),
-        target_triple: arguments.target,
-        minimum_platform: arguments.minimum_platform,
+        target_triple: arguments.target.clone(),
+        minimum_platform: arguments.minimum_platform.clone(),
         engine_build_profile: arguments.engine_profile,
         static_archive_digest: static_archive_digest.as_str().into(),
         hbc_version: compiler_hbc,
         hermesc_binary_digest: source_integrity(&hermesc)?.as_str().into(),
         hermesc_recipe_digest: HermescRecipeV1::production().digest()?,
-    })?;
-    let bytes = contract.canonical_bytes()?;
+    };
+    let (bytes, contract_digest, contract_target, advertisement_digest) =
+        if let Some(advertisement_output) = arguments.advertisement_output.as_ref() {
+            let profile = semantic_artifact(
+                required_path(&arguments.worker_profile, "--worker-profile")?,
+                RESTRICTED_WORKER_LANGUAGE_PROFILE_V1,
+                RESTRICTED_WORKER_LANGUAGE_PROFILE_DOMAIN_V1,
+            )?;
+            let policy = semantic_artifact(
+                required_path(&arguments.worker_policy, "--worker-policy")?,
+                RESTRICTED_WORKER_POLICY_V1,
+                RESTRICTED_WORKER_POLICY_DOMAIN_V1,
+            )?;
+            let inventory = semantic_artifact(
+                required_path(
+                    &arguments.worker_global_inventory,
+                    "--worker-global-inventory",
+                )?,
+                "ibex/restricted-worker-global-inventory/1",
+                RESTRICTED_WORKER_GLOBAL_INVENTORY_DOMAIN_V1,
+            )?;
+            let base = release_stub_contract(facts.clone())?;
+            let advertisement = TargetAdvertisementV1 {
+                schema: TARGET_ADVERTISEMENT_SCHEMA_V1.into(),
+                target: base.target.clone(),
+                engine_compatibility_digest: base.engine.identity().into(),
+                native_abi: RESTRICTED_WORKER_ABI_V1.into(),
+                language_profile: RESTRICTED_WORKER_LANGUAGE_PROFILE_V1.into(),
+                language_profile_digest: profile,
+                worker_policy: RESTRICTED_WORKER_POLICY_V1.into(),
+                worker_policy_digest: policy.clone(),
+                broker_protocol: RESTRICTED_WORKER_BROKER_V1.into(),
+                global_inventory_digest: inventory,
+                defaults_digest: LimitsV1::defaults().digest()?,
+                maxima_digest: LimitsV1::maxima().digest()?,
+                evidence: TargetEvidenceV1 {
+                    schema: TARGET_EVIDENCE_SCHEMA_V1.into(),
+                    suite_digest: source_integrity(&read_regular(
+                        required_path(&arguments.worker_suite, "--worker-suite")?,
+                        "restricted-worker suite",
+                    )?)?
+                    .as_str()
+                    .into(),
+                    engine_artifact_digest: source_integrity(&read_regular(
+                        &arguments.hermes,
+                        "Hermes VM",
+                    )?)?
+                    .as_str()
+                    .into(),
+                    policy_artifact_digest: source_integrity(&read_regular(
+                        required_path(&arguments.worker_policy, "--worker-policy")?,
+                        "restricted-worker policy",
+                    )?)?
+                    .as_str()
+                    .into(),
+                    broker_corpus_digest: source_integrity(&read_regular(
+                        required_path(&arguments.worker_broker_corpus, "--worker-broker-corpus")?,
+                        "restricted-worker broker corpus",
+                    )?)?
+                    .as_str()
+                    .into(),
+                },
+            };
+            let advertisement_bytes = advertisement.canonical_bytes()?;
+            write_if_absent_or_equal(advertisement_output, &advertisement_bytes)?;
+            let advertisement_digest = advertisement.digest()?;
+            let contract = release_app_bound_stub_contract(
+                facts,
+                ReleaseExternalWorkerFactsV1 {
+                    language_profile_digest: advertisement.language_profile_digest.clone(),
+                    worker_policy_digest: policy,
+                    global_inventory_digest: advertisement.global_inventory_digest.clone(),
+                    target_advertisement_digest: advertisement_digest.clone(),
+                },
+            )?;
+            (
+                contract.canonical_bytes()?,
+                contract.digest()?,
+                contract.target.triple.clone(),
+                Some(advertisement_digest),
+            )
+        } else {
+            let contract = release_stub_contract(facts)?;
+            (
+                contract.canonical_bytes()?,
+                contract.digest()?,
+                contract.target.triple.clone(),
+                None,
+            )
+        };
     write_if_absent_or_equal(&arguments.output, &bytes)?;
     let report = serde_json::json!({
-        "contractDigest": contract.digest()?,
+        "contractDigest": contract_digest,
         "staticArchiveBundle": static_archive_bundle,
         "staticArchiveBundleDigest": static_archive_digest,
         "hbcVersion": compiler_hbc,
         "output": arguments.output,
-        "target": contract.target.triple,
+        "target": contract_target,
+        "targetAdvertisementDigest": advertisement_digest,
     });
     let report = capsec_semantics::canonical::to_jcs_bytes(&report).map_err(anyhow::Error::msg)?;
     println!("{}", std::str::from_utf8(&report).expect("JCS is UTF-8"));
@@ -76,6 +181,12 @@ fn parse_arguments(arguments: impl Iterator<Item = std::ffi::OsString>) -> Resul
     let mut hermesc = None;
     let mut hermes = None;
     let mut output = None;
+    let mut advertisement_output = None;
+    let mut worker_profile = None;
+    let mut worker_policy = None;
+    let mut worker_global_inventory = None;
+    let mut worker_suite = None;
+    let mut worker_broker_corpus = None;
     while let Some(argument) = arguments.next() {
         let name = argument
             .into_string()
@@ -108,6 +219,12 @@ fn parse_arguments(arguments: impl Iterator<Item = std::ffi::OsString>) -> Resul
             "--hermesc" => hermesc = Some(PathBuf::from(value)),
             "--hermes" => hermes = Some(PathBuf::from(value)),
             "--output" => output = Some(PathBuf::from(value)),
+            "--advertisement-output" => advertisement_output = Some(PathBuf::from(value)),
+            "--worker-profile" => worker_profile = Some(PathBuf::from(value)),
+            "--worker-policy" => worker_policy = Some(PathBuf::from(value)),
+            "--worker-global-inventory" => worker_global_inventory = Some(PathBuf::from(value)),
+            "--worker-suite" => worker_suite = Some(PathBuf::from(value)),
+            "--worker-broker-corpus" => worker_broker_corpus = Some(PathBuf::from(value)),
             _ => bail!("unknown argument {name:?}"),
         }
     }
@@ -119,7 +236,32 @@ fn parse_arguments(arguments: impl Iterator<Item = std::ffi::OsString>) -> Resul
         hermesc: hermesc.context("--hermesc is required")?,
         hermes: hermes.context("--hermes is required")?,
         output: output.context("--output is required")?,
+        advertisement_output,
+        worker_profile,
+        worker_policy,
+        worker_global_inventory,
+        worker_suite,
+        worker_broker_corpus,
     })
+}
+
+fn required_path<'a>(value: &'a Option<PathBuf>, name: &str) -> Result<&'a Path> {
+    value
+        .as_deref()
+        .with_context(|| format!("{name} is required with --advertisement-output"))
+}
+
+fn semantic_artifact(path: &Path, schema: &str, domain: &str) -> Result<String> {
+    let bytes = read_regular(path, schema)?;
+    let text = std::str::from_utf8(&bytes).with_context(|| format!("{schema} is not UTF-8"))?;
+    let value = capsec_semantics::strict_json::parse_strict(text)
+        .with_context(|| format!("{schema} is not strict JSON"))?;
+    if value.get("schema").and_then(serde_json::Value::as_str) != Some(schema)
+        || capsec_semantics::canonical::to_jcs_bytes(&value).map_err(anyhow::Error::msg)? != bytes
+    {
+        bail!("{schema} artifact is not exact canonical JCS with the required schema");
+    }
+    capsec_semantics::digest::compute_domain_digest(domain, &value, &[]).map_err(anyhow::Error::msg)
 }
 
 fn archive_bundle_digest(

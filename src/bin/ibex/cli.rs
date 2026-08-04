@@ -282,6 +282,30 @@ pub enum Commands {
         deny_unsupported: bool,
     },
 
+    /// Build a one-file executable with a fixed application binding and the
+    /// release-admitted restricted external-script worker
+    CompileApp {
+        /// Trusted parent application entry point
+        #[arg(required = true)]
+        entry: PathBuf,
+
+        /// Canonical ibex/app-bound-parent/1 binding document
+        #[arg(long, required = true)]
+        binding: PathBuf,
+
+        /// Executable output path
+        #[arg(short = 'o', long = "output", required = true)]
+        output: PathBuf,
+
+        /// Canonical production policy (conflicts with root --policy)
+        #[arg(long = "policy", value_name = "FILE")]
+        compile_policy: Option<PathBuf>,
+
+        /// Refuse graphs containing guarded invocation-time unsupported sites
+        #[arg(long)]
+        deny_unsupported: bool,
+    },
+
     /// Inspect a single-file executable without evaluating application code
     InspectExecutable {
         /// Executable to inspect

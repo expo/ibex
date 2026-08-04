@@ -1263,6 +1263,20 @@ async fn run(cli: Cli) -> Result<()> {
             compile_policy.as_deref(),
             *deny_unsupported,
         ),
+        Some(Commands::CompileApp {
+            entry,
+            binding,
+            output,
+            compile_policy,
+            deny_unsupported,
+        }) => sfe::compile_app_bound(
+            entry,
+            binding,
+            output,
+            cli.policy.as_deref(),
+            compile_policy.as_deref(),
+            *deny_unsupported,
+        ),
         Some(Commands::InspectExecutable { file }) => sfe::inspect(file),
         Some(Commands::Version) => {
             print_version(&cli);

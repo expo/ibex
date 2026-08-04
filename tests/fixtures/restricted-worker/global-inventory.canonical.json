@@ -1,0 +1,1 @@
+{"applicationEndowments":["api","args","clearTimeout","console","setTimeout","signal","snapback"],"hazardousAliases":["__proto__","constructor","prototype","then","catch","finally","function","inspect","toJSON","toString","valueOf"],"removedStandardGlobals":["Date","Function","Intl","WebAssembly","eval"],"schema":"ibex/restricted-worker-global-inventory/1"}

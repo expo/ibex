@@ -436,6 +436,12 @@ unsafe extern "C" {
         message: *mut *mut u8,
         message_len: *mut usize,
     ) -> i32;
+    #[cfg(feature = "sfe-compiled-runtime")]
+    fn ibex_private_install_app_bound_worker_bridge_v1(
+        runtime: *mut c_void,
+        contract: *const u8,
+        contract_len: usize,
+    ) -> i32;
     #[cfg(any(test, feature = "sfe-dev-spike", feature = "sfe-compiled-runtime"))]
     fn ex_hermes_eval(
         runtime: *mut c_void,
@@ -546,6 +552,27 @@ impl CompiledModuleRuntime {
              true;"
         );
         self.eval_text(&source, "ibex:compiled-process-metadata")?;
+        Ok(())
+    }
+
+    /// Install the closed app-bound parent bridge before authenticated parent
+    /// modules evaluate. General compiled executables never receive it.
+    /// @ref LLP 0048#61-native-construction-and-ownership-seam
+    #[cfg(feature = "sfe-compiled-runtime")]
+    pub fn install_app_bound_worker_bridge(&mut self, contract: &[u8]) -> Result<()> {
+        if contract.is_empty() {
+            bail!("app-bound restricted-worker bridge contract is empty");
+        }
+        let status = unsafe {
+            ibex_private_install_app_bound_worker_bridge_v1(
+                self.raw.as_ptr(),
+                contract.as_ptr(),
+                contract.len(),
+            )
+        };
+        if status != 0 {
+            bail!("app-bound restricted-worker bridge install refused ({status})");
+        }
         Ok(())
     }
 

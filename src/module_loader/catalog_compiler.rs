@@ -12,6 +12,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::{bail, Context as _, Result};
 use capsec_semantics::model::Digest;
+use ibex_sfe_catalog::app_bound::AdmittedCatalogTargetV2;
 use ibex_sfe_catalog::AdmittedCatalogTargetV1;
 use ibex_sfe_format::{EngineCompatibilityV1, HermescCompatibilityV1, HermescRecipeV1};
 
@@ -52,8 +53,77 @@ pub fn compile_catalog_embedded_graph_to_hbc(
     })
 }
 
+/// Compile an app-bound parent's authenticated graph with the compiler tuple
+/// admitted by Catalog V2. The physical carrier recipe is intentionally the
+/// same as general SFE production; only the V4 contract/catalog authority is
+/// distinct.
+/// @ref LLP 0048#84-catalog-v2-target-advertisement-and-release-evidence
+#[cfg(any(test, feature = "module-runner"))]
+pub fn compile_app_bound_catalog_embedded_graph_to_hbc(
+    target: &AdmittedCatalogTargetV2<'_>,
+    source: PreparedEmbeddedSourceGraphV1,
+) -> Result<PreparedEmbeddedSourceGraphV1> {
+    let carriers = source
+        .carriers
+        .into_iter()
+        .map(|carrier| {
+            let (manifest, payload) = compile_app_bound_catalog_carrier_to_hbc(
+                target,
+                &carrier.manifest,
+                &carrier.payload,
+            )?;
+            Ok(EmbeddedPreparedCarrierV1 {
+                pair_id: carrier.pair_id,
+                manifest,
+                payload,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(PreparedEmbeddedSourceGraphV1 {
+        graph: source.graph,
+        carriers,
+        candidate_tables: source.candidate_tables,
+    })
+}
+
+pub fn compile_app_bound_catalog_carrier_to_hbc(
+    target: &AdmittedCatalogTargetV2<'_>,
+    source_manifest: &PreparedModuleCarrierV2,
+    factory_table_source: &[u8],
+) -> Result<(PreparedModuleCarrierV2, Vec<u8>)> {
+    compile_carrier_fields(
+        &target.contract.engine,
+        &target.contract.hermesc,
+        target.entry.hbc_version,
+        &target.entry.engine_compatibility_identity,
+        target.hermesc,
+        source_manifest,
+        factory_table_source,
+    )
+}
+
 pub fn compile_catalog_carrier_to_hbc(
     target: &AdmittedCatalogTargetV1<'_>,
+    source_manifest: &PreparedModuleCarrierV2,
+    factory_table_source: &[u8],
+) -> Result<(PreparedModuleCarrierV2, Vec<u8>)> {
+    compile_carrier_fields(
+        &target.contract.engine,
+        &target.contract.hermesc,
+        target.entry.hbc_version,
+        &target.entry.engine_compatibility_identity,
+        target.hermesc,
+        source_manifest,
+        factory_table_source,
+    )
+}
+
+fn compile_carrier_fields(
+    engine: &EngineCompatibilityV1,
+    compiler: &HermescCompatibilityV1,
+    catalog_hbc_version: u32,
+    engine_compatibility_identity: &str,
+    hermesc: &[u8],
     source_manifest: &PreparedModuleCarrierV2,
     factory_table_source: &[u8],
 ) -> Result<(PreparedModuleCarrierV2, Vec<u8>)> {
@@ -69,17 +139,17 @@ pub fn compile_catalog_carrier_to_hbc(
         hbc_version,
         recipe_digest: contract_recipe,
         ..
-    } = &target.contract.hermesc
+    } = compiler
     else {
         bail!("admitted catalog target has no release hermesc identity");
     };
-    if contract_recipe != &recipe_digest || *hbc_version != target.entry.hbc_version {
+    if contract_recipe != &recipe_digest || *hbc_version != catalog_hbc_version {
         bail!("catalog hermesc contract disagrees with the fixed production recipe");
     }
     let EngineCompatibilityV1::StaticHermes {
         hbc_version: engine_hbc_version,
         ..
-    } = &target.contract.engine
+    } = engine
     else {
         bail!("admitted catalog target has no static Hermes engine identity");
     };
@@ -87,7 +157,7 @@ pub fn compile_catalog_carrier_to_hbc(
         bail!("catalog compiler and static engine HBC versions disagree");
     }
 
-    let hbc = run_fixed_hermesc(target.hermesc, factory_table_source)?;
+    let hbc = run_fixed_hermesc(hermesc, factory_table_source)?;
     let metadata = HermesBytecodeMetadataV1::inspect(&hbc)?;
     if metadata.bytecode_version != *hbc_version {
         bail!(
@@ -97,7 +167,7 @@ pub fn compile_catalog_carrier_to_hbc(
         );
     }
     let binding = PreparedCarrierEngineBindingV2::StaticCompatibility {
-        compatibility_identity: Digest::new(target.entry.engine_compatibility_identity.clone())
+        compatibility_identity: Digest::new(engine_compatibility_identity.to_owned())
             .map_err(anyhow::Error::msg)?,
     };
     let manifest = source_manifest.bind_hermes_bytecode(&hbc, binding)?;

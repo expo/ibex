@@ -4,6 +4,7 @@
 //! executables with header slack. It never rewrites existing section offsets.
 //! @ref LLP 0029#2-executable-layout-stub-envelope-footer — macOS payloads live in a named segment and remain discoverable after code signing appends its signature
 
+use super::app_bound::{FOOTER_MAGIC_V3, FORMAT_VERSION_V3};
 use super::{Error, Result, FOOTER_LEN_V1, FOOTER_MAGIC_V2, FORMAT_VERSION_V2};
 
 const MACH_HEADER_64_LEN: usize = 32;
@@ -572,8 +573,8 @@ fn validate_standalone_envelope(bytes: &[u8]) -> Result<()> {
         return Err(Error::Footer);
     }
     let footer = &bytes[bytes.len() - FOOTER_LEN_V1..];
-    if footer[..16] != FOOTER_MAGIC_V2
-        || read_u32(footer, 16)? != FORMAT_VERSION_V2
+    let profile = (&footer[..16], read_u32(footer, 16)?);
+    if !matches!(profile, (magic, version) if (magic == FOOTER_MAGIC_V2 && version == FORMAT_VERSION_V2) || (magic == FOOTER_MAGIC_V3 && version == FORMAT_VERSION_V3))
         || read_u32(footer, 20)? as usize != FOOTER_LEN_V1
         || read_u64(footer, 24)? != 0
     {

@@ -18,7 +18,7 @@ readonly sfe_source_date_epoch=1
 export SOURCE_DATE_EPOCH="$sfe_source_date_epoch"
 
 usage() {
-  echo "usage: $0 --target TRIPLE --minimum-platform BASELINE --engine-profile NAME --hermesc PATH --hermes PATH --policy-runner PATH --static-archive ROLE PATH [--static-archive ROLE PATH ...] --output DIR [--release NAME] [--sequence N]" >&2
+  echo "usage: $0 --target TRIPLE --minimum-platform BASELINE --engine-profile NAME --hermesc PATH --hermes PATH --policy-runner PATH --static-archive ROLE PATH [--static-archive ROLE PATH ...] --output DIR [--release NAME] [--sequence N] [--app-bound]" >&2
   exit 2
 }
 
@@ -34,6 +34,7 @@ output_dir=""
 release_name=""
 catalog_sequence="1"
 static_archive_arguments=()
+app_bound=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -86,6 +87,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || usage
       catalog_sequence="$2"
       shift 2
+      ;;
+    --app-bound)
+      app_bound=1
+      shift
       ;;
     *)
       usage
@@ -242,6 +247,8 @@ trap cleanup_release_stage EXIT INT TERM
 
 contract_path="$release_stage/stub-contract.canonical.json"
 contract_report="$release_stage/contract-report.json"
+advertisement_path="$release_stage/restricted-worker-target-advertisement.canonical.json"
+worker_suite_path="$release_stage/restricted-worker-target-suite.canonical.json"
 contract_features="sfe-catalog-build"
 if [[ "$target_triple" == "x86_64-unknown-linux-gnu" ]]; then
   # The v1 Linux artifact owns its HTTP/WebSocket implementation. Build both
@@ -251,6 +258,21 @@ if [[ "$target_triple" == "x86_64-unknown-linux-gnu" ]]; then
   # @ref LLP 0047#the-linux-ambient-network-gap-must-be-decided-not-inherited
   contract_features+=",sfe-static-network"
 fi
+contract_extra_arguments=()
+if [[ "$app_bound" -eq 1 ]]; then
+  cargo test --quiet --release --lib restricted_worker::tests:: --no-default-features
+  source_commit="$(git rev-parse HEAD)"
+  python3 -c 'import json,sys; print(json.dumps({"result":"pass","schema":"ibex/restricted-worker-target-suite-result/1","sourceCommit":sys.argv[1],"target":sys.argv[2],"tests":["c-layout","native-broker-round-trip","run-id"]},sort_keys=True,separators=(",",":")))' \
+    "$source_commit" "$target_triple" > "$worker_suite_path"
+  contract_extra_arguments+=(
+    --advertisement-output "$advertisement_path"
+    --worker-profile "$repo_root/tests/fixtures/restricted-worker/language-profile.canonical.json"
+    --worker-policy "$repo_root/tests/fixtures/restricted-worker/policy.canonical.json"
+    --worker-global-inventory "$repo_root/tests/fixtures/restricted-worker/global-inventory.canonical.json"
+    --worker-suite "$worker_suite_path"
+    --worker-broker-corpus "$repo_root/tests/fixtures/restricted-worker/broker-corpus.canonical.json"
+  )
+fi
 cargo run --quiet --release --bin ibex-sfe-contract --features "$contract_features" -- \
   --target "$target_triple" \
   --minimum-platform "$minimum_platform" \
@@ -258,6 +280,7 @@ cargo run --quiet --release --bin ibex-sfe-contract --features "$contract_featur
   --hermesc "$hermesc_path" \
   --hermes "$hermes_path" \
   "${static_archive_arguments[@]}" \
+  "${contract_extra_arguments[@]}" \
   --output "$contract_path" > "$contract_report"
 
 producer_target_dir="${CARGO_TARGET_DIR:-$repo_root/target}"
@@ -337,13 +360,18 @@ fi
 
 catalog_store="$release_stage/catalogs"
 catalog_report="$release_stage/catalog-report.json"
+catalog_extra_arguments=()
+if [[ "$app_bound" -eq 1 ]]; then
+  catalog_extra_arguments+=(--advertisement "$advertisement_path")
+fi
 cargo run --quiet --release --package ibex-sfe-catalog --bin ibex-sfe-catalog -- assemble \
   --release "$release_name" \
   --sequence "$catalog_sequence" \
   --contract "$contract_path" \
   --stub "$stub_core" \
   --hermesc "$hermesc_path" \
-  --catalogs-dir "$catalog_store" > "$catalog_report"
+  --catalogs-dir "$catalog_store" \
+  "${catalog_extra_arguments[@]}" > "$catalog_report"
 catalog_digest="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["catalogDigest"])' "$catalog_report")"
 catalog_root="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["catalogRoot"])' "$catalog_report")"
 catalog_key="${catalog_digest#sha256-}"
@@ -396,16 +424,20 @@ policy_toolchain_key="${policy_toolchain_digest#sha256-}"
 }
 policy_toolchain_name="ibex-policy-toolchain-$policy_toolchain_key"
 
+catalog_digest_env="IBEX_RELEASE_SFE_CATALOG_DIGEST"
+if [[ "$app_bound" -eq 1 ]]; then
+  catalog_digest_env="IBEX_RELEASE_APP_SFE_CATALOG_DIGEST"
+fi
 if [[ "$target_triple" == "x86_64-unknown-linux-gnu" ]]; then
-  IBEX_RELEASE_SFE_CATALOG_DIGEST="$catalog_digest" \
+  env "$catalog_digest_env=$catalog_digest" \
   IBEX_RELEASE_POLICY_TOOLCHAIN_DIGEST="$policy_toolchain_digest" \
     cargo build --quiet --release --bin ibex --features sfe-static-network
 else
-  IBEX_RELEASE_SFE_CATALOG_DIGEST="$catalog_digest" \
+  env "$catalog_digest_env=$catalog_digest" \
   IBEX_RELEASE_POLICY_TOOLCHAIN_DIGEST="$policy_toolchain_digest" \
     cargo build --quiet --release --bin ibex
 fi
-IBEX_RELEASE_SFE_CATALOG_DIGEST="$catalog_digest" \
+env "$catalog_digest_env=$catalog_digest" \
   cargo build --quiet --release --package ibex-sfe-catalog --bin ibex-sfe-catalog
 
 deliverable="$release_stage/deliverable"
@@ -417,6 +449,10 @@ asset_name="$asset_base.tar.gz"
 tar -C "$catalog_store" -czf "$deliverable/$asset_name" "$catalog_key"
 cp "$contract_report" "$deliverable/contract-report.json"
 cp "$catalog_report" "$deliverable/catalog-report.json"
+if [[ "$app_bound" -eq 1 ]]; then
+  cp "$advertisement_path" "$deliverable/restricted-worker-target-advertisement.canonical.json"
+  cp "$worker_suite_path" "$deliverable/restricted-worker-target-suite.canonical.json"
+fi
 cp "$policy_toolchain_report" "$deliverable/policy-toolchain-report.json"
 mv "$policy_toolchain_root" "$deliverable/$policy_toolchain_name"
 if [[ "$target_triple" == "x86_64-unknown-linux-gnu" ]]; then

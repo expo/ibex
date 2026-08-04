@@ -16,6 +16,7 @@ use ibex_sfe_format::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
+pub mod app_bound;
 pub mod policy_toolchain;
 
 pub const CATALOG_SCHEMA_V1: &str = "ibex/sfe-catalog/1";
@@ -115,6 +116,15 @@ fn admit_catalog_directory(
         )));
     }
     let manifest_bytes = read_regular(&root.join("manifest.json"), "catalog manifest")?;
+    let manifest_value: serde_json::Value = serde_json::from_slice(&manifest_bytes)
+        .map_err(|error| Error::Manifest(error.to_string()))?;
+    if manifest_value
+        .get("schema")
+        .and_then(serde_json::Value::as_str)
+        == Some(app_bound::CATALOG_SCHEMA_V2)
+    {
+        return admit_app_bound_catalog_directory(root, expected_digest, manifest_bytes);
+    }
     let catalog = PinnedCatalogV1::load(&manifest_bytes, expected_digest)?;
     let mut artifacts = BTreeMap::new();
     for entry in &catalog.manifest().entries {
@@ -139,6 +149,49 @@ fn admit_catalog_directory(
                 if existing != bytes {
                     return Err(Error::Artifact(
                         "one content address resolves to different artifact bytes".into(),
+                    ));
+                }
+            }
+        }
+    }
+    Ok((manifest_bytes, artifacts))
+}
+
+fn admit_app_bound_catalog_directory(
+    root: &Path,
+    expected_digest: &str,
+    manifest_bytes: Vec<u8>,
+) -> Result<(Vec<u8>, BTreeMap<String, Vec<u8>>)> {
+    let catalog = app_bound::PinnedCatalogV2::load(&manifest_bytes, expected_digest)?;
+    let mut artifacts = BTreeMap::new();
+    for entry in &catalog.manifest().entries {
+        let read_digest = |digest: &str, label: &str| -> Result<Vec<u8>> {
+            let key = catalog_store_key(digest)?;
+            read_regular(&root.join(format!("sha256/{key}/blob")), label)
+        };
+        let contract = read_digest(&entry.contract.digest, "V4 catalog contract")?;
+        let stub = read_digest(&entry.stub_unsigned_core.digest, "V4 catalog stub")?;
+        let hermesc = read_digest(&entry.hermesc.digest, "V4 catalog hermesc")?;
+        let worker = entry
+            .restricted_worker_target
+            .as_ref()
+            .ok_or_else(|| Error::Target("restricted-worker target is absent".into()))?;
+        let advertisement = read_digest(
+            &worker.artifact.digest,
+            "restricted-worker target advertisement",
+        )?;
+        catalog.admit_target(&entry.target, &contract, &stub, &hermesc, &advertisement)?;
+        for (digest, bytes) in [
+            (&entry.contract.digest, contract),
+            (&entry.stub_unsigned_core.digest, stub),
+            (&entry.hermesc.digest, hermesc),
+            (&worker.artifact.digest, advertisement),
+        ] {
+            let address = format!("sha256/{}/blob", catalog_store_key(digest)?);
+            if let Some(existing) = artifacts.insert(address, bytes.clone()) {
+                if existing != bytes {
+                    return Err(Error::Artifact(
+                        "one content address resolves to different app-bound artifact bytes".into(),
                     ));
                 }
             }

@@ -9,12 +9,15 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
+use ibex_sfe_catalog::app_bound::{CatalogManifestV2, PinnedCatalogV2};
 use ibex_sfe_catalog::{
-    install_pinned_catalog_directory, CatalogArtifactV1, CatalogManifestV1, CatalogTargetArtifacts,
-    PinnedCatalogV1,
+    install_pinned_catalog_directory, CatalogManifestV1, CatalogTargetArtifacts, PinnedCatalogV1,
 };
 
-const RELEASE_CATALOG_DIGEST: Option<&str> = option_env!("IBEX_RELEASE_SFE_CATALOG_DIGEST");
+const RELEASE_CATALOG_DIGEST: Option<&str> = match option_env!("IBEX_RELEASE_SFE_CATALOG_DIGEST") {
+    Some(value) => Some(value),
+    None => option_env!("IBEX_RELEASE_APP_SFE_CATALOG_DIGEST"),
+};
 
 struct Arguments {
     release: String,
@@ -23,6 +26,7 @@ struct Arguments {
     stub: PathBuf,
     hermesc: PathBuf,
     catalogs_dir: PathBuf,
+    advertisement: Option<PathBuf>,
 }
 
 fn main() {
@@ -51,15 +55,31 @@ fn run() -> Result<()> {
     let contract = read_regular(&arguments.contract, "stub contract")?;
     let stub = read_regular(&arguments.stub, "unsigned stub core")?;
     let hermesc = read_regular(&arguments.hermesc, "hermesc")?;
-    let manifest = CatalogManifestV1::from_target_artifacts(
-        arguments.release,
-        arguments.sequence,
-        &contract,
-        &stub,
-        &hermesc,
-    )?;
-    let manifest_bytes = manifest.canonical_bytes()?;
-    let catalog_digest = manifest.digest()?;
+    let advertisement = arguments
+        .advertisement
+        .as_ref()
+        .map(|path| read_regular(path, "restricted-worker target advertisement"))
+        .transpose()?;
+    let (manifest_bytes, catalog_digest) = if let Some(advertisement) = &advertisement {
+        let manifest = CatalogManifestV2::from_target_artifacts(
+            arguments.release,
+            arguments.sequence,
+            &contract,
+            &stub,
+            &hermesc,
+            advertisement,
+        )?;
+        (manifest.canonical_bytes()?, manifest.digest()?)
+    } else {
+        let manifest = CatalogManifestV1::from_target_artifacts(
+            arguments.release,
+            arguments.sequence,
+            &contract,
+            &stub,
+            &hermesc,
+        )?;
+        (manifest.canonical_bytes()?, manifest.digest()?)
+    };
     let key = catalog_digest
         .strip_prefix("sha256-")
         .context("catalog digest has no sha256 prefix")?;
@@ -81,16 +101,21 @@ fn run() -> Result<()> {
         .tempdir_in(&arguments.catalogs_dir)
         .context("cannot create catalog staging directory")?;
     write_new(&staging.path().join("manifest.json"), &manifest_bytes)?;
-    let entry = manifest
-        .entries
-        .first()
-        .context("constructed catalog has no target entry")?;
+    let value: serde_json::Value = serde_json::from_slice(&manifest_bytes)?;
+    let entry = &value["entries"][0];
     for (artifact, bytes) in [
-        (&entry.contract, contract.as_slice()),
-        (&entry.stub_unsigned_core, stub.as_slice()),
-        (&entry.hermesc, hermesc.as_slice()),
+        (&entry["contract"], contract.as_slice()),
+        (&entry["stubUnsignedCore"], stub.as_slice()),
+        (&entry["hermesc"], hermesc.as_slice()),
     ] {
-        write_artifact(staging.path(), artifact, bytes)?;
+        write_json_artifact(staging.path(), artifact, bytes)?;
+    }
+    if let Some(advertisement) = &advertisement {
+        write_json_artifact(
+            staging.path(),
+            &entry["restrictedWorkerTarget"]["artifact"],
+            advertisement,
+        )?;
     }
     verify_catalog_root(staging.path(), &catalog_digest)?;
     let staging_path = staging.keep();
@@ -157,6 +182,7 @@ fn parse_arguments(arguments: impl Iterator<Item = std::ffi::OsString>) -> Resul
     let mut stub = None;
     let mut hermesc = None;
     let mut catalogs_dir = None;
+    let mut advertisement = None;
     while let Some(argument) = arguments.next() {
         let name = argument
             .into_string()
@@ -185,6 +211,7 @@ fn parse_arguments(arguments: impl Iterator<Item = std::ffi::OsString>) -> Resul
             "--stub" => stub = Some(PathBuf::from(value)),
             "--hermesc" => hermesc = Some(PathBuf::from(value)),
             "--catalogs-dir" => catalogs_dir = Some(PathBuf::from(value)),
+            "--advertisement" => advertisement = Some(PathBuf::from(value)),
             _ => bail!("unknown argument {name:?}"),
         }
     }
@@ -199,6 +226,7 @@ fn parse_arguments(arguments: impl Iterator<Item = std::ffi::OsString>) -> Resul
         stub: stub.context("--stub is required")?,
         hermesc: hermesc.context("--hermesc is required")?,
         catalogs_dir: catalogs_dir.context("--catalogs-dir is required")?,
+        advertisement,
     })
 }
 
@@ -211,8 +239,14 @@ fn read_regular(path: &Path, label: &str) -> Result<Vec<u8>> {
     std::fs::read(path).with_context(|| format!("cannot read {label} {}", path.display()))
 }
 
-fn write_artifact(root: &Path, artifact: &CatalogArtifactV1, bytes: &[u8]) -> Result<()> {
-    let path = root.join(artifact.content_address()?);
+fn write_json_artifact(root: &Path, artifact: &serde_json::Value, bytes: &[u8]) -> Result<()> {
+    let digest = artifact["digest"]
+        .as_str()
+        .context("catalog artifact digest is absent")?;
+    let key = digest
+        .strip_prefix("sha256-")
+        .context("catalog artifact digest is malformed")?;
+    let path = root.join(format!("sha256/{key}/blob"));
     let parent = path.parent().context("catalog artifact has no parent")?;
     std::fs::create_dir_all(parent)
         .with_context(|| format!("cannot create artifact directory {}", parent.display()))?;
@@ -235,6 +269,45 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
 
 fn verify_catalog_root(root: &Path, expected_digest: &str) -> Result<()> {
     let manifest_bytes = read_regular(&root.join("manifest.json"), "catalog manifest")?;
+    let schema = serde_json::from_slice::<serde_json::Value>(&manifest_bytes)?["schema"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    if schema == ibex_sfe_catalog::app_bound::CATALOG_SCHEMA_V2 {
+        let catalog = PinnedCatalogV2::load(&manifest_bytes, expected_digest)?;
+        if catalog.manifest().entries.len() != 1 {
+            bail!("catalog assembler currently requires exactly one target entry");
+        }
+        let entry = &catalog.manifest().entries[0];
+        let content_path = |digest: &str| -> Result<PathBuf> {
+            let key = digest
+                .strip_prefix("sha256-")
+                .context("artifact digest is malformed")?;
+            Ok(root.join(format!("sha256/{key}/blob")))
+        };
+        let contract = read_regular(
+            &content_path(&entry.contract.digest)?,
+            "catalog contract artifact",
+        )?;
+        let stub = read_regular(
+            &content_path(&entry.stub_unsigned_core.digest)?,
+            "catalog stub artifact",
+        )?;
+        let hermesc = read_regular(
+            &content_path(&entry.hermesc.digest)?,
+            "catalog compiler artifact",
+        )?;
+        let worker = entry
+            .restricted_worker_target
+            .as_ref()
+            .context("V2 catalog worker row is absent")?;
+        let advertisement = read_regular(
+            &content_path(&worker.artifact.digest)?,
+            "target advertisement artifact",
+        )?;
+        catalog.admit_target(&entry.target, &contract, &stub, &hermesc, &advertisement)?;
+        return Ok(());
+    }
     let catalog = PinnedCatalogV1::load(&manifest_bytes, expected_digest)?;
     if catalog.manifest().entries.len() != 1 {
         bail!("catalog assembler currently requires exactly one target entry");
