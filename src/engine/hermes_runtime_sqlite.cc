@@ -66,6 +66,17 @@ static std::mutex g_sqlite_handle_mutex;
 static std::unordered_map<uint64_t, SqliteHandleEntry> g_sqlite_dbs;
 static std::unordered_map<uint64_t, SqliteStatementEntry> g_sqlite_statements;
 
+uint64_t currentSqliteOwner() {
+  // Prepared/HBC module execution can reach a native HostFunction after the
+  // scalar current-package slot has unwound to its caller while Hermes still
+  // retains the authoritative nearest-to-farthest typed frame stack. SQLite
+  // already authorizes retained handles against principals.front(); mint and
+  // subsequent ownership checks must use that same identity.
+  // @ref LLP 0021#decision-staging-and-principal-semantics
+  auto principals = exactCollectTypedPrincipalStack();
+  return principals.empty() ? currentPrincipalId() : principals.front();
+}
+
 bool sqliteMemoryPath(const std::string& path) {
   // The host does not opt into SQLite URI filename parsing. Treating a
   // `file::memory:` prefix as memory here could exempt a literal disk filename
@@ -239,7 +250,7 @@ void unregisterSqliteDb(
       db->second.runtimeNonce != expected.runtimeNonce ||
       db->second.owner != expected.owner ||
       expected.runtimeNonce != exactCurrentRuntimeNonce() ||
-      expected.owner != currentPrincipalId()) {
+      expected.owner != currentSqliteOwner()) {
     return;
   }
   auto runtimeNonce = db->second.runtimeNonce;
@@ -270,7 +281,7 @@ void registerSqliteStatement(
       db->second.runtimeNonce != expected.runtimeNonce ||
       db->second.owner != expected.owner ||
       expected.runtimeNonce != exactCurrentRuntimeNonce() ||
-      expected.owner != currentPrincipalId()) {
+      expected.owner != currentSqliteOwner()) {
     return;
   }
   SqliteStatementEntry statement;
@@ -295,7 +306,7 @@ void unregisterSqliteStatement(
       statement->second.runtimeNonce == expected.runtimeNonce &&
       statement->second.owner == expected.owner &&
       expected.runtimeNonce == exactCurrentRuntimeNonce() &&
-      expected.owner == currentPrincipalId()) {
+      expected.owner == currentSqliteOwner()) {
     g_sqlite_statements.erase(statement);
   }
 }
@@ -324,7 +335,7 @@ SqliteHandleEntry requireSqliteDb(
   }
   // Allow-all bypasses effect authorization, never ownership of the numeric
   // database handle itself.
-  if (entry.owner != currentPrincipalId()) {
+  if (entry.owner != currentSqliteOwner()) {
     throw facebook::jsi::JSError(
         runtime, std::string(syscall) + ": sqlite handle belongs to a different principal");
   }
@@ -366,7 +377,7 @@ SqliteStatementEntry requireSqliteStatement(
         runtime,
         std::string(syscall) + ": sqlite statement belongs to a different runtime");
   }
-  if (entry.owner != currentPrincipalId()) {
+  if (entry.owner != currentSqliteOwner()) {
     throw facebook::jsi::JSError(
         runtime,
         std::string(syscall) + ": sqlite statement belongs to a different principal");
@@ -753,7 +764,7 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
         }
         SqliteHandleEntry authorization;
         authorization.runtimeNonce = exactCurrentRuntimeNonce();
-        authorization.owner = currentPrincipalId();
+        authorization.owner = currentSqliteOwner();
         uint64_t handle = 0;
         if (ex_host_is_armed() == 1) {
           // @ref LLP 0021#typed-resources-and-initial-vocabulary — file-backed
