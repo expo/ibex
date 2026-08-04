@@ -19,6 +19,7 @@ use std::time::Duration;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use ibex_sfe_format::app_bound::{
     LimitsV1, RESTRICTED_WORKER_ARMING_SCHEMA_V1, RESTRICTED_WORKER_BROKER_V1,
+    RESTRICTED_WORKER_LANGUAGE_PROFILE_V1, RESTRICTED_WORKER_POLICY_V1,
 };
 use serde::Deserialize;
 use serde::Serialize;
@@ -635,9 +636,9 @@ fn owner_loop(
                         continue;
                     }
                 };
-                let profile_ok = body.profile.language == "ibex/restricted-worker-language/1"
+                let profile_ok = body.profile.language == RESTRICTED_WORKER_LANGUAGE_PROFILE_V1
                     && body.profile.language_digest == arming.language_profile_digest
-                    && body.profile.worker_policy == "ibex/restricted-worker-policy/1"
+                    && body.profile.worker_policy == RESTRICTED_WORKER_POLICY_V1
                     && body.profile.worker_policy_digest == arming.worker_policy_digest
                     && body.profile.broker == arming.broker_protocol
                     && body.profile.globals_digest == arming.global_inventory_digest;
@@ -1247,7 +1248,7 @@ mod tests {
             serde_json::json!({"schema":RESTRICTED_WORKER_ARMING_SCHEMA_V1,"principal":{"kind":"external-script","appBindingDigest":digest(b"binding"),"sourceDigest":raw_digest,"runId":run_id},"transformedSourceDigest":source_digest,"sourceMapDigest":map_digest,"engineCompatibilityDigest":digest(b"engine"),"languageProfileDigest":digest(b"language"),"workerPolicyDigest":digest(b"policy"),"brokerProtocol":RESTRICTED_WORKER_BROKER_V1,"globalInventoryDigest":digest(b"globals"),"effectiveLimitsDigest":limits.digest().unwrap(),"dynamicCode":"disabled","moduleRegistry":"empty","capabilities":["broker:snapback-app-cli:1"]}),
         );
         let start = canonical(
-            serde_json::json!({"schema":RESTRICTED_WORKER_BROKER_V1,"runId":run_id,"sequence":1,"type":"start","body":{"profile":{"language":"ibex/restricted-worker-language/1","languageDigest":digest(b"language"),"workerPolicy":"ibex/restricted-worker-policy/1","workerPolicyDigest":digest(b"policy"),"broker":RESTRICTED_WORKER_BROKER_V1,"globalsDigest":digest(b"globals")},"sourceDigest":raw_digest,"transformedSourceDigest":source_digest,"sourceMapDigest":map_digest,"args":[],"surface":{"envelopeDigest":digest(b"envelope"),"functions":[]},"limits":limits}}),
+            serde_json::json!({"schema":RESTRICTED_WORKER_BROKER_V1,"runId":run_id,"sequence":1,"type":"start","body":{"profile":{"language":RESTRICTED_WORKER_LANGUAGE_PROFILE_V1,"languageDigest":digest(b"language"),"workerPolicy":RESTRICTED_WORKER_POLICY_V1,"workerPolicyDigest":digest(b"policy"),"broker":RESTRICTED_WORKER_BROKER_V1,"globalsDigest":digest(b"globals")},"sourceDigest":raw_digest,"transformedSourceDigest":source_digest,"sourceMapDigest":map_digest,"args":[],"surface":{"envelopeDigest":digest(b"envelope"),"functions":[]},"limits":limits}}),
         );
         let options = ExRestrictedWorkerOptionsV1 {
             abi_version: 1,
