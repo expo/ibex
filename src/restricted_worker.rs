@@ -9,7 +9,7 @@
 use std::collections::BTreeSet;
 use std::ffi::c_void;
 use std::ptr;
-use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicPtr, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::Arc;
 use std::sync::{Mutex, OnceLock};
@@ -42,6 +42,31 @@ const MAX_LIMITS: usize = 2 * 1024;
 const MAX_SOURCE: usize = 4 * 1024 * 1024;
 const MAX_SOURCE_MAP: usize = 8 * 1024 * 1024;
 const MAX_SOURCE_PATH: usize = 16 * 1024;
+
+static PENDING_PARENT_SIGNAL: AtomicI32 = AtomicI32::new(0);
+
+pub fn publish_parent_signal(signal: i32) -> bool {
+    PENDING_PARENT_SIGNAL
+        .compare_exchange(0, signal, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+}
+
+pub fn pending_parent_signal() -> i32 {
+    PENDING_PARENT_SIGNAL.load(Ordering::Acquire)
+}
+
+#[no_mangle]
+pub extern "C" fn ibex_private_parent_signal_v1() -> i32 {
+    pending_parent_signal()
+}
+
+#[no_mangle]
+pub extern "C" fn ibex_private_ack_parent_signal_v1(signal: i32) -> i32 {
+    PENDING_PARENT_SIGNAL
+        .compare_exchange(signal, 0, Ordering::AcqRel, Ordering::Acquire)
+        .map(|_| 0)
+        .unwrap_or(-1)
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

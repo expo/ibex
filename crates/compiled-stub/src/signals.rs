@@ -1,8 +1,16 @@
 //! Process-lifetime POSIX signal mediation for standalone applications.
 
 use anyhow::{bail, Context, Result};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 const SIGNALS: [libc::c_int; 3] = [libc::SIGINT, libc::SIGTERM, libc::SIGHUP];
+const APP_BOUND_SIGNAL_WATCHDOG: Duration = Duration::from_millis(10_250);
+static APP_BOUND_MEDIATION: AtomicBool = AtomicBool::new(false);
+
+pub fn enable_app_bound_mediation() {
+    APP_BOUND_MEDIATION.store(true, Ordering::Release);
+}
 
 /// Block the standalone lifecycle signals before the runtime creates any
 /// worker threads, then dedicate one inherited-blocked thread to `sigwait`.
@@ -64,6 +72,19 @@ fn signal_wait_loop() {
     let status = unsafe { libc::sigwait(&wait_set, &mut signal) };
     if status != 0 || !SIGNALS.contains(&signal) {
         fatal_coordinator_failure();
+    }
+
+    // @ref LLP 0048#7-lifecycle-limits-and-outcome-mapping — app-bound runs get signal-first grace, bounded by a native watchdog
+    if APP_BOUND_MEDIATION.load(Ordering::Acquire)
+        && ibex_runtime::restricted_worker::publish_parent_signal(signal)
+    {
+        let deadline = Instant::now() + APP_BOUND_SIGNAL_WATCHDOG;
+        while Instant::now() < deadline {
+            if ibex_runtime::restricted_worker::pending_parent_signal() == 0 {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 
     ibex_runtime::host::abi::ex_host_console_flush(500);

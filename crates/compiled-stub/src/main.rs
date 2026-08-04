@@ -378,6 +378,7 @@ fn run() -> Result<i32> {
     ) {
         let app_bound = AppBoundReportV1::admitted(binding, app_contract)?;
         if app_bound.may_execute_worker() {
+            signals::enable_app_bound_mediation();
             let bridge_contract = capsec_semantics::canonical::to_jcs_bytes(&serde_json::json!({
                 "schema": "ibex/app-bound-worker-bridge-contract/1",
                 "appBindingDigest": binding.digest()?,

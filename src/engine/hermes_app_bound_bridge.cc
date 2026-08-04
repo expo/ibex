@@ -16,6 +16,8 @@ extern "C" int32_t ibex_private_external_script_transform_v1(
 extern "C" void ibex_private_external_script_transform_dispose_v1(uint8_t*);
 extern "C" int32_t ibex_private_restricted_limits_digest_v1(
     const uint8_t*, size_t, uint8_t*, size_t, size_t*);
+extern "C" int32_t ibex_private_parent_signal_v1();
+extern "C" int32_t ibex_private_ack_parent_signal_v1(int32_t);
 
 namespace {
 struct WorkerBridgeState {
@@ -197,9 +199,28 @@ extern "C" int32_t ibex_private_install_app_bound_worker_bridge_v1(
           if (status != 0) return statusResult(rt, status);
           return String::createFromUtf8(rt, output, output_len);
         });
+    auto parentSignal = Function::createFromHostFunction(
+        runtime, PropNameID::forAscii(runtime, "parentSignal"), 0,
+        [](Runtime& rt, const Value&, const Value*, size_t count) -> Value {
+          if (count != 0) throw facebook::jsi::JSError(rt, "parentSignal accepts no arguments");
+          return Value(static_cast<double>(ibex_private_parent_signal_v1()));
+        });
+    auto ackParentSignal = Function::createFromHostFunction(
+        runtime, PropNameID::forAscii(runtime, "ackParentSignal"), 1,
+        [](Runtime& rt, const Value&, const Value* args, size_t count) -> Value {
+          if (count != 1 || !args[0].isNumber() ||
+              args[0].asNumber() != static_cast<int32_t>(args[0].asNumber())) {
+            throw facebook::jsi::JSError(rt, "ackParentSignal requires one integer signal");
+          }
+          return statusResult(
+              rt, ibex_private_ack_parent_signal_v1(
+                      static_cast<int32_t>(args[0].asNumber())));
+        });
     bridge.setProperty(runtime, "transformExternalScript", std::move(transform));
     bridge.setProperty(runtime, "create", std::move(create));
     bridge.setProperty(runtime, "digestLimits", std::move(digestLimits));
+    bridge.setProperty(runtime, "parentSignal", std::move(parentSignal));
+    bridge.setProperty(runtime, "ackParentSignal", std::move(ackParentSignal));
     bridge.setProperty(
         runtime, "contract", String::createFromUtf8(runtime, contract, contract_len));
     auto freeze = runtime.global()
