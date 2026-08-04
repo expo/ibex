@@ -14,11 +14,11 @@ use anyhow::{anyhow, bail, Context, Result};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, AssignmentExpression, AssignmentTarget, CallExpression, Declaration,
-    ExportDefaultDeclarationKind, Expression, ForOfStatement, FunctionBody, IdentifierReference,
-    ImportAttributeKey, ImportDeclarationSpecifier, ImportExpression, ImportOrExportKind,
-    JSXElement, JSXFragment, MetaProperty, ObjectProperty, ObjectPropertyKind, Program,
-    PropertyKind, SimpleAssignmentTarget, Statement, TSEnumDeclaration, TSModuleDeclaration,
-    UpdateExpression, VariableDeclarationKind, WithClause,
+    ExportDefaultDeclarationKind, Expression, ForOfStatement, FormalParameter, FunctionBody,
+    IdentifierReference, ImportAttributeKey, ImportDeclarationSpecifier, ImportExpression,
+    ImportOrExportKind, JSXElement, JSXFragment, MetaProperty, ObjectProperty, ObjectPropertyKind,
+    Program, PropertyKind, SimpleAssignmentTarget, Statement, TSEnumDeclaration,
+    TSModuleDeclaration, UpdateExpression, VariableDeclarationKind, WithClause,
 };
 use oxc_ast_visit::{walk, Visit};
 use oxc_codegen::{Codegen, CodegenOptions};
@@ -2174,6 +2174,12 @@ pub fn transform_external_script_v1(
         fn visit_ts_module_declaration(&mut self, _: &TSModuleDeclaration<'a>) {
             self.non_erasable_typescript = true;
         }
+        fn visit_formal_parameter(&mut self, parameter: &FormalParameter<'a>) {
+            if parameter.accessibility.is_some() || parameter.readonly || parameter.r#override {
+                self.non_erasable_typescript = true;
+            }
+            walk::walk_formal_parameter(self, parameter);
+        }
     }
     let mut closed = ClosedProfile::default();
     closed.visit_program(&program);
@@ -2282,6 +2288,10 @@ mod external_script_tests {
             ("dynamic-import.ts", "void import('./x.js');"),
             ("jsx.tsx", "const x = <div />;"),
             ("enum.ts", "enum Value { A }"),
+            (
+                "parameter-property.ts",
+                "class Value { constructor(public item: number) {} }",
+            ),
             ("default-function.ts", "export default function nope() {}"),
         ] {
             assert!(
