@@ -262,7 +262,7 @@ contract_extra_arguments=()
 if [[ "$app_bound" -eq 1 ]]; then
   cargo test --quiet --release --lib restricted_worker::tests:: --no-default-features
   source_commit="$(git rev-parse HEAD)"
-  python3 -c 'import json,sys; print(json.dumps({"result":"pass","schema":"ibex/restricted-worker-target-suite-result/1","sourceCommit":sys.argv[1],"target":sys.argv[2],"tests":["c-layout","native-broker-round-trip","run-id"]},sort_keys=True,separators=(",",":")))' \
+  python3 -c 'import json,sys; print(json.dumps({"result":"pass","schema":"ibex/restricted-worker-target-suite-result/1","sourceCommit":sys.argv[1],"target":sys.argv[2],"tests":["c-layout","exact-frame-bodies","native-broker-round-trip","run-id"]},sort_keys=True,separators=(",",":")))' \
     "$source_commit" "$target_triple" > "$worker_suite_path"
   contract_extra_arguments+=(
     --advertisement-output "$advertisement_path"

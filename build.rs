@@ -1230,6 +1230,8 @@ fn main() {
 
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
+    println!("cargo:rerun-if-changed=src/engine/hermes_restricted_worker.cc");
+    println!("cargo:rerun-if-changed=src/engine/restricted_worker_wrapper.inc");
     println!("cargo:rerun-if-changed=src/engine/hermes_app_bound_bridge.cc");
     println!("cargo:rerun-if-changed=src/engine/macho_mapping_proof.cc");
     println!("cargo:rerun-if-changed=src/engine/macho_mapping_proof.h");

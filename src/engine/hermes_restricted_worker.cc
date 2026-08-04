@@ -24,10 +24,12 @@ void registerRuntime(ExactHermesRuntime* runtime);
 namespace {
 using EmitCallback = int32_t (*)(void*, const uint8_t*, size_t);
 using DigestCallback = int32_t (*)(const uint8_t*, size_t, uint8_t*, size_t);
+using FaultCallback = int32_t (*)(void*, uint32_t);
 
 struct RestrictedEngine {
   ExactHermesRuntime* handle = nullptr;
   EmitCallback emit = nullptr;
+  FaultCallback fault = nullptr;
   void* context = nullptr;
   bool started = false;
   std::unique_ptr<Function> emit_function;
@@ -90,7 +92,7 @@ void installSurface(RestrictedEngine* engine, DigestCallback digest) {
       rt,
       PropNameID::forAscii(rt, "restrictedSettlementCodec"),
       3,
-      [digest](facebook::jsi::Runtime& runtime,
+      [engine, digest](facebook::jsi::Runtime& runtime,
                const Value&,
                const Value* args,
                size_t count) -> Value {
@@ -104,8 +106,11 @@ void installSurface(RestrictedEngine* engine, DigestCallback digest) {
         if (chunk_number < 1 || chunk_number > 4 * 1024 * 1024 ||
             result_number < 1 || result_number > 16 * 1024 * 1024 ||
             chunk_number != static_cast<size_t>(chunk_number) ||
-            result_number != static_cast<size_t>(result_number) ||
-            bytes.size() > static_cast<size_t>(result_number)) {
+            result_number != static_cast<size_t>(result_number)) {
+          throw facebook::jsi::JSError(runtime, "invalid settlement codec input");
+        }
+        if (bytes.size() > static_cast<size_t>(result_number)) {
+          if (engine->fault != nullptr) engine->fault(engine->context, 1);
           throw facebook::jsi::JSError(runtime, "settlement resource ceiling");
         }
         uint8_t hash[32];
@@ -204,9 +209,10 @@ int32_t deliver(RestrictedEngine* engine, const uint8_t* bytes, size_t len) {
 extern "C" void* ibex_private_restricted_engine_create_v1(
     uint64_t heap_bytes,
     EmitCallback emit,
+    FaultCallback fault,
     DigestCallback digest,
     void* context) {
-  if (heap_bytes == 0 || heap_bytes > (512ull << 20) || emit == nullptr || digest == nullptr) return nullptr;
+  if (heap_bytes == 0 || heap_bytes > (512ull << 20) || emit == nullptr || fault == nullptr || digest == nullptr) return nullptr;
   const uint64_t hostContext = ibex_private_claim_restricted_host_context();
   if (hostContext == 0) return nullptr;
   auto gc = ::hermes::vm::GCConfig::Builder()
@@ -235,7 +241,7 @@ extern "C" void* ibex_private_restricted_engine_create_v1(
   handle->runtime_nonce = exactAllocateRuntimeNonce();
   if (handle->runtime_nonce == 0) { delete handle; ex_host_release_context(hostContext); return nullptr; }
   disableDebugger(handle);
-  auto* engine = new RestrictedEngine{handle, emit, context, false, nullptr, nullptr, nullptr, nullptr};
+  auto* engine = new RestrictedEngine{handle, emit, fault, context, false, nullptr, nullptr, nullptr, nullptr};
   try { installSurface(engine, digest); } catch (...) { delete engine; ex_hermes_destroy(handle); return nullptr; }
   registerRuntime(handle);
   return engine;

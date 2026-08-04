@@ -210,7 +210,9 @@ R"IBEXJS(
       runId = frame.runId;
       var surface = makeSurface(body.surface.functions, body.limits.callEstablishmentMs);
       Promise.resolve(authored(surface.api, surface.snapback, Object.freeze(body.args.slice()), signal, makeConsole(), setTimer, clearTimer))
-        .then(function(result) { settle(result.value, result.present, body.limits); }, fail);
+        .then(function(result) {
+          try { settle(result.value, result.present, body.limits); } catch (error) { fail(error); }
+        }, fail);
       return;
     }
     if (frame.type === "callResult") {

@@ -213,6 +213,7 @@ unsafe extern "C" {
     fn ibex_private_restricted_engine_create_v1(
         heap_bytes: u64,
         emit: unsafe extern "C" fn(*mut c_void, *const u8, usize) -> i32,
+        fault: unsafe extern "C" fn(*mut c_void, u32) -> i32,
         digest: unsafe extern "C" fn(*const u8, usize, *mut u8, usize) -> i32,
         context: *mut c_void,
     ) -> *mut c_void;
@@ -734,6 +735,17 @@ unsafe extern "C" fn emit_frame(context: *mut c_void, bytes: *const u8, len: usi
     }
 }
 
+unsafe extern "C" fn emit_fault(context: *mut c_void, fault: u32) -> i32 {
+    if context.is_null() || fault != 1 {
+        return -1;
+    }
+    let context = unsafe { &*(context as *const EmitContext) };
+    context
+        .sender
+        .try_send(Event::Fault(fault))
+        .map_or(-1, |_| 0)
+}
+
 fn owner_loop(
     commands: Receiver<Command>,
     events: SyncSender<Event>,
@@ -759,6 +771,7 @@ fn owner_loop(
         ibex_private_restricted_engine_create_v1(
             limits.heap_bytes,
             emit_frame,
+            emit_fault,
             digest_sha256,
             (&emit_context as *const EmitContext).cast_mut().cast(),
         )
