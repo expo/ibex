@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/sfe-catalog-v2.schema.json",
+  "title": "Ibex release-pinned app-bound executable catalog v2",
+  "type": "object",
+  "required": ["schema", "release", "sequence", "entries"],
+  "properties": {
+    "schema": { "const": "ibex/sfe-catalog/2" },
+    "release": { "type": "string", "minLength": 1 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "target",
+          "minimumPlatform",
+          "contractDigest",
+          "engineCompatibilityIdentity",
+          "hermescIdentity",
+          "hbcVersion",
+          "contract",
+          "stubUnsignedCore",
+          "hermesc",
+          "restrictedWorkerTarget"
+        ],
+        "properties": {
+          "target": { "type": "string", "minLength": 1 },
+          "minimumPlatform": {
+            "type": "string",
+            "pattern": "^(macos-[0-9]+\\.[0-9]+-arm64|linux-glibc-[0-9]+\\.[0-9]+-x86-64-v1)$"
+          },
+          "contractDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+          "engineCompatibilityIdentity": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+          "hermescIdentity": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+          "hbcVersion": { "type": "integer", "minimum": 1 },
+          "contract": { "$ref": "#/$defs/catalogArtifact" },
+          "stubUnsignedCore": { "$ref": "#/$defs/catalogArtifact" },
+          "hermesc": { "$ref": "#/$defs/catalogArtifact" },
+          "restrictedWorkerTarget": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "required": ["advertisementDigest", "artifact"],
+                "properties": {
+                  "advertisementDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+                  "artifact": {
+                    "type": "object",
+                    "required": ["role", "digest", "size", "mediaType"],
+                    "properties": {
+                      "role": { "const": "restricted-worker-target-advertisement" },
+                      "digest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+                      "size": { "type": "integer", "minimum": 1, "maximum": 65536 },
+                      "mediaType": {
+                        "const": "application/vnd.ibex.restricted-worker-target-advertisement+json;version=1"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "catalogArtifact": {
+      "type": "object",
+      "required": ["role", "digest", "size", "mediaType"],
+      "properties": {
+        "role": { "enum": ["stub-contract", "stub-unsigned-core", "hermesc"] },
+        "digest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+        "size": { "type": "integer", "minimum": 1 },
+        "mediaType": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

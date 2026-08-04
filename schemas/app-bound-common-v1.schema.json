@@ -1,0 +1,333 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/app-bound-common-v1.schema.json",
+  "title": "Ibex app-bound executable shared definitions v1",
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
+    },
+    "target": {
+      "type": "object",
+      "required": ["triple", "minimumPlatform"],
+      "properties": {
+        "triple": { "type": "string", "minLength": 1 },
+        "minimumPlatform": {
+          "type": "string",
+          "pattern": "^(macos-[0-9]+\\.[0-9]+-arm64|linux-glibc-[0-9]+\\.[0-9]+-x86-64-v1)$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "required": [
+        "sourceBytes",
+        "transformedSourceBytes",
+        "sourceMapBytes",
+        "transformArenaBytes",
+        "runWallMs",
+        "callEstablishmentMs",
+        "brokerOperations",
+        "openSubscriptions",
+        "frameBytes",
+        "resultBytes",
+        "stderrBytes",
+        "heapBytes",
+        "graceMs",
+        "openTimers"
+      ],
+      "properties": {
+        "sourceBytes": { "type": "integer", "minimum": 1 },
+        "transformedSourceBytes": { "type": "integer", "minimum": 1 },
+        "sourceMapBytes": { "type": "integer", "minimum": 1 },
+        "transformArenaBytes": { "type": "integer", "minimum": 1 },
+        "runWallMs": { "type": "integer", "minimum": 1 },
+        "callEstablishmentMs": { "type": "integer", "minimum": 1 },
+        "brokerOperations": { "type": "integer", "minimum": 1 },
+        "openSubscriptions": { "type": "integer", "minimum": 1 },
+        "frameBytes": { "type": "integer", "minimum": 1 },
+        "resultBytes": { "type": "integer", "minimum": 1 },
+        "stderrBytes": { "type": "integer", "minimum": 1 },
+        "heapBytes": { "type": "integer", "minimum": 1 },
+        "graceMs": { "type": "integer", "minimum": 1 },
+        "openTimers": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "appBoundReport": {
+      "type": "object",
+      "required": [
+        "bindingDigest",
+        "origin",
+        "appId",
+        "externalWorkerEnabled",
+        "availability",
+        "languageProfile",
+        "languageProfileDigest",
+        "workerPolicy",
+        "workerPolicyDigest",
+        "brokerProtocol",
+        "globalInventoryDigest",
+        "targetAdvertisementDigest",
+        "defaults",
+        "maxima"
+      ],
+      "properties": {
+        "bindingDigest": { "$ref": "#/$defs/digest" },
+        "origin": { "type": "string", "pattern": "^https://[^/?#@]+$" },
+        "appId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "externalWorkerEnabled": { "type": "boolean" },
+        "availability": {
+          "enum": ["enabled-and-advertised", "disabled-advertised", "disabled-unadvertised"]
+        },
+        "languageProfile": { "const": "ibex/external-script-profile/1" },
+        "languageProfileDigest": { "$ref": "#/$defs/digest" },
+        "workerPolicy": { "const": "ibex/restricted-external-worker-policy/1" },
+        "workerPolicyDigest": { "$ref": "#/$defs/digest" },
+        "brokerProtocol": { "const": "ibex/restricted-worker-broker/1" },
+        "globalInventoryDigest": { "$ref": "#/$defs/digest" },
+        "targetAdvertisementDigest": {
+          "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+        },
+        "defaults": { "$ref": "#/$defs/limits" },
+        "maxima": { "$ref": "#/$defs/limits" }
+      },
+      "additionalProperties": false
+    },
+    "backendInventory": {
+      "type": "object",
+      "required": ["schema", "entries"],
+      "properties": {
+        "schema": { "const": "ibex/sfe-backend-inventory/1" },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["surface", "status", "implementation", "limitation"],
+            "properties": {
+              "surface": { "type": "string", "minLength": 1 },
+              "status": { "enum": ["available", "limited", "unavailable"] },
+              "implementation": { "type": "string", "minLength": 1 },
+              "limitation": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "capsecSelector": {
+      "type": "object",
+      "required": ["spelling", "position", "escape"],
+      "properties": {
+        "spelling": { "const": "--ibex-capsec" },
+        "position": { "const": "first-argument-only" },
+        "escape": { "const": "leading-double-dash" }
+      },
+      "additionalProperties": false
+    },
+    "informationSelectorV2": {
+      "type": "object",
+      "required": ["spelling", "position", "escape", "reportSchema"],
+      "properties": {
+        "spelling": { "const": "--ibex-info" },
+        "position": { "const": "first-argument-only" },
+        "escape": { "const": "leading-double-dash" },
+        "reportSchema": { "const": "ibex/standalone-executable-info/2" }
+      },
+      "additionalProperties": false
+    },
+    "boot": {
+      "type": "object",
+      "required": ["defaultMode", "capsecSelector", "informationSelector", "capsecAdvertisementIdentity"],
+      "properties": {
+        "defaultMode": { "const": "ambient-compatibility" },
+        "capsecSelector": { "$ref": "#/$defs/capsecSelector" },
+        "informationSelector": { "$ref": "#/$defs/informationSelectorV2" },
+        "capsecAdvertisementIdentity": {
+          "oneOf": [{ "const": "" }, { "$ref": "#/$defs/digest" }]
+        }
+      },
+      "additionalProperties": false
+    },
+    "engine": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "profile", "compatibilityIdentity"],
+          "properties": {
+            "kind": { "const": "diagnostic-source" },
+            "profile": { "type": "string", "minLength": 1 },
+            "compatibilityIdentity": { "$ref": "#/$defs/digest" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "buildProfile", "staticArchiveDigest", "hbcVersion", "compatibilityIdentity"],
+          "properties": {
+            "kind": { "const": "static-hermes" },
+            "buildProfile": { "type": "string", "minLength": 1 },
+            "staticArchiveDigest": { "$ref": "#/$defs/digest" },
+            "hbcVersion": { "type": "integer", "minimum": 1 },
+            "compatibilityIdentity": { "$ref": "#/$defs/digest" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "hermesc": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "reason"],
+          "properties": {
+            "kind": { "const": "diagnostic-unused" },
+            "reason": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "binaryDigest", "hbcVersion", "recipeDigest", "compilerIdentity"],
+          "properties": {
+            "kind": { "const": "catalog-artifact" },
+            "binaryDigest": { "$ref": "#/$defs/digest" },
+            "hbcVersion": { "type": "integer", "minimum": 1 },
+            "recipeDigest": { "$ref": "#/$defs/digest" },
+            "compilerIdentity": { "$ref": "#/$defs/digest" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "acceptedSchemas": {
+      "type": "object",
+      "required": [
+        "envelope",
+        "applicationBinding",
+        "targetAdvertisement",
+        "entryDesignation",
+        "embeddedGraph",
+        "authenticatedGraphSnapshot",
+        "computedCandidates",
+        "carrier",
+        "canonicalPolicy",
+        "armedSnapshot",
+        "runtimeCapsecProjection",
+        "runtimeIdentity",
+        "environmentProfile"
+      ],
+      "properties": {
+        "envelope": { "const": "ibex/single-file-executable/3" },
+        "applicationBinding": { "const": "ibex/app-bound-parent/1" },
+        "targetAdvertisement": { "const": "ibex/restricted-worker-target-advertisement/1" },
+        "entryDesignation": { "const": "ibex/entry-designation/1" },
+        "embeddedGraph": { "const": "ibex/embedded-module-graph/1" },
+        "authenticatedGraphSnapshot": { "const": "ibex/authenticated-graph-snapshot/1" },
+        "computedCandidates": { "const": "ibex/computed-candidates/1" },
+        "carrier": { "const": "ibex/module-carrier/2" },
+        "canonicalPolicy": { "const": "ibex/capsec-policy/2" },
+        "armedSnapshot": { "const": "ibex/capsec-armed/1" },
+        "runtimeCapsecProjection": { "const": "ibex/capsec-runtime-projection/1" },
+        "runtimeIdentity": { "const": "ibex/runtime-identity/1" },
+        "environmentProfile": { "const": "ibex/compiled-environment-profile/1" }
+      },
+      "additionalProperties": false
+    },
+    "abis": {
+      "type": "object",
+      "required": ["moduleRunner", "arming", "restrictedWorker"],
+      "properties": {
+        "moduleRunner": { "type": "string", "minLength": 1 },
+        "arming": { "type": "string", "minLength": 1 },
+        "restrictedWorker": { "const": "ibex/restricted-worker-abi/1" }
+      },
+      "additionalProperties": false
+    },
+    "externalWorker": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "languageProfile",
+        "languageProfileDigest",
+        "armingSchema",
+        "workerPolicy",
+        "workerPolicyDigest",
+        "brokerProtocol",
+        "globalInventoryDigest",
+        "targetAdvertisementDigest",
+        "defaults",
+        "maxima"
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "languageProfile": { "const": "ibex/external-script-profile/1" },
+        "languageProfileDigest": { "$ref": "#/$defs/digest" },
+        "armingSchema": { "const": "ibex/restricted-worker-arming/1" },
+        "workerPolicy": { "const": "ibex/restricted-external-worker-policy/1" },
+        "workerPolicyDigest": { "$ref": "#/$defs/digest" },
+        "brokerProtocol": { "const": "ibex/restricted-worker-broker/1" },
+        "globalInventoryDigest": { "$ref": "#/$defs/digest" },
+        "targetAdvertisementDigest": {
+          "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+        },
+        "defaults": { "$ref": "#/$defs/limits" },
+        "maxima": { "$ref": "#/$defs/limits" }
+      },
+      "additionalProperties": false
+    },
+    "compilePlanV2": {
+      "type": "object",
+      "required": [
+        "schema",
+        "graphSnapshotDigest",
+        "policyDigest",
+        "stubContractDigest",
+        "catalogDigest",
+        "compilerIdentity",
+        "carrierEncoding",
+        "target",
+        "environmentProfileDigest",
+        "applicationBindingDigest",
+        "targetAdvertisementDigest"
+      ],
+      "properties": {
+        "schema": { "const": "ibex/compile-plan/2" },
+        "graphSnapshotDigest": { "$ref": "#/$defs/digest" },
+        "policyDigest": { "$ref": "#/$defs/digest" },
+        "stubContractDigest": { "$ref": "#/$defs/digest" },
+        "catalogDigest": { "$ref": "#/$defs/digest" },
+        "compilerIdentity": { "$ref": "#/$defs/digest" },
+        "carrierEncoding": { "enum": ["hermes-bytecode", "factory-table"] },
+        "target": { "type": "string", "minLength": 1 },
+        "environmentProfileDigest": { "$ref": "#/$defs/digest" },
+        "applicationBindingDigest": { "$ref": "#/$defs/digest" },
+        "targetAdvertisementDigest": {
+          "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+        }
+      },
+      "additionalProperties": false
+    },
+    "stubCoreReconstruction": {
+      "type": "object",
+      "required": ["size"],
+      "properties": {
+        "size": { "type": "integer", "minimum": 1 },
+        "machoLinkeditVmsize": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "platformSignature": {
+      "type": "object",
+      "required": ["state", "format", "mechanism"],
+      "properties": {
+        "state": { "enum": ["valid", "invalid", "unsupported"] },
+        "format": { "type": "string", "minLength": 1 },
+        "mechanism": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

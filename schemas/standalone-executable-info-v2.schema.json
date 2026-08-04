@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/standalone-executable-info-v2.schema.json",
+  "title": "Ibex app-bound standalone executable self-information report v2",
+  "type": "object",
+  "required": ["schema", "execution", "integrity", "boot", "target", "backendInventory", "provenanceKind", "appBound"],
+  "properties": {
+    "schema": { "const": "ibex/standalone-executable-info/2" },
+    "execution": {
+      "type": "object",
+      "required": ["applicationEvaluated"],
+      "properties": { "applicationEvaluated": { "const": false } },
+      "additionalProperties": false
+    },
+    "integrity": {
+      "type": "object",
+      "required": [
+        "status",
+        "envelopeSchema",
+        "stubContractSchema",
+        "compilePlanSchema",
+        "packageProvenanceSchema",
+        "stubContractDigest",
+        "graphIdentity",
+        "recordCount",
+        "carrierCount",
+        "candidateTableCount"
+      ],
+      "properties": {
+        "status": { "const": "admitted" },
+        "envelopeSchema": { "const": "ibex/single-file-executable/3" },
+        "stubContractSchema": { "const": "ibex/stub-contract/4" },
+        "compilePlanSchema": { "const": "ibex/compile-plan/2" },
+        "packageProvenanceSchema": { "const": "ibex/package-provenance/2" },
+        "stubContractDigest": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+        "graphIdentity": { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" },
+        "recordCount": { "type": "integer", "minimum": 1 },
+        "carrierCount": { "type": "integer", "minimum": 1 },
+        "candidateTableCount": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "boot": {
+      "type": "object",
+      "required": ["defaultMode", "capsecSelector", "informationSelector", "capsecAdvertisementIdentity", "capsecAvailability"],
+      "properties": {
+        "defaultMode": { "const": "ambient-compatibility" },
+        "capsecSelector": { "$ref": "app-bound-common-v1.schema.json#/$defs/capsecSelector" },
+        "informationSelector": { "$ref": "app-bound-common-v1.schema.json#/$defs/informationSelectorV2" },
+        "capsecAdvertisementIdentity": {
+          "oneOf": [
+            { "const": "" },
+            { "$ref": "app-bound-common-v1.schema.json#/$defs/digest" }
+          ]
+        },
+        "capsecAvailability": { "enum": ["unavailable-no-advertisement", "contract-advertised"] }
+      },
+      "additionalProperties": false
+    },
+    "target": { "$ref": "app-bound-common-v1.schema.json#/$defs/target" },
+    "backendInventory": { "$ref": "app-bound-common-v1.schema.json#/$defs/backendInventory" },
+    "provenanceKind": { "enum": ["release", "development"] },
+    "appBound": { "$ref": "app-bound-common-v1.schema.json#/$defs/appBoundReport" }
+  },
+  "additionalProperties": false
+}
