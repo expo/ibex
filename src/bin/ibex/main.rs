@@ -1148,6 +1148,8 @@ async fn run(cli: Cli) -> Result<()> {
         return Ok(());
     }
 
+    runtime::configure_runtime_cache_dir(cli.runtime_cache_dir.as_deref())?;
+
     // Capture route, descriptor topology, and presentation facts exactly once
     // before production validation can inspect a project path or arming input.
     // Every execution branch passes this same value through snapshot arming and
@@ -2572,7 +2574,9 @@ async fn build_bytecode(cli: &Cli, file: &str, outdir: Option<&std::path::Path>)
     } else {
         cli.bundle_format
     };
-    let bundled = runtime::prepare_entry_for_bytecode_build(file, format).await?;
+    let runtime_cache = runtime::authenticate_build_runtime_cache(cli, file)?;
+    let bundled =
+        runtime::prepare_entry_for_bytecode_build_in_cache(file, format, &runtime_cache).await?;
     let _bundle_lease = runtime::acquire_bundle_execution_lease(&bundled).await?;
     let bundled_str = bundled.to_string_lossy().to_string();
 

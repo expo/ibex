@@ -107,6 +107,12 @@ pub struct Cli {
     #[arg(long, value_name = "DIR")]
     pub project_root: Option<PathBuf>,
 
+    /// Trusted runtime-cache override. The directory remains runtime-private
+    /// and must be disjoint from the authenticated project and package roots.
+    // @ref LLP 0023#1-the-mount-table-the-project-root-and-package-bindings — operator-selected caches remain unmounted and topology-authenticated
+    #[arg(long, value_name = "DIR")]
+    pub runtime_cache_dir: Option<PathBuf>,
+
     /// Immutable capability snapshot selected by the trusted launcher.
     /// Must be paired with --capsec-arming-identity. Hidden trusted-launcher
     /// plumbing; ordinary execution generates and authenticates the same shape.
@@ -591,6 +597,22 @@ pub(crate) mod tests {
             "{help}"
         );
         assert!(!help.contains("nearest ancestor containing package.json"));
+    }
+
+    #[test]
+    fn runtime_cache_help_preserves_the_private_topology_boundary() {
+        let command = Cli::command();
+        let argument = command
+            .get_arguments()
+            .find(|argument| argument.get_id() == "runtime_cache_dir")
+            .expect("--runtime-cache-dir remains an authored option");
+        let help = argument
+            .get_long_help()
+            .or_else(|| argument.get_help())
+            .expect("--runtime-cache-dir has help")
+            .to_string();
+        assert!(help.contains("runtime-private"), "{help}");
+        assert!(help.contains("disjoint"), "{help}");
     }
 
     // @ref LLP 0010#runtime-command-surface — the recursive manifest records

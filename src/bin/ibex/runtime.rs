@@ -7805,17 +7805,6 @@ pub async fn prepare_entry_with_format(
     prepare_entry_with_format_and_bytecode(entry, bundle_format, true).await
 }
 
-/// Prepare source for the build command. The build command is itself producing
-/// the requested HBC, so feeding it an entry-cache HBC would ask hermesc to
-/// compile bytecode as JavaScript and would also lose the bundle directory
-/// containing per-package chunks.
-pub async fn prepare_entry_for_bytecode_build(
-    entry: &str,
-    bundle_format: BundleFormat,
-) -> Result<PathBuf> {
-    prepare_entry_with_format_and_bytecode(entry, bundle_format, false).await
-}
-
 async fn prepare_entry_with_format_and_bytecode(
     entry: &str,
     bundle_format: BundleFormat,
@@ -7829,6 +7818,18 @@ async fn prepare_entry_with_format_and_bytecode(
         &cache_dir,
     )
     .await
+}
+
+/// Prepare source for `ibex build` inside the already authenticated cache.
+/// Feeding the build an entry-cache HBC would ask hermesc to compile bytecode
+/// as JavaScript and lose the directory containing per-package chunks.
+pub(crate) async fn prepare_entry_for_bytecode_build_in_cache(
+    entry: &str,
+    bundle_format: BundleFormat,
+    runtime_cache_root: &Path,
+) -> Result<PathBuf> {
+    prepare_entry_with_format_and_bytecode_in_cache(entry, bundle_format, false, runtime_cache_root)
+        .await
 }
 
 async fn prepare_entry_with_format_and_bytecode_in_cache(
@@ -11604,8 +11605,17 @@ fn authenticated_repo_file(root: &Path, relative: &Path) -> Result<PathBuf> {
     Ok(canonical)
 }
 
-/// Determine runtime cache directory.
-pub fn runtime_cache_dir() -> Result<PathBuf> {
+static RUNTIME_CACHE_DIR_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+
+fn resolved_runtime_cache_dir(override_dir: Option<&Path>) -> Result<PathBuf> {
+    if let Some(path) = override_dir {
+        anyhow::ensure!(
+            path.is_absolute(),
+            "--runtime-cache-dir must be an absolute trusted path"
+        );
+        return Ok(path.to_path_buf());
+    }
+
     #[cfg(target_os = "macos")]
     {
         if let Some(home) = dirs::home_dir() {
@@ -11633,6 +11643,70 @@ pub fn runtime_cache_dir() -> Result<PathBuf> {
     anyhow::bail!("Failed to determine cache directory")
 }
 
+/// Capture the operator-selected runtime cache before any execution path can
+/// materialize code or security artifacts. The selected directory is later
+/// canonicalized and authenticated against every JavaScript-mounted root.
+// @ref LLP 0023#1-the-mount-table-the-project-root-and-package-bindings — the cache is operator-selectable but never a JavaScript mount
+pub fn configure_runtime_cache_dir(override_dir: Option<&Path>) -> Result<()> {
+    let mut selected = resolved_runtime_cache_dir(override_dir)?;
+    if override_dir.is_some() {
+        std::fs::create_dir_all(&selected).with_context(|| {
+            format!(
+                "failed to create operator-selected runtime cache {}",
+                selected.display()
+            )
+        })?;
+        let metadata = std::fs::symlink_metadata(&selected)?;
+        anyhow::ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "--runtime-cache-dir must name a real directory, not a symlink or file"
+        );
+        selected = std::fs::canonicalize(&selected).with_context(|| {
+            format!(
+                "failed to authenticate operator-selected runtime cache {}",
+                selected.display()
+            )
+        })?;
+    }
+    if let Some(existing) = RUNTIME_CACHE_DIR_OVERRIDE.get() {
+        anyhow::ensure!(
+            existing == &selected,
+            "runtime cache directory changed after process initialization"
+        );
+        return Ok(());
+    }
+    RUNTIME_CACHE_DIR_OVERRIDE
+        .set(selected)
+        .map_err(|_| anyhow::anyhow!("runtime cache directory changed during initialization"))
+}
+
+/// Return the process-lifetime runtime cache selection.
+pub fn runtime_cache_dir() -> Result<PathBuf> {
+    if let Some(path) = RUNTIME_CACHE_DIR_OVERRIDE.get() {
+        return Ok(path.clone());
+    }
+    resolved_runtime_cache_dir(None)
+}
+
+pub(crate) fn authenticate_build_runtime_cache(cli: &Cli, entry: &str) -> Result<PathBuf> {
+    let entry = std::fs::canonicalize(entry)
+        .with_context(|| format!("failed to authenticate build entry path {entry}"))?;
+    let project = authenticated_project_root_discovery_for_entry(cli, Some(&entry))?;
+    emit_project_root_discovery_diagnostic(&project);
+    let cache = runtime_cache_dir()?;
+    std::fs::create_dir_all(&cache).with_context(|| {
+        format!(
+            "failed to create binary runtime cache root {}",
+            cache.display()
+        )
+    })?;
+    ibex_runtime::cache_topology::authenticate_internal_cache_root(
+        &cache,
+        std::slice::from_ref(&project.selected_root),
+    )
+    .context("build cache overlaps the authenticated project tree")
+}
+
 /// Compute default output path for `ibex build`.
 pub fn compute_build_output(file: &str, outdir: Option<&Path>) -> Result<PathBuf> {
     let entry_path = Path::new(file);
@@ -11658,6 +11732,23 @@ pub(crate) mod tests {
     use crate::cli::Cli;
     use clap::Parser;
     use tempfile::tempdir;
+
+    #[test]
+    fn runtime_cache_override_requires_an_absolute_operator_path() {
+        let error = resolved_runtime_cache_dir(Some(Path::new("relative/cache")))
+            .expect_err("relative cache selection must fail closed")
+            .to_string();
+        assert!(
+            error.contains("must be an absolute trusted path"),
+            "{error}"
+        );
+
+        let absolute = std::env::temp_dir().join("ibex-runtime-cache-contract");
+        assert_eq!(
+            resolved_runtime_cache_dir(Some(&absolute)).unwrap(),
+            absolute
+        );
+    }
 
     #[test]
     fn package_graph_projects_only_explicit_root_imports_as_root_edges() {

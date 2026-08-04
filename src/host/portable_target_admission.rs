@@ -539,7 +539,7 @@ pub(super) fn select_v2_advertisement(
         .ok_or_else(|| invalid("checked target advertisements have no schema"))?;
     if schema == ADVERTISEMENT_SCHEMA_V1 {
         return Err(refused(
-            "legacy v1 target advertisements are diagnostic-only and remain closed",
+            "legacy v1 target advertisements are diagnostic-only and remain closed; ordinary `ibex run` cannot arm until the standard promotion pipeline ships a generated v2 advertisement for this target; `--project-root` selects the mounted project but does not mint advertisements; use `ibex capsec audit <file>` only for unarmed diagnostics",
         ));
     }
     if schema != ADVERTISEMENT_SCHEMA_V2 {
