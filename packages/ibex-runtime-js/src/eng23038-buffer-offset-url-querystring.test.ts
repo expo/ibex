@@ -162,6 +162,27 @@ describe('url.js: fallback URLSearchParams.toString() percent-encodes ! \' ( ) ~
 
   const { URLSearchParams: FbURLSearchParams } = loadFallback();
 
+  test('fallback constructors install toString under strict primordial lockdown', () => {
+    const sandbox: any = {
+      module: { exports: {} },
+      console,
+      process,
+      TextEncoder,
+      TextDecoder,
+      Buffer,
+    };
+    sandbox.globalThis = sandbox;
+    const context = vm.createContext(sandbox);
+    vm.runInContext(
+      'Object.defineProperty(Object.prototype, "toString", { writable: false, configurable: false });',
+      context,
+    );
+    vm.runInContext(`"use strict";\n${SRC}`, context, { filename: 'url.js' });
+    expect(new sandbox.module.exports.URL('https://example.test/a').toString())
+      .toBe('https://example.test/a');
+    expect(new sandbox.module.exports.URLSearchParams([['a', 'b']]).toString()).toBe('a=b');
+  });
+
   // Oracle values verified directly against real Node's URLSearchParams.
   const rows: Array<[string, [string, string][], string]> = [
     ["reserved chars ! ' ( ) ~ *", [['name', "O'Brien~(x)!"]], 'name=O%27Brien%7E%28x%29%21'],

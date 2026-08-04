@@ -9080,6 +9080,8 @@ export const result = JSON.stringify({
                     error.contains("CommonJS record evaluation threw"),
                     "unexpected error: {error}"
                 );
+                assert!(error.contains("commonjs-throw"), "missing source identity: {error}");
+                assert!(error.contains("commonjs-throw.cjs"), "missing source label stack: {error}");
                 assert!(record.create_esm_adapter().is_err());
             }
 

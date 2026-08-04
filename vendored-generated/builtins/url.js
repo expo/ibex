@@ -1304,7 +1304,7 @@
 			this._hash = "#" + (hash ? _sanitizeFragmentComponent(hash) : "");
 		}
 	});
-	URL.prototype.toString = function() {
+	var urlToString = function() {
 		var href = this._protocol;
 		if (this._protocol === "file:" && !this._hostname) href += "//";
 		if (this._hasEmptyAuthority && !this._hostname) href += "//";
@@ -1326,6 +1326,12 @@
 		href += this._hash;
 		return href;
 	};
+	Object.defineProperty(URL.prototype, "toString", {
+		value: urlToString,
+		writable: true,
+		configurable: true,
+		enumerable: true
+	});
 	URL.prototype.toJSON = function() {
 		return this.href;
 	};
@@ -1511,11 +1517,17 @@
 		});
 		this._update();
 	};
-	URLSearchParams.prototype.toString = function() {
+	var urlSearchParamsToString = function() {
 		return this._params.map(function(pair) {
 			return _encodeQueryValue(pair[0]) + "=" + _encodeQueryValue(pair[1]);
 		}).join("&");
 	};
+	Object.defineProperty(URLSearchParams.prototype, "toString", {
+		value: urlSearchParamsToString,
+		writable: true,
+		configurable: true,
+		enumerable: true
+	});
 	URLSearchParams.prototype.forEach = function(callback, thisArg) {
 		for (var i = 0; i < this._params.length; i++) callback.call(thisArg, this._params[i][1], this._params[i][0], this);
 	};

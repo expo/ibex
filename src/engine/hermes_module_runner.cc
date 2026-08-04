@@ -2639,6 +2639,7 @@ extern "C" int32_t ex_hermes_commonjs_record_evaluate(
   if (out_evicted == nullptr) return EXACT_RUNTIME_DRIVE_INVALID;
   auto* entry = commonJsRecordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  const std::string sourceId = entry->source_id;
   ScopedRuntimeExtensionHostTask hostTask(runtime);
   if (!hostTask) {
     writeError(out_error, "CommonJS host-task boundary is unavailable");
@@ -2658,7 +2659,10 @@ extern "C" int32_t ex_hermes_commonjs_record_evaluate(
     // Keep the engine-side reason (LLP 0413 Phase 2 integration finding):
     // the retained token names the structured value, but embedders reading
     // only the error string got an application-shaped generic label.
-    pendingError = "CommonJS record evaluation threw: " + error.getMessage();
+    const auto message = error.getMessage();
+    const auto stack = error.getStack();
+    pendingError = "CommonJS record evaluation threw in " + sourceId + ": " +
+        (stack.empty() ? message : message + "\n" + stack);
   } catch (const std::exception& error) {
     pendingError = error.what();
   } catch (...) {

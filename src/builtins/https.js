@@ -22,6 +22,19 @@ function _copyExportDescriptors(target, source) {
     if (name === 'default') continue;
     var descriptor = Object.getOwnPropertyDescriptor(source, name);
     if (!descriptor) continue;
+    // Some embedded CommonJS adapters materialize inherited primordial
+    // properties as own export-table entries. They are not part of Node's
+    // `http` API, and forwarding them makes the next adapter try to assign
+    // names such as `toString` through a frozen Object.prototype under
+    // lockdown. Preserve a genuine override, but discard an identical
+    // primordial projection.
+    var primordialDescriptor = Object.getOwnPropertyDescriptor(Object.prototype, name);
+    if (primordialDescriptor &&
+        Object.prototype.hasOwnProperty.call(descriptor, 'value') &&
+        Object.prototype.hasOwnProperty.call(primordialDescriptor, 'value') &&
+        descriptor.value === primordialDescriptor.value) {
+      continue;
+    }
     try {
       Object.defineProperty(target, name, descriptor);
     } catch (_copyErr) {}

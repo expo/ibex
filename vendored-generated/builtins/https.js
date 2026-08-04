@@ -17,6 +17,8 @@ function _copyExportDescriptors(target, source) {
 		if (name === "default") continue;
 		var descriptor = Object.getOwnPropertyDescriptor(source, name);
 		if (!descriptor) continue;
+		var primordialDescriptor = Object.getOwnPropertyDescriptor(Object.prototype, name);
+		if (primordialDescriptor && Object.prototype.hasOwnProperty.call(descriptor, "value") && Object.prototype.hasOwnProperty.call(primordialDescriptor, "value") && descriptor.value === primordialDescriptor.value) continue;
 		try {
 			Object.defineProperty(target, name, descriptor);
 		} catch (_copyErr) {}
