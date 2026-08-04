@@ -377,6 +377,8 @@ fn run() -> Result<i32> {
         let bridge_contract = capsec_semantics::canonical::to_jcs_bytes(&serde_json::json!({
             "schema": "ibex/app-bound-worker-bridge-contract/1",
             "appBindingDigest": binding.digest()?,
+            "origin": binding.origin,
+            "appId": binding.app_id,
             "engineCompatibilityDigest": app_contract.engine.identity(),
             "language": app_contract.external_worker.language_profile,
             "languageDigest": app_contract.external_worker.language_profile_digest,

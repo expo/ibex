@@ -14,6 +14,8 @@ using facebook::jsi::Value;
 extern "C" int32_t ibex_private_external_script_transform_v1(
     const uint8_t*, size_t, const uint8_t*, size_t, uint8_t**, size_t*);
 extern "C" void ibex_private_external_script_transform_dispose_v1(uint8_t*);
+extern "C" int32_t ibex_private_restricted_limits_digest_v1(
+    const uint8_t*, size_t, uint8_t*, size_t, size_t*);
 
 namespace {
 struct WorkerBridgeState {
@@ -183,8 +185,21 @@ extern "C" int32_t ibex_private_install_app_bound_worker_bridge_v1(
           if (status != 0) return statusResult(rt, status);
           return workerObject(rt, std::move(state));
         });
+    auto digestLimits = Function::createFromHostFunction(
+        runtime, PropNameID::forAscii(runtime, "digestLimits"), 1,
+        [](Runtime& rt, const Value&, const Value* args, size_t count) -> Value {
+          auto limits = requiredString(rt, args, count, 0, "worker limits");
+          uint8_t output[128];
+          size_t output_len = 0;
+          int32_t status = ibex_private_restricted_limits_digest_v1(
+              reinterpret_cast<const uint8_t*>(limits.data()), limits.size(),
+              output, sizeof(output), &output_len);
+          if (status != 0) return statusResult(rt, status);
+          return String::createFromUtf8(rt, output, output_len);
+        });
     bridge.setProperty(runtime, "transformExternalScript", std::move(transform));
     bridge.setProperty(runtime, "create", std::move(create));
+    bridge.setProperty(runtime, "digestLimits", std::move(digestLimits));
     bridge.setProperty(
         runtime, "contract", String::createFromUtf8(runtime, contract, contract_len));
     auto freeze = runtime.global()

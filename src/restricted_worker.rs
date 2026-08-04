@@ -283,6 +283,42 @@ pub unsafe extern "C" fn ibex_private_external_script_transform_dispose_v1(bytes
     }
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn ibex_private_restricted_limits_digest_v1(
+    limits: *const u8,
+    limits_len: usize,
+    output: *mut u8,
+    output_capacity: usize,
+    output_len: *mut usize,
+) -> i32 {
+    if !output_len.is_null() {
+        unsafe { *output_len = 0 }
+    }
+    if output.is_null() || output_len.is_null() {
+        return INVALID;
+    }
+    let bytes = match unsafe { borrowed(limits, limits_len, 1, MAX_LIMITS) } {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let limits: LimitsV1 = match strict_canonical(bytes) {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+    let value = match limits.digest() {
+        Ok(value) => value,
+        Err(_) => return IDENTITY,
+    };
+    if value.len() > output_capacity {
+        return CEILING;
+    }
+    unsafe {
+        ptr::copy_nonoverlapping(value.as_ptr(), output, value.len());
+        *output_len = value.len();
+    }
+    OK
+}
+
 unsafe extern "C" fn digest_sha256(
     bytes: *const u8,
     len: usize,
