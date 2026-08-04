@@ -1,7 +1,7 @@
 # LLP 0048: Restricted External Script Admission and Broker ABI
 
 **Type:** Spec
-**Status:** Draft
+**Status:** Accepted
 **Systems:** Runtime, Host ABI, Module Loader, CapSec, Distribution
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-08-03
