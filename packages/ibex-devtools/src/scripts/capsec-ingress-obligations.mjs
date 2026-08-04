@@ -704,7 +704,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-product-routing",
       "pub(crate) enum AuthenticatedProductIngress {",
       "async fn run_capsec_audit(",
-      "sha256-E3u8iWl5gRjTg5Ibo52YD1ugONlUuDyfqlUOl9CsI5g",
+      "sha256-N_YK6YV5KfLTeJg444sGAFssNnvOYqTnxbSEwyIfxnI",
     ),
     freezeReviewedRange(
       "authenticated-product-execution",
