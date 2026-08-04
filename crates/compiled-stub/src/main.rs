@@ -29,8 +29,9 @@ use ibex_runtime::module_loader::graph::{
 };
 use ibex_runtime::module_loader::identity::SourceId;
 use ibex_sfe_format::app_bound::{
-    admit_executable_v2, ApplicationBindingV1, PackageProvenanceV2, SectionKindV2, StubContractV4,
-    STANDALONE_INFO_SCHEMA_V2,
+    admit_executable_v2, AppBoundReportV1, ApplicationBindingV1, PackageProvenanceV2,
+    SectionKindV2, StubContractV4, COMPILE_PLAN_SCHEMA_V2, ENVELOPE_SCHEMA_V3,
+    PACKAGE_PROVENANCE_SCHEMA_V2, STANDALONE_INFO_SCHEMA_V2, STUB_CONTRACT_SCHEMA_V4,
 };
 use ibex_sfe_format::{
     admit_executable_v1, CompileCarrierEncodingV1, EngineCompatibilityV1, PackageProvenanceV1,
@@ -352,6 +353,7 @@ fn run() -> Result<i32> {
             carrier_manifests.len(),
             candidate_tables.len(),
             envelope.application_binding.as_ref(),
+            compiled.app_bound.as_ref(),
         )?;
         return Ok(0);
     }
@@ -374,22 +376,25 @@ fn run() -> Result<i32> {
         envelope.application_binding.as_ref(),
         compiled.app_bound.as_ref(),
     ) {
-        let bridge_contract = capsec_semantics::canonical::to_jcs_bytes(&serde_json::json!({
-            "schema": "ibex/app-bound-worker-bridge-contract/1",
-            "appBindingDigest": binding.digest()?,
-            "origin": binding.origin,
-            "appId": binding.app_id,
-            "engineCompatibilityDigest": app_contract.engine.identity(),
-            "language": app_contract.external_worker.language_profile,
-            "languageDigest": app_contract.external_worker.language_profile_digest,
-            "workerPolicy": app_contract.external_worker.worker_policy,
-            "workerPolicyDigest": app_contract.external_worker.worker_policy_digest,
-            "broker": app_contract.external_worker.broker_protocol,
-            "globalsDigest": app_contract.external_worker.global_inventory_digest,
-            "defaults": app_contract.external_worker.defaults,
-            "maxima": app_contract.external_worker.maxima,
-        }))?;
-        owner.install_app_bound_worker_bridge(&bridge_contract)?;
+        let app_bound = AppBoundReportV1::admitted(binding, app_contract)?;
+        if app_bound.may_execute_worker() {
+            let bridge_contract = capsec_semantics::canonical::to_jcs_bytes(&serde_json::json!({
+                "schema": "ibex/app-bound-worker-bridge-contract/1",
+                "appBindingDigest": binding.digest()?,
+                "origin": binding.origin,
+                "appId": binding.app_id,
+                "engineCompatibilityDigest": app_contract.engine.identity(),
+                "language": app_contract.external_worker.language_profile,
+                "languageDigest": app_contract.external_worker.language_profile_digest,
+                "workerPolicy": app_contract.external_worker.worker_policy,
+                "workerPolicyDigest": app_contract.external_worker.worker_policy_digest,
+                "broker": app_contract.external_worker.broker_protocol,
+                "globalsDigest": app_contract.external_worker.global_inventory_digest,
+                "defaults": app_contract.external_worker.defaults,
+                "maxima": app_contract.external_worker.maxima,
+            }))?;
+            owner.install_app_bound_worker_bridge(&bridge_contract)?;
+        }
     }
     owner.install_compiled_process_metadata(
         &process.exec_path,
@@ -471,26 +476,45 @@ fn emit_standalone_information(
     carrier_count: usize,
     candidate_table_count: usize,
     application_binding: Option<&ApplicationBindingV1>,
+    app_contract: Option<&StubContractV4>,
 ) -> Result<()> {
     let capsec_availability = if contract.boot.capsec_advertisement_identity.is_empty() {
         "unavailable-no-advertisement"
     } else {
         "contract-advertised"
     };
-    let report = serde_json::json!({
-        "schema": if application_binding.is_some() { STANDALONE_INFO_SCHEMA_V2 } else { STANDALONE_INFO_SCHEMA_V1 },
+    let app_bound = match (application_binding, app_contract) {
+        (Some(binding), Some(contract)) => Some(AppBoundReportV1::admitted(binding, contract)?),
+        (None, None) => None,
+        _ => bail!("app-bound information inputs are incomplete"),
+    };
+    let mut integrity = serde_json::json!({
+        "status": "admitted",
+        "envelopeSchema": contract.accepted_schemas.envelope,
+        "stubContractDigest": contract_digest,
+        "graphIdentity": graph.graph_identity,
+        "recordCount": graph.records.len(),
+        "carrierCount": carrier_count,
+        "candidateTableCount": candidate_table_count,
+    });
+    if app_bound.is_some() {
+        let object = integrity
+            .as_object_mut()
+            .expect("standalone integrity report is an object");
+        object.insert("envelopeSchema".into(), ENVELOPE_SCHEMA_V3.into());
+        object.insert("stubContractSchema".into(), STUB_CONTRACT_SCHEMA_V4.into());
+        object.insert("compilePlanSchema".into(), COMPILE_PLAN_SCHEMA_V2.into());
+        object.insert(
+            "packageProvenanceSchema".into(),
+            PACKAGE_PROVENANCE_SCHEMA_V2.into(),
+        );
+    }
+    let mut report = serde_json::json!({
+        "schema": if app_bound.is_some() { STANDALONE_INFO_SCHEMA_V2 } else { STANDALONE_INFO_SCHEMA_V1 },
         "execution": {
             "applicationEvaluated": false,
         },
-        "integrity": {
-            "status": "admitted",
-            "envelopeSchema": contract.accepted_schemas.envelope,
-            "stubContractDigest": contract_digest,
-            "graphIdentity": graph.graph_identity,
-            "recordCount": graph.records.len(),
-            "carrierCount": carrier_count,
-            "candidateTableCount": candidate_table_count,
-        },
+        "integrity": integrity,
         "boot": {
             "defaultMode": contract.boot.default_mode,
             "capsecSelector": contract.boot.capsec_selector,
@@ -501,8 +525,13 @@ fn emit_standalone_information(
         "target": contract.target,
         "backendInventory": contract.backends,
         "provenanceKind": if provenance.is_release() { "release" } else { "development" },
-        "applicationBinding": application_binding,
     });
+    if let Some(app_bound) = app_bound {
+        report
+            .as_object_mut()
+            .expect("standalone information report is an object")
+            .insert("appBound".into(), serde_json::to_value(app_bound)?);
+    }
     let bytes = capsec_semantics::canonical::to_jcs_bytes(&report)?;
     println!(
         "{}",

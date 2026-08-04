@@ -39,9 +39,9 @@ use ibex_sfe_catalog::{CatalogTargetArtifacts, PinnedCatalogV1};
 use ibex_sfe_format::app_bound::ApplicationBindingV1;
 #[cfg(feature = "module-runner")]
 use ibex_sfe_format::app_bound::{
-    admit_executable_v2, build_executable_v2, rehash_stub_core_v2, CompilePlanV2,
+    admit_executable_v2, build_executable_v2, rehash_stub_core_v2, AppBoundReportV1, CompilePlanV2,
     PackageProvenanceV2, SectionInputV2, SectionKindV2, StubContractV4, COMPILE_PLAN_SCHEMA_V2,
-    PACKAGE_PROVENANCE_SCHEMA_V2,
+    ENVELOPE_SCHEMA_V3, PACKAGE_PROVENANCE_SCHEMA_V2, STUB_CONTRACT_SCHEMA_V4,
 };
 #[cfg(feature = "module-runner")]
 use ibex_sfe_format::{
@@ -459,7 +459,6 @@ fn compile_app_bound_target(
         bail!("assembled app-bound executable omitted required inner sections");
     }
     publish_app_bound_output(output, &unsigned, &provenance)?;
-    emit_ambient_authority_notice_once();
     Ok(())
 }
 
@@ -1035,12 +1034,16 @@ fn inspect_app_bound(
         .iter()
         .filter(|row| row.kind == SectionKindV2::CarrierManifest)
         .count();
+    let app_bound = AppBoundReportV1::admitted(&binding, &contract)?;
     let report = json!({
         "schema": "ibex/executable-inspection/4",
         "file": path,
         "envelopeConsistency": {
             "state": "consistent",
-            "schema": envelope.directory.schema,
+            "schema": ENVELOPE_SCHEMA_V3,
+            "stubContractSchema": STUB_CONTRACT_SCHEMA_V4,
+            "compilePlanSchema": COMPILE_PLAN_SCHEMA_V2,
+            "packageProvenanceSchema": PACKAGE_PROVENANCE_SCHEMA_V2,
             "envelopeDigest": envelope.envelope_digest,
             "stubContractDigest": envelope.directory.stub_contract_digest,
             "sectionCount": envelope.directory.sections.len(),
@@ -1053,8 +1056,7 @@ fn inspect_app_bound(
             "recordCount": graph.records.len(),
             "carrierCount": carrier_count,
         },
-        "applicationBinding": binding,
-        "restrictedWorker": contract.external_worker,
+        "appBound": app_bound,
         "target": contract.target,
         "backendInventory": contract.backends,
         "provenance": provenance,

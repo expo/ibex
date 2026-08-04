@@ -259,6 +259,80 @@ pub struct ExternalWorkerV1 {
     pub maxima: LimitsV1,
 }
 
+impl ExternalWorkerV1 {
+    pub fn availability(&self) -> Result<AppBoundAvailabilityV1> {
+        match (self.enabled, self.target_advertisement_digest.is_some()) {
+            (true, true) => Ok(AppBoundAvailabilityV1::EnabledAndAdvertised),
+            (false, true) => Ok(AppBoundAvailabilityV1::DisabledAdvertised),
+            (false, false) => Ok(AppBoundAvailabilityV1::DisabledUnadvertised),
+            (true, false) => Err(Error::Contract(
+                "enabled app-bound worker has no target advertisement".into(),
+            )),
+        }
+    }
+}
+
+/// The shared authenticated projection emitted by inspection V4 and
+/// standalone-info V2. Keeping this as one strict type prevents the two
+/// non-evaluating readers from drifting apart.
+/// @ref LLP 0048#8.1-strict-schema-and-binary-definitions — both reports carry
+/// this exact closed projection and only the enabled/advertised state may run.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AppBoundAvailabilityV1 {
+    EnabledAndAdvertised,
+    DisabledAdvertised,
+    DisabledUnadvertised,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppBoundReportV1 {
+    pub binding_digest: String,
+    pub origin: String,
+    pub app_id: String,
+    pub external_worker_enabled: bool,
+    pub availability: AppBoundAvailabilityV1,
+    pub language_profile: String,
+    pub language_profile_digest: String,
+    pub worker_policy: String,
+    pub worker_policy_digest: String,
+    pub broker_protocol: String,
+    pub global_inventory_digest: String,
+    pub target_advertisement_digest: Option<String>,
+    pub defaults: LimitsV1,
+    pub maxima: LimitsV1,
+}
+
+impl AppBoundReportV1 {
+    pub fn admitted(binding: &ApplicationBindingV1, contract: &StubContractV4) -> Result<Self> {
+        binding.validate()?;
+        contract.validate()?;
+        let worker = &contract.external_worker;
+        let availability = worker.availability()?;
+        Ok(Self {
+            binding_digest: binding.digest()?,
+            origin: binding.origin.clone(),
+            app_id: binding.app_id.clone(),
+            external_worker_enabled: worker.enabled,
+            availability,
+            language_profile: worker.language_profile.clone(),
+            language_profile_digest: worker.language_profile_digest.clone(),
+            worker_policy: worker.worker_policy.clone(),
+            worker_policy_digest: worker.worker_policy_digest.clone(),
+            broker_protocol: worker.broker_protocol.clone(),
+            global_inventory_digest: worker.global_inventory_digest.clone(),
+            target_advertisement_digest: worker.target_advertisement_digest.clone(),
+            defaults: worker.defaults.clone(),
+            maxima: worker.maxima.clone(),
+        })
+    }
+
+    pub fn may_execute_worker(&self) -> bool {
+        self.availability == AppBoundAvailabilityV1::EnabledAndAdvertised
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StubContractV4 {
@@ -990,6 +1064,24 @@ fn read_footer_v3(file: &[u8], start: usize) -> Result<super::FooterV1> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const DIGEST: &str = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    fn worker(enabled: bool, advertised: bool) -> ExternalWorkerV1 {
+        ExternalWorkerV1 {
+            enabled,
+            language_profile: RESTRICTED_WORKER_LANGUAGE_PROFILE_V1.into(),
+            language_profile_digest: DIGEST.into(),
+            arming_schema: RESTRICTED_WORKER_ARMING_SCHEMA_V1.into(),
+            worker_policy: RESTRICTED_WORKER_POLICY_V1.into(),
+            worker_policy_digest: DIGEST.into(),
+            broker_protocol: RESTRICTED_WORKER_BROKER_V1.into(),
+            global_inventory_digest: DIGEST.into(),
+            target_advertisement_digest: advertised.then(|| DIGEST.into()),
+            defaults: LimitsV1::defaults(),
+            maxima: LimitsV1::maxima(),
+        }
+    }
+
     #[test]
     fn limits_are_closed_and_domain_bound() {
         assert_ne!(
@@ -1013,5 +1105,51 @@ mod tests {
             },
         };
         assert!(binding.validate().is_err());
+    }
+
+    #[test]
+    fn worker_availability_is_closed_and_enabled_requires_evidence() {
+        assert_eq!(
+            worker(true, true).availability().unwrap(),
+            AppBoundAvailabilityV1::EnabledAndAdvertised
+        );
+        assert_eq!(
+            worker(false, true).availability().unwrap(),
+            AppBoundAvailabilityV1::DisabledAdvertised
+        );
+        assert_eq!(
+            worker(false, false).availability().unwrap(),
+            AppBoundAvailabilityV1::DisabledUnadvertised
+        );
+        assert!(worker(true, false).availability().is_err());
+    }
+
+    #[test]
+    fn app_bound_report_shape_is_closed() {
+        let report = AppBoundReportV1 {
+            binding_digest: DIGEST.into(),
+            origin: "https://example.com".into(),
+            app_id: "app".into(),
+            external_worker_enabled: true,
+            availability: AppBoundAvailabilityV1::EnabledAndAdvertised,
+            language_profile: RESTRICTED_WORKER_LANGUAGE_PROFILE_V1.into(),
+            language_profile_digest: DIGEST.into(),
+            worker_policy: RESTRICTED_WORKER_POLICY_V1.into(),
+            worker_policy_digest: DIGEST.into(),
+            broker_protocol: RESTRICTED_WORKER_BROKER_V1.into(),
+            global_inventory_digest: DIGEST.into(),
+            target_advertisement_digest: Some(DIGEST.into()),
+            defaults: LimitsV1::defaults(),
+            maxima: LimitsV1::maxima(),
+        };
+        let value = serde_json::to_value(&report).unwrap();
+        assert_eq!(value.as_object().unwrap().len(), 14);
+        assert_eq!(value["availability"], "enabled-and-advertised");
+        let mut with_unknown = value;
+        with_unknown
+            .as_object_mut()
+            .unwrap()
+            .insert("unknown".into(), true.into());
+        assert!(serde_json::from_value::<AppBoundReportV1>(with_unknown).is_err());
     }
 }
