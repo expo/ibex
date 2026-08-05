@@ -82,6 +82,14 @@ export const CONFORMANCE_HOST_FEATURES = Object.freeze([
   "unadvertised-dev-arming",
 ]);
 
+// Executable product tests must preserve the ordinary runtime posture. Most
+// optional host features deliberately change that posture and are exercised
+// by dedicated lanes; OpenSSL is the one additive backend whose behavioral
+// tests belong in this generic profile.
+export const CONFORMANCE_EXECUTABLE_FEATURES = Object.freeze([
+  "openssl-crypto",
+]);
+
 export const CONFORMANCE_PRODUCT_COMMANDS = Object.freeze([
   [
     "rust-default-full",
@@ -89,14 +97,13 @@ export const CONFORMANCE_PRODUCT_COMMANDS = Object.freeze([
     ["./scripts/run-tests.sh", "--", "--test-threads=1"],
   ],
   [
-    "rust-workspace-host-features-executable-tests",
+    "rust-workspace-default-openssl-executable-tests",
     "cargo",
     [
       "test",
       "--workspace",
-      "--no-default-features",
       "--features",
-      CONFORMANCE_HOST_FEATURES.join(","),
+      CONFORMANCE_EXECUTABLE_FEATURES.join(","),
       "--lib",
       "--bins",
       "--tests",

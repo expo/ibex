@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   CONFORMANCE_COMMANDS,
+  CONFORMANCE_EXECUTABLE_FEATURES,
   CONFORMANCE_HOST_FEATURES,
   CONFORMANCE_PREFLIGHT_COMMANDS,
   CONFORMANCE_PRODUCT_COMMANDS,
@@ -23,19 +24,21 @@ test("conformance prerequisite matrix covers every product test layer", () => {
     "runtime-environment-inventory-drift",
     "runtime-js-full",
     "rust-default-full",
+    "rust-workspace-default-openssl-executable-tests",
     "rust-workspace-host-features-all-targets-compile",
-    "rust-workspace-host-features-executable-tests",
   ]);
   expect(byId.get("rust-default-full")).toEqual([
     "bash",
     ["./scripts/run-tests.sh", "--", "--test-threads=1"],
   ]);
-  const executable = byId.get("rust-workspace-host-features-executable-tests");
+  const executable = byId.get(
+    "rust-workspace-default-openssl-executable-tests",
+  );
   expect(executable[0]).toBe("cargo");
-  expect(executable[1]).toContain("--no-default-features");
+  expect(executable[1]).not.toContain("--no-default-features");
   expect(executable[1]).not.toContain("--all-features");
   expect(executable[1][executable[1].indexOf("--features") + 1]).toBe(
-    CONFORMANCE_HOST_FEATURES.join(","),
+    CONFORMANCE_EXECUTABLE_FEATURES.join(","),
   );
   expect(executable[1]).not.toContain("--all-targets");
   expect(executable[1]).not.toContain("--benches");
@@ -86,6 +89,7 @@ test("host conformance covers every non-Simulator Cargo feature", async () => {
     )
     .sort();
   expect([...CONFORMANCE_HOST_FEATURES].sort()).toEqual(expected);
+  expect(CONFORMANCE_EXECUTABLE_FEATURES).toEqual(["openssl-crypto"]);
 });
 
 test("Windows registry drift uses the pinned Node oracle", () => {

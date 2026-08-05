@@ -49,7 +49,7 @@
       "deadlineMs": 2700000,
       "gracePeriodMs": 60000
     },
-    "rust-workspace-host-features-executable-tests": {
+    "rust-workspace-default-openssl-executable-tests": {
       "phase": "product-prerequisites",
       "deadlineMs": 2700000,
       "gracePeriodMs": 60000
