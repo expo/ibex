@@ -15,12 +15,14 @@
 //! module implements.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use crate::decision::ProtectedObjectGuard;
 use crate::digest::compute_domain_digest;
 use crate::error::{Error, Result};
-use crate::model::{Digest, NonEmptyString};
+use crate::model::{Digest, Generation, NonEmptyString};
 
 pub const DIAGNOSTIC_GRAPH_SNAPSHOT_SCHEMA_V1: &str = "ibex/diagnostic-graph-snapshot/1";
 pub const DIAGNOSTIC_GRAPH_SNAPSHOT_DOMAIN_V1: &str = "ibex/diagnostic-graph-snapshot/1";
@@ -46,6 +48,138 @@ pub const DIAGNOSTIC_CARRIER_KIND_INLINE_SOURCE: &str = "inline-source";
 /// The bounded would-deny stream retains this many ordered entries; the
 /// stream digest covers exactly that retained suffix.
 pub const WOULD_DENY_RETAINED_LIMIT: usize = 1024;
+
+/// Private construction token shared by the two live foreground-audit types.
+/// Keeping it private to this module prevents sibling authority modules from
+/// constructing a diagnostic handle by struct literal.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ForegroundAuditSeal;
+
+/// Immutable, non-serializable decision inputs for one foreground audit run.
+///
+/// There are deliberately no policy-digest, armed-snapshot-digest, authority,
+/// denial, ceiling, bootstrap-floor, or promotion fields. The baseline digest
+/// occupies its own diagnostic domain and therefore cannot be passed where an
+/// armed semantic identity is required.
+///
+/// Phase 1 intentionally exposes no constructor. Phase 2 must add the sole
+/// construction path together with capture fences and the host-derived
+/// protected-object baseline; until then, code outside this module can name
+/// and inspect the type but cannot fabricate one.
+///
+/// ```compile_fail
+/// use capsec_semantics::diagnostic_audit::ForegroundAuditDecisionContextV1;
+///
+/// // All fields, including the construction seal, are module-private.
+/// let _fabricated = ForegroundAuditDecisionContextV1 {};
+/// ```
+///
+/// @ref LLP 0030#diagnostic-decision-context — the diagnostic context has no
+/// armed-policy or armed-snapshot identity slots
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ForegroundAuditDecisionContextV1 {
+    vocabulary_digest: Digest,
+    registry_digest: Digest,
+    baseline_digest: Digest,
+    graph_identity: Digest,
+    target: DiagnosticTargetV1,
+    loaded_engine_digest: Digest,
+    protected_objects: Arc<[ProtectedObjectGuard]>,
+    generation: Generation,
+    run_nonce: NonEmptyString,
+    channel_nonce: NonEmptyString,
+    _seal: ForegroundAuditSeal,
+}
+
+impl ForegroundAuditDecisionContextV1 {
+    pub fn vocabulary_digest(&self) -> &Digest {
+        &self.vocabulary_digest
+    }
+
+    pub fn registry_digest(&self) -> &Digest {
+        &self.registry_digest
+    }
+
+    pub fn baseline_digest(&self) -> &Digest {
+        &self.baseline_digest
+    }
+
+    pub fn graph_identity(&self) -> &Digest {
+        &self.graph_identity
+    }
+
+    pub fn target(&self) -> &DiagnosticTargetV1 {
+        &self.target
+    }
+
+    pub fn loaded_engine_digest(&self) -> &Digest {
+        &self.loaded_engine_digest
+    }
+
+    pub fn protected_objects(&self) -> &[ProtectedObjectGuard] {
+        &self.protected_objects
+    }
+
+    pub fn generation(&self) -> Generation {
+        self.generation
+    }
+
+    pub fn run_nonce(&self) -> &NonEmptyString {
+        &self.run_nonce
+    }
+
+    pub fn channel_nonce(&self) -> &NonEmptyString {
+        &self.channel_nonce
+    }
+}
+
+/// Opaque live handle for one authenticated foreground-audit graph.
+///
+/// Unlike [`DiagnosticGraphSnapshotV1`], this type is not serializable or
+/// deserializable. Its fields and construction seal are private, so decoding
+/// the wire evidence cannot recreate the live handle. Phase 2 will extend the
+/// private representation with the retained capture resources before exposing
+/// the one capture-backed constructor.
+///
+/// The armed snapshot's representation is independently private to the
+/// sibling `arming` module, and this module provides no conversion. The
+/// following compile-fail assertion pins that separation:
+///
+/// ```compile_fail
+/// use capsec_semantics::arming::ArmedSnapshot;
+/// use capsec_semantics::diagnostic_audit::ForegroundAuditGraphSnapshotV1;
+///
+/// fn cannot_promote(snapshot: ForegroundAuditGraphSnapshotV1) -> ArmedSnapshot {
+///     snapshot.into()
+/// }
+/// ```
+///
+/// A projection also cannot be deserialized into the live handle:
+///
+/// ```compile_fail
+/// use capsec_semantics::diagnostic_audit::ForegroundAuditGraphSnapshotV1;
+///
+/// let _: ForegroundAuditGraphSnapshotV1 = serde_json::from_str("{}").unwrap();
+/// ```
+///
+/// @ref LLP 0030#1-workflow-and-type-separation — module privacy prevents a
+/// diagnostic graph from becoming an armed credential
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ForegroundAuditGraphSnapshotV1 {
+    projection: Arc<DiagnosticGraphSnapshotV1>,
+    decision_context: Arc<ForegroundAuditDecisionContextV1>,
+    _seal: ForegroundAuditSeal,
+}
+
+impl ForegroundAuditGraphSnapshotV1 {
+    pub fn projection(&self) -> &DiagnosticGraphSnapshotV1 {
+        &self.projection
+    }
+
+    pub fn decision_context(&self) -> &ForegroundAuditDecisionContextV1 {
+        &self.decision_context
+    }
+}
 
 /// Identity of a retained opened object. Path text is diagnostic display
 /// only — the device/inode pair is what capture authenticated.
@@ -400,6 +534,22 @@ mod tests {
         }
     }
 
+    fn decision_context(snapshot: &DiagnosticGraphSnapshotV1) -> ForegroundAuditDecisionContextV1 {
+        ForegroundAuditDecisionContextV1 {
+            vocabulary_digest: digest(10),
+            registry_digest: digest(11),
+            baseline_digest: snapshot.baseline_digest.clone(),
+            graph_identity: snapshot.graph_identity.clone(),
+            target: snapshot.target.clone(),
+            loaded_engine_digest: digest(12),
+            protected_objects: Vec::<ProtectedObjectGuard>::new().into(),
+            generation: Generation::new(1).expect("test generation"),
+            run_nonce: snapshot.run_nonce.clone(),
+            channel_nonce: non_empty("m3lKZjgqB8qY7kT4vP2s9A"),
+            _seal: ForegroundAuditSeal,
+        }
+    }
+
     fn evidence() -> WouldDenyEvidenceV1 {
         WouldDenyEvidenceV1 {
             observed_count: 0,
@@ -452,6 +602,37 @@ mod tests {
         let encoded = serde_json::to_string(&receipt).unwrap();
         let decoded: DiagnosticAuditExecutionReceiptV1 = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, receipt);
+    }
+
+    #[test]
+    fn sealed_live_types_bind_the_projection_to_a_distinct_decision_context() {
+        let projection = snapshot();
+        let context = decision_context(&projection);
+        let live = ForegroundAuditGraphSnapshotV1 {
+            projection: Arc::new(projection.clone()),
+            decision_context: Arc::new(context.clone()),
+            _seal: ForegroundAuditSeal,
+        };
+
+        assert_eq!(live.projection(), &projection);
+        assert_eq!(live.decision_context(), &context);
+        assert_eq!(context.baseline_digest(), &projection.baseline_digest);
+        assert_eq!(context.graph_identity(), &projection.graph_identity);
+        assert_eq!(context.target(), &projection.target);
+        assert_eq!(context.run_nonce(), &projection.run_nonce);
+        assert_eq!(context.generation().get(), 1);
+        assert!(context.protected_objects().is_empty());
+        assert_ne!(
+            context.vocabulary_digest(),
+            context.registry_digest(),
+            "compiled vocabulary and registry identities stay separately typed"
+        );
+        assert_ne!(
+            context.loaded_engine_digest(),
+            context.graph_identity(),
+            "engine and graph identities stay separately typed"
+        );
+        assert_eq!(context.channel_nonce().as_str(), "m3lKZjgqB8qY7kT4vP2s9A");
     }
 
     #[test]
