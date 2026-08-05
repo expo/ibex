@@ -1,6 +1,6 @@
 # Secure REPL rejects operator Ctrl-D after publishing its prompt
 
-**Status:** Open
+**Status:** Resolved
 **Impact:** 3
 **Urgency:** 4
 **Ease:** 4

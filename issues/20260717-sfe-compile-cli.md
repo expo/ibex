@@ -1,6 +1,6 @@
 # ibex compile + inspect-executable (producer pipeline and CLI)
 
-**Status:** Open
+**Status:** Open — release publication/receipt actions remain
 **Impact:** 5
 **Urgency:** 4
 **Ease:** 2
@@ -193,3 +193,11 @@ mutation, preserved the same rehashed stub identity through signature removal
 and replacement, and passed the complete installed-user matrix with catalog
 `sha256-LGJFbrY46eA_9MbMPx1QZijWdpQcsQTeGoL0mQIrCcw` and policy toolchain
 `sha256-TFpMdNyyREUzRTT_L0heu9oac4en2dvws7hGMO8ne5I`.
+
+## Maintenance reconciliation — 2026-08-05
+
+The matching macOS two-clean-builder comparison subsequently passed and is no
+longer an open criterion here. The producer implementation is complete for the
+ambient-v1 scope; this ticket remains open only until the exact catalog-pinned
+release is published, reinstalled from that publication, and exercised by the
+configured clean release jobs on the published revision.

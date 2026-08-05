@@ -1,6 +1,6 @@
 # Mach-O segment embedding + signing state machine
 
-**Status:** Open
+**Status:** Open — external notarization receipt remains
 **Impact:** 5
 **Urgency:** 4
 **Ease:** 2

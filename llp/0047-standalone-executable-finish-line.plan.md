@@ -5,6 +5,12 @@
 **Systems:** Build, Distribution, Runtime, Module Loader, CapSec, Product
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-08-01
+**Revised:** 2026-08-05 (maintenance reconciliation: the macOS two-builder
+comparison and all §12 decisions are complete; ambient-v1 release work is now
+publication, notarization, accepted performance budgets/measurements, and
+durable CI receipts. LLP 0048's app-bound formats and restricted-worker path
+have substantial implementation, while their complete acceptance and
+target-evidence gate remain open.)
 **Revised:** 2026-08-03 (the separate LLP 0048 gate now names catalog V2 and
 the catalog/stub/plan/report-bound per-target enforcement evidence; no current
 M0–M5 row supplies it)
@@ -389,13 +395,18 @@ cache. Two physical Jammy builders also produced exact catalog, contract,
 policy-toolchain, native-stub, compile-plan, and unsigned-application
 identities, and both artifacts passed the complete release-kit matrix. The M3
 language/module and final-envelope tamper matrix and the M4 process/backend
-matrix are green on both target tuples. Remaining work is publication, the
-macOS two-clean-builder receipt, precommitted performance budgets and
-measurements, platform distribution evidence, and the open §12 decisions.
+matrix are green on both target tuples. The two-clean-builder macOS comparison
+also passes, and all §12 decisions are resolved. Remaining ambient-v1 work is
+publication and reinstall from the published artifacts, the macOS notarization
+ticket, precommitted performance budgets and measurements, and durable clean
+CI receipts for the published revision.
 
-The current path still has no caller-selected external-script admission lane.
-LLP 0048 specifies that lane, but its implementation and target evidence are
-independent work; no current “complete” milestone below includes it. Its
+The repository now contains the app-bound catalog/contract formats,
+source-admission and parent bridge, restricted-worker runtime and broker
+lifecycle, policy/evidence fixtures, reporting, and public compile surface
+specified by LLP 0048. Complete host-portable acceptance and exact-tuple
+advertisement evidence remain independent open work; no “complete” M0–M5 row
+below implies that gate. The
 app-bound profile deliberately rotates the strict formats to StubContractV4,
 envelope V3, catalog V2 plus its target-specific restricted-worker
 advertisement/evidence artifact, CompilePlanV2, PackageProvenanceV2,
@@ -979,7 +990,7 @@ general one-entry standalone v1 release. It **is** a criterion for claiming the
 Snapback phase-2 app-bound executable: standalone compilation green alone does
 not satisfy that downstream contract.
 
-### Requirement-by-requirement audit — 2026-08-03
+### Requirement-by-requirement audit — reconciled 2026-08-05
 
 | §9 criterion | State | Evidence or remaining action |
 | --- | --- | --- |
@@ -997,7 +1008,7 @@ not satisfy that downstream contract.
 | Ambient-default ratification | **Resolved — ratified** | The author ratified ambient compatibility as the v1 default against the working macOS and Linux end-to-end artifacts. |
 | Non-evaluating explanation | **Complete** | Inspection v3 admits inner contracts; the artifact's authenticated `--ibex-info` path reports recipient-facing posture/backend/CapSec facts after the same admission and before application evaluation. |
 | LLP 0022/0031 reconciliation | **Complete** | Both documents scope the former categorical/advertisement-first gates to the CapSec path. |
-| LLP 0048 external-script worker | **Specified; implementation/evidence open** | Separate gate for bounded source admission, broker-only enforced policy, host-portable semantics, planted-secret non-transmission, lifecycle/ceilings, and exact-tuple evidence. Not implied by any M0–M5 completion row. |
+| LLP 0048 external-script worker | **Substantially implemented; acceptance/evidence open** | App-bound formats, source admission, parent bridge, restricted-worker construction, broker lifecycle, policy/evidence fixtures, reporting, and compile surface exist. The complete host-portable, planted-secret, lifecycle/ceiling, and exact-tuple evidence gate remains open and is not implied by any M0–M5 completion row. |
 | Distribution + precommitted performance | **Open — release/author evidence** | Credential-free Mach-O minimum/hardened/replacement vectors, Developer ID hardened-runtime signing with secure timestamp, Linux audit, and the strict two-physical-Mac comparator pass. Gatekeeper still requires notarization credentials/ticket. The versioned performance collector still refuses measurements until both tuples' numeric budgets are accepted and committed. |
 
 Milestone 5's recipient-side disclosure choice is resolved by the authenticated

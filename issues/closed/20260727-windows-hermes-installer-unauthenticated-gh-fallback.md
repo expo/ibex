@@ -1,6 +1,6 @@
 # Make the Windows Hermes installer survive unauthenticated GitHub CLI
 
-**Status:** Open
+**Status:** Resolved
 **Severity:** P2
 **Systems:** Build, Windows, Hermes
 **Author:** Codex, directed by Charlie Cheever

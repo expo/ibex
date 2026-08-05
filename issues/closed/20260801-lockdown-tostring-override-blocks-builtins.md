@@ -1,6 +1,6 @@
 # Lockdown's override-mistake repair misses `toString`/`valueOf`, breaking `buffer`, `os`, `string_decoder`
 
-**Status:** Open
+**Status:** Closed (2026-08-05)
 **Severity:** P1 — `require('buffer')` is unusable in an armed runtime
 **Systems:** Engine (lockdown), Builtins
 **Author:** Claude (Opus 5), directed by Charlie Cheever
@@ -74,3 +74,14 @@ converts the property to a frozen accessor pair, it does not leave it mutable.
 that asserts `Object.prototype.toString` is still non-configurable-on-the-
 prototype (assignment to the frozen prototype itself still throws) while
 `someFn.toString = f` shadows on the receiver.
+
+## Resolution
+
+The implementation took the ticket's explicit-own-property alternative rather
+than widening the intrinsic override set. Commits `74c1e5a1`, `e733ced2`, and
+`673bfd10` converted the affected lazy builtins to define their own
+`toString`/`valueOf` properties after primordial lockdown and added focused
+regressions. On 2026-08-05,
+`lazy-builtin-lockdown.test.ts` and
+`string-decoder-lockdown-eng24233.test.ts` passed 3/3 locally; the release and
+CapSec suites retain the armed-runtime coverage.

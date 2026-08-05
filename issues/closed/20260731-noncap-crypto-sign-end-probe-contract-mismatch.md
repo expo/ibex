@@ -6,7 +6,7 @@
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-07-31
 **Related:** LLP 0044 §9 (found by the day-one measurement's representative
-batch run); issues/20260731-preexisting-capsec-evidence-js-reds.md (adjacent
+batch run); issues/closed/20260731-preexisting-capsec-evidence-js-reds.md (adjacent
 but a different suite — that one is bun tests, this is the Rust batch);
 llp/evidence/0044-batch-timing-*.json
 

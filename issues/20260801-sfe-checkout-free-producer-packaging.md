@@ -1,6 +1,6 @@
 # Package the SFE producer for checkout-free use
 
-**Status:** Open
+**Status:** Open — publication receipt remains
 **Impact:** 4
 **Urgency:** 3
 **Ease:** 2

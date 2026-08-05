@@ -1,10 +1,13 @@
 # LLP 0042: Independent Prepared-Graph Commitment
 
 **Type:** RFC
-**Status:** Draft
+**Status:** Accepted
 **Systems:** Module Loader, CapSec, Arming, Security, Host Embedding
 **Author:** Charlie Cheever / Claude
 **Date:** 2026-07-28
+**Revised:** 2026-08-05 (author acceptance recorded after the production
+commitment and committed-admission implementation landed; the separate
+development-session credential remains deferred to its filesystem ticket)
 **Revised:** 2026-07-29 (production committed admission implemented:
 snapshot-bound `preparedGraphs`, bounded no-follow root admission, facet and
 carrier validation, source-free loader witness, and refuse-then-cold-rebuild)

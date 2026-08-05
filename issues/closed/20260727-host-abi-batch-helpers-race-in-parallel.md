@@ -1,6 +1,6 @@
 # capsec_host_abi_output_batch immediate helpers race on the global Host in parallel runs
 
-**Status:** Open
+**Status:** Resolved
 **Severity:** P3
 **Systems:** Testing, Engine
 **Author:** Claude (Fable 5), directed by Charlie Cheever

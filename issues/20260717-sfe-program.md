@@ -1,6 +1,6 @@
 # Single-file executable program (LLP 0029) — umbrella and execution map
 
-**Status:** Open
+**Status:** Open — standalone v1 release closure
 **Impact:** 5
 **Urgency:** 4
 **Ease:** 1
@@ -11,7 +11,7 @@
 **Systems:** Issue tracking, Build, Module Loader, Runtime, Security
 **Author:** Claude (Fable 5), directed by Charlie Cheever
 **Date:** 2026-07-17
-**Related:** LLP 0029 (Draft, revision `d3cb7dcc`); LLP 0014, 0021, 0022, 0023, 0025, 0026, 0027, 0028
+**Related:** LLP 0029 (Accepted); LLP 0014, 0021, 0022, 0023, 0025, 0026, 0027, 0028
 
 Execution map for LLP 0029 as sequenced by LLP 0047: `ibex compile <entry> -o <file>` producing
 a single self-contained executable (stub + envelope: embedded graph,
@@ -155,3 +155,16 @@ rehashing the actual outer file. Release provenance now carries the facts
 needed to invert ELF appending or Mach-O injection despite platform-signature
 rewrites, and `stubCoreConsistency` refuses an independent outer-stub mutation.
 The macOS system-signature remove/replace gate preserves that exact identity.
+
+## Maintenance reconciliation — 2026-08-05
+
+The later LLP 0047 and physical-builder records supersede several remaining
+items above. The matching macOS two-builder comparison passed at `2a611b4f`,
+and LLP 0047's four author decisions are resolved. Ambient standalone v1 now
+remains open for the release actions that have not yet produced durable
+published evidence: publish and reinstall the exact catalog-pinned artifacts,
+obtain the macOS notarization ticket, accept numeric size/startup budgets and
+record both target measurements, and retain the mandatory clean CI receipts on
+the published revision. Disk-free arming, compiled CapSec environment/mount
+semantics, and the first successful target advertisement remain separate v1.1
+work and do not block ambient v1.

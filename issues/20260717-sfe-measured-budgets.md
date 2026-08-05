@@ -1,6 +1,6 @@
 # Measured size/startup claims against precommitted budgets
 
-**Status:** Open
+**Status:** Open — blocked on accepted numeric budgets and final measurements
 **Impact:** 3
 **Urgency:** 3
 **Ease:** 4

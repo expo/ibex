@@ -1,6 +1,6 @@
 # Compiled mount contract: /app, /work, unset cwd (LLP 0023 revision)
 
-**Status:** Open
+**Status:** Open — deferred to the v1.1 CapSec milestone
 **Impact:** 5
 **Urgency:** 4
 **Ease:** 2

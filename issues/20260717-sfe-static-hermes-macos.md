@@ -1,6 +1,6 @@
 # Static Hermes for the macOS stub (lean vs full by measurement)
 
-**Status:** Open
+**Status:** Open — blocked on the accepted performance budget and measurement
 **Impact:** 4
 **Urgency:** 3
 **Ease:** 2
@@ -71,3 +71,12 @@ libraries and `otool -l` must expose no runtime search path. A fresh
 current-source catalog artifact passed that gate with genuine relocated HBC.
 The ticket remains open only for the precommitted size budget, a current
 measurement against it, and explicit lean/full register ratification.
+
+## Maintenance reconciliation — 2026-08-05
+
+The full static artifact is the implemented and physically reproduced release
+shape. This ticket now shares its only remaining gate with
+`20260717-sfe-measured-budgets.md`: accept the numeric budget, measure the
+current full artifact, and record the result. Any future lean artifact is an
+optimization candidate rather than an unrecorded prerequisite for the
+implemented full-static release shape.

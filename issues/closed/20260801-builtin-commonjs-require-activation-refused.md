@@ -103,4 +103,4 @@ Built with `cargo build --bin ibex --features standard,unadvertised-dev-arming`
 `require('buffer')` now gets past activation but fails at evaluation with
 `Cannot assign to read-only property 'toString'` — an unrelated lockdown
 override-mistake bug that also hits `os` and `string_decoder`. Tracked in
-`issues/20260801-lockdown-tostring-override-blocks-builtins.md`.
+`issues/closed/20260801-lockdown-tostring-override-blocks-builtins.md`.

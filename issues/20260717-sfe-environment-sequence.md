@@ -1,6 +1,6 @@
 # Compiled-mode environment: capture, default-deny sanitize, broker
 
-**Status:** Open
+**Status:** Open — deferred to the v1.1 CapSec milestone
 **Impact:** 5
 **Urgency:** 4
 **Ease:** 2

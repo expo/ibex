@@ -33,7 +33,7 @@ matrix derived from it. Blocks `oxc-window-close`.
 
 The author selected macOS arm64 and Linux x64 as the evidence-gated 0.2 native
 source/module targets, with all other tuples explicitly unsupported until
-independently promoted. Draft LLP 0031 records the complete production,
+independently promoted. Accepted LLP 0031 records the complete production,
 audit, diagnostics, runtime-TypeScript, SFE, and CapSec-advertisement
-consequences. Acceptance, governing-doc reconciliation, and generated CI
-authority remain before this issue is complete.
+consequences. The remaining work is to audit the governing-doc reconciliation
+and generated CI authority before closing this issue.

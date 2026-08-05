@@ -1,5 +1,7 @@
 # Hermes patches 0010/0011 are missing the in-file classification header
 
+**Status:** Resolved
+
 **Filed:** 2026-07-26 (found during Exact LLP 0404 review; verified — 0009
 and 0012 carry `# Class:` header blocks, 0010 and 0011 begin directly with
 `diff --git`)

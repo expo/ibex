@@ -1,6 +1,6 @@
 # Four pre-existing capsec-evidence JS test failures on main (masked by the fmt gate)
 
-**Status:** Open
+**Status:** Closed (2026-08-05)
 **Severity:** P2
 **Systems:** CapSec, Testing, CI
 **Author:** Claude Fable 5 (Claude Code), directed by Charlie Cheever
@@ -39,3 +39,12 @@ number bump.
 
 Done when `bun test packages` is green at main and each restamp records
 which upstream commit grew the counts.
+
+## Resolution
+
+The evidence-side expectations and generated artifacts were reconciled in the
+reviewed follow-up series, including `4f80cd1d`, `e781d0d0`, and
+`aaa97e2a`. The latest completed CI run for `62e5214a` passed its JavaScript
+test-suite step. This closes the four failures recorded by this ticket; newer
+CapSec evidence drift is tracked by its own failing receipt or ticket rather
+than reopening this historical aggregate.

@@ -1,6 +1,6 @@
 # Hermes artifact cache workflow red on every run: credential guard trips despite persist-credentials: false
 
-**Status:** Open
+**Status:** Closed (2026-08-05)
 **Severity:** P2
 **Systems:** CI, Build, Hermes
 **Author:** Claude Fable 5 (Claude Code), directed by Charlie Cheever
@@ -34,3 +34,10 @@ with a comment recording the image change.
 Done when the workflow is green on main again with the guard's intent
 (no ambient credential reaches the build/publish steps) intact and
 re-affirmed in the workflow comments.
+
+## Resolution
+
+The identity boundary was repaired without weakening the credential guard.
+Recent `Hermes artifact cache` runs on `main`, including the completed run for
+`62e5214a`, pass while retaining the read-only build/publish boundary. The
+original every-run failure is no longer present.

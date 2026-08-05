@@ -1,6 +1,6 @@
 # ibex/authenticated-graph-snapshot/1 digest domain
 
-**Status:** Open
+**Status:** Open — remaining authority projection is deferred to v1.1 CapSec
 **Impact:** 5
 **Urgency:** 4
 **Ease:** 3

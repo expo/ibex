@@ -5,6 +5,11 @@
 **Systems:** Runtime, Host ABI, Module Loader, CapSec, Distribution
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-08-03
+**Revised:** 2026-08-05 (implementation checkpoint: app-bound wire/catalog
+contracts, source admission, parent bridge, restricted-worker construction,
+broker lifecycle/frame enforcement, policy/evidence fixtures, authenticated
+reporting, and the public compile surface have landed; the complete §11
+host-portable and exact-tuple acceptance/evidence gate remains open)
 **Revised:** 2026-08-04 (align target-advertisement minimum-platform spelling
 with the existing catalog and checked schema contract)
 **Revised:** 2026-08-03 (round-3 minor reconciliation: full-frame function-id
@@ -62,6 +67,25 @@ It does **not** turn LLP 0013's supply-chain capability mechanism into a
 hostile-code sandbox. Engine defects, native-code defects, resource exhaustion
 outside the named limits, and a malicious trusted parent remain outside the
 claim.
+
+### Implementation status — 2026-08-05
+
+The implementation now includes the app-bound SFE/catalog contracts under
+`crates/sfe-format` and `crates/sfe-catalog`, the restricted-worker Rust/native
+boundary (`src/restricted_worker.rs`, `src/engine/hermes_restricted_worker.cc`,
+and `src/engine/hermes_app_bound_bridge.cc`), the app-bound parent binding and
+public compile/reporting surface, and canonical language-profile, broker,
+policy, and global-inventory fixtures under `tests/fixtures/restricted-worker`.
+Broker lifecycle, frame-body, settlement-fault, signal, policy-identity, and
+typed-owner fixes have continued to land after acceptance.
+
+This checkpoint is not a completion claim. Eligibility still requires every
+§11 row against the final one-file artifact, including the single shared
+Node/Ibex language corpus, planted-secret non-transmission, all resource and
+lifecycle ceilings, complete native ABI mutation coverage, and the
+target-bound advertisement/evidence chain for each enabled tuple. Until those
+receipts pass, implementations must remain disabled or unadvertised and refuse
+rather than fall back to parent or ambient execution.
 
 ## 1. Scope and ownership
 

@@ -372,7 +372,7 @@ loaded. Fixed (the fix restores a skip; no authority is widened). Ticket closed:
 **A new P1**, surfaced by that fix: `require('buffer')`/`os`/`string_decoder`
 pass activation but fail evaluation with `Cannot assign to read-only property
 'toString'` — lockdown's `enableOverride` repair covers only the error
-intrinsics. `issues/20260801-lockdown-tostring-override-blocks-builtins.md`.
+intrinsics. `issues/closed/20260801-lockdown-tostring-override-blocks-builtins.md`.
 
 **A test-infrastructure gotcha:** `node_net_builtins` and the
 `host-http-server` suites both bind loopback ports and **cannot run in

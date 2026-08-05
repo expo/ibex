@@ -92,7 +92,7 @@ certify a claim that is false about the source:
 - issues/closed/20260801-builtin-commonjs-require-activation-refused.md — the
   entire CommonJS builtin surface was broken on `main`; only `path` loaded.
 - issues/20260801-net-owner-hook-lazily-captured-after-user-code.md (P2)
-- issues/20260801-lockdown-tostring-override-blocks-builtins.md (P1)
+- issues/closed/20260801-lockdown-tostring-override-blocks-builtins.md (resolved)
 - issues/20260801-readline-interface-prefix-seeds-stdio-effect.md
 - issues/20260801-conformance-misattributed-terminals-outside-lane-b.md
 

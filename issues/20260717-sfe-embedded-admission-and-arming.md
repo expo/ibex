@@ -1,6 +1,6 @@
 # Embedded admission, pinned-fd self-file, disk-free arming
 
-**Status:** Open
+**Status:** Open — deferred to the v1.1 CapSec milestone
 **Impact:** 5
 **Urgency:** 5
 **Ease:** 2
