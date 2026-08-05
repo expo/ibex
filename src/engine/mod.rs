@@ -3828,9 +3828,6 @@ function collect() {
                     httpRedefinitionRefused = true;
                   }
 
-                  var net = require('net');
-                  var socket = new net.Socket();
-                  socket.destroy();
                   var stamp = globalThis.__exactNetOwner('new');
                   globalThis.__exactNetOwner('assert', stamp);
                   var httpOwnerResult = globalThis.__exactHttpOwner(0);
