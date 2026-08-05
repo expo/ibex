@@ -979,6 +979,44 @@ const nativeEnvironmentReadTemplate = (name) =>
     requiredSourceArity: 1,
     setup: [],
   });
+const nativeEnvironmentWriteTemplate = (name, value) =>
+  Object.freeze({
+    actionIds: ["env:write"],
+    arguments: [literalArgument(name), literalArgument(value)],
+    expectedDecisionCounts: {
+      allow: 2,
+      deny: 1,
+      malformed: 2,
+      "missing-attribution": 2,
+      "wrong-principal": 2,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "commit"],
+      deny: ["requested"],
+      malformed: ["requested", "commit"],
+      "missing-attribution": ["requested", "commit"],
+      "wrong-principal": ["requested", "commit"],
+    },
+    requiredFloor: [
+      {
+        cap: "env:write",
+        resource: {
+          kind: "environment-name",
+          target: "principal-overlay",
+          name,
+        },
+      },
+    ],
+    requiredSourceArity: 2,
+    setup: [],
+  });
 const nativePrintTemplate = () =>
   Object.freeze({
     actionIds: ["stdio:write"],
@@ -2632,6 +2670,13 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["__exactGetCpuCount", nativeSystemInfoTemplate("cpus")],
   ["__exactGetCwd", nativeCwdObserveTemplate()],
   ["__exactGetEnv", nativeEnvironmentReadTemplate("PATH")],
+  [
+    "__exactSetEnv",
+    nativeEnvironmentWriteTemplate(
+      "IBEX_CAPSEC_NATIVE_ENV_WRITE",
+      "ibex-capsec-value",
+    ),
+  ],
   ["__exactGetFreeMem", nativeSystemInfoTemplate("memory")],
   ["__exactGetHostname", nativeSystemInfoTemplate("hostname")],
   ["__exactGetLoadAvg", nativeSystemInfoTemplate("load-average")],

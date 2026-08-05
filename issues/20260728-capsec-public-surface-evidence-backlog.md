@@ -44,6 +44,40 @@ clean, 3,256 authorable rows across 424 surfaces in 64 template classes);
 `network` is 64% poisoned by no-terminal rows and needs its own program.
 If LLP 0044 is accepted, prioritize the fs+env+process rows first.
 
+**Progress 2026-08-05 — direct armed environment write:** a fresh
+`aarch64-apple-darwin` catalog at
+`sha256-FNMK1tLlsukgqktcaro3d9yASLSAWPFUfb0Uxj4CoOE` measured **610**
+fs+env+process cells, **536 clean / 74 poisoned**, with **3,927** clean
+unresolved authorable rows across **491 surfaces in 81 template classes**.
+The day-one estimate has therefore drifted by **+671 rows, +67 surfaces, and
++17 classes**; use the live denominator rather than continuing to quote
+3,256/64 as current.
+
+This tranche closed the whole
+`surface.native.op × [env:write]` template class: all five direct
+`native-op:__exactSetEnv` fixtures (allow, deny, malformed-adapter,
+missing-attribution-adapter, and wrong-principal-adapter) now carry one exact
+principal-overlay name/value recipe and passed source-bound physical execution.
+The five receipts share source-descriptor digest
+`sha256-NWtFz7qLMhddu-59NMebwbquc-lEXdXCpow3KV4_vgs`, were executed from
+derived five-row catalog
+`sha256-Z25MqQOYrlDrW0nKS4KPR_4RyiRTiHzYDUutvnemuQc`, and bind mapped engine
+`sha256-fD3RqCwynBh9V5OQcdv_uPpplRhVmjIBnxcHekQTv7Y`; both native evidence
+partitions passed. The regenerated full catalog is
+`sha256--gN43pJfa74lwK2EVtpq24AHsS0zelI_jUkKHslH3ic`: **3,922 rows across
+490 surfaces in 80 classes remain**. This is **5/3,927 rows and 1/81 whole
+classes closed** against the live pre-change worklist; the historical
+3,256/64 denominator is retained only as provenance.
+
+**Model concern found, not fixed here:** the separate clean
+`surface.host.abi × [env:write]` class for `ex_host_env_ambient_set` contains
+five rows, but its source is the compile-time `insecure` ambient projection.
+In the secure conformance profile the projection is inactive and the ABI
+returns `-1` before mutation without a typed environment decision. Treat those
+rows as a seeding/disposition review prerequisite, not an authoring target;
+this tranche deliberately did not manufacture receipts for the asserted
+effect. This is an explicit release constraint until the model is corrected.
+
 **Sequencing (2026-07-29, LLP 0029 §7 register item 4):** v1 ships
 fail-closed with empty advertisements; this backlog now converges toward a
 **single-tuple v1.1 advertisement** (leading candidate on current

@@ -473,11 +473,13 @@ describe("exact-target CapSec executable recipes", () => {
     // and replacement closure without entering the authority evaluator.
     // Nine nested process.report rows prove their exact public spelling is
     // stopped at the pinned parent accessor before nested state is reachable.
-    expect(recipes.summary.fullyExecutableFixtures).toBe(3_926);
+    // Five direct environment-write receipts bind one exact principal-overlay
+    // name and value to the armed __exactSetEnv JSI source.
+    expect(recipes.summary.fullyExecutableFixtures).toBe(3_931);
     // Six internal callback-security invariant scenarios have owning Rust
     // mechanisms; the remaining scenario families stay explicit residuals.
     expect(recipes.summary.internallyVerifiedFixtures).toBe(3_124);
-    expect(recipes.summary.unresolvedFixtures).toBe(16_715);
+    expect(recipes.summary.unresolvedFixtures).toBe(16_710);
     expect(
       recipes.summary.residualReasons[
         "builtin-export-requires-deprecation-warning"
@@ -545,8 +547,9 @@ describe("exact-target CapSec executable recipes", () => {
     // routes that this harness could otherwise claim structurally. The three
     // branch-local filesystem closures use the closed-surface harness, while
     // the direct non-recursive mkdir branch and retained async reads add native
-    // selection proofs.
-    expect(nativePublicFixtures).toHaveLength(557);
+    // selection proofs. Five direct environment writes bind the exact armed
+    // __exactSetEnv source and principal-overlay resource.
+    expect(nativePublicFixtures).toHaveLength(562);
     expect(
       nativePublicFixtures
         .filter(
@@ -672,9 +675,11 @@ describe("exact-target CapSec executable recipes", () => {
     // The same twelve shared-state closures and eight target-applicable nested
     // process.report closures bind Windows' selected source variants to the
     // final armed runtime gate.
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_560);
+    // The same five direct environment-write receipts exercise Windows' exact
+    // selected __exactSetEnv source branch independently.
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(3_565);
     expect(windowsRecipes.summary.internallyVerifiedFixtures).toBe(3_110);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_754);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(16_749);
     expect(
       windowsRecipes.summary.residualReasons[
         "builtin-export-requires-deprecation-warning"
@@ -8405,6 +8410,53 @@ describe("exact-target CapSec executable recipes", () => {
               },
             ],
             expectedActionIds: ["env:read"],
+          },
+        },
+      });
+      expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny" ? ["requested"] : ["requested", "commit"],
+      );
+    }
+  });
+
+  test("binds armed scalar environment writes to one exact principal overlay name", () => {
+    const environmentWrite = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactSetEnv",
+    );
+    expect(environmentWrite).toHaveLength(5);
+    expect(environmentWrite.map((recipe) => recipe.scenario)).toEqual([
+      "allow",
+      "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
+    ]);
+    for (const recipe of environmentWrite) {
+      expect(recipe).toMatchObject({
+        actionIds: ["env:write"],
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            arguments: [
+              {
+                kind: "json-literal",
+                value: "IBEX_CAPSEC_NATIVE_ENV_WRITE",
+              },
+              { kind: "json-literal", value: "ibex-capsec-value" },
+            ],
+            requiredFloor: [
+              {
+                cap: "env:write",
+                resource: {
+                  kind: "environment-name",
+                  target: "principal-overlay",
+                  name: "IBEX_CAPSEC_NATIVE_ENV_WRITE",
+                },
+              },
+            ],
+            expectedActionIds: ["env:write"],
           },
         },
       });
