@@ -1394,6 +1394,103 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     });
   });
 
+  test("builtin routes include only functions passed as callback arguments", () => {
+    const rows = scanStaticBuiltinExports(
+      String.raw`
+        function readLater() {
+          return __exactTcpRead(1, 65536);
+        }
+        function connect() {
+          cleanup();
+          setTimeout(function connectUnixLater() {
+            __exactUnixConnect('/tmp/socket');
+          }, 0);
+          setImmediate(readLater);
+          function connectTcpLater() {
+            __exactTcpConnect('127.0.0.1', 443);
+            setTimeout(connectTcpLater, 10);
+          }
+          queueMicrotask(connectTcpLater);
+          Promise.resolve().then(recursiveDirect);
+          function neverPassed() {
+            __exactUdpRecv(2, 65536);
+          }
+        }
+        function recursiveDirect() {
+          recursiveHelper();
+        }
+        function recursiveHelper() {
+          __exactHashSync('sha256', 'input');
+          recursiveDirect();
+        }
+        function cleanup() {
+          __exactTcpClose(1);
+        }
+        function shadowedCallback() {
+          __exactUdpRecv(2, 65536);
+        }
+        function acceptsCallerCallback(shadowedCallback) {
+          setTimeout(shadowedCallback, 0);
+        }
+        function shadowedNestedCallback() {
+          __exactUdpRecv(2, 65536);
+        }
+        function keepsLexicalShadow({ shadowedNestedCallback }) {
+          setTimeout(() => setTimeout(shadowedNestedCallback, 0), 0);
+        }
+        module.exports = {
+          connect,
+          recursiveDirect,
+          acceptsCallerCallback,
+          keepsLexicalShadow,
+        };
+      `,
+      {
+        sourceKey: "node_callback_routes",
+        sourcePath: "src/builtins/callback-routes.js",
+      },
+    );
+    const evidence = rows.find(
+      (row) => row.name === "export:node_callback_routes:connect",
+    ).metadata.enforcementRouteEvidence;
+    expect(evidence.terminals).toEqual([
+      "__exactHashSync",
+      "__exactTcpClose",
+      "__exactTcpConnect",
+      "__exactTcpRead",
+      "__exactUnixConnect",
+    ]);
+    expect(evidence.terminals).not.toContain("__exactUdpRecv");
+    expect(evidence.paths).toContain(
+      "export:connect -> connect -> __exactUnixConnect",
+    );
+    expect(evidence.ambiguousCallees).toEqual(
+      expect.arrayContaining([
+        "unresolved-call:queueMicrotask",
+        "unresolved-call:setImmediate",
+        "unresolved-call:setTimeout",
+      ]),
+    );
+    expect(
+      rows.find(
+        (row) =>
+          row.name === "export:node_callback_routes:recursiveDirect",
+      ).metadata.enforcementRouteEvidence.terminals,
+    ).toEqual(["__exactHashSync"]);
+    expect(
+      rows.find(
+        (row) =>
+          row.name ===
+          "export:node_callback_routes:acceptsCallerCallback",
+      ).metadata.enforcementRouteEvidence.terminals,
+    ).toEqual([]);
+    expect(
+      rows.find(
+        (row) => row.name === "export:node_callback_routes:keepsLexicalShadow",
+      ).metadata.enforcementRouteEvidence.terminals,
+    ).toEqual([]);
+  });
+
   test("builtin routes follow only source-proven returned-callable wrappers", () => {
     const rows = scanStaticBuiltinExports(
       String.raw`

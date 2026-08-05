@@ -53,14 +53,6 @@ certify a claim that is false about the source:
 - [ ] Re-measure, then author the successor plan — organized by **analyzer
       capability**, not by ambiguity-string bucket.
 
-**Ready to staff now — measured, cheap, independent of the above:**
-
-- [ ] **Callback-argument attribution** (`walkDirectFunctionBody`,
-      capsec-surface-inventory.mjs:3873). **11 cells**, and genuine hardening —
-      it surfaces `__exactTcpAccept`/`__exactTcpRead`/`__exactUdpRecv`/
-      `__exactUnixConnect` routes invisible today. **Must land before any timer
-      admission**, which is negative-valued without it (clears 0, falsifies 6).
-
 **Landed 2026-08-05:**
 
 - [x] **Normalized the four hook aliases + hardened every hook install.** The
@@ -76,6 +68,18 @@ certify a claim that is false about the source:
       gated route-and-residual entries); the other 58 gained or changed
       provenance without leaving Lane B. The focused P2 ticket is closed under
       `issues/closed/20260801-net-owner-hook-lazily-captured-after-user-code.md`.
+- [x] **Callback-argument attribution** (`walkDirectFunctionBody`,
+      capsec-surface-inventory.mjs, landed 2026-08-05). The original **11-cell
+      network Lane B** estimate reproduced exactly and all 11 now have a
+      terminal. Measuring the outside-Lane-B class at the same time found and
+      corrected **9 network misattributions** (**20 network cells total**).
+      Repository-wide, 46 misattributions were corrected and 15 zero-terminal
+      cells gained terminals (13 carried and cleared formal Lane B); 0 recorded
+      terminals were removed. `unresolved-call:setTimeout` remains unadmitted.
+      See issues/closed/20260801-conformance-misattributed-terminals-outside-lane-b.md.
+
+Nothing remains under "ready to staff now" — both measured, independent items
+above have landed.
 
 **Landed 2026-08-01:**
 
@@ -103,7 +107,7 @@ certify a claim that is false about the source:
 - issues/20260801-net-owner-hook-lazily-captured-after-user-code.md (P2)
 - issues/closed/20260801-lockdown-tostring-override-blocks-builtins.md (resolved)
 - issues/20260801-readline-interface-prefix-seeds-stdio-effect.md
-- issues/20260801-conformance-misattributed-terminals-outside-lane-b.md
+- issues/closed/20260801-conformance-misattributed-terminals-outside-lane-b.md
 
 **Done when:** the successor plan authored in LLP 0046 §6's sequence passes its
 own exit gate. This ticket tracks the rescope; the original "373 → ~0" metric is
