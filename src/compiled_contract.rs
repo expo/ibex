@@ -26,6 +26,35 @@ use crate::compiled_environment_profile_generated::{
     COMPILED_ENVIRONMENT_PROFILE_SCHEMA,
 };
 
+/// One diagnostic-only schema compiled into the runtime contract registry.
+/// The document is a review artifact and the type identifier is the runtime
+/// dispatch identity; tests below keep the two in lockstep.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CompiledDiagnosticAuditSchemaV1 {
+    pub type_id: &'static str,
+    pub document: &'static str,
+}
+
+/// Closed schema registry for the foreground source-audit protocol.
+///
+/// This registry is deliberately separate from `accepted_schemas()`: the
+/// latter is the armed/compiled-stub admission contract, while these documents
+/// are non-authorizing diagnostic evidence. Registering them as production
+/// accepted schemas would erase the boundary this phase is establishing.
+///
+/// @ref LLP 0030#1-workflow-and-type-separation — diagnostic evidence is not
+/// an armed snapshot or production artifact admission
+pub const DIAGNOSTIC_AUDIT_SCHEMAS_V1: [CompiledDiagnosticAuditSchemaV1; 2] = [
+    CompiledDiagnosticAuditSchemaV1 {
+        type_id: capsec_semantics::diagnostic_audit::DIAGNOSTIC_GRAPH_SNAPSHOT_SCHEMA_V1,
+        document: include_str!("../schemas/diagnostic-graph-snapshot-v1.schema.json"),
+    },
+    CompiledDiagnosticAuditSchemaV1 {
+        type_id: capsec_semantics::diagnostic_audit::DIAGNOSTIC_AUDIT_EXECUTION_RECEIPT_SCHEMA_V1,
+        document: include_str!("../schemas/diagnostic-audit-execution-receipt-v1.schema.json"),
+    },
+];
+
 #[derive(Clone, Debug)]
 pub struct ReleaseStubFactsV1 {
     pub profile: String,
@@ -402,6 +431,47 @@ mod authority_tests {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn diagnostic_audit_schema_registry_is_closed_and_non_authorizing() {
+        let registered_ids = super::DIAGNOSTIC_AUDIT_SCHEMAS_V1
+            .iter()
+            .map(|schema| schema.type_id)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            registered_ids,
+            [
+                capsec_semantics::diagnostic_audit::DIAGNOSTIC_GRAPH_SNAPSHOT_SCHEMA_V1,
+                capsec_semantics::diagnostic_audit::DIAGNOSTIC_AUDIT_EXECUTION_RECEIPT_SCHEMA_V1,
+            ]
+        );
+
+        for registered in super::DIAGNOSTIC_AUDIT_SCHEMAS_V1 {
+            let document: serde_json::Value =
+                serde_json::from_str(registered.document).expect("registered schema is JSON");
+            assert_eq!(
+                document["properties"]["schema"]["const"], registered.type_id,
+                "compiled type id must match the schema's closed dispatch value"
+            );
+            assert_eq!(document["additionalProperties"], false);
+        }
+
+        let production_contract = super::diagnostic_development_stub_contract().unwrap();
+        let production_schemas =
+            serde_json::to_value(production_contract.accepted_schemas).unwrap();
+        let production_schema_ids = production_schemas
+            .as_object()
+            .unwrap()
+            .values()
+            .filter_map(serde_json::Value::as_str)
+            .collect::<Vec<_>>();
+        for diagnostic in registered_ids {
+            assert!(
+                !production_schema_ids.contains(&diagnostic),
+                "diagnostic evidence must not enter production acceptedSchemas"
+            );
+        }
+    }
+
     #[test]
     fn diagnostic_contract_is_closed_and_not_release_eligible() {
         let contract = super::diagnostic_development_stub_contract().unwrap();
