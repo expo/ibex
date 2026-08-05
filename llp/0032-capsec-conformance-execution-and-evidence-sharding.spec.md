@@ -199,6 +199,15 @@ Splitting a suite does not broaden what counts as evidence. In particular:
 - incomplete, timed-out, canceled, or mismatched work cannot be interpreted as
   an absent or unsupported target cell.
 
+The generic macOS and Windows product-prerequisite lanes MUST exercise every
+Cargo feature that is valid for an ordinary host build, using an explicit
+feature list kept in deterministic sync with `Cargo.toml`. They MUST exclude
+`capsec-simulator-performance-observer`: that release-only feature belongs to
+the dedicated iOS Simulator performance lane and intentionally refuses every
+other target. Excluding it from host prerequisites does not make it optional
+or untested; it preserves the feature's target boundary while keeping the host
+profile coherent.
+
 ## Required execution model
 
 ### Command envelope
@@ -290,14 +299,14 @@ failure and never as an absent or unsupported target.
 The first implementation SHOULD use deliberately conservative classes, then
 tune them from retained measurements. Initial planning values are:
 
-| Command class | Initial deadline |
-| --- | ---: |
-| Preflight and metadata checks | 10 minutes |
-| Engine build or attestation | 30 minutes |
-| Public fixture shard | 30 minutes |
-| Rust default-feature product suite | 90 minutes |
-| Rust all-features product suite | 120 minutes |
-| Other product prerequisite | 60 minutes |
+| Command class                        | Initial deadline |
+| ------------------------------------ | ---------------: |
+| Preflight and metadata checks        |       10 minutes |
+| Engine build or attestation          |       30 minutes |
+| Public fixture shard                 |       30 minutes |
+| Rust default-feature product suite   |       90 minutes |
+| Rust all-host-features product suite |      120 minutes |
+| Other product prerequisite           |       60 minutes |
 
 Target-specific overrides are permitted when committed to the plan. A timeout
 is a failed attempt, not a slow success. Because a failed predecessor stops
@@ -420,7 +429,7 @@ The authoritative suite SHOULD expose these named phases:
     construction also runs through the command envelope).
 
 This order deliberately corrects the current runner, which attests the engine
-*before* running the fixture-evidence pilot. The final attestation MUST follow
+_before_ running the fixture-evidence pilot. The final attestation MUST follow
 every engine-using evidence phase; an attestation that brackets only part of
 the engine-using work does not establish identity continuity.
 
