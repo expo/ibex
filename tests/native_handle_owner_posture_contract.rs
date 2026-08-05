@@ -42,10 +42,10 @@ fn assert_owner_precedes_allow_all(body: &str, owner_check: &str, bypass: &str) 
     );
 }
 
-fn assert_owner_precedes_live_authority(body: &str) {
+fn assert_owner_precedes_live_authority(body: &str, owner_check: &str) {
     let owner = body
-        .find("if (entry.owner != currentPrincipalId())")
-        .unwrap_or_else(|| panic!("missing unconditional owner check\n{body}"));
+        .find(owner_check)
+        .unwrap_or_else(|| panic!("missing unconditional owner check {owner_check:?}\n{body}"));
     let live_authority = body
         .find("if (requireLiveAuthority &&")
         .unwrap_or_else(|| panic!("missing explicit live-authority check\n{body}"));
@@ -110,7 +110,7 @@ fn allow_all_never_bypasses_primary_native_handle_ownership() {
         let body = function_body(&sqlite, signature);
         assert_owner_precedes_allow_all(
             body,
-            "if (entry.owner != currentPrincipalId())",
+            "if (entry.owner != currentSqliteOwner())",
             "if (requireLiveAuthority && !isAllowAll())",
         );
     }
@@ -144,7 +144,7 @@ fn authority_reducing_release_survives_positive_grant_revocation() {
 
     let http_owner = function_body(&http, "bool requireHttpServerOwner(");
     assert!(http_owner.contains("bool requireLiveAuthority = true"));
-    assert_owner_precedes_live_authority(http_owner);
+    assert_owner_precedes_live_authority(http_owner, "if (entry.owner != currentPrincipalId())");
     assert!(http.contains("runtime, server_id, \"__exactHttpClose\", false"));
     assert!(http.contains("runtime, server_id, \"__exactHttpRespondAbort\", false"));
     assert!(http.contains("runtime, server_id, \"__exactHttpRespondEnd\", false"));
@@ -182,7 +182,7 @@ fn authority_reducing_release_survives_positive_grant_revocation() {
     ] {
         let body = function_body(&sqlite, signature);
         assert!(body.contains("bool requireLiveAuthority"));
-        assert_owner_precedes_live_authority(body);
+        assert_owner_precedes_live_authority(body, "if (entry.owner != currentSqliteOwner())");
     }
     assert_eq!(
         sqlite.matches("\"__exactSqliteClose\", false").count(),
@@ -197,7 +197,10 @@ fn authority_reducing_release_survives_positive_grant_revocation() {
 
     let websocket_owner = function_body(&websocket, "WebSocketEntry requireWebSocketOwner(");
     assert!(websocket_owner.contains("bool requireLiveAuthority = true"));
-    assert_owner_precedes_live_authority(websocket_owner);
+    assert_owner_precedes_live_authority(
+        websocket_owner,
+        "if (entry.owner != currentPrincipalId())",
+    );
     assert_eq!(
         websocket.matches("\"__exactWsClose\", false").count(),
         1,
