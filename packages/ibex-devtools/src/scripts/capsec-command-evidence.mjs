@@ -210,21 +210,42 @@ function processGroupExists(processGroupId) {
 }
 
 function listPosixProcesses() {
-  const result = spawnSync("ps", ["-axo", "pid=,ppid=,pgid=,comm="], {
+  const result = spawnSync("ps", ["-axo", "pid=,ppid=,pgid=,lstart=,comm="], {
     encoding: "utf8",
     timeout: 5000,
   });
   if (result.status !== 0 || result.error) return [];
   return result.stdout
     .split("\n")
-    .map((line) => line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/u))
+    .map((line) =>
+      line
+        .trim()
+        .match(
+          /^(\d+)\s+(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s+(.*)$/u,
+        ),
+    )
     .filter(Boolean)
     .map((match) => ({
       pid: Number(match[1]),
       ppid: Number(match[2]),
       pgid: Number(match[3]),
-      command: match[4],
+      startedAt: match[4],
+      command: match[5],
     }));
+}
+
+function liveObservedProcesses(observed, processes) {
+  const currentByPid = new Map(processes.map((item) => [item.pid, item]));
+  return new Map(
+    [...observed].filter(([pid, item]) => {
+      const current = currentByPid.get(pid);
+      return (
+        current?.pgid === item.pgid &&
+        current.startedAt === item.startedAt &&
+        current.command === item.command
+      );
+    }),
+  );
 }
 
 function descendantsOf(rootPid, processes) {
@@ -718,6 +739,14 @@ export class CapsecCommandSupervisor {
       timedOut = first.kind === "timeout";
       canceled = first.kind === "cancellation";
       const statusFailed = first.kind === "status-failure";
+      // @ref LLP 0032#process-tree-termination — an observed escape remains
+      // contaminating only while that exact process identity is still live.
+      // Capture this before cleanup so a live escape cannot erase its own
+      // evidence by exiting in response to the supervisor's signal.
+      const liveEscapedDescendants =
+        this.platform === "win32"
+          ? new Map()
+          : liveObservedProcesses(escapedDescendants, listPosixProcesses());
       let cleanup = {
         actions: [],
         cleanupProven: true,
@@ -728,7 +757,7 @@ export class CapsecCommandSupervisor {
           child,
           platform: this.platform,
           gracePeriodMs: policy.gracePeriodMs,
-          escapedDescendants,
+          escapedDescendants: liveEscapedDescendants,
         });
       }
       const result =
@@ -748,7 +777,7 @@ export class CapsecCommandSupervisor {
       const lingeringTree =
         this.platform === "win32"
           ? processExists(child.pid)
-          : processGroupExists(child.pid) || escapedDescendants.size > 0;
+          : processGroupExists(child.pid) || liveEscapedDescendants.size > 0;
       const unexpectedLingeringTree =
         !timedOut && !canceled && !statusFailed && lingeringTree;
       if (!timedOut && !canceled && lingeringTree) {
@@ -756,7 +785,7 @@ export class CapsecCommandSupervisor {
           child,
           platform: this.platform,
           gracePeriodMs: policy.gracePeriodMs,
-          escapedDescendants,
+          escapedDescendants: liveEscapedDescendants,
         });
       }
       let classification = "success";
@@ -765,14 +794,14 @@ export class CapsecCommandSupervisor {
       else if (statusFailed) classification = "failure";
       else if (
         unexpectedLingeringTree ||
-        escapedDescendants.size > 0 ||
+        liveEscapedDescendants.size > 0 ||
         !cleanup.cleanupProven
       ) {
         classification = "cleanup-failure";
       } else if (result.error || result.code !== 0) classification = "failure";
-      if (escapedDescendants.size > 0 || !cleanup.cleanupProven) {
+      if (liveEscapedDescendants.size > 0 || !cleanup.cleanupProven) {
         this.markContaminated(
-          escapedDescendants.size > 0
+          liveEscapedDescendants.size > 0
             ? "descendant escaped the command process group or session"
             : "process-tree cleanup could not be proven",
           attemptId,

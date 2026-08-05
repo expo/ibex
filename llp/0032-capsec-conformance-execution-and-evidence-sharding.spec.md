@@ -14,7 +14,7 @@ are now admitted and charged by critical-path accounting, the still-
 conservative Windows setup reserve narrows from 60 to 58 minutes, and the
 worst-case Windows path remains 374 minutes under the 375-minute outer bound;
 the common public-fixture deadline and Apple plan are unchanged)
-**Revised:** 2026-08-03
+**Revised:** 2026-08-05
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021
 
 ## Summary
@@ -345,6 +345,15 @@ escape that cannot be ruled out is a cleanup-proof failure, which sets the
 contamination marker and fails closed. Defense against deliberately malicious
 workloads is the aggregate's job (reject what cannot be proven), not the
 envelope's.
+
+Detection MUST bind an observed descendant to a stable process identity, not
+only a reusable PID. A descendant that entered another process group but whose
+exact identity is proven to have exited before the command terminates is not a
+cleanup-proof failure: no process remains to clean up, and ordinary trusted
+test commands may create such transient groups intentionally. A still-live
+identity at command termination, timeout, or cancellation remains an escape
+and fails closed. Cleanup MUST NOT signal a PID after the observed identity has
+exited, because that PID may have been reused by an unrelated process.
 
 On POSIX systems, the implementation SHOULD place the command in a dedicated
 process group, send a graceful termination signal, wait for the declared grace
