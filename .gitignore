@@ -21,3 +21,6 @@ vendored-generated/*.deps.json
 !.env.example
 *.env
 secrets.env
+
+# Local LLP run bookkeeping (ship runs etc.), matching the snapback convention
+.llp/
