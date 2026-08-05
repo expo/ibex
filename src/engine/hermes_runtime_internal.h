@@ -2453,6 +2453,9 @@ void unregisterSignalRuntime(ExactHermesRuntime* handle);
 void installFsMutationGuardHostFunction(ExactHermesRuntime* handle);
 void installFsHostFunctions(ExactHermesRuntime* handle);
 void installChildProcessHostFunctions(ExactHermesRuntime* handle);
+void sealGlobalHostFunction(
+    facebook::jsi::Runtime& runtime,
+    const char* name);
 // Install only the runtime/principal-bound retained-wrapper owner primitive.
 // Full socket and TLS host functions remain behind __exactEnsureNet.
 void installNetOwnerHostFunction(ExactHermesRuntime* handle);

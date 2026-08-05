@@ -345,6 +345,9 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
             runtime, server_id, "__exactHttpOwner", false));
       });
   rt.global().setProperty(rt, "__exactHttpOwner", std::move(httpOwnerFn));
+  // @ref LLP 0046#34-step-0-the-premise-is-false-the-fix-is-four-lines — the
+  // source walker may credit this captured terminal only while it is immutable.
+  sealGlobalHostFunction(rt, "__exactHttpOwner");
 
   // __exactHttpServe(port, hostname) -> JSON string {"id":N,"port":N} or {"error":"..."}
   auto httpServeFn = facebook::jsi::Function::createFromHostFunction(

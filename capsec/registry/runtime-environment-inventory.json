@@ -47,7 +47,7 @@
             "summary": "The process-environment enumeration helper is called only by __exactGetAllEnv after its armed branch has returned the current principal overlay without consulting ambient host state."
           },
           "scope": "populateDiagnosticProcessEnvironment",
-          "sourceOffset": 178300,
+          "sourceOffset": 179609,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#::environ:dynamic:read",
           "stage": "post-arm-host-read"
@@ -94,7 +94,7 @@
             "summary": "The process-environment enumeration helper is called only by __exactGetAllEnv after its armed branch has returned the current principal overlay without consulting ambient host state."
           },
           "scope": "populateDiagnosticProcessEnvironment",
-          "sourceOffset": 176938,
+          "sourceOffset": 178247,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#GetEnvironmentStringsW:dynamic:read",
           "stage": "post-arm-host-read"
@@ -168,7 +168,7 @@
             "summary": "The process-environment enumeration helper is called only by __exactGetAllEnv after its armed branch has returned the current principal overlay without consulting ambient host state."
           },
           "scope": "populateDiagnosticProcessEnvironment",
-          "sourceOffset": 178259,
+          "sourceOffset": 179568,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#_NSGetEnviron:dynamic:read",
           "stage": "post-arm-host-read"
@@ -4331,7 +4331,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "installGlobals",
-          "sourceOffset": 179678,
+          "sourceOffset": 180987,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:EX_SKIP_STARTUP_HOST_FUNCTIONS:read",
           "stage": "armed-bootstrap-host-read"
@@ -4713,7 +4713,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "ex_hermes_create_impl",
-          "sourceOffset": 412401,
+          "sourceOffset": 413710,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:EX_WEB_STREAMS_POLYFILL:read",
           "stage": "armed-bootstrap-host-read"
@@ -4728,7 +4728,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "rootGlobalActivationApplies",
-          "sourceOffset": 334634,
+          "sourceOffset": 335943,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:EX_WEB_STREAMS_POLYFILL:read",
           "stage": "armed-bootstrap-host-read"
@@ -5531,7 +5531,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "installCompartmentRegistry",
-          "sourceOffset": 147169,
+          "sourceOffset": 148478,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:IBEX_COMPARTMENTS:read",
           "stage": "armed-bootstrap-host-read"
@@ -5767,7 +5767,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "installCompartmentRegistry",
-          "sourceOffset": 147124,
+          "sourceOffset": 148433,
           "sourcePath": "src/engine/hermes_runtime.cc",
           "sourceRef": "src/engine/hermes_runtime.cc#env_flag_enabled:IBEX_LOCKDOWN:read",
           "stage": "armed-bootstrap-host-read"

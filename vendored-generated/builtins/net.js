@@ -179,7 +179,7 @@ function _validateConnectPort(port) {
 }
 var _hasTcp = typeof __exactTcpConnect === "function";
 var _hasAsyncTcpConnect = typeof __exactTcpConnectStart === "function" && typeof __exactTcpConnectPoll === "function";
-var _netOwnerHost = typeof __exactNetOwner === "function" ? __exactNetOwner : null;
+const _netOwnerHost = globalThis.__exactNetOwner;
 var _CONNECT_POLL_INTERVAL_MS = 1;
 var _hasUnix = typeof __exactUnixConnect === "function";
 var _internalBinding = null;

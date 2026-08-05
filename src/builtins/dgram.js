@@ -3,12 +3,12 @@
 var EventEmitter = require('events');
 
 // dgram sockets share the native socket registry and its opaque
-// runtime/principal owner stamp with net.Socket. Capture both the owner hook and
-// EventEmitter entry points before application code can replace global or
+// runtime/principal owner stamp with net.Socket. Capture the immutable owner
+// hook and the EventEmitter entry points before application code can replace
 // prototype bindings.
 // @ref LLP 0004#retained-native-wrapper-invariant — a retained UDP wrapper is
 // not bearer authority for routing, receive disclosure, or lifecycle control.
-var _dgramOwnerHost = typeof __exactNetOwner === 'function' ? __exactNetOwner : null;
+const _dgramOwnerHost = globalThis.__exactNetOwner;
 var _hasNativeDgram = typeof __exactUdpSocket === 'function';
 var _dgramEventEmitterOwned = Object.create(null);
 [

@@ -57,14 +57,14 @@ var kTlsSetHttpResetAsEof = Symbol.for('ibex.tls.setHttpResetAsEof');
 var captureRejectionSymbol = typeof Symbol === 'function' && typeof Symbol.for === 'function'
   ? Symbol.for('nodejs.rejection')
   : null;
-// Capture the owner-authentication boundary before user code can replace the
-// global. Payload-bearing HTTP hosts retain their own native owner checks; this
-// closure is the JS wrapper's non-mutating preflight.
-var _httpOwnerHost = typeof __exactHttpOwner === 'function' ? __exactHttpOwner : null;
+// Capture the immutable owner-authentication boundary. Payload-bearing HTTP
+// hosts retain their own native owner checks; this closure is the JS wrapper's
+// non-mutating preflight.
+const _httpOwnerHost = globalThis.__exactHttpOwner;
 // HTTP servers do not receive their native server id until listen succeeds.
 // Capture the eager, identity-only network owner stamp as well so their event
 // surface is already principal-bound while still unbound.
-var _httpNetOwnerHost = typeof __exactNetOwner === 'function' ? __exactNetOwner : null;
+const _httpNetOwnerHost = globalThis.__exactNetOwner;
 var _httpDefineOwnedProperty = Object.defineProperty;
 // @ref LLP 0021#handles-dynamic-authority-and-generations — retained HTTP
 // selectors stay private, owner-bound, and retryable until native release.

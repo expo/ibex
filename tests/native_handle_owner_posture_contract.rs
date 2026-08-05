@@ -240,9 +240,7 @@ fn retained_net_socket_owner_stamp_is_cross_platform_and_captured() {
     let posix = source("src/engine/hermes_runtime_net.cc");
     let windows = source("src/engine/hermes_runtime_platform_windows.cc");
 
-    assert!(net_js.contains(
-        "var _netOwnerHost = typeof __exactNetOwner === 'function' ? __exactNetOwner : null;"
-    ));
+    assert!(net_js.contains("const _netOwnerHost = globalThis.__exactNetOwner;"));
     assert!(net_js.contains("_netOwnerHost('assert', state.ownerStamp, nativeHandle)"));
     assert!(net_js.contains("var _drainWriteQueueOwned = Socket.prototype._drainWriteQueue"));
 
@@ -355,6 +353,7 @@ fn retained_net_owner_is_installed_once_before_websocket_bootstrap() {
         );
         let owner = function_body(platform, "void installNetOwnerHostFunction(");
         assert!(owner.contains("\"__exactNetOwner\""));
+        assert!(owner.contains("sealGlobalHostFunction(rt, \"__exactNetOwner\");"));
         assert!(!owner.contains("ensureWinsock()"));
 
         let full_net = function_body(platform, "void installNetHostFunctions(");
@@ -367,19 +366,24 @@ fn retained_net_owner_is_installed_once_before_websocket_bootstrap() {
         function_body(&windows, "void installNetHostFunctions(").contains("ensureWinsock()"),
         "Winsock initialization must remain lazy with the full net surface"
     );
+
+    let sealer = function_body(&runtime, "void sealGlobalHostFunction(");
+    assert!(sealer.contains("descriptor.setProperty(rt, \"writable\", false);"));
+    assert!(sealer.contains("descriptor.setProperty(rt, \"configurable\", false);"));
+    assert!(sealer.contains("defineProperty.call(rt, rt.global(), propertyName, descriptor);"));
 }
 
 #[test]
 fn retained_http_response_owner_check_is_captured_and_revocation_safe() {
     let http_js = source("src/builtins/http.js");
+    let net_js = source("src/builtins/net.js");
+    let dgram_js = source("src/builtins/dgram.js");
     let http_native = source("src/engine/hermes_runtime_http.cc");
 
-    assert!(http_js.contains(
-        "var _httpOwnerHost = typeof __exactHttpOwner === 'function' ? __exactHttpOwner : null;"
-    ));
-    assert!(http_js.contains(
-        "var _httpNetOwnerHost = typeof __exactNetOwner === 'function' ? __exactNetOwner : null;"
-    ));
+    assert!(net_js.contains("const _netOwnerHost = globalThis.__exactNetOwner;"));
+    assert!(dgram_js.contains("const _dgramOwnerHost = globalThis.__exactNetOwner;"));
+    assert!(http_js.contains("const _httpOwnerHost = globalThis.__exactHttpOwner;"));
+    assert!(http_js.contains("const _httpNetOwnerHost = globalThis.__exactNetOwner;"));
     let response_state = function_body(&http_js, "function _installServerResponseNativeState(");
     assert!(response_state
         .contains("ownerStamp: constructionKey === _httpInternalResponseConstructionKey"));
@@ -411,4 +415,5 @@ fn retained_http_response_owner_check_is_captured_and_revocation_safe() {
     );
     assert!(http_native.contains("\"__exactHttpOwner\""));
     assert!(http_native.contains("runtime, server_id, \"__exactHttpOwner\", false"));
+    assert!(http_native.contains("sealGlobalHostFunction(rt, \"__exactHttpOwner\");"));
 }

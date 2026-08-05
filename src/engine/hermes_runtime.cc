@@ -3600,6 +3600,36 @@ bool pushRuntimeFinalizer(RuntimeCallbackTarget target,
   return true;
 }
 
+void sealGlobalHostFunction(
+    facebook::jsi::Runtime& rt,
+    const char* name) {
+  auto objectConstructor =
+      rt.global().getPropertyAsObject(rt, "Object");
+  auto getOwnPropertyDescriptor =
+      objectConstructor.getPropertyAsFunction(rt, "getOwnPropertyDescriptor");
+  auto defineProperty =
+      objectConstructor.getPropertyAsFunction(rt, "defineProperty");
+  auto propertyName = facebook::jsi::String::createFromAscii(rt, name);
+  auto descriptorValue = getOwnPropertyDescriptor.call(
+      rt, rt.global(), propertyName);
+  if (!descriptorValue.isObject()) {
+    throw std::runtime_error(
+        std::string("native global descriptor is unavailable: ") + name);
+  }
+  auto descriptor = descriptorValue.asObject(rt);
+  auto value = descriptor.getProperty(rt, "value");
+  auto writable = descriptor.getProperty(rt, "writable");
+  auto configurable = descriptor.getProperty(rt, "configurable");
+  if (!value.isObject() || !value.getObject(rt).isFunction(rt) ||
+      !writable.isBool() || !configurable.isBool()) {
+    throw std::runtime_error(
+        std::string("native global is not a data host function: ") + name);
+  }
+  descriptor.setProperty(rt, "writable", false);
+  descriptor.setProperty(rt, "configurable", false);
+  defineProperty.call(rt, rt.global(), propertyName, descriptor);
+}
+
 namespace {
 
 int drainCallbackQueue(ExactHermesRuntime* runtime) {

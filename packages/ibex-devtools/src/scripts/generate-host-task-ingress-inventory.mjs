@@ -174,6 +174,7 @@ export const HOST_TASK_INGRESS_CLASSIFICATIONS = Object.freeze([
       "removeProvisionalExactCapability",
       "rootGlobalDescriptorField",
       "rootGlobalOwnDescriptor",
+      "sealGlobalHostFunction",
       "sealUnarmedProcessExitCodeDescriptor",
       "verifyRootGlobalDisposition",
     ],

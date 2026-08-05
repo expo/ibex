@@ -3782,6 +3782,87 @@ function collect() {
     }
 
     #[test]
+    fn native_owner_hooks_resist_replacement_before_first_net_require() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+
+        unsafe {
+            #[cfg(target_os = "windows")]
+            ex_host_install();
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+
+            let (status, value) = eval(
+                runtime,
+                r#"
+                (function() {
+                  var netDescriptor = Object.getOwnPropertyDescriptor(
+                    globalThis, '__exactNetOwner'
+                  );
+                  var httpDescriptor = Object.getOwnPropertyDescriptor(
+                    globalThis, '__exactHttpOwner'
+                  );
+                  var realNetOwner = globalThis.__exactNetOwner;
+                  var realHttpOwner = globalThis.__exactHttpOwner;
+                  var sentinelCalls = 0;
+                  function sentinel() { sentinelCalls += 1; return -1; }
+
+                  globalThis.__exactNetOwner = sentinel;
+                  globalThis.__exactHttpOwner = sentinel;
+                  var netDeleteRefused = delete globalThis.__exactNetOwner;
+                  var httpDeleteRefused = delete globalThis.__exactHttpOwner;
+                  var netRedefinitionRefused = false;
+                  var httpRedefinitionRefused = false;
+                  try {
+                    Object.defineProperty(globalThis, '__exactNetOwner', {
+                      value: sentinel
+                    });
+                  } catch (_) {
+                    netRedefinitionRefused = true;
+                  }
+                  try {
+                    Object.defineProperty(globalThis, '__exactHttpOwner', {
+                      value: sentinel
+                    });
+                  } catch (_) {
+                    httpRedefinitionRefused = true;
+                  }
+
+                  var net = require('net');
+                  var socket = new net.Socket();
+                  socket.destroy();
+                  var stamp = globalThis.__exactNetOwner('new');
+                  globalThis.__exactNetOwner('assert', stamp);
+                  var httpOwnerResult = globalThis.__exactHttpOwner(0);
+
+                  var checks = [
+                    netDescriptor && netDescriptor.writable === false &&
+                      netDescriptor.configurable === false,
+                    httpDescriptor && httpDescriptor.writable === false &&
+                      httpDescriptor.configurable === false,
+                    globalThis.__exactNetOwner === realNetOwner,
+                    globalThis.__exactHttpOwner === realHttpOwner,
+                    netDeleteRefused === false,
+                    httpDeleteRefused === false,
+                    netRedefinitionRefused,
+                    httpRedefinitionRefused,
+                    sentinelCalls === 0,
+                    typeof stamp === 'number' && stamp > 0,
+                    httpOwnerResult === false
+                  ];
+                  return checks.every(function(check) { return check; })
+                    ? 'sealed'
+                    : JSON.stringify(checks);
+                })()
+                "#,
+            );
+            assert_eq!(status, 0, "owner-hook replacement probe failed: {value:?}");
+            assert_eq!(value.as_deref(), Some("sealed"));
+            ex_hermes_destroy(runtime);
+        }
+    }
+
+    #[test]
     fn schedule_on_app_runtime_json_dispatches_on_app_runtime() {
         unsafe {
             let app = ex_hermes_create_diagnostic();

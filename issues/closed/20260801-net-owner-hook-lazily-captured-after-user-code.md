@@ -1,16 +1,41 @@
 # `__exactNetOwner` is captured lazily, after user code — the net/dgram/http owner preflight is app-controllable
 
-**Status:** Open
+**Status:** Closed — resolved 2026-08-05
 **Severity:** P2 — integrity/defense-in-depth defect and a false source comment;
-**not** a privilege escalation (see blast radius). Blocks LLP 0045 step 0.
+**not** a privilege escalation (see blast radius). Former LLP 0045 step-0
+blocker.
 **Systems:** Builtins (net/dgram/http), Engine (JSI global install), Conformance
 **Author:** Claude (Opus 5), directed by Charlie Cheever
 **Date:** 2026-08-01
+**Revised:** 2026-08-05 (option 1 landed atomically with hook-alias
+normalization and a pre-require replacement regression)
 **Related:** LLP 0045 step 0 (SSA-alias analyzer must credit the guarded ternary
 as the authenticated hook); LLP 0013 Mechanism 2 (compartment membrane);
 issues/20260801-network-terminal-provenance-program.md
 
-## Claim under test
+## Resolution (2026-08-05)
+
+Option 1 landed together with the analyzer-visible source normalization:
+
+- `net.js`, `dgram.js`, and both `http.js` owner aliases now capture the exact
+  `globalThis.__exact*Owner` property in a `const` binding.
+- The POSIX net install (`hermes_runtime_net.cc:967-970`), HTTP install
+  (`hermes_runtime_http.cc:347-350`), and Windows platform shim
+  (`hermes_runtime_platform_windows.cc:2870-2873`) immediately seal their host
+  function data property with `writable:false` and `configurable:false`.
+- A loaded-Hermes regression attempts assignment, deletion, and
+  `Object.defineProperty` replacement before the first `require('net')`, then
+  constructs and destroys a socket and invokes both real owner hosts. The
+  sentinel remains uncalled.
+- Fresh Apple and Windows recipe catalogs each reduce network Lane B from 338
+  to 292: **46 cells cleared**, exactly the ticket estimate. Across the whole
+  network route-evidence diff, 104 unique cells change.
+
+The captured value can no longer be attacker-chosen through the root-global
+property, the comments now describe the actual immutable binding, and the
+regression exercises the original reproducer timing. The done-when bar is met.
+
+## Original claim under test (historical)
 
 `src/builtins/net.js:219-222`:
 
@@ -139,7 +164,7 @@ deletable at the moment of capture. **Step 0's premise does not survive as
 written.** Either the capture must be made genuinely unforgeable first, or the
 analyzer rule must be justified on something other than the guarded ternary.
 
-## Options (author decision owed)
+## Options considered (historical)
 
 1. **Make the install non-configurable/non-writable.** Replace the plain
    `setProperty` at `hermes_runtime_net.cc:967` (and the Windows shim at
@@ -159,7 +184,7 @@ analyzer rule must be justified on something other than the guarded ternary.
 Option 1 plus the analyzer rule is the recommended shape; it is the only one
 that makes the *existing* source comments true.
 
-**Done when:** the captured value provably cannot be attacker-chosen (or the
-comments and LLP 0045 step 0 are rewritten to match what is actually
-guaranteed), with a regression test that replaces the global before the first
-`require('net')` and asserts the real host still runs.
+**Done-when result:** met on 2026-08-05. The captured value provably cannot be
+attacker-chosen through the sealed global property, and the regression replaces
+the global before the first `require('net')` and asserts the real host still
+runs.

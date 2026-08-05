@@ -55,18 +55,27 @@ certify a claim that is false about the source:
 
 **Ready to staff now — measured, cheap, independent of the above:**
 
-- [ ] **Normalize the four hook aliases + harden the hook install.** 4 JS lines
-      (`const _x = globalThis.__exactNetOwner`, which the walker resolves today
-      unchanged) + 3 C++ lines (`writable:false, configurable:false` at
-      hermes_runtime_net.cc:967, hermes_runtime_http.cc:347, and the Windows
-      shim). **46 cells.** The two halves must land together: normalization
-      alone makes the analyzer credit a terminal the runtime does not guarantee.
-      See issues/20260801-net-owner-hook-lazily-captured-after-user-code.md.
 - [ ] **Callback-argument attribution** (`walkDirectFunctionBody`,
       capsec-surface-inventory.mjs:3873). **11 cells**, and genuine hardening —
       it surfaces `__exactTcpAccept`/`__exactTcpRead`/`__exactUdpRecv`/
       `__exactUnixConnect` routes invisible today. **Must land before any timer
       admission**, which is negative-valued without it (clears 0, falsifies 6).
+
+**Landed 2026-08-05:**
+
+- [x] **Normalized the four hook aliases + hardened every hook install.** The
+      two `http.js` aliases plus the `net.js` and `dgram.js` aliases now use the
+      walker's existing `const _x = globalThis.__exact*Owner` form. The POSIX
+      net install (`hermes_runtime_net.cc:967-970`), HTTP install
+      (`hermes_runtime_http.cc:347-350`), and Windows shim
+      (`hermes_runtime_platform_windows.cc:2870-2873`) seal the installed host
+      function non-writable and non-configurable before returning. Fresh Apple
+      and Windows recipe catalogs both moved network Lane B **338 → 292:
+      exactly 46 cells cleared**, matching the estimate. In total, **104 unique
+      network cells** had route-evidence changes (1,126 scenario recipes / 3,408
+      gated route-and-residual entries); the other 58 gained or changed
+      provenance without leaving Lane B. The focused P2 ticket is closed under
+      `issues/closed/20260801-net-owner-hook-lazily-captured-after-user-code.md`.
 
 **Landed 2026-08-01:**
 
