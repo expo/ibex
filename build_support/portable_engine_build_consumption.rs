@@ -3049,7 +3049,12 @@ mod tests {
         replace_file(&transport_complete_path, &bytes(&transport_complete));
 
         let rebound_root = artifact_root.parent().unwrap().join(&artifact_id);
-        fs::rename(&artifact_root, rebound_root).unwrap();
+        // The fixture models a finalized read-only store. macOS requires the
+        // source directory itself to be writable while renaming it, so grant
+        // only that temporary mutation and immediately restore finalization.
+        set_mode(&artifact_root, 0o755);
+        fs::rename(&artifact_root, &rebound_root).unwrap();
+        make_tree_read_only(&rebound_root);
         fixture.request.artifact_id = artifact_id;
     }
 
